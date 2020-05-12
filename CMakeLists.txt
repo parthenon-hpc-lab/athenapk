@@ -3,7 +3,7 @@
 # Licensed under the 3-Clause License (the "LICENSE");
 
 cmake_minimum_required(VERSION 3.10)
-project(athena-parthenon LANGUAGES CXX)
+project(athenaPK LANGUAGES CXX)
 
 # Options
 option(DISABLE_MPI "MPI is enabled by default if found, set this to True to disable MPI" OFF)
