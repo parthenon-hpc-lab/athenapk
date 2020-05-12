@@ -6,7 +6,7 @@ AthenaPK: a performance portable version of Athena++ built on Parthenon and Kokk
 
     # code resides in a private GitLab repo and can only be accessed with two-factor authentication
     # So first you must create a personal access token for your GitLab account, then
-    git clone https://TOKEN_NAME:TOKEN@gitlab.com/theias/hpc/jmstone/athenaPK.git
+    git clone https://TOKEN_NAME:TOKEN@gitlab.com/theias/hpc/jmstone/athena-parthenon/athenapk.git athenaPK
     cd athenaPK
 
     # get submodules (mainly Kokkos and Parthenon)
@@ -30,7 +30,7 @@ AthenaPK: a performance portable version of Athena++ built on Parthenon and Kokk
     # now plot results ("cons" are the conserved variables defined as graphics output in parthinput.sod)
     python ../scripts/python/movie1d.py cons *.phdf
 
-### Choosing problem types
+## Choosing problem types
 
 The following problem types are currently implemented and availabed through the cmake PROBLEM variable, e.g., `-DPROBLEM=SOD`
 
