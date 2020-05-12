@@ -16,7 +16,7 @@ rho_r     = 0.125
 pres_r    = 0.1
 u_r       = 0.0
 x_discont = 0.5
-<mesh>
+<parthenon/mesh>
 refinement = none
 
 nx1 = 128
@@ -37,17 +37,17 @@ x3max = 0.5
 ix2_bc = periodic
 ox2_bc = periodic
 
-<meshblock>
+<partheon/meshblock>
 nx1 = 32
 nx2 = 1
 nx3 = 1
 
-<output1>
+<parthenon/output1>
 file_type = hdf5
 dt = 0.025
-variable = prim
+variables = prim
 
-<time>
+<parthenon/time>
 integrator = rk1
 cfl = 0.5
 tlim = 0.4
@@ -59,6 +59,6 @@ riemann = hlle
 reconstruction = plm
 gamma = 1.4
 
-<Graphics>
+<parthenon/Graphics>
 variables = cons
 
