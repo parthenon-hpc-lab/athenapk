@@ -1,0 +1,64 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = Sod's shock tube
+
+<job>
+problem_id = sod
+
+<problem/sod>
+rho_l     = 1.0
+pres_l    = 1.0
+u_l       = 0.0
+rho_r     = 0.125
+pres_r    = 0.1
+u_r       = 0.0
+x_discont = 0.5
+<mesh>
+refinement = none
+
+nx1 = 128
+x1min = 0.0
+x1max = 1.0
+ix1_bc = outflow
+ox1_bc = outflow
+
+nx2 = 1 
+x2min = -0.5
+x2max = 0.5
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 1
+x3min = -0.5
+x3max = 0.5
+ix2_bc = periodic
+ox2_bc = periodic
+
+<meshblock>
+nx1 = 32
+nx2 = 1
+nx3 = 1
+
+<output1>
+file_type = hdf5
+dt = 0.025
+variable = prim
+
+<time>
+integrator = rk1
+cfl = 0.5
+tlim = 0.4
+nlim = 10000
+
+<hydro>
+eos = adiabatic
+riemann = hlle
+reconstruction = plm
+gamma = 1.4
+
+<Graphics>
+variables = cons
+

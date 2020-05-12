@@ -1,0 +1,59 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = 1D Hydro linear wave convergence
+
+<job>
+problem_id = linear_wave
+
+<problem/linear_wave>
+compute_error = true  # when 'true' outputs L1 error compared to initial data
+wave_flag = 0         # Wave family number (0 - 4 for adiabatic hydro)
+amp       = 1.0e-6    # Wave Amplitude
+vflow     = 0.0       # background flow velocity
+ang_2     = 0.0       # rotation of k around x3 axis
+ang_3     = 0.0       # rotation of k around x2 axis
+
+<mesh>
+refinement = none
+
+nx1 = 128
+x1min = 0.0
+x1max = 1.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 1 
+x2min = -0.5
+x2max = 0.5
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 1
+x3min = -0.5
+x3max = 0.5
+ix2_bc = periodic
+ox2_bc = periodic
+
+<output1>
+file_type = hdf5
+dt = 0.01
+variable   = prim      # variables to be output TODO(pgrete) this is  likely obsolete
+
+<time>
+integrator = rk1
+cfl = 0.4
+tlim = 5.0
+nlim = 10000
+
+<hydro>
+eos = adiabatic
+riemann = hlle
+reconstruction = plm
+gamma = 1.666666666666667 # gamma = C_p/C_v
+
+<Graphics>
+variables = cons
+
