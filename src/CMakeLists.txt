@@ -2,7 +2,7 @@
 # Licensed under the 3-Clause License (the "LICENSE");
 
 add_executable(
-    athena-parthenon
+    athenaPK
         main.cpp
         eos/adiabatic_hydro.cpp
         hydro/hydro_driver.cpp
@@ -12,4 +12,4 @@ add_executable(
 
 add_subdirectory(pgen)
 
-target_link_libraries(athena-parthenon PRIVATE parthenon)
+target_link_libraries(athenaPK PRIVATE parthenon)
