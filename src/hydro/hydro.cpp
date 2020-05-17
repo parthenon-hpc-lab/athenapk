@@ -1,22 +1,25 @@
 //========================================================================================
-// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2020, Athena-Parthenon Collaboration. All rights reserved.
-// Licensed under the BSD 3-Clause License (the "LICENSE").
+// AthenaPK - a performance portable block structured AMR astrophysical MHD
+// code. Copyright (c) 2020, Athena-Parthenon Collaboration. All rights
+// reserved. Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
 // Parthenon headers
+#include <parthenon/package.hpp>
+
+#include "athena.hpp"
 #include "parthenon_manager.hpp"
 
-// Athena headers
+// AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
-#include "rsolvers/riemann.hpp"
 #include "hydro.hpp"
-#include <memory>
+#include "rsolvers/riemann.hpp"
 
 using parthenon::CellVariable;
 using parthenon::Metadata;
 using parthenon::ParArrayND;
+using parthenon::ParArray2D;
 using parthenon::ParthenonManager;
 
 namespace parthenon {
@@ -108,19 +111,12 @@ Real EstimateTimestep(Container<Real> &rc) {
   int ke = pmb->ke;
 
   Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
-  ParArrayND<Real> dt1("dt1", pmb->ncells1);
-  ParArrayND<Real> dt2("dt2", pmb->ncells1);
-  ParArrayND<Real> dt3("dt3", pmb->ncells1);
 
   Real w[(NHYDRO)];
 
   // TODO(pgrete) make this pmb->par_for
   for (int k = ks; k <= ke; ++k) {
     for (int j = js; j <= je; ++j) {
-      pmb->pcoord->CenterWidth1(k, j, is, ie, dt1);
-      pmb->pcoord->CenterWidth2(k, j, is, ie, dt2);
-      pmb->pcoord->CenterWidth3(k, j, is, ie, dt3);
-#pragma ivdep
       for (int i = is; i <= ie; ++i) {
         w[IDN] = prim(IDN, k, j, i);
         w[IVX] = prim(IVX, k, j, i);
@@ -128,36 +124,24 @@ Real EstimateTimestep(Container<Real> &rc) {
         w[IVZ] = prim(IVZ, k, j, i);
         w[IPR] = prim(IPR, k, j, i);
         Real cs = eos.SoundSpeed(w);
-        dt1(i) /= (std::abs(w[IVX]) + cs);
-        dt2(i) /= (std::abs(w[IVY]) + cs);
-        dt3(i) /= (std::abs(w[IVZ]) + cs);
-      }
-
-      // compute minimum of (v1 +/- C)
-      for (int i = is; i <= ie; ++i) {
-        Real &dt_1 = dt1(i);
-        min_dt_hyperbolic = std::min(min_dt_hyperbolic, dt_1);
-      }
-
-      // if grid is 2D/3D, compute minimum of (v2 +/- C)
-      if (pmb->block_size.nx2 > 1) {
-        for (int i = is; i <= ie; ++i) {
-          Real &dt_2 = dt2(i);
-          min_dt_hyperbolic = std::min(min_dt_hyperbolic, dt_2);
+        min_dt_hyperbolic =
+            std::min(min_dt_hyperbolic,
+                     pmb->coords.Dx(parthenon::X1DIR, k, j, i) / (std::abs(w[IVX]) + cs));
+        if (pmb->block_size.nx2 > 1) {
+          min_dt_hyperbolic =
+              std::min(min_dt_hyperbolic, pmb->coords.Dx(parthenon::X2DIR, k, j, i) /
+                                              (std::abs(w[IVY]) + cs));
         }
-      }
-
-      // if grid is 3D, compute minimum of (v3 +/- C)
-      if (pmb->block_size.nx3 > 1) {
-        for (int i = is; i <= ie; ++i) {
-          Real &dt_3 = dt3(i);
-          min_dt_hyperbolic = std::min(min_dt_hyperbolic, dt_3);
+        if (pmb->block_size.nx3 > 1) {
+          min_dt_hyperbolic =
+              std::min(min_dt_hyperbolic, pmb->coords.Dx(parthenon::X3DIR, k, j, i) /
+                                              (std::abs(w[IVZ]) + cs));
         }
       }
     }
   }
   return cfl * min_dt_hyperbolic;
-}
+} // namespace Hydro
 
 // Compute fluxes at faces given the constant velocity field and
 // some field "advected" that we are pushing around.
@@ -187,7 +171,8 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   const int nhydro = pkg->Param<int>("nhydro");
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
-  // TODO(pgrete): buffer are only ever over index 1. Push this upstream to Parthenon
+  // TODO(pgrete): buffer are only ever over index 1. Push this upstream to
+  // Parthenon
   ParArrayND<Real> wl("wl", nhydro, pmb->ncells1);
   ParArrayND<Real> wr("wr", nhydro, pmb->ncells1);
   ParArrayND<Real> wlb("wlb", nhydro, pmb->ncells1);
@@ -195,7 +180,7 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
 
   // get x-fluxes
   // TODO(pgrete): hardcoded correct flux array extraction and stages
-  auto flx = cons.flux[IVX - 1];
+  auto flx = cons.flux[parthenon::X1DIR];
   // TODO(pgrete): -> use par_for
   for (int k = kl; k <= ku; k++) {
     for (int j = jl; j <= ju; j++) {
@@ -205,7 +190,9 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
       } else {
         pmb->precon->PiecewiseLinearX1(k, j, is - 1, ie + 1, prim.data, wl, wr);
       }
-      pmb->pcoord->CenterWidth1(k, j, is, ie + 1, dxw);
+      for (int i = is; i <= ie + 1; i++) {
+        dxw(i) = pmb->coords.Dx(parthenon::X1DIR, k, j, i);
+      }
       RiemannSolver(k, j, is, ie + 1, IVX, wl, wr, flx, dxw, eos);
     }
   }
@@ -213,7 +200,7 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
-    flx = cons.flux[IVY - 1];
+    flx = cons.flux[parthenon::X2DIR];
     // set the loop limits
     il = is - 1, iu = ie + 1, kl = ks, ku = ke;
     if (pmb->block_size.nx3 == 1) // 2D
@@ -236,7 +223,9 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
           pmb->precon->PiecewiseLinearX2(k, j, il, iu, prim.data, wlb, wr);
         }
 
-        pmb->pcoord->CenterWidth2(k, j, il, iu, dxw);
+        for (int i = il; i <= iu; i++) {
+          dxw(i) = pmb->coords.Dx(parthenon::X2DIR, k, j, i);
+        }
         RiemannSolver(k, j, il, iu, IVY, wl, wr, flx, dxw, eos);
 
         // swap the arrays for the next step
@@ -251,7 +240,7 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   // k-direction
 
   if (pmb->pmy_mesh->ndim >= 3) {
-    flx = cons.flux[IVZ - 1];
+    flx = cons.flux[parthenon::X3DIR];
     // set the loop limits
     il = is - 1, iu = ie + 1, jl = js - 1, ju = je + 1;
 
@@ -270,7 +259,9 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
           pmb->precon->PiecewiseLinearX3(k, j, il, iu, prim.data, wlb, wr);
         }
 
-        pmb->pcoord->CenterWidth3(k, j, il, iu, dxw);
+        for (int i = il; i <= iu; i++) {
+          dxw(i) = pmb->coords.Dx(parthenon::X3DIR, k, j, i);
+        }
         RiemannSolver(k, j, il, iu, IVZ, wl, wr, flx, dxw, eos);
 
         // swap the arrays for the next step
