@@ -177,16 +177,17 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   auto coords = pmb->coords;
   const int scratch_level = 1; // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->ncells1;
+  // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
+  // I think (*7 for wl, wr, unused, and 4 within PLM) I should use results in segfault...
   size_t scratch_size_in_bytes =
       parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 28;
-  // scratch_size_in_bytes *= ((2 + 1 + 4) * nhydro); // wl, wr, wlb, and 4 within PLM
 
   // get x-fluxes
   ParArray4D<Real> flx = cons.flux[parthenon::X1DIR].Get<4>();
 
   // TODO(pgrete): hardcoded stages
   pmb->par_for_outer(
-      "x1 flux", scratch_size_in_bytes, scratch_level, ks, ke, js, je,
+      "x1 flux", scratch_size_in_bytes, scratch_level, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
@@ -200,7 +201,6 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
         member.team_barrier();
 
         RiemannSolver(member, k, j, is, ie + 1, IVX, wl, wr, flx, eos);
-        member.team_barrier();
       });
 
   //--------------------------------------------------------------------------------------
@@ -284,20 +284,14 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   // k-direction
 
   if (pmb->pmy_mesh->ndim >= 3) {
-    ParArrayND<Real> wl("wl", nhydro, pmb->ncells1);
-    ParArrayND<Real> wr("wr", nhydro, pmb->ncells1);
-    ParArrayND<Real> wlb("wlb", nhydro, pmb->ncells1);
-    ParArrayND<Real> dxw("dxw", pmb->ncells1);
-    auto flx = cons.flux[parthenon::X3DIR];
     // set the loop limits
     il = is - 1, iu = ie + 1, jl = js - 1, ju = je + 1;
-#if 0
+
+    flx = cons.flux[parthenon::X3DIR].Get<4>();
     pmb->par_for_outer(
         // using outer index intentially 0 so that we can resue scratch space across j-dir
         // TODO(pgrete) add new wrapper to parthenon to support this directly
-        // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
-        // I think I should use results in segfault...
-        "x3 flux", scratch_size_in_bytes, scratch_level, ks, ke+1, jl, ju,
+        "x3 flux", scratch_size_in_bytes, scratch_level, ks, ke + 1, jl, ju,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
                                            nx1);
@@ -307,43 +301,17 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
                                                nx1);
           // reconstruct L/R states at j
           if (stage == 1) {
-            DonorCellX2(member, k, j - 1, il, iu, prim.data, wl, unused);
-            DonorCellX2(member, k, j, il, iu, prim.data, unused, wr);
+            DonorCellX3(member, k - 1, j, il, iu, prim.data, wl, unused);
+            DonorCellX3(member, k, j, il, iu, prim.data, unused, wr);
           } else {
-            PiecewiseLinearX2(member, k, j - 1, il, iu, coords, prim.data, wl, unused);
-            PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, unused, wr);
+            PiecewiseLinearX3(member, k - 1, j, il, iu, coords, prim.data, wl, unused);
+            PiecewiseLinearX3(member, k, j, il, iu, coords, prim.data, unused, wr);
           }
           member.team_barrier();
 
-          RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
+          RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, flx, eos);
+          // member.team_barrier();
         });
-#endif
-    for (int j = jl; j <= ju; ++j) { // this loop ordering is intentional
-      // reconstruct the first row
-      if (stage == 1) {
-        pmb->precon->DonorCellX3(ks - 1, j, il, iu, prim.data, wl, wr);
-      } else {
-        pmb->precon->PiecewiseLinearX3(ks - 1, j, il, iu, prim.data, wl, wr);
-      }
-      for (int k = ks; k <= ke + 1; ++k) {
-        // reconstruct L/R states at k
-        if (stage == 1) {
-          pmb->precon->DonorCellX3(k, j, il, iu, prim.data, wlb, wr);
-        } else {
-          pmb->precon->PiecewiseLinearX3(k, j, il, iu, prim.data, wlb, wr);
-        }
-
-        for (int i = il; i <= iu; i++) {
-          dxw(i) = pmb->coords.Dx(parthenon::X3DIR, k, j, i);
-        }
-        RiemannSolver(k, j, il, iu, IVZ, wl, wr, flx, dxw, eos);
-
-        // swap the arrays for the next step
-        auto tmp = wlb;
-        wlb = wl;
-        wl = tmp;
-      }
-    }
   }
 
   return TaskStatus::complete;
