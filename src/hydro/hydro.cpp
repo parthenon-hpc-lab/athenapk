@@ -103,7 +103,7 @@ Real EstimateTimestep(Container<Real> &rc) {
   MeshBlock *pmb = rc.pmy_block;
   auto pkg = pmb->packages["Hydro"];
   const auto &cfl = pkg->Param<Real>("cfl");
-  CellVariable<Real> &prim = rc.Get("prim");
+  ParArray4D<Real> prim = rc.Get("prim").data.Get<4>();
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
   int is = pmb->is;
@@ -114,35 +114,35 @@ Real EstimateTimestep(Container<Real> &rc) {
   int ke = pmb->ke;
 
   Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
+  Kokkos::Min<Real> reducer_min(min_dt_hyperbolic);
 
-  Real w[(NHYDRO)];
+  auto coords = pmb->coords;
+  bool nx2 = (pmb->block_size.nx2 > 1) ? true : false;
+  bool nx3 = (pmb->block_size.nx3 > 1) ? true : false;
 
-  // TODO(pgrete) make this pmb->par_for
-  for (int k = ks; k <= ke; ++k) {
-    for (int j = js; j <= je; ++j) {
-      for (int i = is; i <= ie; ++i) {
+  Kokkos::parallel_reduce(
+      "EstimateTimestep",
+      Kokkos::MDRangePolicy<Kokkos::Rank<3>>({ks, js, is}, {ke + 1, je + 1, ie + 1},
+                                             {1, 1, ie + 1 - is}),
+      KOKKOS_LAMBDA(const int k, const int j, const int i, Real &min_dt) {
+        Real w[(NHYDRO)];
         w[IDN] = prim(IDN, k, j, i);
         w[IVX] = prim(IVX, k, j, i);
         w[IVY] = prim(IVY, k, j, i);
         w[IVZ] = prim(IVZ, k, j, i);
         w[IPR] = prim(IPR, k, j, i);
         Real cs = eos.SoundSpeed(w);
-        min_dt_hyperbolic =
-            std::min(min_dt_hyperbolic,
-                     pmb->coords.Dx(parthenon::X1DIR, k, j, i) / (std::abs(w[IVX]) + cs));
-        if (pmb->block_size.nx2 > 1) {
-          min_dt_hyperbolic =
-              std::min(min_dt_hyperbolic, pmb->coords.Dx(parthenon::X2DIR, k, j, i) /
-                                              (std::abs(w[IVY]) + cs));
+        min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) / (fabs(w[IVX]) + cs));
+        if (nx2) {
+          min_dt =
+              fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) / (fabs(w[IVY]) + cs));
         }
-        if (pmb->block_size.nx3 > 1) {
-          min_dt_hyperbolic =
-              std::min(min_dt_hyperbolic, pmb->coords.Dx(parthenon::X3DIR, k, j, i) /
-                                              (std::abs(w[IVZ]) + cs));
+        if (nx3) {
+          min_dt =
+              fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) / (fabs(w[IVZ]) + cs));
         }
-      }
-    }
-  }
+      },
+      reducer_min);
   return cfl * min_dt_hyperbolic;
 } // namespace Hydro
 
