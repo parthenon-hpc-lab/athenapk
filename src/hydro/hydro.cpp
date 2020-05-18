@@ -174,16 +174,16 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   const int nhydro = pkg->Param<int>("nhydro");
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
-  // get x-fluxes
-  // TODO(pgrete): hardcoded stages
-  ParArray4D<Real> flx = cons.flux[parthenon::X1DIR].Get<4>();
-
   auto coords = pmb->coords;
   const int scratch_level = 1; // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->ncells1;
   size_t scratch_size_in_bytes = parthenon::ScratchPad1D<Real>::shmem_size(nx1);
-  scratch_size_in_bytes *= ((2 + 4) * nhydro); // wl, wr and 4 within PLM
+  scratch_size_in_bytes *= ((2 + 1 + 4) * nhydro); // wl, wr, wlb, and 4 within PLM
+
   // get x-fluxes
+  ParArray4D<Real> flx = cons.flux[parthenon::X1DIR].Get<4>();
+
+  // TODO(pgrete): hardcoded stages
   pmb->par_for_outer(
       "x1 flux", 3 * scratch_size_in_bytes, scratch_level, ks, ke, js, je,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
@@ -199,17 +199,13 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
         member.team_barrier();
 
         RiemannSolver(member, k, j, is, ie + 1, IVX, wl, wr, flx, eos);
+        member.team_barrier();
       });
-
-  ParArrayND<Real> wl("wl", nhydro, pmb->ncells1);
-  ParArrayND<Real> wr("wr", nhydro, pmb->ncells1);
-  ParArrayND<Real> wlb("wlb", nhydro, pmb->ncells1);
-  ParArrayND<Real> dxw("dxw", pmb->ncells1);
 
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
-    auto flx = cons.flux[parthenon::X2DIR];
+    flx = cons.flux[parthenon::X2DIR].Get<4>();
     // set the loop limits
     il = is - 1, iu = ie + 1, kl = ks, ku = ke;
     if (pmb->block_size.nx3 == 1) // 2D
@@ -217,38 +213,53 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
     else // 3D
       kl = ks - 1, ku = ke + 1;
 
-    for (int k = kl; k <= ku; ++k) {
-      // reconstruct the first row
-      if (stage == 1) {
-        pmb->precon->DonorCellX2(k, js - 1, il, iu, prim.data, wl, wr);
-      } else {
-        pmb->precon->PiecewiseLinearX2(k, js - 1, il, iu, prim.data, wl, wr);
-      }
-      for (int j = js; j <= je + 1; ++j) {
-        // reconstruct L/R states at j
-        if (stage == 1) {
-          pmb->precon->DonorCellX2(k, j, il, iu, prim.data, wlb, wr);
-        } else {
-          pmb->precon->PiecewiseLinearX2(k, j, il, iu, prim.data, wlb, wr);
-        }
+    pmb->par_for_outer(
+        // using outer index intentially 0 so that we can resue scratch space across j-dir
+        // TODO(pgrete) add new wrapper to parthenon to support this directly
+        // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
+        // I think I should use results in segfault...
+        "x2 flux", 4 * scratch_size_in_bytes, scratch_level, 0, 0, kl, ku,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int unused, const int k) {
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          // reconstruct the first row
+          if (stage == 1) {
+            DonorCellX2(member, k, js - 1, il, iu, prim.data, wl, wr);
+          } else {
+            PiecewiseLinearX2(member, k, js - 1, il, iu, coords, prim.data, wl, wr);
+          }
+          // Sync all threads in the team so that scratch memory is consistent
+          member.team_barrier();
+          for (int j = js; j <= je + 1; ++j) {
+            // reconstruct L/R states at j
+            if (stage == 1) {
+              DonorCellX2(member, k, j, il, iu, prim.data, wlb, wr);
+            } else {
+              PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, wlb, wr);
+            }
+            member.team_barrier();
 
-        for (int i = il; i <= iu; i++) {
-          dxw(i) = pmb->coords.Dx(parthenon::X2DIR, k, j, i);
-        }
-        RiemannSolver(k, j, il, iu, IVY, wl, wr, flx, dxw, eos);
+            RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
+            member.team_barrier();
 
-        // swap the arrays for the next step
-        auto tmp = wlb;
-        wlb = wl;
-        wl = tmp;
-      }
-    }
+            // swap the arrays for the next step using wr as tmp array
+            std::swap(wlb, wl);
+          }
+        });
   }
 
   //--------------------------------------------------------------------------------------
   // k-direction
 
   if (pmb->pmy_mesh->ndim >= 3) {
+    ParArrayND<Real> wl("wl", nhydro, pmb->ncells1);
+    ParArrayND<Real> wr("wr", nhydro, pmb->ncells1);
+    ParArrayND<Real> wlb("wlb", nhydro, pmb->ncells1);
+    ParArrayND<Real> dxw("dxw", pmb->ncells1);
     auto flx = cons.flux[parthenon::X3DIR];
     // set the loop limits
     il = is - 1, iu = ie + 1, jl = js - 1, ju = je + 1;
