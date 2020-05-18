@@ -9,17 +9,20 @@
 
 #include "athena.hpp"
 #include "parthenon_manager.hpp"
+#include "reconstruct/dc.hpp"
+#include "reconstruct/plm.hpp"
 
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
 #include "hydro.hpp"
+#include "rsolvers/hydro_hlle.hpp"
 #include "rsolvers/riemann.hpp"
 
 using parthenon::CellVariable;
 using parthenon::Metadata;
-using parthenon::ParArrayND;
 using parthenon::ParArray2D;
+using parthenon::ParArrayND;
 using parthenon::ParthenonManager;
 
 namespace parthenon {
@@ -171,36 +174,42 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   const int nhydro = pkg->Param<int>("nhydro");
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
-  // TODO(pgrete): buffer are only ever over index 1. Push this upstream to
-  // Parthenon
+  // get x-fluxes
+  // TODO(pgrete): hardcoded stages
+  ParArray4D<Real> flx = cons.flux[parthenon::X1DIR].Get<4>();
+
+  auto coords = pmb->coords;
+  const int scratch_level = 1; // 0 is actual scratch (tiny); 1 is HBM
+  const int nx1 = pmb->ncells1;
+  size_t scratch_size_in_bytes = parthenon::ScratchPad1D<Real>::shmem_size(nx1);
+  scratch_size_in_bytes *= ((2 + 4) * nhydro); // wl, wr and 4 within PLM
+  // get x-fluxes
+  pmb->par_for_outer(
+      "x1 flux", 3 * scratch_size_in_bytes, scratch_level, ks, ke, js, je,
+      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
+        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro, nx1);
+        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
+        // get reconstructed state on faces
+        if (stage == 1) {
+          DonorCellX1(member, k, j, is - 1, ie + 1, prim.data, wl, wr);
+        } else {
+          PiecewiseLinearX1(member, k, j, is - 1, ie + 1, coords, prim.data, wl, wr);
+        }
+        // Sync all threads in the team so that scratch memory is consistent
+        member.team_barrier();
+
+        RiemannSolver(member, k, j, is, ie + 1, IVX, wl, wr, flx, eos);
+      });
+
   ParArrayND<Real> wl("wl", nhydro, pmb->ncells1);
   ParArrayND<Real> wr("wr", nhydro, pmb->ncells1);
   ParArrayND<Real> wlb("wlb", nhydro, pmb->ncells1);
   ParArrayND<Real> dxw("dxw", pmb->ncells1);
 
-  // get x-fluxes
-  // TODO(pgrete): hardcoded correct flux array extraction and stages
-  auto flx = cons.flux[parthenon::X1DIR];
-  // TODO(pgrete): -> use par_for
-  for (int k = kl; k <= ku; k++) {
-    for (int j = jl; j <= ju; j++) {
-      // get reconstructed state on faces
-      if (stage == 1) {
-        pmb->precon->DonorCellX1(k, j, is - 1, ie + 1, prim.data, wl, wr);
-      } else {
-        pmb->precon->PiecewiseLinearX1(k, j, is - 1, ie + 1, prim.data, wl, wr);
-      }
-      for (int i = is; i <= ie + 1; i++) {
-        dxw(i) = pmb->coords.Dx(parthenon::X1DIR, k, j, i);
-      }
-      RiemannSolver(k, j, is, ie + 1, IVX, wl, wr, flx, dxw, eos);
-    }
-  }
-
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
-    flx = cons.flux[parthenon::X2DIR];
+    auto flx = cons.flux[parthenon::X2DIR];
     // set the loop limits
     il = is - 1, iu = ie + 1, kl = ks, ku = ke;
     if (pmb->block_size.nx3 == 1) // 2D
@@ -240,7 +249,7 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   // k-direction
 
   if (pmb->pmy_mesh->ndim >= 3) {
-    flx = cons.flux[parthenon::X3DIR];
+    auto flx = cons.flux[parthenon::X3DIR];
     // set the loop limits
     il = is - 1, iu = ie + 1, jl = js - 1, ju = je + 1;
 
