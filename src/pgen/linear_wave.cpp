@@ -181,8 +181,9 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
     int ncells4 = NHYDRO + NFIELD;
     int nl = 0;
     int nu = ncells4 - 1;
-    // Save analytic solution of conserved variables in 4D scratch array
-    ParArray4D<Real> cons_("cons scratch", ncells4, pmb->ncells3, pmb->ncells2,
+    // Save analytic solution of conserved variables in 4D scratch array on host
+    Kokkos::View<Real ****, LayoutWrapper, HostMemSpace>
+        cons_("cons scratch", ncells4, pmb->ncells3, pmb->ncells2,
                            pmb->ncells1);
 
     //  Compute errors at cell centers
@@ -215,7 +216,7 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
     }
 
     auto rc = pmb->real_containers.Get(); // get base container
-    auto &u = rc.Get("cons").data;
+    auto u = rc.Get("cons").data.GetHostMirrorAndCopy();
     for (int k = kl; k <= ku; ++k) {
       for (int j = jl; j <= ju; ++j) {
         for (int i = il; i <= iu; ++i) {
@@ -333,7 +334,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
   // initialize conserved variables
   Container<Real> &rc = real_containers.Get();
-  auto &u = rc.Get("cons").data;
+  auto &u_dev = rc.Get("cons").data;
+  // initializing on host
+  auto u = u_dev.GetHostMirrorAndCopy();
   for (int k = ks; k <= ke; k++) {
     for (int j = js; j <= je; j++) {
       for (int i = is; i <= ie; i++) {
@@ -353,6 +356,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       }
     }
   }
+  // copy initialized vars to device
+  u_dev.DeepCopy(u);
   return;
 }
 
