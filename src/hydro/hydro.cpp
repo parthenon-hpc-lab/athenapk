@@ -180,7 +180,7 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
   // I think (*7 for wl, wr, unused, and 4 within PLM) I should use results in segfault...
   size_t scratch_size_in_bytes =
-      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 28;
+      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 280;
 
   // get x-fluxes
   ParArray4D<Real> flx = cons.flux[parthenon::X1DIR].Get<4>();
@@ -214,70 +214,69 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
     else // 3D
       kl = ks - 1, ku = ke + 1;
 
+    // pmb->par_for_outer(
+    //     // using outer index intentially 0 so that we can resue scratch space across j-dir
+    //     // TODO(pgrete) add new wrapper to parthenon to support this directly
+    //     // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
+    //     // I think I should use results in segfault...
+    //     "x2 flux", scratch_size_in_bytes, scratch_level, kl, ku, js, je + 1,
+    //     KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
+    //       parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
+    //                                        nx1);
+    //       parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
+    //                                        nx1);
+    //       parthenon::ScratchPad2D<Real> unused(member.team_scratch(scratch_level), nhydro,
+    //                                            nx1);
+    //       // reconstruct L/R states at j
+    //       if (stage == 1) {
+    //         DonorCellX2(member, k, j - 1, il, iu, prim.data, wl, unused);
+    //         DonorCellX2(member, k, j, il, iu, prim.data, unused, wr);
+    //       } else {
+    //         PiecewiseLinearX2(member, k, j - 1, il, iu, coords, prim.data, wl, unused);
+    //         PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, unused, wr);
+    //       }
+    //       member.team_barrier();
+
+    //       RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
+    //     });
+
     pmb->par_for_outer(
         // using outer index intentially 0 so that we can resue scratch space across j-dir
         // TODO(pgrete) add new wrapper to parthenon to support this directly
         // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
         // I think I should use results in segfault...
-        "x2 flux", scratch_size_in_bytes, scratch_level, kl, ku, js, je + 1,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
+        "x2 flux", scratch_size_in_bytes, scratch_level, 0, 0, kl, ku,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int unused, const int k) {
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
                                            nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
                                            nx1);
-          parthenon::ScratchPad2D<Real> unused(member.team_scratch(scratch_level), nhydro,
-                                               nx1);
-          // reconstruct L/R states at j
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          // reconstruct the first row
           if (stage == 1) {
-            DonorCellX2(member, k, j - 1, il, iu, prim.data, wl, unused);
-            DonorCellX2(member, k, j, il, iu, prim.data, unused, wr);
+            DonorCellX2(member, k, js - 1, il, iu, prim.data, wl, wr);
           } else {
-            PiecewiseLinearX2(member, k, j - 1, il, iu, coords, prim.data, wl, unused);
-            PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, unused, wr);
+            PiecewiseLinearX2(member, k, js - 1, il, iu, coords, prim.data, wl, wr);
           }
+          // Sync all threads in the team so that scratch memory is consistent
           member.team_barrier();
+          for (int j = js; j <= je + 1; ++j) {
+            // reconstruct L/R states at j
+            if (stage == 1) {
+              DonorCellX2(member, k, j, il, iu, prim.data, wlb, wr);
+            } else {
+              PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, wlb, wr);
+            }
+            member.team_barrier();
 
-          RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
+            RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
+            member.team_barrier();
+
+            // swap the arrays for the next step using wr as tmp array
+            //std::swap(wlb, wl);
+          }
         });
-    // This is how I'd like to to work...
-    // pmb->par_for_outer(
-    //     // using outer index intentially 0 so that we can resue scratch space across
-    //     j-dir
-    //     // TODO(pgrete) add new wrapper to parthenon to support this directly
-    //     // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
-    //     // I think I should use results in segfault...
-    //     "x2 flux", scratch_size_in_bytes, scratch_level, 0, 0, kl, ku,
-    //     KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int unused, const int k) {
-    //       parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
-    //                                        nx1);
-    //       parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
-    //                                        nx1);
-    //       parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
-    //                                         nx1);
-    //       // reconstruct the first row
-    //       if (stage == 1) {
-    //         DonorCellX2(member, k, js - 1, il, iu, prim.data, wl, wr);
-    //       } else {
-    //         PiecewiseLinearX2(member, k, js - 1, il, iu, coords, prim.data, wl, wr);
-    //       }
-    //       // Sync all threads in the team so that scratch memory is consistent
-    //       member.team_barrier();
-    //       for (int j = js; j <= je + 1; ++j) {
-    //         // reconstruct L/R states at j
-    //         if (stage == 1) {
-    //           DonorCellX2(member, k, j, il, iu, prim.data, wlb, wr);
-    //         } else {
-    //           PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, wlb, wr);
-    //         }
-    //         member.team_barrier();
-
-    //         RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
-    //         member.team_barrier();
-
-    //         // swap the arrays for the next step using wr as tmp array
-    //         std::swap(wlb, wl);
-    //       }
-    //     });
   }
 
   //--------------------------------------------------------------------------------------
