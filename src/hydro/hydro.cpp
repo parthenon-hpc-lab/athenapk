@@ -286,6 +286,9 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
 
             // swap the arrays for the next step using wr as tmp array
             //std::swap(wlb, wl);
+            //wr.assign_data(wlb.data());
+            //wlb.assign_data(wl.data());
+            //wl.assign_data(wr.data());
           }
         });
   }
@@ -299,15 +302,15 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
 
     flx = cons.flux[parthenon::X3DIR].Get<4>();
     pmb->par_for_outer(
-        // using outer index intentially 0 so that we can resue scratch space across j-dir
+        // using outer index intentially 0 so that we can resue scratch space across k-dir
         // TODO(pgrete) add new wrapper to parthenon to support this directly
-        "x3 flux", scratch_size_in_bytes, scratch_level, ks, ke + 1, jl, ju,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
+        "x3 flux", scratch_size_in_bytes, scratch_level, 0, 0, jl, ju,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int unused, const int j) {
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
                                            nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
                                            nx1);
-          parthenon::ScratchPad2D<Real> unused(member.team_scratch(scratch_level), nhydro,
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
                                                nx1);
 
           parthenon::ScratchPad2D<Real> recon_pad0,recon_pad1,recon_pad2,recon_pad3;
@@ -318,20 +321,34 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
             recon_pad3 = parthenon::ScratchPad2D<Real>(member.team_scratch(scratch_level), nhydro, nx1);
           }
 
-          // reconstruct L/R states at j
+          // reconstruct the first row
           if (stage == 1) {
-            DonorCellX3(member, k - 1, j, il, iu, prim.data, wl, unused);
-            DonorCellX3(member, k, j, il, iu, prim.data, unused, wr);
+            DonorCellX3(member, ks -1, j, il, iu, prim.data, wl, wr);
           } else {
-            PiecewiseLinearX3(member, k - 1, j, il, iu, coords, prim.data, wl, unused,
-                recon_pad0,recon_pad1,recon_pad2,recon_pad3);
-            PiecewiseLinearX3(member, k, j, il, iu, coords, prim.data, unused, wr,
+            PiecewiseLinearX3(member, ks -1, j, il, iu, coords, prim.data, wl, wr,
                 recon_pad0,recon_pad1,recon_pad2,recon_pad3);
           }
+          // Sync all threads in the team so that scratch memory is consistent
           member.team_barrier();
+          for (int k = ks; k <= ke + 1; ++k) {
+            // reconstruct L/R states at j
+            if (stage == 1) {
+              DonorCellX3(member, k, j, il, iu, prim.data, wlb, wr);
+            } else {
+              PiecewiseLinearX3(member, k, j, il, iu, coords, prim.data, wlb, wr,
+                recon_pad0,recon_pad1,recon_pad2,recon_pad3);
+            }
+            member.team_barrier();
 
-          RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, flx, eos);
-          // member.team_barrier();
+            RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, flx, eos);
+            member.team_barrier();
+
+            // swap the arrays for the next step using wr as tmp array
+            //std::swap(wlb, wl);
+            //wr.assign_data(wlb.data());
+            //wlb.assign_data(wl.data());
+            //wl.assign_data(wr.data());
+          }
         });
   }
 
