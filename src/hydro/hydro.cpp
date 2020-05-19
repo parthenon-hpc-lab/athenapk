@@ -180,7 +180,7 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
   // I think (*7 for wl, wr, unused, and 4 within PLM) I should use results in segfault...
   size_t scratch_size_in_bytes =
-      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 280;
+      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * (3 + ((stage!=1)? 4 : 0));
 
   // get x-fluxes
   ParArray4D<Real> flx = cons.flux[parthenon::X1DIR].Get<4>();
@@ -253,11 +253,21 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
                                            nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
                                             nx1);
+
+          parthenon::ScratchPad2D<Real> recon_pad0,recon_pad1,recon_pad2,recon_pad3;
+          if( stage != 1){
+            recon_pad0 = parthenon::ScratchPad2D<Real>(member.team_scratch(scratch_level), nhydro, nx1);
+            recon_pad1 = parthenon::ScratchPad2D<Real>(member.team_scratch(scratch_level), nhydro, nx1);
+            recon_pad2 = parthenon::ScratchPad2D<Real>(member.team_scratch(scratch_level), nhydro, nx1);
+            recon_pad3 = parthenon::ScratchPad2D<Real>(member.team_scratch(scratch_level), nhydro, nx1);
+          }
+
           // reconstruct the first row
           if (stage == 1) {
             DonorCellX2(member, k, js - 1, il, iu, prim.data, wl, wr);
           } else {
-            PiecewiseLinearX2(member, k, js - 1, il, iu, coords, prim.data, wl, wr);
+            PiecewiseLinearX2(member, k, js - 1, il, iu, coords, prim.data, wl, wr,
+                recon_pad0,recon_pad1,recon_pad2,recon_pad3);
           }
           // Sync all threads in the team so that scratch memory is consistent
           member.team_barrier();
@@ -266,7 +276,8 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
             if (stage == 1) {
               DonorCellX2(member, k, j, il, iu, prim.data, wlb, wr);
             } else {
-              PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, wlb, wr);
+              PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, wlb, wr,
+                recon_pad0,recon_pad1,recon_pad2,recon_pad3);
             }
             member.team_barrier();
 
@@ -298,13 +309,24 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
                                            nx1);
           parthenon::ScratchPad2D<Real> unused(member.team_scratch(scratch_level), nhydro,
                                                nx1);
+
+          parthenon::ScratchPad2D<Real> recon_pad0,recon_pad1,recon_pad2,recon_pad3;
+          if( stage != 1){
+            recon_pad0 = parthenon::ScratchPad2D<Real>(member.team_scratch(scratch_level), nhydro, nx1);
+            recon_pad1 = parthenon::ScratchPad2D<Real>(member.team_scratch(scratch_level), nhydro, nx1);
+            recon_pad2 = parthenon::ScratchPad2D<Real>(member.team_scratch(scratch_level), nhydro, nx1);
+            recon_pad3 = parthenon::ScratchPad2D<Real>(member.team_scratch(scratch_level), nhydro, nx1);
+          }
+
           // reconstruct L/R states at j
           if (stage == 1) {
             DonorCellX3(member, k - 1, j, il, iu, prim.data, wl, unused);
             DonorCellX3(member, k, j, il, iu, prim.data, unused, wr);
           } else {
-            PiecewiseLinearX3(member, k - 1, j, il, iu, coords, prim.data, wl, unused);
-            PiecewiseLinearX3(member, k, j, il, iu, coords, prim.data, unused, wr);
+            PiecewiseLinearX3(member, k - 1, j, il, iu, coords, prim.data, wl, unused,
+                recon_pad0,recon_pad1,recon_pad2,recon_pad3);
+            PiecewiseLinearX3(member, k, j, il, iu, coords, prim.data, unused, wr,
+                recon_pad0,recon_pad1,recon_pad2,recon_pad3);
           }
           member.team_barrier();
 
