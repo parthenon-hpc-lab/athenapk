@@ -15,13 +15,13 @@
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
+#include "../recon/recon.hpp"
 #include "hydro.hpp"
-#include "rsolvers/hydro_hlle.hpp"
 #include "rsolvers/riemann.hpp"
 
 using parthenon::CellVariable;
 using parthenon::Metadata;
-using parthenon::ParArray2D;
+using parthenon::ParArray4D;
 using parthenon::ParArrayND;
 using parthenon::ParthenonManager;
 
@@ -75,6 +75,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   field_name = "prim";
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}));
   pkg->AddField(field_name, m);
+  // temporary array
+  m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+               std::vector<int>({nhydro}));
+  pkg->AddField("wl", m);
+  pkg->AddField("wr", m);
 
   pkg->FillDerived = ConsToPrim;
   pkg->EstimateTimestep = EstimateTimestep;
@@ -168,149 +173,82 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
       jl = js - 1, ju = je + 1, kl = ks - 1, ku = ke + 1;
   }
 
-  CellVariable<Real> &prim = rc.Get("prim");
+  ParArrayND<Real> w = rc.Get("prim").data;
+  ParArrayND<Real> wl = rc.Get("wl").data;
+  ParArrayND<Real> wr = rc.Get("wl").data;
   CellVariable<Real> &cons = rc.Get("cons");
   auto pkg = pmb->packages["Hydro"];
   const int nhydro = pkg->Param<int>("nhydro");
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
   auto coords = pmb->coords;
-  const int scratch_level = 1; // 0 is actual scratch (tiny); 1 is HBM
-  const int nx1 = pmb->ncells1;
-  // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
-  // I think (*7 for wl, wr, unused, and 4 within PLM) I should use results in segfault...
-  size_t scratch_size_in_bytes =
-      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 280;
-
   // get x-fluxes
-  ParArray4D<Real> flx = cons.flux[parthenon::X1DIR].Get<4>();
+  ParArrayND<Real> x1flux = cons.flux[parthenon::X1DIR];
 
-  // TODO(pgrete): hardcoded stages
-  pmb->par_for_outer(
-      "x1 flux", scratch_size_in_bytes, scratch_level, kl, ku, jl, ju,
-      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
-        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro, nx1);
-        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
-        // get reconstructed state on faces
-        if (stage == 1) {
-          DonorCellX1(member, k, j, is - 1, ie + 1, prim.data, wl, wr);
-        } else {
-          PiecewiseLinearX1(member, k, j, is - 1, ie + 1, coords, prim.data, wl, wr);
-        }
-        // Sync all threads in the team so that scratch memory is consistent
-        member.team_barrier();
+  Kokkos::Profiling::pushRegion("Reconstruct X");
+  if (stage == 1) {
+    DonorCellX1KJI(pmb, kl, ku, jl, ju, is, ie + 1, w, wl, wr);
+  } else {
+    PiecewiseLinearX1KJI(pmb, kl, ku, jl, ju, is, ie + 1, w, wl, wr);
+  }
+  Kokkos::Profiling::popRegion(); // Reconstruct X
 
-        RiemannSolver(member, k, j, is, ie + 1, IVX, wl, wr, flx, eos);
-      });
+  // compute fluxes, store directly into 3D arrays
+  // x1flux(IBY) = (v1*b2 - v2*b1) = -EMFZ
+  // x1flux(IBZ) = (v1*b3 - v3*b1) =  EMFY
+  Kokkos::Profiling::pushRegion("Riemann X");
+  RiemannSolver(pmb, kl, ku, jl, ju, is, ie + 1, IVX, wl, wr, x1flux, eos);
+  Kokkos::Profiling::popRegion(); // Riemann X
 
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
-    flx = cons.flux[parthenon::X2DIR].Get<4>();
+    ParArrayND<Real> x2flux = cons.flux[parthenon::X2DIR];
     // set the loop limits
     il = is - 1, iu = ie + 1, kl = ks, ku = ke;
     if (pmb->block_size.nx3 == 1) // 2D
       kl = ks, ku = ke;
     else // 3D
       kl = ks - 1, ku = ke + 1;
+    // reconstruct L/R states at j
+    Kokkos::Profiling::pushRegion("Reconstruct Y");
+    if (stage == 1) {
+      DonorCellX2KJI(pmb, kl, ku, js, je + 1, il, iu, w, wl, wr);
+    } else {
+      PiecewiseLinearX2KJI(pmb, kl, ku, js, je + 1, il, iu, w, wl, wr);
+    }
+    Kokkos::Profiling::popRegion(); // Reconstruct Y
 
-    // pmb->par_for_outer(
-    //     // using outer index intentially 0 so that we can resue scratch space across j-dir
-    //     // TODO(pgrete) add new wrapper to parthenon to support this directly
-    //     // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
-    //     // I think I should use results in segfault...
-    //     "x2 flux", scratch_size_in_bytes, scratch_level, kl, ku, js, je + 1,
-    //     KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
-    //       parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
-    //                                        nx1);
-    //       parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
-    //                                        nx1);
-    //       parthenon::ScratchPad2D<Real> unused(member.team_scratch(scratch_level), nhydro,
-    //                                            nx1);
-    //       // reconstruct L/R states at j
-    //       if (stage == 1) {
-    //         DonorCellX2(member, k, j - 1, il, iu, prim.data, wl, unused);
-    //         DonorCellX2(member, k, j, il, iu, prim.data, unused, wr);
-    //       } else {
-    //         PiecewiseLinearX2(member, k, j - 1, il, iu, coords, prim.data, wl, unused);
-    //         PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, unused, wr);
-    //       }
-    //       member.team_barrier();
-
-    //       RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
-    //     });
-
-    pmb->par_for_outer(
-        // using outer index intentially 0 so that we can resue scratch space across j-dir
-        // TODO(pgrete) add new wrapper to parthenon to support this directly
-        // TODO(pgrete) I'm asking to way too much scratch space here. Using the amount
-        // I think I should use results in segfault...
-        "x2 flux", scratch_size_in_bytes, scratch_level, 0, 0, kl, ku,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int unused, const int k) {
-          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          // reconstruct the first row
-          if (stage == 1) {
-            DonorCellX2(member, k, js - 1, il, iu, prim.data, wl, wr);
-          } else {
-            PiecewiseLinearX2(member, k, js - 1, il, iu, coords, prim.data, wl, wr);
-          }
-          // Sync all threads in the team so that scratch memory is consistent
-          member.team_barrier();
-          for (int j = js; j <= je + 1; ++j) {
-            // reconstruct L/R states at j
-            if (stage == 1) {
-              DonorCellX2(member, k, j, il, iu, prim.data, wlb, wr);
-            } else {
-              PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, wlb, wr);
-            }
-            member.team_barrier();
-
-            RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
-            member.team_barrier();
-
-            // swap the arrays for the next step using wr as tmp array
-            //std::swap(wlb, wl);
-          }
-        });
+    // compute fluxes, store directly into 3D arrays
+    // flx(IBY) = (v2*b3 - v3*b2) = -EMFX
+    // flx(IBZ) = (v2*b1 - v1*b2) =  EMFZ
+    Kokkos::Profiling::pushRegion("Riemann Y");
+    RiemannSolver(pmb, kl, ku, js, je + 1, il, iu, IVY, wl, wr, x2flux, eos);
+    Kokkos::Profiling::popRegion(); // Riemann Y
   }
 
   //--------------------------------------------------------------------------------------
   // k-direction
 
   if (pmb->pmy_mesh->ndim >= 3) {
+    ParArrayND<Real> x3flux = cons.flux[parthenon::X3DIR];
     // set the loop limits
     il = is - 1, iu = ie + 1, jl = js - 1, ju = je + 1;
+    // reconstruct L/R states at k
+    Kokkos::Profiling::pushRegion("Reconstruct Z");
+    if (stage == 1) {
+      DonorCellX3KJI(pmb, ks, ke + 1, jl, ju, il, iu, w, wl, wr);
+    } else {
+      PiecewiseLinearX3KJI(pmb, ks, ke + 1, jl, ju, il, iu, w, wl, wr);
+    }
+    Kokkos::Profiling::popRegion(); // Reconstruct Z
 
-    flx = cons.flux[parthenon::X3DIR].Get<4>();
-    pmb->par_for_outer(
-        // using outer index intentially 0 so that we can resue scratch space across j-dir
-        // TODO(pgrete) add new wrapper to parthenon to support this directly
-        "x3 flux", scratch_size_in_bytes, scratch_level, ks, ke + 1, jl, ju,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
-          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> unused(member.team_scratch(scratch_level), nhydro,
-                                               nx1);
-          // reconstruct L/R states at j
-          if (stage == 1) {
-            DonorCellX3(member, k - 1, j, il, iu, prim.data, wl, unused);
-            DonorCellX3(member, k, j, il, iu, prim.data, unused, wr);
-          } else {
-            PiecewiseLinearX3(member, k - 1, j, il, iu, coords, prim.data, wl, unused);
-            PiecewiseLinearX3(member, k, j, il, iu, coords, prim.data, unused, wr);
-          }
-          member.team_barrier();
-
-          RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, flx, eos);
-          // member.team_barrier();
-        });
+    // compute fluxes, store directly into 3D arrays
+    // flx(IBY) = (v3*b1 - v1*b3) = -EMFY
+    // flx(IBZ) = (v3*b2 - v2*b3) =  EMFX
+    Kokkos::Profiling::pushRegion("Riemann Z");
+    RiemannSolver(pmb, ks, ke + 1, jl, ju, il, iu, IVZ, wl, wr, x3flux, eos);
+    Kokkos::Profiling::popRegion(); // Riemann Z
   }
 
   return TaskStatus::complete;
