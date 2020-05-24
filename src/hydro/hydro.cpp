@@ -114,7 +114,6 @@ Real EstimateTimestep(Container<Real> &rc) {
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
   Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
-  Kokkos::Min<Real> reducer_min(min_dt_hyperbolic);
 
   auto coords = pmb->coords;
   bool nx2 = (pmb->block_size.nx2 > 1) ? true : false;
@@ -142,7 +141,7 @@ Real EstimateTimestep(Container<Real> &rc) {
               fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) / (fabs(w[IVZ]) + cs));
         }
       },
-      reducer_min);
+      Kokkos::Min<Real>(min_dt_hyperbolic));
   return cfl * min_dt_hyperbolic;
 } // namespace Hydro
 
@@ -185,9 +184,6 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   }
   Kokkos::Profiling::popRegion(); // Reconstruct X
 
-  // compute fluxes, store directly into 3D arrays
-  // x1flux(IBY) = (v1*b2 - v2*b1) = -EMFZ
-  // x1flux(IBZ) = (v1*b3 - v3*b1) =  EMFY
   Kokkos::Profiling::pushRegion("Riemann X");
   RiemannSolver(pmb, kl, ku, jl, ju, ib.s, ib.e + 1, IVX, wl, wr, x1flux, eos);
   Kokkos::Profiling::popRegion(); // Riemann X
@@ -211,9 +207,6 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
     }
     Kokkos::Profiling::popRegion(); // Reconstruct Y
 
-    // compute fluxes, store directly into 3D arrays
-    // flx(IBY) = (v2*b3 - v3*b2) = -EMFX
-    // flx(IBZ) = (v2*b1 - v1*b2) =  EMFZ
     Kokkos::Profiling::pushRegion("Riemann Y");
     RiemannSolver(pmb, kl, ku, jb.s, jb.e + 1, il, iu, IVY, wl, wr, x2flux, eos);
     Kokkos::Profiling::popRegion(); // Riemann Y
@@ -235,9 +228,6 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
     }
     Kokkos::Profiling::popRegion(); // Reconstruct Z
 
-    // compute fluxes, store directly into 3D arrays
-    // flx(IBY) = (v3*b1 - v1*b3) = -EMFY
-    // flx(IBZ) = (v3*b2 - v2*b3) =  EMFX
     Kokkos::Profiling::pushRegion("Riemann Z");
     RiemannSolver(pmb, kb.s, kb.e + 1, jl, ju, il, iu, IVZ, wl, wr, x3flux, eos);
     Kokkos::Profiling::popRegion(); // Riemann Z
