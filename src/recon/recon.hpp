@@ -24,33 +24,33 @@
 #include "athena.hpp"
 #include "parthenon_arrays.hpp"
 
-using parthenon::ParArrayND;
+using parthenon::ParArray4D;
 using parthenon::Real;
 using parthenon::MeshBlock;
 
 void DonorCellX1KJI(MeshBlock *pmb, const int kl, const int ku, const int jl, const int ju,
-                 const int il, const int iu, const ParArrayND<Real> &w,
-                 ParArrayND<Real> &wl, ParArrayND<Real> &wr);
+                 const int il, const int iu, const ParArray4D<Real> &w,
+                 ParArray4D<Real> &wl, ParArray4D<Real> &wr);
 
 void DonorCellX2KJI(MeshBlock *pmb, const int kl, const int ku, const int jl, const int ju,
-                 const int il, const int iu, const ParArrayND<Real> &w,
-                 ParArrayND<Real> &wl, ParArrayND<Real> &wr);
+                 const int il, const int iu, const ParArray4D<Real> &w,
+                 ParArray4D<Real> &wl, ParArray4D<Real> &wr);
 
 void DonorCellX3KJI(MeshBlock *pmb, const int kl, const int ku, const int jl, const int ju,
-                 const int il, const int iu, const ParArrayND<Real> &w,
-                 ParArrayND<Real> &wl, ParArrayND<Real> &wr);
+                 const int il, const int iu, const ParArray4D<Real> &w,
+                 ParArray4D<Real> &wl, ParArray4D<Real> &wr);
 
 void PiecewiseLinearX1KJI(MeshBlock *pmb, const int kl, const int ku, const int jl,
                        const int ju, const int il, const int iu,
-                       const ParArrayND<Real> &w, ParArrayND<Real> &wl,
-                       ParArrayND<Real> &wr);
+                       const ParArray4D<Real> &w, ParArray4D<Real> &wl,
+                       ParArray4D<Real> &wr);
 void PiecewiseLinearX2KJI(MeshBlock *pmb, const int kl, const int ku, const int jl,
                        const int ju, const int il, const int iu,
-                       const ParArrayND<Real> &w, ParArrayND<Real> &wl,
-                       ParArrayND<Real> &wr);
+                       const ParArray4D<Real> &w, ParArray4D<Real> &wl,
+                       ParArray4D<Real> &wr);
 void PiecewiseLinearX3KJI(MeshBlock *pmb, const int kl, const int ku, const int jl,
                        const int ju, const int il, const int iu,
-                       const ParArrayND<Real> &w, ParArrayND<Real> &wl,
-                       ParArrayND<Real> &wr);
+                       const ParArray4D<Real> &w, ParArray4D<Real> &wl,
+                       ParArray4D<Real> &wr);
 
 #endif // RECONSTRUCT_RECONSTRUCT_HPP_

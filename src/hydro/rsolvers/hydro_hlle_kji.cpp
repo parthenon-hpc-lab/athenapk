@@ -35,8 +35,8 @@ using parthenon::Real;
 
 void RiemannSolver(MeshBlock *pmb, const int kl, const int ku, const int jl,
                           const int ju, const int il, const int iu, const int ivx,
-                          ParArrayND<Real> &wl, ParArrayND<Real> &wr,
-                          ParArrayND<Real> &flx, const AdiabaticHydroEOS &peos) {
+                          ParArray4D<Real> &wl, ParArray4D<Real> &wr,
+                          ParArray4D<Real> &flx, const AdiabaticHydroEOS &peos) {
 
   int ivy = IVX + ((ivx - IVX) + 1) % 3;
   int ivz = IVX + ((ivx - IVX) + 2) % 3;

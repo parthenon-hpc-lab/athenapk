@@ -8,6 +8,7 @@
 #include <parthenon/package.hpp>
 
 #include "athena.hpp"
+#include "mesh/domain.hpp"
 #include "parthenon/prelude.hpp"
 #include "parthenon_manager.hpp"
 
@@ -76,7 +77,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   field_name = "prim";
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}));
   pkg->AddField(field_name, m);
-  // temporary array
+  //  temporary array
   m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
                std::vector<int>({nhydro}));
   pkg->AddField("wl", m);
@@ -164,9 +165,9 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
   }
 
-  ParArrayND<Real> w = rc.Get("prim").data;
-  ParArrayND<Real> wl = rc.Get("wl").data;
-  ParArrayND<Real> wr = rc.Get("wl").data;
+  ParArray4D<Real> w = rc.Get("prim").data.Get<4>();
+  ParArray4D<Real> wl = rc.Get("wl").data.Get<4>();
+  ParArray4D<Real> wr = rc.Get("wr").data.Get<4>();
   CellVariable<Real> &cons = rc.Get("cons");
   auto pkg = pmb->packages["Hydro"];
   const int nhydro = pkg->Param<int>("nhydro");
@@ -174,7 +175,7 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
 
   auto coords = pmb->coords;
   // get x-fluxes
-  ParArrayND<Real> x1flux = cons.flux[parthenon::X1DIR];
+  ParArray4D<Real> x1flux = cons.flux[parthenon::X1DIR].Get<4>();
 
   Kokkos::Profiling::pushRegion("Reconstruct X");
   if (stage == 1) {
@@ -191,7 +192,7 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
-    ParArrayND<Real> x2flux = cons.flux[parthenon::X2DIR];
+    ParArray4D<Real> x2flux = cons.flux[parthenon::X2DIR].Get<4>();
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
     if (pmb->block_size.nx3 == 1) // 2D
@@ -216,7 +217,7 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   // k-direction
 
   if (pmb->pmy_mesh->ndim >= 3) {
-    ParArrayND<Real> x3flux = cons.flux[parthenon::X3DIR];
+    ParArray4D<Real> x3flux = cons.flux[parthenon::X3DIR].Get<4>();
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
     // reconstruct L/R states at k

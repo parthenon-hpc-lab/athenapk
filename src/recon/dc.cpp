@@ -12,8 +12,8 @@
 //  \brief
 
 void DonorCellX1KJI(MeshBlock *pmb, const int kl, const int ku, const int jl, const int ju,
-                 const int il, const int iu, const ParArrayND<Real> &w,
-                 ParArrayND<Real> &wl, ParArrayND<Real> &wr) {
+                 const int il, const int iu, const ParArray4D<Real> &w,
+                 ParArray4D<Real> &wl, ParArray4D<Real> &wr) {
 
   pmb->par_for(
       "DonorCell X1", 0, NHYDRO - 1, kl, ku, jl, ju, il, iu,
@@ -30,8 +30,8 @@ void DonorCellX1KJI(MeshBlock *pmb, const int kl, const int ku, const int jl, co
 //  \brief
 
 void DonorCellX2KJI(MeshBlock *pmb, const int kl, const int ku, const int jl, const int ju,
-                 const int il, const int iu, const ParArrayND<Real> &w,
-                 ParArrayND<Real> &wl, ParArrayND<Real> &wr) {
+                 const int il, const int iu, const ParArray4D<Real> &w,
+                 ParArray4D<Real> &wl, ParArray4D<Real> &wr) {
 
   pmb->par_for(
       "DonorCell X2", 0, NHYDRO - 1, kl, ku, jl, ju, il, iu,
@@ -48,8 +48,8 @@ void DonorCellX2KJI(MeshBlock *pmb, const int kl, const int ku, const int jl, co
 //  \brief
 
 void DonorCellX3KJI(MeshBlock *pmb, const int kl, const int ku, const int jl, const int ju,
-                 const int il, const int iu, const ParArrayND<Real> &w,
-                 ParArrayND<Real> &wl, ParArrayND<Real> &wr) {
+                 const int il, const int iu, const ParArray4D<Real> &w,
+                 ParArray4D<Real> &wl, ParArray4D<Real> &wr) {
 
   pmb->par_for(
       "DonorCell X3", 0, NHYDRO - 1, kl, ku, jl, ju, il, iu,

@@ -14,8 +14,8 @@
 
 void PiecewiseLinearX1KJI(MeshBlock *pmb, const int kl, const int ku, const int jl,
                        const int ju, const int il, const int iu,
-                       const ParArrayND<Real> &w, ParArrayND<Real> &wl,
-                       ParArrayND<Real> &wr) {
+                       const ParArray4D<Real> &w, ParArray4D<Real> &wl,
+                       ParArray4D<Real> &wr) {
 
   pmb->par_for(
       "PLM X1", kl, ku, jl, ju, il - 1, iu, KOKKOS_LAMBDA(int k, int j, int i) {
@@ -51,8 +51,8 @@ void PiecewiseLinearX1KJI(MeshBlock *pmb, const int kl, const int ku, const int 
 
 void PiecewiseLinearX2KJI(MeshBlock *pmb, const int kl, const int ku, const int jl,
                        const int ju, const int il, const int iu,
-                       const ParArrayND<Real> &w, ParArrayND<Real> &wl,
-                       ParArrayND<Real> &wr) {
+                       const ParArray4D<Real> &w, ParArray4D<Real> &wl,
+                       ParArray4D<Real> &wr) {
 
   pmb->par_for(
       "PLM X2", kl, ku, jl - 1, ju, il, iu, KOKKOS_LAMBDA(int k, int j, int i) {
@@ -88,8 +88,8 @@ void PiecewiseLinearX2KJI(MeshBlock *pmb, const int kl, const int ku, const int 
 
 void PiecewiseLinearX3KJI(MeshBlock *pmb, const int kl, const int ku, const int jl,
                        const int ju, const int il, const int iu,
-                       const ParArrayND<Real> &w, ParArrayND<Real> &wl,
-                       ParArrayND<Real> &wr) {
+                       const ParArray4D<Real> &w, ParArray4D<Real> &wl,
+                       ParArray4D<Real> &wr) {
 
   pmb->par_for(
       "PLM X3", kl - 1, ku, jl, ju, il, iu, KOKKOS_LAMBDA(int k, int j, int i) {
