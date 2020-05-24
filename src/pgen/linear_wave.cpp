@@ -149,7 +149,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   Eigensystem(d0, u0, v0, w0, h0, bx0, by0, bz0, xfact, yfact, ev, rem, lem);
 
   // TODO(pgrete) see how to get access to the SimTime object outside the driver
-  //if (pin->GetOrAddBoolean("problem/linear_wave", "test", false) && ncycle == 0) {
+  // if (pin->GetOrAddBoolean("problem/linear_wave", "test", false) && ncycle == 0) {
   if (pin->GetOrAddBoolean("problem/linear_wave", "test", false)) {
     // reinterpret tlim as the number of orbital periods
     Real tlim = pin->GetReal("parthenon/time", "tlim");
@@ -174,25 +174,25 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
 
   MeshBlock *pmb = pblock;
   while (pmb != nullptr) {
-    int il = pmb->is, iu = pmb->ie, jl = pmb->js, ju = pmb->je, kl = pmb->ks,
-        ku = pmb->ke;
-
+    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
     // Even for MHD, there are only cell-centered mesh variables
     int ncells4 = NHYDRO + NFIELD;
     int nl = 0;
     int nu = ncells4 - 1;
     // Save analytic solution of conserved variables in 4D scratch array on host
-    Kokkos::View<Real ****, LayoutWrapper, HostMemSpace>
-        cons_("cons scratch", ncells4, pmb->ncells3, pmb->ncells2,
-                           pmb->ncells1);
+    Kokkos::View<Real ****, LayoutWrapper, HostMemSpace> cons_(
+        "cons scratch", ncells4, pmb->cellbounds.ncellsk(IndexDomain::entire),
+        pmb->cellbounds.ncellsj(IndexDomain::entire),
+        pmb->cellbounds.ncellsi(IndexDomain::entire));
 
     //  Compute errors at cell centers
-    for (int k = kl; k <= ku; k++) {
-      for (int j = jl; j <= ju; j++) {
-        for (int i = il; i <= iu; i++) {
-          Real x =
-              cos_a2 * (pmb->coords.x1v(i) * cos_a3 + pmb->coords.x2v(j) * sin_a3) +
-              pmb->coords.x3v(k) * sin_a2;
+    for (int k = kb.s; k <= kb.e; k++) {
+      for (int j = jb.s; j <= jb.e; j++) {
+        for (int i = ib.s; i <= ib.e; i++) {
+          Real x = cos_a2 * (pmb->coords.x1v(i) * cos_a3 + pmb->coords.x2v(j) * sin_a3) +
+                   pmb->coords.x3v(k) * sin_a2;
           Real sn = std::sin(k_par * x);
 
           Real d1 = d0 + amp * sn * rem[0][wave_flag];
@@ -217,9 +217,9 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
 
     auto rc = pmb->real_containers.Get(); // get base container
     auto u = rc.Get("cons").data.GetHostMirrorAndCopy();
-    for (int k = kl; k <= ku; ++k) {
-      for (int j = jl; j <= ju; ++j) {
-        for (int i = il; i <= iu; ++i) {
+    for (int k = kb.s; k <= kb.e; ++k) {
+      for (int j = jb.s; j <= jb.e; ++j) {
+        for (int i = ib.s; i <= ib.e; ++i) {
           // Load cell-averaged <U>, either midpoint approx. or fourth-order approx
           Real d1 = cons_(IDN, k, j, i);
           Real m1 = cons_(IM1, k, j, i);
@@ -329,6 +329,9 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
 //========================================================================================
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
+  IndexRange ib = cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = cellbounds.GetBoundsK(IndexDomain::interior);
   // Initialize the magnetic fields.  Note wavevector, eigenvectors, and other variables
   // are set in InitUserMeshData
 
@@ -337,9 +340,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   auto &u_dev = rc.Get("cons").data;
   // initializing on host
   auto u = u_dev.GetHostMirrorAndCopy();
-  for (int k = ks; k <= ke; k++) {
-    for (int j = js; j <= je; j++) {
-      for (int i = is; i <= ie; i++) {
+  for (int k = kb.s; k <= kb.e; k++) {
+    for (int j = jb.s; j <= jb.e; j++) {
+      for (int i = ib.s; i <= ib.e; i++) {
         Real x = cos_a2 * (coords.x1v(i) * cos_a3 + coords.x2v(j) * sin_a3) +
                  coords.x3v(k) * sin_a2;
         Real sn = std::sin(k_par * x);
@@ -487,13 +490,15 @@ void Eigensystem(const Real d, const Real v1, const Real v2, const Real v3, cons
 }
 
 Real MaxV2(MeshBlock *pmb, int iout) {
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   Real max_v2 = 0.0;
-  int is = pmb->is, ie = pmb->ie, js = pmb->js, je = pmb->je, ks = pmb->ks, ke = pmb->ke;
   Container<Real> &rc = pmb->real_containers.Get();
   auto &w = rc.Get("prim").data;
-  for (int k = ks; k <= ke; k++) {
-    for (int j = js; j <= je; j++) {
-      for (int i = is; i <= ie; i++) {
+  for (int k = kb.s; k <= kb.e; k++) {
+    for (int j = jb.s; j <= jb.e; j++) {
+      for (int i = ib.s; i <= ib.e; i++) {
         max_v2 = std::max(std::abs(w(IVY, k, j, i)), max_v2);
       }
     }
