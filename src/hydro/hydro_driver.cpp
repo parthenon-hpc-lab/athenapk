@@ -5,11 +5,13 @@
 //========================================================================================
 
 // Parthenon headers
+#include "basic_types.hpp"
 #include "bvals/boundary_conditions.hpp"
 
 // Athena headers
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
+#include "task_list/tasks.hpp"
 
 using parthenon::BlockStageNamesIntegratorTask;
 using parthenon::BlockStageNamesIntegratorTaskFunc;
@@ -33,7 +35,7 @@ TaskStatus UpdateContainer(MeshBlock *pmb, int stage,
   Container<Real> &cout = pmb->real_containers.Get(stage_name[stage]);
   Container<Real> &dudt = pmb->real_containers.Get("dUdt");
   // parthenon::Update::AverageContainers(cin, base, beta);
-  //parthenon::Update::UpdateContainer(cin, dudt, beta * pmb->pmy_mesh->dt, cout);
+  // parthenon::Update::UpdateContainer(cin, dudt, beta * pmb->pmy_mesh->dt, cout);
   parthenon::Update::UpdateContainer(base, dudt, beta * dt, cout);
 
   return TaskStatus::complete;
@@ -81,8 +83,13 @@ TaskList HydroDriver::MakeTaskList(MeshBlock *pmb, int stage) {
 
   auto start_recv = AddContainerTask(Container<Real>::StartReceivingTask, none, sc1);
 
-  //auto advect_flux = AddContainerStageTask(Hydro::CalculateFluxes, none, sc0, stage);
-  auto advect_flux = AddContainerStageTask(Hydro::CalculateFluxesWScratch, none, sc0, stage);
+  TaskID advect_flux;
+  auto pkg = pmb->packages["Hydro"];
+  if (pkg->Param<bool>("use_scratch")) {
+    advect_flux = AddContainerStageTask(Hydro::CalculateFluxesWScratch, none, sc0, stage);
+  } else {
+    advect_flux = AddContainerStageTask(Hydro::CalculateFluxes, none, sc0, stage);
+  }
 
   // compute the divergence of fluxes of conserved variables
   auto flux_div =

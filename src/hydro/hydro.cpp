@@ -66,6 +66,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // TODO(pgrete) FAIL
     std::cout << "Whoops, EOS undefined" << std::endl;
   }
+  auto use_scratch = pin->GetOrAddBoolean("hydro", "use_scratch", true);
+  auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 1);
+  pkg->AddParam("use_scratch", use_scratch);
+  pkg->AddParam("scratch_level", scratch_level);
 
   // TODO(pgrete): this needs to be "variable" depending on physics
   int nhydro = 5;
@@ -262,7 +266,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
   auto coords = pmb->coords;
-  const int scratch_level = 1; // 0 is actual scratch (tiny); 1 is HBM
+  const int scratch_level =
+      pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
   size_t scratch_size_in_bytes =
       parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 7;
