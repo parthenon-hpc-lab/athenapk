@@ -66,6 +66,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 void ConsToPrim(Container<Real> &rc);
 Real EstimateTimestep(Container<Real> &rc);
 TaskStatus CalculateFluxes(Container<Real> &rc, int stage);
+TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage);
 
 } // namespace Hydro
 

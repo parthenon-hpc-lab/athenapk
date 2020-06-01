@@ -17,6 +17,9 @@
 #include "../main.hpp"
 #include "../recon/recon.hpp"
 #include "hydro.hpp"
+#include "reconstruct/dc_inline.hpp"
+#include "reconstruct/plm_inline.hpp"
+#include "rsolvers/hydro_hlle.hpp"
 #include "rsolvers/riemann.hpp"
 
 using parthenon::CellVariable;
@@ -232,6 +235,179 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
     Kokkos::Profiling::pushRegion("Riemann Z");
     RiemannSolver(pmb, kb.s, kb.e + 1, jl, ju, il, iu, IVZ, wl, wr, x3flux, eos);
     Kokkos::Profiling::popRegion(); // Riemann Z
+  }
+
+  return TaskStatus::complete;
+}
+
+TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
+  MeshBlock *pmb = rc.pmy_block;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  int il, iu, jl, ju, kl, ku;
+  jl = jb.s, ju = jb.e, kl = kb.s, ku = kb.e;
+  // TODO(pgrete): are these looop limits are likely too large for 2nd order
+  if (pmb->block_size.nx2 > 1) {
+    if (pmb->block_size.nx3 == 1) // 2D
+      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s, ku = kb.e;
+    else // 3D
+      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
+  }
+
+  CellVariable<Real> &prim = rc.Get("prim");
+  CellVariable<Real> &cons = rc.Get("cons");
+  auto pkg = pmb->packages["Hydro"];
+  const int nhydro = pkg->Param<int>("nhydro");
+  auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
+
+  auto coords = pmb->coords;
+  const int scratch_level = 1; // 0 is actual scratch (tiny); 1 is HBM
+  const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
+  size_t scratch_size_in_bytes =
+      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 7;
+
+  // get x-fluxes
+  ParArray4D<Real> flx = cons.flux[parthenon::X1DIR].Get<4>();
+
+  // TODO(pgrete): hardcoded stages
+  pmb->par_for_outer(
+      "x1 flux", scratch_size_in_bytes, scratch_level, kl, ku, jl, ju,
+      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
+        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro, nx1);
+        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
+        // get reconstructed state on faces
+        if (stage == 1) {
+          DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim.data, wl, wr);
+        } else {
+          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, coords, prim.data, wl, wr,
+                            qc, dql, dqr, dqm);
+        }
+        // Sync all threads in the team so that scratch memory is consistent
+        member.team_barrier();
+
+        RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, flx, eos);
+      });
+
+  //--------------------------------------------------------------------------------------
+  // j-direction
+  if (pmb->pmy_mesh->ndim >= 2) {
+    flx = cons.flux[parthenon::X2DIR].Get<4>();
+    // set the loop limits
+    il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
+    if (pmb->block_size.nx3 == 1) // 2D
+      kl = kb.s, ku = kb.e;
+    else // 3D
+      kl = kb.s - 1, ku = kb.e + 1;
+
+    pmb->par_for_outer(
+        "x2 flux", scratch_size_in_bytes, scratch_level, kl, ku,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k) {
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          // reconstruct the first row
+          if (stage == 1) {
+            DonorCellX2(member, k, jb.s - 1, il, iu, prim.data, wl, wr);
+          } else {
+            PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim.data, wl, wr, qc,
+                              dql, dqr, dqm);
+          }
+          // Sync all threads in the team so that scratch memory is consistent
+          member.team_barrier();
+          for (int j = jb.s; j <= jb.e + 1; ++j) {
+            // reconstruct L/R states at j
+            if (stage == 1) {
+              DonorCellX2(member, k, j, il, iu, prim.data, wlb, wr);
+            } else {
+              PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, wlb, wr, qc, dql,
+                                dqr, dqm);
+            }
+            member.team_barrier();
+
+            RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
+            member.team_barrier();
+
+            // swap the arrays for the next step
+            auto tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+          }
+        });
+  }
+
+  //--------------------------------------------------------------------------------------
+  // k-direction
+
+  if (pmb->pmy_mesh->ndim >= 3) {
+    // set the loop limits
+    il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
+
+    flx = cons.flux[parthenon::X3DIR].Get<4>();
+    pmb->par_for_outer(
+        "x3 flux", scratch_size_in_bytes, scratch_level, jl, ju,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int j) {
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          // reconstruct the first row
+          if (stage == 1) {
+            DonorCellX3(member, kb.s - 1, j, il, iu, prim.data, wl, wr);
+          } else {
+            PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim.data, wl, wr, qc,
+                              dql, dqr, dqm);
+          }
+          // Sync all threads in the team so that scratch memory is consistent
+          member.team_barrier();
+          for (int k = kb.s; k <= kb.e + 1; ++k) {
+            // reconstruct L/R states at j
+            if (stage == 1) {
+              DonorCellX3(member, k, j, il, iu, prim.data, wlb, wr);
+            } else {
+              PiecewiseLinearX3(member, k, j, il, iu, coords, prim.data, wlb, wr, qc, dql,
+                                dqr, dqm);
+            }
+            member.team_barrier();
+
+            RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, flx, eos);
+            member.team_barrier();
+
+            // swap the arrays for the next step
+            auto tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+          }
+        });
   }
 
   return TaskStatus::complete;

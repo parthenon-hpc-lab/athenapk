@@ -81,7 +81,8 @@ TaskList HydroDriver::MakeTaskList(MeshBlock *pmb, int stage) {
 
   auto start_recv = AddContainerTask(Container<Real>::StartReceivingTask, none, sc1);
 
-  auto advect_flux = AddContainerStageTask(Hydro::CalculateFluxes, none, sc0, stage);
+  //auto advect_flux = AddContainerStageTask(Hydro::CalculateFluxes, none, sc0, stage);
+  auto advect_flux = AddContainerStageTask(Hydro::CalculateFluxesWScratch, none, sc0, stage);
 
   // compute the divergence of fluxes of conserved variables
   auto flux_div =
