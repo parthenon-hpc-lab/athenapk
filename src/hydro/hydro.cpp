@@ -129,8 +129,9 @@ Real EstimateTimestep(Container<Real> &rc) {
 
   Kokkos::parallel_reduce(
       "EstimateTimestep",
-      Kokkos::MDRangePolicy<Kokkos::Rank<3>>(
-          {kb.s, jb.s, ib.s}, {kb.e + 1, jb.e + 1, ib.e + 1}, {1, 1, ib.e + 1 - ib.s}),
+      Kokkos::MDRangePolicy<Kokkos::Rank<3>>(pmb->exec_space, {kb.s, jb.s, ib.s},
+                                             {kb.e + 1, jb.e + 1, ib.e + 1},
+                                             {1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int k, const int j, const int i, Real &min_dt) {
         Real w[(NHYDRO)];
         w[IDN] = prim(IDN, k, j, i);
