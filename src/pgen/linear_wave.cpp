@@ -291,7 +291,7 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
       if ((pfile = std::freopen(fname.c_str(), "a", pfile)) == nullptr) {
         msg << "### FATAL ERROR in function Mesh::UserWorkAfterLoop" << std::endl
             << "Error output file could not be opened" << std::endl;
-        ATHENA_ERROR(msg);
+        PARTHENON_FAIL(msg);
       }
 
       // The file does not exist -- open the file in write mode and add headers
@@ -299,7 +299,7 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
       if ((pfile = std::fopen(fname.c_str(), "w")) == nullptr) {
         msg << "### FATAL ERROR in function Mesh::UserWorkAfterLoop" << std::endl
             << "Error output file could not be opened" << std::endl;
-        ATHENA_ERROR(msg);
+        PARTHENON_FAIL(msg);
       }
       std::fprintf(pfile, "# Nx1  Nx2  Nx3  Ncycle  ");
       std::fprintf(pfile, "RMS-L1-Error  d_L1  M1_L1  M2_L1  M3_L1  E_L1 ");
@@ -360,7 +360,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     }
   }
   // copy initialized vars to device
-  u_dev.DeepCopy(u);
+  u_dev.DeepCopy(rc.pmy_block->exec_space, u);
   return;
 }
 
