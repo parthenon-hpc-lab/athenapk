@@ -25,40 +25,40 @@ namespace Hydro {
 using ContainerTaskFunc = std::function<TaskStatus(Container<Real> &)>;
 class ContainerTask : public BaseTask {
  public:
-  ContainerTask(TaskID id, ContainerTaskFunc func, TaskID dep, Container<Real> rc)
-      : BaseTask(id, dep), _func(func), _cont(rc) {}
-  TaskStatus operator()() { return _func(_cont); }
+  ContainerTask(TaskID id, ContainerTaskFunc func, TaskID dep, Container<Real> &rc)
+      : BaseTask(id, dep), _func(func), _cont(&rc) {}
+  TaskStatus operator()() { return _func(*_cont); }
 
  private:
   ContainerTaskFunc _func;
-  Container<Real> _cont;
+  Container<Real> *_cont;
 };
 using TwoContainerTaskFunc =
     std::function<TaskStatus(Container<Real> &, Container<Real> &)>;
 class TwoContainerTask : public BaseTask {
  public:
-  TwoContainerTask(TaskID id, TwoContainerTaskFunc func, TaskID dep, Container<Real> rc1,
-                   Container<Real> rc2)
-      : BaseTask(id, dep), _func(func), _cont1(rc1), _cont2(rc2) {}
-  TaskStatus operator()() { return _func(_cont1, _cont2); }
+  TwoContainerTask(TaskID id, TwoContainerTaskFunc func, TaskID dep, Container<Real> &rc1,
+                   Container<Real> &rc2)
+      : BaseTask(id, dep), _func(func), _cont1(&rc1), _cont2(&rc2) {}
+  TaskStatus operator()() { return _func(*_cont1, *_cont2); }
 
  private:
   TwoContainerTaskFunc _func;
-  Container<Real> _cont1;
-  Container<Real> _cont2;
+  Container<Real> *_cont1;
+  Container<Real> *_cont2;
 };
 
 using ContainerStageTaskFunc = std::function<TaskStatus(Container<Real> &, int)>;
 class ContainerStageTask : public BaseTask {
  public:
   ContainerStageTask(TaskID id, ContainerStageTaskFunc func, TaskID dep,
-                     Container<Real> rc, int stage)
-      : BaseTask(id, dep), _func(func), _cont(rc), _stage(stage) {}
-  TaskStatus operator()() { return _func(_cont, _stage); }
+                     Container<Real> &rc, int stage)
+      : BaseTask(id, dep), _func(func), _cont(&rc), _stage(stage) {}
+  TaskStatus operator()() { return _func(*_cont, _stage); }
 
  private:
   ContainerStageTaskFunc _func;
-  Container<Real> _cont;
+  Container<Real> *_cont;
   int _stage;
 };
 
