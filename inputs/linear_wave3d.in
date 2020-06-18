@@ -37,6 +37,7 @@ ix3_bc = periodic
 ox3_bc = periodic
 
 num_threads=1
+num_streams=1
 
 <parthenon/meshblock>
 nx1=8
@@ -53,6 +54,7 @@ integrator = vl2
 cfl = 0.3
 tlim = 5.0
 nlim = 100000
+perc_cycle_offset = 0 # number of inital cycles not to be included in perf calc
 
 <hydro>
 eos = adiabatic
