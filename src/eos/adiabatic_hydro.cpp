@@ -19,6 +19,7 @@
 #include "interface/variable.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_arrays.hpp"
+using parthenon::ParArray4D;
 
 //----------------------------------------------------------------------------------------
 // \!fn void EquationOfState::ConservedToPrimitive(
@@ -32,8 +33,8 @@ void AdiabaticHydroEOS::ConservedToPrimitive(Container<Real> &rc, int il, int iu
   auto pressure_floor_ = GetPressureFloor();
   auto pmb = rc.pmy_block;
 
-  auto cons = rc.Get("cons").data.Get<4>();
-  auto prim = rc.Get("prim").data.Get<4>();
+  ParArray4D<Real> cons = rc.Get("cons").data.Get<4>();
+  ParArray4D<Real> prim = rc.Get("prim").data.Get<4>();
 
   pmb->par_for(
       "ConservedToPrimitive", kl, ku, jl, ju, il, iu,

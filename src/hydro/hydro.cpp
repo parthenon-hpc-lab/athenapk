@@ -260,7 +260,7 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
   }
 
-  CellVariable<Real> &prim = rc.Get("prim");
+  ParArrayND<Real> &prim = rc.Get("prim").data;
   CellVariable<Real> &cons = rc.Get("cons");
   auto pkg = pmb->packages["Hydro"];
   const int nhydro = pkg->Param<int>("nhydro");
@@ -284,7 +284,7 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
         // get reconstructed state on faces
         if (stage == 1) {
-          DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim.data, wl, wr);
+          DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         } else {
           parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
                                            nx1);
@@ -294,7 +294,7 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
                                             nx1);
           parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
                                             nx1);
-          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, coords, prim.data, wl, wr,
+          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, coords, prim, wl, wr,
                             qc, dql, dqr, dqm);
         }
         // Sync all threads in the team so that scratch memory is consistent
@@ -333,9 +333,9 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
                                             nx1);
           // reconstruct the first row
           if (stage == 1) {
-            DonorCellX2(member, k, jb.s - 1, il, iu, prim.data, wl, wr);
+            DonorCellX2(member, k, jb.s - 1, il, iu, prim, wl, wr);
           } else {
-            PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim.data, wl, wr, qc,
+            PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim, wl, wr, qc,
                               dql, dqr, dqm);
           }
           // Sync all threads in the team so that scratch memory is consistent
@@ -343,9 +343,9 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
           for (int j = jb.s; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
             if (stage == 1) {
-              DonorCellX2(member, k, j, il, iu, prim.data, wlb, wr);
+              DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
             } else {
-              PiecewiseLinearX2(member, k, j, il, iu, coords, prim.data, wlb, wr, qc, dql,
+              PiecewiseLinearX2(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql,
                                 dqr, dqm);
             }
             member.team_barrier();
@@ -388,9 +388,9 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
                                             nx1);
           // reconstruct the first row
           if (stage == 1) {
-            DonorCellX3(member, kb.s - 1, j, il, iu, prim.data, wl, wr);
+            DonorCellX3(member, kb.s - 1, j, il, iu, prim, wl, wr);
           } else {
-            PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim.data, wl, wr, qc,
+            PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim, wl, wr, qc,
                               dql, dqr, dqm);
           }
           // Sync all threads in the team so that scratch memory is consistent
@@ -398,9 +398,9 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
           for (int k = kb.s; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
             if (stage == 1) {
-              DonorCellX3(member, k, j, il, iu, prim.data, wlb, wr);
+              DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
             } else {
-              PiecewiseLinearX3(member, k, j, il, iu, coords, prim.data, wlb, wr, qc, dql,
+              PiecewiseLinearX3(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql,
                                 dqr, dqm);
             }
             member.team_barrier();
