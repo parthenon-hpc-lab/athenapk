@@ -21,7 +21,7 @@
 
 #include "../main.hpp"
 #include "mesh/mesh.hpp"
-#include "athena.hpp"
+#include "defs.hpp"
 #include "parthenon_arrays.hpp"
 
 using parthenon::ParArray4D;

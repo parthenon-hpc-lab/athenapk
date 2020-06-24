@@ -7,7 +7,7 @@
 // Parthenon headers
 #include <parthenon/package.hpp>
 
-#include "athena.hpp"
+#include "defs.hpp"
 #include "mesh/domain.hpp"
 #include "parthenon/prelude.hpp"
 #include "parthenon_manager.hpp"
