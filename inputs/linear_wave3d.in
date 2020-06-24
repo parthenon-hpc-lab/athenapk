@@ -52,9 +52,9 @@ variables   = cons,prim      # variables to be output TODO(pgrete) this is  like
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
-tlim = 5.0
+tlim = 1.0
 nlim = 100000
-perc_cycle_offset = 0 # number of inital cycles not to be included in perf calc
+perc_cycle_offset = 5 # number of inital cycles not to be included in perf calc
 
 <hydro>
 eos = adiabatic

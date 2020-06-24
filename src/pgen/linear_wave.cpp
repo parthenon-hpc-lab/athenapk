@@ -254,14 +254,14 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
 
 #ifdef MPI_PARALLEL
   if (Globals::my_rank == 0) {
-    MPI_Reduce(MPI_IN_PLACE, &l1_err, (NHYDRO + NFIELD), MPI_ATHENA_REAL, MPI_SUM, 0,
+    MPI_Reduce(MPI_IN_PLACE, &l1_err, (NHYDRO + NFIELD), MPI_PARTHENON_REAL, MPI_SUM, 0,
                MPI_COMM_WORLD);
-    MPI_Reduce(MPI_IN_PLACE, &max_err, (NHYDRO + NFIELD), MPI_ATHENA_REAL, MPI_MAX, 0,
+    MPI_Reduce(MPI_IN_PLACE, &max_err, (NHYDRO + NFIELD), MPI_PARTHENON_REAL, MPI_MAX, 0,
                MPI_COMM_WORLD);
   } else {
-    MPI_Reduce(&l1_err, &l1_err, (NHYDRO + NFIELD), MPI_ATHENA_REAL, MPI_SUM, 0,
+    MPI_Reduce(&l1_err, &l1_err, (NHYDRO + NFIELD), MPI_PARTHENON_REAL, MPI_SUM, 0,
                MPI_COMM_WORLD);
-    MPI_Reduce(&max_err, &max_err, (NHYDRO + NFIELD), MPI_ATHENA_REAL, MPI_MAX, 0,
+    MPI_Reduce(&max_err, &max_err, (NHYDRO + NFIELD), MPI_PARTHENON_REAL, MPI_MAX, 0,
                MPI_COMM_WORLD);
   }
 #endif
