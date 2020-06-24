@@ -8,6 +8,9 @@ add_executable(
         hydro/hydro_driver.cpp
         hydro/hydro.cpp
         hydro/rsolvers/hydro_hlle.cpp
+        hydro/rsolvers/hydro_hlle_kji.cpp
+        recon/dc.cpp
+        recon/plm.cpp
 )
 
 add_subdirectory(pgen)

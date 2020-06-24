@@ -34,18 +34,8 @@ int main(int argc, char *argv[]) {
 
     Hydro::HydroDriver driver(pman.pinput.get(), pman.pmesh.get());
 
-    // TODO(pgrete) The following lines are (likely) identical between different
-    // drivers, thus we should consider introducing specialization on the line
-    // above and move the lines below out of the conditional
-
-    // start a timer
-    pman.PreDriver();
-
     // This line actually runs the simulation
     auto driver_status = driver.Execute();
-
-    // Make final outputs, print diagnostics
-    pman.PostDriver(driver_status);
 
   } else {
     std::cout << "Unknown integrator: " << integrator_name << std::endl;

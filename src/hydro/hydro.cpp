@@ -1,21 +1,32 @@
 //========================================================================================
-// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2020, Athena-Parthenon Collaboration. All rights reserved.
-// Licensed under the BSD 3-Clause License (the "LICENSE").
+// AthenaPK - a performance portable block structured AMR astrophysical MHD
+// code. Copyright (c) 2020, Athena-Parthenon Collaboration. All rights
+// reserved. Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
 // Parthenon headers
+#include <parthenon/package.hpp>
+
+#include "defs.hpp"
+#include "mesh/domain.hpp"
+#include "parthenon/prelude.hpp"
 #include "parthenon_manager.hpp"
 
-// Athena headers
+// AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
-#include "rsolvers/riemann.hpp"
+#include "../recon/recon.hpp"
 #include "hydro.hpp"
-#include <memory>
+#include "reconstruct/dc_inline.hpp"
+#include "reconstruct/plm_inline.hpp"
+#include "rsolvers/hydro_hlle.hpp"
+#include "rsolvers/riemann.hpp"
 
 using parthenon::CellVariable;
+using parthenon::IndexDomain;
+using parthenon::IndexRange;
 using parthenon::Metadata;
+using parthenon::ParArray4D;
 using parthenon::ParArrayND;
 using parthenon::ParthenonManager;
 
@@ -55,6 +66,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // TODO(pgrete) FAIL
     std::cout << "Whoops, EOS undefined" << std::endl;
   }
+  auto use_scratch = pin->GetOrAddBoolean("hydro", "use_scratch", true);
+  auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 1);
+  pkg->AddParam("use_scratch", use_scratch);
+  pkg->AddParam("scratch_level", scratch_level);
 
   // TODO(pgrete): this needs to be "variable" depending on physics
   int nhydro = 5;
@@ -69,6 +84,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   field_name = "prim";
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}));
   pkg->AddField(field_name, m);
+  //  temporary array
+  m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+               std::vector<int>({nhydro}));
+  pkg->AddField("wl", m);
+  pkg->AddField("wr", m);
 
   pkg->FillDerived = ConsToPrim;
   pkg->EstimateTimestep = EstimateTimestep;
@@ -81,15 +101,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 void ConsToPrim(Container<Real> &rc) {
   MeshBlock *pmb = rc.pmy_block;
   auto pkg = pmb->packages["Hydro"];
-  int is = 0;
-  int js = 0;
-  int ks = 0;
-  int ie = pmb->ncells1 - 1;
-  int je = pmb->ncells2 - 1;
-  int ke = pmb->ncells3 - 1;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
   // TODO(pgrete): need to figure out a nice way for polymorphism wrt the EOS
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
-  eos.ConservedToPrimitive(rc, is, ie, js, je, ks, ke);
+  eos.ConservedToPrimitive(rc, ib.s, ib.e, jb.s, jb.e, kb.s, kb.e);
 }
 
 // provide the routine that estimates a stable timestep for this package
@@ -97,188 +114,306 @@ Real EstimateTimestep(Container<Real> &rc) {
   MeshBlock *pmb = rc.pmy_block;
   auto pkg = pmb->packages["Hydro"];
   const auto &cfl = pkg->Param<Real>("cfl");
-  CellVariable<Real> &prim = rc.Get("prim");
+  ParArray4D<Real> prim = rc.Get("prim").data.Get<4>();
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
-  int is = pmb->is;
-  int js = pmb->js;
-  int ks = pmb->ks;
-  int ie = pmb->ie;
-  int je = pmb->je;
-  int ke = pmb->ke;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
   Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
-  ParArrayND<Real> dt1("dt1", pmb->ncells1);
-  ParArrayND<Real> dt2("dt2", pmb->ncells1);
-  ParArrayND<Real> dt3("dt3", pmb->ncells1);
 
-  Real w[(NHYDRO)];
+  auto coords = pmb->coords;
+  bool nx2 = (pmb->block_size.nx2 > 1) ? true : false;
+  bool nx3 = (pmb->block_size.nx3 > 1) ? true : false;
 
-  // TODO(pgrete) make this pmb->par_for
-  for (int k = ks; k <= ke; ++k) {
-    for (int j = js; j <= je; ++j) {
-      pmb->pcoord->CenterWidth1(k, j, is, ie, dt1);
-      pmb->pcoord->CenterWidth2(k, j, is, ie, dt2);
-      pmb->pcoord->CenterWidth3(k, j, is, ie, dt3);
-#pragma ivdep
-      for (int i = is; i <= ie; ++i) {
+  Kokkos::parallel_reduce(
+      "EstimateTimestep",
+      Kokkos::MDRangePolicy<Kokkos::Rank<3>>(pmb->exec_space, {kb.s, jb.s, ib.s},
+                                             {kb.e + 1, jb.e + 1, ib.e + 1},
+                                             {1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int k, const int j, const int i, Real &min_dt) {
+        Real w[(NHYDRO)];
         w[IDN] = prim(IDN, k, j, i);
         w[IVX] = prim(IVX, k, j, i);
         w[IVY] = prim(IVY, k, j, i);
         w[IVZ] = prim(IVZ, k, j, i);
         w[IPR] = prim(IPR, k, j, i);
         Real cs = eos.SoundSpeed(w);
-        dt1(i) /= (std::abs(w[IVX]) + cs);
-        dt2(i) /= (std::abs(w[IVY]) + cs);
-        dt3(i) /= (std::abs(w[IVZ]) + cs);
-      }
-
-      // compute minimum of (v1 +/- C)
-      for (int i = is; i <= ie; ++i) {
-        Real &dt_1 = dt1(i);
-        min_dt_hyperbolic = std::min(min_dt_hyperbolic, dt_1);
-      }
-
-      // if grid is 2D/3D, compute minimum of (v2 +/- C)
-      if (pmb->block_size.nx2 > 1) {
-        for (int i = is; i <= ie; ++i) {
-          Real &dt_2 = dt2(i);
-          min_dt_hyperbolic = std::min(min_dt_hyperbolic, dt_2);
+        min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) / (fabs(w[IVX]) + cs));
+        if (nx2) {
+          min_dt =
+              fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) / (fabs(w[IVY]) + cs));
         }
-      }
-
-      // if grid is 3D, compute minimum of (v3 +/- C)
-      if (pmb->block_size.nx3 > 1) {
-        for (int i = is; i <= ie; ++i) {
-          Real &dt_3 = dt3(i);
-          min_dt_hyperbolic = std::min(min_dt_hyperbolic, dt_3);
+        if (nx3) {
+          min_dt =
+              fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) / (fabs(w[IVZ]) + cs));
         }
-      }
-    }
-  }
+      },
+      Kokkos::Min<Real>(min_dt_hyperbolic));
   return cfl * min_dt_hyperbolic;
-}
+} // namespace Hydro
 
 // Compute fluxes at faces given the constant velocity field and
 // some field "advected" that we are pushing around.
 // This routine implements all the "physics" in this example
 TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   MeshBlock *pmb = rc.pmy_block;
-  int is = pmb->is;
-  int js = pmb->js;
-  int ks = pmb->ks;
-  int ie = pmb->ie;
-  int je = pmb->je;
-  int ke = pmb->ke;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
   int il, iu, jl, ju, kl, ku;
-  jl = js, ju = je, kl = ks, ku = ke;
+  jl = jb.s, ju = jb.e, kl = kb.s, ku = kb.e;
   // TODO(pgrete): are these looop limits are likely too large for 2nd order
   if (pmb->block_size.nx2 > 1) {
     if (pmb->block_size.nx3 == 1) // 2D
-      jl = js - 1, ju = je + 1, kl = ks, ku = ke;
+      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s, ku = kb.e;
     else // 3D
-      jl = js - 1, ju = je + 1, kl = ks - 1, ku = ke + 1;
+      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
   }
 
-  CellVariable<Real> &prim = rc.Get("prim");
+  ParArray4D<Real> w = rc.Get("prim").data.Get<4>();
+  ParArray4D<Real> wl = rc.Get("wl").data.Get<4>();
+  ParArray4D<Real> wr = rc.Get("wr").data.Get<4>();
   CellVariable<Real> &cons = rc.Get("cons");
   auto pkg = pmb->packages["Hydro"];
   const int nhydro = pkg->Param<int>("nhydro");
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
-  // TODO(pgrete): buffer are only ever over index 1. Push this upstream to Parthenon
-  ParArrayND<Real> wl("wl", nhydro, pmb->ncells1);
-  ParArrayND<Real> wr("wr", nhydro, pmb->ncells1);
-  ParArrayND<Real> wlb("wlb", nhydro, pmb->ncells1);
-  ParArrayND<Real> dxw("dxw", pmb->ncells1);
-
+  auto coords = pmb->coords;
   // get x-fluxes
-  // TODO(pgrete): hardcoded correct flux array extraction and stages
-  auto flx = cons.flux[IVX - 1];
-  // TODO(pgrete): -> use par_for
-  for (int k = kl; k <= ku; k++) {
-    for (int j = jl; j <= ju; j++) {
-      // get reconstructed state on faces
-      if (stage == 1) {
-        pmb->precon->DonorCellX1(k, j, is - 1, ie + 1, prim.data, wl, wr);
-      } else {
-        pmb->precon->PiecewiseLinearX1(k, j, is - 1, ie + 1, prim.data, wl, wr);
-      }
-      pmb->pcoord->CenterWidth1(k, j, is, ie + 1, dxw);
-      RiemannSolver(k, j, is, ie + 1, IVX, wl, wr, flx, dxw, eos);
-    }
+  ParArray4D<Real> x1flux = cons.flux[parthenon::X1DIR].Get<4>();
+
+  Kokkos::Profiling::pushRegion("Reconstruct X");
+  if (stage == 1) {
+    DonorCellX1KJI(pmb, kl, ku, jl, ju, ib.s, ib.e + 1, w, wl, wr);
+  } else {
+    PiecewiseLinearX1KJI(pmb, kl, ku, jl, ju, ib.s, ib.e + 1, w, wl, wr);
   }
+  Kokkos::Profiling::popRegion(); // Reconstruct X
+
+  Kokkos::Profiling::pushRegion("Riemann X");
+  RiemannSolver(pmb, kl, ku, jl, ju, ib.s, ib.e + 1, IVX, wl, wr, x1flux, eos);
+  Kokkos::Profiling::popRegion(); // Riemann X
 
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
-    flx = cons.flux[IVY - 1];
+    ParArray4D<Real> x2flux = cons.flux[parthenon::X2DIR].Get<4>();
     // set the loop limits
-    il = is - 1, iu = ie + 1, kl = ks, ku = ke;
+    il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
     if (pmb->block_size.nx3 == 1) // 2D
-      kl = ks, ku = ke;
+      kl = kb.s, ku = kb.e;
     else // 3D
-      kl = ks - 1, ku = ke + 1;
-
-    for (int k = kl; k <= ku; ++k) {
-      // reconstruct the first row
-      if (stage == 1) {
-        pmb->precon->DonorCellX2(k, js - 1, il, iu, prim.data, wl, wr);
-      } else {
-        pmb->precon->PiecewiseLinearX2(k, js - 1, il, iu, prim.data, wl, wr);
-      }
-      for (int j = js; j <= je + 1; ++j) {
-        // reconstruct L/R states at j
-        if (stage == 1) {
-          pmb->precon->DonorCellX2(k, j, il, iu, prim.data, wlb, wr);
-        } else {
-          pmb->precon->PiecewiseLinearX2(k, j, il, iu, prim.data, wlb, wr);
-        }
-
-        pmb->pcoord->CenterWidth2(k, j, il, iu, dxw);
-        RiemannSolver(k, j, il, iu, IVY, wl, wr, flx, dxw, eos);
-
-        // swap the arrays for the next step
-        auto tmp = wlb;
-        wlb = wl;
-        wl = tmp;
-      }
+      kl = kb.s - 1, ku = kb.e + 1;
+    // reconstruct L/R states at j
+    Kokkos::Profiling::pushRegion("Reconstruct Y");
+    if (stage == 1) {
+      DonorCellX2KJI(pmb, kl, ku, jb.s, jb.e + 1, il, iu, w, wl, wr);
+    } else {
+      PiecewiseLinearX2KJI(pmb, kl, ku, jb.s, jb.e + 1, il, iu, w, wl, wr);
     }
+    Kokkos::Profiling::popRegion(); // Reconstruct Y
+
+    Kokkos::Profiling::pushRegion("Riemann Y");
+    RiemannSolver(pmb, kl, ku, jb.s, jb.e + 1, il, iu, IVY, wl, wr, x2flux, eos);
+    Kokkos::Profiling::popRegion(); // Riemann Y
   }
 
   //--------------------------------------------------------------------------------------
   // k-direction
 
   if (pmb->pmy_mesh->ndim >= 3) {
-    flx = cons.flux[IVZ - 1];
+    ParArray4D<Real> x3flux = cons.flux[parthenon::X3DIR].Get<4>();
     // set the loop limits
-    il = is - 1, iu = ie + 1, jl = js - 1, ju = je + 1;
-
-    for (int j = jl; j <= ju; ++j) { // this loop ordering is intentional
-      // reconstruct the first row
-      if (stage == 1) {
-        pmb->precon->DonorCellX3(ks - 1, j, il, iu, prim.data, wl, wr);
-      } else {
-        pmb->precon->PiecewiseLinearX3(ks - 1, j, il, iu, prim.data, wl, wr);
-      }
-      for (int k = ks; k <= ke + 1; ++k) {
-        // reconstruct L/R states at k
-        if (stage == 1) {
-          pmb->precon->DonorCellX3(k, j, il, iu, prim.data, wlb, wr);
-        } else {
-          pmb->precon->PiecewiseLinearX3(k, j, il, iu, prim.data, wlb, wr);
-        }
-
-        pmb->pcoord->CenterWidth3(k, j, il, iu, dxw);
-        RiemannSolver(k, j, il, iu, IVZ, wl, wr, flx, dxw, eos);
-
-        // swap the arrays for the next step
-        auto tmp = wlb;
-        wlb = wl;
-        wl = tmp;
-      }
+    il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
+    // reconstruct L/R states at k
+    Kokkos::Profiling::pushRegion("Reconstruct Z");
+    if (stage == 1) {
+      DonorCellX3KJI(pmb, kb.s, kb.e + 1, jl, ju, il, iu, w, wl, wr);
+    } else {
+      PiecewiseLinearX3KJI(pmb, kb.s, kb.e + 1, jl, ju, il, iu, w, wl, wr);
     }
+    Kokkos::Profiling::popRegion(); // Reconstruct Z
+
+    Kokkos::Profiling::pushRegion("Riemann Z");
+    RiemannSolver(pmb, kb.s, kb.e + 1, jl, ju, il, iu, IVZ, wl, wr, x3flux, eos);
+    Kokkos::Profiling::popRegion(); // Riemann Z
+  }
+
+  return TaskStatus::complete;
+}
+
+TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
+  MeshBlock *pmb = rc.pmy_block;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  int il, iu, jl, ju, kl, ku;
+  jl = jb.s, ju = jb.e, kl = kb.s, ku = kb.e;
+  // TODO(pgrete): are these looop limits are likely too large for 2nd order
+  if (pmb->block_size.nx2 > 1) {
+    if (pmb->block_size.nx3 == 1) // 2D
+      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s, ku = kb.e;
+    else // 3D
+      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
+  }
+
+  ParArrayND<Real> &prim = rc.Get("prim").data;
+  CellVariable<Real> &cons = rc.Get("cons");
+  auto pkg = pmb->packages["Hydro"];
+  const int nhydro = pkg->Param<int>("nhydro");
+  auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
+
+  auto coords = pmb->coords;
+  const int scratch_level =
+      pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
+  const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
+  size_t scratch_size_in_bytes =
+      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 7;
+
+  // get x-fluxes
+  ParArray4D<Real> flx = cons.flux[parthenon::X1DIR].Get<4>();
+
+  // TODO(pgrete): hardcoded stages
+  pmb->par_for_outer(
+      "x1 flux", scratch_size_in_bytes, scratch_level, kl, ku, jl, ju,
+      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
+        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro, nx1);
+        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
+        // get reconstructed state on faces
+        if (stage == 1) {
+          DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        } else {
+          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, coords, prim, wl, wr,
+                            qc, dql, dqr, dqm);
+        }
+        // Sync all threads in the team so that scratch memory is consistent
+        member.team_barrier();
+
+        RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, flx, eos);
+      });
+
+  //--------------------------------------------------------------------------------------
+  // j-direction
+  if (pmb->pmy_mesh->ndim >= 2) {
+    flx = cons.flux[parthenon::X2DIR].Get<4>();
+    // set the loop limits
+    il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
+    if (pmb->block_size.nx3 == 1) // 2D
+      kl = kb.s, ku = kb.e;
+    else // 3D
+      kl = kb.s - 1, ku = kb.e + 1;
+
+    pmb->par_for_outer(
+        "x2 flux", scratch_size_in_bytes, scratch_level, kl, ku,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k) {
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          // reconstruct the first row
+          if (stage == 1) {
+            DonorCellX2(member, k, jb.s - 1, il, iu, prim, wl, wr);
+          } else {
+            PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim, wl, wr, qc,
+                              dql, dqr, dqm);
+          }
+          // Sync all threads in the team so that scratch memory is consistent
+          member.team_barrier();
+          for (int j = jb.s; j <= jb.e + 1; ++j) {
+            // reconstruct L/R states at j
+            if (stage == 1) {
+              DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
+            } else {
+              PiecewiseLinearX2(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql,
+                                dqr, dqm);
+            }
+            member.team_barrier();
+
+            RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
+            member.team_barrier();
+
+            // swap the arrays for the next step
+            auto tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+          }
+        });
+  }
+
+  //--------------------------------------------------------------------------------------
+  // k-direction
+
+  if (pmb->pmy_mesh->ndim >= 3) {
+    // set the loop limits
+    il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
+
+    flx = cons.flux[parthenon::X3DIR].Get<4>();
+    pmb->par_for_outer(
+        "x3 flux", scratch_size_in_bytes, scratch_level, jl, ju,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int j) {
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
+                                           nx1);
+          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
+                                            nx1);
+          // reconstruct the first row
+          if (stage == 1) {
+            DonorCellX3(member, kb.s - 1, j, il, iu, prim, wl, wr);
+          } else {
+            PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim, wl, wr, qc,
+                              dql, dqr, dqm);
+          }
+          // Sync all threads in the team so that scratch memory is consistent
+          member.team_barrier();
+          for (int k = kb.s; k <= kb.e + 1; ++k) {
+            // reconstruct L/R states at j
+            if (stage == 1) {
+              DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
+            } else {
+              PiecewiseLinearX3(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql,
+                                dqr, dqm);
+            }
+            member.team_barrier();
+
+            RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, flx, eos);
+            member.team_barrier();
+
+            // swap the arrays for the next step
+            auto tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+          }
+        });
   }
 
   return TaskStatus::complete;

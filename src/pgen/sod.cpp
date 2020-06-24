@@ -14,7 +14,7 @@ namespace parthenon {
 // TODO(pgrete) need to make this more flexible especially for other problems
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   Container<Real> &rc = real_containers.Get();
-  CellVariable<Real> &cons = rc.Get("cons");
+  ParArray4D<Real> cons = rc.Get("cons").data.Get<4>();
 
   Real rho_l = pin->GetOrAddReal("problem/sod", "rho_l", 1.0);
   Real pres_l = pin->GetOrAddReal("problem/sod", "pres_l", 1.0);
