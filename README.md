@@ -17,17 +17,17 @@ AthenaPK: a performance portable version of Athena++ built on Parthenon and Kokk
     mkdir build
     cd build
     # enabling Broadwell architecture (AVX2) instructions with OpenMP and HDF5
-    cmake -DKokkos_ARCH_BDW=True -DKokkos_ENABLE_OPENMP=True  -DCMAKE_CXX_FLAGS=-O3 -DPROBLEM=SOD ../
+    cmake -DKokkos_ARCH_BDW=True -DKokkos_ENABLE_OPENMP=True  -DCMAKE_CXX_FLAGS=-O3 ../
     make
 
-    # OR ALTERNATIVELY, disable OpenMP, MPI, and HDF5
-    cmake -DKokkos_ARCH_BDW=True -DDISABLE_OPENMP=ON -DDISABLE_MPI=ON -DDISABLE_HDF5=ON -DCMAKE_CXX_FLAGS=-O3 -DPROBLEM=SOD ../
+    # OR ALTERNATIVELY, disable OpenMP, MPI, HDF5, and linting
+    cmake -DKokkos_ARCH_BDW=True -DPARTHENON_DISABLE_OPENMP=ON -DPARTHENON_DISABLE_MPI=ON -DPARTHENON_DISABLE_HDF5=ON -DCMAKE_CXX_FLAGS=-O3 -DPARTHENON_LINT_DEFAULT=OFF ../
     make
 
-    # run test (doesn't work at the moment)
-    ./src/athenaPK -i ../inputs/sod.in
+    # run test
+    ./src/athenaPK -i ../inputs/linear_wave3d.in
 
-    # now plot results ("cons" are the conserved variables defined as graphics output in parthinput.sod)
+    # to be updated: now plot results ("cons" are the conserved variables defined as graphics output in parthinput.sod)
     python ../scripts/python/movie1d.py cons *.phdf
 
 ## Choosing problem types

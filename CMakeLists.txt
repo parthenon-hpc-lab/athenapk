@@ -5,11 +5,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(athenaPK LANGUAGES CXX)
 
-# Options
-option(DISABLE_MPI "MPI is enabled by default if found, set this to True to disable MPI" OFF)
-option(DISABLE_OPENMP "OpenMP is enabled by default if found, set this to True to disable OpenMP" OFF)
-option(DISABLE_HDF5 "HDF5 is enabled by default if found, set this to True to disable HDF5" OFF)
-
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Don't allow in-source builds
