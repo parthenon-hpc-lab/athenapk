@@ -129,9 +129,9 @@ Real EstimateTimestep(Container<Real> &rc) {
 
   Kokkos::parallel_reduce(
       "EstimateTimestep",
-      Kokkos::MDRangePolicy<Kokkos::Rank<3>>(pmb->exec_space, {kb.s, jb.s, ib.s},
-                                             {kb.e + 1, jb.e + 1, ib.e + 1},
-                                             {1, 1, ib.e + 1 - ib.s}),
+      parthenon::par_policy(Kokkos::MDRangePolicy<Kokkos::Rank<3>>(
+          pmb->exec_space, {kb.s, jb.s, ib.s}, {kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, ib.e + 1 - ib.s})),
       KOKKOS_LAMBDA(const int k, const int j, const int i, Real &min_dt) {
         Real w[(NHYDRO)];
         w[IDN] = prim(IDN, k, j, i);
@@ -294,8 +294,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
                                             nx1);
           parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
                                             nx1);
-          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, coords, prim, wl, wr,
-                            qc, dql, dqr, dqm);
+          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, coords, prim, wl, wr, qc,
+                            dql, dqr, dqm);
         }
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
@@ -335,8 +335,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
           if (stage == 1) {
             DonorCellX2(member, k, jb.s - 1, il, iu, prim, wl, wr);
           } else {
-            PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim, wl, wr, qc,
-                              dql, dqr, dqm);
+            PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim, wl, wr, qc, dql,
+                              dqr, dqm);
           }
           // Sync all threads in the team so that scratch memory is consistent
           member.team_barrier();
@@ -345,8 +345,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
             if (stage == 1) {
               DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
             } else {
-              PiecewiseLinearX2(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql,
-                                dqr, dqm);
+              PiecewiseLinearX2(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
+                                dqm);
             }
             member.team_barrier();
 
@@ -390,8 +390,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
           if (stage == 1) {
             DonorCellX3(member, kb.s - 1, j, il, iu, prim, wl, wr);
           } else {
-            PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim, wl, wr, qc,
-                              dql, dqr, dqm);
+            PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim, wl, wr, qc, dql,
+                              dqr, dqm);
           }
           // Sync all threads in the team so that scratch memory is consistent
           member.team_barrier();
@@ -400,8 +400,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
             if (stage == 1) {
               DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
             } else {
-              PiecewiseLinearX3(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql,
-                                dqr, dqm);
+              PiecewiseLinearX3(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
+                                dqm);
             }
             member.team_barrier();
 
