@@ -24,9 +24,40 @@ cache:
     - local/
 
 stages:
+  - info
   - prep
   - regression
 
+
+info:
+  stage: info
+  tags:
+    - gpu
+    - springdale7
+  script:
+    - free -m
+    - hostname
+    - module list
+    - module avail
+    - cat /proc/cpuinfo
+    - lspci
+    - nvidia-smi
+    - nvidia-smi topo -m
+    - module load openmpi/cuda-10.2/gcc/4.0.3/64 gcc/7.3.0 python3 cudatoolkit/10.2
+    - mkdir tmp
+	    - cd tmp
+	    - wget https://pgrete.de/dl/bw.tar
+	    - tar xvf bw.tar
+	    - mkdir build
+	    - cd build
+	    - export OMPI_CXX=${CI_PROJECT_DIR}/external/Kokkos/bin/nvcc_wrapper
+	    - cmake -DKokkos_ROOT=${CI_PROJECT_DIR}/external/Kokkos -DCMAKE_CXX_COMPILER=mpicxx -DKokkos_ENABLE_CUDA=True ..
+	    - make -j10
+	    - mpirun -np 2 ./mpi_bandwidth --kokkos-ndevices=2
+#	    - mpirun -np 2 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
+#	  x  - mpirun -np 2 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
+#	    - srun -n 2 ./mpi_bandwidth
+	    - cd ../..
 
 prep-cuda:
   stage: prep
