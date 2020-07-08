@@ -61,8 +61,8 @@ info:
     - ls ~/.spack
     - cat ~/.spack/packages.yaml
     - spack find
-    - echo -ne "  all:\n    compiler: [gcc@7.3.0]\n" >> ~/.spack/packages.yaml
-    - echo -ne "  cuda:\n    buildable: False\n    cuda@10.2.89: /path" >> ~/.spack/packages.yaml
+    - 'echo -ne "  all:\n    compiler: [gcc@7.3.0]\n" >> ~/.spack/packages.yaml'
+    - 'echo -ne "  cuda:\n    buildable: False\n    cuda@10.2.89: /path\n" >> ~/.spack/packages.yaml'
     - cat ~/.spack/packages.yaml
     - spack find
     - ompi_info
