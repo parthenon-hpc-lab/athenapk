@@ -52,7 +52,8 @@ info:
     - which nvcc
     - nvcc --version
     - module show cudatoolkit/10.2
-    - if [ ! -d local/openmpi-${OMPI_VER}-gcc ]; then
+    - rm -rf openmpi-${OMPI_VER} local/openmpi-${OMPI_VER}-*
+    - if [ ! -d local/openmpi-${OMPI_VER} ]; then
       wget https://download.open-mpi.org/release/open-mpi/v3.1/openmpi-${OMPI_VER}.tar.bz2;
       tar xjf openmpi-${OMPI_VER}.tar.bz2;
       cd openmpi-${OMPI_VER};
