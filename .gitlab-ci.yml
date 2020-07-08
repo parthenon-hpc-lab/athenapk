@@ -58,8 +58,8 @@ info:
       tar xjf openmpi-${OMPI_VER}.tar.bz2;
       cd openmpi-${OMPI_VER};
       ./configure --prefix=${PWD}/../local/openmpi-${OMPI_VER} --with-cuda --without-slurm --enable-mpi-fortran=no;
-      make -j8;
-      make -p ${PWD}/../local/openmpi-${OMPI_VER};
+      make -j20;
+      mkdir -p ${PWD}/../local/openmpi-${OMPI_VER};
       make install;
       cd ..;
       rm -rf openmpi-${OMPI_VER};
