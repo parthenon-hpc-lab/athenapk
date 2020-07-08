@@ -39,14 +39,23 @@ info:
     - hostname
     - module list
     - module avail
+    - cat /etc/lsb-release
     - cat /proc/cpuinfo
     - lspci
     - nvidia-smi
     - nvidia-smi topo -m
-    - module load openmpi/cuda-10.2/gcc/4.0.3/64 gcc/7.3.0 python3 cudatoolkit/10.2
+    - module load gcc/7.3.0 python3 cudatoolkit/10.2
+    - git clone https://github.com/spack/spack.git
+    - cd spack
+    - git checkout develop
+    - cd ..
+    - export PATH=$(pwd)/spack/bin:$PATH
+    - spack compilers
+    - spack compiler find
+    - spack compilers
+    - spack external find 
+    - ls ~/.spack
     - ompi_info
-    - ls /etc/openmpi/4.0.3/gcc/x86_64
-    - cat /etc/openmpi/4.0.3/gcc/x86_64/openmpi-mca-params.conf
     - mkdir tmp
     - cd tmp
     - wget https://pgrete.de/dl/bw.tar
@@ -56,10 +65,10 @@ info:
     - export OMPI_CXX=${CI_PROJECT_DIR}/external/Kokkos/bin/nvcc_wrapper
     - cmake -DKokkos_ROOT=${CI_PROJECT_DIR}/external/Kokkos -DCMAKE_CXX_COMPILER=mpicxx -DKokkos_ENABLE_CUDA=True ..
     - make -j10
-#    - mpirun -np 2 ./mpi_bandwidth --kokkos-ndevices=2
     - ldd ./mpi_bandwidth
+    - mpirun -np 2 ./mpi_bandwidth --kokkos-ndevices=2
 #    - mpirun -np 2 --mca btl ^openib --mca pml ucx ./mpi_bandwidth --kokkos-ndevices=2
-    - mpirun -np 2 --mca pml ^ucx --mca btl ^uct --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
+#    - mpirun -np 2 --mca pml ^ucx --mca btl ^uct --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
 #    - mpirun -np 2 --mca pml ^ucx --mca btl ^uct --mca btl_openib_want_cuda_gdr 1 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
 #    - mpirun -np 2 --mca btl '^openib' ./mpi_bandwidth --kokkos-ndevices=2
 #	    - mpirun -np 2 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
