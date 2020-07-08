@@ -41,7 +41,7 @@ info:
     - module avail
     - cat /etc/*elease
     - uname -a
-    - cat /proc/cpuinfo
+#    - cat /proc/cpuinfo
     - lspci
     - nvidia-smi
     - nvidia-smi topo -m
@@ -56,6 +56,7 @@ info:
     - spack compilers
     - spack external find 
     - ls ~/.spack
+    - cat ~/.spack/packages.yaml
     - ompi_info
     - mkdir tmp
     - cd tmp
