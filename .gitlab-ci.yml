@@ -58,7 +58,8 @@ info:
     - make -j10
 #    - mpirun -np 2 ./mpi_bandwidth --kokkos-ndevices=2
     - ldd ./mpi_bandwidth
-    - mpirun -np 2 --mca btl ^openib --mca pml ucx ./mpi_bandwidth --kokkos-ndevices=2
+#    - mpirun -np 2 --mca btl ^openib --mca pml ucx ./mpi_bandwidth --kokkos-ndevices=2
+    - mpirun -np 2 --mca pml ^ucx --mca btl ^uct --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
 #    - mpirun -np 2 --mca pml ^ucx --mca btl ^uct --mca btl_openib_want_cuda_gdr 1 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
 #    - mpirun -np 2 --mca btl '^openib' ./mpi_bandwidth --kokkos-ndevices=2
 #	    - mpirun -np 2 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
