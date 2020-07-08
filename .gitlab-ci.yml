@@ -46,6 +46,9 @@ info:
     - nvidia-smi
     - nvidia-smi topo -m
     - module load gcc/7.3.0 python3 cudatoolkit/10.2
+    - which nvcc
+    - nvcc --version
+    - module show cudatoolkit/10.2
     - git clone https://github.com/spack/spack.git
     - cd spack
     - git checkout develop
@@ -57,6 +60,11 @@ info:
     - spack external find 
     - ls ~/.spack
     - cat ~/.spack/packages.yaml
+    - spack find
+    - echo -ne "  all:\n    compiler: [gcc@7.3.0]\n" >> ~/.spack/packages.yaml
+    - echo -ne "  cuda:\n    buildable: False\n    cuda@10.2.89: /path" >> ~/.spack/packages.yaml
+    - cat ~/.spack/packages.yaml
+    - spack find
     - ompi_info
     - mkdir tmp
     - cd tmp
