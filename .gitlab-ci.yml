@@ -56,7 +56,7 @@ info:
       wget https://download.open-mpi.org/release/open-mpi/v3.1/openmpi-${OMPI_VER}.tar.bz2;
       tar xjf openmpi-${OMPI_VER}.tar.bz2;
       cd openmpi-${OMPI_VER};
-      ./configure --prefix=${PWD}/../local/openmpi-${OMPI_VER} --enable-mpi-cxx --with-cuda;
+      ./configure --prefix=${PWD}/../local/openmpi-${OMPI_VER} --with-cuda --without-slurm --enable-mpi-fortran=no;
       make -j8;
       make -p ${PWD}/../local/openmpi-${OMPI_VER};
       make install;
@@ -90,7 +90,7 @@ prep-cuda:
     - gpu
     - springdale7
   script:
-    - module load openmpi/cuda-10.2/gcc/4.0.3/64 gcc/7.3.0 cudatoolkit/10.2
+    - module load gcc/7.3.0 cudatoolkit/10.2
     - if [ ! -d local/hdf5-${HDF5_VER}-gcc ]; then
       wget https://hdf-wordpress-1.s3.amazonaws.com/wp-content/uploads/manual/HDF5/HDF5_1_10_6/source/hdf5-${HDF5_VER}.tar.bz2;
       tar xjf hdf5-${HDF5_VER}.tar.bz2;
