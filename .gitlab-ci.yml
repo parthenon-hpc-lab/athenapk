@@ -39,7 +39,8 @@ info:
     - hostname
     - module list
     - module avail
-    - cat /etc/lsb-release
+    - cat /etc/*elease
+    - uname -a
     - cat /proc/cpuinfo
     - lspci
     - nvidia-smi
