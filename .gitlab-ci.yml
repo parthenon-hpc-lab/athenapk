@@ -55,7 +55,8 @@ info:
     - cmake -DKokkos_ROOT=${CI_PROJECT_DIR}/external/Kokkos -DCMAKE_CXX_COMPILER=mpicxx -DKokkos_ENABLE_CUDA=True ..
     - make -j10
 #    - mpirun -np 2 ./mpi_bandwidth --kokkos-ndevices=2
-    - mpirun -np 2 --mca btl '^openib' ./mpi_bandwidth --kokkos-ndevices=2
+    - mpirun -np 2 --mca pml ^ucx ./mpi_bandwidth --kokkos-ndevices=2
+#    - mpirun -np 2 --mca btl '^openib' ./mpi_bandwidth --kokkos-ndevices=2
 #	    - mpirun -np 2 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
 #	  x  - mpirun -np 2 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
 #	    - srun -n 2 ./mpi_bandwidth
