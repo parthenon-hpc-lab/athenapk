@@ -54,6 +54,7 @@ info:
     - git checkout develop
     - cd ..
     - export PATH=$(pwd)/spack/bin:$PATH
+    - . $(pwd)/spack/share/spack/setup-env.sh
     - spack compilers
     - spack compiler find
     - spack compilers
@@ -62,9 +63,13 @@ info:
     - cat ~/.spack/packages.yaml
     - spack find
     - 'echo -ne "  all:\n    compiler: [gcc@7.3.0]\n" >> ~/.spack/packages.yaml'
-    - 'echo -ne "  cuda:\n    buildable: False\n    cuda@10.2.89: /path\n" >> ~/.spack/packages.yaml'
+    - 'echo -ne "  cuda:\n    buildable: False\n    modules:\n      cuda@10.2.89: cudatoolkit/10.2\n" >> ~/.spack/packages.yaml'
     - cat ~/.spack/packages.yaml
     - spack find
+    - spack install openmpi@3.1.6 thread_multiple=True cuda=True
+    - module avail
+    - spack find
+    - spack load openmpi@3.1.6
     - ompi_info
     - mkdir tmp
     - cd tmp
