@@ -46,6 +46,7 @@ info:
     - module load openmpi/cuda-10.2/gcc/4.0.3/64 gcc/7.3.0 python3 cudatoolkit/10.2
     - ompi_info
     - ls /etc/openmpi/4.0.3/gcc/x86_64
+    - cat /etc/openmpi/4.0.3/gcc/x86_64/openmpi-mca-params.conf
     - mkdir tmp
     - cd tmp
     - wget https://pgrete.de/dl/bw.tar
@@ -56,7 +57,9 @@ info:
     - cmake -DKokkos_ROOT=${CI_PROJECT_DIR}/external/Kokkos -DCMAKE_CXX_COMPILER=mpicxx -DKokkos_ENABLE_CUDA=True ..
     - make -j10
 #    - mpirun -np 2 ./mpi_bandwidth --kokkos-ndevices=2
-    - mpirun -np 2 --mca pml ^ucx --mca btl ^uct --mca btl_openib_want_cuda_gdr 1 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
+    - ldd ./mpi_bandwidth
+    - mpirun -np 2 --mca btl ^openib --mca pml ucx ./mpi_bandwidth --kokkos-ndevices=2
+#    - mpirun -np 2 --mca pml ^ucx --mca btl ^uct --mca btl_openib_want_cuda_gdr 1 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
 #    - mpirun -np 2 --mca btl '^openib' ./mpi_bandwidth --kokkos-ndevices=2
 #	    - mpirun -np 2 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
 #	  x  - mpirun -np 2 --mca btl_openib_allow_ib 1 ./mpi_bandwidth --kokkos-ndevices=2
