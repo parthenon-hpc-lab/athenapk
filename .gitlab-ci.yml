@@ -15,7 +15,10 @@ before_script:
       echo "Updating regression Gold standard to ${GOLD_STANDARD_VER}." &&
       wget -qO- https://pgrete.de/dl/parthenon_regression_gold_r${GOLD_STANDARD_VER}.tgz | tar -xz -C external/parthenon/tst/regression/gold_standard; fi
     - export HDF5_VER=1.10.6
+    - export OMPI_VER=3.1.6
     - module load python3
+    - export LD_LIBRARY_PATH=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER}/lib:$LD_LIBRARY_PATH
+    - export PATH=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER}/bin:$PATH
 
 cache:
   key: global-1
@@ -49,29 +52,17 @@ info:
     - which nvcc
     - nvcc --version
     - module show cudatoolkit/10.2
-    - git clone https://github.com/spack/spack.git
-    - cd spack
-    - git checkout develop
-    - cd ..
-    - export PATH=$(pwd)/spack/bin:$PATH
-    - . $(pwd)/spack/share/spack/setup-env.sh
-    - spack compilers
-    - spack compiler find
-    - spack compilers
-    - cat ~/.spack/packages.yaml
-    - '>~/.spack/packages.yaml'
-    - spack external find 
-    - ls ~/.spack
-    - cat ~/.spack/packages.yaml
-    - spack find
-    - 'echo -ne "  all:\n    compiler: [gcc@7.3.0]\n" >> ~/.spack/packages.yaml'
-    - 'echo -ne "  cuda:\n    buildable: False\n    paths:\n      cuda@10.2.89: /usr/local/cuda-10.2\n" >> ~/.spack/packages.yaml'
-    - cat ~/.spack/packages.yaml
-    - spack find
-    - spack install openmpi@3.1.6 thread_multiple=True cuda=True
-    - module avail
-    - spack find
-    - spack load openmpi@3.1.6
+    - if [ ! -d local/openmpi-${OMPI_VER}-gcc ]; then
+      wget https://download.open-mpi.org/release/open-mpi/v3.1/openmpi-${OMPI_VER}.tar.bz2;
+      tar xjf openmpi-${OMPI_VER}.tar.bz2;
+      cd openmpi-${OMPI_VER};
+      ./configure --prefix=${PWD}/../local/openmpi-${OMPI_VER} --enable-mpi-cxx --with-cuda;
+      make -j8;
+      make -p ${PWD}/../local/openmpi-${OMPI_VER};
+      make install;
+      cd ..;
+      rm -rf openmpi-${OMPI_VER};
+      fi
     - ompi_info
     - mkdir tmp
     - cd tmp
