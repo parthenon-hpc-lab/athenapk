@@ -59,7 +59,7 @@ info:
     - spack compiler find
     - spack compilers
     - cat ~/.spack/packages.yaml
-    - >~/.spack/packages.yaml
+    - '>~/.spack/packages.yaml'
     - spack external find 
     - ls ~/.spack
     - cat ~/.spack/packages.yaml
