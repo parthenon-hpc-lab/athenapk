@@ -5,11 +5,11 @@ before_script:
     - export OMP_PROC_BIND=close
     - export OMP_PLACES=cores
     - export OMP_NUM_THREADS=1
-    - export CMAKE_VERSION=3.15.3
+#    - export CMAKE_VERSION=3.15.3
     - export CTEST_OUTPUT_ON_FAILURE=1
     - export J=$(( $(nproc --all) / 4  + 1 )) && echo Using ${J} cores during build
-    - wget -qO- http://www.cmake.org/files/v${CMAKE_VERSION:0:4}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz | tar -xz
-    - export PATH=${PWD}/cmake-${CMAKE_VERSION}-Linux-x86_64/bin:$PATH
+#    - wget -qO- http://www.cmake.org/files/v${CMAKE_VERSION:0:4}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz | tar -xz
+#    - export PATH=${PWD}/cmake-${CMAKE_VERSION}-Linux-x86_64/bin:$PATH
     - export GOLD_STANDARD_VER=2
     - if [ `cat external/parthenon/tst/regression/gold_standard/current_version` != ${GOLD_STANDARD_VER} ]; then
       echo "Updating regression Gold standard to ${GOLD_STANDARD_VER}." &&
@@ -22,6 +22,7 @@ cache:
   paths:
     - external/parthenon/tst/regression/gold_standard/
     - local/
+    - spack/
 
 stages:
   - info
@@ -71,9 +72,11 @@ info:
     - cat ~/.spack/packages.yaml
     - spack find
     - spack install mvapich2 cuda=True
+    - spack clean
     - module avail
     - spack find
     - spack load mvapich2
+    - spack load cmake
     - mkdir tmp
     - cd tmp
     - wget https://pgrete.de/dl/bw.tar
