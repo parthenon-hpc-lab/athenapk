@@ -45,33 +45,29 @@ info:
     - lspci
     - nvidia-smi
     - nvidia-smi topo -m
-    - module load gcc/7.3.0 python3 cudatoolkit/10.2
+    - module load python3 cudatoolkit/10.2
     - which nvcc
     - nvcc --version
     - rpm -qa
     - module show cudatoolkit/10.2
     - git clone https://github.com/spack/spack.git
-    - cd spack
-    - git checkout develop
-    - cd ..
     - export PATH=$(pwd)/spack/bin:$PATH
     - . $(pwd)/spack/share/spack/setup-env.sh
     - spack compilers
     - spack compiler find
     - spack compilers
     - cat ~/.spack/packages.yaml
-    - '>~/.spack/packages.yaml'
-    - spack external find 
-    - ls ~/.spack
-    - cat ~/.spack/packages.yaml
-    - spack find
-    - 'echo -ne "  all:\n    compiler: [gcc@7.3.0]\n" >> ~/.spack/packages.yaml'
+    - 'echo packages: >~/.spack/packages.yaml'
     - 'echo -ne "  cuda:\n    buildable: False\n    paths:\n      cuda@10.2.89: /usr/local/cuda-10.2\n" >> ~/.spack/packages.yaml'
-    - 'echo -ne "  bison:\n    buildable: False\n    paths:\n      bison@3.0.4: /usr\n" >> ~/.spack/packages.yaml'
-    - 'echo -ne "  findutils:\n    buildable: False\n    paths:\n      findutils@4.5.11: /usr\n" >> ~/.spack/packages.yaml'
-    - 'echo -ne "  libpciaccess:\n    buildable: False\n    paths:\n      libpciaccess@0.14.1: /usr\n" >> ~/.spack/packages.yaml'
-    - 'echo -ne "  libxml2:\n    buildable: False\n    paths:\n      libxml2@2.9.1: /usr\n" >> ~/.spack/packages.yaml'
-    - 'echo -ne "  zlib:\n    buildable: False\n    paths:\n      zlib@1.2.7: /usr\n" >> ~/.spack/packages.yaml'
+    - spack install gcc@8.4.0
+    - spack compilers
+    - spack compiler find
+    - spack compilers
+    - spack load gcc@8.4.0
+    - spack compilers
+    - spack compiler find
+    - spack compilers
+    - 'echo -ne "  all:\n    compiler: [gcc@8.4.0]\n" >> ~/.spack/packages.yaml'
     - cat ~/.spack/packages.yaml
     - spack find
     - spack install mvapich2 cuda=True
