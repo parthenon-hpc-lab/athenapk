@@ -51,6 +51,7 @@ info:
     - nvcc --version
     - rpm -qa
     - module show cudatoolkit/10.2
+    - '>~/.spack/packages.yaml'
     - git clone https://github.com/spack/spack.git
     - export PATH=$(pwd)/spack/bin:$PATH
     - . $(pwd)/spack/share/spack/setup-env.sh
