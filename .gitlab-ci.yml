@@ -25,9 +25,9 @@ cache:
     - spack/
 
 stages:
+  - test
   - info
   - prep
-  - test
   - regression
 
 
@@ -37,6 +37,7 @@ info:
     - gpu
     - springdale7
   script:
+    - klasdflkasdf
     - free -m
     - hostname
     - module list
