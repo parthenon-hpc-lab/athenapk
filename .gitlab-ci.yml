@@ -52,6 +52,8 @@ info:
     - rpm -qa
     - module show cudatoolkit/10.2
     - '>~/.spack/packages.yaml'
+    - '>/home/build/.spack/linux/compilers.yaml'
+    - rm -rf spack
     - git clone https://github.com/spack/spack.git
     - export PATH=$(pwd)/spack/bin:$PATH
     - . $(pwd)/spack/share/spack/setup-env.sh
