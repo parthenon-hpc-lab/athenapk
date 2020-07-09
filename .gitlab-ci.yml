@@ -51,33 +51,34 @@ info:
     - nvcc --version
     - rpm -qa
     - module show cudatoolkit/10.2
-    - '>~/.spack/packages.yaml'
-    - '>/home/build/.spack/linux/compilers.yaml'
-    - rm -rf spack
-    - git clone https://github.com/spack/spack.git
+#    - '>~/.spack/packages.yaml'
+#    - '>/home/build/.spack/linux/compilers.yaml'
+#    - rm -rf spack
+#    - git clone https://github.com/spack/spack.git
+    - du -hs spack
     - export PATH=$(pwd)/spack/bin:$PATH
     - . $(pwd)/spack/share/spack/setup-env.sh
-    - spack compilers
-    - spack compiler find
-    - spack compilers
-    - cat ~/.spack/packages.yaml
-    - 'echo packages: >~/.spack/packages.yaml'
-    - 'echo -ne "  cuda:\n    buildable: False\n    paths:\n      cuda@10.2.89: /usr/local/cuda-10.2\n" >> ~/.spack/packages.yaml'
-    - spack install gcc@8.4.0
-    - spack compilers
-    - spack compiler find
-    - spack compilers
+#    - spack compilers
+#    - spack compiler find
+#    - spack compilers
+#    - cat ~/.spack/packages.yaml
+#    - 'echo packages: >~/.spack/packages.yaml'
+#    - 'echo -ne "  cuda:\n    buildable: False\n    paths:\n      cuda@10.2.89: /usr/local/cuda-10.2\n" >> ~/.spack/packages.yaml'
+#    - spack install gcc@8.4.0
+#    - spack compilers
+#    - spack compiler find
+#    - spack compilers
     - spack load gcc@8.4.0
-    - spack compilers
-    - spack compiler find
-    - spack compilers
-    - 'echo -ne "  all:\n    compiler: [gcc@8.4.0]\n" >> ~/.spack/packages.yaml'
-    - cat ~/.spack/packages.yaml
-    - spack find
-    - spack install mvapich2 cuda=True
-    - spack clean
+#    - spack compilers
+#    - spack compiler find
+#    - spack compilers
+#    - 'echo -ne "  all:\n    compiler: [gcc@8.4.0]\n" >> ~/.spack/packages.yaml'
+#    - cat ~/.spack/packages.yaml
+#    - spack find
+#    - spack install mvapich2 cuda=True
+#    - spack clean
     - module avail
-    - spack find
+#    - spack find
     - spack load mvapich2
     - spack load cmake
     - mkdir tmp
@@ -87,7 +88,8 @@ info:
     - mkdir build
     - cd build
     - export MV2_USE_CUDA=1
-    - cmake -DKokkos_ROOT=${CI_PROJECT_DIR}/external/Kokkos -DCMAKE_CXX_COMPILER=${CI_PROJECT_DIR}/external/Kokkos/bin/nvcc_wrapper -DKokkos_ENABLE_CUDA=True ..
+    - export MPICH_CXX=${CI_PROJECT_DIR}/external/Kokkos/bin/nvcc_wrapper
+    - cmake -DKokkos_ROOT=${CI_PROJECT_DIR}/external/Kokkos -DCMAKE_CXX_COMPILER=mpicxx -DKokkos_ENABLE_CUDA=True ..
     - make -j10
     - ldd ./mpi_bandwidth
     - mpirun -np 2 ./mpi_bandwidth --kokkos-ndevices=2
