@@ -15,11 +15,7 @@ before_script:
       echo "Updating regression Gold standard to ${GOLD_STANDARD_VER}." &&
       wget -qO- https://pgrete.de/dl/parthenon_regression_gold_r${GOLD_STANDARD_VER}.tgz | tar -xz -C external/parthenon/tst/regression/gold_standard; fi
     - export HDF5_VER=1.10.6
-    - export OMPI_VER=3.1.3
     - module load python3
-    - export LD_LIBRARY_PATH=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER}/lib:$LD_LIBRARY_PATH
-    - export PATH=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER}/bin:$PATH
-    - export OPAL_PREFIX=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER}
 
 cache:
   key: global-1
@@ -54,27 +50,42 @@ info:
     - nvcc --version
     - rpm -qa
     - module show cudatoolkit/10.2
-    - rm -rf openmpi-${OMPI_VER} local/openmpi-${OMPI_VER}-*
-    - if [ ! -d local/openmpi-${OMPI_VER} ]; then
-      wget https://download.open-mpi.org/release/open-mpi/v3.1/openmpi-${OMPI_VER}.tar.bz2;
-      tar xjf openmpi-${OMPI_VER}.tar.bz2;
-      cd openmpi-${OMPI_VER};
-      ./configure --prefix=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER} --with-cuda --without-slurm --enable-mpi-fortran=no --enable-mpi-cxx;
-      make -j20;
-      mkdir -p ${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER};
-      make install;
-      cd ..;
-      rm -rf openmpi-${OMPI_VER};
-      fi
-    - ompi_info
+    - git clone https://github.com/spack/spack.git
+    - cd spack
+    - git checkout develop
+    - cd ..
+    - export PATH=$(pwd)/spack/bin:$PATH
+    - . $(pwd)/spack/share/spack/setup-env.sh
+    - spack compilers
+    - spack compiler find
+    - spack compilers
+    - cat ~/.spack/packages.yaml
+    - '>~/.spack/packages.yaml'
+    - spack external find 
+    - ls ~/.spack
+    - cat ~/.spack/packages.yaml
+    - spack find
+    - 'echo -ne "  all:\n    compiler: [gcc@7.3.0]\n" >> ~/.spack/packages.yaml'
+    - 'echo -ne "  cuda:\n    buildable: False\n    paths:\n      cuda@10.2.89: /usr/local/cuda-10.2\n" >> ~/.spack/packages.yaml'
+    - 'echo -ne "  bison:\n    buildable: False\n    paths:\n      bison@3.0.4: /usr\n" >> ~/.spack/packages.yaml'
+    - 'echo -ne "  findutils:\n    buildable: False\n    paths:\n      findutils@4.5.11: /usr\n" >> ~/.spack/packages.yaml'
+    - 'echo -ne "  libpciaccess:\n    buildable: False\n    paths:\n      libpciaccess@0.14.1: /usr\n" >> ~/.spack/packages.yaml'
+    - 'echo -ne "  libxml2:\n    buildable: False\n    paths:\n      libxml2@2.9.1: /usr\n" >> ~/.spack/packages.yaml'
+    - 'echo -ne "  zlib:\n    buildable: False\n    paths:\n      zlib@1.2.7: /usr\n" >> ~/.spack/packages.yaml'
+    - cat ~/.spack/packages.yaml
+    - spack find
+    - spack install mvapich2 cuda=True
+    - module avail
+    - spack find
+    - spack load mvapich2
     - mkdir tmp
     - cd tmp
     - wget https://pgrete.de/dl/bw.tar
     - tar xvf bw.tar
     - mkdir build
     - cd build
-    - export OMPI_CXX=${CI_PROJECT_DIR}/external/Kokkos/bin/nvcc_wrapper
-    - cmake -DKokkos_ROOT=${CI_PROJECT_DIR}/external/Kokkos -DCMAKE_CXX_COMPILER=mpicxx -DKokkos_ENABLE_CUDA=True ..
+    - export MV2_USE_CUDA=1
+    - cmake -DKokkos_ROOT=${CI_PROJECT_DIR}/external/Kokkos -DCMAKE_CXX_COMPILER=${CI_PROJECT_DIR}/external/Kokkos/bin/nvcc_wrapper -DKokkos_ENABLE_CUDA=True ..
     - make -j10
     - ldd ./mpi_bandwidth
     - mpirun -np 2 ./mpi_bandwidth --kokkos-ndevices=2
