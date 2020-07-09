@@ -27,6 +27,7 @@ cache:
 stages:
   - info
   - prep
+  - test
   - regression
 
 
@@ -51,34 +52,47 @@ info:
     - nvcc --version
     - rpm -qa
     - module show cudatoolkit/10.2
-#    - '>~/.spack/packages.yaml'
-#    - '>/home/build/.spack/linux/compilers.yaml'
-#    - rm -rf spack
-#    - git clone https://github.com/spack/spack.git
+    - '>~/.spack/packages.yaml'
+    - '>/home/build/.spack/linux/compilers.yaml'
+    - rm -rf spack
+    - git clone https://github.com/spack/spack.git
+    - export PATH=$(pwd)/spack/bin:$PATH
+    - . $(pwd)/spack/share/spack/setup-env.sh
+    - spack compilers
+    - spack compiler find
+    - spack compilers
+    - cat ~/.spack/packages.yaml
+    - 'echo packages: >~/.spack/packages.yaml'
+    - 'echo -ne "  cuda:\n    buildable: False\n    paths:\n      cuda@10.2.89: /usr/local/cuda-10.2\n" >> ~/.spack/packages.yaml'
+    - spack install gcc@8.4.0
+    - spack compilers
+    - spack compiler find
+    - spack compilers
+    - spack load gcc@8.4.0
+    - spack compilers
+    - spack compiler find
+    - spack compilers
+    - 'echo -ne "  all:\n    compiler: [gcc@8.4.0]\n" >> ~/.spack/packages.yaml'
+    - cat ~/.spack/packages.yaml
+    - spack find
+    - spack install mvapich2 cuda=True
+    - spack clean
+    - module avail
+    - spack find
+
+test:
+  stage: test
+  tags:
+    - gpu
+    - springdale7
+  script:
+    - module load python3 cudatoolkit/10.2
     - du -hs spack
     - export PATH=$(pwd)/spack/bin:$PATH
     - . $(pwd)/spack/share/spack/setup-env.sh
-#    - spack compilers
-#    - spack compiler find
-#    - spack compilers
-#    - cat ~/.spack/packages.yaml
-#    - 'echo packages: >~/.spack/packages.yaml'
-#    - 'echo -ne "  cuda:\n    buildable: False\n    paths:\n      cuda@10.2.89: /usr/local/cuda-10.2\n" >> ~/.spack/packages.yaml'
-#    - spack install gcc@8.4.0
-#    - spack compilers
-#    - spack compiler find
-#    - spack compilers
+    - cat ~/.spack/packages.yaml
+    - spack compilers
     - spack load gcc@8.4.0
-#    - spack compilers
-#    - spack compiler find
-#    - spack compilers
-#    - 'echo -ne "  all:\n    compiler: [gcc@8.4.0]\n" >> ~/.spack/packages.yaml'
-#    - cat ~/.spack/packages.yaml
-#    - spack find
-#    - spack install mvapich2 cuda=True
-#    - spack clean
-    - module avail
-#    - spack find
     - spack load mvapich2
     - spack load cmake
     - mkdir tmp
