@@ -19,6 +19,7 @@ before_script:
     - module load python3
     - export LD_LIBRARY_PATH=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER}/lib:$LD_LIBRARY_PATH
     - export PATH=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER}/bin:$PATH
+    - export OPAL_PREFIX=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER}
 
 cache:
   key: global-1
@@ -57,9 +58,9 @@ info:
       wget https://download.open-mpi.org/release/open-mpi/v3.1/openmpi-${OMPI_VER}.tar.bz2;
       tar xjf openmpi-${OMPI_VER}.tar.bz2;
       cd openmpi-${OMPI_VER};
-      ./configure --prefix=${PWD}/../local/openmpi-${OMPI_VER} --with-cuda --without-slurm --enable-mpi-fortran=no --enable-mpi-cxx;
+      ./configure --prefix=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER} --with-cuda --without-slurm --enable-mpi-fortran=no --enable-mpi-cxx;
       make -j20;
-      mkdir -p ${PWD}/../local/openmpi-${OMPI_VER};
+      mkdir -p ${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER};
       make install;
       cd ..;
       rm -rf openmpi-${OMPI_VER};
