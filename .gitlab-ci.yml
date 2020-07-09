@@ -15,7 +15,7 @@ before_script:
       echo "Updating regression Gold standard to ${GOLD_STANDARD_VER}." &&
       wget -qO- https://pgrete.de/dl/parthenon_regression_gold_r${GOLD_STANDARD_VER}.tgz | tar -xz -C external/parthenon/tst/regression/gold_standard; fi
     - export HDF5_VER=1.10.6
-    - export OMPI_VER=3.1.6
+    - export OMPI_VER=3.1.3
     - module load python3
     - export LD_LIBRARY_PATH=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER}/lib:$LD_LIBRARY_PATH
     - export PATH=${CI_PROJECT_DIR}/local/openmpi-${OMPI_VER}/bin:$PATH
@@ -52,6 +52,7 @@ info:
     - module load gcc/7.3.0 python3 cudatoolkit/10.2
     - which nvcc
     - nvcc --version
+    - rpm -qa
     - module show cudatoolkit/10.2
     - rm -rf openmpi-${OMPI_VER} local/openmpi-${OMPI_VER}-*
     - if [ ! -d local/openmpi-${OMPI_VER} ]; then
