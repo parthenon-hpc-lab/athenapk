@@ -64,14 +64,14 @@ prep-cuda:
       make install;
       cd ../..;
       fi
-    - if [ ! -d opt/hdf5-${HDF5_VER} ]; then
+    - if [ ! -d opt/hdf5-${HDF5_VER}/gcc ]; then
       mkdir -p tmp;
       cd tmp;
       wget https://hdf-wordpress-1.s3.amazonaws.com/wp-content/uploads/manual/HDF5/HDF5_1_10_6/source/hdf5-${HDF5_VER}.tar.bz2;
       tar xjf hdf5-${HDF5_VER}.tar.bz2;
       cd hdf5-${HDF5_VER};
-      CC=gcc ./configure --prefix=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/serial && make -j16 && make install && make clean;
-      CC=mpicc ./configure --prefix=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/parallel --enable-parallel && make -j16 && make install && make clean;
+      CC=gcc ./configure --prefix=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/gcc/serial && make -j16 && make install && make clean;
+      CC=mpicc ./configure --prefix=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/gcc/parallel --enable-parallel && make -j16 && make install && make clean;
       cd ../..;
       fi
     - if [ ! -d opt/cmake-${CMAKE_VER}-Linux-x86_64 ]; then
@@ -98,23 +98,6 @@ prep-icc:
       CC=mpiicc ./configure --prefix=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/intel/parallel --enable-parallel && make -j16 && make install && make clean;
       cd ../..;
       fi
-##    - spack compiler find
-##    - spack install hdf5@1.10.6 mpi=False %intel@19.0.2.187
-##    - spack find
-##    - spack install hdf5@1.10.6 mpi=True %intel@19.0.2.187 ^intel-mpi@2019.2.187
-##    - spack find
-##    - icpc --version
-##    - mpiicpc --version
-##    - which icpc
-##    - module purge
-#    - spack install intel@20.0.1
-#    - spack compilers
-#    - spack load intel@20.0.1
-#    - spack compiler find
-#    - spack compilers
-#    - spack install intel-parallel-studio@cluster.2020.1+mpi threads=openmp %intel@20.0.1
-#    - spack clean -sd
-#    - find `spack location -i intel-parallel-studio@cluster.2020.1+mpi` -name icc -type f -ls
 
 athenapk-cuda-test:
   tags:
@@ -155,6 +138,9 @@ athenapk-cuda:
     - springdale7
   stage: regression
   cache:
+    # inherit all global cache settings
+    <<: *global_cache
+    # override the policy
     policy: pull
   script:
     - module load cudatoolkit/10.2 gcc/7.3.0
@@ -167,7 +153,7 @@ athenapk-cuda:
       -DKokkos_ENABLE_CUDA=True -DKokkos_ARCH_VOLTA70=True
       -DCMAKE_CXX_COMPILER=${PWD}/../external/Kokkos/bin/nvcc_wrapper
       -DKokkos_ROOT=$(pwd)/../external/Kokkos
-      -DHDF5_ROOT=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/serial
+      -DHDF5_ROOT=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/gcc/serial
       -DPARTHENON_DISABLE_MPI=ON
       -DPARTHENON_LINT_DEFAULT=OFF
       ../
