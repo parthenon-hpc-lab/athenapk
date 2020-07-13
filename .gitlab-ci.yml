@@ -16,6 +16,7 @@ before_script:
       wget -qO- https://github.com/spack/spack/releases/download/v${SPACK_VER}/spack-${SPACK_VER}.tar.gz | tar -xz;
       cp .spack-env/packages.yaml spack-${SPACK_VER}/etc/spack/;
       fi
+    - rm -rf ~/.spack
     - . spack-${SPACK_VER}/share/spack/setup-env.sh
     - module load python3
 
@@ -36,29 +37,38 @@ prep:
     - gpu
     - springdale7
   script:
-    - module load intel-mpi/intel-19.2.187
-    - spack compiler find
-    - spack install hdf5@1.10.6 mpi=False %intel@19.0.2.187
-    - spack find
-    - spack install hdf5@1.10.6 mpi=True %intel@19.0.2.187 ^intel-mpi@2019.2.187
-    - spack find
-    - icpc --version
-    - mpiicpc --version
-    - which icpc
-    - module purge
-    - module load gcc/7.3.0 cudatoolkit/10.2
-    - spack config get config
+#    - module load intel-mpi/intel-19.2.187
+#    - spack compiler find
+#    - spack install hdf5@1.10.6 mpi=False %intel@19.0.2.187
+#    - spack find
+#    - spack install hdf5@1.10.6 mpi=True %intel@19.0.2.187 ^intel-mpi@2019.2.187
+#    - spack find
+#    - icpc --version
+#    - mpiicpc --version
+#    - which icpc
+#    - module purge
+    - module load cudatoolkit/10.2
+    - spack install gcc@8.4.0
     - spack compilers
-    - ls -lah 
-    - module load intel-mpi/intel-19.2.187
-    - which icpc
-    - module show intel-mpi/intel-19.2.187
+    - spack compiler find
+    - spack compilers
+    - spack load gcc@8.4.0
+    - spack compilers
+    - spack compiler find
+    - spack compilers
+    - spack install mvapich2@2.3.4 cuda=True %gcc@8.4.0
+    - spack install hdf5@1.10.6 mpi=False %gcc@8.4.0
+    - spack install hdf5@1.10.6 mpi=True %gcc@8.4.0 ^mvapich2@2.3.4
+    - spack clean
+    - spack find
 
 parthenon-cuda-regression:
   tags:
     - gpu
     - springdale7
   stage: regression
+  cache:
+    policy: pull
   script:
     - failme
     - module load openmpi/cuda-10.2/gcc/4.0.3/64 gcc/7.3.0 cudatoolkit/10.2
