@@ -12,7 +12,6 @@ before_script:
     - export SPACK_VER=0.15.1
     - if [ ! -d spack-${SPACK_VER} ]; then
       wget -qO- https://github.com/spack/spack/releases/download/v${SPACK_VER}/spack-${SPACK_VER}.tar.gz | tar -xz;
-      ls -lah spack-${SPACK_VER}/etc/spack/;
       cp .spack-env/packages.yaml spack-${SPACK_VER}/etc/spack/;
       fi
     - . spack-${SPACK_VER}/share/spack/setup-env.sh
@@ -35,6 +34,12 @@ prep:
     - gpu
     - springdale7
   script:
+    - spack compiler find
+    - module load intel-mpi/intel-19.2.187
+    - spack compiler find
+    - icpc --version
+    - mpiicpc --version
+    - module purge
     - module load gcc/7.3.0 cudatoolkit/10.2
     - spack config get config
     - spack compilers
