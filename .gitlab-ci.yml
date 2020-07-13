@@ -1,5 +1,7 @@
 variables:
-  SPACK_VER: '0.15.1'
+  OMPI_VER: '3.1.6'
+  CMAKE_VER: '3.15.4'
+  HDF5_VER: '1.10.6'
 
 # Is performed before the scripts in the stages step
 before_script:
@@ -10,18 +12,15 @@ before_script:
     - export OMP_NUM_THREADS=1
     - export CTEST_OUTPUT_ON_FAILURE=1
     - export J=$(( $(nproc --all) / 4  + 1 )) && echo Using ${J} cores during build
-    - if [ ! -d spack-${SPACK_VER} ]; then
-      rm -rf ~/.spack;
-      wget -qO- https://github.com/spack/spack/releases/download/v${SPACK_VER}/spack-${SPACK_VER}.tar.gz | tar -xz;
-      fi
-    - cp .spack-env/* spack-${SPACK_VER}/etc/spack/
-    - . spack-${SPACK_VER}/share/spack/setup-env.sh
+    - export PATH=${PWD}/opt/cmake-${CMAKE_VERSION}-Linux-x86_64/bin:$PATH
+    - export PATH=${PWD}/opt/openmpi-${OMPI_VER}/bin:$PATH
+    - export LD_LIBRARY_PATH=${PWD}/opt/openmpi-${OMPI_VER}/lib:$LD_LIBRARY_PATH
     - module load python3
 
 cache:
-  key: global-3
+  key: global-4
   paths:
-    - spack-${SPACK_VER}
+    - opt/
 
 stages:
 #  - prep-icc
@@ -36,18 +35,33 @@ prep-cuda:
     - springdale7
   script:
     - module load cudatoolkit/10.2 gcc/7.3.0
-    - spack compilers
-    - spack install --only package mvapich2@2.3.4+cuda %gcc@7.3.0
-    - spack install --only package cmake@3.15.5~ncurses~openssl
-    - spack install --only package hdf5@1.10.6 mpi=False %gcc@7.3.0
-    - spack install --only package hdf5@1.10.6 mpi=True %gcc@7.3.0 ^mvapich2@2.3.4+cuda
-    - spack clean -sd
-    - spack find -L -x -v
-    - du -hs spack-${SPACK_VER}
-    - du -hs spack-${SPACK_VER}/*
-    - du -hs spack-${SPACK_VER}/opt/spack/*
-    - du -hs spack-${SPACK_VER}/opt/spack/*/*
-    - du -hs spack-${SPACK_VER}/opt/spack/*/*/*
+    - if [ ! -d opt/openmpi-${OMPI_VER} ]; then
+      mkdir -p tmp;
+      cd tmp;
+      wget https://download.open-mpi.org/release/open-mpi/v3.1/openmpi-${OMPI_VER}.tar.bz2;
+      tar xjf openmpi-${OMPI_VER}.tar.bz2;
+      cd openmpi-${OMPI_VER};
+      ./configure --prefix=${CI_PROJECT_DIR}/opt/openmpi-${OMPI_VER} --enable-mpi-cxx --with-cuda;
+      make -j16;
+      make install;
+      cd ../..;
+      fi
+    - if [ ! -d opt/hdf5-${HDF5_VER} ]; then
+      mkdir -p tmp;
+      cd tmp;
+      wget https://hdf-wordpress-1.s3.amazonaws.com/wp-content/uploads/manual/HDF5/HDF5_1_10_6/source/hdf5-${HDF5_VER}.tar.bz2;
+      tar xjf hdf5-${HDF5_VER}.tar.bz2;
+      cd hdf5-${HDF5_VER};
+      CC=gcc ./configure --prefix=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/serial && make -j16 && make install && make clean;
+      CC=mpicc ./configure --prefix=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/parallel --enable-parallel && make -j16 && make install && make clean;
+      cd ../..;
+      fi
+    - if [ ! -d opt/cmake-${CMAKE_VER}-Linux-x86_64 ]; then
+      cd opt;
+      wget -qO- http://www.cmake.org/files/v${CMAKE_VER:0:4}/cmake-${CMAKE_VER}-Linux-x86_64.tar.gz | tar -xz;
+      cd ..;
+      fi
+      
 
 #prep-icc:
 #  stage: prep-icc
@@ -83,9 +97,6 @@ athenapk-cuda:
     policy: pull
   script:
     - module load cudatoolkit/10.2 gcc/7.3.0
-    - spack find -L -x -v
-    - spack load hdf5@1.10.6~mpi
-    - spack load cmake
     - mkdir build-cuda
     - cd build-cuda
     - cmake -DCMAKE_BUILD_TYPE=Release 
@@ -93,6 +104,7 @@ athenapk-cuda:
       -DKokkos_ENABLE_CUDA=True -DKokkos_ARCH_VOLTA70=True
       -DCMAKE_CXX_COMPILER=${PWD}/../external/Kokkos/bin/nvcc_wrapper
       -DKokkos_ROOT=$(pwd)/../external/Kokkos
+      -DHDF5_ROOT=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/serial
       -DPARTHENON_DISABLE_MPI=ON
       -DPARTHENON_LINT_DEFAULT=OFF
       ../
