@@ -130,7 +130,7 @@ athenapk-cuda-test:
     - ldd ./mpi_bandwidth
 #    - export OMPI_MCA_btl_openib_cuda_async_recv=false
 #    - export OMPI_MCA_btl_openib_want_cuda_gdr=true
-    - mpirun -np 2 -mca pml ucx -mca btl ^uct -x UCX_NET_DEVICES=mlx4_0:1 --mca mpi_common_cuda_verbose 100 --mca btl_smcuda_cuda_ipc_verbose 100 ./mpi_bandwidth --kokkos-ndevices=2
+    - mpirun -np 2 -mca btl_openib_allow_ib 1  -mca btl ^uct -x UCX_NET_DEVICES=mlx4_0:1 --mca mpi_common_cuda_verbose 100 --mca btl_smcuda_cuda_ipc_verbose 100 ./mpi_bandwidth --kokkos-ndevices=2
 
 athenapk-cuda:
   tags:
