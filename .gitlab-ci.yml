@@ -39,18 +39,8 @@ prep-cuda:
     - spack compilers
     - spack install --only package mvapich2@2.3.4+cuda %gcc@7.3.0
     - spack install --only package cmake@3.15.5~ncurses~openssl
-    - failme
-    - spack install gcc@8.4.0 %gcc@4.8.5
-#    - spack compilers
-#    - spack compiler find
-#    - spack compilers
-    - spack load gcc@8.4.0
-#    - spack compilers
-    - spack compiler find
-#    - spack compilers
-    - spack install mvapich2@2.3.4 cuda=True %gcc@8.4.0
-    - spack install hdf5@1.10.6 mpi=False %gcc@8.4.0
-    - spack install hdf5@1.10.6 mpi=True %gcc@8.4.0 ^mvapich2@2.3.4+cuda
+    - spack install --only package hdf5@1.10.6 mpi=False %gcc@7.3.0
+    - spack install --only package hdf5@1.10.6 mpi=True %gcc@7.3.0 ^mvapich2@2.3.4+cuda
     - spack clean -sd
     - spack find -L -x -v
     - du -hs spack-${SPACK_VER}
@@ -92,9 +82,8 @@ athenapk-cuda:
   cache:
     policy: pull
   script:
-    - module load cudatoolkit/10.2
+    - module load cudatoolkit/10.2 gcc/7.3.0
     - spack find -L -x -v
-    - spack load gcc@8.4.0
     - spack load hdf5@1.10.6~mpi
     - spack load cmake
     - mkdir build-cuda

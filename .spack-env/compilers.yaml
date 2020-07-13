@@ -5,6 +5,6 @@ compilers:
     paths:
       cc: /opt/sns/gcc-7.3.0/bin/gcc
       cxx: /opt/sns/gcc-7.3.0/bin/g++
-      f77: /opt/sns/gcc-7.3.0/bin/gfortran
-      fc: /opt/sns/gcc-7.3.0/bin/gfortran
+      fc:
+      f77:
     spec: gcc@7.3.0

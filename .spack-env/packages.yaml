@@ -79,4 +79,9 @@ packages:
     paths:
       bzip2@system: /usr
       buildable: False
+  numactl:
+    paths:
+      numactl@system: /usr
+      buildable: False
+
 
