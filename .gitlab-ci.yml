@@ -1,3 +1,6 @@
+variables:
+  SPACK_VER: '0.15.1'
+
 # Is performed before the scripts in the stages step
 before_script:
     - git submodule init
@@ -9,7 +12,6 @@ before_script:
     - export CTEST_OUTPUT_ON_FAILURE=1
     - export J=$(( $(nproc --all) / 4  + 1 )) && echo Using ${J} cores during build
     - export HDF5_VER=1.10.6
-    - export SPACK_VER=0.15.1
     - if [ ! -d spack-${SPACK_VER} ]; then
       wget -qO- https://github.com/spack/spack/releases/download/v${SPACK_VER}/spack-${SPACK_VER}.tar.gz | tar -xz;
       cp .spack-env/packages.yaml spack-${SPACK_VER}/etc/spack/;
@@ -34,17 +36,20 @@ prep:
     - gpu
     - springdale7
   script:
-    - spack compiler find
     - module load intel-mpi/intel-19.2.187
     - spack compiler find
+    - spack install hdf5@1.10.6 mpi=False %intel@19.0.2.187
+    - spack find
+    - spack install hdf5@1.10.6 mpi=True %intel@19.0.2.187 ^intel-mpi@2019.2.187
+    - spack find
     - icpc --version
     - mpiicpc --version
+    - which icpc
     - module purge
     - module load gcc/7.3.0 cudatoolkit/10.2
     - spack config get config
     - spack compilers
     - ls -lah 
-    - which icpc
     - module load intel-mpi/intel-19.2.187
     - which icpc
     - module show intel-mpi/intel-19.2.187
