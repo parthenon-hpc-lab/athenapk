@@ -3,7 +3,3 @@ packages:
     buildable: False
     paths:
       cuda@10.2.89: /usr/local/cuda-10.2
-  intel-mpi:
-    buildable: False
-    modules:
-      intel-mpi@2019.2.187%intel@19.0.2.187: intel-mpi/intel-19.2.187

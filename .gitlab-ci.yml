@@ -11,12 +11,10 @@ before_script:
     - export CMAKE_VERSION=3.15.3
     - export CTEST_OUTPUT_ON_FAILURE=1
     - export J=$(( $(nproc --all) / 4  + 1 )) && echo Using ${J} cores during build
-    - export HDF5_VER=1.10.6
     - if [ ! -d spack-${SPACK_VER} ]; then
       wget -qO- https://github.com/spack/spack/releases/download/v${SPACK_VER}/spack-${SPACK_VER}.tar.gz | tar -xz;
-      cp .spack-env/packages.yaml spack-${SPACK_VER}/etc/spack/;
       fi
-    - rm -rf ~/.spack
+    - cp .spack-env/packages.yaml spack-${SPACK_VER}/etc/spack/
     - . spack-${SPACK_VER}/share/spack/setup-env.sh
     - module load python3
 
@@ -27,12 +25,13 @@ cache:
     - local/
 
 stages:
-  - prep
+  - prep-cuda
+  - prep-icc
   - regression
 
 
-prep:
-  stage: prep
+prep-cuda:
+  stage: prep-cuda
   tags:
     - gpu
     - springdale7
@@ -48,7 +47,7 @@ prep:
 #    - which icpc
 #    - module purge
     - module load cudatoolkit/10.2
-    - spack install gcc@8.4.0
+    - spack install gcc@8.4.0 %gcc@4.8.5
     - spack compilers
     - spack compiler find
     - spack compilers
@@ -58,9 +57,21 @@ prep:
     - spack compilers
     - spack install mvapich2@2.3.4 cuda=True %gcc@8.4.0
     - spack install hdf5@1.10.6 mpi=False %gcc@8.4.0
-    - spack install hdf5@1.10.6 mpi=True %gcc@8.4.0 ^mvapich2@2.3.4
+    - spack install hdf5@1.10.6 mpi=True %gcc@8.4.0 ^mvapich2@2.3.4+cuda
     - spack clean
     - spack find
+    - spack find -dl
+
+prep-icc:
+  stage: prep-icc
+  tags:
+    - gpu
+    - springdale7
+  script:
+    - env
+    - spack install intel-parallel-studio@cluster.2020.1+mpi threads=openmp %intel@20.0.1
+    - spack clean
+    - find `spack location -i intel-parallel-studio@cluster.2020.1+mpi` -name icc -type f -ls
 
 parthenon-cuda-regression:
   tags:
