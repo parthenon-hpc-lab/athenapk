@@ -89,6 +89,7 @@ athenapk-cuda:
     policy: pull
   script:
     - module load cudatoolkit/10.2
+    - spack find -L -x -v
     - spack load gcc@8.4.0
     - spack load hdf5@1.10.6~mpi
     - spack load cmake
