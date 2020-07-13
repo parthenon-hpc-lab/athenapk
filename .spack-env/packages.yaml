@@ -1,0 +1,5 @@
+packages:
+  cuda:
+    buildable: False
+    paths:
+      cuda@10.2.89: /usr/local/cuda-10.2
