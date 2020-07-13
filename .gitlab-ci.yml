@@ -12,15 +12,16 @@ before_script:
     - export OMP_NUM_THREADS=1
     - export CTEST_OUTPUT_ON_FAILURE=1
     - export J=$(( $(nproc --all) / 4  + 1 )) && echo Using ${J} cores during build
-    - export PATH=${PWD}/opt/cmake-${CMAKE_VERSION}-Linux-x86_64/bin:$PATH
+    - export PATH=${PWD}/opt/cmake-${CMAKE_VER}-Linux-x86_64/bin:$PATH
     - export PATH=${PWD}/opt/openmpi-${OMPI_VER}/bin:$PATH
     - export LD_LIBRARY_PATH=${PWD}/opt/openmpi-${OMPI_VER}/lib:$LD_LIBRARY_PATH
     - module load python3
 
-cache:
+cache: &global_cache
   key: global-4
   paths:
     - opt/
+  policy: pull-push
 
 stages:
   - prep-cuda
@@ -105,6 +106,9 @@ athenapk-cuda-test:
     - springdale7
   stage: test
   cache:
+    # inherit all global cache settings
+    <<: *global_cache
+    # override the policy
     policy: pull
   script:
     - module load cudatoolkit/10.2 gcc/7.3.0
