@@ -1,6 +1,6 @@
 compilers:
 - compiler:
-    target:     x86_64
+    target:     skylake_avx512
     operating_system:   rhel7
     modules:    []
     spec:       intel@20.0.1
