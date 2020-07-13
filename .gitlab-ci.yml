@@ -50,6 +50,9 @@ prep-cuda:
     - spack install hdf5@1.10.6 mpi=True %gcc@8.4.0 ^mvapich2@2.3.4+cuda
     - spack clean -sd
     - spack find -L -x -v
+    - du -hs spack-${SPACK_VER}
+    - du -hs spack-${SPACK_VER}/*
+    - du -hs spack-${SPACK_VER}/.*
 
 prep-icc:
   stage: prep-icc
