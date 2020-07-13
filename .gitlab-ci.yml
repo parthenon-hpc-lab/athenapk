@@ -116,6 +116,7 @@ athenapk-cuda-test:
     - echo $PATH
     - which mpicxx
     - which cmake
+    - ompi_info --all
     - mkdir bw
     - cd bw
     - wget https://pgrete.de/dl/bw.tar
@@ -126,6 +127,7 @@ athenapk-cuda-test:
     - cmake -DKokkos_ROOT=${CI_PROJECT_DIR}/external/Kokkos -DCMAKE_CXX_COMPILER=mpicxx -DKokkos_ENABLE_CUDA=True ..
     - make -j10
     - ldd ./mpi_bandwidth
+    - export OMPI_MCA_btl_openib_cuda_async_recv=false
     - mpirun -np 2 ./mpi_bandwidth --kokkos-ndevices=2
 
 athenapk-cuda:
