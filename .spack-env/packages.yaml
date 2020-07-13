@@ -3,34 +3,34 @@ packages:
     buildable: False
     paths:
       cuda@10.2.89: /usr/local/cuda-10.2
-#  bison:
-#    buildable: False
-#    paths:
-#      bison@system: /usr
-#  libxml2:
-#    buildable: False
-#    paths:
-#      libxml2@system: /usr
-#  findutils:
-#    buildable: False
-#    paths:
-#      findutils@system:
-#  rdma-core:
-#    buildable: False
-#    paths:
-#      rdma-core@system: /usr
-#  libpciaccess:
-#    buildable: False
-#    paths:
-#      libpciaccess@system: /usr
-#  pkgconf:
-#    buildable: False
-#    paths:
-#      pkgconf@system: /usr
-#  zlib:
-#    buildable: False
-#    paths:
-#      zlib@system: /usr
+  bison:
+    buildable: False
+    paths:
+      bison@system: /usr
+  libxml2:
+    buildable: False
+    paths:
+      libxml2@system: /usr
+  findutils:
+    buildable: False
+    paths:
+      findutils@system:
+  rdma-core:
+    buildable: False
+    paths:
+      rdma-core@system: /usr
+  libpciaccess:
+    buildable: False
+    paths:
+      libpciaccess@system: /usr
+  pkgconf:
+    buildable: False
+    paths:
+      pkgconf@system: /usr
+  zlib:
+    buildable: False
+    paths:
+      zlib@system: /usr
 #  xz:
 #    paths:
 #      xz@system: /usr
