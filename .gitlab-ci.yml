@@ -23,8 +23,9 @@ cache:
     - opt/
 
 stages:
-#  - prep-icc
   - prep-cuda
+  - test
+  - prep-icc
   - regression
 
 
@@ -63,13 +64,23 @@ prep-cuda:
       fi
       
 
-#prep-icc:
-#  stage: prep-icc
-#  tags:
-#    - gpu
-#    - springdale7
-#  script:
-##    - module load intel-mpi/intel-19.2.187
+prep-icc:
+  stage: prep-icc
+  tags:
+    - gpu
+    - springdale7
+  script:
+    - module load intel-mpi/intel-19.2.187
+    - if [ ! -d opt/hdf5-${HDF5_VER}/intel ]; then
+      mkdir -p tmp;
+      cd tmp;
+      wget https://hdf-wordpress-1.s3.amazonaws.com/wp-content/uploads/manual/HDF5/HDF5_1_10_6/source/hdf5-${HDF5_VER}.tar.bz2;
+      tar xjf hdf5-${HDF5_VER}.tar.bz2;
+      cd hdf5-${HDF5_VER};
+      CC=icc ./configure --prefix=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/intel/serial && make -j16 && make install && make clean;
+      CC=mpiicc ./configure --prefix=${CI_PROJECT_DIR}/opt/hdf5-${HDF5_VER}/intel/parallel --enable-parallel && make -j16 && make install && make clean;
+      cd ../..;
+      fi
 ##    - spack compiler find
 ##    - spack install hdf5@1.10.6 mpi=False %intel@19.0.2.187
 ##    - spack find
@@ -87,6 +98,31 @@ prep-cuda:
 #    - spack install intel-parallel-studio@cluster.2020.1+mpi threads=openmp %intel@20.0.1
 #    - spack clean -sd
 #    - find `spack location -i intel-parallel-studio@cluster.2020.1+mpi` -name icc -type f -ls
+
+athenapk-cuda-test:
+  tags:
+    - gpu
+    - springdale7
+  stage: test
+  cache:
+    policy: pull
+  script:
+    - module load cudatoolkit/10.2 gcc/7.3.0
+    - ls -lah opt/
+    - echo $PATH
+    - which mpicxx
+    - which cmake
+    - mkdir bw
+    - cd bw
+    - wget https://pgrete.de/dl/bw.tar
+    - tar xvf bw.tar
+    - mkdir build
+    - cd build
+    - export OMPI_CXX=${CI_PROJECT_DIR}/external/Kokkos/bin/nvcc_wrapper
+    - cmake -DKokkos_ROOT=${CI_PROJECT_DIR}/external/Kokkos -DCMAKE_CXX_COMPILER=mpicxx -DKokkos_ENABLE_CUDA=True ..
+    - make -j10
+    - ldd ./mpi_bandwidth
+    - mpirun -np 2 ./mpi_bandwidth --kokkos-ndevices=2
 
 athenapk-cuda:
   tags:
