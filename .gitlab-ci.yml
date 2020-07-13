@@ -25,8 +25,8 @@ cache:
     - local/
 
 stages:
-  - prep-cuda
   - prep-icc
+  - prep-cuda
   - regression
 
 
@@ -50,9 +50,6 @@ prep-cuda:
     - spack install hdf5@1.10.6 mpi=True %gcc@8.4.0 ^mvapich2@2.3.4+cuda
     - spack clean -sd
     - spack find -L -x -v
-    - du -hs spack-${SPACK_VER}
-    - du -hs spack-${SPACK_VER}/*
-    - du -hs spack-${SPACK_VER}/.*
 
 prep-icc:
   stage: prep-icc
@@ -70,7 +67,14 @@ prep-icc:
 #    - mpiicpc --version
 #    - which icpc
 #    - module purge
-    - env
+    - du -hs spack-${SPACK_VER}
+    - du -hs spack-${SPACK_VER}/*
+    - du -hs spack-${SPACK_VER}/opt/*
+    - spack install intel@20.0.1
+    - spack compilers
+    - spack load intel@20.0.1
+    - spack compiler find
+    - spack compilers
     - spack install intel-parallel-studio@cluster.2020.1+mpi threads=openmp %intel@20.0.1
     - spack clean -sd
     - find `spack location -i intel-parallel-studio@cluster.2020.1+mpi` -name icc -type f -ls
