@@ -3,3 +3,80 @@ packages:
     buildable: False
     paths:
       cuda@10.2.89: /usr/local/cuda-10.2
+  bison:
+    buildable: False
+    paths:
+      bison@system: /usr
+  libxml2:
+    buildable: False
+    paths:
+      libxml2@system: /usr
+  findutils:
+    buildable: False
+    paths:
+      findutils@system:
+  rdma-core:
+    buildable: False
+    paths:
+      rdma-core@system: /usr
+  libpciaccess:
+    buildable: False
+    paths:
+      libpciaccess@system: /usr
+  pkgconf:
+    buildable: False
+    paths:
+      pkgconf@system: /usr
+  zlib:
+    buildable: False
+    paths:
+      zlib@system: /usr
+  xz:
+    paths:
+      xz@system: /usr
+      buildable: False
+  tar:
+    paths:
+      tar@system: /usr
+      buildable: False
+  flex:
+    paths:
+      flex@system: /usr
+      buildable: False
+  autoconf:
+    paths:
+      autoconf@system: /usr
+      buildable: False
+  automake:
+    paths:
+      automake@system: /usr
+      buildable: False
+  libtool:
+    paths:
+      libtool@system: /usr
+      buildable: False
+  m4:
+    paths:
+      m4@1.4.16: /usr
+      buildable: False
+  lua:
+    paths:
+      lua@5.1.4: /usr
+      buildable: False
+  libx11:
+    paths:
+      libx11@system: /usr
+      buildable: False
+  cairo:
+    paths:
+      cairo@1.14.8: /usr
+      buildable: False
+  pango:
+    paths:
+      pango@1.0: /usr
+      buildable: False
+  bzip2:
+    paths:
+      bzip2@system: /usr
+      buildable: False
+
