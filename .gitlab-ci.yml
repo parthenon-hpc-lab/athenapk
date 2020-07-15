@@ -79,7 +79,9 @@ prep-cuda:
       wget -qO- http://www.cmake.org/files/v${CMAKE_VER:0:4}/cmake-${CMAKE_VER}-Linux-x86_64.tar.gz | tar -xz;
       cd ..;
       fi
-    - pip3 install matplotlib --user
+    - python --version
+    - python3 --version
+    - python3 -m pip install matplotlib --user
       
 
 prep-icc:
