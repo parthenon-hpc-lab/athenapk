@@ -18,6 +18,7 @@ before_script:
     - export LD_LIBRARY_PATH=${PWD}/opt/openmpi-${OMPI_VER}/lib:$LD_LIBRARY_PATH
     - export LD_LIBRARY_PATH=${PWD}/opt/ucx-${UCX_VER}/lib:$LD_LIBRARY_PATH
     - module load python3
+    - killall mpi_bandwidth
 
 cache: &global_cache
   key: global-5
