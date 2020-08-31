@@ -7,7 +7,8 @@ before_script:
     - export OMP_NUM_THREADS=1
     - export CMAKE_VERSION=3.15.3
     - export CTEST_OUTPUT_ON_FAILURE=1
-    - export J=$(( $(nproc --all) / 4  + 1 )) && echo Using ${J} cores during build
+#    - export J=$(( $(nproc --all) / 4  + 1 )) && echo Using ${J} cores during build
+    - export J=4 && echo Using ${J} cores during build
     - wget -qO- http://www.cmake.org/files/v${CMAKE_VERSION:0:4}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz | tar -xz
     - export PATH=${PWD}/cmake-${CMAKE_VERSION}-Linux-x86_64/bin:$PATH
     - export GOLD_STANDARD_VER=2
@@ -35,6 +36,7 @@ test-cuda:
     - springdale7
   script:
     - module load openmpi/cuda-10.2/gcc/4.0.3/64 gcc/7.3.0 cudatoolkit/10.2
+    - module avail
     - ps auxww
     - free -m
     - nvidia-smi
