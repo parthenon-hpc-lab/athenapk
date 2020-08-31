@@ -24,9 +24,20 @@ cache:
     - local/
 
 stages:
+  - test
   - prep
   - regression
 
+test-cuda:
+  stage: test
+  tags:
+    - gpu
+    - springdale7
+  script:
+    - module load openmpi/cuda-10.2/gcc/4.0.3/64 gcc/7.3.0 cudatoolkit/10.2
+    - ps auxww
+    - free -m
+    - nvidia-smi
 
 prep-cuda:
   stage: prep
