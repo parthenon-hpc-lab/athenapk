@@ -7,23 +7,16 @@
 //========================================================================================
 
 // Parthenon headers
-#include "driver/multistage.hpp"
-#include "mesh/mesh.hpp"
-#include "task_list/tasks.hpp"
+#include <parthenon/driver.hpp>
+#include <parthenon/package.hpp>
 
-using parthenon::Mesh;
-using parthenon::MeshBlock;
-using parthenon::MultiStageBlockTaskDriver;
-using parthenon::Outputs;
-using parthenon::ParameterInput;
-using parthenon::TaskList;
+using namespace parthenon::driver::prelude;
 
 namespace Hydro {
 
 class HydroDriver : public MultiStageBlockTaskDriver {
-public:
-  HydroDriver(ParameterInput *pin, Mesh *pm)
-      : MultiStageBlockTaskDriver(pin, pm) {}
+ public:
+  HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm);
   // This next function essentially defines the driver.
   // Call graph looks like
   // main()
@@ -36,4 +29,4 @@ public:
 
 } // namespace Hydro
 
-#endif  // HYDRO_HYDRO_DRIVER_HPP_
+#endif // HYDRO_HYDRO_DRIVER_HPP_

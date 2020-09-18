@@ -26,15 +26,15 @@ using parthenon::ParArray4D;
 //           Container<Real> &rc,
 //           int il, int iu, int jl, int ju, int kl, int ku)
 // \brief Converts conserved into primitive variables in adiabatic hydro.
-void AdiabaticHydroEOS::ConservedToPrimitive(Container<Real> &rc, int il, int iu, int jl,
+void AdiabaticHydroEOS::ConservedToPrimitive(std::shared_ptr<Container<Real>> &rc, int il, int iu, int jl,
                                              int ju, int kl, int ku) const {
   Real gm1 = GetGamma() - 1.0;
   auto density_floor_ = GetDensityFloor();
   auto pressure_floor_ = GetPressureFloor();
-  auto pmb = rc.pmy_block;
+  auto pmb = rc->pmy_block;
 
-  ParArray4D<Real> cons = rc.Get("cons").data.Get<4>();
-  ParArray4D<Real> prim = rc.Get("prim").data.Get<4>();
+  ParArray4D<Real> cons = rc->Get("cons").data.Get<4>();
+  ParArray4D<Real> prim = rc->Get("prim").data.Get<4>();
 
   pmb->par_for(
       "ConservedToPrimitive", kl, ku, jl, ju, il, iu,
@@ -76,13 +76,13 @@ void AdiabaticHydroEOS::ConservedToPrimitive(Container<Real> &rc, int il, int iu
 //           Coordinates int il, int iu, int jl, int ju, int kl, int ku);
 // \brief Converts primitive variables into conservative variables
 
-void AdiabaticHydroEOS::PrimitiveToConserved(Container<Real> &rc, int il, int iu, int jl,
+void AdiabaticHydroEOS::PrimitiveToConserved(std::shared_ptr<Container<Real>> &rc, int il, int iu, int jl,
                                              int ju, int kl, int ku) const {
   Real igm1 = 1.0 / (GetGamma() - 1.0);
-  auto pmb = rc.pmy_block;
+  auto pmb = rc->pmy_block;
 
-  auto cons = rc.Get("cons").data.Get<4>();
-  auto prim = rc.Get("prim").data.Get<4>();
+  auto cons = rc->Get("cons").data.Get<4>();
+  auto prim = rc->Get("prim").data.Get<4>();
 
   pmb->par_for(
       "ConservedToPrimitive", kl, ku, jl, ju, il, iu,

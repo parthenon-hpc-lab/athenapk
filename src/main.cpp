@@ -7,11 +7,21 @@
 
 // AthenaPK headers
 #include "hydro/hydro_driver.hpp"
+#include "hydro/hydro.hpp"
+#include "pgen/pgen.hpp"
 
 int main(int argc, char *argv[]) {
   using parthenon::ParthenonManager;
   using parthenon::ParthenonStatus;
   ParthenonManager pman;
+  
+  // Redefine parthenon defaults
+  // TODO(pgrete) this needs to be package dependent
+  pman.app_input->ProcessPackages = Hydro::ProcessPackages;
+  // TODO(pgrete) this needs to be problem dependent
+  pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
+  pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
+  // pman.app_input->SetFillDerivedFunctions = advection_example::SetFillDerivedFunctions;
 
   // call ParthenonInit to initialize MPI and Kokkos, parse the input deck, and set up
   auto manager_status = pman.ParthenonInit(argc, argv);
@@ -32,7 +42,7 @@ int main(int argc, char *argv[]) {
   if ((integrator_name.compare("vl2") == 0) || (integrator_name.compare("rk1") == 0)) {
     std::cout << "Starting up hydro driver" << std::endl;
 
-    Hydro::HydroDriver driver(pman.pinput.get(), pman.pmesh.get());
+    Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
 
     // This line actually runs the simulation
     auto driver_status = driver.Execute();

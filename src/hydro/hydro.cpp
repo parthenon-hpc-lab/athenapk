@@ -7,11 +7,6 @@
 // Parthenon headers
 #include <parthenon/package.hpp>
 
-#include "defs.hpp"
-#include "mesh/domain.hpp"
-#include "parthenon/prelude.hpp"
-#include "parthenon_manager.hpp"
-
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
@@ -22,23 +17,7 @@
 #include "rsolvers/hydro_hlle.hpp"
 #include "rsolvers/riemann.hpp"
 
-using parthenon::CellVariable;
-using parthenon::IndexDomain;
-using parthenon::IndexRange;
-using parthenon::Metadata;
-using parthenon::ParArray4D;
-using parthenon::ParArrayND;
-using parthenon::ParthenonManager;
-
-namespace parthenon {
-
-Packages_t ParthenonManager::ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
-  Packages_t packages;
-  packages["Hydro"] = Hydro::Initialize(pin.get());
-  return packages;
-}
-
-} // namespace parthenon
+using namespace parthenon::package::prelude;
 
 // *************************************************//
 // define the "physics" package Hydro, which  *//
@@ -48,6 +27,12 @@ Packages_t ParthenonManager::ProcessPackages(std::unique_ptr<ParameterInput> &pi
 // *************************************************//
 
 namespace Hydro {
+
+parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
+  parthenon::Packages_t packages;
+  packages["Hydro"] = Hydro::Initialize(pin.get());
+  return packages;
+}
 
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto pkg = std::make_shared<StateDescriptor>("Hydro");
@@ -98,8 +83,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
 // this is the package registered function to fill derived, here, convert the
 // conserved variables to primitives
-void ConsToPrim(Container<Real> &rc) {
-  MeshBlock *pmb = rc.pmy_block;
+void ConsToPrim(std::shared_ptr<Container<Real>> &rc) {
+  MeshBlock *pmb = rc->pmy_block;
   auto pkg = pmb->packages["Hydro"];
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
@@ -110,11 +95,11 @@ void ConsToPrim(Container<Real> &rc) {
 }
 
 // provide the routine that estimates a stable timestep for this package
-Real EstimateTimestep(Container<Real> &rc) {
-  MeshBlock *pmb = rc.pmy_block;
+Real EstimateTimestep(std::shared_ptr<Container<Real>> &rc) {
+  MeshBlock *pmb = rc->pmy_block;
   auto pkg = pmb->packages["Hydro"];
   const auto &cfl = pkg->Param<Real>("cfl");
-  ParArray4D<Real> prim = rc.Get("prim").data.Get<4>();
+  ParArray4D<Real> prim = rc->Get("prim").data.Get<4>();
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -157,8 +142,8 @@ Real EstimateTimestep(Container<Real> &rc) {
 // Compute fluxes at faces given the constant velocity field and
 // some field "advected" that we are pushing around.
 // This routine implements all the "physics" in this example
-TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
-  MeshBlock *pmb = rc.pmy_block;
+TaskStatus CalculateFluxes(std::shared_ptr<Container<Real>> &rc, int stage) {
+  MeshBlock *pmb = rc->pmy_block;
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -173,10 +158,10 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
   }
 
-  ParArray4D<Real> w = rc.Get("prim").data.Get<4>();
-  ParArray4D<Real> wl = rc.Get("wl").data.Get<4>();
-  ParArray4D<Real> wr = rc.Get("wr").data.Get<4>();
-  CellVariable<Real> &cons = rc.Get("cons");
+  ParArray4D<Real> w = rc->Get("prim").data.Get<4>();
+  ParArray4D<Real> wl = rc->Get("wl").data.Get<4>();
+  ParArray4D<Real> wr = rc->Get("wr").data.Get<4>();
+  CellVariable<Real> &cons = rc->Get("cons");
   auto pkg = pmb->packages["Hydro"];
   const int nhydro = pkg->Param<int>("nhydro");
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
@@ -245,8 +230,8 @@ TaskStatus CalculateFluxes(Container<Real> &rc, int stage) {
   return TaskStatus::complete;
 }
 
-TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
-  MeshBlock *pmb = rc.pmy_block;
+TaskStatus CalculateFluxesWScratch(std::shared_ptr<Container<Real>> &rc, int stage) {
+  MeshBlock *pmb = rc->pmy_block;
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -260,8 +245,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
   }
 
-  ParArrayND<Real> &prim = rc.Get("prim").data;
-  CellVariable<Real> &cons = rc.Get("cons");
+  ParArrayND<Real> &prim = rc->Get("prim").data;
+  CellVariable<Real> &cons = rc->Get("cons");
   auto pkg = pmb->packages["Hydro"];
   const int nhydro = pkg->Param<int>("nhydro");
   auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
@@ -294,8 +279,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
                                             nx1);
           parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
                                             nx1);
-          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, coords, prim, wl, wr,
-                            qc, dql, dqr, dqm);
+          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, coords, prim, wl, wr, qc,
+                            dql, dqr, dqm);
         }
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
@@ -335,8 +320,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
           if (stage == 1) {
             DonorCellX2(member, k, jb.s - 1, il, iu, prim, wl, wr);
           } else {
-            PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim, wl, wr, qc,
-                              dql, dqr, dqm);
+            PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim, wl, wr, qc, dql,
+                              dqr, dqm);
           }
           // Sync all threads in the team so that scratch memory is consistent
           member.team_barrier();
@@ -345,8 +330,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
             if (stage == 1) {
               DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
             } else {
-              PiecewiseLinearX2(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql,
-                                dqr, dqm);
+              PiecewiseLinearX2(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
+                                dqm);
             }
             member.team_barrier();
 
@@ -390,8 +375,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
           if (stage == 1) {
             DonorCellX3(member, kb.s - 1, j, il, iu, prim, wl, wr);
           } else {
-            PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim, wl, wr, qc,
-                              dql, dqr, dqm);
+            PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim, wl, wr, qc, dql,
+                              dqr, dqm);
           }
           // Sync all threads in the team so that scratch memory is consistent
           member.team_barrier();
@@ -400,8 +385,8 @@ TaskStatus CalculateFluxesWScratch(Container<Real> &rc, int stage) {
             if (stage == 1) {
               DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
             } else {
-              PiecewiseLinearX3(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql,
-                                dqr, dqm);
+              PiecewiseLinearX3(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
+                                dqm);
             }
             member.team_barrier();
 

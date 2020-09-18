@@ -24,12 +24,15 @@
 
 // Parthenon headers
 #include "mesh/mesh.hpp"
+#include <parthenon/driver.hpp>
+#include <parthenon/package.hpp>
 
 // Athena headers
 #include "../main.hpp"
 
-namespace parthenon {
-namespace {
+namespace linear_wave {
+using namespace parthenon::driver::prelude;
+
 // Parameters which define initial solution -- made global so that they can be shared
 // with functions A1,2,3 which compute vector potentials
 Real d0, p0, u0, bx0, by0, bz0, dby, dbz;
@@ -53,16 +56,15 @@ void Eigensystem(const Real d, const Real v1, const Real v2, const Real v3, cons
                  Real left_eigenmatrix[(NWAVE)][(NWAVE)]);
 
 Real MaxV2(MeshBlock *pmb, int iout);
-} // namespace
 
 //========================================================================================
-//! \fn void Mesh::InitUserMeshData(ParameterInput *pin)
+//! \fn void InitUserMeshData(ParameterInput *pin)
 //  \brief Function to initialize problem-specific data in mesh class.  Can also be used
 //  to initialize variables which are global to (and therefore can be passed to) other
 //  functions in this file.  Called in Mesh constructor.
 //========================================================================================
 
-void Mesh::InitUserMeshData(ParameterInput *pin) {
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   // read global parameters
   wave_flag = pin->GetInteger("problem/linear_wave", "wave_flag");
   amp = pin->GetReal("problem/linear_wave", "amp");
@@ -82,6 +84,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   //    For wavevector along grid diagonal, do not input values for ang_2/ang_3.
   // Code below will automatically calculate these imposing periodicity and exactly one
   // wavelength along each grid direction
+  const auto mesh_size = mesh->mesh_size;
   Real x1size = mesh_size.x1max - mesh_size.x1min;
   Real x2size = mesh_size.x2max - mesh_size.x2min;
   Real x3size = mesh_size.x3max - mesh_size.x3min;
@@ -114,8 +117,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   Real x2 = x2size * cos_a2 * sin_a3;
   Real x3 = x3size * sin_a2;
 
-  const int f2 = (ndim >= 2) ? 1 : 0;
-  const int f3 = (ndim >= 3) ? 1 : 0;
+  const int f2 = (mesh->ndim >= 2) ? 1 : 0;
+  const int f3 = (mesh->ndim >= 3) ? 1 : 0;
 
   // For lambda choose the smaller of the 3
   lambda = x1;
@@ -127,7 +130,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   if (ang_2_vert) lambda = x3;
 
   // Initialize k_parallel
-  k_par = 2.0 * (PI) / lambda;
+  k_par = 2.0 * (M_PI) / lambda;
 
   // Compute eigenvectors, where the quantities u0 and bx0 are parallel to the
   // wavevector, and v0,w0,by0,bz0 are perpendicular.
@@ -162,18 +165,17 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 }
 
 //========================================================================================
-//! \fn void Mesh::UserWorkAfterLoop(ParameterInput *pin)
+//! \fn void UserWorkAfterLoop(ParameterInput *pin)
 //  \brief Compute L1 error in linear waves and output to file
 //========================================================================================
 
-void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
+void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) {
   if (!pin->GetOrAddBoolean("problem/linear_wave", "compute_error", false)) return;
 
   // Initialize errors to zero
   Real l1_err[NHYDRO + NFIELD]{}, max_err[NHYDRO + NFIELD]{};
 
-  MeshBlock *pmb = pblock;
-  while (pmb != nullptr) {
+  for (auto &pmb : mesh->block_list) {
     IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
     IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
     IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -182,7 +184,7 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
     int nl = 0;
     int nu = ncells4 - 1;
     // Save analytic solution of conserved variables in 4D scratch array on host
-    Kokkos::View<Real ****, LayoutWrapper, HostMemSpace> cons_(
+    Kokkos::View<Real ****, parthenon::LayoutWrapper, parthenon::HostMemSpace> cons_(
         "cons scratch", ncells4, pmb->cellbounds.ncellsk(IndexDomain::entire),
         pmb->cellbounds.ncellsj(IndexDomain::entire),
         pmb->cellbounds.ncellsi(IndexDomain::entire));
@@ -215,8 +217,8 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
       }
     }
 
-    auto rc = pmb->real_containers.Get(); // get base container
-    auto u = rc.Get("cons").data.GetHostMirrorAndCopy();
+    auto &rc = pmb->real_containers.Get(); // get base container
+    auto u = rc->Get("cons").data.GetHostMirrorAndCopy();
     for (int k = kb.s; k <= kb.e; ++k) {
       for (int j = jb.s; j <= jb.e; ++j) {
         for (int i = ib.s; i <= ib.e; ++i) {
@@ -248,7 +250,6 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
         }
       }
     }
-    pmb = pmb->next;
   }
   Real rms_err = 0.0, max_max_over_l1 = 0.0;
 
@@ -267,10 +268,12 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
 #endif
 
   // only the root process outputs the data
-  if (Globals::my_rank == 0) {
+  if (parthenon::Globals::my_rank == 0) {
     // normalize errors by number of cells
-    Real vol = (mesh_size.x1max - mesh_size.x1min) * (mesh_size.x2max - mesh_size.x2min) *
-               (mesh_size.x3max - mesh_size.x3min);
+    const auto mesh_size = mesh->mesh_size;
+    const auto vol = (mesh_size.x1max - mesh_size.x1min) *
+                     (mesh_size.x2max - mesh_size.x2min) *
+                     (mesh_size.x3max - mesh_size.x3min);
     for (int i = 0; i < (NHYDRO + NFIELD); ++i)
       l1_err[i] = l1_err[i] / vol;
     // compute rms error
@@ -324,20 +327,21 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin, SimTime &tm) {
 }
 
 //========================================================================================
-//! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
+//! \fn void ProblemGenerator(ParameterInput *pin)
 //  \brief Linear wave problem generator for 1D/2D/3D problems.
 //========================================================================================
 
-void MeshBlock::ProblemGenerator(ParameterInput *pin) {
-  IndexRange ib = cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cellbounds.GetBoundsK(IndexDomain::interior);
+void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   // Initialize the magnetic fields.  Note wavevector, eigenvectors, and other variables
   // are set in InitUserMeshData
 
   // initialize conserved variables
-  Container<Real> &rc = real_containers.Get();
-  auto &u_dev = rc.Get("cons").data;
+  auto &rc = pmb->real_containers.Get();
+  auto &u_dev = rc->Get("cons").data;
+  auto &coords = pmb->coords;
   // initializing on host
   auto u = u_dev.GetHostMirrorAndCopy();
   for (int k = kb.s; k <= kb.e; k++) {
@@ -360,11 +364,10 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     }
   }
   // copy initialized vars to device
-  u_dev.DeepCopy(rc.pmy_block->exec_space, u);
+  u_dev.DeepCopy(u);
   return;
 }
 
-namespace {
 //----------------------------------------------------------------------------------------
 //! \fn Real A1(const Real x1,const Real x2,const Real x3)
 //  \brief A1: 1-component of vector potential, using a gauge such that Ax = 0, and Ay,
@@ -494,8 +497,8 @@ Real MaxV2(MeshBlock *pmb, int iout) {
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   Real max_v2 = 0.0;
-  Container<Real> &rc = pmb->real_containers.Get();
-  auto &w = rc.Get("prim").data;
+  auto &rc = pmb->real_containers.Get();
+  auto &w = rc->Get("prim").data;
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
@@ -505,6 +508,4 @@ Real MaxV2(MeshBlock *pmb, int iout) {
   }
   return max_v2;
 }
-} // namespace
-
-} // namespace parthenon
+} // namespace linear_wave

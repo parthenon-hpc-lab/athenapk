@@ -34,10 +34,10 @@ class EquationOfState {
   EquationOfState(Real pressure_floor, Real density_floor)
       : pressure_floor_(pressure_floor), density_floor_(density_floor) {}
 
-  virtual void ConservedToPrimitive(Container<Real> &rc, int il, int iu, int jl, int ju,
-                                    int kl, int ku) const = 0;
-  virtual void PrimitiveToConserved(Container<Real> &rc, int il, int iu, int jl, int ju,
-                                    int kl, int ku) const = 0;
+  virtual void ConservedToPrimitive(std::shared_ptr<Container<Real>> &rc, int il, int iu,
+                                    int jl, int ju, int kl, int ku) const = 0;
+  virtual void PrimitiveToConserved(std::shared_ptr<Container<Real>> &rc, int il, int iu,
+                                    int jl, int ju, int kl, int ku) const = 0;
 
   KOKKOS_INLINE_FUNCTION
   Real GetPressureFloor() const { return pressure_floor_; }
@@ -49,4 +49,4 @@ class EquationOfState {
   Real pressure_floor_, density_floor_;
 };
 
-#endif  // EOS_EOS_HPP_
+#endif // EOS_EOS_HPP_

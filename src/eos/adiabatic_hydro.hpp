@@ -26,10 +26,10 @@ class AdiabaticHydroEOS : public EquationOfState {
   AdiabaticHydroEOS(Real pressure_floor, Real density_floor, Real gamma)
       : EquationOfState(pressure_floor, density_floor), gamma_{gamma} {}
 
-  void ConservedToPrimitive(Container<Real> &rc, int il, int iu, int jl, int ju, int kl,
-                            int ku) const override;
-  void PrimitiveToConserved(Container<Real> &rc, int il, int iu, int jl, int ju, int kl,
-                            int ku) const override;
+  void ConservedToPrimitive(std::shared_ptr<Container<Real>> &rc, int il, int iu, int jl,
+                            int ju, int kl, int ku) const override;
+  void PrimitiveToConserved(std::shared_ptr<Container<Real>> &rc, int il, int iu, int jl,
+                            int ju, int kl, int ku) const override;
 
   KOKKOS_INLINE_FUNCTION
   Real GetGamma() const { return gamma_; }
