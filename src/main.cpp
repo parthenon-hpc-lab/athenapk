@@ -18,10 +18,10 @@ int main(int argc, char *argv[]) {
   // Redefine parthenon defaults
   // TODO(pgrete) this needs to be package dependent
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
+  pman.app_input->SetFillDerivedFunctions = Hydro::ConsToPrim;
   // TODO(pgrete) this needs to be problem dependent
   pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
   pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
-  // pman.app_input->SetFillDerivedFunctions = advection_example::SetFillDerivedFunctions;
 
   // call ParthenonInit to initialize MPI and Kokkos, parse the input deck, and set up
   auto manager_status = pman.ParthenonInit(argc, argv);
