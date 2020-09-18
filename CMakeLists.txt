@@ -1,11 +1,18 @@
-# Athena-Parthenon - a performance portable block structured AMR MHD code
+# AthenaPK - a performance portable block structured AMR MHD code
 # Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the 3-Clause License (the "LICENSE");
 
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.13)
 project(athenaPK LANGUAGES CXX)
 
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_CXX_STANDARD 14)
+
+# make paths in target_source() absolute
+# used for sources in src/pgen folder
+# new behavior introduces in CMake 3.13 that's why this is the min. version above
+cmake_policy(SET CMP0076 NEW)
 
 # Don't allow in-source builds
 file(TO_CMAKE_PATH "${PROJECT_BINARY_DIR}/CMakeLists.txt" LOC_PATH)

@@ -44,17 +44,12 @@ nx1=8
 nx2=8
 nx3=8
 
-<parthenon/output0>
-file_type = hdf5
-dt = -1
-variables   = cons,prim      # variables to be output TODO(pgrete) this is  likely obsolete
-
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
 tlim = 1.0
 nlim = 100000
-perc_cycle_offset = 5 # number of inital cycles not to be included in perf calc
+perc_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 
 <hydro>
 eos = adiabatic
