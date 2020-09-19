@@ -75,7 +75,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddField("wl", m);
   pkg->AddField("wr", m);
 
-  //pkg->FillDerived = ConsToPrim;
+  pkg->FillDerived = ConsToPrim;
   pkg->EstimateTimestep = EstimateTimestep;
 
   return pkg;

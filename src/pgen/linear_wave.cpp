@@ -64,7 +64,7 @@ Real MaxV2(MeshBlock *pmb, int iout);
 //  functions in this file.  Called in Mesh constructor.
 //========================================================================================
 
-void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
+void InitUserMeshData(ParameterInput *pin) {
   // read global parameters
   wave_flag = pin->GetInteger("problem/linear_wave", "wave_flag");
   amp = pin->GetReal("problem/linear_wave", "amp");
@@ -84,10 +84,18 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   //    For wavevector along grid diagonal, do not input values for ang_2/ang_3.
   // Code below will automatically calculate these imposing periodicity and exactly one
   // wavelength along each grid direction
-  const auto mesh_size = mesh->mesh_size;
-  Real x1size = mesh_size.x1max - mesh_size.x1min;
-  Real x2size = mesh_size.x2max - mesh_size.x2min;
-  Real x3size = mesh_size.x3max - mesh_size.x3min;
+  //TODO (pgrete) technically the following is processed by the Mesh class.
+  // However this function does not necessarily need to belong to Mesh so
+  // the info is not readily available.
+  const auto x1min = pin->GetReal("parthenon/mesh", "x1min");
+  const auto x1max = pin->GetReal("parthenon/mesh", "x1max");
+  const auto x2min = pin->GetReal("parthenon/mesh", "x2min");
+  const auto x2max = pin->GetReal("parthenon/mesh", "x2max");
+  const auto x3min = pin->GetReal("parthenon/mesh", "x3min");
+  const auto x3max = pin->GetReal("parthenon/mesh", "x3max");
+  Real x1size = x1max - x1min;
+  Real x2size = x2max - x2min;
+  Real x3size = x3max - x3min;
 
   // User should never input -999.9 in angles
   if (ang_3 == -999.9) ang_3 = std::atan(x1size / x2size);
@@ -117,8 +125,8 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   Real x2 = x2size * cos_a2 * sin_a3;
   Real x3 = x3size * sin_a2;
 
-  const int f2 = (mesh->ndim >= 2) ? 1 : 0;
-  const int f3 = (mesh->ndim >= 3) ? 1 : 0;
+  const int f2 = (pin->GetInteger("parthenon/mesh", "nx2") > 1) ? 1 : 0;
+  const int f3 = (pin->GetInteger("parthenon/mesh", "nx3") > 1) ? 1 : 0;
 
   // For lambda choose the smaller of the 3
   lambda = x1;
