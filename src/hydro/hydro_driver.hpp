@@ -24,7 +24,7 @@ class HydroDriver : public MultiStageBlockTaskDriver {
   //     MultiStageBlockTaskDriver::Step (multistage.cpp)
   //       DriverUtils::ConstructAndExecuteBlockTasks (driver.hpp)
   //         AdvectionDriver::MakeTaskList (advection.cpp)
-  TaskList MakeTaskList(MeshBlock *pmb, int stage);
+  auto MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskCollection;
 };
 
 } // namespace Hydro
