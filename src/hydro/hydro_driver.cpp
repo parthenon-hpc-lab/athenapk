@@ -8,8 +8,10 @@
 #include <string>
 #include <vector>
 
-// Athena headers
+// Parthenon headers
 #include "bvals/cc/bvals_cc_in_one.hpp"
+#include "utils/partition_stl_containers.hpp"
+// Athena headers
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
 
@@ -82,6 +84,30 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
       advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, sc0, stage);
     }
   }
+
+  // first partition the blocks
+  // TODO(pgrete) cache this
+  const auto pack_size = pmesh->DefaultPackSize();
+  auto partitions = parthenon::partition::ToSizeN(pmesh->block_list, pack_size);
+  std::vector<MeshBlockVarFluxPack<Real>> sc0_pack;
+  std::vector<MeshBlockVarPack<Real>> sc1_pack;
+  std::vector<MeshBlockVarPack<Real>> dudt_pack;
+  sc0_pack.resize(partitions.size());
+  sc1_pack.resize(partitions.size());
+  dudt_pack.resize(partitions.size());
+  // toto make packs for proper containers
+  for (int i = 0; i < partitions.size(); i++) {
+    sc0_pack[i] = PackVariablesAndFluxesOnMesh(
+        partitions[i], stage_name[stage - 1],
+        std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+    sc1_pack[i] =
+        PackVariablesOnMesh(partitions[i], stage_name[stage],
+                            std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+    dudt_pack[i] =
+        PackVariablesOnMesh(partitions[i], "dUdt",
+                            std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+  }
+
   // note that task within this region that contains only a single task list
   // could still be executed in parallel
   TaskRegion &single_tasklist_region = tc.AddRegion(1);
@@ -117,7 +143,7 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
                                        BoundaryCommSubset::all);
 
     // set physical boundaries
-    auto set_bc = tl.AddTask(fill_from_bufs, parthenon::ApplyBoundaryConditions, sc1);
+    auto set_bc = tl.AddTask(none, parthenon::ApplyBoundaryConditions, sc1);
 
     // fill in derived fields
     auto fill_derived =
