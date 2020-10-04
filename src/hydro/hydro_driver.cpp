@@ -101,15 +101,15 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     auto update_container =
         tl.AddTask(flux_div, UpdateContainer, pmb, stage, stage_name, integrator);
       // update ghost cells
-    auto send =
-        tl.AddTask(update_container, &Container<Real>::SendBoundaryBuffers, sc1.get());
-    auto recv = tl.AddTask(send, &Container<Real>::ReceiveBoundaryBuffers, sc1.get());
-    auto fill_from_bufs = tl.AddTask(recv, &Container<Real>::SetBoundaries, sc1.get());
-    auto clear_comm_flags = tl.AddTask(fill_from_bufs, &Container<Real>::ClearBoundary,
-                                       sc1.get(), BoundaryCommSubset::all);
+    // auto send =
+    //     tl.AddTask(update_container, &Container<Real>::SendBoundaryBuffers, sc1.get());
+    // auto recv = tl.AddTask(send, &Container<Real>::ReceiveBoundaryBuffers, sc1.get());
+    // auto fill_from_bufs = tl.AddTask(recv, &Container<Real>::SetBoundaries, sc1.get());
+    // auto clear_comm_flags = tl.AddTask(fill_from_bufs, &Container<Real>::ClearBoundary,
+    //                                    sc1.get(), BoundaryCommSubset::all);
 
 
-  // }
+  }
 
   // // first partition the blocks
   // // TODO(pgrete) cache this
@@ -134,11 +134,11 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   //                           std::vector<parthenon::MetadataFlag>{Metadata::Independent});
   // }
 
-  // // note that task within this region that contains only a single task list
-  // // could still be executed in parallel
-  // TaskRegion &single_tasklist_region = tc.AddRegion(1);
-  // {
-  //   auto &tl = single_tasklist_region[0];
+  // note that task within this region that contains only a single task list
+  // could still be executed in parallel
+  TaskRegion &single_tasklist_region = tc.AddRegion(1);
+  {
+    auto &tl = single_tasklist_region[0];
 
   //   // compute the divergence of fluxes of conserved variables
   //   auto flux_div = tl.AddTask(none, parthenon::Update::FluxDivergenceMesh, blocks,
@@ -148,29 +148,29 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   //   auto update_container =
   //       tl.AddTask(flux_div, UpdateContainer, blocks, stage, stage_name, integrator);
 
-  //   // update ghost cells
-  //   auto send =
-  //       tl.AddTask(update_container, parthenon::cell_centered_bvars::SendBoundaryBuffers,
-  //                  blocks, stage_name[stage]);
+    // update ghost cells
+    auto send =
+        tl.AddTask(none, parthenon::cell_centered_bvars::SendBoundaryBuffers,
+                   blocks, stage_name[stage]);
 
-  //   auto recv = tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers,
-  //                          blocks, stage_name[stage]);
-  //   auto fill_from_bufs = tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries,
-  //                                    blocks, stage_name[stage]);
-  // }
-  // TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
+    auto recv = tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers,
+                           blocks, stage_name[stage]);
+    auto fill_from_bufs = tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries,
+                                     blocks, stage_name[stage]);
+  }
+  TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
 
-  // for (int i = 0; i < blocks.size(); i++) {
-  //   auto &pmb = blocks[i];
-  //   auto &tl = async_region2[i];
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &pmb = blocks[i];
+    auto &tl = async_region2[i];
 
-    // auto &sc1 = pmb->real_containers.Get(stage_name[stage]);
+    auto &sc1 = pmb->real_containers.Get(stage_name[stage]);
 
-    // auto clear_comm_flags = tl.AddTask(none, &Container<Real>::ClearBoundary, sc1.get(),
-                                      //  BoundaryCommSubset::all);
+    auto clear_comm_flags = tl.AddTask(none, &Container<Real>::ClearBoundary, sc1.get(),
+                                       BoundaryCommSubset::all);
 
     // set physical boundaries
-    auto set_bc = tl.AddTask(fill_from_bufs, parthenon::ApplyBoundaryConditions, sc1);
+    auto set_bc = tl.AddTask(none, parthenon::ApplyBoundaryConditions, sc1);
 
     // fill in derived fields
     auto fill_derived =
