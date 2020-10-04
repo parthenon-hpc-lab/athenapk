@@ -28,15 +28,28 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
   pin->CheckDesired("hydro", "cfl");
 }
 
-// first some helper tasks
-auto UpdateContainer(BlockList_t &blocks, const int stage,
-                     const std::vector<std::string> &stage_name, Integrator *integrator)
-    -> TaskStatus {
+// // first some helper tasks
+// auto UpdateContainer(BlockList_t &blocks, const int stage,
+//                      const std::vector<std::string> &stage_name, Integrator *integrator)
+//     -> TaskStatus {
+//   // TODO(pgrete): this update is currently hardcoded to work for rk1 and vl2
+//   const Real beta = integrator->beta[stage - 1];
+//   const Real dt = integrator->dt;
+//   parthenon::Update::UpdateContainer(blocks, stage_name[stage - 1], "dUdt", beta * dt,
+//                                      stage_name[stage]);
+
+//   return TaskStatus::complete;
+// }
+TaskStatus UpdateContainer(std::shared_ptr<MeshBlock> pmb, int stage,
+                           std::vector<std::string> &stage_name, Integrator *integrator) {
   // TODO(pgrete): this update is currently hardcoded to work for rk1 and vl2
   const Real beta = integrator->beta[stage - 1];
   const Real dt = integrator->dt;
-  parthenon::Update::UpdateContainer(blocks, stage_name[stage - 1], "dUdt", beta * dt,
-                                     stage_name[stage]);
+  auto &base = pmb->real_containers.Get();
+  auto &cin = pmb->real_containers.Get(stage_name[stage - 1]);
+  auto &cout = pmb->real_containers.Get(stage_name[stage]);
+  auto &dudt = pmb->real_containers.Get("dUdt");
+  parthenon::Update::UpdateContainer(base, dudt, beta * dt, cout);
 
   return TaskStatus::complete;
 }
@@ -83,67 +96,81 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     } else {
       advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, sc0, stage);
     }
-  }
-
-  // first partition the blocks
-  // TODO(pgrete) cache this
-  const auto pack_size = pmesh->DefaultPackSize();
-  auto partitions = parthenon::partition::ToSizeN(pmesh->block_list, pack_size);
-  std::vector<MeshBlockVarFluxPack<Real>> sc0_pack;
-  std::vector<MeshBlockVarPack<Real>> sc1_pack;
-  std::vector<MeshBlockVarPack<Real>> dudt_pack;
-  sc0_pack.resize(partitions.size());
-  sc1_pack.resize(partitions.size());
-  dudt_pack.resize(partitions.size());
-  // toto make packs for proper containers
-  for (int i = 0; i < partitions.size(); i++) {
-    sc0_pack[i] = PackVariablesAndFluxesOnMesh(
-        partitions[i], stage_name[stage - 1],
-        std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    sc1_pack[i] =
-        PackVariablesOnMesh(partitions[i], stage_name[stage],
-                            std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    dudt_pack[i] =
-        PackVariablesOnMesh(partitions[i], "dUdt",
-                            std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-  }
-
-  // note that task within this region that contains only a single task list
-  // could still be executed in parallel
-  TaskRegion &single_tasklist_region = tc.AddRegion(1);
-  {
-    auto &tl = single_tasklist_region[0];
-
-    // compute the divergence of fluxes of conserved variables
-    auto flux_div = tl.AddTask(none, parthenon::Update::FluxDivergenceMesh, blocks,
-                               stage_name[stage - 1], "dUdt");
-
+    auto flux_div = tl.AddTask(advect_flux, parthenon::Update::FluxDivergence, sc0, dudt);
     // apply du/dt to all independent fields in the container
     auto update_container =
-        tl.AddTask(flux_div, UpdateContainer, blocks, stage, stage_name, integrator);
-
-    // update ghost cells
+        tl.AddTask(flux_div, UpdateContainer, pmb, stage, stage_name, integrator);
+      // update ghost cells
     auto send =
-        tl.AddTask(update_container, parthenon::cell_centered_bvars::SendBoundaryBuffers,
-                   blocks, stage_name[stage]);
+        tl.AddTask(update_container, &Container<Real>::SendBoundaryBuffers, sc1.get());
+    auto recv = tl.AddTask(send, &Container<Real>::ReceiveBoundaryBuffers, sc1.get());
+    auto fill_from_bufs = tl.AddTask(recv, &Container<Real>::SetBoundaries, sc1.get());
+    auto clear_comm_flags = tl.AddTask(fill_from_bufs, &Container<Real>::ClearBoundary,
+                                       sc1.get(), BoundaryCommSubset::all);
 
-    auto recv = tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers,
-                           blocks, stage_name[stage]);
-    auto fill_from_bufs = tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries,
-                                     blocks, stage_name[stage]);
-  }
-  TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
 
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &pmb = blocks[i];
-    auto &tl = async_region2[i];
-    auto &sc1 = pmb->real_containers.Get(stage_name[stage]);
+  // }
 
-    auto clear_comm_flags = tl.AddTask(none, &Container<Real>::ClearBoundary, sc1.get(),
-                                       BoundaryCommSubset::all);
+  // // first partition the blocks
+  // // TODO(pgrete) cache this
+  // const auto pack_size = pmesh->DefaultPackSize();
+  // auto partitions = parthenon::partition::ToSizeN(pmesh->block_list, pack_size);
+  // std::vector<MeshBlockVarFluxPack<Real>> sc0_pack;
+  // std::vector<MeshBlockVarPack<Real>> sc1_pack;
+  // std::vector<MeshBlockVarPack<Real>> dudt_pack;
+  // sc0_pack.resize(partitions.size());
+  // sc1_pack.resize(partitions.size());
+  // dudt_pack.resize(partitions.size());
+  // // toto make packs for proper containers
+  // for (int i = 0; i < partitions.size(); i++) {
+  //   sc0_pack[i] = PackVariablesAndFluxesOnMesh(
+  //       partitions[i], stage_name[stage - 1],
+  //       std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+  //   sc1_pack[i] =
+  //       PackVariablesOnMesh(partitions[i], stage_name[stage],
+  //                           std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+  //   dudt_pack[i] =
+  //       PackVariablesOnMesh(partitions[i], "dUdt",
+  //                           std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+  // }
+
+  // // note that task within this region that contains only a single task list
+  // // could still be executed in parallel
+  // TaskRegion &single_tasklist_region = tc.AddRegion(1);
+  // {
+  //   auto &tl = single_tasklist_region[0];
+
+  //   // compute the divergence of fluxes of conserved variables
+  //   auto flux_div = tl.AddTask(none, parthenon::Update::FluxDivergenceMesh, blocks,
+  //                              stage_name[stage - 1], "dUdt");
+
+  //   // apply du/dt to all independent fields in the container
+  //   auto update_container =
+  //       tl.AddTask(flux_div, UpdateContainer, blocks, stage, stage_name, integrator);
+
+  //   // update ghost cells
+  //   auto send =
+  //       tl.AddTask(update_container, parthenon::cell_centered_bvars::SendBoundaryBuffers,
+  //                  blocks, stage_name[stage]);
+
+  //   auto recv = tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers,
+  //                          blocks, stage_name[stage]);
+  //   auto fill_from_bufs = tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries,
+  //                                    blocks, stage_name[stage]);
+  // }
+  // TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
+
+  // for (int i = 0; i < blocks.size(); i++) {
+  //   auto &pmb = blocks[i];
+  //   auto &tl = async_region2[i];
+
+    // auto &sc1 = pmb->real_containers.Get(stage_name[stage]);
+
+    // auto clear_comm_flags = tl.AddTask(none, &Container<Real>::ClearBoundary, sc1.get(),
+                                      //  BoundaryCommSubset::all);
 
     // set physical boundaries
-    auto set_bc = tl.AddTask(none, parthenon::ApplyBoundaryConditions, sc1);
+    auto set_bc = tl.AddTask(fill_from_bufs, parthenon::ApplyBoundaryConditions, sc1);
 
     // fill in derived fields
     auto fill_derived =
