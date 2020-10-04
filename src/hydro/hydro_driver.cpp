@@ -85,38 +85,38 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     }
   }
 
-  // // first partition the blocks
-  // // TODO(pgrete) cache this
-  // const auto pack_size = pmesh->DefaultPackSize();
-  // auto partitions = parthenon::partition::ToSizeN(pmesh->block_list, pack_size);
-  // std::vector<MeshBlockVarFluxPack<Real>> sc0_pack;
-  // std::vector<MeshBlockVarPack<Real>> sc1_pack;
-  // std::vector<MeshBlockVarPack<Real>> dudt_pack;
-  // sc0_pack.resize(partitions.size());
-  // sc1_pack.resize(partitions.size());
-  // dudt_pack.resize(partitions.size());
-  // // toto make packs for proper containers
-  // for (int i = 0; i < partitions.size(); i++) {
-  //   sc0_pack[i] = PackVariablesAndFluxesOnMesh(
-  //       partitions[i], stage_name[stage - 1],
-  //       std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-  //   sc1_pack[i] =
-  //       PackVariablesOnMesh(partitions[i], stage_name[stage],
-  //                           std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-  //   dudt_pack[i] =
-  //       PackVariablesOnMesh(partitions[i], "dUdt",
-  //                           std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-  // }
+  // first partition the blocks
+  // TODO(pgrete) cache this
+  const auto pack_size = pmesh->DefaultPackSize();
+  auto partitions = parthenon::partition::ToSizeN(pmesh->block_list, pack_size);
+  std::vector<MeshBlockVarFluxPack<Real>> sc0_pack;
+  std::vector<MeshBlockVarPack<Real>> sc1_pack;
+  std::vector<MeshBlockVarPack<Real>> dudt_pack;
+  sc0_pack.resize(partitions.size());
+  sc1_pack.resize(partitions.size());
+  dudt_pack.resize(partitions.size());
+  // toto make packs for proper containers
+  for (int i = 0; i < partitions.size(); i++) {
+    sc0_pack[i] = PackVariablesAndFluxesOnMesh(
+        partitions[i], stage_name[stage - 1],
+        std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+    sc1_pack[i] =
+        PackVariablesOnMesh(partitions[i], stage_name[stage],
+                            std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+    dudt_pack[i] =
+        PackVariablesOnMesh(partitions[i], "dUdt",
+                            std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+  }
 
-  // note that task within this region that contains only a single task list
+  // note that task within this region that contains one tasklist per pack
   // could still be executed in parallel
-  TaskRegion &single_tasklist_region = tc.AddRegion(1);
-  {
-    auto &tl = single_tasklist_region[0];
+  TaskRegion &single_tasklist_per_pack_region = tc.AddRegion(partitions.size());
+  for (int i = 0; i < partitions.size(); i++) {
+    auto &tl = single_tasklist_per_pack_region[i];
 
     // compute the divergence of fluxes of conserved variables
-    auto flux_div = tl.AddTask(none, parthenon::Update::FluxDivergenceMesh, blocks,
-                               stage_name[stage - 1], "dUdt");
+    auto flux_div = tl.AddTask(none, parthenon::Update::FluxDivergenceMesh, sc0_pack[i],
+                               dudt_pack[i]);
 
     // apply du/dt to all independent fields in the container
     auto update_container =
@@ -132,6 +132,7 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     auto fill_from_bufs = tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries,
                                      blocks, stage_name[stage]);
   }
+
   TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
 
   for (int i = 0; i < blocks.size(); i++) {
