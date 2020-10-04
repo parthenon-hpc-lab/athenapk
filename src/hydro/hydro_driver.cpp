@@ -28,28 +28,15 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
   pin->CheckDesired("hydro", "cfl");
 }
 
-// // first some helper tasks
-// auto UpdateContainer(BlockList_t &blocks, const int stage,
-//                      const std::vector<std::string> &stage_name, Integrator *integrator)
-//     -> TaskStatus {
-//   // TODO(pgrete): this update is currently hardcoded to work for rk1 and vl2
-//   const Real beta = integrator->beta[stage - 1];
-//   const Real dt = integrator->dt;
-//   parthenon::Update::UpdateContainer(blocks, stage_name[stage - 1], "dUdt", beta * dt,
-//                                      stage_name[stage]);
-
-//   return TaskStatus::complete;
-// }
-TaskStatus UpdateContainer(std::shared_ptr<MeshBlock> pmb, int stage,
-                           std::vector<std::string> &stage_name, Integrator *integrator) {
+// first some helper tasks
+auto UpdateContainer(BlockList_t &blocks, const int stage,
+                     const std::vector<std::string> &stage_name, Integrator *integrator)
+    -> TaskStatus {
   // TODO(pgrete): this update is currently hardcoded to work for rk1 and vl2
   const Real beta = integrator->beta[stage - 1];
   const Real dt = integrator->dt;
-  auto &base = pmb->real_containers.Get();
-  auto &cin = pmb->real_containers.Get(stage_name[stage - 1]);
-  auto &cout = pmb->real_containers.Get(stage_name[stage]);
-  auto &dudt = pmb->real_containers.Get("dUdt");
-  parthenon::Update::UpdateContainer(base, dudt, beta * dt, cout);
+  parthenon::Update::UpdateContainer(blocks, "base", "dUdt", beta * dt,
+                                     stage_name[stage]);
 
   return TaskStatus::complete;
 }
@@ -96,19 +83,6 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     } else {
       advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, sc0, stage);
     }
-    auto flux_div = tl.AddTask(advect_flux, parthenon::Update::FluxDivergence, sc0, dudt);
-    // apply du/dt to all independent fields in the container
-    auto update_container =
-        tl.AddTask(flux_div, UpdateContainer, pmb, stage, stage_name, integrator);
-      // update ghost cells
-    // auto send =
-    //     tl.AddTask(update_container, &Container<Real>::SendBoundaryBuffers, sc1.get());
-    // auto recv = tl.AddTask(send, &Container<Real>::ReceiveBoundaryBuffers, sc1.get());
-    // auto fill_from_bufs = tl.AddTask(recv, &Container<Real>::SetBoundaries, sc1.get());
-    // auto clear_comm_flags = tl.AddTask(fill_from_bufs, &Container<Real>::ClearBoundary,
-    //                                    sc1.get(), BoundaryCommSubset::all);
-
-
   }
 
   // // first partition the blocks
@@ -140,17 +114,17 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   {
     auto &tl = single_tasklist_region[0];
 
-  //   // compute the divergence of fluxes of conserved variables
-  //   auto flux_div = tl.AddTask(none, parthenon::Update::FluxDivergenceMesh, blocks,
-  //                              stage_name[stage - 1], "dUdt");
+    // compute the divergence of fluxes of conserved variables
+    auto flux_div = tl.AddTask(none, parthenon::Update::FluxDivergenceMesh, blocks,
+                               stage_name[stage - 1], "dUdt");
 
-  //   // apply du/dt to all independent fields in the container
-  //   auto update_container =
-  //       tl.AddTask(flux_div, UpdateContainer, blocks, stage, stage_name, integrator);
+    // apply du/dt to all independent fields in the container
+    auto update_container =
+        tl.AddTask(flux_div, UpdateContainer, blocks, stage, stage_name, integrator);
 
     // update ghost cells
     auto send =
-        tl.AddTask(none, parthenon::cell_centered_bvars::SendBoundaryBuffers,
+        tl.AddTask(update_container, parthenon::cell_centered_bvars::SendBoundaryBuffers,
                    blocks, stage_name[stage]);
 
     auto recv = tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers,
