@@ -38,8 +38,8 @@ using parthenon::Real;
 
 void RiemannSolver(const int kl, const int ku, const int jl, const int ju, const int il,
                    const int iu, const int ivx, const MeshBlockVarPack<Real> &wl_pack,
-                   const MeshBlockVarPack<Real> &wr_pack, MeshBlockVarFluxPack<Real> &cons_pack,
-                   const AdiabaticHydroEOS &peos) {
+                   const MeshBlockVarPack<Real> &wr_pack,
+                   MeshBlockVarFluxPack<Real> &cons_pack, const AdiabaticHydroEOS &peos) {
 
   int ivy = IVX + ((ivx - IVX) + 1) % 3;
   int ivz = IVX + ((ivx - IVX) + 2) % 3;
@@ -50,11 +50,11 @@ void RiemannSolver(const int kl, const int ku, const int jl, const int ju, const
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Riemann hydro HLLE", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5), kl, ku, jl, ju, il, iu,
+      cons_pack.GetDim(5) - 1, kl, ku, jl, ju, il, iu,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &wl = wl_pack(b);
         const auto &wr = wr_pack(b);
-        //auto &flx = cons_pack(b).flux(ivx);
+        // auto &flx = cons_pack(b).flux(ivx);
         auto &cons = cons_pack(b);
         Real wli[(NHYDRO)], wri[(NHYDRO)], wroe[(NHYDRO)];
         Real fl[(NHYDRO)], fr[(NHYDRO)], flxi[(NHYDRO)];
