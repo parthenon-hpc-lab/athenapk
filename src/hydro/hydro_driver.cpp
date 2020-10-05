@@ -4,6 +4,7 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -54,6 +55,53 @@ auto ConsToPrim(const MeshBlockVarPack<Real> &cons_pack,
   return TaskStatus::complete;
 }
 
+// provide the routine that estimates a stable timestep for this package
+auto EstimatePackTimestep(const MeshBlockVarPack<Real> prim_pack,
+                      std::shared_ptr<MeshBlock> pmb) -> TaskStatus {
+  auto pkg = pmb->packages["Hydro"];
+  const auto &cfl = pkg->Param<Real>("cfl");
+  const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
+
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
+
+  bool nx2 = (pmb->block_size.nx2 > 1) ? true : false;
+  bool nx3 = (pmb->block_size.nx3 > 1) ? true : false;
+
+  Kokkos::parallel_reduce(
+      "EstimateTimestep",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          pmb->exec_space, {0, kb.s, jb.s, ib.s},
+          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
+        const auto &prim = prim_pack(b);
+        const auto &coords = prim_pack.coords(b);
+        Real w[(NHYDRO)];
+        w[IDN] = prim(IDN, k, j, i);
+        w[IVX] = prim(IVX, k, j, i);
+        w[IVY] = prim(IVY, k, j, i);
+        w[IVZ] = prim(IVZ, k, j, i);
+        w[IPR] = prim(IPR, k, j, i);
+        Real cs = eos.SoundSpeed(w);
+        min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) / (fabs(w[IVX]) + cs));
+        if (nx2) {
+          min_dt =
+              fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) / (fabs(w[IVY]) + cs));
+        }
+        if (nx3) {
+          min_dt =
+              fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) / (fabs(w[IVZ]) + cs));
+        }
+      },
+      Kokkos::Min<Real>(min_dt_hyperbolic));
+  pmb->SetBlockTimestep(cfl * min_dt_hyperbolic);
+  return TaskStatus::complete;
+}
+
 // See the advection.hpp declaration for a description of how this function gets called.
 auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskCollection {
   TaskCollection tc;
@@ -88,6 +136,18 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
 
     auto start_recv = tl.AddTask(none, &Container<Real>::StartReceiving, sc1.get(),
                                  BoundaryCommSubset::all);
+    // reset next time step
+    // dirty workaround as we'll only set the new dt for a few blocks
+    if (stage == 1) {
+      auto reset_dt = tl.AddTask(
+          none,
+          [](std::shared_ptr<Container<Real>> &rc) {
+            auto pmb = rc->GetBlockPointer();
+            pmb->SetBlockTimestep(std::numeric_limits<Real>::max());
+            return TaskStatus::complete;
+          },
+          sc1);
+    }
   }
 
   // first partition the blocks
@@ -170,6 +230,11 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     // fill in derived fields
     auto fill_derived =
         tl.AddTask(fill_from_bufs, ConsToPrim, sc1_packs[i], sc1prim_packs[i], eos);
+
+    if (stage == integrator->nstages) {
+      auto new_dt =
+          tl.AddTask(fill_derived, EstimatePackTimestep, sc1prim_packs[i], blocks[i]);
+    }
   }
 
   TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
@@ -190,18 +255,6 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     // // fill in derived fields
     // auto fill_derived =
     // tl.AddTask(set_bc, parthenon::FillDerivedVariables::FillDerived, sc1);
-
-    // estimate next time step
-    if (stage == integrator->nstages) {
-      auto new_dt = tl.AddTask(
-          none,
-          [](std::shared_ptr<Container<Real>> &rc) {
-            auto pmb = rc->GetBlockPointer();
-            pmb->SetBlockTimestep(parthenon::Update::EstimateTimestep(rc));
-            return TaskStatus::complete;
-          },
-          sc1);
-    }
 
     // removed purging of stages
     // removed check for refinement conditions here
