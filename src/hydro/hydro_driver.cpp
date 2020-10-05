@@ -41,6 +41,18 @@ auto UpdateContainer(const int stage, Integrator *integrator,
 
   return TaskStatus::complete;
 }
+// this is the package registered function to fill derived, here, convert the
+// conserved variables to primitives
+auto ConsToPrim(const MeshBlockVarPack<Real> &cons_pack,
+                MeshBlockVarPack<Real> &prim_pack, const AdiabaticHydroEOS &eos)
+    -> TaskStatus {
+  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
+  // TODO(pgrete): need to figure out a nice way for polymorphism wrt the EOS
+  eos.ConservedToPrimitive(cons_pack, prim_pack, ib.s, ib.e, jb.s, jb.e, kb.s, kb.e);
+  return TaskStatus::complete;
+}
 
 // See the advection.hpp declaration for a description of how this function gets called.
 auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskCollection {
@@ -89,6 +101,7 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   std::vector<MeshBlockVarPack<Real>> prim_packs;
   std::vector<MeshBlockVarPack<Real>> wl_packs;
   std::vector<MeshBlockVarPack<Real>> wr_packs;
+  std::vector<MeshBlockVarPack<Real>> sc1prim_packs;
   sc0_packs.resize(partitions.size());
   sc1_packs.resize(partitions.size());
   dudt_packs.resize(partitions.size());
@@ -96,6 +109,7 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   prim_packs.resize(partitions.size());
   wl_packs.resize(partitions.size());
   wr_packs.resize(partitions.size());
+  sc1prim_packs.resize(partitions.size());
   // toto make packs for proper containers
   for (int i = 0; i < partitions.size(); i++) {
     sc0_packs[i] = PackVariablesAndFluxesOnMesh(
@@ -116,6 +130,8 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
                                       std::vector<std::string>{"wl"});
     wr_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
                                       std::vector<std::string>{"wr"});
+    sc1prim_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage],
+                                           std::vector<std::string>{"prim"});
   }
 
   const auto &eos = blocks[0]->packages["Hydro"]->Param<AdiabaticHydroEOS>("eos");
@@ -151,6 +167,9 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
                            blocks, stage_name[stage]);
     auto fill_from_bufs = tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries,
                                      blocks, stage_name[stage], sc1_packs[i]);
+    // fill in derived fields
+    auto fill_derived =
+        tl.AddTask(fill_from_bufs, ConsToPrim, sc1_packs[i], sc1prim_packs[i], eos);
   }
 
   TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
@@ -164,17 +183,18 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     auto clear_comm_flags = tl.AddTask(none, &Container<Real>::ClearBoundary, sc1.get(),
                                        BoundaryCommSubset::all);
 
-    // set physical boundaries
-    auto set_bc = tl.AddTask(none, parthenon::ApplyBoundaryConditions, sc1);
+    // TODO(pgrete) reintroduce and/or fix on Parthenon first
+    // // set physical boundaries
+    // auto set_bc = tl.AddTask(none, parthenon::ApplyBoundaryConditions, sc1);
 
-    // fill in derived fields
-    auto fill_derived =
-        tl.AddTask(set_bc, parthenon::FillDerivedVariables::FillDerived, sc1);
+    // // fill in derived fields
+    // auto fill_derived =
+    // tl.AddTask(set_bc, parthenon::FillDerivedVariables::FillDerived, sc1);
 
     // estimate next time step
     if (stage == integrator->nstages) {
       auto new_dt = tl.AddTask(
-          fill_derived,
+          none,
           [](std::shared_ptr<Container<Real>> &rc) {
             auto pmb = rc->GetBlockPointer();
             pmb->SetBlockTimestep(parthenon::Update::EstimateTimestep(rc));

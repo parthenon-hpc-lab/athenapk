@@ -75,23 +75,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddField("wl", m);
   pkg->AddField("wr", m);
 
-  pkg->FillDerived = ConsToPrim;
+  // now part of TaskList
+  // pkg->FillDerived = ConsToPrim;
   pkg->EstimateTimestep = EstimateTimestep;
 
   return pkg;
-}
-
-// this is the package registered function to fill derived, here, convert the
-// conserved variables to primitives
-void ConsToPrim(std::shared_ptr<Container<Real>> &rc) {
-  auto pmb = rc->GetBlockPointer();
-  auto pkg = pmb->packages["Hydro"];
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
-  // TODO(pgrete): need to figure out a nice way for polymorphism wrt the EOS
-  auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
-  eos.ConservedToPrimitive(rc, ib.s, ib.e, jb.s, jb.e, kb.s, kb.e);
 }
 
 // provide the routine that estimates a stable timestep for this package
