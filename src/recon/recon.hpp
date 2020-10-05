@@ -26,36 +26,27 @@
 #include "mesh/mesh.hpp"
 #include "parthenon_arrays.hpp"
 
-using parthenon::MeshBlock;
-using parthenon::ParArray4D;
+using parthenon::MeshBlockVarPack;
 using parthenon::Real;
 
-void DonorCellX1KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                    const int jl, const int ju, const int il, const int iu,
-                    const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                    ParArray4D<Real> &wr);
+void DonorCellX1KJI(const int kl, const int ku, const int jl, const int ju, const int il,
+                    const int iu, const MeshBlockVarPack<Real> &w,
+                    MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr);
+void DonorCellX2KJI(const int kl, const int ku, const int jl, const int ju, const int il,
+                    const int iu, const MeshBlockVarPack<Real> &w,
+                    MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr);
+void DonorCellX3KJI(const int kl, const int ku, const int jl, const int ju, const int il,
+                    const int iu, const MeshBlockVarPack<Real> &w,
+                    MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr);
 
-void DonorCellX2KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                    const int jl, const int ju, const int il, const int iu,
-                    const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                    ParArray4D<Real> &wr);
-
-void DonorCellX3KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                    const int jl, const int ju, const int il, const int iu,
-                    const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                    ParArray4D<Real> &wr);
-
-void PiecewiseLinearX1KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                          const int jl, const int ju, const int il, const int iu,
-                          const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                          ParArray4D<Real> &wr);
-void PiecewiseLinearX2KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                          const int jl, const int ju, const int il, const int iu,
-                          const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                          ParArray4D<Real> &wr);
-void PiecewiseLinearX3KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                          const int jl, const int ju, const int il, const int iu,
-                          const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                          ParArray4D<Real> &wr);
+void PiecewiseLinearX1KJI(const int kl, const int ku, const int jl, const int ju,
+                          const int il, const int iu, const MeshBlockVarPack<Real> &w,
+                          MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr);
+void PiecewiseLinearX2KJI(const int kl, const int ku, const int jl, const int ju,
+                          const int il, const int iu, const MeshBlockVarPack<Real> &w,
+                          MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr);
+void PiecewiseLinearX3KJI(const int kl, const int ku, const int jl, const int ju,
+                          const int il, const int iu, const MeshBlockVarPack<Real> &w,
+                          MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr);
 
 #endif // RECONSTRUCT_RECONSTRUCT_HPP_

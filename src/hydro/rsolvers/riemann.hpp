@@ -13,7 +13,8 @@
 // Athena headers
 #include "../../eos/adiabatic_hydro.hpp"
 
-using parthenon::ParArray4D;
+using parthenon::MeshBlockVarFluxPack;
+using parthenon::MeshBlockVarPack;
 using parthenon::ParArrayND;
 using parthenon::Real;
 
@@ -21,9 +22,10 @@ void RiemannSolver(const int k, const int j, const int il, const int iu, const i
                    ParArrayND<Real> &wl, ParArrayND<Real> &wr, ParArrayND<Real> &cons,
                    const ParArrayND<Real> &dxw, const AdiabaticHydroEOS &eos);
 
-void RiemannSolver(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                   const int jl, const int ju, const int il, const int iu, const int ivx,
-                   ParArray4D<Real> &wl, ParArray4D<Real> &wr, ParArray4D<Real> &flx,
+void RiemannSolver(const int kl, const int ku, const int jl, const int ju, const int il,
+                   const int iu, const int ivx, const MeshBlockVarPack<Real> &wl_pack,
+                   const MeshBlockVarPack<Real> &wr_pack, MeshBlockVarFluxPack<Real> &cons_pack,
                    const AdiabaticHydroEOS &peos);
+
 
 #endif // RSOLVERS_RIEMANN_HPP_

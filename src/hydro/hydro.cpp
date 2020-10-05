@@ -142,88 +142,77 @@ Real EstimateTimestep(std::shared_ptr<Container<Real>> &rc) {
 // Compute fluxes at faces given the constant velocity field and
 // some field "advected" that we are pushing around.
 // This routine implements all the "physics" in this example
-TaskStatus CalculateFluxes(std::shared_ptr<Container<Real>> &rc, int stage) {
-  auto pmb = rc->GetBlockPointer();
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+TaskStatus CalculateFluxes(const int stage, MeshBlockVarFluxPack<Real> &cons,
+                           const MeshBlockVarPack<Real> &w, MeshBlockVarPack<Real> &wl,
+                           MeshBlockVarPack<Real> &wr, const AdiabaticHydroEOS &eos) {
+  const IndexDomain interior = IndexDomain::interior;
+  const IndexRange ib = cons.cellbounds.GetBoundsI(interior);
+  const IndexRange jb = cons.cellbounds.GetBoundsJ(interior);
+  const IndexRange kb = cons.cellbounds.GetBoundsK(interior);
 
   int il, iu, jl, ju, kl, ku;
   jl = jb.s, ju = jb.e, kl = kb.s, ku = kb.e;
   // TODO(pgrete): are these looop limits are likely too large for 2nd order
-  if (pmb->block_size.nx2 > 1) {
-    if (pmb->block_size.nx3 == 1) // 2D
+  if (cons.GetNdim() > 1) {
+    if (cons.GetNdim() == 2) { // 2D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s, ku = kb.e;
-    else // 3D
+    } else { // 3D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
+    }
   }
-
-  ParArray4D<Real> w = rc->Get("prim").data.Get<4>();
-  ParArray4D<Real> wl = rc->Get("wl").data.Get<4>();
-  ParArray4D<Real> wr = rc->Get("wr").data.Get<4>();
-  CellVariable<Real> &cons = rc->Get("cons");
-  auto pkg = pmb->packages["Hydro"];
-  const int nhydro = pkg->Param<int>("nhydro");
-  auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
-
-  auto coords = pmb->coords;
-  // get x-fluxes
-  ParArray4D<Real> x1flux = cons.flux[parthenon::X1DIR].Get<4>();
 
   Kokkos::Profiling::pushRegion("Reconstruct X");
   if (stage == 1) {
-    DonorCellX1KJI(pmb, kl, ku, jl, ju, ib.s, ib.e + 1, w, wl, wr);
+    DonorCellX1KJI(kl, ku, jl, ju, ib.s, ib.e + 1, w, wl, wr);
   } else {
-    PiecewiseLinearX1KJI(pmb, kl, ku, jl, ju, ib.s, ib.e + 1, w, wl, wr);
+    PiecewiseLinearX1KJI(kl, ku, jl, ju, ib.s, ib.e + 1, w, wl, wr);
   }
   Kokkos::Profiling::popRegion(); // Reconstruct X
 
   Kokkos::Profiling::pushRegion("Riemann X");
-  RiemannSolver(pmb, kl, ku, jl, ju, ib.s, ib.e + 1, IVX, wl, wr, x1flux, eos);
+  RiemannSolver(kl, ku, jl, ju, ib.s, ib.e + 1, IVX, wl, wr, cons, eos);
   Kokkos::Profiling::popRegion(); // Riemann X
 
   //--------------------------------------------------------------------------------------
   // j-direction
-  if (pmb->pmy_mesh->ndim >= 2) {
-    ParArray4D<Real> x2flux = cons.flux[parthenon::X2DIR].Get<4>();
+  if (cons.GetNdim() >= 2) {
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
-    if (pmb->block_size.nx3 == 1) // 2D
+    if (cons.GetNdim() == 2) // 2D
       kl = kb.s, ku = kb.e;
     else // 3D
       kl = kb.s - 1, ku = kb.e + 1;
     // reconstruct L/R states at j
     Kokkos::Profiling::pushRegion("Reconstruct Y");
     if (stage == 1) {
-      DonorCellX2KJI(pmb, kl, ku, jb.s, jb.e + 1, il, iu, w, wl, wr);
+      DonorCellX2KJI(kl, ku, jb.s, jb.e + 1, il, iu, w, wl, wr);
     } else {
-      PiecewiseLinearX2KJI(pmb, kl, ku, jb.s, jb.e + 1, il, iu, w, wl, wr);
+      PiecewiseLinearX2KJI(kl, ku, jb.s, jb.e + 1, il, iu, w, wl, wr);
     }
     Kokkos::Profiling::popRegion(); // Reconstruct Y
 
     Kokkos::Profiling::pushRegion("Riemann Y");
-    RiemannSolver(pmb, kl, ku, jb.s, jb.e + 1, il, iu, IVY, wl, wr, x2flux, eos);
+    RiemannSolver(kl, ku, jb.s, jb.e + 1, il, iu, IVY, wl, wr, cons, eos);
     Kokkos::Profiling::popRegion(); // Riemann Y
   }
 
   //--------------------------------------------------------------------------------------
   // k-direction
 
-  if (pmb->pmy_mesh->ndim >= 3) {
-    ParArray4D<Real> x3flux = cons.flux[parthenon::X3DIR].Get<4>();
+  if (cons.GetNdim() >= 3) {
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
     // reconstruct L/R states at k
     Kokkos::Profiling::pushRegion("Reconstruct Z");
     if (stage == 1) {
-      DonorCellX3KJI(pmb, kb.s, kb.e + 1, jl, ju, il, iu, w, wl, wr);
+      DonorCellX3KJI(kb.s, kb.e + 1, jl, ju, il, iu, w, wl, wr);
     } else {
-      PiecewiseLinearX3KJI(pmb, kb.s, kb.e + 1, jl, ju, il, iu, w, wl, wr);
+      PiecewiseLinearX3KJI(kb.s, kb.e + 1, jl, ju, il, iu, w, wl, wr);
     }
     Kokkos::Profiling::popRegion(); // Reconstruct Z
 
     Kokkos::Profiling::pushRegion("Riemann Z");
-    RiemannSolver(pmb, kb.s, kb.e + 1, jl, ju, il, iu, IVZ, wl, wr, x3flux, eos);
+    RiemannSolver(kb.s, kb.e + 1, jl, ju, il, iu, IVZ, wl, wr, cons, eos);
     Kokkos::Profiling::popRegion(); // Riemann Z
   }
 

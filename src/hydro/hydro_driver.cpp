@@ -12,6 +12,7 @@
 #include "bvals/cc/bvals_cc_in_one.hpp"
 #include "utils/partition_stl_containers.hpp"
 // Athena headers
+#include "../eos/adiabatic_hydro.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
 
@@ -75,14 +76,6 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
 
     auto start_recv = tl.AddTask(none, &Container<Real>::StartReceiving, sc1.get(),
                                  BoundaryCommSubset::all);
-
-    TaskID advect_flux;
-    auto pkg = pmb->packages["Hydro"];
-    if (pkg->Param<bool>("use_scratch")) {
-      advect_flux = tl.AddTask(none, Hydro::CalculateFluxesWScratch, sc0, stage);
-    } else {
-      advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, sc0, stage);
-    }
   }
 
   // first partition the blocks
@@ -93,10 +86,16 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   std::vector<MeshBlockVarPack<Real>> sc1_packs;
   std::vector<MeshBlockVarPack<Real>> dudt_packs;
   std::vector<MeshBlockVarPack<Real>> base_packs;
+  std::vector<MeshBlockVarPack<Real>> prim_packs;
+  std::vector<MeshBlockVarPack<Real>> wl_packs;
+  std::vector<MeshBlockVarPack<Real>> wr_packs;
   sc0_packs.resize(partitions.size());
   sc1_packs.resize(partitions.size());
   dudt_packs.resize(partitions.size());
   base_packs.resize(partitions.size());
+  prim_packs.resize(partitions.size());
+  wl_packs.resize(partitions.size());
+  wr_packs.resize(partitions.size());
   // toto make packs for proper containers
   for (int i = 0; i < partitions.size(); i++) {
     sc0_packs[i] = PackVariablesAndFluxesOnMesh(
@@ -111,17 +110,33 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     base_packs[i] =
         PackVariablesOnMesh(partitions[i], "base",
                             std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+    prim_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
+                                        std::vector<std::string>{"prim"});
+    wl_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
+                                      std::vector<std::string>{"wl"});
+    wr_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
+                                      std::vector<std::string>{"wr"});
   }
 
+  const auto &eos = blocks[0]->packages["Hydro"]->Param<AdiabaticHydroEOS>("eos");
   // note that task within this region that contains one tasklist per pack
   // could still be executed in parallel
   TaskRegion &single_tasklist_per_pack_region = tc.AddRegion(partitions.size());
   for (int i = 0; i < partitions.size(); i++) {
     auto &tl = single_tasklist_per_pack_region[i];
 
+    TaskID advect_flux;
+    // auto pkg = pmb->packages["Hydro"];
+    // if (pkg->Param<bool>("use_scratch")) {
+    //   advect_flux = tl.AddTask(none, Hydro::CalculateFluxesWScratch, sc0, stage);
+    // } else {
+    advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, stage, sc0_packs[i],
+                             prim_packs[i], wl_packs[i], wr_packs[i], eos);
+    // }
+
     // compute the divergence of fluxes of conserved variables
-    auto flux_div = tl.AddTask(none, parthenon::Update::FluxDivergenceMesh, sc0_packs[i],
-                               dudt_packs[i]);
+    auto flux_div = tl.AddTask(advect_flux, parthenon::Update::FluxDivergenceMesh,
+                               sc0_packs[i], dudt_packs[i]);
 
     // apply du/dt to all independent fields in the container
     auto update_container = tl.AddTask(flux_div, UpdateContainer, stage, integrator,

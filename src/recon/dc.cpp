@@ -4,24 +4,27 @@
 // reserved. Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
-#include <memory>
-
+#include "interface/state_descriptor.hpp"
+#include "kokkos_abstraction.hpp"
 #include "mesh/mesh.hpp"
 #include "recon.hpp"
+
+using parthenon::DevExecSpace;
+using parthenon::MeshBlockVarPack;
 
 //----------------------------------------------------------------------------------------
 //! \fn Reconstruction::DonorCellX1()
 //  \brief
 
-void DonorCellX1KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                    const int jl, const int ju, const int il, const int iu,
-                    const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                    ParArray4D<Real> &wr) {
-  pmb->par_for(
-      "DonorCell X1", 0, NHYDRO - 1, kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(int n, int k, int j, int i) {
-        wl(n, k, j, i) = w(n, k, j, i - 1);
-        wr(n, k, j, i) = w(n, k, j, i);
+void DonorCellX1KJI(const int kl, const int ku, const int jl, const int ju, const int il,
+                    const int iu, const MeshBlockVarPack<Real> &w,
+                    MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr) {
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "DonorCell X1", DevExecSpace(), 0, w.GetDim(5) - 1, 0,
+      NHYDRO - 1, kl, ku, jl, ju, il, iu,
+      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+        wl(b, n, k, j, i) = w(b, n, k, j, i - 1);
+        wr(b, n, k, j, i) = w(b, n, k, j, i);
       });
 }
 
@@ -29,15 +32,15 @@ void DonorCellX1KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
 //! \fn Reconstruction::DonorCellX2()
 //  \brief
 
-void DonorCellX2KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                    const int jl, const int ju, const int il, const int iu,
-                    const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                    ParArray4D<Real> &wr) {
-  pmb->par_for(
-      "DonorCell X2", 0, NHYDRO - 1, kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(int n, int k, int j, int i) {
-        wl(n, k, j, i) = w(n, k, j - 1, i);
-        wr(n, k, j, i) = w(n, k, j, i);
+void DonorCellX2KJI(const int kl, const int ku, const int jl, const int ju, const int il,
+                    const int iu, const MeshBlockVarPack<Real> &w,
+                    MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr) {
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "DonorCell X2", DevExecSpace(), 0, w.GetDim(5) - 1, 0,
+      NHYDRO - 1, kl, ku, jl, ju, il, iu,
+      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+        wl(b, n, k, j, i) = w(b, n, k, j - 1, i);
+        wr(b, n, k, j, i) = w(b, n, k, j, i);
       });
 }
 
@@ -45,14 +48,14 @@ void DonorCellX2KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
 //! \fn Reconstruction::DonorCellX3()
 //  \brief
 
-void DonorCellX3KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                    const int jl, const int ju, const int il, const int iu,
-                    const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                    ParArray4D<Real> &wr) {
-  pmb->par_for(
-      "DonorCell X3", 0, NHYDRO - 1, kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(int n, int k, int j, int i) {
-        wl(n, k, j, i) = w(n, k - 1, j, i);
-        wr(n, k, j, i) = w(n, k, j, i);
+void DonorCellX3KJI(const int kl, const int ku, const int jl, const int ju, const int il,
+                    const int iu, const MeshBlockVarPack<Real> &w,
+                    MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr) {
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "DonorCell X3", DevExecSpace(), 0, w.GetDim(5) - 1, 0,
+      NHYDRO - 1, kl, ku, jl, ju, il, iu,
+      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+        wl(b, n, k, j, i) = w(b, n, k - 1, j, i);
+        wr(b, n, k, j, i) = w(b, n, k, j, i);
       });
 }

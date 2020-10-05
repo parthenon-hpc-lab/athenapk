@@ -26,17 +26,19 @@
 
 // Athena headers
 #include "../../main.hpp"
+#include "config.hpp"
 #include "riemann.hpp"
 
-using parthenon::ParArrayND;
+using parthenon::MeshBlockVarFluxPack;
+using parthenon::MeshBlockVarPack;
 using parthenon::Real;
 //----------------------------------------------------------------------------------------
 //! \fn void Hydro::RiemannSolver
 //  \brief The HLLE Riemann solver for hydrodynamics (both adiabatic and isothermal)
 
-void RiemannSolver(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
-                   const int jl, const int ju, const int il, const int iu, const int ivx,
-                   ParArray4D<Real> &wl, ParArray4D<Real> &wr, ParArray4D<Real> &flx,
+void RiemannSolver(const int kl, const int ku, const int jl, const int ju, const int il,
+                   const int iu, const int ivx, const MeshBlockVarPack<Real> &wl_pack,
+                   const MeshBlockVarPack<Real> &wr_pack, MeshBlockVarFluxPack<Real> &cons_pack,
                    const AdiabaticHydroEOS &peos) {
 
   int ivy = IVX + ((ivx - IVX) + 1) % 3;
@@ -46,8 +48,14 @@ void RiemannSolver(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
   Real iso_cs = 1.0;
   bool NON_BAROTROPIC_EOS = true;
 
-  pmb->par_for(
-      "Riemann hydro HLLE", kl, ku, jl, ju, il, iu, KOKKOS_LAMBDA(int k, int j, int i) {
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "Riemann hydro HLLE", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5), kl, ku, jl, ju, il, iu,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const auto &wl = wl_pack(b);
+        const auto &wr = wr_pack(b);
+        //auto &flx = cons_pack(b).flux(ivx);
+        auto &cons = cons_pack(b);
         Real wli[(NHYDRO)], wri[(NHYDRO)], wroe[(NHYDRO)];
         Real fl[(NHYDRO)], fr[(NHYDRO)], flxi[(NHYDRO)];
 
@@ -145,12 +153,15 @@ void RiemannSolver(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
         if (NON_BAROTROPIC_EOS)
           flxi[IEN] = 0.5 * (fl[IEN] + fr[IEN]) + (fl[IEN] - fr[IEN]) * tmp;
 
-        flx(IDN, k, j, i) = flxi[IDN];
-        flx(ivx, k, j, i) = flxi[IVX];
-        flx(ivy, k, j, i) = flxi[IVY];
-        flx(ivz, k, j, i) = flxi[IVZ];
-        if (NON_BAROTROPIC_EOS) flx(IEN, k, j, i) = flxi[IEN];
+        // flx(IDN, k, j, i) = flxi[IDN];
+        // flx(ivx, k, j, i) = flxi[IVX];
+        // flx(ivy, k, j, i) = flxi[IVY];
+        // flx(ivz, k, j, i) = flxi[IVZ];
+        // if (NON_BAROTROPIC_EOS) flx(IEN, k, j, i) = flxi[IEN];
+        cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
+        cons.flux(ivx, ivx, k, j, i) = flxi[IVX];
+        cons.flux(ivx, ivy, k, j, i) = flxi[IVY];
+        cons.flux(ivx, ivz, k, j, i) = flxi[IVZ];
+        if (NON_BAROTROPIC_EOS) cons.flux(ivx, IEN, k, j, i) = flxi[IEN];
       });
-
-  return;
 }
