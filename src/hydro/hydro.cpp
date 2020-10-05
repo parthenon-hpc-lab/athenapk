@@ -34,6 +34,19 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   return packages;
 }
 
+// this is the package registered function to fill derived, here, convert the
+// conserved variables to primitives
+void ConsToPrim(std::shared_ptr<Container<Real>> &rc) {
+  auto pmb = rc->GetBlockPointer();
+  auto pkg = pmb->packages["Hydro"];
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+  // TODO(pgrete): need to figure out a nice way for polymorphism wrt the EOS
+  auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
+  eos.ConservedToPrimitive(rc, ib.s, ib.e, jb.s, jb.e, kb.s, kb.e);
+}
+
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto pkg = std::make_shared<StateDescriptor>("Hydro");
 
@@ -76,7 +89,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddField("wr", m);
 
   // now part of TaskList
-  // pkg->FillDerived = ConsToPrim;
+  pkg->FillDerived = ConsToPrim;
   pkg->EstimateTimestep = EstimateTimestep;
 
   return pkg;

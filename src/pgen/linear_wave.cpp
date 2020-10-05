@@ -350,10 +350,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto &rc = pmb->real_containers.Get();
   auto &u_dev = rc->Get("cons").data;
   auto &coords = pmb->coords;
-  auto &w_dev = rc->Get("prim").data;
   // initializing on host
   auto u = u_dev.GetHostMirrorAndCopy();
-  auto w = w_dev.GetHostMirrorAndCopy();
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
@@ -361,7 +359,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
                  coords.x3v(k) * sin_a2;
         Real sn = std::sin(k_par * x);
         u(IDN, k, j, i) = d0 + amp * sn * rem[0][wave_flag];
-        w(IDN, k, j, i) = d0 + amp * sn * rem[0][wave_flag];
         Real mx = d0 * vflow + amp * sn * rem[1][wave_flag];
         Real my = amp * sn * rem[2][wave_flag];
         Real mz = amp * sn * rem[3][wave_flag];
@@ -370,18 +367,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IM2, k, j, i) = mx * cos_a2 * sin_a3 + my * cos_a3 - mz * sin_a2 * sin_a3;
         u(IM3, k, j, i) = mx * sin_a2 + mz * cos_a2;
 
-        w(IM1, k, j, i) = u(IM1, k, j, i) / u(IDN, k, j, i);
-        w(IM2, k, j, i) = u(IM2, k, j, i) / u(IDN, k, j, i);
-        w(IM3, k, j, i) = u(IM3, k, j, i) / u(IDN, k, j, i);
-
         u(IEN, k, j, i) = p0 / gm1 + 0.5 * d0 * u0 * u0 + amp * sn * rem[4][wave_flag];
-        w(IPR, k, j, i) = p0;
       }
     }
   }
   // copy initialized vars to device
   u_dev.DeepCopy(u);
-  w_dev.DeepCopy(w);
   return;
 }
 

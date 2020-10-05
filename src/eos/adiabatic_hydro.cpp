@@ -28,6 +28,57 @@ using parthenon::ParArray4D;
 //           Container<Real> &rc,
 //           int il, int iu, int jl, int ju, int kl, int ku)
 // \brief Converts conserved into primitive variables in adiabatic hydro.
+void AdiabaticHydroEOS::ConservedToPrimitive(std::shared_ptr<Container<Real>> &rc, int il,
+                                             int iu, int jl, int ju, int kl,
+                                             int ku) const {
+  Real gm1 = GetGamma() - 1.0;
+  auto density_floor_ = GetDensityFloor();
+  auto pressure_floor_ = GetPressureFloor();
+  auto pmb = rc->GetBlockPointer();
+
+  ParArray4D<Real> cons = rc->Get("cons").data.Get<4>();
+  ParArray4D<Real> prim = rc->Get("prim").data.Get<4>();
+
+  pmb->par_for(
+      "ConservedToPrimitive", kl, ku, jl, ju, il, iu,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+        Real &u_d = cons(IDN, k, j, i);
+        Real &u_m1 = cons(IM1, k, j, i);
+        Real &u_m2 = cons(IM2, k, j, i);
+        Real &u_m3 = cons(IM3, k, j, i);
+        Real &u_e = cons(IEN, k, j, i);
+
+        Real &w_d = prim(IDN, k, j, i);
+        Real &w_vx = prim(IVX, k, j, i);
+        Real &w_vy = prim(IVY, k, j, i);
+        Real &w_vz = prim(IVZ, k, j, i);
+        Real &w_p = prim(IPR, k, j, i);
+
+        // apply density floor, without changing momentum or energy
+        u_d = (u_d > density_floor_) ? u_d : density_floor_;
+        w_d = u_d;
+
+        Real di = 1.0 / u_d;
+        w_vx = u_m1 * di;
+        w_vy = u_m2 * di;
+        w_vz = u_m3 * di;
+
+        Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
+        w_p = gm1 * (u_e - e_k);
+
+        // apply pressure floor, correct total energy
+        u_e = (w_p > pressure_floor_) ? u_e : ((pressure_floor_ / gm1) + e_k);
+        w_p = (w_p > pressure_floor_) ? w_p : pressure_floor_;
+      });
+  return;
+}
+
+
+//----------------------------------------------------------------------------------------
+// \!fn void EquationOfState::ConservedToPrimitive(
+//           Container<Real> &rc,
+//           int il, int iu, int jl, int ju, int kl, int ku)
+// \brief Converts conserved into primitive variables in adiabatic hydro.
 void AdiabaticHydroEOS::ConservedToPrimitive(const MeshBlockVarPack<Real> &cons_pack,
                                              MeshBlockVarPack<Real> &prim_pack, int il,
                                              int iu, int jl, int ju, int kl,
