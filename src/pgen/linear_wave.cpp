@@ -262,7 +262,7 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
   Real rms_err = 0.0, max_max_over_l1 = 0.0;
 
 #ifdef MPI_PARALLEL
-  if (Globals::my_rank == 0) {
+  if (parthenon::Globals::my_rank == 0) {
     MPI_Reduce(MPI_IN_PLACE, &l1_err, (NHYDRO + NFIELD), MPI_PARTHENON_REAL, MPI_SUM, 0,
                MPI_COMM_WORLD);
     MPI_Reduce(MPI_IN_PLACE, &max_err, (NHYDRO + NFIELD), MPI_PARTHENON_REAL, MPI_MAX, 0,
