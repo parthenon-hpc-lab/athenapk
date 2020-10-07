@@ -103,6 +103,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     return packs;
   });
   pkg->AddMeshBlockPack("1_prim", [](Mesh *pmesh) {
+    // Add containers if not already present
+    for (auto &pmb : pmesh->block_list) {
+        auto &base = pmb->real_containers.Get();
+        pmb->real_containers.Add("1",base);
+    }
     int pack_size = pmesh->DefaultPackSize();
     std::vector<MeshBlockVarPack<Real>> packs;
     auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
