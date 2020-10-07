@@ -151,52 +151,59 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   }
 
   // first partition the blocks
-  // TODO(pgrete) cache this, also use refs for stages
-  const auto pack_size = pmesh->DefaultPackSize();
-  auto partitions = parthenon::partition::ToSizeN(pmesh->block_list, pack_size);
-  std::vector<MeshBlockVarFluxPack<Real>> sc0_packs;
-  std::vector<MeshBlockVarPack<Real>> sc1_packs;
-  std::vector<MeshBlockVarPack<Real>> dudt_packs;
-  std::vector<MeshBlockVarPack<Real>> base_packs;
-  std::vector<MeshBlockVarPack<Real>> prim_packs;
-  std::vector<MeshBlockVarPack<Real>> wl_packs;
-  std::vector<MeshBlockVarPack<Real>> wr_packs;
-  sc0_packs.resize(partitions.size());
-  sc1_packs.resize(partitions.size());
-  dudt_packs.resize(partitions.size());
-  base_packs.resize(partitions.size());
-  prim_packs.resize(partitions.size());
-  wl_packs.resize(partitions.size());
-  wr_packs.resize(partitions.size());
-  // toto make packs for proper containers
-  for (int i = 0; i < partitions.size(); i++) {
-    sc0_packs[i] = PackVariablesAndFluxesOnMesh(
-        partitions[i], stage_name[stage - 1],
-        std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    sc1_packs[i] =
-        PackVariablesOnMesh(partitions[i], stage_name[stage],
-                            std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    dudt_packs[i] =
-        PackVariablesOnMesh(partitions[i], "dUdt",
-                            std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    base_packs[i] =
-        PackVariablesOnMesh(partitions[i], "base",
-                            std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    prim_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
-                                        std::vector<std::string>{"prim"});
-    wl_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
-                                      std::vector<std::string>{"wl"});
-    wr_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
-                                      std::vector<std::string>{"wr"});
-  }
+  // // TODO(pgrete) cache this, also use refs for stages
+  // const auto pack_size = pmesh->DefaultPackSize();
+  // auto partitions = parthenon::partition::ToSizeN(pmesh->block_list, pack_size);
+  // std::vector<MeshBlockVarFluxPack<Real>> sc0_packs;
+  // std::vector<MeshBlockVarPack<Real>> sc1_packs;
+  // std::vector<MeshBlockVarPack<Real>> dudt_packs;
+  // std::vector<MeshBlockVarPack<Real>> base_packs;
+  // std::vector<MeshBlockVarPack<Real>> prim_packs;
+  // std::vector<MeshBlockVarPack<Real>> wl_packs;
+  // std::vector<MeshBlockVarPack<Real>> wr_packs;
+  // sc0_packs.resize(partitions.size());
+  // sc1_packs.resize(partitions.size());
+  // dudt_packs.resize(partitions.size());
+  // base_packs.resize(partitions.size());
+  // prim_packs.resize(partitions.size());
+  // wl_packs.resize(partitions.size());
+  // wr_packs.resize(partitions.size());
+  // // toto make packs for proper containers
+  // for (int i = 0; i < partitions.size(); i++) {
+  //   sc0_packs[i] = PackVariablesAndFluxesOnMesh(
+  //       partitions[i], stage_name[stage - 1],
+  //       std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+  //   sc1_packs[i] =
+  //       PackVariablesOnMesh(partitions[i], stage_name[stage],
+  //                           std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+  //   dudt_packs[i] =
+  //       PackVariablesOnMesh(partitions[i], "dUdt",
+  //                           std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+  //   base_packs[i] =
+  //       PackVariablesOnMesh(partitions[i], "base",
+  //                           std::vector<parthenon::MetadataFlag>{Metadata::Independent});
+  //   prim_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
+  //                                       std::vector<std::string>{"prim"});
+  //   wl_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
+  //                                     std::vector<std::string>{"wl"});
+  //   wr_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
+  //                                     std::vector<std::string>{"wr"});
+  // }
 
+  auto &sc0_packs = pmesh->real_fluxpacks["Hydro"][stage_name[stage - 1] + "_cons_flux"];
+  auto &sc1_packs = pmesh->real_varpacks["Hydro"][stage_name[stage] + "_cons"];
+  auto &dudt_packs = pmesh->real_varpacks["Hydro"]["dudt_cons"];
+  auto &base_packs = pmesh->real_varpacks["Hydro"]["base_cons"];
+  auto &prim_packs = pmesh->real_varpacks["Hydro"][stage_name[stage - 1] + "_prim"];
   auto &sc1prim_packs = pmesh->real_varpacks["Hydro"][stage_name[stage] + "_prim"];
+  auto &wl_packs = pmesh->real_varpacks["Hydro"][stage_name[stage - 1] + "_wl"];
+  auto &wr_packs = pmesh->real_varpacks["Hydro"][stage_name[stage - 1] + "_wr"];
 
   const auto &eos = blocks[0]->packages["Hydro"]->Param<AdiabaticHydroEOS>("eos");
   // note that task within this region that contains one tasklist per pack
   // could still be executed in parallel
-  TaskRegion &single_tasklist_per_pack_region = tc.AddRegion(partitions.size());
-  for (int i = 0; i < partitions.size(); i++) {
+  TaskRegion &single_tasklist_per_pack_region = tc.AddRegion(base_packs.size());
+  for (int i = 0; i < base_packs.size(); i++) {
     auto &tl = single_tasklist_per_pack_region[i];
 
     TaskID advect_flux;
