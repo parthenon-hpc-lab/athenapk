@@ -4,6 +4,9 @@
 // reserved. Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <string>
+#include <vector>
+
 // Parthenon headers
 #include <parthenon/package.hpp>
 
@@ -87,6 +90,29 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                std::vector<int>({nhydro}));
   pkg->AddField("wl", m);
   pkg->AddField("wr", m);
+
+  pkg->AddMeshBlockPack("base_prim", [](Mesh *pmesh) {
+    int pack_size = pmesh->DefaultPackSize();
+    std::vector<MeshBlockVarPack<Real>> packs;
+    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
+    packs.resize(partitions.size());
+    for (int i = 0; i < partitions.size(); i++) {
+      packs[i] = PackVariablesOnMesh(partitions[i], "base",
+                                     std::vector<std::string>{"prim"});
+    }
+    return packs;
+  });
+  pkg->AddMeshBlockPack("1_prim", [](Mesh *pmesh) {
+    int pack_size = pmesh->DefaultPackSize();
+    std::vector<MeshBlockVarPack<Real>> packs;
+    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
+    packs.resize(partitions.size());
+    for (int i = 0; i < partitions.size(); i++) {
+      packs[i] = PackVariablesOnMesh(partitions[i], "1",
+                                     std::vector<std::string>{"prim"});
+    }
+    return packs;
+  });
 
   // now part of TaskList
   pkg->FillDerived = ConsToPrim;

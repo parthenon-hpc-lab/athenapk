@@ -57,7 +57,7 @@ auto ConsToPrim(const MeshBlockVarPack<Real> &cons_pack,
 
 // provide the routine that estimates a stable timestep for this package
 auto EstimatePackTimestep(const MeshBlockVarPack<Real> prim_pack,
-                      std::shared_ptr<MeshBlock> pmb) -> TaskStatus {
+                          std::shared_ptr<MeshBlock> pmb) -> TaskStatus {
   auto pkg = pmb->packages["Hydro"];
   const auto &cfl = pkg->Param<Real>("cfl");
   const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
@@ -161,7 +161,6 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   std::vector<MeshBlockVarPack<Real>> prim_packs;
   std::vector<MeshBlockVarPack<Real>> wl_packs;
   std::vector<MeshBlockVarPack<Real>> wr_packs;
-  std::vector<MeshBlockVarPack<Real>> sc1prim_packs;
   sc0_packs.resize(partitions.size());
   sc1_packs.resize(partitions.size());
   dudt_packs.resize(partitions.size());
@@ -169,7 +168,6 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   prim_packs.resize(partitions.size());
   wl_packs.resize(partitions.size());
   wr_packs.resize(partitions.size());
-  sc1prim_packs.resize(partitions.size());
   // toto make packs for proper containers
   for (int i = 0; i < partitions.size(); i++) {
     sc0_packs[i] = PackVariablesAndFluxesOnMesh(
@@ -190,9 +188,9 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
                                       std::vector<std::string>{"wl"});
     wr_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage - 1],
                                       std::vector<std::string>{"wr"});
-    sc1prim_packs[i] = PackVariablesOnMesh(partitions[i], stage_name[stage],
-                                           std::vector<std::string>{"prim"});
   }
+
+  auto &sc1prim_packs = pmesh->real_varpacks["Hydro"][stage_name[stage] + "_prim"];
 
   const auto &eos = blocks[0]->packages["Hydro"]->Param<AdiabaticHydroEOS>("eos");
   // note that task within this region that contains one tasklist per pack
