@@ -46,9 +46,11 @@ auto UpdateContainer(const int stage, Integrator *integrator,
 }
 // this is the package registered function to fill derived, here, convert the
 // conserved variables to primitives
-auto ConsToPrim(const MeshBlockVarPack<Real> &cons_pack,
-                MeshBlockVarPack<Real> &prim_pack, const AdiabaticHydroEOS &eos)
+auto ConsToPrim(std::shared_ptr<MeshData<Real>> md, const AdiabaticHydroEOS &eos)
     -> TaskStatus {
+  auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
   IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
   IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
   IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
@@ -58,11 +60,13 @@ auto ConsToPrim(const MeshBlockVarPack<Real> &cons_pack,
 }
 
 // provide the routine that estimates a stable timestep for this package
-auto EstimatePackTimestep(const MeshBlockVarPack<Real> prim_pack,
+auto EstimatePackTimestep(const std::shared_ptr<MeshData<Real>> &md,
                           std::shared_ptr<MeshBlock> pmb) -> TaskStatus {
   auto pkg = pmb->packages["Hydro"];
   const auto &cfl = pkg->Param<Real>("cfl");
   const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
+
+  auto const prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -152,15 +156,6 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     }
   }
 
-  // auto &sc0_packs = pmesh->real_fluxpacks["Hydro"][stage_name[stage - 1] +
-  // "_cons_flux"]; auto &sc1_packs = pmesh->real_varpacks["Hydro"][stage_name[stage] +
-  // "_cons"]; auto &dudt_packs = pmesh->real_varpacks["Hydro"]["dudt_cons"]; auto
-  // &base_packs = pmesh->real_varpacks["Hydro"]["base_cons"]; auto &prim_packs =
-  // pmesh->real_varpacks["Hydro"][stage_name[stage - 1] + "_prim"]; auto &sc1prim_packs =
-  // pmesh->real_varpacks["Hydro"][stage_name[stage] + "_prim"]; auto &wl_packs =
-  // pmesh->real_varpacks["Hydro"][stage_name[stage - 1] + "_wl"]; auto &wr_packs =
-  // pmesh->real_varpacks["Hydro"][stage_name[stage - 1] + "_wr"];
-
   const int pack_size = pmesh->DefaultPackSize();
   auto partitions =
       parthenon::package::prelude::partition::ToSizeN(pmesh->block_list, pack_size);
@@ -192,10 +187,6 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
 
     std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
 
-    auto sc0_pack = mc0->PackVariablesAndFluxes(flags_ind);
-    auto sc1_pack = mc1->PackVariables(flags_ind);
-    auto sc1prim_pack = mc1->PackVariables(std::vector<std::string>{"prim"});
-
     TaskID advect_flux;
     // auto pkg = pmb->packages["Hydro"];
     // if (pkg->Param<bool>("use_scratch")) {
@@ -221,12 +212,10 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     auto fill_from_bufs =
         tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, mc1);
     // fill in derived fields
-    auto fill_derived =
-        tl.AddTask(fill_from_bufs, ConsToPrim, sc1_pack, sc1prim_pack, eos);
+    auto fill_derived = tl.AddTask(fill_from_bufs, ConsToPrim, mc1, eos);
 
     if (stage == integrator->nstages) {
-      auto new_dt =
-          tl.AddTask(fill_derived, EstimatePackTimestep, sc1prim_pack, blocks[i]);
+      auto new_dt = tl.AddTask(fill_derived, EstimatePackTimestep, mc1, blocks[i]);
     }
   }
 
