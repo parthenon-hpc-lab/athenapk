@@ -28,7 +28,7 @@ using parthenon::ParArray4D;
 //           Container<Real> &rc,
 //           int il, int iu, int jl, int ju, int kl, int ku)
 // \brief Converts conserved into primitive variables in adiabatic hydro.
-void AdiabaticHydroEOS::ConservedToPrimitive(std::shared_ptr<Container<Real>> &rc, int il,
+void AdiabaticHydroEOS::ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>> &rc, int il,
                                              int iu, int jl, int ju, int kl,
                                              int ku) const {
   Real gm1 = GetGamma() - 1.0;
@@ -129,7 +129,7 @@ void AdiabaticHydroEOS::ConservedToPrimitive(const MeshBlockVarPack<Real> &cons_
 //           Coordinates int il, int iu, int jl, int ju, int kl, int ku);
 // \brief Converts primitive variables into conservative variables
 
-void AdiabaticHydroEOS::PrimitiveToConserved(std::shared_ptr<Container<Real>> &rc, int il,
+void AdiabaticHydroEOS::PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il,
                                              int iu, int jl, int ju, int kl,
                                              int ku) const {
   Real igm1 = 1.0 / (GetGamma() - 1.0);

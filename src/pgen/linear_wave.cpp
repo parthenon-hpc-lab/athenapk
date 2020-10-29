@@ -225,7 +225,7 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
       }
     }
 
-    auto &rc = pmb->real_containers.Get(); // get base container
+    auto &rc = pmb->meshblock_data.Get(); // get base container
     auto u = rc->Get("cons").data.GetHostMirrorAndCopy();
     for (int k = kb.s; k <= kb.e; ++k) {
       for (int j = jb.s; j <= jb.e; ++j) {
@@ -347,7 +347,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   // are set in InitUserMeshData
 
   // initialize conserved variables
-  auto &rc = pmb->real_containers.Get();
+  auto &rc = pmb->meshblock_data.Get();
   auto &u_dev = rc->Get("cons").data;
   auto &coords = pmb->coords;
   // initializing on host
@@ -505,7 +505,7 @@ Real MaxV2(MeshBlock *pmb, int iout) {
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   Real max_v2 = 0.0;
-  auto &rc = pmb->real_containers.Get();
+  auto &rc = pmb->meshblock_data.Get();
   auto &w = rc->Get("prim").data;
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {

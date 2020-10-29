@@ -10,14 +10,13 @@
 #include <limits> // std::numeric_limits<float>
 
 // Parthenon headers
-#include "interface/container.hpp"
 #include "mesh/mesh.hpp"
 
 // Athena headers
 #include "../main.hpp"
 #include "eos.hpp"
 
-using parthenon::Container;
+using parthenon::MeshBlockData;
 using parthenon::MeshBlock;
 using parthenon::MeshBlockVarPack;
 using parthenon::Real;
@@ -27,12 +26,12 @@ class AdiabaticHydroEOS : public EquationOfState {
   AdiabaticHydroEOS(Real pressure_floor, Real density_floor, Real gamma)
       : EquationOfState(pressure_floor, density_floor), gamma_{gamma} {}
 
-  void ConservedToPrimitive(std::shared_ptr<Container<Real>> &rc, int il, int iu, int jl,
+  void ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu, int jl,
                             int ju, int kl, int ku) const override;
   void ConservedToPrimitive(const MeshBlockVarPack<Real> &cons_pack,
                             MeshBlockVarPack<Real> &prim_pack, int il, int iu, int jl,
                             int ju, int kl, int ku) const override;
-  void PrimitiveToConserved(std::shared_ptr<Container<Real>> &rc, int il, int iu, int jl,
+  void PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu, int jl,
                             int ju, int kl, int ku) const override;
 
   KOKKOS_INLINE_FUNCTION

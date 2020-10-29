@@ -39,7 +39,7 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
 
 // this is the package registered function to fill derived, here, convert the
 // conserved variables to primitives
-void ConsToPrim(std::shared_ptr<Container<Real>> &rc) {
+void ConsToPrim(std::shared_ptr<MeshBlockData<Real>> &rc) {
   auto pmb = rc->GetBlockPointer();
   auto pkg = pmb->packages["Hydro"];
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
@@ -91,161 +91,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddField("wl", m);
   pkg->AddField("wr", m);
 
-  pkg->AddMeshBlockPack("base_prim", [](Mesh *pmesh) {
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] =
-          PackVariablesOnMesh(partitions[i], "base", std::vector<std::string>{"prim"});
-    }
-    return packs;
-  });
-  pkg->AddMeshBlockPack("1_prim", [](Mesh *pmesh) {
-    // Add containers if not already present
-    for (auto &pmb : pmesh->block_list) {
-      auto &base = pmb->real_containers.Get();
-      pmb->real_containers.Add("1", base);
-    }
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] =
-          PackVariablesOnMesh(partitions[i], "1", std::vector<std::string>{"prim"});
-    }
-    return packs;
-  });
-  pkg->AddMeshBlockPack("base_wl", [](Mesh *pmesh) {
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] =
-          PackVariablesOnMesh(partitions[i], "base", std::vector<std::string>{"wl"});
-    }
-    return packs;
-  });
-  pkg->AddMeshBlockPack("1_wl", [](Mesh *pmesh) {
-    // Add containers if not already present
-    for (auto &pmb : pmesh->block_list) {
-      auto &base = pmb->real_containers.Get();
-      pmb->real_containers.Add("1", base);
-    }
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] = PackVariablesOnMesh(partitions[i], "1", std::vector<std::string>{"wl"});
-    }
-    return packs;
-  });
-  pkg->AddMeshBlockPack("base_wr", [](Mesh *pmesh) {
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] =
-          PackVariablesOnMesh(partitions[i], "base", std::vector<std::string>{"wr"});
-    }
-    return packs;
-  });
-  pkg->AddMeshBlockPack("1_wr", [](Mesh *pmesh) {
-    // Add containers if not already present
-    for (auto &pmb : pmesh->block_list) {
-      auto &base = pmb->real_containers.Get();
-      pmb->real_containers.Add("1", base);
-    }
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] = PackVariablesOnMesh(partitions[i], "1", std::vector<std::string>{"wr"});
-    }
-    return packs;
-  });
-  pkg->AddMeshBlockPack("base_cons", [](Mesh *pmesh) {
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] = PackVariablesOnMesh(
-          partitions[i], "base",
-          std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    }
-    return packs;
-  });
-  pkg->AddMeshBlockPack("1_cons", [](Mesh *pmesh) {
-    // Add containers if not already present
-    for (auto &pmb : pmesh->block_list) {
-      auto &base = pmb->real_containers.Get();
-      pmb->real_containers.Add("1", base);
-    }
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] = PackVariablesOnMesh(
-          partitions[i], "1",
-          std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    }
-    return packs;
-  });
-  pkg->AddMeshBlockPack("base_cons_flux", [](Mesh *pmesh) {
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarFluxPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] = PackVariablesAndFluxesOnMesh(
-          partitions[i], "base",
-          std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    }
-    return packs;
-  });
-  pkg->AddMeshBlockPack("1_cons_flux", [](Mesh *pmesh) {
-    // Add containers if not already present
-    for (auto &pmb : pmesh->block_list) {
-      auto &base = pmb->real_containers.Get();
-      pmb->real_containers.Add("1", base);
-    }
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarFluxPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] = PackVariablesAndFluxesOnMesh(
-          partitions[i], "1",
-          std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    }
-    return packs;
-  });
-  pkg->AddMeshBlockPack("dudt_cons", [](Mesh *pmesh) {
-    // Add containers if not already present
-    for (auto &pmb : pmesh->block_list) {
-      auto &base = pmb->real_containers.Get();
-      pmb->real_containers.Add("dUdt", base);
-    }
-    int pack_size = pmesh->DefaultPackSize();
-    std::vector<MeshBlockVarPack<Real>> packs;
-    auto partitions = partition::ToSizeN(pmesh->block_list, pack_size);
-    packs.resize(partitions.size());
-    for (int i = 0; i < partitions.size(); i++) {
-      packs[i] = PackVariablesOnMesh(
-          partitions[i], "dUdt",
-          std::vector<parthenon::MetadataFlag>{Metadata::Independent});
-    }
-    return packs;
-  });
-
   // now part of TaskList
   pkg->FillDerived = ConsToPrim;
   pkg->EstimateTimestep = EstimateTimestep;
@@ -254,7 +99,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 }
 
 // provide the routine that estimates a stable timestep for this package
-Real EstimateTimestep(std::shared_ptr<Container<Real>> &rc) {
+Real EstimateTimestep(std::shared_ptr<MeshBlockData<Real>> &rc) {
   auto pmb = rc->GetBlockPointer();
   auto pkg = pmb->packages["Hydro"];
   const auto &cfl = pkg->Param<Real>("cfl");
@@ -268,8 +113,8 @@ Real EstimateTimestep(std::shared_ptr<Container<Real>> &rc) {
   Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
 
   auto coords = pmb->coords;
-  bool nx2 = (pmb->block_size.nx2 > 1) ? true : false;
-  bool nx3 = (pmb->block_size.nx3 > 1) ? true : false;
+  bool nx2 = pmb->block_size.nx2 > 1;
+  bool nx3 = pmb->block_size.nx3 > 1;
 
   Kokkos::parallel_reduce(
       "EstimateTimestep",
@@ -301,9 +146,15 @@ Real EstimateTimestep(std::shared_ptr<Container<Real>> &rc) {
 // Compute fluxes at faces given the constant velocity field and
 // some field "advected" that we are pushing around.
 // This routine implements all the "physics" in this example
-TaskStatus CalculateFluxes(const int stage, MeshBlockVarFluxPack<Real> &cons,
-                           const MeshBlockVarPack<Real> &w, MeshBlockVarPack<Real> &wl,
-                           MeshBlockVarPack<Real> &wr, const AdiabaticHydroEOS &eos) {
+TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md,
+                           const AdiabaticHydroEOS &eos) {
+  auto wl = md->PackVariables(std::vector<std::string>{"wl"});
+  auto wr = md->PackVariables(std::vector<std::string>{"wr"});
+  auto const w = md->PackVariables(std::vector<std::string>{"prim"});
+  // auto cons = md->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto cons = md->PackVariablesAndFluxes(flags_ind);
+
   const IndexDomain interior = IndexDomain::interior;
   const IndexRange ib = cons.cellbounds.GetBoundsI(interior);
   const IndexRange jb = cons.cellbounds.GetBoundsJ(interior);
@@ -378,7 +229,7 @@ TaskStatus CalculateFluxes(const int stage, MeshBlockVarFluxPack<Real> &cons,
   return TaskStatus::complete;
 }
 
-TaskStatus CalculateFluxesWScratch(std::shared_ptr<Container<Real>> &rc, int stage) {
+TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshBlockData<Real>> &rc, int stage) {
   auto pmb = rc->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);

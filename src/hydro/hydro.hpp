@@ -17,11 +17,10 @@ namespace Hydro {
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin);
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
-Real EstimateTimestep(std::shared_ptr<Container<Real>> &rc);
-TaskStatus CalculateFluxes(const int stage, MeshBlockVarFluxPack<Real> &cons,
-                           const MeshBlockVarPack<Real> &w, MeshBlockVarPack<Real> &wl,
-                           MeshBlockVarPack<Real> &wr, const AdiabaticHydroEOS &eos);
-TaskStatus CalculateFluxesWScratch(std::shared_ptr<Container<Real>> &rc, int stage);
+Real EstimateTimestep(std::shared_ptr<MeshBlockData<Real>> &rc);
+TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &cons,
+                           const AdiabaticHydroEOS &eos);
+TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshBlockData<Real>> &rc, int stage);
 
 } // namespace Hydro
 
