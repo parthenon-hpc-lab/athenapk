@@ -190,40 +190,47 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     auto send = tl.AddTask(update_container,
                            parthenon::cell_centered_bvars::SendBoundaryBuffers, mc1);
 
-    auto recv =
-        tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mc1);
-    auto fill_from_bufs =
-        tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, mc1);
+    // auto recv =
+    //     tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mc1);
+    // auto fill_from_bufs =
+    //     tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, mc1);
     // fill in derived fields
-    auto fill_derived = tl.AddTask(fill_from_bufs, ConsToPrim, mc1, eos);
+  }
+  TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &pmb = blocks[i];
+    auto &tl = async_region2[i];
+    auto &sc1 = pmb->meshblock_data.Get(stage_name[stage]);
+    // auto send = tl.AddTask(none, &MeshBlockData<Real>::SendBoundaryBuffers, sc1.get());
+    auto recv = tl.AddTask(none, &MeshBlockData<Real>::ReceiveBoundaryBuffers, sc1.get());
+  }
+  TaskRegion &single_tasklist_per_pack_region3 = tc.AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = single_tasklist_per_pack_region3[i];
+    auto &mc1 = pmesh->mesh_data.GetOrAdd(stage_name[stage], i);
+    auto fill_from_bufs =
+        tl.AddTask(none, parthenon::cell_centered_bvars::SetBoundaries, mc1);
+  }
+  TaskRegion &async_region3 = tc.AddRegion(num_task_lists_executed_independently);
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &pmb = blocks[i];
+    auto &tl = async_region3[i];
+    auto &sc1 = pmb->meshblock_data.Get(stage_name[stage]);
+    auto clear_comm_flags =
+        tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary, sc1.get(),
+                   BoundaryCommSubset::all);
+  }
+  TaskRegion &single_tasklist_per_pack_region2 = tc.AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = single_tasklist_per_pack_region2[i];
+    auto &mc1 = pmesh->mesh_data.GetOrAdd(stage_name[stage], i);
+    auto fill_derived = tl.AddTask(none, ConsToPrim, mc1, eos);
 
     if (stage == integrator->nstages) {
       auto new_dt = tl.AddTask(fill_derived, EstimatePackTimestep, mc1, blocks[i]);
     }
   }
 
-  TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
-
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &pmb = blocks[i];
-    auto &tl = async_region2[i];
-
-    auto &sc1 = pmb->meshblock_data.Get(stage_name[stage]);
-
-    auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
-                                       sc1.get(), BoundaryCommSubset::all);
-
-    // TODO(pgrete) reintroduce and/or fix on Parthenon first
-    // // set physical boundaries
-    // auto set_bc = tl.AddTask(none, parthenon::ApplyBoundaryConditions, sc1);
-
-    // // fill in derived fields
-    // auto fill_derived =
-    // tl.AddTask(set_bc, parthenon::FillDerivedVariables::FillDerived, sc1);
-
-    // removed purging of stages
-    // removed check for refinement conditions here
-  }
   return tc;
 }
 } // namespace Hydro
