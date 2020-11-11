@@ -56,6 +56,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   Real cfl = pin->GetOrAddReal("parthenon/time", "cfl", 0.3);
   pkg->AddParam<>("cfl", cfl);
 
+  bool pack_in_one = pin->GetOrAddBoolean("parthenon/mesh", "pack_in_one", true);
+  pkg->AddParam<>("pack_in_one", pack_in_one);
+
   auto eos_str = pin->GetString("hydro", "eos");
   if (eos_str.compare("adiabatic") == 0) {
     Real gamma = pin->GetReal("hydro", "gamma");

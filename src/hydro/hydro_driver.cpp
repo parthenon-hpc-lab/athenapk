@@ -12,6 +12,7 @@
 
 // Parthenon headers
 #include "bvals/cc/bvals_cc_in_one.hpp"
+#include "tasks/task_id.hpp"
 #include "utils/partition_stl_containers.hpp"
 // Athena headers
 #include "../eos/adiabatic_hydro.hpp"
@@ -157,6 +158,7 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   }
 
   const auto &eos = blocks[0]->packages["Hydro"]->Param<AdiabaticHydroEOS>("eos");
+  const auto &pack_in_one = blocks[0]->packages["Hydro"]->Param<bool>("pack_in_one");
   const int num_partitions = pmesh->DefaultNumPartitions();
   // note that task within this region that contains one tasklist per pack
   // could still be executed in parallel
@@ -186,39 +188,46 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     auto update_container =
         tl.AddTask(flux_div, UpdateContainer, stage, integrator, mbase, mdudt, mc1);
 
-    // update ghost cells
-    auto send = tl.AddTask(update_container,
-                           parthenon::cell_centered_bvars::SendBoundaryBuffers, mc1);
-
+    if (pack_in_one) {
+      // update ghost cells
+      auto send = tl.AddTask(update_container,
+                             parthenon::cell_centered_bvars::SendBoundaryBuffers, mc1);
+    }
     // auto recv =
     //     tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mc1);
-    // auto fill_from_bufs =
-    //     tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, mc1);
-    // fill in derived fields
   }
   TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {
     auto &pmb = blocks[i];
     auto &tl = async_region2[i];
     auto &sc1 = pmb->meshblock_data.Get(stage_name[stage]);
-    // auto send = tl.AddTask(none, &MeshBlockData<Real>::SendBoundaryBuffers, sc1.get());
-    auto recv = tl.AddTask(none, &MeshBlockData<Real>::ReceiveBoundaryBuffers, sc1.get());
+    TaskID prev_task = none;
+    if (!pack_in_one) {
+      prev_task = tl.AddTask(none, &MeshBlockData<Real>::SendBoundaryBuffers, sc1.get());
+    }
+    auto recv =
+        tl.AddTask(prev_task, &MeshBlockData<Real>::ReceiveBoundaryBuffers, sc1.get());
+    if (!pack_in_one) {
+      auto fill_from_bufs =
+          tl.AddTask(recv, &MeshBlockData<Real>::SetBoundaries, sc1.get());
+    }
   }
-  TaskRegion &single_tasklist_per_pack_region3 = tc.AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; i++) {
-    auto &tl = single_tasklist_per_pack_region3[i];
-    auto &mc1 = pmesh->mesh_data.GetOrAdd(stage_name[stage], i);
-    auto fill_from_bufs =
-        tl.AddTask(none, parthenon::cell_centered_bvars::SetBoundaries, mc1);
+  if (pack_in_one) {
+    TaskRegion &single_tasklist_per_pack_region3 = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = single_tasklist_per_pack_region3[i];
+      auto &mc1 = pmesh->mesh_data.GetOrAdd(stage_name[stage], i);
+      auto fill_from_bufs =
+          tl.AddTask(none, parthenon::cell_centered_bvars::SetBoundaries, mc1);
+    }
   }
   TaskRegion &async_region3 = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {
     auto &pmb = blocks[i];
     auto &tl = async_region3[i];
     auto &sc1 = pmb->meshblock_data.Get(stage_name[stage]);
-    auto clear_comm_flags =
-        tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary, sc1.get(),
-                   BoundaryCommSubset::all);
+    auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
+                                       sc1.get(), BoundaryCommSubset::all);
   }
   TaskRegion &single_tasklist_per_pack_region2 = tc.AddRegion(num_partitions);
   for (int i = 0; i < num_partitions; i++) {

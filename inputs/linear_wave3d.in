@@ -17,6 +17,7 @@ test      = true
 
 <parthenon/mesh>
 refinement = none
+pack_in_one = true
 
 nx1 = 64
 x1min = 0.0
