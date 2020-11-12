@@ -15,10 +15,10 @@
 #include <limits> // std::numeric_limits<float>
 
 // Parthenon headers
-#include "interface/container.hpp"
+#include "interface/meshblock_data.hpp"
 #include "mesh/mesh.hpp"
 
-using parthenon::Container;
+using parthenon::MeshBlockData;
 using parthenon::MeshBlock;
 using parthenon::Real;
 
@@ -34,9 +34,9 @@ class EquationOfState {
   EquationOfState(Real pressure_floor, Real density_floor)
       : pressure_floor_(pressure_floor), density_floor_(density_floor) {}
 
-  virtual void ConservedToPrimitive(std::shared_ptr<Container<Real>> &rc, int il, int iu,
+  virtual void ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu,
                                     int jl, int ju, int kl, int ku) const = 0;
-  virtual void PrimitiveToConserved(std::shared_ptr<Container<Real>> &rc, int il, int iu,
+  virtual void PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu,
                                     int jl, int ju, int kl, int ku) const = 0;
 
   KOKKOS_INLINE_FUNCTION
