@@ -80,13 +80,27 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     } else {
       advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, sc0, stage);
     }
+  }
+  const int num_partitions = pmesh->DefaultNumPartitions();
+  TaskRegion &single_tasklist_per_pack_region = tc.AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = single_tasklist_per_pack_region[i];
+    auto &mc0 = pmesh->mesh_data.GetOrAdd(stage_name[stage - 1], i);
+    auto &mdudt = pmesh->mesh_data.GetOrAdd("dUdt", i);
 
     // compute the divergence of fluxes of conserved variables
-    auto flux_div = tl.AddTask(advect_flux, parthenon::Update::FluxDivergenceBlock, sc0, dudt);
+    auto flux_div = tl.AddTask(none, parthenon::Update::FluxDivergenceMesh, mc0, mdudt);
+  }
+  TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
+
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &pmb = blocks[i];
+    auto &tl = async_region2[i];
+    auto &sc1 = pmb->meshblock_data.Get(stage_name[stage]);
 
     // apply du/dt to all independent fields in the container
     auto update_container =
-        tl.AddTask(flux_div, UpdateMeshBlockData, pmb, stage, stage_name, integrator);
+        tl.AddTask(none, UpdateMeshBlockData, pmb, stage, stage_name, integrator);
 
     // update ghost cells
     auto send =
