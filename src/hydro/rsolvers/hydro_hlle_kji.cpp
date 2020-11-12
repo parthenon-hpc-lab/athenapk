@@ -22,6 +22,7 @@
 // C/C++ headers
 #include <algorithm> // max(), min()
 #include <cmath>     // sqrt()
+#include <memory>    // shared_ptr
 
 // Athena headers
 #include "../../main.hpp"
@@ -33,10 +34,10 @@ using parthenon::Real;
 //! \fn void Hydro::RiemannSolver
 //  \brief The HLLE Riemann solver for hydrodynamics (both adiabatic and isothermal)
 
-void RiemannSolver(MeshBlock *pmb, const int kl, const int ku, const int jl,
-                          const int ju, const int il, const int iu, const int ivx,
-                          ParArray4D<Real> &wl, ParArray4D<Real> &wr,
-                          ParArray4D<Real> &flx, const AdiabaticHydroEOS &peos) {
+void RiemannSolver(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
+                   const int jl, const int ju, const int il, const int iu, const int ivx,
+                   ParArray4D<Real> &wl, ParArray4D<Real> &wr, ParArray4D<Real> &flx,
+                   const AdiabaticHydroEOS &peos) {
 
   int ivy = IVX + ((ivx - IVX) + 1) % 3;
   int ivz = IVX + ((ivx - IVX) + 2) % 3;

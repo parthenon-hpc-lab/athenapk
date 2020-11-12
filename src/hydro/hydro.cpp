@@ -84,7 +84,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 // this is the package registered function to fill derived, here, convert the
 // conserved variables to primitives
 void ConsToPrim(std::shared_ptr<Container<Real>> &rc) {
-  MeshBlock *pmb = rc->pmy_block;
+  auto pmb = rc->GetBlockPointer();
   auto pkg = pmb->packages["Hydro"];
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
@@ -96,7 +96,7 @@ void ConsToPrim(std::shared_ptr<Container<Real>> &rc) {
 
 // provide the routine that estimates a stable timestep for this package
 Real EstimateTimestep(std::shared_ptr<Container<Real>> &rc) {
-  MeshBlock *pmb = rc->pmy_block;
+  auto pmb = rc->GetBlockPointer();
   auto pkg = pmb->packages["Hydro"];
   const auto &cfl = pkg->Param<Real>("cfl");
   ParArray4D<Real> prim = rc->Get("prim").data.Get<4>();
@@ -143,7 +143,7 @@ Real EstimateTimestep(std::shared_ptr<Container<Real>> &rc) {
 // some field "advected" that we are pushing around.
 // This routine implements all the "physics" in this example
 TaskStatus CalculateFluxes(std::shared_ptr<Container<Real>> &rc, int stage) {
-  MeshBlock *pmb = rc->pmy_block;
+  auto pmb = rc->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -231,7 +231,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<Container<Real>> &rc, int stage) {
 }
 
 TaskStatus CalculateFluxesWScratch(std::shared_ptr<Container<Real>> &rc, int stage) {
-  MeshBlock *pmb = rc->pmy_block;
+  auto pmb = rc->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);

@@ -5,6 +5,8 @@
 // reserved. Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <memory>
+
 #include "mesh/mesh.hpp"
 #include "recon.hpp"
 
@@ -12,11 +14,10 @@
 //! \fn PiecewiseLinearX1()
 //  \brief
 
-void PiecewiseLinearX1KJI(MeshBlock *pmb, const int kl, const int ku, const int jl,
-                       const int ju, const int il, const int iu,
-                       const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                       ParArray4D<Real> &wr) {
-
+void PiecewiseLinearX1KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
+                          const int jl, const int ju, const int il, const int iu,
+                          const ParArray4D<Real> &w, ParArray4D<Real> &wl,
+                          ParArray4D<Real> &wr) {
   pmb->par_for(
       "PLM X1", kl, ku, jl, ju, il - 1, iu, KOKKOS_LAMBDA(int k, int j, int i) {
         Real dwl[NHYDRO], dwr[NHYDRO], wc[NHYDRO];
@@ -41,19 +42,16 @@ void PiecewiseLinearX1KJI(MeshBlock *pmb, const int kl, const int ku, const int 
           wr(n, k, j, i) = wc[n] - 0.5 * dwm[n];
         }
       });
-
-  return;
 }
 
 //----------------------------------------------------------------------------------------
 //! \fn PiecewiseLinearX2()
 //  \brief
 
-void PiecewiseLinearX2KJI(MeshBlock *pmb, const int kl, const int ku, const int jl,
-                       const int ju, const int il, const int iu,
-                       const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                       ParArray4D<Real> &wr) {
-
+void PiecewiseLinearX2KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
+                          const int jl, const int ju, const int il, const int iu,
+                          const ParArray4D<Real> &w, ParArray4D<Real> &wl,
+                          ParArray4D<Real> &wr) {
   pmb->par_for(
       "PLM X2", kl, ku, jl - 1, ju, il, iu, KOKKOS_LAMBDA(int k, int j, int i) {
         Real dwl[NHYDRO], dwr[NHYDRO], wc[NHYDRO];
@@ -78,19 +76,16 @@ void PiecewiseLinearX2KJI(MeshBlock *pmb, const int kl, const int ku, const int 
           wr(n, k, j, i) = wc[n] - 0.5 * dwm[n];
         }
       });
-
-  return;
 }
 
 //----------------------------------------------------------------------------------------
 //! \fn PiecewiseLinearX3()
 //  \brief
 
-void PiecewiseLinearX3KJI(MeshBlock *pmb, const int kl, const int ku, const int jl,
-                       const int ju, const int il, const int iu,
-                       const ParArray4D<Real> &w, ParArray4D<Real> &wl,
-                       ParArray4D<Real> &wr) {
-
+void PiecewiseLinearX3KJI(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
+                          const int jl, const int ju, const int il, const int iu,
+                          const ParArray4D<Real> &w, ParArray4D<Real> &wl,
+                          ParArray4D<Real> &wr) {
   pmb->par_for(
       "PLM X3", kl - 1, ku, jl, ju, il, iu, KOKKOS_LAMBDA(int k, int j, int i) {
         Real dwl[NHYDRO], dwr[NHYDRO], wc[NHYDRO];
@@ -115,6 +110,4 @@ void PiecewiseLinearX3KJI(MeshBlock *pmb, const int kl, const int ku, const int 
           wr(n, k, j, i) = wc[n] - 0.5 * dwm[n];
         }
       });
-
-  return;
 }

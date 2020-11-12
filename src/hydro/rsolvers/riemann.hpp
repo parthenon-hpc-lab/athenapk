@@ -5,6 +5,8 @@
 #ifndef RSOLVERS_RIEMANN_HPP_
 #define RSOLVERS_RIEMANN_HPP_
 
+#include <memory>
+
 // Parthenon headers
 #include "parthenon_arrays.hpp"
 
@@ -19,9 +21,9 @@ void RiemannSolver(const int k, const int j, const int il, const int iu, const i
                    ParArrayND<Real> &wl, ParArrayND<Real> &wr, ParArrayND<Real> &cons,
                    const ParArrayND<Real> &dxw, const AdiabaticHydroEOS &eos);
 
-void RiemannSolver(MeshBlock *pmb, const int kl, const int ku, const int jl, const int ju,
-                   const int il, const int iu, const int ivx, ParArray4D<Real> &wl,
-                   ParArray4D<Real> &wr, ParArray4D<Real> &flx,
+void RiemannSolver(std::shared_ptr<MeshBlock> pmb, const int kl, const int ku,
+                   const int jl, const int ju, const int il, const int iu, const int ivx,
+                   ParArray4D<Real> &wl, ParArray4D<Real> &wr, ParArray4D<Real> &flx,
                    const AdiabaticHydroEOS &peos);
 
 #endif // RSOLVERS_RIEMANN_HPP_
