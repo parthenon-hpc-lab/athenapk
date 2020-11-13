@@ -67,7 +67,7 @@ auto EstimatePackTimestep(const std::shared_ptr<MeshData<Real>> &md,
   const auto &cfl = pkg->Param<Real>("cfl");
   const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
-  auto const prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);

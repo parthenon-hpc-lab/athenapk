@@ -22,7 +22,8 @@ void PiecewiseLinearX1KJI(const int kl, const int ku, const int jl, const int ju
                           MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr) {
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "PLM X1", DevExecSpace(), 0, w.GetDim(5) - 1, kl, ku, jl, ju,
-      il - 1, iu, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+      il - 1, iu,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) noexcept {
         Real dwl[NHYDRO], dwr[NHYDRO], wc[NHYDRO];
         for (int n = 0; n < (NHYDRO); ++n) {
           dwl[n] = (w(b, n, k, j, i) - w(b, n, k, j, i - 1));
@@ -56,7 +57,8 @@ void PiecewiseLinearX2KJI(const int kl, const int ku, const int jl, const int ju
                           MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr) {
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "PLM X2", DevExecSpace(), 0, w.GetDim(5) - 1, kl, ku, jl - 1,
-      ju, il, iu, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+      ju, il, iu,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) noexcept {
         Real dwl[NHYDRO], dwr[NHYDRO], wc[NHYDRO];
         for (int n = 0; n < (NHYDRO); ++n) {
           dwl[n] = (w(b, n, k, j, i) - w(b, n, k, j - 1, i));
@@ -90,7 +92,8 @@ void PiecewiseLinearX3KJI(const int kl, const int ku, const int jl, const int ju
                           MeshBlockVarPack<Real> &wl, MeshBlockVarPack<Real> &wr) {
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "PLM X3", DevExecSpace(), 0, w.GetDim(5) - 1, kl - 1, ku, jl,
-      ju, il, iu, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+      ju, il, iu,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) noexcept {
         Real dwl[NHYDRO], dwr[NHYDRO], wc[NHYDRO];
         for (int n = 0; n < (NHYDRO); ++n) {
           dwl[n] = (w(b, n, k, j, i) - w(b, n, k - 1, j, i));

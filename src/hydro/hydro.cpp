@@ -153,7 +153,7 @@ TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md,
                            const AdiabaticHydroEOS &eos) {
   auto wl = md->PackVariables(std::vector<std::string>{"wl"});
   auto wr = md->PackVariables(std::vector<std::string>{"wr"});
-  auto const w = md->PackVariables(std::vector<std::string>{"prim"});
+  auto const &w = md->PackVariables(std::vector<std::string>{"prim"});
   // auto cons = md->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto cons = md->PackVariablesAndFluxes(flags_ind);

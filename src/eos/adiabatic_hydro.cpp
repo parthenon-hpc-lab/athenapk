@@ -28,8 +28,8 @@ using parthenon::ParArray4D;
 //           Container<Real> &rc,
 //           int il, int iu, int jl, int ju, int kl, int ku)
 // \brief Converts conserved into primitive variables in adiabatic hydro.
-void AdiabaticHydroEOS::ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>> &rc, int il,
-                                             int iu, int jl, int ju, int kl,
+void AdiabaticHydroEOS::ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>> &rc,
+                                             int il, int iu, int jl, int ju, int kl,
                                              int ku) const {
   Real gm1 = GetGamma() - 1.0;
   auto density_floor_ = GetDensityFloor();
@@ -41,7 +41,7 @@ void AdiabaticHydroEOS::ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>
 
   pmb->par_for(
       "ConservedToPrimitive", kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+      KOKKOS_LAMBDA(const int k, const int j, const int i) noexcept {
         Real &u_d = cons(IDN, k, j, i);
         Real &u_m1 = cons(IM1, k, j, i);
         Real &u_m2 = cons(IM2, k, j, i);
@@ -73,7 +73,6 @@ void AdiabaticHydroEOS::ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>
   return;
 }
 
-
 //----------------------------------------------------------------------------------------
 // \!fn void EquationOfState::ConservedToPrimitive(
 //           Container<Real> &rc,
@@ -90,7 +89,7 @@ void AdiabaticHydroEOS::ConservedToPrimitive(const MeshBlockVarPack<Real> &cons_
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ConservedToPrimitive", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) noexcept {
         const auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         Real &u_d = cons(IDN, k, j, i);
@@ -129,8 +128,8 @@ void AdiabaticHydroEOS::ConservedToPrimitive(const MeshBlockVarPack<Real> &cons_
 //           Coordinates int il, int iu, int jl, int ju, int kl, int ku);
 // \brief Converts primitive variables into conservative variables
 
-void AdiabaticHydroEOS::PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il,
-                                             int iu, int jl, int ju, int kl,
+void AdiabaticHydroEOS::PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc,
+                                             int il, int iu, int jl, int ju, int kl,
                                              int ku) const {
   Real igm1 = 1.0 / (GetGamma() - 1.0);
   auto pmb = rc->GetBlockPointer();
