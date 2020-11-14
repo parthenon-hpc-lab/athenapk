@@ -20,7 +20,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 Real EstimateTimestep(std::shared_ptr<MeshBlockData<Real>> &rc);
 TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &cons,
                            const AdiabaticHydroEOS &eos);
-TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshBlockData<Real>> &rc, int stage);
+TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stage);
 
 } // namespace Hydro
 

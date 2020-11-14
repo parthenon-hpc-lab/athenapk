@@ -159,6 +159,7 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
 
   const auto &eos = blocks[0]->packages["Hydro"]->Param<AdiabaticHydroEOS>("eos");
   const auto &pack_in_one = blocks[0]->packages["Hydro"]->Param<bool>("pack_in_one");
+  const auto &use_scratch = blocks[0]->packages["Hydro"]->Param<bool>("use_scratch");
   const int num_partitions = pmesh->DefaultNumPartitions();
   // note that task within this region that contains one tasklist per pack
   // could still be executed in parallel
@@ -173,12 +174,11 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
 
     TaskID advect_flux;
-    // auto pkg = pmb->packages["Hydro"];
-    // if (pkg->Param<bool>("use_scratch")) {
-    //   advect_flux = tl.AddTask(none, Hydro::CalculateFluxesWScratch, sc0, stage);
-    // } else {
-    advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, stage, mc0, eos);
-    // }
+    if (use_scratch) {
+      advect_flux = tl.AddTask(none, Hydro::CalculateFluxesWScratch, mc0, stage);
+    } else {
+      advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, stage, mc0, eos);
+    }
 
     // compute the divergence of fluxes of conserved variables
     auto flux_div =

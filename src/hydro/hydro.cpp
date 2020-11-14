@@ -14,6 +14,7 @@
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
 #include "../recon/recon.hpp"
+#include "defs.hpp"
 #include "hydro.hpp"
 #include "reconstruct/dc_inline.hpp"
 #include "reconstruct/plm_inline.hpp"
@@ -232,8 +233,8 @@ TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md,
   return TaskStatus::complete;
 }
 
-TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshBlockData<Real>> &rc, int stage) {
-  auto pmb = rc->GetBlockPointer();
+TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stage) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -247,26 +248,27 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshBlockData<Real>> &rc, int
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
   }
 
-  ParArrayND<Real> &prim = rc->Get("prim").data;
-  CellVariable<Real> &cons = rc->Get("cons");
+  auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto cons_in = md->PackVariablesAndFluxes(flags_ind);
   auto pkg = pmb->packages["Hydro"];
   const int nhydro = pkg->Param<int>("nhydro");
-  auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
+  const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
-  auto coords = pmb->coords;
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
   size_t scratch_size_in_bytes =
       parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 7;
 
-  // get x-fluxes
-  ParArray4D<Real> flx = cons.flux[parthenon::X1DIR].Get<4>();
-
   // TODO(pgrete): hardcoded stages
-  pmb->par_for_outer(
-      "x1 flux", scratch_size_in_bytes, scratch_level, kl, ku, jl, ju,
-      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k, const int j) {
+  parthenon::par_for_outer(
+      DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
+      scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
+      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
+        const auto &coords = cons_in.coords(b);
+        const auto &prim = prim_in(b);
+        const auto &cons = cons_in(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
         // get reconstructed state on faces
@@ -287,13 +289,12 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshBlockData<Real>> &rc, int
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
-        RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, flx, eos);
+        RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos);
       });
 
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
-    flx = cons.flux[parthenon::X2DIR].Get<4>();
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
     if (pmb->block_size.nx3 == 1) // 2D
@@ -301,9 +302,13 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshBlockData<Real>> &rc, int
     else // 3D
       kl = kb.s - 1, ku = kb.e + 1;
 
-    pmb->par_for_outer(
-        "x2 flux", scratch_size_in_bytes, scratch_level, kl, ku,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int k) {
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
+        scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
+          const auto &coords = cons_in.coords(b);
+          const auto &prim = prim_in(b);
+          const auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
                                            nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
@@ -337,7 +342,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshBlockData<Real>> &rc, int
             }
             member.team_barrier();
 
-            RiemannSolver(member, k, j, il, iu, IVY, wl, wr, flx, eos);
+            RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos);
             member.team_barrier();
 
             // swap the arrays for the next step
@@ -355,10 +360,13 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshBlockData<Real>> &rc, int
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
 
-    flx = cons.flux[parthenon::X3DIR].Get<4>();
-    pmb->par_for_outer(
-        "x3 flux", scratch_size_in_bytes, scratch_level, jl, ju,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int j) {
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
+        scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
+          const auto &coords = cons_in.coords(b);
+          const auto &prim = prim_in(b);
+          const auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
                                            nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
@@ -392,7 +400,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshBlockData<Real>> &rc, int
             }
             member.team_barrier();
 
-            RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, flx, eos);
+            RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
             member.team_barrier();
 
             // swap the arrays for the next step

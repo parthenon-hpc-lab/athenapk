@@ -38,21 +38,20 @@ using parthenon::Real;
 //----------------------------------------------------------------------------------------
 //! \fn void Hydro::RiemannSolver
 //  \brief The HLLE Riemann solver for hydrodynamics (adiabatic)
-KOKKOS_FORCEINLINE_FUNCTION
-void RiemannSolver(parthenon::team_mbr_t const &member, const int k, const int j,
-                   const int il, const int iu, const int ivx, const ScratchPad2D<Real> &wl,
-                   const ScratchPad2D<Real> &wr, ParArray4D<Real> flx,
-                   const AdiabaticHydroEOS &eos) {
+template <typename T>
+KOKKOS_FORCEINLINE_FUNCTION void
+RiemannSolver(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
+              const int iu, const int ivx, const ScratchPad2D<Real> &wl,
+              const ScratchPad2D<Real> &wr, T &cons, const AdiabaticHydroEOS &eos) {
   int ivy = IVX + ((ivx - IVX) + 1) % 3;
   int ivz = IVX + ((ivx - IVX) + 2) % 3;
   Real gamma;
   gamma = eos.GetGamma();
   Real gm1 = gamma - 1.0;
   Real igm1 = 1.0 / gm1;
-
-    parthenon::par_for_inner(member, il, iu, [&](const int i) {
-  Real wli[(NHYDRO)], wri[(NHYDRO)], wroe[(NHYDRO)];
-  Real fl[(NHYDRO)], fr[(NHYDRO)], flxi[(NHYDRO)];
+  parthenon::par_for_inner(member, il, iu, [&](const int i) {
+    Real wli[(NHYDRO)], wri[(NHYDRO)], wroe[(NHYDRO)];
+    Real fl[(NHYDRO)], fr[(NHYDRO)], flxi[(NHYDRO)];
     //--- Step 1.  Load L/R states into local variables
     wli[IDN] = wl(IDN, i);
     wli[IVX] = wl(ivx, i);
@@ -129,11 +128,11 @@ void RiemannSolver(parthenon::team_mbr_t const &member, const int k, const int j
     flxi[IVZ] = 0.5 * (fl[IVZ] + fr[IVZ]) + (fl[IVZ] - fr[IVZ]) * tmp;
     flxi[IEN] = 0.5 * (fl[IEN] + fr[IEN]) + (fl[IEN] - fr[IEN]) * tmp;
 
-    flx(IDN, k, j, i) = flxi[IDN];
-    flx(ivx, k, j, i) = flxi[IVX];
-    flx(ivy, k, j, i) = flxi[IVY];
-    flx(ivz, k, j, i) = flxi[IVZ];
-    flx(IEN, k, j, i) = flxi[IEN];
+    cons.flux(IVX, IDN, k, j, i) = flxi[IDN];
+    cons.flux(IVX, ivx, k, j, i) = flxi[IVX];
+    cons.flux(IVX, ivy, k, j, i) = flxi[IVY];
+    cons.flux(IVX, ivz, k, j, i) = flxi[IVZ];
+    cons.flux(IVX, IEN, k, j, i) = flxi[IEN];
   });
   return;
 }
