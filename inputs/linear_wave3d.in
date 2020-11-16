@@ -44,11 +44,6 @@ nx1=8
 nx2=8
 nx3=8
 
-<parthenon/output0>
-file_type = hdf5
-dt = -1
-variables   = cons,prim      # variables to be output TODO(pgrete) this is  likely obsolete
-
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
