@@ -25,7 +25,8 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
 
 // first some helper tasks
 TaskStatus UpdateMeshBlockData(std::shared_ptr<MeshBlock> pmb, int stage,
-                           std::vector<std::string> &stage_name, Integrator *integrator) {
+                               std::vector<std::string> &stage_name,
+                               Integrator *integrator) {
   // TODO(pgrete): this update is currently hardcoded to work for rk1 and vl2
   const Real beta = integrator->beta[stage - 1];
   const Real dt = integrator->dt;
@@ -80,35 +81,24 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     } else {
       advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, sc0, stage);
     }
-  }
-  const int num_partitions = pmesh->DefaultNumPartitions();
-  TaskRegion &single_tasklist_per_pack_region = tc.AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; i++) {
-    auto &tl = single_tasklist_per_pack_region[i];
-    auto &mc0 = pmesh->mesh_data.GetOrAdd(stage_name[stage - 1], i);
-    auto &mdudt = pmesh->mesh_data.GetOrAdd("dUdt", i);
 
     // compute the divergence of fluxes of conserved variables
-    auto flux_div = tl.AddTask(none, parthenon::Update::FluxDivergenceMesh, mc0, mdudt);
-  }
-  TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
-
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &pmb = blocks[i];
-    auto &tl = async_region2[i];
-    auto &sc1 = pmb->meshblock_data.Get(stage_name[stage]);
+    auto flux_div =
+        tl.AddTask(advect_flux, parthenon::Update::FluxDivergenceBlock, sc0, dudt);
 
     // apply du/dt to all independent fields in the container
     auto update_container =
-        tl.AddTask(none, UpdateMeshBlockData, pmb, stage, stage_name, integrator);
+        tl.AddTask(flux_div, UpdateMeshBlockData, pmb, stage, stage_name, integrator);
 
     // update ghost cells
-    auto send =
-        tl.AddTask(update_container, &MeshBlockData<Real>::SendBoundaryBuffers, sc1.get());
+    auto send = tl.AddTask(update_container, &MeshBlockData<Real>::SendBoundaryBuffers,
+                           sc1.get());
     auto recv = tl.AddTask(send, &MeshBlockData<Real>::ReceiveBoundaryBuffers, sc1.get());
-    auto fill_from_bufs = tl.AddTask(recv, &MeshBlockData<Real>::SetBoundaries, sc1.get());
-    auto clear_comm_flags = tl.AddTask(fill_from_bufs, &MeshBlockData<Real>::ClearBoundary,
-                                       sc1.get(), BoundaryCommSubset::all);
+    auto fill_from_bufs =
+        tl.AddTask(recv, &MeshBlockData<Real>::SetBoundaries, sc1.get());
+    auto clear_comm_flags =
+        tl.AddTask(fill_from_bufs, &MeshBlockData<Real>::ClearBoundary, sc1.get(),
+                   BoundaryCommSubset::all);
 
     // set physical boundaries
     auto set_bc = tl.AddTask(fill_from_bufs, parthenon::ApplyBoundaryConditions, sc1);
