@@ -1,6 +1,7 @@
 # Is performed before the scripts in the stages step
 before_script:
   - git submodule init
+  - git submodule foreach git reset --hard
   - git submodule update
   - export OMP_PROC_BIND=close
   - export OMP_PLACES=cores
