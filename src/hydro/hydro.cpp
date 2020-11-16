@@ -268,7 +268,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
         const auto &coords = cons_in.coords(b);
         const auto &prim = prim_in(b);
-        const auto &cons = cons_in(b);
+        auto &cons = cons_in(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
         // get reconstructed state on faces
@@ -308,7 +308,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
           const auto &coords = cons_in.coords(b);
           const auto &prim = prim_in(b);
-          const auto &cons = cons_in(b);
+          auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
                                            nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
@@ -366,7 +366,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
           const auto &coords = cons_in.coords(b);
           const auto &prim = prim_in(b);
-          const auto &cons = cons_in(b);
+          auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
                                            nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
