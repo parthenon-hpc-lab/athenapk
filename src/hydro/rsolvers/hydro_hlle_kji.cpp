@@ -51,7 +51,7 @@ void RiemannSolver(const int kl, const int ku, const int jl, const int ju, const
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Riemann hydro HLLE", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) noexcept {
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &wl = wl_pack(b);
         const auto &wr = wr_pack(b);
         // auto &flx = cons_pack(b).flux(ivx);

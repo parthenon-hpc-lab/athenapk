@@ -22,8 +22,7 @@ void DonorCellX1KJI(const int kl, const int ku, const int jl, const int ju, cons
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "DonorCell X1", DevExecSpace(), 0, w.GetDim(5) - 1, 0,
       NHYDRO - 1, kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j,
-                    const int i) noexcept {
+      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
         wl(b, n, k, j, i) = w(b, n, k, j, i - 1);
         wr(b, n, k, j, i) = w(b, n, k, j, i);
       });
@@ -39,8 +38,7 @@ void DonorCellX2KJI(const int kl, const int ku, const int jl, const int ju, cons
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "DonorCell X2", DevExecSpace(), 0, w.GetDim(5) - 1, 0,
       NHYDRO - 1, kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j,
-                    const int i) noexcept {
+      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
         wl(b, n, k, j, i) = w(b, n, k, j - 1, i);
         wr(b, n, k, j, i) = w(b, n, k, j, i);
       });
@@ -56,8 +54,7 @@ void DonorCellX3KJI(const int kl, const int ku, const int jl, const int ju, cons
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "DonorCell X3", DevExecSpace(), 0, w.GetDim(5) - 1, 0,
       NHYDRO - 1, kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j,
-                    const int i) noexcept {
+      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
         wl(b, n, k, j, i) = w(b, n, k - 1, j, i);
         wr(b, n, k, j, i) = w(b, n, k, j, i);
       });

@@ -41,7 +41,7 @@ void AdiabaticHydroEOS::ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>
 
   pmb->par_for(
       "ConservedToPrimitive", kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(const int k, const int j, const int i) noexcept {
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
         Real &u_d = cons(IDN, k, j, i);
         Real &u_m1 = cons(IM1, k, j, i);
         Real &u_m2 = cons(IM2, k, j, i);
@@ -89,7 +89,7 @@ void AdiabaticHydroEOS::ConservedToPrimitive(const MeshBlockVarPack<Real> &cons_
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ConservedToPrimitive", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kl, ku, jl, ju, il, iu,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) noexcept {
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         Real &u_d = cons(IDN, k, j, i);
