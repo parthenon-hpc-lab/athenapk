@@ -24,8 +24,26 @@ cache:
     - local/
 
 stages:
+  - info
   - prep
   - regression
+
+print-info:
+  stage: info
+  tags:
+    - ib
+    - springdale7
+  script:
+    - pwd
+    - ls -lah
+    - env
+    - free -m
+    - hostname
+    - module list
+    - module avail
+    - cat /proc/cpuinfo
+    - lspci
+    - exit 1
 
 
 prep-cuda:
