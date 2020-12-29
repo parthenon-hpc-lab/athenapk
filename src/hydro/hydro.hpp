@@ -17,7 +17,7 @@ namespace Hydro {
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin);
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
-Real EstimateTimestep(MeshBlockData<Real> *rc);
+Real EstimateTimestep(MeshData<Real> *md);
 TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &cons,
                            const AdiabaticHydroEOS &eos);
 TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stage);

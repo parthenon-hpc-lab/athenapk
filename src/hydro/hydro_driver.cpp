@@ -13,6 +13,7 @@
 // Parthenon headers
 #include "bvals/cc/bvals_cc_in_one.hpp"
 #include "interface/update.hpp"
+#include "parthenon/driver.hpp"
 #include "tasks/task_id.hpp"
 #include "utils/partition_stl_containers.hpp"
 // Athena headers
@@ -47,72 +48,9 @@ auto UpdateContainer(const int stage, Integrator *integrator,
 
   return TaskStatus::complete;
 }
-// this is the package registered function to fill derived, here, convert the
-// conserved variables to primitives
-auto ConsToPrim(std::shared_ptr<MeshData<Real>> md, const AdiabaticHydroEOS &eos)
-    -> TaskStatus {
-  auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
-  // TODO(pgrete): need to figure out a nice way for polymorphism wrt the EOS
-  eos.ConservedToPrimitive(cons_pack, prim_pack, ib.s, ib.e, jb.s, jb.e, kb.s, kb.e);
-  return TaskStatus::complete;
-}
-
-// provide the routine that estimates a stable timestep for this package
-auto EstimatePackTimestep(const std::shared_ptr<MeshData<Real>> &md,
-                          std::shared_ptr<MeshBlock> pmb) -> TaskStatus {
-  auto pkg = pmb->packages["Hydro"];
-  const auto &cfl = pkg->Param<Real>("cfl");
-  const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
-
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-
-  Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
-
-  bool nx2 = pmb->block_size.nx2 > 1;
-  bool nx3 = pmb->block_size.nx3 > 1;
-
-  Kokkos::parallel_reduce(
-      "EstimateTimestep",
-      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
-          pmb->exec_space, {0, kb.s, jb.s, ib.s},
-          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-          {1, 1, 1, ib.e + 1 - ib.s}),
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
-        const auto &prim = prim_pack(b);
-        const auto &coords = prim_pack.coords(b);
-        Real w[(NHYDRO)];
-        w[IDN] = prim(IDN, k, j, i);
-        w[IVX] = prim(IVX, k, j, i);
-        w[IVY] = prim(IVY, k, j, i);
-        w[IVZ] = prim(IVZ, k, j, i);
-        w[IPR] = prim(IPR, k, j, i);
-        Real cs = eos.SoundSpeed(w);
-        min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) / (fabs(w[IVX]) + cs));
-        if (nx2) {
-          min_dt =
-              fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) / (fabs(w[IVY]) + cs));
-        }
-        if (nx3) {
-          min_dt =
-              fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) / (fabs(w[IVZ]) + cs));
-        }
-      },
-      Kokkos::Min<Real>(min_dt_hyperbolic));
-  pmb->SetBlockTimestep(cfl * min_dt_hyperbolic);
-  return TaskStatus::complete;
-}
 
 // See the advection.hpp declaration for a description of how this function gets called.
-auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskCollection {
+TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
 
   TaskID none(0);
@@ -145,18 +83,6 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
 
     auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, sc1.get(),
                                  BoundaryCommSubset::all);
-    // reset next time step
-    // dirty workaround as we'll only set the new dt for a few blocks
-    if (stage == 1) {
-      auto reset_dt = tl.AddTask(
-          none,
-          [](std::shared_ptr<MeshBlockData<Real>> &rc) {
-            auto pmb = rc->GetBlockPointer();
-            pmb->SetBlockTimestep(std::numeric_limits<Real>::max());
-            return TaskStatus::complete;
-          },
-          sc1);
-    }
   }
 
   const auto &eos = blocks[0]->packages["Hydro"]->Param<AdiabaticHydroEOS>("eos");
@@ -172,8 +98,6 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     auto &mc0 = pmesh->mesh_data.GetOrAdd(stage_name[stage - 1], i);
     auto &mc1 = pmesh->mesh_data.GetOrAdd(stage_name[stage], i);
     auto &mdudt = pmesh->mesh_data.GetOrAdd("dUdt", i);
-
-    std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
 
     TaskID advect_flux;
     if (use_scratch) {
@@ -191,39 +115,15 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
     auto update_container =
         tl.AddTask(flux_div, UpdateContainer, stage, integrator, mbase, mdudt, mc1);
 
-    if (pack_in_one) {
-      // update ghost cells
-      auto send = tl.AddTask(update_container,
-                             parthenon::cell_centered_bvars::SendBoundaryBuffers, mc1);
-    }
-    // auto recv =
-    //     tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mc1);
-  }
-  TaskRegion &async_region2 = tc.AddRegion(num_task_lists_executed_independently);
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &pmb = blocks[i];
-    auto &tl = async_region2[i];
-    auto &sc1 = pmb->meshblock_data.Get(stage_name[stage]);
-    TaskID prev_task = none;
-    if (!pack_in_one) {
-      prev_task = tl.AddTask(none, &MeshBlockData<Real>::SendBoundaryBuffers, sc1.get());
-    }
+    // update ghost cells
+    auto send = tl.AddTask(update_container,
+                           parthenon::cell_centered_bvars::SendBoundaryBuffers, mc1);
     auto recv =
-        tl.AddTask(prev_task, &MeshBlockData<Real>::ReceiveBoundaryBuffers, sc1.get());
-    if (!pack_in_one) {
-      auto fill_from_bufs =
-          tl.AddTask(recv, &MeshBlockData<Real>::SetBoundaries, sc1.get());
-    }
+        tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mc1);
+    auto fill_from_bufs =
+        tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, mc1);
   }
-  if (pack_in_one) {
-    TaskRegion &single_tasklist_per_pack_region3 = tc.AddRegion(num_partitions);
-    for (int i = 0; i < num_partitions; i++) {
-      auto &tl = single_tasklist_per_pack_region3[i];
-      auto &mc1 = pmesh->mesh_data.GetOrAdd(stage_name[stage], i);
-      auto fill_from_bufs =
-          tl.AddTask(none, parthenon::cell_centered_bvars::SetBoundaries, mc1);
-    }
-  }
+
   TaskRegion &async_region3 = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {
     auto &pmb = blocks[i];
@@ -236,10 +136,12 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = single_tasklist_per_pack_region2[i];
     auto &mc1 = pmesh->mesh_data.GetOrAdd(stage_name[stage], i);
-    auto fill_derived = tl.AddTask(none, ConsToPrim, mc1, eos);
+    auto fill_derived =
+        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mc1.get());
 
     if (stage == integrator->nstages) {
-      auto new_dt = tl.AddTask(fill_derived, EstimatePackTimestep, mc1, blocks[i]);
+      auto new_dt = tl.AddTask(
+          fill_derived, parthenon::Update::EstimateTimestep<MeshData<Real>>, mc1.get());
     }
   }
 

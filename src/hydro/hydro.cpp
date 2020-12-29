@@ -40,15 +40,17 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
 
 // this is the package registered function to fill derived, here, convert the
 // conserved variables to primitives
-void ConsToPrim(MeshBlockData<Real> *rc) {
-  auto pmb = rc->GetBlockPointer();
-  auto pkg = pmb->packages["Hydro"];
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+void ConsToPrim(MeshData<Real> *md) {
+  auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
   // TODO(pgrete): need to figure out a nice way for polymorphism wrt the EOS
-  auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
-  eos.ConservedToPrimitive(rc, ib.s, ib.e, jb.s, jb.e, kb.s, kb.e);
+  const auto &eos =
+      md->GetBlockData(0)->GetBlockPointer()->packages["Hydro"]->Param<AdiabaticHydroEOS>(
+          "eos");
+  eos.ConservedToPrimitive(cons_pack, prim_pack, ib.s, ib.e, jb.s, jb.e, kb.s, kb.e);
 }
 
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
@@ -96,36 +98,37 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddField("wr", m);
 
   // now part of TaskList
-  pkg->FillDerivedBlock = ConsToPrim;
-  pkg->EstimateTimestepBlock = EstimateTimestep;
+  pkg->FillDerivedMesh = ConsToPrim;
+  pkg->EstimateTimestepMesh = EstimateTimestep;
 
   return pkg;
 }
 
 // provide the routine that estimates a stable timestep for this package
-Real EstimateTimestep(MeshBlockData<Real> *rc) {
-  auto pmb = rc->GetBlockPointer();
-  auto pkg = pmb->packages["Hydro"];
+Real EstimateTimestep(MeshData<Real> *md) {
+  // get to package via first block in Meshdata (which exists by construction)
+  auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages["Hydro"];
   const auto &cfl = pkg->Param<Real>("cfl");
-  ParArray4D<Real> prim = rc->Get("prim").data.Get<4>();
-  auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
 
   Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
 
-  auto coords = pmb->coords;
-  bool nx2 = pmb->block_size.nx2 > 1;
-  bool nx3 = pmb->block_size.nx3 > 1;
-
+  bool nx2 = prim_pack.GetDim(2) > 1;
+  bool nx3 = prim_pack.GetDim(3) > 1;
   Kokkos::parallel_reduce(
       "EstimateTimestep",
-      Kokkos::MDRangePolicy<Kokkos::Rank<3>>(pmb->exec_space, {kb.s, jb.s, ib.s},
-                                             {kb.e + 1, jb.e + 1, ib.e + 1},
-                                             {1, 1, ib.e + 1 - ib.s}),
-      KOKKOS_LAMBDA(const int k, const int j, const int i, Real &min_dt) {
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
+        const auto &prim = prim_pack(b);
+        const auto &coords = prim_pack.coords(b);
         Real w[(NHYDRO)];
         w[IDN] = prim(IDN, k, j, i);
         w[IVX] = prim(IVX, k, j, i);
