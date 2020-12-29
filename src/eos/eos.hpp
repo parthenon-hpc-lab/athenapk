@@ -17,8 +17,8 @@
 // Parthenon headers
 #include "mesh/mesh.hpp"
 
-using parthenon::MeshBlockData;
 using parthenon::MeshBlock;
+using parthenon::MeshBlockData;
 using parthenon::MeshBlockVarPack;
 using parthenon::Real;
 
@@ -33,13 +33,13 @@ class EquationOfState {
  public:
   EquationOfState(Real pressure_floor, Real density_floor)
       : pressure_floor_(pressure_floor), density_floor_(density_floor) {}
-  virtual void ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu,
-                                    int jl, int ju, int kl, int ku) const = 0;
+  virtual void ConservedToPrimitive(MeshBlockData<Real> *rc, int il, int iu, int jl,
+                                    int ju, int kl, int ku) const = 0;
   virtual void ConservedToPrimitive(const MeshBlockVarPack<Real> &cons_pack,
-                            MeshBlockVarPack<Real> &prim_pack, int il, int iu, int jl,
-                            int ju, int kl, int ku) const = 0;
-  virtual void PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu,
+                                    MeshBlockVarPack<Real> &prim_pack, int il, int iu,
                                     int jl, int ju, int kl, int ku) const = 0;
+  virtual void PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il,
+                                    int iu, int jl, int ju, int kl, int ku) const = 0;
 
   KOKKOS_INLINE_FUNCTION
   Real GetPressureFloor() const { return pressure_floor_; }

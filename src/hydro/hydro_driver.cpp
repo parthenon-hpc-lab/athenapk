@@ -12,6 +12,7 @@
 
 // Parthenon headers
 #include "bvals/cc/bvals_cc_in_one.hpp"
+#include "interface/update.hpp"
 #include "tasks/task_id.hpp"
 #include "utils/partition_stl_containers.hpp"
 // Athena headers
@@ -40,8 +41,9 @@ auto UpdateContainer(const int stage, Integrator *integrator,
   // TODO(pgrete): this update is currently hardcoded to work for rk1 and vl2
   const Real beta = integrator->beta[stage - 1];
   const Real dt = integrator->dt;
-  ;
-  parthenon::Update::UpdateMeshData(base, dudt, beta * dt, out);
+
+  parthenon::Update::UpdateIndependentData<MeshData<Real>>(base.get(), dudt.get(),
+                                                           beta * dt, out.get());
 
   return TaskStatus::complete;
 }
@@ -182,7 +184,8 @@ auto HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskColl
 
     // compute the divergence of fluxes of conserved variables
     auto flux_div =
-        tl.AddTask(advect_flux, parthenon::Update::FluxDivergenceMesh, mc0, mdudt);
+        tl.AddTask(advect_flux, parthenon::Update::FluxDivergence<MeshData<Real>>,
+                   mc0.get(), mdudt.get());
 
     // apply du/dt to all independent fields in the container
     auto update_container =

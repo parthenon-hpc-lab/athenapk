@@ -28,9 +28,8 @@ using parthenon::ParArray4D;
 //           Container<Real> &rc,
 //           int il, int iu, int jl, int ju, int kl, int ku)
 // \brief Converts conserved into primitive variables in adiabatic hydro.
-void AdiabaticHydroEOS::ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>> &rc,
-                                             int il, int iu, int jl, int ju, int kl,
-                                             int ku) const {
+void AdiabaticHydroEOS::ConservedToPrimitive(MeshBlockData<Real> *rc, int il, int iu,
+                                             int jl, int ju, int kl, int ku) const {
   Real gm1 = GetGamma() - 1.0;
   auto density_floor_ = GetDensityFloor();
   auto pressure_floor_ = GetPressureFloor();

@@ -16,8 +16,8 @@
 #include "../main.hpp"
 #include "eos.hpp"
 
-using parthenon::MeshBlockData;
 using parthenon::MeshBlock;
+using parthenon::MeshBlockData;
 using parthenon::MeshBlockVarPack;
 using parthenon::Real;
 
@@ -26,13 +26,13 @@ class AdiabaticHydroEOS : public EquationOfState {
   AdiabaticHydroEOS(Real pressure_floor, Real density_floor, Real gamma)
       : EquationOfState(pressure_floor, density_floor), gamma_{gamma} {}
 
-  void ConservedToPrimitive(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu, int jl,
-                            int ju, int kl, int ku) const override;
+  void ConservedToPrimitive(MeshBlockData<Real> *rc, int il, int iu, int jl, int ju,
+                            int kl, int ku) const override;
   void ConservedToPrimitive(const MeshBlockVarPack<Real> &cons_pack,
                             MeshBlockVarPack<Real> &prim_pack, int il, int iu, int jl,
                             int ju, int kl, int ku) const override;
-  void PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu, int jl,
-                            int ju, int kl, int ku) const override;
+  void PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu,
+                            int jl, int ju, int kl, int ku) const override;
 
   KOKKOS_INLINE_FUNCTION
   Real GetGamma() const { return gamma_; }

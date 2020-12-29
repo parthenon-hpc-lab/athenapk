@@ -40,7 +40,7 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
 
 // this is the package registered function to fill derived, here, convert the
 // conserved variables to primitives
-void ConsToPrim(std::shared_ptr<MeshBlockData<Real>> &rc) {
+void ConsToPrim(MeshBlockData<Real> *rc) {
   auto pmb = rc->GetBlockPointer();
   auto pkg = pmb->packages["Hydro"];
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
@@ -96,14 +96,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddField("wr", m);
 
   // now part of TaskList
-  pkg->FillDerived = ConsToPrim;
-  pkg->EstimateTimestep = EstimateTimestep;
+  pkg->FillDerivedBlock = ConsToPrim;
+  pkg->EstimateTimestepBlock = EstimateTimestep;
 
   return pkg;
 }
 
 // provide the routine that estimates a stable timestep for this package
-Real EstimateTimestep(std::shared_ptr<MeshBlockData<Real>> &rc) {
+Real EstimateTimestep(MeshBlockData<Real> *rc) {
   auto pmb = rc->GetBlockPointer();
   auto pkg = pmb->packages["Hydro"];
   const auto &cfl = pkg->Param<Real>("cfl");
