@@ -13,6 +13,7 @@
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
+#include "../pgen/pgen.hpp"
 #include "../recon/recon.hpp"
 #include "defs.hpp"
 #include "hydro.hpp"
@@ -100,6 +101,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // now part of TaskList
   pkg->FillDerivedMesh = ConsToPrim;
   pkg->EstimateTimestepMesh = EstimateTimestep;
+
+  pkg->CheckRefinementBlock = blast::CheckRefinement;
 
   return pkg;
 }

@@ -19,10 +19,11 @@ int main(int argc, char *argv[]) {
   // TODO(pgrete) this needs to be package dependent
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
   // TODO(pgrete) this needs to be problem dependent
-  pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
-  pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
-  pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
-  // pman.app_input->SetFillDerivedFunctions = advection_example::SetFillDerivedFunctions;
+  // pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
+  // pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
+  // pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
+  pman.app_input->InitUserMeshData = blast::InitUserMeshData;
+  pman.app_input->ProblemGenerator = blast::ProblemGenerator;
 
   // call ParthenonInit to initialize MPI and Kokkos, parse the input deck, and set up
   auto manager_status = pman.ParthenonInit(argc, argv);

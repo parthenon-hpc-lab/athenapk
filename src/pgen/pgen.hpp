@@ -17,5 +17,12 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
                        parthenon::SimTime &tm);
 } // namespace linear_wave
+namespace blast {
+using namespace parthenon::driver::prelude;
+
+void InitUserMeshData(ParameterInput *pin);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+parthenon::AmrTag CheckRefinement(MeshBlockData<Real> *rc);
+} // namespace blast
 
 #endif // PGEN_PGEN_HPP_

@@ -168,8 +168,6 @@ void InitUserMeshData(ParameterInput *pin) {
     tlim = ntlim;
     pin->SetReal("parthenon/time", "tlim", ntlim);
   }
-
-  return;
 }
 
 //========================================================================================
@@ -330,8 +328,6 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     std::fprintf(pfile, "\n");
     std::fclose(pfile);
   }
-
-  return;
 }
 
 //========================================================================================
@@ -373,7 +369,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   }
   // copy initialized vars to device
   u_dev.DeepCopy(u);
-  return;
 }
 
 //----------------------------------------------------------------------------------------
