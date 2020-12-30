@@ -57,6 +57,6 @@ eos = adiabatic
 riemann = hlle
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
-use_scratch = true
+use_scratch = false
 scratch_level = 1 # 0 is actual scratch (tiny); 1 is HBM
 
