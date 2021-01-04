@@ -19,6 +19,8 @@
 #include <cmath>
 #include <cstdio>  // fopen(), fprintf(), freopen()
 #include <cstring> // strcmp()
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -28,18 +30,85 @@
 #include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
+#include <vector>
 
 // AthenaPK headers
 #include "../main.hpp"
+#include "parthenon/prelude.hpp"
+#include "parthenon_arrays.hpp"
+#include "utils/error_checking.hpp"
 
 using namespace parthenon::package::prelude;
 
 namespace blast {
 
 Real threshold;
+int nrows = 0;
+int ncols = 0;
+bool use_input_image = false;
+parthenon::ParArrayHost<int> image_data;
+std::vector<Real> image_x, image_y;
 
 void InitUserMeshData(ParameterInput *pin) {
-    threshold = pin->GetReal("problem", "thr");
+  threshold = pin->GetReal("problem", "thr");
+
+  std::string input_image = pin->GetOrAddString("problem", "input_image", "none");
+  // read input image if provided
+  use_input_image = input_image != "none";
+  if (use_input_image) {
+    std::cout << "Loading " << input_image;
+    std::ifstream infile(input_image);
+    PARTHENON_REQUIRE(infile.good(), "Cannot open image file.");
+
+    std::string line;
+
+    getline(infile, line); // version line
+    getline(infile, line); // comment line
+
+    infile >> ncols >> nrows;
+    getline(infile, line); // jump past the dimension line
+
+    image_data = ParArrayHost<int>("image_data", ncols, nrows);
+
+    char c;
+    size_t row = 0;
+    size_t col = 0;
+    while (infile.get(c)) {
+      for (int i = 7; i >= 0; i--) {
+        image_data(col, row) = ((c >> i) & 1);
+        row++;
+        if (row == nrows) {
+          col++;
+          row = 0;
+        }
+      }
+    }
+
+    infile.close();
+
+    // simple sanity check, could be improved in loop above
+    PARTHENON_REQUIRE(col == ncols, "Number of cols read doesn't match expected val.");
+    PARTHENON_REQUIRE(row == 0, "Number of rows read doesn't match expected val.");
+
+    const auto x1min = pin->GetReal("parthenon/mesh", "x1min");
+    const auto x1max = pin->GetReal("parthenon/mesh", "x1max");
+    const auto x2min = pin->GetReal("parthenon/mesh", "x2min");
+    const auto x2max = pin->GetReal("parthenon/mesh", "x2max");
+    Real x1size = x1max - x1min;
+    Real x2size = x2max - x2min;
+    Real dx = x1size / nrows;
+    Real dy = x2size / ncols;
+
+    image_x.resize(nrows);
+    for (auto row = 0; row < nrows; row++) {
+      image_x.at(row) = x1min + 0.5 * dx + row * dx;
+    }
+
+    image_y.resize(ncols);
+    for (auto col = 0; col < ncols; col++) {
+      image_y.at(col) = x2min + 0.5 * dy + col * dy;
+    }
+  }
 }
 
 //========================================================================================
@@ -54,7 +123,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real da = pin->GetOrAddReal("problem", "damb", 1.0);
   Real prat = pin->GetReal("problem", "prat");
   Real drat = pin->GetOrAddReal("problem", "drat", 1.0);
-  Real b0, angle;
   Real gamma = pin->GetOrAddReal("hydro", "gamma", 5 / 3);
   Real gm1 = gamma - 1.0;
 
@@ -67,6 +135,14 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   y0 = x2_0;
   z0 = x3_0;
 
+  // if (use_input_image) {
+  //   for (auto col = 0; col < ncols; col++) {
+  //     for (auto row = 0; row < nrows; row++) {
+  //       std::cout << image_data(col, row) << " ";
+  //     }
+  //     std::cout << std::endl;
+  //   }
+  // }
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -81,28 +157,37 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
+        Real den = da;
+        Real pres = pa;
+        if (use_input_image) {
+          auto x_idx = std::distance(
+              image_x.begin(),
+              std::upper_bound(image_x.begin(), image_x.end(), coords.x1v(i)));
+          auto y_idx = std::distance(
+              image_y.begin(),
+              std::upper_bound(image_y.begin(), image_y.end(), coords.x2v(j)));
+
+          if (image_data(y_idx, x_idx) != 0) {
+            den = drat * da;
+            // pres = prat * pa;
+          }
+        }
         Real rad;
         Real x = coords.x1v(i);
         Real y = coords.x2v(j);
         Real z = coords.x3v(k);
         rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
 
-        Real den = da;
-        if (rad < rout) {
-          if (rad < rin) {
-            den = drat * da;
-          } else { // add smooth ramp in density
-            Real f = (rad - rin) / (rout - rin);
-            Real log_den = (1.0 - f) * std::log(drat * da) + f * std::log(da);
-            den = std::exp(log_den);
-          }
-        }
+        // if (rad < rout) {
+        //   if (rad < rin) {
+        //     den = drat * da;
+        //   } else { // add smooth ramp in density
+        //     Real f = (rad - rin) / (rout - rin);
+        //     Real log_den = (1.0 - f) * std::log(drat * da) + f * std::log(da);
+        //     den = std::exp(log_den);
+        //   }
+        // }
 
-        u(IDN, k, j, i) = den;
-        u(IM1, k, j, i) = 0.0;
-        u(IM2, k, j, i) = 0.0;
-        u(IM3, k, j, i) = 0.0;
-        Real pres = pa;
         if (rad < rout) {
           if (rad < rin) {
             pres = prat * pa;
@@ -112,6 +197,10 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
             pres = std::exp(log_pres);
           }
         }
+        u(IDN, k, j, i) = den;
+        u(IM1, k, j, i) = 0.0;
+        u(IM2, k, j, i) = 0.0;
+        u(IM3, k, j, i) = 0.0;
         u(IEN, k, j, i) = pres / gm1;
       }
     }
@@ -161,5 +250,8 @@ AmrTag CheckRefinement(MeshBlockData<Real> *rc) {
   if (maxeps > threshold) return AmrTag::refine;
   if (maxeps < 0.25 * threshold) return AmrTag::derefine;
   return AmrTag::same;
+}
+void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) {
+  image_data = {};
 }
 } // namespace blast

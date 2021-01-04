@@ -6,15 +6,15 @@
 #include "parthenon_manager.hpp"
 
 // AthenaPK headers
-#include "hydro/hydro_driver.hpp"
 #include "hydro/hydro.hpp"
+#include "hydro/hydro_driver.hpp"
 #include "pgen/pgen.hpp"
 
 int main(int argc, char *argv[]) {
   using parthenon::ParthenonManager;
   using parthenon::ParthenonStatus;
   ParthenonManager pman;
-  
+
   // Redefine parthenon defaults
   // TODO(pgrete) this needs to be package dependent
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
@@ -24,6 +24,7 @@ int main(int argc, char *argv[]) {
   // pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
   pman.app_input->InitUserMeshData = blast::InitUserMeshData;
   pman.app_input->ProblemGenerator = blast::ProblemGenerator;
+  pman.app_input->UserWorkAfterLoop = blast::UserWorkAfterLoop;
 
   // call ParthenonInit to initialize MPI and Kokkos, parse the input deck, and set up
   auto manager_status = pman.ParthenonInit(argc, argv);
