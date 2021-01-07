@@ -7,6 +7,7 @@ problem = spherical blast wave
 
 <job>
 problem_id = 2021
+pgen = blast
 
 <parthenon/mesh>
 refinement = adaptive

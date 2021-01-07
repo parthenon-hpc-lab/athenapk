@@ -64,7 +64,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("pack_in_one", pack_in_one);
 
   auto eos_str = pin->GetString("hydro", "eos");
-  if (eos_str.compare("adiabatic") == 0) {
+  if (eos_str == "adiabatic") {
     Real gamma = pin->GetReal("hydro", "gamma");
     Real dfloor = pin->GetOrAddReal("hydro", "dfloor", std::sqrt(1024 * float_min));
     Real pfloor = pin->GetOrAddReal("hydro", "pfloor", std::sqrt(1024 * float_min));
@@ -102,7 +102,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->FillDerivedMesh = ConsToPrim;
   pkg->EstimateTimestepMesh = EstimateTimestep;
 
-  pkg->CheckRefinementBlock = blast::CheckRefinement;
+  auto pgen_str = pin->GetOrAddString("job", "pgen", "unset");
+  if (pgen_str == "blast") {
+    pkg->CheckRefinementBlock = blast::CheckRefinement;
+  }
 
   return pkg;
 }

@@ -35,6 +35,19 @@ endif()
 
 set(Kokkos_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/Kokkos)
 
+# Set problem here so that it's used by Parthenon
+# TODO: Need refactor on parthenon side, too
+set(PROBLEM "LINWAVE" CACHE STRING
+    "Default problem type")
+
+set(PROBLEM_VALUES "LINWAVE;SOD;BLAST"
+    CACHE STRING "Possible problem types.")
+
+set_property(CACHE PROBLEM PROPERTY STRINGS ${PROBLEM_VALUES})
+
+message(STATUS "PROBLEM='${PROBLEM}' (problem type)")
+
+
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon/CMakeLists.txt)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon parthenon)
 else()

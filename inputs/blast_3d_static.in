@@ -7,10 +7,11 @@ problem = spherical blast wave
 
 <job>
 problem_id = Blast
+pgen = blast
 
 <parthenon/mesh>
 refinement = adaptive
-numlevel = 3
+numlevel = 2
 
 nx1 = 64
 x1min = -0.5
@@ -41,7 +42,7 @@ nx3=8
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
-tlim = 0.02
+tlim = 0.10
 nlim = 100000
 perc_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 
@@ -54,9 +55,9 @@ use_scratch = false
 scratch_level = 1 # 0 is actual scratch (tiny); 1 is HBM
 
 <problem>
-pamb       = 1.000    # ambient pressure
-prat       = 100   # Pressure ratio initially
-radius     = 0.10    # Radius of the inner sphere
+pamb       = 0.001    # ambient pressure
+prat       = 1.6e8 # Pressure ratio initially
+radius     = 0.05    # Radius of the inner sphere
 damb       = 1.0    # ambient density
 drat       = 1.0
 ramp       = 0.0
