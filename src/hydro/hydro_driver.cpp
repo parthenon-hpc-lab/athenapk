@@ -82,7 +82,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     TaskID advect_flux;
     const auto &use_scratch = blocks[0]->packages["Hydro"]->Param<bool>("use_scratch");
     const auto &eos = blocks[0]->packages["Hydro"]->Param<AdiabaticHydroEOS>("eos");
-    if (use_scratch) {
+    if (use_scratch && false) {
       advect_flux = tl.AddTask(none, Hydro::CalculateFluxesWScratch, mc0, stage);
     } else {
       advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, stage, mc0, eos);
