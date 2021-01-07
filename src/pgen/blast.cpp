@@ -135,14 +135,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   y0 = x2_0;
   z0 = x3_0;
 
-  // if (use_input_image) {
-  //   for (auto col = 0; col < ncols; col++) {
-  //     for (auto row = 0; row < nrows; row++) {
-  //       std::cout << image_data(col, row) << " ";
-  //     }
-  //     std::cout << std::endl;
-  //   }
-  // }
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -159,6 +151,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       for (int i = ib.s; i <= ib.e; i++) {
         Real den = da;
         Real pres = pa;
+        Real x = coords.x1v(i);
+        Real y = coords.x2v(j);
+        Real z = coords.x3v(k);
+        Real rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
+
         if (use_input_image) {
           auto x_idx = std::distance(
               image_x.begin(),
@@ -171,23 +168,17 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
             den = drat * da;
             // pres = prat * pa;
           }
+        } else {
+          if (rad < rout) {
+            if (rad < rin) {
+              den = drat * da;
+            } else { // add smooth ramp in density
+              Real f = (rad - rin) / (rout - rin);
+              Real log_den = (1.0 - f) * std::log(drat * da) + f * std::log(da);
+              den = std::exp(log_den);
+            }
+          }
         }
-        Real rad;
-        Real x = coords.x1v(i);
-        Real y = coords.x2v(j);
-        Real z = coords.x3v(k);
-        rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
-
-        // if (rad < rout) {
-        //   if (rad < rin) {
-        //     den = drat * da;
-        //   } else { // add smooth ramp in density
-        //     Real f = (rad - rin) / (rout - rin);
-        //     Real log_den = (1.0 - f) * std::log(drat * da) + f * std::log(da);
-        //     den = std::exp(log_den);
-        //   }
-        // }
-
         if (rad < rout) {
           if (rad < rin) {
             pres = prat * pa;
