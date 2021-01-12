@@ -14,7 +14,7 @@ using namespace parthenon::driver::prelude;
 
 namespace Hydro {
 
-class HydroDriver : public MultiStageBlockTaskDriver {
+class HydroDriver : public MultiStageDriver {
  public:
   HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm);
   // This next function essentially defines the driver.

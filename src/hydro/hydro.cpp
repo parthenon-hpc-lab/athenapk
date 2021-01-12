@@ -355,7 +355,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
             member.team_barrier();
 
             // swap the arrays for the next step
-            auto tmp = wl.data();
+            auto *tmp = wl.data();
             wl.assign_data(wlb.data());
             wlb.assign_data(tmp);
           }
@@ -413,7 +413,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
             member.team_barrier();
 
             // swap the arrays for the next step
-            auto tmp = wl.data();
+            auto *tmp = wl.data();
             wl.assign_data(wlb.data());
             wlb.assign_data(tmp);
           }

@@ -27,7 +27,7 @@ using namespace parthenon::driver::prelude;
 namespace Hydro {
 
 HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm)
-    : MultiStageBlockTaskDriver(pin, app_in, pm) {
+    : MultiStageDriver(pin, app_in, pm) {
   // fail if these are not specified in the input file
   pin->CheckRequired("hydro", "eos");
 
@@ -38,6 +38,7 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
 // See the advection.hpp declaration for a description of how this function gets called.
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
+  const auto &stage_name = integrator->stage_name;
 
   TaskID none(0);
   // Number of task lists that can be executed indepenently and thus *may*
@@ -54,8 +55,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     if (stage == 1) {
       auto &base = pmb->meshblock_data.Get();
       pmb->meshblock_data.Add("dUdt", base);
-      for (int i = 1; i < integrator->nstages; i++)
-        pmb->meshblock_data.Add(stage_name[i], base);
+      for (int istage = 1; istage < integrator->nstages; istage++) {
+        pmb->meshblock_data.Add(stage_name[istage], base);
+      }
     }
 
     // pull out the container we'll use to get fluxes and/or compute RHSs
