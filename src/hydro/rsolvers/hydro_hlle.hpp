@@ -128,11 +128,10 @@ RiemannSolver(parthenon::team_mbr_t const &member, const int k, const int j, con
     flxi[IVZ] = 0.5 * (fl[IVZ] + fr[IVZ]) + (fl[IVZ] - fr[IVZ]) * tmp;
     flxi[IEN] = 0.5 * (fl[IEN] + fr[IEN]) + (fl[IEN] - fr[IEN]) * tmp;
 
-    cons.flux(IVX, IDN, k, j, i) = flxi[IDN];
-    cons.flux(IVX, ivx, k, j, i) = flxi[IVX];
-    cons.flux(IVX, ivy, k, j, i) = flxi[IVY];
-    cons.flux(IVX, ivz, k, j, i) = flxi[IVZ];
-    cons.flux(IVX, IEN, k, j, i) = flxi[IEN];
+    cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
+    cons.flux(ivx, ivx, k, j, i) = flxi[IVX];
+    cons.flux(ivx, ivy, k, j, i) = flxi[IVY];
+    cons.flux(ivx, ivz, k, j, i) = flxi[IVZ];
+    cons.flux(ivx, IEN, k, j, i) = flxi[IEN];
   });
-  return;
 }
