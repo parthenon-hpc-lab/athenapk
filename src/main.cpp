@@ -27,6 +27,9 @@ int main(int argc, char *argv[]) {
     pman.app_input->InitUserMeshData = blast::InitUserMeshData;
     pman.app_input->ProblemGenerator = blast::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = blast::UserWorkAfterLoop;
+  } else if (std::string(PROBLEM_GENERATOR) == "ADVECTION") {
+    pman.app_input->InitUserMeshData = advection::InitUserMeshData;
+    pman.app_input->ProblemGenerator = advection::ProblemGenerator;
   }
   // call ParthenonInit to initialize MPI and Kokkos, parse the input deck, and set up
   auto manager_status = pman.ParthenonInit(argc, argv);

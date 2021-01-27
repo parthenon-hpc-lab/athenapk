@@ -1,0 +1,65 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = 3D Hydro simple advection test
+
+<job>
+problem_id = advection
+
+<problem/advection>
+rho_ratio   = 1.1       # density contrast
+rho_radius  = 0.15      # radius of inital smooth profile
+vx          = 1.0
+vy          = 1.0
+vz          = 1.0
+
+<parthenon/mesh>
+refinement = none
+pack_in_one = false
+
+nx1 = 64
+x1min = -0.5
+x1max = 0.5
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 64
+x2min = -0.5
+x2max = 0.5
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 64
+x3min = -0.5
+x3max = 0.5
+ix3_bc = periodic
+ox3_bc = periodic
+
+
+<parthenon/meshblock>
+nx1=16
+nx2=16
+nx3=16
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.3
+tlim = 1.0
+nlim = 100000
+perc_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+
+<hydro>
+eos = adiabatic
+riemann = hlle
+reconstruction = plm
+gamma = 1.666666666666667 # gamma = C_p/C_v
+use_scratch = false
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+<parthenon/output0>
+file_type = hdf5
+dt = 0.1
+variables = prim
+
