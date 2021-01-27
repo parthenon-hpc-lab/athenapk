@@ -35,7 +35,7 @@ namespace Hydro {
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
-  packages["Hydro"] = Hydro::Initialize(pin.get());
+  packages.Add(Hydro::Initialize(pin.get()));
   return packages;
 }
 
@@ -48,9 +48,10 @@ void ConsToPrim(MeshData<Real> *md) {
   IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
   IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
   // TODO(pgrete): need to figure out a nice way for polymorphism wrt the EOS
-  const auto &eos =
-      md->GetBlockData(0)->GetBlockPointer()->packages["Hydro"]->Param<AdiabaticHydroEOS>(
-          "eos");
+  const auto &eos = md->GetBlockData(0)
+                        ->GetBlockPointer()
+                        ->packages.Get("Hydro")
+                        ->Param<AdiabaticHydroEOS>("eos");
   eos.ConservedToPrimitive(cons_pack, prim_pack, ib.s, ib.e, jb.s, jb.e, kb.s, kb.e);
 }
 
@@ -113,7 +114,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 // provide the routine that estimates a stable timestep for this package
 Real EstimateTimestep(MeshData<Real> *md) {
   // get to package via first block in Meshdata (which exists by construction)
-  auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages["Hydro"];
+  auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &cfl = pkg->Param<Real>("cfl");
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
@@ -260,7 +261,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
   auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto cons_in = md->PackVariablesAndFluxes(flags_ind);
-  auto pkg = pmb->packages["Hydro"];
+  auto pkg = pmb->packages.Get("Hydro");
   const int nhydro = pkg->Param<int>("nhydro");
   const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 

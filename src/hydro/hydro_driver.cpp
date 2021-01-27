@@ -82,8 +82,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mc0 = pmesh->mesh_data.GetOrAdd(stage_name[stage - 1], i);
 
     TaskID advect_flux;
-    const auto &use_scratch = blocks[0]->packages["Hydro"]->Param<bool>("use_scratch");
-    const auto &eos = blocks[0]->packages["Hydro"]->Param<AdiabaticHydroEOS>("eos");
+    const auto &use_scratch =
+        blocks[0]->packages.Get("Hydro")->Param<bool>("use_scratch");
+    const auto &eos = blocks[0]->packages.Get("Hydro")->Param<AdiabaticHydroEOS>("eos");
     if (use_scratch) {
       advect_flux = tl.AddTask(none, Hydro::CalculateFluxesWScratch, mc0, stage);
     } else {
