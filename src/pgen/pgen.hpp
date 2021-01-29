@@ -32,6 +32,7 @@ using namespace parthenon::driver::prelude;
 
 void InitUserMeshData(ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+parthenon::AmrTag CheckRefinement(MeshBlockData<Real> *rc);
 } // namespace advection
 
 #endif // PGEN_PGEN_HPP_

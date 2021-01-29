@@ -31,6 +31,9 @@
 namespace advection {
 using namespace parthenon::driver::prelude;
 
+Real ref_rho_low = 0.0;
+Real ref_rho_high = 0.0;
+
 //========================================================================================
 //! \fn void InitUserMeshData(ParameterInput *pin)
 //  \brief Function to initialize problem-specific data in mesh class.  Can also be used
@@ -83,6 +86,10 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real rho0 = 1.0;
   Real p0 = 1.0;
   Real sigmasq = -rho_radius * rho_radius / 2 / std::log(0.01);
+  // derefine if density is smaller than twice the inital value at the edge of the
+  ref_rho_low = rho0 + 5 * 0.01 * rho0 * rho_ratio;
+  // refine if dens is larger than 20% of peak
+  ref_rho_high = rho0 + 0.2 * rho0 * rho_ratio;
 
   auto gam = pin->GetReal("hydro", "gamma");
   auto gm1 = (gam - 1.0);
@@ -117,6 +124,28 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   }
   // copy initialized vars to device
   u_dev.DeepCopy(u);
+}
+
+// refinement condition: check overdensity
+parthenon::AmrTag CheckRefinement(MeshBlockData<Real> *rc) {
+  auto pmb = rc->GetBlockPointer();
+  auto w = rc->Get("prim").data;
+
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  Real maxrho = 0.0;
+  pmb->par_reduce(
+      "overdens check refinement", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
+      KOKKOS_LAMBDA(const int k, const int j, const int i, Real &lmaxrho) {
+        lmaxrho = std::max(lmaxrho, w(IDN, k, j, i));
+      },
+      Kokkos::Max<Real>(maxrho));
+
+  if (maxrho > ref_rho_high) return parthenon::AmrTag::refine;
+  if (maxrho < ref_rho_low) return parthenon::AmrTag::derefine;
+  return parthenon::AmrTag::same;
 }
 
 } // namespace advection

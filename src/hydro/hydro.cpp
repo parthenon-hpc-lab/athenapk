@@ -106,6 +106,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto pgen_str = pin->GetOrAddString("job", "pgen", "unset");
   if (pgen_str == "blast") {
     pkg->CheckRefinementBlock = blast::CheckRefinement;
+  } else if (pgen_str == "advection") {
+    pkg->CheckRefinementBlock = advection::CheckRefinement;
   }
 
   return pkg;

@@ -7,41 +7,42 @@ problem = 3D Hydro simple advection test
 
 <job>
 problem_id = advection
+pgen = advection
 
 <problem/advection>
-rho_ratio   = 1.1       # density contrast
-rho_radius  = 0.15      # radius of inital smooth profile
+rho_ratio   = 1.00001       # density contrast
+rho_radius  = 0.0625    # radius of inital smooth profile
 vx          = 1.0
 vy          = 1.0
 vz          = 1.0
 
 <parthenon/mesh>
-refinement = none
+refinement = adaptive
 pack_in_one = false
+numlevel = 3
 
-nx1 = 64
+nx1 = 32
 x1min = -0.5
 x1max = 0.5
 ix1_bc = periodic
 ox1_bc = periodic
 
-nx2 = 64
+nx2 = 32
 x2min = -0.5
 x2max = 0.5
 ix2_bc = periodic
 ox2_bc = periodic
 
-nx3 = 64
+nx3 = 32
 x3min = -0.5
 x3max = 0.5
 ix3_bc = periodic
 ox3_bc = periodic
 
-
 <parthenon/meshblock>
-nx1=16
-nx2=16
-nx3=16
+nx1=8
+nx2=8
+nx3=8
 
 <parthenon/time>
 integrator = vl2
