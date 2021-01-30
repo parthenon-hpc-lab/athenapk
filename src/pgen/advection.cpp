@@ -86,10 +86,10 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real rho0 = 1.0;
   Real p0 = 1.0;
   Real sigmasq = -rho_radius * rho_radius / 2 / std::log(0.01);
-  // derefine if density is smaller than twice the inital value at the edge of the
-  ref_rho_low = rho0 + 5 * 0.01 * rho0 * rho_ratio;
-  // refine if dens is larger than 20% of peak
-  ref_rho_high = rho0 + 0.2 * rho0 * rho_ratio;
+  // derefine if density is 20% of the inital value at the edge of the
+  ref_rho_low = rho0 + 0.2 * 0.01 * rho0 * rho_ratio;
+  // refine if dens is larger than initial threshold
+  ref_rho_high = rho0 + 0.01 * rho0 * rho_ratio;
 
   auto gam = pin->GetReal("hydro", "gamma");
   auto gm1 = (gam - 1.0);
