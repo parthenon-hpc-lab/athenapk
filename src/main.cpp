@@ -3,6 +3,7 @@
 // Licensed under the 3-Clause License (the "LICENSE");
 
 // Parthenon headers
+#include "globals.hpp"
 #include "parthenon_manager.hpp"
 
 // AthenaPK headers
@@ -48,7 +49,9 @@ int main(int argc, char *argv[]) {
 
   // Startup the corresponding driver for the integrator
   if ((integrator_name.compare("vl2") == 0) || (integrator_name.compare("rk1") == 0)) {
-    std::cout << "Starting up hydro driver" << std::endl;
+    if (parthenon::Globals::my_rank == 0) {
+      std::cout << "Starting up hydro driver" << std::endl;
+    }
 
     Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
 

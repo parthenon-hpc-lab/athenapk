@@ -32,7 +32,7 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
   pin->CheckRequired("hydro", "eos");
 
   // warn if these fields aren't specified in the input file
-  pin->CheckDesired("hydro", "cfl");
+  pin->CheckDesired("parthenon/time", "cfl");
 }
 
 // See the advection.hpp declaration for a description of how this function gets called.
