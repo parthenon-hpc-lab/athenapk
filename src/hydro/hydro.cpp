@@ -93,11 +93,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   field_name = "prim";
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}));
   pkg->AddField(field_name, m);
-  //  temporary array
-  m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
-               std::vector<int>({nhydro}));
-  pkg->AddField("wl", m);
-  pkg->AddField("wr", m);
+
+  if (!use_scratch) {
+    //  temporary array if reconstructed values are calculated separately
+    m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+                 std::vector<int>({nhydro}));
+    pkg->AddField("wl", m);
+    pkg->AddField("wr", m);
+  }
 
   // now part of TaskList
   pkg->FillDerivedMesh = ConsToPrim;
