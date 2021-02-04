@@ -31,9 +31,6 @@
 namespace advection {
 using namespace parthenon::driver::prelude;
 
-Real ref_rho_low = 0.0;
-Real ref_rho_high = 0.0;
-
 //========================================================================================
 //! \fn void InitUserMeshData(ParameterInput *pin)
 //  \brief Function to initialize problem-specific data in mesh class.  Can also be used
@@ -83,13 +80,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   const auto vz = pin->GetOrAddReal("problem/advection", "vz", 0.0);
   const auto rho_ratio = pin->GetOrAddReal("problem/advection", "rho_ratio", 1.0);
   const auto rho_radius = pin->GetOrAddReal("problem/advection", "rho_radius", 0.0);
-  Real rho0 = 1.0;
-  Real p0 = 1.0;
-  Real sigmasq = -rho_radius * rho_radius / 2 / std::log(0.01);
-  // derefine if density is 20% of the inital value at the edge of the
-  ref_rho_low = rho0 + 0.2 * 0.01 * rho0 * rho_ratio;
-  // refine if dens is larger than initial threshold
-  ref_rho_high = rho0 + 0.01 * rho0 * rho_ratio;
+  const auto rho_fraction_edge =
+      pin->GetOrAddReal("problem/advection", "rho_fraction_edge", 0.01);
+  const auto rho0 = pin->GetOrAddReal("problem/advection", "rho0", 1.0);
+  const auto p0 = pin->GetOrAddReal("problem/advection", "p0", 1.0);
+  Real sigmasq = -rho_radius * rho_radius / 2 / std::log(rho_fraction_edge);
 
   auto gam = pin->GetReal("hydro", "gamma");
   auto gm1 = (gam - 1.0);
@@ -124,28 +119,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   }
   // copy initialized vars to device
   u_dev.DeepCopy(u);
-}
-
-// refinement condition: check overdensity
-parthenon::AmrTag CheckRefinement(MeshBlockData<Real> *rc) {
-  auto pmb = rc->GetBlockPointer();
-  auto w = rc->Get("prim").data;
-
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-
-  Real maxrho = 0.0;
-  pmb->par_reduce(
-      "overdens check refinement", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
-      KOKKOS_LAMBDA(const int k, const int j, const int i, Real &lmaxrho) {
-        lmaxrho = std::max(lmaxrho, w(IDN, k, j, i));
-      },
-      Kokkos::Max<Real>(maxrho));
-
-  if (maxrho > ref_rho_high) return parthenon::AmrTag::refine;
-  if (maxrho < ref_rho_low) return parthenon::AmrTag::derefine;
-  return parthenon::AmrTag::same;
 }
 
 } // namespace advection

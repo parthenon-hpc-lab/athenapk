@@ -11,6 +11,8 @@ add_executable(
         hydro/rsolvers/hydro_hlle_kji.cpp
         recon/dc.cpp
         recon/plm.cpp
+        refinement/gradient.cpp
+        refinement/other.cpp
 )
 
 add_subdirectory(pgen)

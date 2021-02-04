@@ -10,15 +10,22 @@ problem_id = advection
 pgen = advection
 
 <problem/advection>
-rho_ratio   = 1.00001       # density contrast
-rho_radius  = 0.0625    # radius of inital smooth profile
+rho0        = 1.0
+p0          = 1.0
+rho_ratio   = 1.01          # density contrast (peak value is (1+rho_ratio)*rho0)
+rho_radius  = 0.0625        # radius of inital smooth profile
+rho_fraction_edge = 0.01    # density value at the edge of the profile: (1+rho_fraction_edge*rho_ratio)*rho0
 vx          = 1.0
 vy          = 1.0
 vz          = 1.0
 
+<refinement>
+type                     = maxdensity
+maxdensity_deref_below   = 1.00005
+maxdensity_refine_above  = 1.0001
+
 <parthenon/mesh>
 refinement = adaptive
-pack_in_one = false
 numlevel = 3
 
 nx1 = 32
@@ -50,6 +57,7 @@ cfl = 0.3
 tlim = 1.0
 nlim = 100000
 perc_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+ncycle_out_mesh = -1000
 
 <hydro>
 eos = adiabatic

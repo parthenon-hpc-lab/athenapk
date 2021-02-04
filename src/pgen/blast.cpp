@@ -42,7 +42,6 @@ using namespace parthenon::package::prelude;
 
 namespace blast {
 
-Real threshold;
 int nrows = 0;
 int ncols = 0;
 bool use_input_image = false;
@@ -50,8 +49,6 @@ parthenon::ParArrayHost<int> image_data;
 std::vector<Real> image_x, image_y;
 
 void InitUserMeshData(ParameterInput *pin) {
-  threshold = pin->GetReal("problem", "thr");
-
   std::string input_image = pin->GetOrAddString("problem", "input_image", "none");
   // read input image if provided
   use_input_image = input_image != "none";
@@ -200,48 +197,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   u_dev.DeepCopy(u);
 }
 
-// refinement condition: check the maximum pressure gradient
-AmrTag CheckRefinement(MeshBlockData<Real> *rc) {
-  auto pmb = rc->GetBlockPointer();
-  auto w = rc->Get("prim").data;
-
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-
-  Real maxeps = 0.0;
-  if (pmb->pmy_mesh->ndim == 3) {
-
-    pmb->par_reduce(
-        "blast check refinement", kb.s - 1, kb.e + 1, jb.s - 1, jb.e + 1, ib.s - 1,
-        ib.e + 1,
-        KOKKOS_LAMBDA(const int k, const int j, const int i, Real &lmaxeps) {
-          Real eps = std::sqrt(SQR(0.5 * (w(IPR, k, j, i + 1) - w(IPR, k, j, i - 1))) +
-                               SQR(0.5 * (w(IPR, k, j + 1, i) - w(IPR, k, j - 1, i))) +
-                               SQR(0.5 * (w(IPR, k + 1, j, i) - w(IPR, k - 1, j, i)))) /
-                     w(IPR, k, j, i);
-          lmaxeps = std::max(lmaxeps, eps);
-        },
-        Kokkos::Max<Real>(maxeps));
-  } else if (pmb->pmy_mesh->ndim == 2) {
-    int k = kb.s;
-    pmb->par_reduce(
-        "blast check refinement", jb.s - 1, jb.e + 1, ib.s - 1, ib.e + 1,
-        KOKKOS_LAMBDA(const int j, const int i, Real &lmaxeps) {
-          Real eps = std::sqrt(SQR(0.5 * (w(IPR, k, j, i + 1) - w(IPR, k, j, i - 1))) +
-                               SQR(0.5 * (w(IPR, k, j + 1, i) - w(IPR, k, j - 1, i)))) /
-                     w(IPR, k, j, i);
-          lmaxeps = std::max(lmaxeps, eps);
-        },
-        Kokkos::Max<Real>(maxeps));
-  } else {
-    return AmrTag::same;
-  }
-
-  if (maxeps > threshold) return AmrTag::refine;
-  if (maxeps < 0.25 * threshold) return AmrTag::derefine;
-  return AmrTag::same;
-}
 void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) {
   image_data = {};
 }

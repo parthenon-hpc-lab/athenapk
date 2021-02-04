@@ -15,12 +15,14 @@
 #include "../main.hpp"
 #include "../pgen/pgen.hpp"
 #include "../recon/recon.hpp"
+#include "../refinement/refinement.hpp"
 #include "defs.hpp"
 #include "hydro.hpp"
 #include "reconstruct/dc_inline.hpp"
 #include "reconstruct/plm_inline.hpp"
 #include "rsolvers/hydro_hlle.hpp"
 #include "rsolvers/riemann.hpp"
+#include "utils/error_checking.hpp"
 
 using namespace parthenon::package::prelude;
 
@@ -106,11 +108,28 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->FillDerivedMesh = ConsToPrim;
   pkg->EstimateTimestepMesh = EstimateTimestep;
 
-  auto pgen_str = pin->GetOrAddString("job", "pgen", "unset");
-  if (pgen_str == "blast") {
-    pkg->CheckRefinementBlock = blast::CheckRefinement;
-  } else if (pgen_str == "advection") {
-    pkg->CheckRefinementBlock = advection::CheckRefinement;
+  const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
+  if (refine_str == "pressure_gradient") {
+    pkg->CheckRefinementBlock = refinement::gradient::PressureGradient;
+    const auto thr = pin->GetOrAddReal("refinement", "threshold_pressure_gradient", 0.0);
+    PARTHENON_REQUIRE(thr > 0.,
+                      "Make sure to set refinement/threshold_pressure_gradient >0.");
+    pkg->AddParam<Real>("refinement/threshold_pressure_gradient", thr);
+  } else if (refine_str == "maxdensity") {
+    pkg->CheckRefinementBlock = refinement::other::MaxDensity;
+    const auto deref_below =
+        pin->GetOrAddReal("refinement", "maxdensity_deref_below", 0.0);
+    const auto refine_above =
+        pin->GetOrAddReal("refinement", "maxdensity_refine_above", 0.0);
+    PARTHENON_REQUIRE(deref_below > 0.,
+                      "Make sure to set refinement/maxdensity_deref_below > 0.");
+    PARTHENON_REQUIRE(refine_above > 0.,
+                      "Make sure to set refinement/maxdensity_refine_above > 0.");
+    PARTHENON_REQUIRE(deref_below < refine_above,
+                      "Make sure to set refinement/maxdensity_deref_below < "
+                      "refinement/maxdensity_refine_above");
+    pkg->AddParam<Real>("refinement/maxdensity_deref_below", deref_below);
+    pkg->AddParam<Real>("refinement/maxdensity_refine_above", refine_above);
   }
 
   return pkg;
