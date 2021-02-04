@@ -6,32 +6,29 @@
 problem = spherical blast wave
 
 <job>
-problem_id = Blast
+problem_id = blast
 
 <parthenon/mesh>
 refinement = adaptive
-numlevel = 2
+numlevel = 3
 
-nx1 = 64
+nx1 = 32
 x1min = -0.5
 x1max = 0.5
 ix1_bc = periodic
 ox1_bc = periodic
 
-nx2 = 64
+nx2 = 32
 x2min = -0.5
 x2max = 0.5
 ix2_bc = periodic
 ox2_bc = periodic
 
-nx3 = 64
+nx3 = 32
 x3min = -0.5
 x3max = 0.5
 ix3_bc = periodic
 ox3_bc = periodic
-
-num_threads=1
-num_streams=1
 
 <parthenon/meshblock>
 nx1=8 
@@ -44,7 +41,7 @@ cfl = 0.3
 tlim = 0.10
 nlim = 100000
 perc_cycle_offset = 2 # number of inital cycles not to be included in perf calc
-ncycle_out_mesh = -10
+ncycle_out_mesh = -100
 
 <hydro>
 eos = adiabatic
@@ -59,12 +56,12 @@ type                         = pressure_gradient
 threshold_pressure_gradient  = 0.1
 
 <problem>
-pamb       = 0.001    # ambient pressure
-prat       = 1.6e8    # Pressure ratio initially
-radius     = 0.05     # Radius of the inner sphere
-damb       = 1.0      # ambient density
-drat       = 1.0
-ramp       = 0.0
+pamb       = 0.001      # ambient pressure
+prat       = 1.6e8      # Pressure ratio initially
+radius_outer  = 0.03125 # Radius of the outer sphere
+radius_inner  = 0.03125 # Radius of the inter sphere (with ramp between inner and outer sphere)
+damb       = 1.0        # ambient density
+drat       = 1.0        # density ratio in sphere
 
 <parthenon/output0>
 file_type = hdf5

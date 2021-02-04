@@ -114,8 +114,8 @@ void InitUserMeshData(ParameterInput *pin) {
 //========================================================================================
 
 void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
-  Real rout = pin->GetReal("problem", "radius");
-  Real rin = rout - pin->GetOrAddReal("problem", "ramp", 0.0);
+  Real rout = pin->GetReal("problem", "radius_outer");
+  Real rin = rout - pin->GetOrAddReal("problem", "radius_inner", rout);
   Real pa = pin->GetOrAddReal("problem", "pamb", 1.0);
   Real da = pin->GetOrAddReal("problem", "damb", 1.0);
   Real prat = pin->GetReal("problem", "prat");

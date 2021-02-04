@@ -54,6 +54,3 @@ riemann = hlle
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 
-<Graphics>
-variables = cons
-

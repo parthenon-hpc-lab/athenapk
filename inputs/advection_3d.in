@@ -7,7 +7,6 @@ problem = 3D Hydro simple advection test
 
 <job>
 problem_id = advection
-pgen = advection
 
 <problem/advection>
 rho0        = 1.0

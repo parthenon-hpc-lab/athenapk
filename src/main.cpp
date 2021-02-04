@@ -16,24 +16,8 @@ int main(int argc, char *argv[]) {
   using parthenon::ParthenonStatus;
   ParthenonManager pman;
 
-  // Redefine parthenon defaults
-  // TODO(pgrete) this needs to be package dependent
-  pman.app_input->ProcessPackages = Hydro::ProcessPackages;
-  // TODO(pgrete) this needs refactoring (also in Parthenon)
-  if (std::string(PROBLEM_GENERATOR) == "LINWAVE") {
-    pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
-    pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
-    pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
-  } else if (std::string(PROBLEM_GENERATOR) == "BLAST") {
-    pman.app_input->InitUserMeshData = blast::InitUserMeshData;
-    pman.app_input->ProblemGenerator = blast::ProblemGenerator;
-    pman.app_input->UserWorkAfterLoop = blast::UserWorkAfterLoop;
-  } else if (std::string(PROBLEM_GENERATOR) == "ADVECTION") {
-    pman.app_input->InitUserMeshData = advection::InitUserMeshData;
-    pman.app_input->ProblemGenerator = advection::ProblemGenerator;
-  }
   // call ParthenonInit to initialize MPI and Kokkos, parse the input deck, and set up
-  auto manager_status = pman.ParthenonInit(argc, argv);
+  auto manager_status = pman.ParthenonInitEnv(argc, argv);
   if (manager_status == ParthenonStatus::complete) {
     pman.ParthenonFinalize();
     return 0;
@@ -44,6 +28,25 @@ int main(int argc, char *argv[]) {
   }
   // Now that ParthenonInit has been called and setup succeeded, the code can now
   // make use of MPI and Kokkos
+
+  // Redefine parthenon defaults
+  // TODO(pgrete) this needs to be package dependent
+  pman.app_input->ProcessPackages = Hydro::ProcessPackages;
+  const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
+  if (problem == "linear_wave") {
+    pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
+    pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
+    pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
+  } else if (problem == "blast") {
+    pman.app_input->InitUserMeshData = blast::InitUserMeshData;
+    pman.app_input->ProblemGenerator = blast::ProblemGenerator;
+    pman.app_input->UserWorkAfterLoop = blast::UserWorkAfterLoop;
+  } else if (problem == "advection") {
+    pman.app_input->InitUserMeshData = advection::InitUserMeshData;
+    pman.app_input->ProblemGenerator = advection::ProblemGenerator;
+  }
+
+  pman.ParthenonInitPackagesAndMesh();
 
   auto integrator_name = pman.pinput->GetString("parthenon/time", "integrator");
 
