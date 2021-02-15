@@ -1,8 +1,20 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the 3-Clause License (the "LICENSE");
 
 cmake_minimum_required(VERSION 3.13)
+
+# Imports machine-specific configuration
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon/CMakeLists.txt)
+  include(external/parthenon/cmake/MachineCfg.cmake)
+else()
+  message(WARNING
+    "Could not find MachineCfg.cmake to process machine config file."
+    "If you're using Parthenon as submodule and see this message, please report this bug on GitLab."
+    "Using a prebuilt Parthenon library with AthenaPK is currently not tested."
+    "For further directions open an issue on GitLab.")
+endif()
+
 project(athenaPK LANGUAGES CXX)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
