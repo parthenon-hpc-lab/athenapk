@@ -44,6 +44,8 @@ int main(int argc, char *argv[]) {
   } else if (problem == "advection") {
     pman.app_input->InitUserMeshData = advection::InitUserMeshData;
     pman.app_input->ProblemGenerator = advection::ProblemGenerator;
+  } else if (problem == "kh") {
+    pman.app_input->ProblemGenerator = kh::ProblemGenerator;
   }
 
   pman.ParthenonInitPackagesAndMesh();

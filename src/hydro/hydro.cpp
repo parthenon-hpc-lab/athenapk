@@ -115,6 +115,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     PARTHENON_REQUIRE(thr > 0.,
                       "Make sure to set refinement/threshold_pressure_gradient >0.");
     pkg->AddParam<Real>("refinement/threshold_pressure_gradient", thr);
+  } else if (refine_str == "xyvelocity_gradient") {
+    pkg->CheckRefinementBlock = refinement::gradient::VelocityGradient;
+    const auto thr =
+        pin->GetOrAddReal("refinement", "threshold_xyvelosity_gradient", 0.0);
+    PARTHENON_REQUIRE(thr > 0.,
+                      "Make sure to set refinement/threshold_xyvelocity_gradient >0.");
+    pkg->AddParam<Real>("refinement/threshold_xyvelocity_gradient", thr);
   } else if (refine_str == "maxdensity") {
     pkg->CheckRefinementBlock = refinement::other::MaxDensity;
     const auto deref_below =

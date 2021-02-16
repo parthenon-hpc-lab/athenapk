@@ -9,6 +9,10 @@
 
 #include "basic_types.hpp"  // Real
 
+// this should go
+// TODO(pgrete) figure out why the Parthenon provided one is not picked up
+#define TWO_PI 6.2831853071795862
+
 // to be deleted/updated temporary helpers
 //constexpr int NHYDRO = 5;
 //constexpr int IDN = 0;

@@ -25,7 +25,7 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../main.hpp"
 
 namespace advection {

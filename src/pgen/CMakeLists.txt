@@ -4,4 +4,6 @@
 target_sources(athenaPK PRIVATE
     linear_wave.cpp
     advection.cpp
-    blast.cpp)
+    blast.cpp
+    kh.cpp
+    )

@@ -1,0 +1,71 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = Kelvin-Helmholtz instability
+reference = Lecoanet et al., MNRAS 455, 4274-4288, 2016
+
+<job>
+problem_id = kh
+
+<problem/kh>
+iprob  = 4
+amp    = 0.01            # amplitude of initial vy perturbation
+vflow  = 1.0             # relative shear velocity of 2x interfaces
+vboost = 0.0             # background vx for setting up a moving ref frame
+drho_rho0 = 0.0          # stratified or unstratified problem (delta rho / rho0)
+
+<refinement>
+type                     = unset
+#type                     = xyvelocity_gradient 
+threshold_xyvelocity_gradient  = 0.001
+
+<parthenon/mesh>
+refinement = none
+numlevel = 3
+
+nx1 = 128
+x1min = -0.5
+x1max = 0.5
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 256
+x2min = -1.0
+x2max = 1.0
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 1
+x3min = -0.5
+x3max = 0.5
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1=64
+nx2=128
+nx3=1
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.4
+tlim = 10.0
+nlim = 100000
+perc_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+ncycle_out_mesh = -1000
+
+<hydro>
+eos = adiabatic
+riemann = hlle
+reconstruction = plm
+gamma = 1.666666666666667 # gamma = C_p/C_v
+use_scratch = false
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+
+<parthenon/output0>
+file_type = hdf5
+dt = 1.0
+variables = prim
