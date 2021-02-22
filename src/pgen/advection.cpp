@@ -21,6 +21,7 @@
 #include <string>    // c_str()
 
 // Parthenon headers
+#include "config.hpp"
 #include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
@@ -55,7 +56,7 @@ void InitUserMeshData(ParameterInput *pin) {
   const auto vy = pin->GetOrAddReal("problem/advection", "vy", 0.0);
   const auto vz = pin->GetOrAddReal("problem/advection", "vz", 0.0);
 
-  const auto vmag = std::sqrt(vx * vx + vy * vy + vz * vz);
+  const auto vmag = std::sqrt(vx * vx + vy * vy + vz * vz) + TINY_NUMBER;
   const auto diag = std::sqrt(x1size * x1size + x2size * x2size + x3size * x3size);
 
   // TODO(pgrete) see how to get access to the SimTime object outside the driver
