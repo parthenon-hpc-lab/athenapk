@@ -28,13 +28,13 @@
 #include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
+#include <random>
 
 // AthenaPK headers
 #include "../main.hpp"
 
 namespace kh {
 using namespace parthenon::driver::prelude;
-using parthenon::ran2;
 
 //----------------------------------------------------------------------------------------
 //! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
@@ -57,6 +57,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   // initializing on host
   auto u = u_dev.GetHostMirrorAndCopy();
 
+  std::mt19937 gen(pmb->gid); // Standard mersenne_twister_engine seeded with gid
+  std::uniform_real_distribution<Real> ran(-0.5, 0.5);
+
   //--- iprob=1.  Uniform stream with density ratio "drat" located in region -1/4<y<1/4
   // moving at (-vflow) seperated by two slip-surfaces from background medium with d=1
   // moving at (+vflow), random perturbations.  This is the classic, unresolved K-H test.
@@ -69,13 +72,13 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       for (int j = jb.s; j <= jb.e; j++) {
         for (int i = ib.s; i <= ib.e; i++) {
           u(IDN, k, j, i) = 1.0;
-          u(IM1, k, j, i) = vflow + amp * (ran2(&iseed) - 0.5);
-          u(IM2, k, j, i) = amp * (ran2(&iseed) - 0.5);
+          u(IM1, k, j, i) = vflow + amp * ran(gen);
+          u(IM2, k, j, i) = amp * ran(gen);
           u(IM3, k, j, i) = 0.0;
           if (std::abs(coords.x2v(j)) < 0.25) {
             u(IDN, k, j, i) = drat;
-            u(IM1, k, j, i) = -drat * (vflow + amp * (ran2(&iseed) - 0.5));
-            u(IM2, k, j, i) = drat * amp * (ran2(&iseed) - 0.5);
+            u(IM1, k, j, i) = -drat * (vflow + amp * ran(gen));
+            u(IM2, k, j, i) = drat * amp * ran(gen);
           }
           // Pressure scaled to give a sound speed of 1 with gamma=1.4
           u(IEN, k, j, i) =
