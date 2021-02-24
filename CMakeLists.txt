@@ -47,6 +47,10 @@ endif()
 
 set(Kokkos_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/Kokkos)
 
+set(BUILD_TESTING OFF CACHE BOOL "Disable testing and environment checks.")
+set(PARTHENON_LINT_DEFAULT OFF CACHE BOOL "No linting downstream.")
+set(PARTHENON_DISABLE_OPENMP ON CACHE BOOL "Disable OpenMP")
+
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon/CMakeLists.txt)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon parthenon)
 else()
