@@ -51,6 +51,7 @@ set(Kokkos_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/Kokkos)
 
 set(PARTHENON_ENABLE_TESTING OFF CACHE BOOL "Disable Parthenon testing.")
 set(PARTHENON_DISABLE_OPENMP ON CACHE BOOL "Disable OpenMP")
+set(PARTHENON_DISABLE_EXAMPLES ON CACHE BOOL "Don't build Parthenon examples.")
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon/CMakeLists.txt)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon parthenon)
@@ -59,4 +60,10 @@ else()
 endif()
 
 add_subdirectory(src)
+
+option(AthenaPK_ENABLE_TESTING "Enable AthenaPK test" ON)
+if (AthenaPK_ENABLE_TESTING)
+  include(CTest)
+  add_subdirectory(tst/regression)
+endif()
 

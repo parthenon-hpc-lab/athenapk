@@ -68,17 +68,16 @@ parthenon-cuda-regression:
     - module load gcc/7.3.0 cudatoolkit/11.1
     - mkdir build-cuda
     - cd build-cuda
-    - cmake -DCMAKE_BUILD_TYPE=Release
-      -DPARTHENON_DISABLE_OPENMP=ON -DKokkos_ARCH_SKX=True
+    - cmake
+      -DKokkos_ARCH_SKX=True
       -DKokkos_ENABLE_CUDA=True -DKokkos_ARCH_VOLTA70=True
       -DCMAKE_CXX_COMPILER=${PWD}/../external/Kokkos/bin/nvcc_wrapper
-      -DKokkos_ROOT=$(pwd)/../external/Kokkos
       -DPARTHENON_DISABLE_MPI=ON
       -DPARTHENON_DISABLE_HDF5=ON
-      -DPARTHENON_LINT_DEFAULT=OFF
       ../
     - make -j${J} athenaPK
     - nvidia-smi
+    - ctest
     - for M in 128; do
       for N in 128 64 32; do
         ./bin/athenaPK -i ../inputs/linear_wave3d.in parthenon/meshblock/nx1=$((2*N)) parthenon/meshblock/nx2=$N parthenon/meshblock/nx3=$N parthenon/mesh/nx1=$((2*M)) parthenon/mesh/nx2=$M parthenon/mesh/nx3=$M hydro/use_scratch=false hydro/scratch_level=0;
@@ -106,3 +105,4 @@ parthenon-cuda-regression:
     paths:
       - build-cuda/CMakeFiles/CMakeOutput.log
       - build-cuda/linearwave-errors.dat
+      - build-cuda/tst/regression/outputs/convergence
