@@ -45,10 +45,11 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 set(Kokkos_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/Kokkos)
 
-set(BUILD_TESTING OFF CACHE BOOL "Disable testing and environment checks.")
-set(PARTHENON_LINT_DEFAULT OFF CACHE BOOL "No linting downstream.")
+set(PARTHENON_ENABLE_TESTING OFF CACHE BOOL "Disable Parthenon testing.")
 set(PARTHENON_DISABLE_OPENMP ON CACHE BOOL "Disable OpenMP")
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon/CMakeLists.txt)
@@ -58,3 +59,4 @@ else()
 endif()
 
 add_subdirectory(src)
+
