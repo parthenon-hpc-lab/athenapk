@@ -77,7 +77,7 @@ TaskStatus FullUpdate(MeshData<Real> *mu0, MeshData<Real> *mu1,
       KOKKOS_LAMBDA(const int m, const int l, const int k, const int j, const int i) {
         const auto &coords = u0_pack.coords(m);
         const auto &u0 = u0_pack(m);
-        u0_pack(m, l, k, j, i) = gam0 * u0(l, k, j, i) + gam1 * u1_pack(m, l, k, j, i) -
+        u0_pack(m, l, k, j, i) = gam0 * u0(l, k, j, i) + gam1 * u1_pack(m, l, k, j, i) +
                                  beta_dt * FluxDiv_(l, k, j, i, ndim, coords, u0);
       });
 
