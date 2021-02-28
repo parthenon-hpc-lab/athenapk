@@ -29,7 +29,7 @@ import utils.test_case
 sys.dont_write_bytecode = True
 
 # if this is updated make sure to update the assert statements for the number of MPI ranks, too
-lin_res = [16, 32, 64] # resolution for linear convergence
+lin_res = [16, 32, 64, 128] # resolution for linear convergence
 
 class TestCase(utils.test_case.TestCaseAbs):
     def Prepare(self,parameters, step):
@@ -108,8 +108,8 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         analyze_status = True
 
-        if len(lines) != 4:
-            print("Missing lines in output file. Expected 4, but got ", len(lines))
+        if len(lines) != len(lin_res) + 1:
+            print("Missing lines in output file. Expected ", len(lin_res), ", but got ", len(lines))
             print("CAREFUL!!! All following logs may be misleading (tests have fixed indices).")
             analyze_status = False
 
@@ -122,7 +122,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         if data[2,4] > 1.547584e-08:
             analyze_status = False
 
-        n_res = 3
+        n_res = len(lin_res)
 
         plt.plot(data[:n_res,0],
                 data[:n_res,4],
