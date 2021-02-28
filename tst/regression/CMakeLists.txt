@@ -7,3 +7,6 @@ include(${PROJECT_SOURCE_DIR}/external/parthenon/cmake/TestSetup.cmake)
 
 setup_test_serial("convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 3" "convergence")
+
+setup_test_serial("performance" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/advection_3d.in --num_steps 5" "performance")

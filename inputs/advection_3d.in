@@ -55,7 +55,7 @@ integrator = vl2
 cfl = 0.3
 tlim = 1.0
 nlim = 100000
-perc_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 ncycle_out_mesh = -1000
 
 <hydro>
