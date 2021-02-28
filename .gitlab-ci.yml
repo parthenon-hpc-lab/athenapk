@@ -106,3 +106,4 @@ parthenon-cuda-regression:
       - build-cuda/CMakeFiles/CMakeOutput.log
       - build-cuda/linearwave-errors.dat
       - build-cuda/tst/regression/outputs/convergence
+      - build-cuda/tst/regression/outputs/performance
