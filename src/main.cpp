@@ -30,7 +30,6 @@ int main(int argc, char *argv[]) {
   // make use of MPI and Kokkos
 
   // Redefine parthenon defaults
-  // TODO(pgrete) this needs to be package dependent
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
   if (problem == "linear_wave") {
@@ -50,22 +49,15 @@ int main(int argc, char *argv[]) {
 
   pman.ParthenonInitPackagesAndMesh();
 
-  auto integrator_name = pman.pinput->GetString("parthenon/time", "integrator");
-
   // Startup the corresponding driver for the integrator
-  if ((integrator_name.compare("vl2") == 0) || (integrator_name.compare("rk1") == 0)) {
-    if (parthenon::Globals::my_rank == 0) {
-      std::cout << "Starting up hydro driver" << std::endl;
-    }
-
-    Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
-
-    // This line actually runs the simulation
-    auto driver_status = driver.Execute();
-
-  } else {
-    std::cout << "Unknown integrator: " << integrator_name << std::endl;
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "Starting up hydro driver" << std::endl;
   }
+
+  Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
+
+  // This line actually runs the simulation
+  auto driver_status = driver.Execute();
 
   // call MPI_Finalize and Kokkos::finalize if necessary
   pman.ParthenonFinalize();
