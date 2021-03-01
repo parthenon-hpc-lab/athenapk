@@ -78,10 +78,14 @@ class TestCase(utils.test_case.TestCaseAbs):
         integrator = method_cfgs[(step - 1) // n_res]["integrator"]
         use_scratch = method_cfgs[(step - 1) // n_res]["use_scratch"]
         recon = method_cfgs[(step - 1) // n_res]["recon"]
+        # ensure that nx1 is <= 128 when using scratch (V100 limit on test system)
+        mb_nx1 = ((2 * res) // parameters.num_ranks)
+        while (mb_nx1 > 128 and use_scratch):
+            mb_nx1 //= 2
 
         parameters.driver_cmd_line_args = [
             'parthenon/mesh/nx1=%d' % (2 * res),
-            'parthenon/meshblock/nx1=%d' % ((2 * res) // parameters.num_ranks),
+            'parthenon/meshblock/nx1=%d' % mb_nx1,
             'parthenon/mesh/nx2=%d' % res,
             'parthenon/meshblock/nx2=%d' % res,
             'parthenon/mesh/nx3=%d' % res,
