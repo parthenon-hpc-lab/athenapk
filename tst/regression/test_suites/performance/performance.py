@@ -34,6 +34,16 @@ perf_cfgs = [
     {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "vl2", "recon" : "plm"},
     {"mx" : 256, "mb" : 64 , "use_scratch" : False , "integrator" : "vl2", "recon" : "plm"},
     {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "vl2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 256, "use_scratch" : False , "integrator" : "rk2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 128, "use_scratch" : False , "integrator" : "rk2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 64 , "use_scratch" : False , "integrator" : "rk2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "rk2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 256, "use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
+    {"mx" : 256, "mb" : 128, "use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
+    {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk1", "recon" : "dc"},
+    {"mx" : 256, "mb" : 64 , "use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
+    {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "rk1", "recon" : "dc"},
 ]
 
 class TestCase(utils.test_case.TestCaseAbs):
@@ -55,7 +65,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             'parthenon/time/integrator=%s' % integrator,
             'parthenon/time/nlim=10',
             'hydro/reconstruction=%s' % recon,
-            'hydro/use_scratch=%s' % "true" if use_scratch else "false",
+            'hydro/use_scratch=%s' % ("true" if use_scratch else "false"),
             ]
 
         return parameters
@@ -72,7 +82,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         perfs = np.array(perfs)
 
         # Plot results
-        fig, p = plt.subplots(2, 1, figsize = (4,8), sharey=True)
+        fig, p = plt.subplots(2, 1, figsize = (4,8.0/10 * len(perf_cfgs)), sharey=True)
         labels = []
 
         for i, cfg in enumerate(perf_cfgs):

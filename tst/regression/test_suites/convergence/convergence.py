@@ -30,6 +30,14 @@ sys.dont_write_bytecode = True
 
 # if this is updated make sure to update the assert statements for the number of MPI ranks, too
 lin_res = [16, 32, 64, 128] # resolution for linear convergence
+method_cfgs = [
+    {"use_scratch" : False , "integrator" : "vl2", "recon" : "plm"},
+    {"use_scratch" : True  , "integrator" : "vl2", "recon" : "plm"},
+    {"use_scratch" : False , "integrator" : "rk2", "recon" : "plm"},
+    {"use_scratch" : True  , "integrator" : "rk2", "recon" : "plm"},
+    {"use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
+    {"use_scratch" : True  , "integrator" : "rk1", "recon" : "dc"},
+]
 
 class TestCase(utils.test_case.TestCaseAbs):
     def Prepare(self,parameters, step):
@@ -59,22 +67,33 @@ class TestCase(utils.test_case.TestCaseAbs):
 
 
         n_res = len(lin_res)
+        n_meth = len(method_cfgs)
         # make sure we can evenly distribute the MeshBlock sizes
         err_msg = "Num ranks must be multiples of 2 for convergence test."
         assert parameters.num_ranks == 1 or parameters.num_ranks % 2 == 0, err_msg
         # ensure a minimum block size of 4
         assert lin_res[0] / parameters.num_ranks >= 4, "Use <= 8 ranks for convergence test."
 
-        # TEST: Advection only in x-direction 
-        if step <= n_res:
-            parameters.driver_cmd_line_args = [
-                'parthenon/mesh/nx1=%d' % (2 * lin_res[step % n_res -1]),
-                'parthenon/meshblock/nx1=%d' % ((2 * lin_res[step % n_res -1]) // parameters.num_ranks),
-                'parthenon/mesh/nx2=%d' % lin_res[step % n_res -1],
-                'parthenon/meshblock/nx2=%d' % lin_res[step % n_res -1],
-                'parthenon/mesh/nx3=%d' % lin_res[step % n_res -1],
-                'parthenon/meshblock/nx3=%d' % lin_res[step % n_res -1],
-                ]
+        res = lin_res[(step - 1) % n_res]
+        integrator = method_cfgs[(step - 1) // n_res]["integrator"]
+        use_scratch = method_cfgs[(step - 1) // n_res]["use_scratch"]
+        recon = method_cfgs[(step - 1) // n_res]["recon"]
+        # ensure that nx1 is <= 128 when using scratch (V100 limit on test system)
+        mb_nx1 = ((2 * res) // parameters.num_ranks)
+        while (mb_nx1 > 128 and use_scratch):
+            mb_nx1 //= 2
+
+        parameters.driver_cmd_line_args = [
+            'parthenon/mesh/nx1=%d' % (2 * res),
+            'parthenon/meshblock/nx1=%d' % mb_nx1,
+            'parthenon/mesh/nx2=%d' % res,
+            'parthenon/meshblock/nx2=%d' % res,
+            'parthenon/mesh/nx3=%d' % res,
+            'parthenon/meshblock/nx3=%d' % res,
+            'parthenon/time/integrator=%s' % integrator,
+            'hydro/reconstruction=%s' % recon,
+            'hydro/use_scratch=%s' % ("true" if use_scratch else "false"),
+            ]
 
         return parameters
 
@@ -107,13 +126,14 @@ class TestCase(utils.test_case.TestCaseAbs):
             print("linearwave-errors.dat file not accessible")
 
         analyze_status = True
+        n_res = len(lin_res)
+        n_meth = len(method_cfgs)
 
-        if len(lines) != len(lin_res) + 1:
-            print("Missing lines in output file. Expected ", len(lin_res), ", but got ", len(lines))
+        if len(lines) != n_res * n_meth + 1:
+            print("Missing lines in output file. Expected ", n_res * n_method + 1, ", but got ", len(lines))
             print("CAREFUL!!! All following logs may be misleading (tests have fixed indices).")
             analyze_status = False
 
-        n_res = len(lin_res)
 
         # Plot results
         data = np.genfromtxt(os.path.join(parameters.output_path, "linearwave-errors.dat"))
@@ -122,13 +142,16 @@ class TestCase(utils.test_case.TestCaseAbs):
         if data[2,4] > 1.547584e-08:
             analyze_status = False
 
-        n_res = len(lin_res)
+        markers = 'ov^<>sp*hXD'
+        for i, cfg in enumerate(method_cfgs):
+            plt.plot(data[i * n_res:(i + 1) * n_res, 0],
+                    data[i * n_res:(i + 1) * n_res, 4],
+                    marker = markers[i], label = ((
+                        f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
+                        f'Scr: {"T" if cfg["use_scratch"] else "F"}'
+                    )))
 
-        plt.plot(data[:n_res,0],
-                data[:n_res,4],
-                marker = '^', label = "VL2+PLM+HLLE")
-
-        plt.plot([32,512], [2e-7,2e-7/(512/32)], '--', label="first order")
+        plt.plot([32,512], [1e-6,1e-6/(512/32)], '--', label="first order")
         plt.plot([32,512], [2e-7,2e-7/(512/32)**2], '--', label="second order")
 
         plt.legend()

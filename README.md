@@ -10,9 +10,9 @@ For this reason, it is highly recommended to only use AthenaPK with the Kokkos a
 Neither other versions or nor using preinstalled Parthenon/Kokkos libraries have been tested.
 
 Current features include
-- second order hydrodynamics with
-  - van Leer integrator
-  - piecewise linear (PLM) reconstruction
+- first and second order hydrodynamics with
+  - RK1, RK2, VL2 integrators
+  - piecewise constant (DC) and piecewise linear (PLM) reconstruction
   - HLLE Riemann solver
   - Adiabatic equation of state
 - static and adaptive mesh refinement
@@ -20,6 +20,8 @@ Current features include
   - a linear wave
   - blast wave
   - Kelvin-Helmholtz instability
+
+Latest performance results for various methods on a single Nvidia Volta V100 can be found [here](https://gitlab.com/theias/hpc/jmstone/athena-parthenon/athenapk/-/jobs/artifacts/main/file/build-cuda/tst/regression/outputs/performance/performance.png?job=cuda-regression).
 
 ## Getting in touch
 

@@ -46,7 +46,7 @@ integrator = vl2
 cfl = 0.3
 tlim = 1.0
 nlim = 100000
-perc_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 
 <hydro>
 eos = adiabatic
@@ -54,5 +54,5 @@ riemann = hlle
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 use_scratch = false
-scratch_level = 1 # 0 is actual scratch (tiny); 1 is HBM
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
