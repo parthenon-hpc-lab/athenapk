@@ -3,12 +3,15 @@
 // Copyright(C) 2020 James M. Stone <jmstone@ias.edu> and the Athena code team
 // Licensed under the 3-clause BSD License (the "LICENSE")
 //========================================================================================
+#ifndef RECONSTRUCT_PLM_SIMPLE_HPP_
+#define RECONSTRUCT_PLM_SIMPLE_HPP_
 //! \file plm.cpp
 //  \brief  piecewise linear reconstruction implemented as inline functions
 //  This version only works with uniform mesh spacing
 
-#include "athena.hpp"
+#include <parthenon/parthenon.hpp>
 
+using parthenon::ScratchPad2D;
 //----------------------------------------------------------------------------------------
 //! \fn PLM()
 //  \brief Reconstructs linear slope in cell i to compute ql(i+1) and qr(i). Works for
@@ -29,26 +32,23 @@ void PLM(const Real &q_im1, const Real &q_i, const Real &q_ip1, Real &ql_ip1,
   // compute ql_(i+1/2) and qr_(i-1/2) using limited slopes
   ql_ip1 = q_i + dqm;
   qr_i = q_i - dqm;
-  return;
 }
 
 //----------------------------------------------------------------------------------------
 //! \fn PiecewiseLinearX1()
 //  \brief Wrapper function for PLM reconstruction in x1-direction.
 //  This function should be called over [is-1,ie+1] to get BOTH L/R states over [is,ie]
-
-KOKKOS_INLINE_FUNCTION
-void PiecewiseLinearX1(TeamMember_t const &member, const int m, const int k, const int j,
-                       const int il, const int iu, const DvceArray5D<Real> &q,
-                       ScrArray2D<Real> &ql, ScrArray2D<Real> &qr) {
-  int nvar = q.extent_int(1);
+template <typename T>
+KOKKOS_INLINE_FUNCTION void
+PiecewiseLinearX1(parthenon::team_mbr_t const &member, const int k, const int j,
+                  const int il, const int iu, const T &q, ScratchPad2D<Real> &ql,
+                  ScratchPad2D<Real> &qr) {
+  int nvar = q.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
-    par_for_inner(member, il, iu, [&](const int i) {
-      PLM(q(m, n, k, j, i - 1), q(m, n, k, j, i), q(m, n, k, j, i + 1), ql(n, i + 1),
-          qr(n, i));
+    parthenon::par_for_inner(member, il, iu, [&](const int i) {
+      PLM(q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1), ql(n, i + 1), qr(n, i));
     });
   }
-  return;
 }
 
 //----------------------------------------------------------------------------------------
@@ -56,18 +56,17 @@ void PiecewiseLinearX1(TeamMember_t const &member, const int m, const int k, con
 //  \brief Wrapper function for PLM reconstruction in x2-direction.
 //  This function should be called over [js-1,je+1] to get BOTH L/R states over [js,je]
 
-KOKKOS_INLINE_FUNCTION
-void PiecewiseLinearX2(TeamMember_t const &member, const int m, const int k, const int j,
-                       const int il, const int iu, const DvceArray5D<Real> &q,
-                       ScrArray2D<Real> &ql_jp1, ScrArray2D<Real> &qr_j) {
-  int nvar = q.extent_int(1);
+template <typename T>
+KOKKOS_INLINE_FUNCTION void
+PiecewiseLinearX2(parthenon::team_mbr_t const &member, const int k, const int j,
+                  const int il, const int iu, const T &q, ScratchPad2D<Real> &ql_jp1,
+                  ScratchPad2D<Real> &qr_j) {
+  int nvar = q.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
-    par_for_inner(member, il, iu, [&](const int i) {
-      PLM(q(m, n, k, j - 1, i), q(m, n, k, j, i), q(m, n, k, j + 1, i), ql_jp1(n, i),
-          qr_j(n, i));
+    parthenon::par_for_inner(member, il, iu, [&](const int i) {
+      PLM(q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i), ql_jp1(n, i), qr_j(n, i));
     });
   }
-  return;
 }
 
 //----------------------------------------------------------------------------------------
@@ -75,16 +74,17 @@ void PiecewiseLinearX2(TeamMember_t const &member, const int m, const int k, con
 //  \brief Wrapper function for PLM reconstruction in x3-direction.
 //  This function should be called over [ks-1,ke+1] to get BOTH L/R states over [ks,ke]
 
-KOKKOS_INLINE_FUNCTION
-void PiecewiseLinearX3(TeamMember_t const &member, const int m, const int k, const int j,
-                       const int il, const int iu, const DvceArray5D<Real> &q,
-                       ScrArray2D<Real> &ql_kp1, ScrArray2D<Real> &qr_k) {
-  int nvar = q.extent_int(1);
+template <typename T>
+KOKKOS_INLINE_FUNCTION void
+PiecewiseLinearX3(parthenon::team_mbr_t const &member, const int k, const int j,
+                  const int il, const int iu, const T &q, ScratchPad2D<Real> &ql_kp1,
+                  ScratchPad2D<Real> &qr_k) {
+  int nvar = q.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
-    par_for_inner(member, il, iu, [&](const int i) {
-      PLM(q(m, n, k - 1, j, i), q(m, n, k, j, i), q(m, n, k + 1, j, i), ql_kp1(n, i),
-          qr_k(n, i));
+    parthenon::par_for_inner(member, il, iu, [&](const int i) {
+      PLM(q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i), ql_kp1(n, i), qr_k(n, i));
     });
   }
-  return;
 }
+
+#endif // RECONSTRUCT_PLM_SIMPLE_HPP_

@@ -14,12 +14,12 @@
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
 #include "../pgen/pgen.hpp"
+#include "../recon/plm_simple.hpp"
 #include "../recon/recon.hpp"
 #include "../refinement/refinement.hpp"
 #include "defs.hpp"
 #include "hydro.hpp"
 #include "reconstruct/dc_inline.hpp"
-#include "reconstruct/plm_inline.hpp"
 #include "rsolvers/hydro_hlle.hpp"
 #include "rsolvers/riemann.hpp"
 #include "utils/error_checking.hpp"
@@ -333,7 +333,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
   size_t scratch_size_in_bytes =
-      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 7;
+      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 3;
 
   // TODO(pgrete): hardcoded stages
   parthenon::par_for_outer(
@@ -350,16 +350,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
             (integrator == Integrator::vl2 && stage == 1)) {
           DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         } else {
-          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, coords, prim, wl, wr, qc,
-                            dql, dqr, dqm);
+          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         }
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
@@ -390,22 +381,13 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
                                            nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
                                             nx1);
-          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
             if (recon == Reconstruction::dc ||
                 (integrator == Integrator::vl2 && stage == 1)) {
               DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
             } else {
-              PiecewiseLinearX2(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
-                                dqm);
+              PiecewiseLinearX2(member, k, j, il, iu, prim, wlb, wr);
             }
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
@@ -443,22 +425,13 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
                                            nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
                                             nx1);
-          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
             if (recon == Reconstruction::dc ||
                 (integrator == Integrator::vl2 && stage == 1)) {
               DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
             } else {
-              PiecewiseLinearX3(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
-                                dqm);
+              PiecewiseLinearX3(member, k, j, il, iu, prim, wlb, wr);
             }
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
