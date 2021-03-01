@@ -58,7 +58,7 @@ prep-cuda:
       CC=mpicc ./configure --prefix=${PWD}/../local/hdf5-${HDF5_VER}-gcc/parallel --enable-parallel && make -j8 && make install && make clean;
       fi
 
-parthenon-cuda-regression:
+cuda-regression:
   tags:
     - gpu
     - springdale7
