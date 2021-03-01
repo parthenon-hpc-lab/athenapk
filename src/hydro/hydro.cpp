@@ -66,6 +66,32 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   bool pack_in_one = pin->GetOrAddBoolean("parthenon/mesh", "pack_in_one", true);
   pkg->AddParam<>("pack_in_one", pack_in_one);
 
+  const auto recon_str = pin->GetString("hydro", "reconstruction");
+  auto recon = Reconstruction::undefined;
+  if (recon_str == "dc") {
+    recon = Reconstruction::dc;
+  } else if (recon_str == "plm") {
+    recon = Reconstruction::plm;
+  } else {
+    PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
+  }
+  pkg->AddParam<>("reconstruction", recon);
+
+  const auto integrator_str = pin->GetString("parthenon/time", "integrator");
+  auto integrator = Integrator::undefined;
+  if (integrator_str == "rk1") {
+    integrator = Integrator::rk1;
+  } else if (integrator_str == "rk2") {
+    integrator = Integrator::rk2;
+  } else if (integrator_str == "rk3") {
+    integrator = Integrator::rk3;
+  } else if (integrator_str == "vl2") {
+    integrator = Integrator::vl2;
+  } else {
+    PARTHENON_FAIL("AthenaPK hydro: Unknown integration method.");
+  }
+  pkg->AddParam<>("integrator", integrator);
+
   auto eos_str = pin->GetString("hydro", "eos");
   if (eos_str == "adiabatic") {
     Real gamma = pin->GetReal("hydro", "gamma");
@@ -74,8 +100,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     AdiabaticHydroEOS eos(pfloor, dfloor, gamma);
     pkg->AddParam<>("eos", eos);
   } else {
-    // TODO(pgrete) FAIL
-    std::cout << "Whoops, EOS undefined" << std::endl;
+    PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
   }
   auto use_scratch = pin->GetOrAddBoolean("hydro", "use_scratch", true);
   auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 1);
@@ -216,8 +241,13 @@ TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md,
     }
   }
 
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto pkg = pmb->packages.Get("Hydro");
+  const auto recon = pkg->Param<Reconstruction>("reconstruction");
+  const auto integrator = pkg->Param<Integrator>("integrator");
+
   Kokkos::Profiling::pushRegion("Reconstruct X");
-  if (stage == 1) {
+  if (recon == Reconstruction::dc || (integrator == Integrator::vl2 && stage == 1)) {
     DonorCellX1KJI(kl, ku, jl, ju, ib.s, ib.e + 1, w, wl, wr);
   } else {
     PiecewiseLinearX1KJI(kl, ku, jl, ju, ib.s, ib.e + 1, w, wl, wr);
@@ -239,7 +269,7 @@ TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md,
       kl = kb.s - 1, ku = kb.e + 1;
     // reconstruct L/R states at j
     Kokkos::Profiling::pushRegion("Reconstruct Y");
-    if (stage == 1) {
+    if (recon == Reconstruction::dc || (integrator == Integrator::vl2 && stage == 1)) {
       DonorCellX2KJI(kl, ku, jb.s, jb.e + 1, il, iu, w, wl, wr);
     } else {
       PiecewiseLinearX2KJI(kl, ku, jb.s, jb.e + 1, il, iu, w, wl, wr);
@@ -259,7 +289,7 @@ TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md,
     il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
     // reconstruct L/R states at k
     Kokkos::Profiling::pushRegion("Reconstruct Z");
-    if (stage == 1) {
+    if (recon == Reconstruction::dc || (integrator == Integrator::vl2 && stage == 1)) {
       DonorCellX3KJI(kb.s, kb.e + 1, jl, ju, il, iu, w, wl, wr);
     } else {
       PiecewiseLinearX3KJI(kb.s, kb.e + 1, jl, ju, il, iu, w, wl, wr);
@@ -296,6 +326,9 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
   const int nhydro = pkg->Param<int>("nhydro");
   const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
+  const auto recon = pkg->Param<Reconstruction>("reconstruction");
+  const auto integrator = pkg->Param<Integrator>("integrator");
+
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
@@ -313,7 +346,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
         // get reconstructed state on faces
-        if (stage == 1) {
+        if (recon == Reconstruction::dc ||
+            (integrator == Integrator::vl2 && stage == 1)) {
           DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         } else {
           parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
@@ -365,7 +399,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
           parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
                                             nx1);
           // reconstruct the first row
-          if (stage == 1) {
+          if (recon == Reconstruction::dc ||
+              (integrator == Integrator::vl2 && stage == 1)) {
             DonorCellX2(member, k, jb.s - 1, il, iu, prim, wl, wr);
           } else {
             PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim, wl, wr, qc, dql,
@@ -375,7 +410,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
           member.team_barrier();
           for (int j = jb.s; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
-            if (stage == 1) {
+            if (recon == Reconstruction::dc ||
+                (integrator == Integrator::vl2 && stage == 1)) {
               DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
             } else {
               PiecewiseLinearX2(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
@@ -423,7 +459,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
           parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
                                             nx1);
           // reconstruct the first row
-          if (stage == 1) {
+          if (recon == Reconstruction::dc ||
+              (integrator == Integrator::vl2 && stage == 1)) {
             DonorCellX3(member, kb.s - 1, j, il, iu, prim, wl, wr);
           } else {
             PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim, wl, wr, qc, dql,
@@ -433,7 +470,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
           member.team_barrier();
           for (int k = kb.s; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
-            if (stage == 1) {
+            if (recon == Reconstruction::dc ||
+                (integrator == Integrator::vl2 && stage == 1)) {
               DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
             } else {
               PiecewiseLinearX3(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
