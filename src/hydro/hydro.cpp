@@ -398,17 +398,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
                                             nx1);
           parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
                                             nx1);
-          // reconstruct the first row
-          if (recon == Reconstruction::dc ||
-              (integrator == Integrator::vl2 && stage == 1)) {
-            DonorCellX2(member, k, jb.s - 1, il, iu, prim, wl, wr);
-          } else {
-            PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim, wl, wr, qc, dql,
-                              dqr, dqm);
-          }
-          // Sync all threads in the team so that scratch memory is consistent
-          member.team_barrier();
-          for (int j = jb.s; j <= jb.e + 1; ++j) {
+          for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
             if (recon == Reconstruction::dc ||
                 (integrator == Integrator::vl2 && stage == 1)) {
@@ -417,10 +407,13 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
               PiecewiseLinearX2(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
                                 dqm);
             }
+            // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
-            RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos);
-            member.team_barrier();
+            if (j > jb.s - 1) {
+              RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos);
+              member.team_barrier();
+            }
 
             // swap the arrays for the next step
             auto *tmp = wl.data();
@@ -458,17 +451,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
                                             nx1);
           parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
                                             nx1);
-          // reconstruct the first row
-          if (recon == Reconstruction::dc ||
-              (integrator == Integrator::vl2 && stage == 1)) {
-            DonorCellX3(member, kb.s - 1, j, il, iu, prim, wl, wr);
-          } else {
-            PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim, wl, wr, qc, dql,
-                              dqr, dqm);
-          }
-          // Sync all threads in the team so that scratch memory is consistent
-          member.team_barrier();
-          for (int k = kb.s; k <= kb.e + 1; ++k) {
+          for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
             if (recon == Reconstruction::dc ||
                 (integrator == Integrator::vl2 && stage == 1)) {
@@ -477,11 +460,13 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
               PiecewiseLinearX3(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
                                 dqm);
             }
+            // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
-            RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
-            member.team_barrier();
-
+            if (k > kb.s - 1) {
+              RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
+              member.team_barrier();
+            }
             // swap the arrays for the next step
             auto *tmp = wl.data();
             wl.assign_data(wlb.data());
