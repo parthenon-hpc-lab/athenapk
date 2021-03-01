@@ -35,56 +35,6 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
   pin->CheckDesired("parthenon/time", "cfl");
 }
 
-// TODO(pgrete) remove this function (duplicted in Parthenon)
-// and move following function to Parthenon
-KOKKOS_FORCEINLINE_FUNCTION
-Real FluxDiv_(const int l, const int k, const int j, const int i, const int ndim,
-              const parthenon::Coordinates_t &coords, const VariableFluxPack<Real> &v) {
-  Real du = (coords.Area(X1DIR, k, j, i + 1) * v.flux(X1DIR, l, k, j, i + 1) -
-             coords.Area(X1DIR, k, j, i) * v.flux(X1DIR, l, k, j, i));
-  if (ndim >= 2) {
-    du += (coords.Area(X2DIR, k, j + 1, i) * v.flux(X2DIR, l, k, j + 1, i) -
-           coords.Area(X2DIR, k, j, i) * v.flux(X2DIR, l, k, j, i));
-  }
-  if (ndim == 3) {
-    du += (coords.Area(X3DIR, k + 1, j, i) * v.flux(X3DIR, l, k + 1, j, i) -
-           coords.Area(X3DIR, k, j, i) * v.flux(X3DIR, l, k, j, i));
-  }
-  return -du / coords.Volume(k, j, i);
-}
-
-TaskStatus FullUpdate(MeshData<Real> *mu0, MeshData<Real> *mu1,
-                      StagedIntegrator *integrator, const int stage) {
-  Kokkos::Profiling::pushRegion("Task_FullUpdate");
-  auto u0_pack = mu0->PackVariablesAndFluxes(
-      std::vector<parthenon::MetadataFlag>({Metadata::Independent}));
-  const auto &u1_pack =
-      mu1->PackVariables(std::vector<parthenon::MetadataFlag>({Metadata::Independent}));
-
-  const IndexDomain interior = IndexDomain::interior;
-  const IndexRange ib = mu0->GetBoundsI(interior);
-  const IndexRange jb = mu0->GetBoundsJ(interior);
-  const IndexRange kb = mu0->GetBoundsK(interior);
-
-  const auto beta_dt = integrator->beta[stage - 1] * integrator->dt;
-  const auto gam0 = integrator->gam0[stage - 1];
-  const auto gam1 = integrator->gam1[stage - 1];
-
-  const int ndim = u0_pack.GetNdim();
-  parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "FullUpdate", DevExecSpace(), 0, u0_pack.GetDim(5) - 1, 0,
-      u0_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int m, const int l, const int k, const int j, const int i) {
-        const auto &coords = u0_pack.coords(m);
-        const auto &u0 = u0_pack(m);
-        u0_pack(m, l, k, j, i) = gam0 * u0(l, k, j, i) + gam1 * u1_pack(m, l, k, j, i) +
-                                 beta_dt * FluxDiv_(l, k, j, i, ndim, coords, u0);
-      });
-
-  Kokkos::Profiling::popRegion(); // Task_FullUpdate
-  return TaskStatus::complete;
-}
-
 // See the advection.hpp declaration for a description of how this function gets called.
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
@@ -161,8 +111,11 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
     // compute the divergence of fluxes of conserved variables
-    auto update =
-        tl.AddTask(none, FullUpdate, mu0.get(), mu1.get(), integrator.get(), stage);
+
+    auto update = tl.AddTask(
+        none, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
+        mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
+        integrator->beta[stage - 1] * integrator->dt);
 
     // update ghost cells
     auto send =
