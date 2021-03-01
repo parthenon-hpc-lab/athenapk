@@ -65,7 +65,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             'parthenon/time/integrator=%s' % integrator,
             'parthenon/time/nlim=10',
             'hydro/reconstruction=%s' % recon,
-            'hydro/use_scratch=%s' % "true" if use_scratch else "false",
+            'hydro/use_scratch=%s' % ("true" if use_scratch else "false"),
             ]
 
         return parameters
