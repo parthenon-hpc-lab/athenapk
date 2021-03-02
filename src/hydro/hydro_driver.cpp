@@ -117,13 +117,27 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
         integrator->beta[stage - 1] * integrator->dt);
 
-    // update ghost cells
-    auto send =
-        tl.AddTask(update, parthenon::cell_centered_bvars::SendBoundaryBuffers, mu0);
-    auto recv =
-        tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mu0);
-    auto fill_from_bufs =
-        tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, mu0);
+    const auto &use_pack_in_one =
+        blocks[0]->packages.Get("Hydro")->Param<bool>("use_pack_in_one");
+    if (use_pack_in_one) {
+      // update ghost cells
+      auto send =
+          tl.AddTask(update, parthenon::cell_centered_bvars::SendBoundaryBuffers, mu0);
+      auto recv =
+          tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mu0);
+      auto fill_from_bufs =
+          tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, mu0);
+    } else {
+      for (size_t b = 0; b < mu0->NumBlocks(); b++) {
+        auto &mbu0 = mu0->GetBlockData(b);
+        auto send =
+            tl.AddTask(update, &MeshBlockData<Real>::SendBoundaryBuffers, mbu0.get());
+        auto recv =
+            tl.AddTask(send, &MeshBlockData<Real>::ReceiveBoundaryBuffers, mbu0.get());
+        auto fill_from_bufs =
+            tl.AddTask(recv, &MeshBlockData<Real>::SetBoundaries, mbu0.get());
+      }
+    }
   }
 
   TaskRegion &async_region_3 = tc.AddRegion(num_task_lists_executed_independently);

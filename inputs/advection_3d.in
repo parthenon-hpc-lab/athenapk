@@ -26,6 +26,7 @@ maxdensity_refine_above  = 1.0001
 <parthenon/mesh>
 refinement = adaptive
 numlevel = 3
+pack_size = -1
 
 nx1 = 32
 x1min = -0.5
@@ -65,5 +66,5 @@ reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
-
+use_pack_in_one = true
 

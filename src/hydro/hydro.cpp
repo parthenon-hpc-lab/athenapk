@@ -107,6 +107,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam("use_scratch", use_scratch);
   pkg->AddParam("scratch_level", scratch_level);
 
+  auto use_pack_in_one = pin->GetOrAddBoolean("hydro", "use_pack_in_one", true);
+  pkg->AddParam("use_pack_in_one", use_pack_in_one);
+
   // TODO(pgrete): this needs to be "variable" depending on physics
   int nhydro = 5;
   pkg->AddParam<int>("nhydro", nhydro);
