@@ -37,6 +37,7 @@ method_cfgs = [
     {"use_scratch" : True  , "integrator" : "rk2", "recon" : "plm"},
     {"use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
     {"use_scratch" : True  , "integrator" : "rk1", "recon" : "dc"},
+    {"use_scratch" : True  , "integrator" : "rk3", "recon" : "ppm"},
 ]
 
 class TestCase(utils.test_case.TestCaseAbs):
@@ -90,6 +91,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             'parthenon/meshblock/nx2=%d' % res,
             'parthenon/mesh/nx3=%d' % res,
             'parthenon/meshblock/nx3=%d' % res,
+            'parthenon/mesh/nghost=%d' % (3 if recon == "ppm" else 2),
             'parthenon/time/integrator=%s' % integrator,
             'hydro/reconstruction=%s' % recon,
             'hydro/use_scratch=%s' % ("true" if use_scratch else "false"),

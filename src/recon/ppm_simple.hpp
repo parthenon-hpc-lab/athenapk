@@ -28,7 +28,9 @@
 #include <algorithm> // max()
 #include <math.h>
 
-#include "athena.hpp"
+#include <parthenon/parthenon.hpp>
+
+using parthenon::ScratchPad2D;
 
 //----------------------------------------------------------------------------------------
 //! \fn PPM()
@@ -124,7 +126,6 @@ void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip
   //---- set L/R states ----
   ql_ip1 = qrv;
   qr_i = qlv;
-  return;
 }
 
 //----------------------------------------------------------------------------------------
@@ -132,19 +133,18 @@ void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip
 //  \brief Wrapper function for PPM reconstruction in x1-direction.
 //  This function should be called over [is-1,ie+1] to get BOTH L/R states over [is,ie]
 
-KOKKOS_INLINE_FUNCTION
-void PiecewiseParabolicX1(TeamMember_t const &member, const int m, const int k,
-                          const int j, const int il, const int iu,
-                          const DvceArray5D<Real> &q, ScrArray2D<Real> &ql,
-                          ScrArray2D<Real> &qr) {
-  int nvar = q.extent_int(1);
+template <typename T>
+KOKKOS_INLINE_FUNCTION void
+PiecewiseParabolicX1(parthenon::team_mbr_t const &member, const int k, const int j,
+                     const int il, const int iu, const T &q, ScratchPad2D<Real> &ql,
+                     ScratchPad2D<Real> &qr) {
+  int nvar = q.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
-    par_for_inner(member, il, iu, [&](const int i) {
-      PPM(q(m, n, k, j, i - 2), q(m, n, k, j, i - 1), q(m, n, k, j, i),
-          q(m, n, k, j, i + 1), q(m, n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+    parthenon::par_for_inner(member, il, iu, [&](const int i) {
+      PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+          q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
     });
   }
-  return;
 }
 
 //----------------------------------------------------------------------------------------
@@ -152,19 +152,18 @@ void PiecewiseParabolicX1(TeamMember_t const &member, const int m, const int k,
 //  \brief Wrapper function for PPM reconstruction in x2-direction.
 //  This function should be called over [js-1,je+1] to get BOTH L/R states over [js,je]
 
-KOKKOS_INLINE_FUNCTION
-void PiecewiseParabolicX2(TeamMember_t const &member, const int m, const int k,
-                          const int j, const int il, const int iu,
-                          const DvceArray5D<Real> &q, ScrArray2D<Real> &ql_jp1,
-                          ScrArray2D<Real> &qr_j) {
-  int nvar = q.extent_int(1);
+template <typename T>
+KOKKOS_INLINE_FUNCTION void
+PiecewiseParabolicX2(parthenon::team_mbr_t const &member, const int k, const int j,
+                     const int il, const int iu, const T &q, ScratchPad2D<Real> &ql_jp1,
+                     ScratchPad2D<Real> &qr_j) {
+  int nvar = q.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
-    par_for_inner(member, il, iu, [&](const int i) {
-      PPM(q(m, n, k, j - 2, i), q(m, n, k, j - 1, i), q(m, n, k, j, i),
-          q(m, n, k, j + 1, i), q(m, n, k, j + 2, i), ql_jp1(n, i), qr_j(n, i));
+    parthenon::par_for_inner(member, il, iu, [&](const int i) {
+      PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+          q(n, k, j + 2, i), ql_jp1(n, i), qr_j(n, i));
     });
   }
-  return;
 }
 
 //----------------------------------------------------------------------------------------
@@ -172,17 +171,16 @@ void PiecewiseParabolicX2(TeamMember_t const &member, const int m, const int k,
 //  \brief Wrapper function for PPM reconstruction in x3-direction.
 //  This function should be called over [ks-1,ke+1] to get BOTH L/R states over [ks,ke]
 
-KOKKOS_INLINE_FUNCTION
-void PiecewiseParabolicX3(TeamMember_t const &member, const int m, const int k,
-                          const int j, const int il, const int iu,
-                          const DvceArray5D<Real> &q, ScrArray2D<Real> &ql_kp1,
-                          ScrArray2D<Real> &qr_k) {
-  int nvar = q.extent_int(1);
+template <typename T>
+KOKKOS_INLINE_FUNCTION void
+PiecewiseParabolicX3(parthenon::team_mbr_t const &member, const int k, const int j,
+                     const int il, const int iu, const T &q, ScratchPad2D<Real> &ql_kp1,
+                     ScratchPad2D<Real> &qr_k) {
+  int nvar = q.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
-    par_for_inner(member, il, iu, [&](const int i) {
-      PPM(q(m, n, k - 2, j, i), q(m, n, k - 1, j, i), q(m, n, k, j, i),
-          q(m, n, k + 1, j, i), q(m, n, k + 2, j, i), ql_kp1(n, i), qr_k(n, i));
+    parthenon::par_for_inner(member, il, iu, [&](const int i) {
+      PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
+          q(n, k + 2, j, i), ql_kp1(n, i), qr_k(n, i));
     });
   }
-  return;
 }

@@ -15,6 +15,7 @@
 #include "../main.hpp"
 #include "../pgen/pgen.hpp"
 #include "../recon/plm_simple.hpp"
+#include "../recon/ppm_simple.hpp"
 #include "../recon/recon.hpp"
 #include "../refinement/refinement.hpp"
 #include "defs.hpp"
@@ -67,15 +68,42 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("pack_in_one", pack_in_one);
 
   const auto recon_str = pin->GetString("hydro", "reconstruction");
+  int recon_need_nghost = 3; // largest number for the choices below
   auto recon = Reconstruction::undefined;
   if (recon_str == "dc") {
     recon = Reconstruction::dc;
+    recon_need_nghost = 1;
   } else if (recon_str == "plm") {
     recon = Reconstruction::plm;
+    recon_need_nghost = 2;
+  } else if (recon_str == "ppm") {
+    recon = Reconstruction::ppm;
+    recon_need_nghost = 3;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
   }
   pkg->AddParam<>("reconstruction", recon);
+
+  // not using GetOrAdd here until there's a reasonable default
+  const auto nghost = pin->GetInteger("parthenon/mesh", "nghost");
+  if (nghost < recon_need_nghost) {
+    PARTHENON_FAIL("AthenaPK hydro: Need more ghost zones for chosen reconstruction.");
+  }
+
+  // TODO(pgrete) potentially move this logic closer to the recon itself (e.g., when the
+  // mesh is initialized so that mesh vars can be reused)
+  auto dx1 = (pin->GetReal("parthenon/mesh", "x1max") -
+              pin->GetReal("parthenon/mesh", "x1min")) /
+             static_cast<Real>(pin->GetInteger("parthenon/mesh", "nx1"));
+  auto dx2 = (pin->GetReal("parthenon/mesh", "x2max") -
+              pin->GetReal("parthenon/mesh", "x2min")) /
+             static_cast<Real>(pin->GetInteger("parthenon/mesh", "nx2"));
+  auto dx3 = (pin->GetReal("parthenon/mesh", "x3max") -
+              pin->GetReal("parthenon/mesh", "x3min")) /
+             static_cast<Real>(pin->GetInteger("parthenon/mesh", "nx3"));
+  if ((dx1 != dx2) || (dx2 != dx3)) {
+    PARTHENON_FAIL("AthenaPK hydro: Current simple recon. methods need uniform meshes.");
+  }
 
   const auto integrator_str = pin->GetString("parthenon/time", "integrator");
   auto integrator = Integrator::undefined;
@@ -103,9 +131,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
   }
   auto use_scratch = pin->GetOrAddBoolean("hydro", "use_scratch", true);
-  auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 1);
+  auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 0);
   pkg->AddParam("use_scratch", use_scratch);
   pkg->AddParam("scratch_level", scratch_level);
+
+  if (!use_scratch && (recon == Reconstruction::ppm)) {
+    PARTHENON_FAIL("AthenaPK hydro: Reconstruction needs hydro/use_scratch=true");
+  }
 
   // TODO(pgrete): this needs to be "variable" depending on physics
   int nhydro = 5;
@@ -349,6 +381,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
         if (recon == Reconstruction::dc ||
             (integrator == Integrator::vl2 && stage == 1)) {
           DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        } else if (recon == Reconstruction::ppm) {
+          PiecewiseParabolicX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         } else {
           PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         }
@@ -386,6 +420,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
             if (recon == Reconstruction::dc ||
                 (integrator == Integrator::vl2 && stage == 1)) {
               DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
+            } else if (recon == Reconstruction::ppm) {
+              PiecewiseParabolicX2(member, k, j, il, iu, prim, wlb, wr);
             } else {
               PiecewiseLinearX2(member, k, j, il, iu, prim, wlb, wr);
             }
@@ -430,6 +466,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
             if (recon == Reconstruction::dc ||
                 (integrator == Integrator::vl2 && stage == 1)) {
               DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
+            } else if (recon == Reconstruction::ppm) {
+              PiecewiseParabolicX3(member, k, j, il, iu, prim, wlb, wr);
             } else {
               PiecewiseLinearX3(member, k, j, il, iu, prim, wlb, wr);
             }

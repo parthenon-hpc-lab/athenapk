@@ -31,7 +31,7 @@ enum { IDN = 0, IM1 = 1, IM2 = 2, IM3 = 3, IEN = 4 , NHYDRO = 5};
 // array indices for 1D primitives: velocity, transverse components of field
 enum { IVX = 1, IVY = 2, IVZ = 3, IPR = 4 };
 
-enum class Reconstruction {undefined, dc, plm};
+enum class Reconstruction {undefined, dc, plm, ppm};
 enum class Integrator {undefined, rk1, rk2, vl2, rk3};
 
 constexpr parthenon::Real float_min{std::numeric_limits<float>::min()};
