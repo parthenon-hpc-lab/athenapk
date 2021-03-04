@@ -43,24 +43,18 @@ void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip
 
   // CS08 constant used in second derivative limiter, >1 , independent of h
   const Real C2 = 1.25;
-  const Real c1i = 0.5;
-  const Real c2i = 0.5;
-  const Real c3i = 0.5;
-  const Real c4i = 0.5;
-  const Real c5i = 1.0 / 6.0;
-  const Real c6i = -1.0 / 6.0;
   //--- Step 1. --------------------------------------------------------------------------
   // Reconstruct interface averages <a>_{i-1/2} and <a>_{i+1/2}
   Real qa = (q_i - q_im1);
   Real qb = (q_ip1 - q_i);
-  const Real dd_im1 = c1i * qa + c2i * (q_im1 - q_im2);
-  const Real dd = c1i * qb + c2i * qa;
-  const Real dd_ip1 = c1i * (q_ip2 - q_ip1) + c2i * qb;
+  const Real dd_im1 = 0.5 * qa + 0.5 * (q_im1 - q_im2);
+  const Real dd = 0.5 * qb + 0.5 * qa;
+  const Real dd_ip1 = 0.5 * (q_ip2 - q_ip1) + 0.5 * qb;
 
   // Approximate interface average at i-1/2 and i+1/2 using PPM (CW eq 1.6)
   // KGF: group the biased stencil quantities to preserve FP symmetry
-  Real dph = (c3i * q_im1 + c4i * q_i) + (c5i * dd_im1 + c6i * dd);
-  Real dph_ip1 = (c3i * q_i + c4i * q_ip1) + (c5i * dd + c6i * dd_ip1);
+  Real dph = 0.5 * (q_im1 + q_i) + (dd_im1 - dd) / 6.0;
+  Real dph_ip1 = 0.5 * (q_i + q_ip1) + (dd - dd_ip1) / 6.0;
 
   //--- Step 2a. -----------------------------------------------------------------------
   // Uniform Cartesian-like coordinate: limit interpolated interface states (CD 4.3.1)
@@ -76,7 +70,7 @@ void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip
   // KGF: add the off-centered quantities first to preserve FP symmetry
   qa = 3.0 * (q_im1 + q_i - 2.0 * dph); // (CD eq 85b)
   qb = d2qc_im1;                        // (CD eq 85a) (no 1/2)
-  Real qc = d2qc;                            // (CD eq 85c) (no 1/2)
+  Real qc = d2qc;                       // (CD eq 85c) (no 1/2)
   Real qd = 0.0;
   if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc)) {
     qd =
@@ -108,13 +102,13 @@ void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip
   const Real d2qf = 6.0 * (dph + dph_ip1 - 2.0 * q_i); // a6 coefficient * -2
 
   // Cache Riemann states for both non-/uniform limiters
-  Real qminus = dph;
-  Real qplus = dph_ip1;
+  qr_i = dph;
+  ql_ip1 = dph_ip1;
 
   //--- Step 3. ------------------------------------------------------------------------
   // Compute cell-centered difference stencils (MC section 2.4.1)
-  const Real dqf_minus = q_i - qminus; // (CS eq 25) = -dQ^- in Mignone's notation
-  const Real dqf_plus = qplus - q_i;
+  const Real dqf_minus = q_i - qr_i; // (CS eq 25) = -dQ^- in Mignone's notation
+  const Real dqf_plus = ql_ip1 - q_i;
 
   //--- Step 4. ------------------------------------------------------------------------
   // For uniform Cartesian-like coordinate: apply CS limiters to parabolic interpolant
@@ -153,32 +147,20 @@ void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip
     // Check if relative change in limited 2nd deriv is > roundoff
     if (rho <= (1.0 - (1.0e-12))) {
       // Limit smooth extrema
-      qminus = tmp_m; // (CS eq 23)
-      qplus = tmp_p;
+      qr_i = tmp_m; // (CS eq 23)
+      ql_ip1 = tmp_p;
     }
     // No extrema detected
   } else {
     // Overshoot i-1/2,R / i,(-) state
     if (std::abs(dqf_minus) >= 2.0 * std::abs(dqf_plus)) {
-      qminus = tmp2_m;
+      qr_i = tmp2_m;
     }
     // Overshoot i+1/2,L / i,(+) state
     if (std::abs(dqf_plus) >= 2.0 * std::abs(dqf_minus)) {
-      qplus = tmp2_p;
+      ql_ip1 = tmp2_p;
     }
   }
-
-  //--- Step 5. ------------------------------------------------------------------------
-  // Convert limited cell-centered values to interface-centered L/R Riemann states
-  // both L/R values defined over [il,iu]
-  // ql_iph = qplus;
-  // qr_imh = qminus;
-
-  // compute ql_(i+1/2) and qr_(i-1/2)
-  // ql(n, i + 1) = ql_iph;
-  // qr = qr_imh;
-  ql_ip1 = qplus;
-  qr_i = qminus;
 }
 
 //----------------------------------------------------------------------------------------
