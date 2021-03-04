@@ -3,7 +3,9 @@
 // Copyright(C) 2020 James M. Stone <jmstone@ias.edu> and the Athena code team
 // Licensed under the 3-clause BSD License (the "LICENSE")
 //========================================================================================
-//! \file ppm.cpp
+#ifndef RECONSTRUCT_WENOZ_SIMPLE_HPP_
+#define RECONSTRUCT_WENOZ_SIMPLE_HPP_
+//! \file wenoz_simple.hpp
 //  \brief WENO-Z reconstruction for a Cartesian-like coordinate with uniform spacing.
 //
 // REFERENCES:
@@ -13,7 +15,9 @@
 #include <algorithm> // max()
 #include <math.h>
 
-#include "athena.hpp"
+#include <parthenon/parthenon.hpp>
+
+using parthenon::ScratchPad2D;
 
 //----------------------------------------------------------------------------------------
 //! \fn WENOZ()
@@ -22,7 +26,7 @@
 
 KOKKOS_INLINE_FUNCTION
 void WENOZ(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip1,
-           const Real &q_ip2, Real &ql_ip1, Real &qr_i) noexcept {
+           const Real &q_ip2, Real &ql_ip1, Real &qr_i) {
   // Smooth WENO weights: Note that these are from Del Zanna et al. 2007 (A.18)
   const Real beta_coeff[2]{13. / 12., 0.25};
 
@@ -74,8 +78,6 @@ void WENOZ(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_
   alpha_sum = 6.0 * (alpha[0] + alpha[1] + alpha[2]);
 
   qr_i = (f[0] * alpha[0] + f[1] * alpha[1] + f[2] * alpha[2]) / alpha_sum;
-
-  return;
 }
 
 //----------------------------------------------------------------------------------------
@@ -83,18 +85,17 @@ void WENOZ(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_
 //  \brief Wrapper function for WENOZ reconstruction in x1-direction.
 //  This function should be called over [is-1,ie+1] to get BOTH L/R states over [is,ie]
 
-KOKKOS_INLINE_FUNCTION
-void WENOZX1(TeamMember_t const &member, const int m, const int k, const int j,
-             const int il, const int iu, const DvceArray5D<Real> &q, ScrArray2D<Real> &ql,
-             ScrArray2D<Real> &qr) {
-  int nvar = q.extent_int(1);
+template <typename T>
+KOKKOS_INLINE_FUNCTION void WENOZX1(parthenon::team_mbr_t const &member, const int k,
+                                    const int j, const int il, const int iu, const T &q,
+                                    ScratchPad2D<Real> &ql, ScratchPad2D<Real> &qr) {
+  int nvar = q.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
-    par_for_inner(member, il, iu, [&](const int i) {
-      WENOZ(q(m, n, k, j, i - 2), q(m, n, k, j, i - 1), q(m, n, k, j, i),
-            q(m, n, k, j, i + 1), q(m, n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+    parthenon::par_for_inner(member, il, iu, [&](const int i) {
+      WENOZ(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+            q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
     });
   }
-  return;
 }
 
 //----------------------------------------------------------------------------------------
@@ -102,18 +103,17 @@ void WENOZX1(TeamMember_t const &member, const int m, const int k, const int j,
 //  \brief Wrapper function for WENOZ reconstruction in x1-direction.
 //  This function should be called over [js-1,je+1] to get BOTH L/R states over [js,je]
 
-KOKKOS_INLINE_FUNCTION
-void WENOZX2(TeamMember_t const &member, const int m, const int k, const int j,
-             const int il, const int iu, const DvceArray5D<Real> &q,
-             ScrArray2D<Real> &ql_jp1, ScrArray2D<Real> &qr_j) {
-  int nvar = q.extent_int(1);
+template <typename T>
+KOKKOS_INLINE_FUNCTION void
+WENOZX2(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
+        const int iu, const T &q, ScratchPad2D<Real> &ql_jp1, ScratchPad2D<Real> &qr_j) {
+  int nvar = q.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
-    par_for_inner(member, il, iu, [&](const int i) {
-      WENOZ(q(m, n, k, j - 2, i), q(m, n, k, j - 1, i), q(m, n, k, j, i),
-            q(m, n, k, j + 1, i), q(m, n, k, j + 2, i), ql_jp1(n, i), qr_j(n, i));
+    parthenon::par_for_inner(member, il, iu, [&](const int i) {
+      WENOZ(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+            q(n, k, j + 2, i), ql_jp1(n, i), qr_j(n, i));
     });
   }
-  return;
 }
 
 //----------------------------------------------------------------------------------------
@@ -121,16 +121,16 @@ void WENOZX2(TeamMember_t const &member, const int m, const int k, const int j,
 //  \brief Wrapper function for WENOZ reconstruction in x1-direction.
 //  This function should be called over [ks-1,ke+1] to get BOTH L/R states over [ks,ke]
 
-KOKKOS_INLINE_FUNCTION
-void WENOZX3(TeamMember_t const &member, const int m, const int k, const int j,
-             const int il, const int iu, const DvceArray5D<Real> &q,
-             ScrArray2D<Real> &ql_kp1, ScrArray2D<Real> &qr_k) {
-  int nvar = q.extent_int(1);
+template <typename T>
+KOKKOS_INLINE_FUNCTION void
+WENOZX3(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
+        const int iu, const T &q, ScratchPad2D<Real> &ql_kp1, ScratchPad2D<Real> &qr_k) {
+  int nvar = q.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
-    par_for_inner(member, il, iu, [&](const int i) {
-      WENOZ(q(m, n, k - 2, j, i), q(m, n, k - 1, j, i), q(m, n, k, j, i),
-            q(m, n, k + 1, j, i), q(m, n, k + 2, j, i), ql_kp1(n, i), qr_k(n, i));
+    parthenon::par_for_inner(member, il, iu, [&](const int i) {
+      WENOZ(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
+            q(n, k + 2, j, i), ql_kp1(n, i), qr_k(n, i));
     });
   }
-  return;
 }
+#endif // RECONSTRUCT_WENOZ_SIMPLE_HPP_

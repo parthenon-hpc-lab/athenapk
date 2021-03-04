@@ -50,6 +50,9 @@ perf_cfgs = [
     {"mx" : 256, "mb" : 256, "use_scratch" : True , "integrator" : "rk3", "recon" : "ppm"},
     {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk3", "recon" : "ppm"},
     {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "rk3", "recon" : "ppm"},
+    {"mx" : 256, "mb" : 256, "use_scratch" : True , "integrator" : "rk3", "recon" : "wenoz"},
+    {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk3", "recon" : "wenoz"},
+    {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "rk3", "recon" : "wenoz"},
 ]
 
 class TestCase(utils.test_case.TestCaseAbs):
@@ -67,7 +70,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             'parthenon/meshblock/nx2=%d' % mb,
             'parthenon/mesh/nx3=%d' % mx,
             'parthenon/meshblock/nx3=%d' % mb,
-            'parthenon/mesh/nghost=%d' % (3 if recon == "ppm" else 2),
+            'parthenon/mesh/nghost=%d' % (3 if (recon == "ppm" or recon == "wenoz") else 2),
             'parthenon/mesh/refinement=none',
             'parthenon/time/integrator=%s' % integrator,
             'parthenon/time/nlim=10',

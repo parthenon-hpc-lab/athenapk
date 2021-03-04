@@ -17,6 +17,7 @@
 #include "../recon/plm_simple.hpp"
 #include "../recon/ppm_simple.hpp"
 #include "../recon/recon.hpp"
+#include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
 #include "defs.hpp"
 #include "hydro.hpp"
@@ -79,6 +80,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (recon_str == "ppm") {
     recon = Reconstruction::ppm;
     recon_need_nghost = 3;
+  } else if (recon_str == "wenoz") {
+    recon = Reconstruction::wenoz;
+    recon_need_nghost = 3;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
   }
@@ -135,7 +139,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam("use_scratch", use_scratch);
   pkg->AddParam("scratch_level", scratch_level);
 
-  if (!use_scratch && (recon == Reconstruction::ppm)) {
+  if (!use_scratch &&
+      ((recon == Reconstruction::ppm) || (recon == Reconstruction::wenoz))) {
     PARTHENON_FAIL("AthenaPK hydro: Reconstruction needs hydro/use_scratch=true");
   }
 
@@ -383,6 +388,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
           DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         } else if (recon == Reconstruction::ppm) {
           PiecewiseParabolicX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        } else if (recon == Reconstruction::wenoz) {
+          WENOZX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         } else {
           PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         }
@@ -422,6 +429,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
               DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
             } else if (recon == Reconstruction::ppm) {
               PiecewiseParabolicX2(member, k, j, il, iu, prim, wlb, wr);
+            } else if (recon == Reconstruction::wenoz) {
+              WENOZX2(member, k, j, il, iu, prim, wlb, wr);
             } else {
               PiecewiseLinearX2(member, k, j, il, iu, prim, wlb, wr);
             }
@@ -468,6 +477,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
               DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
             } else if (recon == Reconstruction::ppm) {
               PiecewiseParabolicX3(member, k, j, il, iu, prim, wlb, wr);
+            } else if (recon == Reconstruction::wenoz) {
+              WENOZX3(member, k, j, il, iu, prim, wlb, wr);
             } else {
               PiecewiseLinearX3(member, k, j, il, iu, prim, wlb, wr);
             }
