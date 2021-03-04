@@ -370,7 +370,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
   size_t scratch_size_in_bytes =
-      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 3;
+      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 2;
 
   // TODO(pgrete): hardcoded stages
   parthenon::par_for_outer(
@@ -402,6 +402,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
+    scratch_size_in_bytes = parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 3;
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
     if (pmb->block_size.nx3 == 1) // 2D
