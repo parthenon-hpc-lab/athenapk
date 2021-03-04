@@ -94,10 +94,6 @@ cuda-regression:
       export N=$M;
         ./bin/athenaPK -i ../inputs/linear_wave3d.in parthenon/meshblock/nx1=$((2*N)) parthenon/meshblock/nx2=$N parthenon/meshblock/nx3=$N parthenon/mesh/nx1=$((2*M)) parthenon/mesh/nx2=$M parthenon/mesh/nx3=$M hydro/use_scratch=true hydro/scratch_level=1;
       done
-    - export N=256
-    - export M=256
-    - ./bin/athenaPK -i ../inputs/linear_wave3d.in parthenon/meshblock/nx1=$N parthenon/meshblock/nx2=$N parthenon/meshblock/nx3=$N parthenon/mesh/nx1=$M parthenon/mesh/nx2=$M parthenon/mesh/nx3=$M hydro/use_scratch=false hydro/scratch_level=0 parthenon/time/nlim=20
-    - ./bin/athenaPK -i ../inputs/linear_wave3d.in parthenon/meshblock/nx1=$N parthenon/meshblock/nx2=$N parthenon/meshblock/nx3=$N parthenon/mesh/nx1=$M parthenon/mesh/nx2=$M parthenon/mesh/nx3=$M hydro/use_scratch=true hydro/scratch_level=1 parthenon/time/nlim=20
     - diff linearwave-errors.dat ../tst/regression/linearwave-errors.dat.ref
   artifacts:
     when: always
