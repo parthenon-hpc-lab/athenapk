@@ -156,7 +156,6 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         plt.plot([32,512], [1e-6,1e-6/(512/32)], '--', label="first order")
         plt.plot([32,512], [2e-7,2e-7/(512/32)**2], '--', label="second order")
-        plt.plot([32,512], [5.4e-8,5.4e-8/(512/32)**3], '--', label="third order")
         plt.plot([32,512], [3.6e-9,3.6e-9/(512/32)**3], '--', label="third order")
 
         plt.legend()
