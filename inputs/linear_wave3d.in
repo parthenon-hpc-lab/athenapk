@@ -17,6 +17,7 @@ test      = true
 
 <parthenon/mesh>
 refinement = none
+nghost = 2
 
 nx1 = 64
 x1min = 0.0

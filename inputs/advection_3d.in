@@ -26,6 +26,7 @@ maxdensity_refine_above  = 1.0001
 <parthenon/mesh>
 refinement = adaptive
 numlevel = 3
+nghost = 2
 
 nx1 = 32
 x1min = -0.5

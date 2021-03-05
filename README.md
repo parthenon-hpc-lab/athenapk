@@ -11,8 +11,8 @@ Neither other versions or nor using preinstalled Parthenon/Kokkos libraries have
 
 Current features include
 - first and second order hydrodynamics with
-  - RK1, RK2, VL2 integrators
-  - piecewise constant (DC) and piecewise linear (PLM) reconstruction
+  - RK1, RK2, RK3, VL2 integrators
+  - piecewise constant (DC), piecewise linear (PLM), piecewise parabolic (PPM), and WENOZ reconstruction
   - HLLE Riemann solver
   - Adiabatic equation of state
 - static and adaptive mesh refinement

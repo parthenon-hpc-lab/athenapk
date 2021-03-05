@@ -16,8 +16,10 @@ rho_r     = 0.125
 pres_r    = 0.1
 u_r       = 0.0
 x_discont = 0.5
+
 <parthenon/mesh>
 refinement = none
+nghost = 2
 
 nx1 = 128
 x1min = 0.0

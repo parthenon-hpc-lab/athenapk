@@ -11,6 +11,7 @@ problem_id = blast
 <parthenon/mesh>
 refinement = adaptive
 numlevel = 3
+nghost = 2
 
 nx1 = 32
 x1min = -0.5

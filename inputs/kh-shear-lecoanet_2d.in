@@ -24,6 +24,7 @@ threshold_xyvelocity_gradient  = 0.001
 <parthenon/mesh>
 refinement = none
 numlevel = 3
+nghost = 2
 
 nx1 = 128
 x1min = -0.5

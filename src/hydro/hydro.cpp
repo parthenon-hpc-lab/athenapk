@@ -14,12 +14,14 @@
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
 #include "../pgen/pgen.hpp"
+#include "../recon/plm_simple.hpp"
+#include "../recon/ppm_simple.hpp"
 #include "../recon/recon.hpp"
+#include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
 #include "defs.hpp"
 #include "hydro.hpp"
 #include "reconstruct/dc_inline.hpp"
-#include "reconstruct/plm_inline.hpp"
 #include "rsolvers/hydro_hlle.hpp"
 #include "rsolvers/riemann.hpp"
 #include "utils/error_checking.hpp"
@@ -67,15 +69,45 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("pack_in_one", pack_in_one);
 
   const auto recon_str = pin->GetString("hydro", "reconstruction");
+  int recon_need_nghost = 3; // largest number for the choices below
   auto recon = Reconstruction::undefined;
   if (recon_str == "dc") {
     recon = Reconstruction::dc;
+    recon_need_nghost = 1;
   } else if (recon_str == "plm") {
     recon = Reconstruction::plm;
+    recon_need_nghost = 2;
+  } else if (recon_str == "ppm") {
+    recon = Reconstruction::ppm;
+    recon_need_nghost = 3;
+  } else if (recon_str == "wenoz") {
+    recon = Reconstruction::wenoz;
+    recon_need_nghost = 3;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
   }
   pkg->AddParam<>("reconstruction", recon);
+
+  // not using GetOrAdd here until there's a reasonable default
+  const auto nghost = pin->GetInteger("parthenon/mesh", "nghost");
+  if (nghost < recon_need_nghost) {
+    PARTHENON_FAIL("AthenaPK hydro: Need more ghost zones for chosen reconstruction.");
+  }
+
+  // TODO(pgrete) potentially move this logic closer to the recon itself (e.g., when the
+  // mesh is initialized so that mesh vars can be reused)
+  auto dx1 = (pin->GetReal("parthenon/mesh", "x1max") -
+              pin->GetReal("parthenon/mesh", "x1min")) /
+             static_cast<Real>(pin->GetInteger("parthenon/mesh", "nx1"));
+  auto dx2 = (pin->GetReal("parthenon/mesh", "x2max") -
+              pin->GetReal("parthenon/mesh", "x2min")) /
+             static_cast<Real>(pin->GetInteger("parthenon/mesh", "nx2"));
+  auto dx3 = (pin->GetReal("parthenon/mesh", "x3max") -
+              pin->GetReal("parthenon/mesh", "x3min")) /
+             static_cast<Real>(pin->GetInteger("parthenon/mesh", "nx3"));
+  if ((dx1 != dx2) || (dx2 != dx3)) {
+    PARTHENON_FAIL("AthenaPK hydro: Current simple recon. methods need uniform meshes.");
+  }
 
   const auto integrator_str = pin->GetString("parthenon/time", "integrator");
   auto integrator = Integrator::undefined;
@@ -103,9 +135,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
   }
   auto use_scratch = pin->GetOrAddBoolean("hydro", "use_scratch", true);
-  auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 1);
+  auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 0);
   pkg->AddParam("use_scratch", use_scratch);
   pkg->AddParam("scratch_level", scratch_level);
+
+  if (!use_scratch &&
+      ((recon == Reconstruction::ppm) || (recon == Reconstruction::wenoz))) {
+    PARTHENON_FAIL("AthenaPK hydro: Reconstruction needs hydro/use_scratch=true");
+  }
 
   // TODO(pgrete): this needs to be "variable" depending on physics
   int nhydro = 5;
@@ -333,7 +370,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
   size_t scratch_size_in_bytes =
-      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 7;
+      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 2;
 
   // TODO(pgrete): hardcoded stages
   parthenon::par_for_outer(
@@ -349,17 +386,12 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
         if (recon == Reconstruction::dc ||
             (integrator == Integrator::vl2 && stage == 1)) {
           DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        } else if (recon == Reconstruction::ppm) {
+          PiecewiseParabolicX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        } else if (recon == Reconstruction::wenoz) {
+          WENOZX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         } else {
-          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, coords, prim, wl, wr, qc,
-                            dql, dqr, dqm);
+          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         }
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
@@ -370,6 +402,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
+    scratch_size_in_bytes = parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 3;
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
     if (pmb->block_size.nx3 == 1) // 2D
@@ -390,37 +423,25 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
                                            nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
                                             nx1);
-          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          // reconstruct the first row
-          if (recon == Reconstruction::dc ||
-              (integrator == Integrator::vl2 && stage == 1)) {
-            DonorCellX2(member, k, jb.s - 1, il, iu, prim, wl, wr);
-          } else {
-            PiecewiseLinearX2(member, k, jb.s - 1, il, iu, coords, prim, wl, wr, qc, dql,
-                              dqr, dqm);
-          }
-          // Sync all threads in the team so that scratch memory is consistent
-          member.team_barrier();
-          for (int j = jb.s; j <= jb.e + 1; ++j) {
+          for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
             if (recon == Reconstruction::dc ||
                 (integrator == Integrator::vl2 && stage == 1)) {
               DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
+            } else if (recon == Reconstruction::ppm) {
+              PiecewiseParabolicX2(member, k, j, il, iu, prim, wlb, wr);
+            } else if (recon == Reconstruction::wenoz) {
+              WENOZX2(member, k, j, il, iu, prim, wlb, wr);
             } else {
-              PiecewiseLinearX2(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
-                                dqm);
+              PiecewiseLinearX2(member, k, j, il, iu, prim, wlb, wr);
             }
+            // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
-            RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos);
-            member.team_barrier();
+            if (j > jb.s - 1) {
+              RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos);
+              member.team_barrier();
+            }
 
             // swap the arrays for the next step
             auto *tmp = wl.data();
@@ -450,38 +471,25 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
                                            nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
                                             nx1);
-          parthenon::ScratchPad2D<Real> qc(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> dql(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqr(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          parthenon::ScratchPad2D<Real> dqm(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
-          // reconstruct the first row
-          if (recon == Reconstruction::dc ||
-              (integrator == Integrator::vl2 && stage == 1)) {
-            DonorCellX3(member, kb.s - 1, j, il, iu, prim, wl, wr);
-          } else {
-            PiecewiseLinearX3(member, kb.s - 1, j, il, iu, coords, prim, wl, wr, qc, dql,
-                              dqr, dqm);
-          }
-          // Sync all threads in the team so that scratch memory is consistent
-          member.team_barrier();
-          for (int k = kb.s; k <= kb.e + 1; ++k) {
+          for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
             if (recon == Reconstruction::dc ||
                 (integrator == Integrator::vl2 && stage == 1)) {
               DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
+            } else if (recon == Reconstruction::ppm) {
+              PiecewiseParabolicX3(member, k, j, il, iu, prim, wlb, wr);
+            } else if (recon == Reconstruction::wenoz) {
+              WENOZX3(member, k, j, il, iu, prim, wlb, wr);
             } else {
-              PiecewiseLinearX3(member, k, j, il, iu, coords, prim, wlb, wr, qc, dql, dqr,
-                                dqm);
+              PiecewiseLinearX3(member, k, j, il, iu, prim, wlb, wr);
             }
+            // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
-            RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
-            member.team_barrier();
-
+            if (k > kb.s - 1) {
+              RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
+              member.team_barrier();
+            }
             // swap the arrays for the next step
             auto *tmp = wl.data();
             wl.assign_data(wlb.data());

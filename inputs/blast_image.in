@@ -12,6 +12,7 @@ pgen = blast
 <parthenon/mesh>
 refinement = adaptive
 numlevel = 2
+nghost = 2
 
 nx1 = 256 
 x1min = -0.5

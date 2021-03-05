@@ -31,12 +31,14 @@ sys.dont_write_bytecode = True
 # if this is updated make sure to update the assert statements for the number of MPI ranks, too
 lin_res = [16, 32, 64, 128] # resolution for linear convergence
 method_cfgs = [
+    {"use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
+    {"use_scratch" : True  , "integrator" : "rk1", "recon" : "dc"},
     {"use_scratch" : False , "integrator" : "vl2", "recon" : "plm"},
     {"use_scratch" : True  , "integrator" : "vl2", "recon" : "plm"},
     {"use_scratch" : False , "integrator" : "rk2", "recon" : "plm"},
     {"use_scratch" : True  , "integrator" : "rk2", "recon" : "plm"},
-    {"use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
-    {"use_scratch" : True  , "integrator" : "rk1", "recon" : "dc"},
+    {"use_scratch" : True  , "integrator" : "rk3", "recon" : "ppm"},
+    {"use_scratch" : True  , "integrator" : "rk3", "recon" : "wenoz"},
 ]
 
 class TestCase(utils.test_case.TestCaseAbs):
@@ -90,6 +92,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             'parthenon/meshblock/nx2=%d' % res,
             'parthenon/mesh/nx3=%d' % res,
             'parthenon/meshblock/nx3=%d' % res,
+            'parthenon/mesh/nghost=%d' % (3 if (recon == "ppm" or recon == "wenoz") else 2),
             'parthenon/time/integrator=%s' % integrator,
             'hydro/reconstruction=%s' % recon,
             'hydro/use_scratch=%s' % ("true" if use_scratch else "false"),
@@ -139,7 +142,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         data = np.genfromtxt(os.path.join(parameters.output_path, "linearwave-errors.dat"))
 
         # quick and dirty test
-        if data[2,4] > 1.547584e-08:
+        if data[10,4] > 1.547584e-08:
             analyze_status = False
 
         markers = 'ov^<>sp*hXD'
@@ -153,6 +156,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         plt.plot([32,512], [1e-6,1e-6/(512/32)], '--', label="first order")
         plt.plot([32,512], [2e-7,2e-7/(512/32)**2], '--', label="second order")
+        plt.plot([32,512], [3.6e-9,3.6e-9/(512/32)**3], '--', label="third order")
 
         plt.legend()
         plt.xscale("log")

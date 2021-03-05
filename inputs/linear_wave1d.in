@@ -18,6 +18,7 @@ ang_3     = 0.0       # rotation of k around x2 axis
 
 <mesh>
 refinement = none
+nghost = 2
 
 nx1 = 128
 x1min = 0.0
