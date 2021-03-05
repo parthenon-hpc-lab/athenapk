@@ -15,7 +15,7 @@
 #include "../main.hpp"
 #include "../pgen/pgen.hpp"
 #include "../recon/plm_simple.hpp"
-#include "../recon/ppm_simple2.hpp"
+#include "../recon/ppm_simple.hpp"
 #include "../recon/recon.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"

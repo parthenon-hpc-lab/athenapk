@@ -3,27 +3,22 @@
 // Copyright(C) 2020 James M. Stone <jmstone@ias.edu> and the Athena code team
 // Licensed under the 3-clause BSD License (the "LICENSE")
 //========================================================================================
-//! \file ppm.cpp
-//  \brief piecewise parabolic reconstruction with Collela-Sekora extremum preserving
-//  limiters for a Cartesian-like coordinate with uniform spacing.
-//
-// This version does not include the extensions to the CS limiters described by
-// McCorquodale et al. and as implemented in Athena++ by K. Felker.  This is to keep the
-// code simple, because Kyle found these extensions did not improve the solution very
-// much in practice, and because they can break monotonicity.
-//
-// REFERENCES:
-// (CW) P. Colella & P. Woodward, "The Piecewise Parabolic Method (PPM) for Gas-Dynamical
-// Simulations", JCP, 54, 174 (1984)
-//
-// (CS) P. Colella & M. Sekora, "A limiter for PPM that preserves accuracy at smooth
-// extrema", JCP, 227, 7069 (2008)
-//
-// (MC) P. McCorquodale & P. Colella,  "A high-order finite-volume method for conservation
-// laws on locally refined grids", CAMCoS, 6, 1 (2011)
-//
-// (PH) L. Peterson & G.W. Hammett, "Positivity preservation and advection algorithms
-// with application to edge plasma turbulence", SIAM J. Sci. Com, 35, B576 (2013)
+//! \brief piecewise parabolic reconstruction with modified McCorquodale/Colella limiter
+//!        for a Cartesian-like coordinate with uniform spacing
+//! Operates on the entire nx4 range of a single input.
+//! No assumptions of hydrodynamic fluid variable input; no characteristic projection.
+//!
+//! REFERENCES:
+//! - (CW) P. Colella & P. Woodward, "The Piecewise Parabolic Method (PPM) for Gas-
+//!   Dynamical Simulations", JCP, 54, 174 (1984)
+//! - (CS) P. Colella & M. Sekora, "A limiter for PPM that preserves accuracy at smooth
+//!   extrema", JCP, 227, 7069 (2008)
+//! - (MC) P. McCorquodale & P. Colella,  "A high-order finite-volume method for
+//!   conservation laws on locally refined grids", CAMCoS, 6, 1 (2011)
+//! - (CD) P. Colella, M.R. Dorr, J. Hittinger, D. Martin, "High-order, finite-volume
+//!   methods in mapped coordinates", JCP, 230, 2952 (2011)
+//! - (Mignone) A. Mignone, "High-order conservative reconstruction schemes for finite
+//!   volume methods in cylindrical and spherical coordinates", JCP, 270, 784 (2014
 
 #include <algorithm> // max()
 #include <math.h>
@@ -40,92 +35,127 @@ using parthenon::ScratchPad2D;
 KOKKOS_INLINE_FUNCTION
 void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip1,
          const Real &q_ip2, Real &ql_ip1, Real &qr_i) {
-  //---- Compute L/R values (CS eqns 12-15, PH 3.26 and 3.27) ----
-  // qlv = q at left  side of cell-center = q[i-1/2] = a_{j,-} in CS
-  // qrv = q at right side of cell-center = q[i+1/2] = a_{j,+} in CS
-  Real qlv = (7. * (q_i + q_im1) - (q_im2 + q_ip1)) / 12.0;
-  Real qrv = (7. * (q_i + q_ip1) - (q_im1 + q_ip2)) / 12.0;
 
-  //---- Apply CS monotonicity limiters to qrv and qlv ----
-  // approximate second derivatives at i-1/2 (PH 3.35)
-  Real d2qc = 3.0 * (q_im1 - 2.0 * qlv + q_i);
-  Real d2ql = (q_im2 - 2.0 * q_im1 + q_i);
-  Real d2qr = (q_im1 - 2.0 * q_i + q_ip1);
+  // CS08 constant used in second derivative limiter, >1 , independent of h
+  const Real C2 = 1.25;
+  //--- Step 1. --------------------------------------------------------------------------
+  // Reconstruct interface averages <a>_{i-1/2} and <a>_{i+1/2}
+  Real qa = (q_i - q_im1);
+  Real qb = (q_ip1 - q_i);
+  const Real dd_im1 = 0.5 * qa + 0.5 * (q_im1 - q_im2);
+  const Real dd = 0.5 * qb + 0.5 * qa;
+  const Real dd_ip1 = 0.5 * (q_ip2 - q_ip1) + 0.5 * qb;
 
-  // limit second derivative (PH 3.36)
-  Real d2qlim = 0.0;
-  Real lim_slope = fmin(fabs(d2ql), fabs(d2qr));
-  if (d2qc > 0.0 && d2ql > 0.0 && d2qr > 0.0) {
-    d2qlim = SIGN(d2qc) * fmin(1.25 * lim_slope, fabs(d2qc));
+  // Approximate interface average at i-1/2 and i+1/2 using PPM (CW eq 1.6)
+  // KGF: group the biased stencil quantities to preserve FP symmetry
+  Real dph = 0.5 * (q_im1 + q_i) + (dd_im1 - dd) / 6.0;
+  Real dph_ip1 = 0.5 * (q_i + q_ip1) + (dd - dd_ip1) / 6.0;
+
+  //--- Step 2a. -----------------------------------------------------------------------
+  // Uniform Cartesian-like coordinate: limit interpolated interface states (CD 4.3.1)
+  // approximate second derivative at interfaces for smooth extrema preservation
+  // KGF: add the off-centered quantities first to preserve FP symmetry
+  const Real d2qc_im1 = q_im2 + q_i - 2.0 * q_im1;
+  const Real d2qc = q_im1 + q_ip1 - 2.0 * q_i; // (CD eq 85a) (no 1/2)
+  const Real d2qc_ip1 = q_i + q_ip2 - 2.0 * q_ip1;
+
+  // i-1/2
+  Real qa_tmp = dph - q_im1; // (CD eq 84a)
+  Real qb_tmp = q_i - dph;   // (CD eq 84b)
+  // KGF: add the off-centered quantities first to preserve FP symmetry
+  qa = 3.0 * (q_im1 + q_i - 2.0 * dph); // (CD eq 85b)
+  qb = d2qc_im1;                        // (CD eq 85a) (no 1/2)
+  Real qc = d2qc;                       // (CD eq 85c) (no 1/2)
+  Real qd = 0.0;
+  if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc)) {
+    qd =
+        SIGN(qa) * std::min(C2 * std::abs(qb), std::min(C2 * std::abs(qc), std::abs(qa)));
   }
-  if (d2qc < 0.0 && d2ql < 0.0 && d2qr < 0.0) {
-    d2qlim = SIGN(d2qc) * fmin(1.25 * lim_slope, fabs(d2qc));
+  Real dph_tmp = 0.5 * (q_im1 + q_i) - qd / 6.0;
+  if (qa_tmp * qb_tmp < 0.0) { // Local extrema detected at i-1/2 face
+    dph = dph_tmp;
   }
-  // compute limited value for qlv (PH 3.34)
-  qlv = 0.5 * (q_i + q_im1) - d2qlim / 6.0;
 
-  // approximate second derivatives at i+1/2 (PH 3.35)
-  d2qc = 3.0 * (q_i - 2.0 * qrv + q_ip1);
-  d2ql = d2qr;
-  d2qr = (q_i - 2.0 * q_ip1 + q_ip2);
-
-  // limit second derivative (PH 3.36)
-  d2qlim = 0.0;
-  lim_slope = fmin(fabs(d2ql), fabs(d2qr));
-  if (d2qc > 0.0 && d2ql > 0.0 && d2qr > 0.0) {
-    d2qlim = SIGN(d2qc) * fmin(1.25 * lim_slope, fabs(d2qc));
+  // i+1/2
+  qa_tmp = dph_ip1 - q_i;   // (CD eq 84a)
+  qb_tmp = q_ip1 - dph_ip1; // (CD eq 84b)
+  // KGF: add the off-centered quantities first to preserve FP symmetry
+  qa = 3.0 * (q_i + q_ip1 - 2.0 * dph_ip1); // (CD eq 85b)
+  qb = d2qc;                                // (CD eq 85a) (no 1/2)
+  qc = d2qc_ip1;                            // (CD eq 85c) (no 1/2)
+  qd = 0.0;
+  if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc)) {
+    qd =
+        SIGN(qa) * std::min(C2 * std::abs(qb), std::min(C2 * std::abs(qc), std::abs(qa)));
   }
-  if (d2qc < 0.0 && d2ql < 0.0 && d2qr < 0.0) {
-    d2qlim = SIGN(d2qc) * fmin(1.25 * lim_slope, fabs(d2qc));
+  Real dphip1_tmp = 0.5 * (q_i + q_ip1) - qd / 6.0;
+  if (qa_tmp * qb_tmp < 0.0) { // Local extrema detected at i+1/2 face
+    dph_ip1 = dphip1_tmp;
   }
-  // compute limited value for qrv (PH 3.33)
-  qrv = 0.5 * (q_i + q_ip1) - d2qlim / 6.0;
 
-  //---- identify extrema, use smooth extremum limiter ----
-  // CS 20 (missing "OR"), and PH 3.31
-  Real qa = (qrv - q_i) * (q_i - qlv);
-  Real qb = (q_im1 - q_i) * (q_i - q_ip1);
-  if (qa <= 0.0 || qb <= 0.0) {
-    // approximate secnd derivates (PH 3.37)
-    Real d2q = 6.0 * (qlv - 2.0 * q_i + qrv);
-    Real d2qc = (q_im1 - 2.0 * q_i + q_ip1);
-    Real d2ql = (q_im2 - 2.0 * q_im1 + q_i);
-    Real d2qr = (q_i - 2.0 * q_ip1 + q_ip2);
+  // KGF: add the off-centered quantities first to preserve FP symmetry
+  const Real d2qf = 6.0 * (dph + dph_ip1 - 2.0 * q_i); // a6 coefficient * -2
 
-    // limit second derivatives (PH 3.38)
-    Real d2qlim = 0.0;
-    Real lim_slope = fmin(fabs(d2ql), fabs(d2qr));
-    lim_slope = fmin(fabs(d2qc), lim_slope);
-    if (d2qc > 0.0 && d2ql > 0.0 && d2qr > 0.0 && d2q > 0.0) {
-      d2qlim = SIGN(d2q) * fmin(1.25 * lim_slope, fabs(d2q));
+  // Cache Riemann states for both non-/uniform limiters
+  qr_i = dph;
+  ql_ip1 = dph_ip1;
+
+  //--- Step 3. ------------------------------------------------------------------------
+  // Compute cell-centered difference stencils (MC section 2.4.1)
+  const Real dqf_minus = q_i - qr_i; // (CS eq 25) = -dQ^- in Mignone's notation
+  const Real dqf_plus = ql_ip1 - q_i;
+
+  //--- Step 4. ------------------------------------------------------------------------
+  // For uniform Cartesian-like coordinate: apply CS limiters to parabolic interpolant
+  qa_tmp = dqf_minus * dqf_plus;
+  qb_tmp = (q_ip1 - q_i) * (q_i - q_im1);
+
+  qa = d2qc_im1;
+  qb = d2qc;
+  qc = d2qc_ip1;
+  qd = d2qf;
+  Real qe = 0.0;
+  if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc) && SIGN(qa) == SIGN(qd)) {
+    // Extrema is smooth
+    qe = SIGN(qd) * std::min(std::min(C2 * std::abs(qa), C2 * std::abs(qb)),
+                             std::min(C2 * std::abs(qc),
+                                      std::abs(qd))); // (CS eq 22)
+  }
+
+  // Check if 2nd derivative is close to roundoff error
+  qa = std::max(std::abs(q_im1), std::abs(q_im2));
+  qb = std::max(std::max(std::abs(q_i), std::abs(q_ip1)), std::abs(q_ip2));
+
+  Real rho = 0.0;
+  if (std::abs(qd) > (1.0e-12) * std::max(qa, qb)) {
+    // Limiter is not sensitive to roundoff. Use limited ratio (MC eq 27)
+    rho = qe / qd;
+  }
+
+  Real tmp_m = q_i - rho * dqf_minus;
+  Real tmp_p = q_i + rho * dqf_plus;
+  Real tmp2_m = q_i - 2.0 * dqf_plus;
+  Real tmp2_p = q_i + 2.0 * dqf_minus;
+
+  // Check for local extrema
+  if ((qa_tmp <= 0.0 || qb_tmp <= 0.0)) {
+    // Check if relative change in limited 2nd deriv is > roundoff
+    if (rho <= (1.0 - (1.0e-12))) {
+      // Limit smooth extrema
+      qr_i = tmp_m; // (CS eq 23)
+      ql_ip1 = tmp_p;
     }
-    if (d2qc < 0.0 && d2ql < 0.0 && d2qr < 0.0 && d2q < 0.0) {
-      d2qlim = SIGN(d2q) * fmin(1.25 * lim_slope, fabs(d2q));
-    }
-
-    // limit L/R states at extrema (PH 3.39)
-    if (d2q == 0.0) { // revert to donor cell
-      qlv = q_i;
-      qrv = q_i;
-    } else { // add limited slope (PH 3.39)
-      qlv = q_i + (qlv - q_i) * d2qlim / d2q;
-      qrv = q_i + (qrv - q_i) * d2qlim / d2q;
-    }
+    // No extrema detected
   } else {
-    // Monotonize again, away from extrema (CW eqn 1.10, PH 3.32)
-    Real qc = qrv - q_i;
-    Real qd = qlv - q_i;
-    if (fabs(qc) >= 2.0 * fabs(qd)) {
-      qrv = q_i - 2.0 * qd;
+    // Overshoot i-1/2,R / i,(-) state
+    if (std::abs(dqf_minus) >= 2.0 * std::abs(dqf_plus)) {
+      qr_i = tmp2_m;
     }
-    if (fabs(qd) >= 2.0 * fabs(qc)) {
-      qlv = q_i - 2.0 * qc;
+    // Overshoot i+1/2,L / i,(+) state
+    if (std::abs(dqf_plus) >= 2.0 * std::abs(dqf_minus)) {
+      ql_ip1 = tmp2_p;
     }
   }
-
-  //---- set L/R states ----
-  ql_ip1 = qrv;
-  qr_i = qlv;
 }
 
 //----------------------------------------------------------------------------------------
