@@ -6,7 +6,7 @@ before_script:
   - export OMP_PROC_BIND=close
   - export OMP_PLACES=cores
   - export OMP_NUM_THREADS=1
-  - export CMAKE_VERSION=3.16.9
+  - export CMAKE_VERSION=3.19.6
   - export CTEST_OUTPUT_ON_FAILURE=1
   - export J=4 && echo Using ${J} cores during build
   - wget -qO- http://www.cmake.org/files/v${CMAKE_VERSION:0:4}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz | tar -xz
