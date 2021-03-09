@@ -71,25 +71,32 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   bool needs_scratch = false;
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
+  auto recon = Reconstruction::undefined;
   // flux used in all stages expect the first. First stage is set below based on integr.
   FluxFun_t *flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::undefined>;
   if (recon_str == "dc") {
+    recon = Reconstruction::dc;
     flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::dc>;
     recon_need_nghost = 1;
   } else if (recon_str == "plm") {
+    recon = Reconstruction::plm;
     flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::plm>;
     recon_need_nghost = 2;
   } else if (recon_str == "ppm") {
+    recon = Reconstruction::ppm;
     flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::ppm>;
     recon_need_nghost = 3;
     needs_scratch = true;
   } else if (recon_str == "wenoz") {
+    recon = Reconstruction::wenoz;
     flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::wenoz>;
     recon_need_nghost = 3;
     needs_scratch = true;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
   }
+  // Adding recon independently of flux function pointer as it's used in 3D flux func.
+  pkg->AddParam<>("reconstruction", recon);
 
   // not using GetOrAdd here until there's a reasonable default
   const auto nghost = pin->GetInteger("parthenon/mesh", "nghost");
