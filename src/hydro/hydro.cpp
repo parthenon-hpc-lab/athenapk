@@ -68,28 +68,68 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   bool pack_in_one = pin->GetOrAddBoolean("parthenon/mesh", "pack_in_one", true);
   pkg->AddParam<>("pack_in_one", pack_in_one);
 
+  const auto fluid_str = pin->GetOrAddString("hydro", "fluid", "euler");
+  auto fluid = Fluid::undefined;
+  int nhydro = -1;
+
+  if (fluid_str == "euler") {
+    fluid = Fluid::euler;
+    nhydro = 5; // rho, u_x, u_y, u_z, E
+  } else if (fluid_str == "glmmhd") {
+    fluid = Fluid::glmmhd;
+    nhydro = 9; // above plus B_x, B_y, B_z, psi
+  } else {
+    PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
+  }
+  pkg->AddParam<>("fluid", Fluid::glmmhd);
+  pkg->AddParam<>("nhydro", nhydro);
+
   bool needs_scratch = false;
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
   auto recon = Reconstruction::undefined;
   // flux used in all stages expect the first. First stage is set below based on integr.
-  FluxFun_t *flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::undefined>;
+  FluxFun_t *flux_other_stage =
+      Hydro::CalculateFluxesWScratch<Fluid::undefined, Reconstruction::undefined>;
   if (recon_str == "dc") {
     recon = Reconstruction::dc;
-    flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::dc>;
+    if (fluid == Fluid::euler) {
+      flux_other_stage = Hydro::CalculateFluxesWScratch<Fluid::euler, Reconstruction::dc>;
+    } else if (fluid == Fluid::glmmhd) {
+      flux_other_stage =
+          Hydro::CalculateFluxesWScratch<Fluid::glmmhd, Reconstruction::dc>;
+    }
     recon_need_nghost = 1;
   } else if (recon_str == "plm") {
     recon = Reconstruction::plm;
-    flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::plm>;
+    if (fluid == Fluid::euler) {
+      flux_other_stage =
+          Hydro::CalculateFluxesWScratch<Fluid::euler, Reconstruction::plm>;
+    } else if (fluid == Fluid::glmmhd) {
+      flux_other_stage =
+          Hydro::CalculateFluxesWScratch<Fluid::glmmhd, Reconstruction::plm>;
+    }
     recon_need_nghost = 2;
   } else if (recon_str == "ppm") {
     recon = Reconstruction::ppm;
-    flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::ppm>;
+    if (fluid == Fluid::euler) {
+      flux_other_stage =
+          Hydro::CalculateFluxesWScratch<Fluid::euler, Reconstruction::ppm>;
+    } else if (fluid == Fluid::glmmhd) {
+      flux_other_stage =
+          Hydro::CalculateFluxesWScratch<Fluid::glmmhd, Reconstruction::ppm>;
+    }
     recon_need_nghost = 3;
     needs_scratch = true;
   } else if (recon_str == "wenoz") {
     recon = Reconstruction::wenoz;
-    flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::wenoz>;
+    if (fluid == Fluid::euler) {
+      flux_other_stage =
+          Hydro::CalculateFluxesWScratch<Fluid::euler, Reconstruction::wenoz>;
+    } else if (fluid == Fluid::glmmhd) {
+      flux_other_stage =
+          Hydro::CalculateFluxesWScratch<Fluid::glmmhd, Reconstruction::wenoz>;
+    }
     recon_need_nghost = 3;
     needs_scratch = true;
   } else {
@@ -132,7 +172,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (integrator_str == "vl2") {
     integrator = Integrator::vl2;
     // override first stage (predictor) to first order
-    flux_first_stage = Hydro::CalculateFluxesWScratch<Reconstruction::dc>;
+    if (fluid == Fluid::euler) {
+      flux_first_stage = Hydro::CalculateFluxesWScratch<Fluid::euler, Reconstruction::dc>;
+    } else if (fluid == Fluid::glmmhd) {
+      flux_first_stage =
+          Hydro::CalculateFluxesWScratch<Fluid::glmmhd, Reconstruction::dc>;
+    }
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown integration method.");
   }
@@ -158,11 +203,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   if (!use_scratch && needs_scratch) {
     PARTHENON_FAIL("AthenaPK hydro: Reconstruction needs hydro/use_scratch=true");
   }
-
-  // TODO(pgrete): this needs to be "variable" depending on physics
-  int nhydro = 5;
-  pkg->AddParam<int>("nhydro", nhydro);
-  int nhydro_out = pkg->Param<int>("nhydro");
 
   std::string field_name = "cons";
   Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost},
@@ -356,7 +396,7 @@ TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md,
   return TaskStatus::complete;
 }
 
-template <Reconstruction recon>
+template <Fluid fluid, Reconstruction recon>
 TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);

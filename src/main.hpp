@@ -33,6 +33,7 @@ enum { IVX = 1, IVY = 2, IVZ = 3, IPR = 4 };
 
 enum class Reconstruction {undefined, dc, plm, ppm, wenoz};
 enum class Integrator {undefined, rk1, rk2, vl2, rk3};
+enum class Fluid {undefined, euler, glmmhd};
 
 constexpr parthenon::Real float_min{std::numeric_limits<float>::min()};
 

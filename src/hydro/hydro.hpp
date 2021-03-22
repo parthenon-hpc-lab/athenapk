@@ -20,10 +20,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 Real EstimateTimestep(MeshData<Real> *md);
 TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &cons,
                            const AdiabaticHydroEOS &eos);
-template<Reconstruction recon>
+template <Fluid fluid, Reconstruction recon>
 TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md);
 
-using FluxFun_t = decltype(CalculateFluxesWScratch<Reconstruction::wenoz>);
+using FluxFun_t =
+    decltype(CalculateFluxesWScratch<Fluid::undefined, Reconstruction::undefined>);
 
 } // namespace Hydro
 
