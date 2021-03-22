@@ -62,7 +62,7 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(const MeshBlockVarPack<Real> &cons
         Real &u_b1 = cons(IB1, k, j, i);
         Real &u_b2 = cons(IB2, k, j, i);
         Real &u_b3 = cons(IB3, k, j, i);
-        Real &u_phi = cons(IPH, k, j, i);
+        Real &u_phi = cons(IPS, k, j, i);
 
         Real &w_d = prim(IDN, k, j, i);
         Real &w_vx = prim(IVX, k, j, i);
@@ -72,7 +72,7 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(const MeshBlockVarPack<Real> &cons
         Real &w_Bx = prim(IB1, k, j, i);
         Real &w_By = prim(IB2, k, j, i);
         Real &w_Bz = prim(IB3, k, j, i);
-        Real &w_phi = prim(IPH, k, j, i);
+        Real &w_phi = prim(IPS, k, j, i);
 
         // apply density floor, without changing momentum or energy
         u_d = (u_d > density_floor_) ? u_d : density_floor_;

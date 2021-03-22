@@ -29,7 +29,7 @@
 constexpr int IB1 = 5;
 constexpr int IB2 = 6;
 constexpr int IB3 = 7;
-constexpr int IPH = 8;
+constexpr int IPS = 8;
 
 enum { IDN = 0, IM1 = 1, IM2 = 2, IM3 = 3, IEN = 4 , NHYDRO = 5};
 
