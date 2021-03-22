@@ -61,9 +61,9 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
            const ScratchPad2D<Real> &wr, T &cons, const AdiabaticGLMMHDEOS &eos) {
   const int ivy = IVX + ((ivx - IVX) + 1) % 3;
   const int ivz = IVX + ((ivx - IVX) + 2) % 3;
-  const int iBx = ivx + NHYDRO;
-  const int iBy = ivy + NHYDRO;
-  const int iBz = ivz + NHYDRO;
+  const int iBx = ivx - 1 + NHYDRO;
+  const int iBy = ivy - 1 + NHYDRO;
+  const int iBz = ivz - 1 + NHYDRO;
   // TODO(pgrete) move to a more central center and add logic
   constexpr int NGLMMHD = 9;
 
@@ -155,7 +155,7 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
     cons.flux(ivx, IEN, k, j, i) = fstar_5;
     cons.flux(ivx, iBx, k, j, i) = fstar_6;
     cons.flux(ivx, iBy, k, j, i) = fstar_7;
-    cons.flux(ivx, iBy, k, j, i) = fstar_8;
+    cons.flux(ivx, iBz, k, j, i) = fstar_8;
     cons.flux(ivx, IPS, k, j, i) = fstar_9;
   });
 }
