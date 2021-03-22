@@ -17,6 +17,15 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
                        parthenon::SimTime &tm);
 } // namespace linear_wave
+
+namespace linear_wave_mhd {
+using namespace parthenon::driver::prelude;
+
+void InitUserMeshData(ParameterInput *pin);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
+                       parthenon::SimTime &tm);
+} // namespace linear_wave_mhd
 namespace blast {
 using namespace parthenon::driver::prelude;
 
