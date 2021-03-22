@@ -11,6 +11,7 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
+#include "../eos/adiabatic_glmmhd.hpp"
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
 #include "../pgen/pgen.hpp"
@@ -22,6 +23,7 @@
 #include "defs.hpp"
 #include "hydro.hpp"
 #include "reconstruct/dc_inline.hpp"
+#include "rsolvers/glmmhd_derigs.hpp"
 #include "rsolvers/hydro_hlle.hpp"
 #include "rsolvers/riemann.hpp"
 #include "utils/error_checking.hpp"
@@ -45,6 +47,7 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
 
 // this is the package registered function to fill derived, here, convert the
 // conserved variables to primitives
+template <class T>
 void ConsToPrim(MeshData<Real> *md) {
   auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -52,10 +55,8 @@ void ConsToPrim(MeshData<Real> *md) {
   IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
   IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
   // TODO(pgrete): need to figure out a nice way for polymorphism wrt the EOS
-  const auto &eos = md->GetBlockData(0)
-                        ->GetBlockPointer()
-                        ->packages.Get("Hydro")
-                        ->Param<AdiabaticHydroEOS>("eos");
+  const auto &eos =
+      md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro")->Param<T>("eos");
   eos.ConservedToPrimitive(cons_pack, prim_pack, ib.s, ib.e, jb.s, jb.e, kb.s, kb.e);
 }
 
@@ -190,8 +191,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     Real gamma = pin->GetReal("hydro", "gamma");
     Real dfloor = pin->GetOrAddReal("hydro", "dfloor", std::sqrt(1024 * float_min));
     Real pfloor = pin->GetOrAddReal("hydro", "pfloor", std::sqrt(1024 * float_min));
-    AdiabaticHydroEOS eos(pfloor, dfloor, gamma);
-    pkg->AddParam<>("eos", eos);
+    if (fluid == Fluid::euler) {
+      AdiabaticHydroEOS eos(pfloor, dfloor, gamma);
+      pkg->AddParam<>("eos", eos);
+      pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
+    } else if (fluid == Fluid::glmmhd) {
+      AdiabaticGLMMHDEOS eos(pfloor, dfloor, gamma);
+      pkg->AddParam<>("eos", eos);
+      pkg->FillDerivedMesh = ConsToPrim<AdiabaticGLMMHDEOS>;
+    }
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
   }
@@ -222,7 +230,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
 
   // now part of TaskList
-  pkg->FillDerivedMesh = ConsToPrim;
   pkg->EstimateTimestepMesh = EstimateTimestep;
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
@@ -308,14 +315,18 @@ Real EstimateTimestep(MeshData<Real> *md) {
 // Compute fluxes at faces given the constant velocity field and
 // some field "advected" that we are pushing around.
 // This routine implements all the "physics" in this example
-TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md,
-                           const AdiabaticHydroEOS &eos) {
+TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md) {
   auto wl = md->PackVariables(std::vector<std::string>{"wl"});
   auto wr = md->PackVariables(std::vector<std::string>{"wr"});
   auto const &w = md->PackVariables(std::vector<std::string>{"prim"});
   // auto cons = md->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto cons = md->PackVariablesAndFluxes(flags_ind);
+
+  const auto &eos = md->GetBlockData(0)
+                        ->GetBlockPointer()
+                        ->packages.Get("Hydro")
+                        ->Param<AdiabaticHydroEOS>("eos");
 
   const IndexDomain interior = IndexDomain::interior;
   const IndexRange ib = cons.cellbounds.GetBoundsI(interior);
@@ -417,7 +428,10 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
   auto cons_in = md->PackVariablesAndFluxes(flags_ind);
   auto pkg = pmb->packages.Get("Hydro");
   const int nhydro = pkg->Param<int>("nhydro");
-  const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
+
+  const auto &eos =
+      pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
+                                           AdiabaticGLMMHDEOS>::type>("eos");
 
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
@@ -449,7 +463,13 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
-        RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos);
+        if constexpr (fluid == Fluid::euler) {
+          RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos);
+        } else if constexpr (fluid == Fluid::glmmhd) {
+          DerigsFlux(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos);
+        } else {
+          PARTHENON_FAIL("Unknown fluid method");
+        }
       });
 
   //--------------------------------------------------------------------------------------
@@ -493,7 +513,13 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
             member.team_barrier();
 
             if (j > jb.s - 1) {
-              RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos);
+              if constexpr (fluid == Fluid::euler) {
+                RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos);
+              } else if constexpr (fluid == Fluid::glmmhd) {
+                DerigsFlux(member, k, j, il, iu, IVY, wl, wr, cons, eos);
+              } else {
+                PARTHENON_FAIL("Unknown fluid method");
+              }
               member.team_barrier();
             }
 
@@ -542,7 +568,13 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
             member.team_barrier();
 
             if (k > kb.s - 1) {
-              RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
+              if constexpr (fluid == Fluid::euler) {
+                RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
+              } else if constexpr (fluid == Fluid::glmmhd) {
+                DerigsFlux(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
+              } else {
+                PARTHENON_FAIL("Unknown fluid method");
+              }
               member.team_barrier();
             }
             // swap the arrays for the next step

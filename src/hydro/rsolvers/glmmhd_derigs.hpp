@@ -1,26 +1,24 @@
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
-// Licensed under the 3-clause BSD License, see LICENSE file for details
+// AthenaPK - a performance portable block structured AMR astrophysical MHD
+// code. Copyright (c) 2021, Athena-Parthenon Collaboration. All rights
+// reserved. Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-//! \file hlle.cpp
-//  \brief HLLE Riemann solver for hydrodynamics
+//! \file glmmhd_derigs.hpp
+//  \brief Derigs et al 2018 Journal of Computational Physics 364 (2018) 420–467 GLM MHD
 //
-//  Computes 1D fluxes using the Harten-Lax-van Leer (HLL) Riemann solver.  This flux is
-//  very diffusive, especially for contacts, and so it is not recommended for use in
-//  applications.  However, as shown by Einfeldt et al.(1991), it is positively
-//  conservative (cannot return negative densities or pressure), so it is a useful
-//  option when other approximate solvers fail and/or when extra dissipation is needed.
+// Entropy conserving/stable ideal GLM MHD flux.
 //
 // REFERENCES:
-// - E.F. Toro, "Riemann Solvers and numerical methods for fluid dynamics", 2nd ed.,
-//   Springer-Verlag, Berlin, (1999) chpt. 10.
-// - Einfeldt et al., "On Godunov-type methods near low densities", JCP, 92, 273 (1991)
-// - A. Harten, P. D. Lax and B. van Leer, "On upstream differencing and Godunov-type
-//   schemes for hyperbolic conservation laws", SIAM Review 25, 35-61 (1983).
+// - Derigs et al "Ideal GLM-MHD: About the entropy consistent nine-wave magnetic ﬁeld
+//   divergence diminishing ideal magnetohydrodynamics equations"
+//   Journal of Computational Physics 364 (2018) 420–467
+//   https://doi.org/10.1016/j.jcp.2018.03.002
+// - Ismail & Roe "Affordable, entropy-consistent Euler ﬂux functions II: Entropy
+//   production at shocks" Journal of Computational Physics 228 (2009) 5410–5436
+//   https://doi.org/10.1016/j.jcp.2009.04.021
 
-#ifndef RSOLVERS_HYDRO_HLLE_HPP_
-#define RSOLVERS_HYDRO_HLLE_HPP_
+#ifndef RSOLVERS_GLMMHD_DERIGS_HPP_
+#define RSOLVERS_GLMMHD_DERIGS_HPP_
 
 // C headers
 
@@ -31,6 +29,7 @@
 // Athena headers
 #include "../../main.hpp"
 #include "riemann.hpp"
+#include "../../eos/adiabatic_glmmhd.hpp"
 
 using parthenon::ParArray4D;
 using parthenon::Real;
@@ -43,9 +42,9 @@ using parthenon::Real;
 //  \brief The HLLE Riemann solver for hydrodynamics (adiabatic)
 template <typename T>
 KOKKOS_FORCEINLINE_FUNCTION void
-RiemannSolver(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
+DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
               const int iu, const int ivx, const ScratchPad2D<Real> &wl,
-              const ScratchPad2D<Real> &wr, T &cons, const AdiabaticHydroEOS &eos) {
+              const ScratchPad2D<Real> &wr, T &cons, const AdiabaticGLMMHDEOS &eos) {
   int ivy = IVX + ((ivx - IVX) + 1) % 3;
   int ivz = IVX + ((ivx - IVX) + 2) % 3;
   Real gamma;
@@ -139,4 +138,4 @@ RiemannSolver(parthenon::team_mbr_t const &member, const int k, const int j, con
   });
 }
 
-#endif // RSOLVERS_HYDRO_HLLE_HPP_
+#endif  // RSOLVERS_GLMMHD_DERIGS_HPP_
