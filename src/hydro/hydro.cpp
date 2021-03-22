@@ -195,10 +195,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       AdiabaticHydroEOS eos(pfloor, dfloor, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
+      pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::euler>;
     } else if (fluid == Fluid::glmmhd) {
       AdiabaticGLMMHDEOS eos(pfloor, dfloor, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticGLMMHDEOS>;
+      pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::glmmhd>;
     }
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
@@ -228,9 +230,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     pkg->AddField("wl", m);
     pkg->AddField("wr", m);
   }
-
-  // now part of TaskList
-  pkg->EstimateTimestepMesh = EstimateTimestep;
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
   if (refine_str == "pressure_gradient") {
@@ -267,12 +266,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 }
 
 // provide the routine that estimates a stable timestep for this package
+template <Fluid fluid>
 Real EstimateTimestep(MeshData<Real> *md) {
   // get to package via first block in Meshdata (which exists by construction)
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &cfl = pkg->Param<Real>("cfl");
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
+  const auto &eos =
+      pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
+                                           AdiabaticGLMMHDEOS>::type>("eos");
 
   IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -297,15 +299,37 @@ Real EstimateTimestep(MeshData<Real> *md) {
         w[IVY] = prim(IVY, k, j, i);
         w[IVZ] = prim(IVZ, k, j, i);
         w[IPR] = prim(IPR, k, j, i);
-        Real cs = eos.SoundSpeed(w);
-        min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) / (fabs(w[IVX]) + cs));
+        Real lambda_max_x, lambda_max_y, lambda_max_z;
+        if constexpr (fluid == Fluid::euler) {
+          lambda_max_x = eos.SoundSpeed(w);
+          lambda_max_y = lambda_max_x;
+          lambda_max_z = lambda_max_x;
+
+        } else if constexpr (fluid == Fluid::glmmhd) {
+          lambda_max_x = eos.FastMagnetosonicSpeed(
+              w[IDN], w[IPR], prim(IB1, k, j, i), prim(IB2, k, j, i), prim(IB3, k, j, i));
+          if (nx2) {
+            lambda_max_y =
+                eos.FastMagnetosonicSpeed(w[IDN], w[IPR], prim(IB2, k, j, i),
+                                          prim(IB3, k, j, i), prim(IB1, k, j, i));
+          }
+          if (nx3) {
+            lambda_max_z =
+                eos.FastMagnetosonicSpeed(w[IDN], w[IPR], prim(IB3, k, j, i),
+                                          prim(IB1, k, j, i), prim(IB2, k, j, i));
+          }
+        } else {
+          PARTHENON_FAIL("Unknown fluid in EstimateTimestep");
+        }
+        min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) /
+                                  (fabs(w[IVX]) + lambda_max_x));
         if (nx2) {
-          min_dt =
-              fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) / (fabs(w[IVY]) + cs));
+          min_dt = fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) /
+                                    (fabs(w[IVY]) + lambda_max_y));
         }
         if (nx3) {
-          min_dt =
-              fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) / (fabs(w[IVZ]) + cs));
+          min_dt = fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) /
+                                    (fabs(w[IVZ]) + lambda_max_z));
         }
       },
       Kokkos::Min<Real>(min_dt_hyperbolic));
