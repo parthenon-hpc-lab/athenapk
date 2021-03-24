@@ -446,7 +446,6 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
   }
 
-  auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto cons_in = md->PackVariablesAndFluxes(flags_ind);
   auto pkg = pmb->packages.Get("Hydro");
@@ -456,11 +455,22 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                            AdiabaticGLMMHDEOS>::type>("eos");
 
+  auto num_scratch_vars = nhydro;
+  auto prim_list = std::vector<std::string>({"prim"});
+
+  if (fluid == Fluid::glmmhd) {
+    num_scratch_vars *= 2;
+    prim_list.emplace_back(std::string("entropy"));
+  }
+  // may also contain entropy vars for simplicity
+  auto const &prim_in = md->PackVariables(prim_list);
+
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
+
   size_t scratch_size_in_bytes =
-      parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 2;
+      parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 2;
 
   parthenon::par_for_outer(
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
@@ -469,8 +479,10 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
         const auto &coords = cons_in.coords(b);
         const auto &prim = prim_in(b);
         auto &cons = cons_in(b);
-        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro, nx1);
-        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
+        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                         num_scratch_vars, nx1);
+        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                         num_scratch_vars, nx1);
         // get reconstructed state on faces
         if constexpr (recon == Reconstruction::dc) {
           DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
@@ -498,7 +510,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
-    scratch_size_in_bytes = parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 3;
+    scratch_size_in_bytes =
+        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
     if (pmb->block_size.nx3 == 1) // 2D
@@ -513,12 +526,12 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
           const auto &coords = cons_in.coords(b);
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
-          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
             if constexpr (recon == Reconstruction::dc) {
@@ -568,12 +581,12 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
           const auto &coords = cons_in.coords(b);
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
-          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro,
-                                           nx1);
-          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level), nhydro,
-                                            nx1);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
             if constexpr (recon == Reconstruction::dc) {
