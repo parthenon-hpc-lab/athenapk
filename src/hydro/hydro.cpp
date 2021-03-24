@@ -45,19 +45,14 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   return packages;
 }
 
+// TOOD(pgrete) check is we can enlist this with FillDerived directly
 // this is the package registered function to fill derived, here, convert the
 // conserved variables to primitives
 template <class T>
 void ConsToPrim(MeshData<Real> *md) {
-  auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
-  // TODO(pgrete): need to figure out a nice way for polymorphism wrt the EOS
   const auto &eos =
       md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro")->Param<T>("eos");
-  eos.ConservedToPrimitive(cons_pack, prim_pack, ib.s, ib.e, jb.s, jb.e, kb.s, kb.e);
+  eos.ConservedToPrimitive(md);
 }
 
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
@@ -201,6 +196,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticGLMMHDEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::glmmhd>;
+      // TODO(pgrete) check if this could be "one-copy" for two stage SSP integrators
+      pkg->AddField("entropy", Metadata({Metadata::Cell, Metadata::Derived},
+                                        std::vector<int>({nhydro})));
     }
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
@@ -219,6 +217,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
              std::vector<int>({nhydro}));
   pkg->AddField(field_name, m);
 
+  // TODO(pgrete) check if this could be "one-copy" for two stage SSP integrators
   field_name = "prim";
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}));
   pkg->AddField(field_name, m);

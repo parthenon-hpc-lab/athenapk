@@ -28,9 +28,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
 
   void ConservedToPrimitive(MeshBlockData<Real> *rc, int il, int iu, int jl, int ju,
                             int kl, int ku) const override;
-  void ConservedToPrimitive(const MeshBlockVarPack<Real> &cons_pack,
-                            MeshBlockVarPack<Real> &prim_pack, int il, int iu, int jl,
-                            int ju, int kl, int ku) const override;
+  void ConservedToPrimitive(MeshData<Real> *md) const override;
   void PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu,
                             int jl, int ju, int kl, int ku) const override;
 
