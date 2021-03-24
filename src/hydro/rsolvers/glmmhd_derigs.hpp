@@ -40,9 +40,7 @@ KOKKOS_FORCEINLINE_FUNCTION Real LogMean(const Real &a_L, const Real &a_R) {
   const auto zeta = a_L / a_R;
   const auto f = (zeta - 1.0) / (zeta + 1.0);
   const auto u = f * f;
-  // Using eps = 1e-3 as suggested by Derigs+18 Appendix A for an approximation
-  // close to machine precision.
-  if (u < 0.001) {
+  if (u < 0.01) {
     return (a_L + a_R) / (2.0 + u / 1.5 + u * u / 2.5 + u * u * u / 3.5);
   } else {
     return (a_L + a_R) * f / (std::log(zeta));
