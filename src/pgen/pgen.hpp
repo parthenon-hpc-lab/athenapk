@@ -42,6 +42,12 @@ void InitUserMeshData(ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 } // namespace advection
 
+namespace field_loop {
+using namespace parthenon::driver::prelude;
+
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace field_loop
+
 namespace kh {
 using namespace parthenon::driver::prelude;
 

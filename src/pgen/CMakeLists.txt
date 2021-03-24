@@ -4,6 +4,7 @@
 target_sources(athenaPK PRIVATE
     linear_wave.cpp
     linear_wave_mhd.cpp
+    field_loop.cpp
     advection.cpp
     blast.cpp
     kh.cpp

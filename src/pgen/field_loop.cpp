@@ -1,4 +1,8 @@
 //========================================================================================
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
+// Licensed under the BSD 3-Clause License (the "LICENSE").
+//========================================================================================
 // Athena++ astrophysical MHD code
 // Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
@@ -27,59 +31,64 @@
 // C headers
 
 // C++ headers
+#include <algorithm> // min, max
 #include <cmath>     // sqrt()
+#include <cstdio>    // fopen(), fprintf(), freopen()
 #include <iostream>  // endl
 #include <sstream>   // stringstream
 #include <stdexcept> // runtime_error
 #include <string>    // c_str()
 
-// Athena++ headers
-#include "../athena.hpp"
-#include "../athena_arrays.hpp"
-#include "../coordinates/coordinates.hpp"
-#include "../eos/eos.hpp"
-#include "../field/field.hpp"
-#include "../hydro/hydro.hpp"
-#include "../mesh/mesh.hpp"
-#include "../orbital_advection/orbital_advection.hpp"
-#include "../parameter_input.hpp"
+// Parthenon headers
+#include "mesh/mesh.hpp"
+#include <parthenon/driver.hpp>
+#include <parthenon/package.hpp>
 
-#if !MAGNETIC_FIELDS_ENABLED
-#error "This problem generator requires magnetic fields"
-#endif
+// Athena headers
+#include "../main.hpp"
+
+namespace field_loop {
+using namespace parthenon::driver::prelude;
 
 //========================================================================================
 //! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
 //! \brief field loop advection problem generator for 2D/3D problems.
 //========================================================================================
 
-void MeshBlock::ProblemGenerator(ParameterInput *pin) {
-  Real gm1 = peos->GetGamma() - 1.0;
-  Real iso_cs = peos->GetIsoSoundSpeed();
+void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-  AthenaArray<Real> ax, ay, az;
-  // nxN != ncellsN, in general. Allocate to extend through 2*ghost, regardless # dim
-  int nx1 = block_size.nx1 + 2 * NGHOST;
-  int nx2 = block_size.nx2 + 2 * NGHOST;
-  int nx3 = block_size.nx3 + 2 * NGHOST;
-  ax.NewAthenaArray(nx3, nx2, nx1);
-  ay.NewAthenaArray(nx3, nx2, nx1);
-  az.NewAthenaArray(nx3, nx2, nx1);
+  Kokkos::View<Real ***, parthenon::LayoutWrapper, parthenon::HostMemSpace> ax(
+      "ax", pmb->cellbounds.ncellsk(IndexDomain::entire),
+      pmb->cellbounds.ncellsj(IndexDomain::entire),
+      pmb->cellbounds.ncellsi(IndexDomain::entire));
+  Kokkos::View<Real ***, parthenon::LayoutWrapper, parthenon::HostMemSpace> ay(
+      "ay", pmb->cellbounds.ncellsk(IndexDomain::entire),
+      pmb->cellbounds.ncellsj(IndexDomain::entire),
+      pmb->cellbounds.ncellsi(IndexDomain::entire));
+  Kokkos::View<Real ***, parthenon::LayoutWrapper, parthenon::HostMemSpace> az(
+      "az", pmb->cellbounds.ncellsk(IndexDomain::entire),
+      pmb->cellbounds.ncellsj(IndexDomain::entire),
+      pmb->cellbounds.ncellsi(IndexDomain::entire));
+
+  Real gm1 = pin->GetReal("hydro", "gamma") - 1.0;
 
   // Read initial conditions, diffusion coefficients (if needed)
-  Real rad = pin->GetReal("problem", "rad");
-  Real amp = pin->GetReal("problem", "amp");
-  Real vflow = pin->GetReal("problem", "vflow");
-  Real drat = pin->GetOrAddReal("problem", "drat", 1.0);
-  int iprob = pin->GetInteger("problem", "iprob");
-  Real omega0 = porb->Omega0;
-  Real qshear = porb->qshear;
+  Real rad = pin->GetReal("problem/field_loop", "rad");
+  Real amp = pin->GetReal("problem/field_loop", "amp");
+  Real vflow = pin->GetReal("problem/field_loop", "vflow");
+  Real drat = pin->GetOrAddReal("problem/field_loop", "drat", 1.0);
+  int iprob = pin->GetInteger("problem/field_loop", "iprob");
   Real ang_2, cos_a2(0.0), sin_a2(0.0), lambda(0.0);
+
+  Real x1size = pmb->pmy_mesh->mesh_size.x1max - pmb->pmy_mesh->mesh_size.x1min;
+  Real x2size = pmb->pmy_mesh->mesh_size.x2max - pmb->pmy_mesh->mesh_size.x2min;
+  Real x3size = pmb->pmy_mesh->mesh_size.x3max - pmb->pmy_mesh->mesh_size.x3min;
 
   // For (iprob=4) -- rotated cylinder in 3D -- set up rotation angle and wavelength
   if (iprob == 4) {
-    Real x1size = pmy_mesh->mesh_size.x1max - pmy_mesh->mesh_size.x1min;
-    Real x3size = pmy_mesh->mesh_size.x3max - pmy_mesh->mesh_size.x3min;
 
     // We put 1 wavelength in each direction.  Hence the wavelength
     //     lambda = x1size*cos_a;
@@ -103,21 +112,23 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
   // Use vector potential to initialize field loop
   // the origin of the initial loop
-  Real x0 = pin->GetOrAddReal("problem", "x0", 0.0);
-  Real y0 = pin->GetOrAddReal("problem", "y0", 0.0);
+  Real x0 = pin->GetOrAddReal("problem/field_loop", "x0", 0.0);
+  Real y0 = pin->GetOrAddReal("problem/field_loop", "y0", 0.0);
   // Real z0 = pin->GetOrAddReal("problem","z0",0.0);
 
-  for (int k = ks; k <= ke + 1; k++) {
-    for (int j = js; j <= je + 1; j++) {
-      for (int i = is; i <= ie + 1; i++) {
+  auto &coords = pmb->coords;
+
+  for (int k = kb.s - 1; k <= kb.e + 1; k++) {
+    for (int j = jb.s - 1; j <= jb.e + 1; j++) {
+      for (int i = ib.s - 1; i <= ib.e + 1; i++) {
         // (iprob=1): field loop in x1-x2 plane (cylinder in 3D) */
         if (iprob == 1) {
           ax(k, j, i) = 0.0;
           ay(k, j, i) = 0.0;
-          if ((SQR(pcoord->x1f(i) - x0) + SQR(pcoord->x2f(j) - y0)) < rad * rad) {
+          if ((SQR(coords.x1v(i) - x0) + SQR(coords.x2v(j) - y0)) < rad * rad) {
             az(k, j, i) =
                 amp *
-                (rad - std::sqrt(SQR(pcoord->x1f(i) - x0) + SQR(pcoord->x2f(j) - y0)));
+                (rad - std::sqrt(SQR(coords.x1v(i) - x0) + SQR(coords.x2v(j) - y0)));
           } else {
             az(k, j, i) = 0.0;
           }
@@ -125,9 +136,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
         // (iprob=2): field loop in x2-x3 plane (cylinder in 3D)
         if (iprob == 2) {
-          if ((SQR(pcoord->x2f(j)) + SQR(pcoord->x3f(k))) < rad * rad) {
+          if ((SQR(coords.x2v(j)) + SQR(coords.x3v(k))) < rad * rad) {
             ax(k, j, i) =
-                amp * (rad - std::sqrt(SQR(pcoord->x2f(j)) + SQR(pcoord->x3f(k))));
+                amp * (rad - std::sqrt(SQR(coords.x2v(j)) + SQR(coords.x3v(k))));
           } else {
             ax(k, j, i) = 0.0;
           }
@@ -137,9 +148,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
         // (iprob=3): field loop in x3-x1 plane (cylinder in 3D)
         if (iprob == 3) {
-          if ((SQR(pcoord->x1f(i)) + SQR(pcoord->x3f(k))) < rad * rad) {
+          if ((SQR(coords.x1v(i)) + SQR(coords.x3v(k))) < rad * rad) {
             ay(k, j, i) =
-                amp * (rad - std::sqrt(SQR(pcoord->x1f(i)) + SQR(pcoord->x3f(k))));
+                amp * (rad - std::sqrt(SQR(coords.x1v(i)) + SQR(coords.x3v(k))));
           } else {
             ay(k, j, i) = 0.0;
           }
@@ -159,8 +170,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         //    x3  = x*std::sin(ang_2) + z*std::cos(ang_2)
 
         if (iprob == 4) {
-          Real x = pcoord->x1v(i) * cos_a2 + pcoord->x3f(k) * sin_a2;
-          Real y = pcoord->x2f(j);
+          Real x = coords.x1v(i) * cos_a2 + coords.x3v(k) * sin_a2;
+          Real y = coords.x2v(j);
           // shift x back to the domain -0.5*lambda <= x <= 0.5*lambda
           while (x > 0.5 * lambda)
             x -= lambda;
@@ -173,8 +184,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
           }
           ay(k, j, i) = 0.0;
 
-          x = pcoord->x1f(i) * cos_a2 + pcoord->x3v(k) * sin_a2;
-          y = pcoord->x2f(j);
+          x = coords.x1v(i) * cos_a2 + coords.x3v(k) * sin_a2;
+          y = coords.x2v(j);
           // shift x back to the domain -0.5*lambda <= x <= 0.5*lambda
           while (x > 0.5 * lambda)
             x -= lambda;
@@ -190,19 +201,17 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         // (iprob=5): spherical field loop in rotated plane
         if (iprob == 5) {
           ax(k, j, i) = 0.0;
-          if ((SQR(pcoord->x1f(i)) + SQR(pcoord->x2v(j)) + SQR(pcoord->x3f(k))) <
+          if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j)) + SQR(coords.x3v(k))) <
               rad * rad) {
-            ay(k, j, i) =
-                amp * (rad - std::sqrt(SQR(pcoord->x1f(i)) + SQR(pcoord->x2v(j)) +
-                                       SQR(pcoord->x3f(k))));
+            ay(k, j, i) = amp * (rad - std::sqrt(SQR(coords.x1v(i)) + SQR(coords.x2v(j)) +
+                                                 SQR(coords.x3v(k))));
           } else {
             ay(k, j, i) = 0.0;
           }
-          if ((SQR(pcoord->x1f(i)) + SQR(pcoord->x2f(j)) + SQR(pcoord->x3v(k))) <
+          if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j)) + SQR(coords.x3v(k))) <
               rad * rad) {
-            az(k, j, i) =
-                amp * (rad - std::sqrt(SQR(pcoord->x1f(i)) + SQR(pcoord->x2f(j)) +
-                                       SQR(pcoord->x3v(k))));
+            az(k, j, i) = amp * (rad - std::sqrt(SQR(coords.x1v(i)) + SQR(coords.x2v(j)) +
+                                                 SQR(coords.x3v(k))));
           } else {
             az(k, j, i) = 0.0;
           }
@@ -214,106 +223,42 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   // Initialize density and momenta.  If drat != 1, then density and temperature will be
   // different inside loop than background values
 
-  Real x1size = pmy_mesh->mesh_size.x1max - pmy_mesh->mesh_size.x1min;
-  Real x2size = pmy_mesh->mesh_size.x2max - pmy_mesh->mesh_size.x2min;
-  Real x3size = pmy_mesh->mesh_size.x3max - pmy_mesh->mesh_size.x3min;
   Real diag = std::sqrt(x1size * x1size + x2size * x2size + x3size * x3size);
-  for (int k = ks; k <= ke; k++) {
-    for (int j = js; j <= je; j++) {
-      for (int i = is; i <= ie; i++) {
-        Real x = pcoord->x1v(i);
-        Real y = pcoord->x2v(j);
-        Real z = pcoord->x3v(k);
-        Real r, abstheta;
-        Real phi = M_PI / 2.0;
-        if (iprob == 1) {
-          r = std::sqrt((SQR(x) + SQR(y)));
-          abstheta = std::abs(std::atan2(y, x));
-        }
-        if (iprob == 2) {
-          r = std::sqrt((SQR(y) + SQR(z)));
-          abstheta = std::abs(std::atan2(z, y));
-        }
-        if (iprob == 3) {
-          r = std::sqrt((SQR(z) + SQR(x)));
-          abstheta = std::abs(std::atan2(x, z));
-        }
-        if (iprob == 5) {
-          r = std::sqrt((SQR(x) + SQR(y) + SQR(z)));
-          abstheta = std::abs(std::atan2(y, x));
-          phi = std::acos(z / r);
-        }
-        if ((abstheta <= 1.0 / 12.0 * M_PI) &&
-            (std::abs(phi - M_PI / 2.0) <= 1.0 / 12.0 * M_PI) && (0.5 <= r) &&
-            (r <= 0.7)) {
-          phydro->u(IDN, k, j, i) = 1.0 / 12.0;
-        } else {
-          phydro->u(IDN, k, j, i) = 1.0 / 10.0;
-        }
-        // phydro->u(IDN,k,j,i) = 1.0;
-        phydro->u(IM1, k, j, i) = phydro->u(IDN, k, j, i) * vflow * x1size / diag;
-        phydro->u(IM2, k, j, i) = phydro->u(IDN, k, j, i) * vflow * x2size / diag;
-        phydro->u(IM3, k, j, i) = phydro->u(IDN, k, j, i) * vflow * x3size / diag;
-        if ((drat != 1.0) && ((SQR(x) + SQR(y) + SQR(z)) < rad * rad)) {
-          phydro->u(IDN, k, j, i) = drat;
-          phydro->u(IM1, k, j, i) = phydro->u(IDN, k, j, i) * vflow * x1size / diag;
-          phydro->u(IM2, k, j, i) = phydro->u(IDN, k, j, i) * vflow * x2size / diag;
-          phydro->u(IM3, k, j, i) = phydro->u(IDN, k, j, i) * vflow * x3size / diag;
-        }
-        if (pmy_mesh->shear_periodic) {
-          Real x1 = pcoord->x1v(i);
-          phydro->u(IM1, k, j, i) += iso_cs * phydro->u(IDN, k, j, i);
-          if (!porb->orbital_advection_defined)
-            phydro->u(IM2, k, j, i) -= qshear * omega0 * x1 * phydro->u(IDN, k, j, i);
-        }
-      }
-    }
-  }
 
-  // initialize interface B
-  for (int k = ks; k <= ke; k++) {
-    for (int j = js; j <= je; j++) {
-      for (int i = is; i <= ie + 1; i++) {
-        pfield->b.x1f(k, j, i) = (az(k, j + 1, i) - az(k, j, i)) / pcoord->dx2f(j) -
-                                 (ay(k + 1, j, i) - ay(k, j, i)) / pcoord->dx3f(k);
-      }
-    }
-  }
-  for (int k = ks; k <= ke; k++) {
-    for (int j = js; j <= je + 1; j++) {
-      for (int i = is; i <= ie; i++) {
-        pfield->b.x2f(k, j, i) = (ax(k + 1, j, i) - ax(k, j, i)) / pcoord->dx3f(k) -
-                                 (az(k, j, i + 1) - az(k, j, i)) / pcoord->dx1f(i);
-      }
-    }
-  }
-  for (int k = ks; k <= ke + 1; k++) {
-    for (int j = js; j <= je; j++) {
-      for (int i = is; i <= ie; i++) {
-        pfield->b.x3f(k, j, i) = (ay(k, j, i + 1) - ay(k, j, i)) / pcoord->dx1f(i) -
-                                 (ax(k, j + 1, i) - ax(k, j, i)) / pcoord->dx2f(j);
-      }
-    }
-  }
-
-  // initialize total energy
-  if (NON_BAROTROPIC_EOS) {
-    for (int k = ks; k <= ke; k++) {
-      for (int j = js; j <= je; j++) {
-        for (int i = is; i <= ie; i++) {
-          phydro->u(IEN, k, j, i) =
-              1.0 / gm1 +
-              0.5 * (SQR(0.5 * (pfield->b.x1f(k, j, i) + pfield->b.x1f(k, j, i + 1))) +
-                     SQR(0.5 * (pfield->b.x2f(k, j, i) + pfield->b.x2f(k, j + 1, i))) +
-                     SQR(0.5 * (pfield->b.x3f(k, j, i) + pfield->b.x3f(k + 1, j, i)))) +
-              (0.5) *
-                  (SQR(phydro->u(IM1, k, j, i)) + SQR(phydro->u(IM2, k, j, i)) +
-                   SQR(phydro->u(IM3, k, j, i))) /
-                  phydro->u(IDN, k, j, i);
+  auto &rc = pmb->meshblock_data.Get();
+  auto &u_dev = rc->Get("cons").data;
+  // initializing on host
+  auto u = u_dev.GetHostMirrorAndCopy();
+  for (int k = kb.s; k <= kb.e; k++) {
+    for (int j = jb.s; j <= jb.e; j++) {
+      for (int i = ib.s; i <= ib.e; i++) {
+        u(IDN,k,j,i) = 1.0;
+        u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * x1size / diag;
+        u(IM2, k, j, i) = u(IDN, k, j, i) * vflow * x2size / diag;
+        u(IM3, k, j, i) = u(IDN, k, j, i) * vflow * x3size / diag;
+        if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j)) + SQR(coords.x3v(k))) < rad*rad) {
+          u(IDN, k, j, i) = drat;
+          u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * x1size / diag;
+          u(IM2, k, j, i) = u(IDN, k, j, i) * vflow * x2size / diag;
+          u(IM3, k, j, i) = u(IDN, k, j, i) * vflow * x3size / diag;
         }
+        u(IB1, k, j, i) = (az(k, j + 1, i) - az(k, j - 1, i)) / coords.dx2v(j) / 2.0 -
+                          (ay(k + 1, j, i) - ay(k - 1, j, i)) / coords.dx3v(k) / 2.0;
+        u(IB2, k, j, i) = (ax(k + 1, j, i) - ax(k - 1, j, i)) / coords.dx3v(k) / 2.0 -
+                          (az(k, j, i + 1) - az(k, j, i - 1)) / coords.dx1v(i) / 2.0;
+        u(IB3, k, j, i) = (ay(k, j, i + 1) - ay(k, j, i - 1)) / coords.dx1v(i) / 2.0 -
+                          (ax(k, j + 1, i) - ax(k, j - 1, i)) / coords.dx2v(j) / 2.0;
+
+        u(IEN, k, j, i) =
+            1.0 / gm1 +
+            0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i))) +
+            (0.5) * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
+                u(IDN, k, j, i);
       }
     }
   }
-
-  return;
+  // copy initialized vars to device
+  u_dev.DeepCopy(u);
 }
+
+} // namespace field_loop
