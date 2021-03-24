@@ -96,6 +96,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             'hydro/use_scratch=true',
             #'hydro/use_scratch=%s' % ("true" if use_scratch else "false"),
             'hydro/fluid=glmmhd',
+            'parthenon/time/cfl=0.8',
             ]
 
         return parameters
