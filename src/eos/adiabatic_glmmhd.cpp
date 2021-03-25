@@ -44,7 +44,7 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshBlockData<Real> *rc, int il, i
 void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  auto entropy_pack = md->PackVariables(std::vector<std::string>{"entropy"});
+  // auto entropy_pack = md->PackVariables(std::vector<std::string>{"entropy"});
   auto ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
   auto jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
   auto kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
@@ -60,7 +60,7 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        auto &nu = entropy_pack(b);
+        // auto &nu = entropy_pack(b);
 
         Real &u_d = cons(IDN, k, j, i);
         Real &u_m1 = cons(IM1, k, j, i);
@@ -106,18 +106,19 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
             (w_p > pressure_floor_) ? u_e : ((pressure_floor_ / gm1) + e_k + e_B + e_psi);
         w_p = (w_p > pressure_floor_) ? w_p : pressure_floor_;
 
+        // TODO(pgrete) Disable entropy calculation for now
         // Entropy variables
-        auto beta = 0.5 * w_d / w_p; // Derigs+18 (4.1): inverse temperature
-        auto s = std::log(w_p / std::pow(w_d, gam)); // Derigs+18 (4.1): entropy per part.
-        nu(IDN, k, j, i) = (gam - s) / gm1 - e_k / w_p; // Derigs+18 (4.3)
-        nu(IVX, k, j, i) = 2.0 * beta * w_vx;           // Derigs+18 (4.3)
-        nu(IVY, k, j, i) = 2.0 * beta * w_vy;           // Derigs+18 (4.3)
-        nu(IVZ, k, j, i) = 2.0 * beta * w_vz;           // Derigs+18 (4.3)
-        nu(IPR, k, j, i) = -2.0 * beta;                 // Derigs+18 (4.3)
-        nu(IB1, k, j, i) = 2.0 * beta * w_Bx;           // Derigs+18 (4.3)
-        nu(IB2, k, j, i) = 2.0 * beta * w_By;           // Derigs+18 (4.3)
-        nu(IB3, k, j, i) = 2.0 * beta * w_Bz;           // Derigs+18 (4.3)
-        nu(IPS, k, j, i) = 2.0 * beta * w_psi;          // Derigs+18 (4.3)
+        // auto beta = 0.5 * w_d / w_p; // Derigs+18 (4.1): inverse temperature
+        // auto s = std::log(w_p / std::pow(w_d, gam)); // Derigs+18 (4.1): entropy per part.
+        // nu(IDN, k, j, i) = (gam - s) / gm1 - e_k / w_p; // Derigs+18 (4.3)
+        // nu(IVX, k, j, i) = 2.0 * beta * w_vx;           // Derigs+18 (4.3)
+        // nu(IVY, k, j, i) = 2.0 * beta * w_vy;           // Derigs+18 (4.3)
+        // nu(IVZ, k, j, i) = 2.0 * beta * w_vz;           // Derigs+18 (4.3)
+        // nu(IPR, k, j, i) = -2.0 * beta;                 // Derigs+18 (4.3)
+        // nu(IB1, k, j, i) = 2.0 * beta * w_Bx;           // Derigs+18 (4.3)
+        // nu(IB2, k, j, i) = 2.0 * beta * w_By;           // Derigs+18 (4.3)
+        // nu(IB3, k, j, i) = 2.0 * beta * w_Bz;           // Derigs+18 (4.3)
+        // nu(IPS, k, j, i) = 2.0 * beta * w_psi;          // Derigs+18 (4.3)
       });
 }
 

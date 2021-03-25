@@ -197,8 +197,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticGLMMHDEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::glmmhd>;
       // TODO(pgrete) check if this could be "one-copy" for two stage SSP integrators
-      pkg->AddField("entropy", Metadata({Metadata::Cell, Metadata::Derived},
-                                        std::vector<int>({nhydro})));
+      // pkg->AddField("entropy", Metadata({Metadata::Cell, Metadata::Derived},
+      // std::vector<int>({nhydro})));
     }
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
@@ -458,10 +458,10 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
   auto num_scratch_vars = nhydro;
   auto prim_list = std::vector<std::string>({"prim"});
 
-  if (fluid == Fluid::glmmhd) {
-    num_scratch_vars *= 2;
-    prim_list.emplace_back(std::string("entropy"));
-  }
+  // if (fluid == Fluid::glmmhd) {
+  //   num_scratch_vars *= 2;
+  //   prim_list.emplace_back(std::string("entropy"));
+  // }
   // may also contain entropy vars for simplicity
   auto const &prim_in = md->PackVariables(prim_list);
 

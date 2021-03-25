@@ -71,7 +71,7 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
   const auto gm1 = gamma - 1.0;
   const auto igm1 = 1.0 / gm1;
   parthenon::par_for_inner(member, il, iu, [&](const int i) {
-    Real wli[NGLMMHD], wri[NGLMMHD], avg[NGLMMHD], dnu[NGLMMHD];
+    Real wli[NGLMMHD], wri[NGLMMHD], avg[NGLMMHD];
     //--- Step 1.  Load L/R states into local variables
     wli[IDN] = wl(IDN, i);
     wli[IVX] = wl(ivx, i);
@@ -135,20 +135,92 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
     const auto pbar_tot = p_tilde + 0.5 * (avg_Bx2 + avg_By2 + avg_Bz2);
     const auto c_h = 0.0;
 
-    auto fstar_1 = logmean_rho * avg[IVX];                              // (A.8a)
-    auto fstar_2 = fstar_1 * avg[IVX] - avg[IB1] * avg[IB1] + pbar_tot; // (A.8b)
-    auto fstar_3 = fstar_1 * avg[IVY] - avg[IB1] * avg[IB2];            // (A.8c)
-    auto fstar_4 = fstar_1 * avg[IVZ] - avg[IB1] * avg[IB3];            // (A.8d)
-    auto fstar_6 = c_h * avg[IPS];                                      // (A.8f)
-    auto fstar_7 = avg[IVX] * avg[IB2] - avg[IVY] * avg[IB1];           // (A.8g)
-    auto fstar_8 = avg[IVX] * avg[IB3] - avg[IVZ] * avg[IB1];           // (A.8h)
-    auto fstar_9 = c_h * avg[IB1];                                      // (A.8i)
-    auto fstar_5 =
+    const auto fstar_1 = logmean_rho * avg[IVX];                              // (A.8a)
+    const auto fstar_2 = fstar_1 * avg[IVX] - avg[IB1] * avg[IB1] + pbar_tot; // (A.8b)
+    const auto fstar_3 = fstar_1 * avg[IVY] - avg[IB1] * avg[IB2];            // (A.8c)
+    const auto fstar_4 = fstar_1 * avg[IVZ] - avg[IB1] * avg[IB3];            // (A.8d)
+    const auto fstar_6 = c_h * avg[IPS];                                      // (A.8f)
+    const auto fstar_7 = avg[IVX] * avg[IB2] - avg[IVY] * avg[IB1];           // (A.8g)
+    const auto fstar_8 = avg[IVX] * avg[IB3] - avg[IVZ] * avg[IB1];           // (A.8h)
+    const auto fstar_9 = c_h * avg[IB1];                                      // (A.8i)
+    const auto fstar_5 =
         fstar_1 * (igm1 / (2 * logmean_beta) - 0.5 * (avg_vx2 + avg_vy2 + avg_vz2)) +
         fstar_2 * avg[IVX] + fstar_3 * avg[IVY] + fstar_4 * avg[IVZ] +
         fstar_6 * avg[IB1] + fstar_7 * avg[IB2] + fstar_8 * avg[IB3] +
         fstar_9 * avg[IPS] - 0.5 * (avg_vxBx2 + avg_vxBy2 + avg_vxBz2) +
         avg[IB1] * (avg_vxBx + avg_vyBy + avg_vzBz) - c_h * avg_BxPsi; // (A.8e)
+
+    cons.flux(ivx, IDN, k, j, i) = fstar_1;
+    cons.flux(ivx, ivx, k, j, i) = fstar_2;
+    cons.flux(ivx, ivy, k, j, i) = fstar_3;
+    cons.flux(ivx, ivz, k, j, i) = fstar_4;
+    cons.flux(ivx, IEN, k, j, i) = fstar_5;
+    cons.flux(ivx, iBx, k, j, i) = fstar_6;
+    cons.flux(ivx, iBy, k, j, i) = fstar_7;
+    cons.flux(ivx, iBz, k, j, i) = fstar_8;
+    cons.flux(ivx, IPS, k, j, i) = fstar_9;
+  });
+
+  // skipping diffusive part fow now
+  return;
+
+  member.team_barrier();
+
+  parthenon::par_for_inner(member, il, iu, [&](const int i) {
+    Real wli[NGLMMHD], wri[NGLMMHD], avg[NGLMMHD], dnu[NGLMMHD];
+    //--- Step 1.  Load L/R states into local variables
+    wli[IDN] = wl(IDN, i);
+    wli[IVX] = wl(IVX, i);
+    wli[IVY] = wl(IVY, i);
+    wli[IVZ] = wl(IVZ, i);
+    wli[IPR] = wl(IPR, i);
+    wli[IB1] = wl(IB1, i);
+    wli[IB2] = wl(IB2, i);
+    wli[IB3] = wl(IB3, i);
+    wli[IPS] = wl(IPS, i);
+
+    wri[IDN] = wr(IDN, i);
+    wri[IVX] = wr(IVX, i);
+    wri[IVY] = wr(IVY, i);
+    wri[IVZ] = wr(IVZ, i);
+    wri[IPR] = wr(IPR, i);
+    wri[IB1] = wr(IB1, i);
+    wri[IB2] = wr(IB2, i);
+    wri[IB3] = wr(IB3, i);
+    wri[IPS] = wr(IPS, i);
+
+    auto &flx_1 = cons.flux(ivx, IDN, k, j, i);
+    auto &flx_2 = cons.flux(ivx, IVX, k, j, i);
+    auto &flx_3 = cons.flux(ivx, IVY, k, j, i);
+    auto &flx_4 = cons.flux(ivx, IVZ, k, j, i);
+    auto &flx_5 = cons.flux(ivx, IEN, k, j, i);
+    auto &flx_6 = cons.flux(ivx, IB1, k, j, i);
+    auto &flx_7 = cons.flux(ivx, IB2, k, j, i);
+    auto &flx_8 = cons.flux(ivx, IB3, k, j, i);
+    auto &flx_9 = cons.flux(ivx, IPS, k, j, i);
+
+    // beta = rho / 2p   (4.1) Derigs+18
+    const auto beta_li = wli[IDN] / (2.0 * wli[IPR]);
+    const auto beta_ri = wri[IDN] / (2.0 * wri[IPR]);
+
+    const auto logmean_rho = LogMean(wli[IDN], wri[IDN]);
+    const auto logmean_beta = LogMean(beta_li, beta_ri);
+    avg[IDN] = 0.5 * (wli[IDN] + wri[IDN]);
+    avg[IVX] = 0.5 * (wli[IVX] + wri[IVX]);
+    avg[IVY] = 0.5 * (wli[IVY] + wri[IVY]);
+    avg[IVZ] = 0.5 * (wli[IVZ] + wri[IVZ]);
+    avg[IPR] = 0.5 * (wli[IPR] + wri[IPR]);
+    avg[IB1] = 0.5 * (wli[IB1] + wri[IB1]);
+    avg[IB2] = 0.5 * (wli[IB2] + wri[IB2]);
+    avg[IB3] = 0.5 * (wli[IB3] + wri[IB3]);
+    avg[IPS] = 0.5 * (wli[IPS] + wri[IPS]);
+
+    const auto avg_beta = 0.5 * (beta_li + beta_ri);
+    const auto p_tilde = avg[IDN] / (2 * avg_beta);
+
+    const auto avg_vx2 = 0.5 * (SQR(wli[IVX]) + SQR(wri[IVX]));
+    const auto avg_vy2 = 0.5 * (SQR(wli[IVY]) + SQR(wri[IVY]));
+    const auto avg_vz2 = 0.5 * (SQR(wli[IVZ]) + SQR(wri[IVZ]));
 
     // STEP 2: Calculate dissipative term needed for KEPES,GLM flux
     //     KEPES,GLM flux (kinetic energy preserving, entropy *stable*)
@@ -164,26 +236,49 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
     // Compute fastest wave speeds in L,R states (see Toro eq. 10.43) so that we
     // get a *Local* Lax Friedrichs type dissipation.
     const auto cfl =
-        eos.FastMagnetosonicSpeed(wli[IDN], wli[IPR], wli[IB1], wli[IB2], wli[IB3]);
+        eos.FastMagnetosonicSpeed(wli[IDN], wli[IPR], wli[iBx], wli[iBy], wli[iBz]);
     const auto cfr =
-        eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[IB1], wri[IB2], wri[IB3]);
+        eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[iBx], wri[iBy], wri[iBz]);
     const auto lmax_half =
-        0.5 * std::max((std::abs(wli[IVX]) + cfl), (std::abs(wri[IVX]) + cfr));
+        0.5 * std::max((std::abs(wli[ivx]) + cfl), (std::abs(wri[ivx]) + cfr));
 
+    // TODO(pgrete) JUST A TEST using lamba_max I on primitive vars. DONT USE IN PRACTICE
+    for (size_t ii = 0; ii < 9; ii++) {
+      cons.flux(ivx, ii, k, j, i) -= lmax_half * (wri[ii] - wli[ii]);
+    }
+
+    return;
+    // TODO(pgret) before reenabling the folllowing code with the NGLMMHD offset, also
+    // reenable the caching the reconstructed entropy variables in wr and wl
     // TODO(pgrete) performance optmization. Store dnu directly to reduce scratch use
     // TODO(pgrete) also check importance of reconstruction of nu versus directly using
     //   reconstructed prims as in (B.3)
-    dnu[IDN] = wr(IDN + NGLMMHD, i) - wl(IDN + NGLMMHD, i);
-    dnu[IVX] = wr(ivx + NGLMMHD, i) - wl(ivx + NGLMMHD, i);
-    dnu[IVY] = wr(ivy + NGLMMHD, i) - wl(ivy + NGLMMHD, i);
-    dnu[IVZ] = wr(ivz + NGLMMHD, i) - wl(ivz + NGLMMHD, i);
-    dnu[IPR] = wr(IPR + NGLMMHD, i) - wl(IPR + NGLMMHD, i);
-    dnu[IB1] = wr(iBx + NGLMMHD, i) - wl(iBx + NGLMMHD, i);
-    dnu[IB2] = wr(iBy + NGLMMHD, i) - wl(iBy + NGLMMHD, i);
-    dnu[IB3] = wr(iBz + NGLMMHD, i) - wl(iBz + NGLMMHD, i);
-    dnu[IPS] = wr(IPS + NGLMMHD, i) - wl(IPS + NGLMMHD, i);
+    // dnu[IDN] = wr(IDN + NGLMMHD, i) - wl(IDN + NGLMMHD, i);
+    // dnu[IVX] = wr(ivx + NGLMMHD, i) - wl(ivx + NGLMMHD, i);
+    // dnu[IVY] = wr(ivy + NGLMMHD, i) - wl(ivy + NGLMMHD, i);
+    // dnu[IVZ] = wr(ivz + NGLMMHD, i) - wl(ivz + NGLMMHD, i);
+    // dnu[IPR] = wr(IPR + NGLMMHD, i) - wl(IPR + NGLMMHD, i);
+    // dnu[IB1] = wr(iBx + NGLMMHD, i) - wl(iBx + NGLMMHD, i);
+    // dnu[IB2] = wr(iBy + NGLMMHD, i) - wl(iBy + NGLMMHD, i);
+    // dnu[IB3] = wr(iBz + NGLMMHD, i) - wl(iBz + NGLMMHD, i);
+    // dnu[IPS] = wr(IPS + NGLMMHD, i) - wl(IPS + NGLMMHD, i);
 
-    const auto logmean_p = LogMean(wli[IPR], wri[IPR]);
+    // this is (B.3)
+    dnu[IDN] = avg[IDN] / logmean_rho + (beta_ri - beta_li) / (logmean_beta * gm1) -
+               (avg_vx2 + avg_vy2 + avg_vz2) * (beta_ri - beta_li) -
+               2 * avg_beta *
+                   (avg[IVX] * (wri[IVX] - wli[IVX]) + avg[IVY] * (wri[IVY] - wli[IVY]) +
+                    avg[IVZ] * (wri[IVZ] - wli[IVZ]));
+    dnu[IVX] = 2.0 * (avg_beta * (wri[IVX] - wli[IVX]) + avg[IVX] * (beta_ri - beta_li));
+    dnu[IVY] = 2.0 * (avg_beta * (wri[IVY] - wli[IVY]) + avg[IVY] * (beta_ri - beta_li));
+    dnu[IVZ] = 2.0 * (avg_beta * (wri[IVZ] - wli[IVZ]) + avg[IVZ] * (beta_ri - beta_li));
+    dnu[IPR] = -2.0 * (beta_ri - beta_li);
+    dnu[IB1] = 2.0 * (avg_beta * (wri[IB1] - wli[IB1]) + avg[IB1] * (beta_ri - beta_li));
+    dnu[IB2] = 2.0 * (avg_beta * (wri[IB2] - wli[IB2]) + avg[IB2] * (beta_ri - beta_li));
+    dnu[IB3] = 2.0 * (avg_beta * (wri[IB3] - wli[IB3]) + avg[IB3] * (beta_ri - beta_li));
+    dnu[IPS] = 2.0 * (avg_beta * (wri[IPS] - wli[IPS]) + avg[IPS] * (beta_ri - beta_li));
+
+    const auto logmean_p = logmean_rho / (2.0 * logmean_beta); // (B.4)
 
     const auto Ebar = logmean_rho * (SQR(avg[IVX]) + SQR(avg[IVY]) + SQR(avg[IVZ]) -
                                      0.5 * (avg_vx2 + avg_vy2 + avg_vz2)) -
@@ -202,7 +297,7 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
     H[3] = logmean_rho * avg[IVZ];
     H[4] = Ebar;
     for (auto ii = 0; ii < 5; ii++) {
-      fstar_1 -= lmax_half * H[ii] * dnu[ii];
+      flx_1 -= lmax_half * H[ii] * dnu[ii];
     }
     // second row
     H[0] = logmean_rho * avg[IVX];
@@ -211,7 +306,7 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
     H[3] = logmean_rho * avg[IVZ] * avg[IVX];
     H[4] = (Ebar + p_tilde) * avg[IVX];
     for (auto ii = 0; ii < 5; ii++) {
-      fstar_2 -= lmax_half * H[ii] * dnu[ii];
+      flx_2 -= lmax_half * H[ii] * dnu[ii];
     }
     // third row
     H[0] = logmean_rho * avg[IVY];
@@ -220,7 +315,7 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
     H[3] = logmean_rho * avg[IVZ] * avg[IVY];
     H[4] = (Ebar + p_tilde) * avg[IVY];
     for (auto ii = 0; ii < 5; ii++) {
-      fstar_3 -= lmax_half * H[ii] * dnu[ii];
+      flx_3 -= lmax_half * H[ii] * dnu[ii];
     }
     // fourth row
     H[0] = logmean_rho * avg[IVZ];
@@ -229,7 +324,7 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
     H[3] = logmean_rho * avg[IVZ] * avg[IVZ] + p_tilde;
     H[4] = (Ebar + p_tilde) * avg[IVZ];
     for (auto ii = 0; ii < 5; ii++) {
-      fstar_4 -= lmax_half * H[ii] * dnu[ii];
+      flx_4 -= lmax_half * H[ii] * dnu[ii];
     }
     // fifth row
     H[0] = Ebar;
@@ -241,30 +336,20 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
            tau * (SQR(avg[IB1]) + SQR(avg[IB2]) + SQR(avg[IB3]) +
                   SQR(avg[IPS])); // H5,5: eqn (4.56)
     for (auto ii = 0; ii < 5; ii++) {
-      fstar_5 -= lmax_half * H[ii] * dnu[ii];
+      flx_5 -= lmax_half * H[ii] * dnu[ii];
     }
-    fstar_5 -= lmax_half * tau *
-               (avg[IB1] * dnu[IB1] + avg[IB2] * dnu[IB2] + avg[IB3] * dnu[IB3] +
-                avg[IPS] * dnu[IPS]);
+    flx_5 -= lmax_half * tau *
+             (avg[IB1] * dnu[IB1] + avg[IB2] * dnu[IB2] + avg[IB3] * dnu[IB3] +
+              avg[IPS] * dnu[IPS]);
 
     // sixth row
-    fstar_6 -= lmax_half * tau * (avg[IB1] * dnu[IPR] + dnu[IB1]);
+    flx_6 -= lmax_half * tau * (avg[IB1] * dnu[IPR] + dnu[IB1]);
     // seventh row
-    fstar_7 -= lmax_half * tau * (avg[IB2] * dnu[IPR] + dnu[IB2]);
+    flx_7 -= lmax_half * tau * (avg[IB2] * dnu[IPR] + dnu[IB2]);
     // eigth row
-    fstar_8 -= lmax_half * tau * (avg[IB3] * dnu[IPR] + dnu[IB3]);
+    flx_8 -= lmax_half * tau * (avg[IB3] * dnu[IPR] + dnu[IB3]);
     // eigth row
-    fstar_9 -= lmax_half * tau * (avg[IPS] * dnu[IPR] + dnu[IPS]);
-
-    cons.flux(ivx, IDN, k, j, i) = fstar_1;
-    cons.flux(ivx, ivx, k, j, i) = fstar_2;
-    cons.flux(ivx, ivy, k, j, i) = fstar_3;
-    cons.flux(ivx, ivz, k, j, i) = fstar_4;
-    cons.flux(ivx, IEN, k, j, i) = fstar_5;
-    cons.flux(ivx, iBx, k, j, i) = fstar_6;
-    cons.flux(ivx, iBy, k, j, i) = fstar_7;
-    cons.flux(ivx, iBz, k, j, i) = fstar_8;
-    cons.flux(ivx, IPS, k, j, i) = fstar_9;
+    flx_9 -= lmax_half * tau * (avg[IPS] * dnu[IPR] + dnu[IPS]);
   });
 }
 
