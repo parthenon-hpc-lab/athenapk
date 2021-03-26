@@ -58,7 +58,8 @@ template <typename T>
 KOKKOS_FORCEINLINE_FUNCTION void
 DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
            const int iu, const int ivx, const ScratchPad2D<Real> &wl,
-           const ScratchPad2D<Real> &wr, T &cons, const AdiabaticGLMMHDEOS &eos) {
+           const ScratchPad2D<Real> &wr, T &cons, const AdiabaticGLMMHDEOS &eos,
+           const Real c_h) {
   const int ivy = IVX + ((ivx - IVX) + 1) % 3;
   const int ivz = IVX + ((ivx - IVX) + 2) % 3;
   const int iBx = ivx - 1 + NHYDRO;
@@ -133,7 +134,6 @@ DerigsFlux(parthenon::team_mbr_t const &member, const int k, const int j, const 
 
     const auto p_tilde = avg[IDN] / (2 * avg_beta);
     const auto pbar_tot = p_tilde + 0.5 * (avg_Bx2 + avg_By2 + avg_Bz2);
-    const auto c_h = 0.0;
 
     const auto fstar_1 = logmean_rho * avg[IVX];                              // (A.8a)
     const auto fstar_2 = fstar_1 * avg[IVX] - avg[IB1] * avg[IB1] + pbar_tot; // (A.8b)

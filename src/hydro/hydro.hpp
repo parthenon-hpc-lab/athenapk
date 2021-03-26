@@ -20,6 +20,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 template <Fluid fluid>
 Real EstimateTimestep(MeshData<Real> *md);
 TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt);
+TaskStatus CalculateCleaningSpeed(MeshData<Real> *md);
 TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &cons);
 template <Fluid fluid, Reconstruction recon>
 TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md);

@@ -56,6 +56,61 @@ void ConsToPrim(MeshData<Real> *md) {
   eos.ConservedToPrimitive(md);
 }
 
+// Calculate c_h. Currently using c_h = lambda_max (which is the fast magnetosonic speed)
+// This may not be ideal as it could violate the cfl condition and
+// c_h = lambda_max - |u|_max,mesh should be used, see 3.7 (and 3.6) in Derigs+18
+TaskStatus CalculateCleaningSpeed(MeshData<Real> *md) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &eos = hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos");
+
+  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+
+  Real max_c_f = std::numeric_limits<Real>::min();
+
+  bool nx2 = prim_pack.GetDim(2) > 1;
+  bool nx3 = prim_pack.GetDim(3) > 1;
+  Kokkos::parallel_reduce(
+      "CalculateCleaningSpeed",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmax_c_f) {
+        const auto &prim = prim_pack(b);
+        const auto &coords = prim_pack.coords(b);
+        lmax_c_f = fmax(lmax_c_f,
+                        eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
+                                                  prim(IB1, k, j, i), prim(IB2, k, j, i),
+                                                  prim(IB3, k, j, i)));
+        if (nx2) {
+          lmax_c_f = fmax(
+              lmax_c_f, eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
+                                                  prim(IB2, k, j, i), prim(IB3, k, j, i),
+                                                  prim(IB1, k, j, i)));
+        }
+        if (nx3) {
+          lmax_c_f = fmax(
+              lmax_c_f, eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
+                                                  prim(IB3, k, j, i), prim(IB1, k, j, i),
+                                                  prim(IB2, k, j, i)));
+        }
+      },
+      Kokkos::Max<Real>(max_c_f));
+
+  // Reduction to host var is blocking and only have one of this tasks run at the same
+  // time so modifying the package should be safe.
+  auto c_h = hydro_pkg->Param<Real>("c_h");
+  if (max_c_f > c_h) {
+    hydro_pkg->UpdateParam("c_h", max_c_f);
+  }
+
+  return TaskStatus::complete;
+}
+
 void DerigsGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -69,8 +124,8 @@ void DerigsGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
   bool nx2 = prim_pack.GetDim(2) > 1;
   bool nx3 = prim_pack.GetDim(3) > 1;
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "", parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1,
-      kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      DEFAULT_LOOP_PATTERN, "GLMMHDSource", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
@@ -160,6 +215,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   const auto fluid_str = pin->GetOrAddString("hydro", "fluid", "euler");
   auto fluid = Fluid::undefined;
   bool use_DerigsGLMMHDSource = false;
+  bool calc_c_h = false; // hyperbolic divergence cleaning speed
   int nhydro = -1;
 
   if (fluid_str == "euler") {
@@ -169,12 +225,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     fluid = Fluid::glmmhd;
     nhydro = 9; // above plus B_x, B_y, B_z, psi
     use_DerigsGLMMHDSource = true;
+    calc_c_h = true;
+    pkg->AddParam<Real>("c_h", 0.0);
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
   pkg->AddParam<>("fluid", Fluid::glmmhd);
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("use_DerigsGLMMHDSource", use_DerigsGLMMHDSource);
+  pkg->AddParam<>("calc_c_h", calc_c_h);
 
   bool needs_scratch = false;
   const auto recon_str = pin->GetString("hydro", "reconstruction");
@@ -554,6 +613,12 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
   auto num_scratch_vars = nhydro;
   auto prim_list = std::vector<std::string>({"prim"});
 
+  // Hyperbolic divergence cleaning speed for GLM MHD
+  Real c_h = 0.0;
+  if (fluid == Fluid::glmmhd) {
+    c_h = pkg->Param<Real>("c_h");
+  }
+
   // if (fluid == Fluid::glmmhd) {
   //   num_scratch_vars *= 2;
   //   prim_list.emplace_back(std::string("entropy"));
@@ -597,7 +662,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
         if constexpr (fluid == Fluid::euler) {
           RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos);
         } else if constexpr (fluid == Fluid::glmmhd) {
-          DerigsFlux(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos);
+          DerigsFlux(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
         } else {
           PARTHENON_FAIL("Unknown fluid method");
         }
@@ -648,7 +713,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
               if constexpr (fluid == Fluid::euler) {
                 RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos);
               } else if constexpr (fluid == Fluid::glmmhd) {
-                DerigsFlux(member, k, j, il, iu, IVY, wl, wr, cons, eos);
+                DerigsFlux(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
               }
@@ -703,7 +768,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
               if constexpr (fluid == Fluid::euler) {
                 RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
               } else if constexpr (fluid == Fluid::glmmhd) {
-                DerigsFlux(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
+                DerigsFlux(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
               }
