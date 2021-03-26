@@ -119,8 +119,6 @@ void DerigsGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
   IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
 
-  Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
-
   bool nx2 = prim_pack.GetDim(2) > 1;
   bool nx3 = prim_pack.GetDim(3) > 1;
   parthenon::par_for(
@@ -240,8 +238,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   int recon_need_nghost = 3; // largest number for the choices below
   auto recon = Reconstruction::undefined;
   // flux used in all stages expect the first. First stage is set below based on integr.
-  FluxFun_t *flux_other_stage =
-      Hydro::CalculateFluxesWScratch<Fluid::undefined, Reconstruction::undefined>;
+  FluxFun_t *flux_other_stage = nullptr;
   if (recon_str == "dc") {
     recon = Reconstruction::dc;
     if (fluid == Fluid::euler) {
@@ -660,14 +657,13 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
         member.team_barrier();
 
         if constexpr (fluid == Fluid::euler) {
-          RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos);
+          RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
         } else if constexpr (fluid == Fluid::glmmhd) {
           DerigsFlux(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
         } else {
           PARTHENON_FAIL("Unknown fluid method");
         }
       });
-
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
@@ -711,7 +707,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
 
             if (j > jb.s - 1) {
               if constexpr (fluid == Fluid::euler) {
-                RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos);
+                RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
                 DerigsFlux(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
               } else {
@@ -766,7 +762,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
 
             if (k > kb.s - 1) {
               if constexpr (fluid == Fluid::euler) {
-                RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos);
+                RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
                 DerigsFlux(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
               } else {

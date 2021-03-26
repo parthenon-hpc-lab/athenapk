@@ -45,7 +45,7 @@ template <typename T>
 KOKKOS_FORCEINLINE_FUNCTION void
 RiemannSolver(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
               const int iu, const int ivx, const ScratchPad2D<Real> &wl,
-              const ScratchPad2D<Real> &wr, T &cons, const AdiabaticHydroEOS &eos) {
+              const ScratchPad2D<Real> &wr, T &cons, const AdiabaticHydroEOS &eos, const Real c_h) {
   int ivy = IVX + ((ivx - IVX) + 1) % 3;
   int ivz = IVX + ((ivx - IVX) + 2) % 3;
   Real gamma;
