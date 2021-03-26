@@ -14,6 +14,7 @@
 #include "bvals/cc/bvals_cc_in_one.hpp"
 #include "interface/update.hpp"
 #include "parthenon/driver.hpp"
+#include "parthenon/package.hpp"
 #include "refinement/refinement.hpp"
 #include "tasks/task_id.hpp"
 #include "utils/partition_stl_containers.hpp"
@@ -39,6 +40,7 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   const auto &stage_name = integrator->stage_name;
+  auto hydro_pkg = blocks[0]->packages.Get("Hydro");
 
   TaskID none(0);
   // Number of task lists that can be executed indepenently and thus *may*
@@ -85,12 +87,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
 
     TaskID advect_flux;
-    const auto &use_scratch =
-        blocks[0]->packages.Get("Hydro")->Param<bool>("use_scratch");
+    const auto &use_scratch = hydro_pkg->Param<bool>("use_scratch");
     if (use_scratch) {
       const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
-      FluxFun_t *calc_flux =
-          blocks[0]->packages.Get("Hydro")->Param<FluxFun_t *>(flux_str);
+      FluxFun_t *calc_flux = hydro_pkg->Param<FluxFun_t *>(flux_str);
       advect_flux = tl.AddTask(none, calc_flux, mu0);
     } else {
       advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, stage, mu0);
@@ -112,10 +112,14 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
+    // add non-operator split source terms
+    auto source = tl.AddTask(none, AddUnsplitSources, mu0.get(),
+                             integrator->beta[stage - 1] * integrator->dt);
+
     // compute the divergence of fluxes of conserved variables
 
     auto update = tl.AddTask(
-        none, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
+        source, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
         mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
         integrator->beta[stage - 1] * integrator->dt);
 
@@ -155,6 +159,40 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           fill_derived, parthenon::Update::EstimateTimestep<MeshData<Real>>, mu0.get());
     }
   }
+
+  //   // calculate hyperbolic divergence cleaning speed
+  //   // TODO(pgrete) Merge with dt calc
+  //   // TODO(pgrete) Add "MeshTask" with reduction to Parthenon
+  //   const auto &calc_c_h = hydro_pkg->Param<bool>("calc_c_h");
+  //   if (calc_c_h && (stage == integrator->nstages)) {
+  //     // need to make sure that there's only one region in order to MPI_reduce to work
+  //     TaskRegion &single_task_region = tc.AddRegion(1);
+  //     auto &tl = single_task_region[0];
+  //     auto prev_task = none;
+  //     // Adding one task for each partition. Given that they're all in one task list
+  //     // they'll be executed sequentially. Given that a par_reduce to a host var is
+  //     // blocking it's also save to store the variable in the Params for now.
+  //     for (int i = 0; i < num_partitions; i++) {
+  //       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+  //       auto new_c_h =
+  //           tl.AddTask(prev_task, CalculateCleaningSpeed, mu0.get(), hydro_pkg.get());
+  //       prev_task = new_c_h;
+  //     }
+  // #ifdef MPI_PARALLEL
+  //     auto reduce_c_h = tl.AddTask(
+  //         prev_task,
+  //         [](StateDescriptor *hydro_pkg) {
+  //           auto c_h = hydro_pkg->Param<Real>("c_h");
+  //           PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &c_h, 1,
+  //                                             MPI_PARTHENON_REAL, MPI_MIN,
+  //                                             MPI_COMM_WORLD));
+  //           hydro_pkg->UpdateParam("c_h", c_h);
+
+  //           return TaskStatus::complete;
+  //         },
+  //         hydro_pkg.get());
+  // #endif
+  //   }
 
   if (stage == integrator->nstages && pmesh->adaptive) {
     TaskRegion &async_region_4 = tc.AddRegion(num_task_lists_executed_independently);

@@ -19,6 +19,7 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin);
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 template <Fluid fluid>
 Real EstimateTimestep(MeshData<Real> *md);
+TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt);
 TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &cons);
 template <Fluid fluid, Reconstruction recon>
 TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md);

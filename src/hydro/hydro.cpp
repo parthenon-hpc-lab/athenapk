@@ -4,6 +4,7 @@
 // reserved. Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -55,6 +56,98 @@ void ConsToPrim(MeshData<Real> *md) {
   eos.ConservedToPrimitive(md);
 }
 
+void DerigsGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
+  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
+  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+
+  Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
+
+  bool nx2 = prim_pack.GetDim(2) > 1;
+  bool nx3 = prim_pack.GetDim(3) > 1;
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "", parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1,
+      kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        auto &cons = cons_pack(b);
+        const auto &prim = prim_pack(b);
+        const auto &coords = prim_pack.coords(b);
+
+        Real &vx = prim(IVX, k, j, i);
+        Real &vy = prim(IVY, k, j, i);
+        Real &vz = prim(IVZ, k, j, i);
+        Real &Bx = prim(IB1, k, j, i);
+        Real &By = prim(IB2, k, j, i);
+        Real &Bz = prim(IB3, k, j, i);
+        Real &psi = prim(IPS, k, j, i);
+
+        Real uB = vx * Bx + vy * By + vz * Bz;
+
+        // add non conservative magnetic field divergence  Derigs+18 (4.46)
+        const Real beta_dt_Bxdx = beta_dt *
+                                  (prim(IB1, k, j, i + 1) - prim(IB1, k, j, i - 1)) /
+                                  (2.0 * coords.Dx(parthenon::X1DIR, k, j, i));
+        const Real beta_dt_psidx = beta_dt *
+                                   (prim(IPS, k, j, i + 1) - prim(IPS, k, j, i - 1)) /
+                                   (2.0 * coords.Dx(parthenon::X1DIR, k, j, i));
+        cons(IVX, k, j, i) += beta_dt_Bxdx * Bx;
+        cons(IVY, k, j, i) += beta_dt_Bxdx * By;
+        cons(IVZ, k, j, i) += beta_dt_Bxdx * Bz;
+        cons(IEN, k, j, i) += beta_dt_Bxdx * uB + beta_dt_psidx * vx * psi;
+        cons(IB1, k, j, i) += beta_dt_Bxdx * vx;
+        cons(IB2, k, j, i) += beta_dt_Bxdx * vy;
+        cons(IB3, k, j, i) += beta_dt_Bxdx * vz;
+        cons(IPS, k, j, i) += beta_dt_psidx * vx;
+
+        if (nx2) {
+          const Real beta_dt_Bydy = beta_dt *
+                                    (prim(IB2, k, j + 1, i) - prim(IB1, k, j - 1, i)) /
+                                    (2.0 * coords.Dx(parthenon::X2DIR, k, j, i));
+          const Real beta_dt_psidy = beta_dt *
+                                     (prim(IPS, k, j + 1, i) - prim(IPS, k, j - 1, i)) /
+                                     (2.0 * coords.Dx(parthenon::X2DIR, k, j, i));
+          cons(IVX, k, j, i) += beta_dt_Bydy * Bx;
+          cons(IVY, k, j, i) += beta_dt_Bydy * By;
+          cons(IVZ, k, j, i) += beta_dt_Bydy * Bz;
+          cons(IEN, k, j, i) += beta_dt_Bydy * uB + beta_dt_psidy * vy * psi;
+          cons(IB1, k, j, i) += beta_dt_Bydy * vx;
+          cons(IB2, k, j, i) += beta_dt_Bydy * vy;
+          cons(IB3, k, j, i) += beta_dt_Bydy * vz;
+          cons(IPS, k, j, i) += beta_dt_psidy * vy;
+
+          if (nx3) {
+            const Real beta_dt_Bzdz = beta_dt *
+                                      (prim(IB3, k + 1, j, i) - prim(IB3, k - 1, j, i)) /
+                                      (2.0 * coords.Dx(parthenon::X3DIR, k, j, i));
+            const Real beta_dt_psidz = beta_dt *
+                                       (prim(IPS, k + 1, j, i) - prim(IPS, k - 1, j, i)) /
+                                       (2.0 * coords.Dx(parthenon::X3DIR, k, j, i));
+            cons(IVX, k, j, i) += beta_dt_Bzdz * Bx;
+            cons(IVY, k, j, i) += beta_dt_Bzdz * By;
+            cons(IVZ, k, j, i) += beta_dt_Bzdz * Bz;
+            cons(IEN, k, j, i) += beta_dt_Bzdz * uB + beta_dt_psidz * vz * psi;
+            cons(IB1, k, j, i) += beta_dt_Bzdz * vx;
+            cons(IB2, k, j, i) += beta_dt_Bzdz * vy;
+            cons(IB3, k, j, i) += beta_dt_Bzdz * vz;
+            cons(IPS, k, j, i) += beta_dt_psidz * vz;
+          }
+        }
+      });
+}
+
+TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  if (hydro_pkg->Param<bool>("use_DerigsGLMMHDSource")) {
+    DerigsGLMMHDSource(md, beta_dt);
+  }
+
+  return TaskStatus::complete;
+}
+
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto pkg = std::make_shared<StateDescriptor>("Hydro");
 
@@ -66,6 +159,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   const auto fluid_str = pin->GetOrAddString("hydro", "fluid", "euler");
   auto fluid = Fluid::undefined;
+  bool use_DerigsGLMMHDSource = false;
   int nhydro = -1;
 
   if (fluid_str == "euler") {
@@ -74,11 +168,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (fluid_str == "glmmhd") {
     fluid = Fluid::glmmhd;
     nhydro = 9; // above plus B_x, B_y, B_z, psi
+    use_DerigsGLMMHDSource = true;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
   pkg->AddParam<>("fluid", Fluid::glmmhd);
   pkg->AddParam<>("nhydro", nhydro);
+  pkg->AddParam<>("use_DerigsGLMMHDSource", use_DerigsGLMMHDSource);
 
   bool needs_scratch = false;
   const auto recon_str = pin->GetString("hydro", "reconstruction");
