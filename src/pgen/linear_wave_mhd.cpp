@@ -176,17 +176,17 @@ void InitUserMeshData(ParameterInput *pin) {
 void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) {
   if (!pin->GetOrAddBoolean("problem/linear_wave", "compute_error", false)) return;
 
+  constexpr int NGLMMHD = 8; // excluding psi
+
   // Initialize errors to zero
-  Real l1_err[NMHDWAVE]{}, max_err[NMHDWAVE]{};
+  Real l1_err[NGLMMHD]{}, max_err[NGLMMHD]{};
 
   for (auto &pmb : mesh->block_list) {
     IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
     IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
     IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
     // Even for MHD, there are only cell-centered mesh variables
-    int ncells4 = NMHDWAVE;
-    int nl = 0;
-    int nu = ncells4 - 1;
+    int ncells4 = NGLMMHD;
     // Save analytic solution of conserved variables in 4D scratch array on host
     Kokkos::View<Real ****, parthenon::LayoutWrapper, parthenon::HostMemSpace> cons_(
         "cons scratch", ncells4, pmb->cellbounds.ncellsk(IndexDomain::entire),
@@ -283,14 +283,14 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
 
 #ifdef MPI_PARALLEL
   if (parthenon::Globals::my_rank == 0) {
-    MPI_Reduce(MPI_IN_PLACE, &l1_err, (NMHDWAVE), MPI_PARTHENON_REAL, MPI_SUM, 0,
+    MPI_Reduce(MPI_IN_PLACE, &l1_err, (NGLMMHD), MPI_PARTHENON_REAL, MPI_SUM, 0,
                MPI_COMM_WORLD);
-    MPI_Reduce(MPI_IN_PLACE, &max_err, (NMHDWAVE), MPI_PARTHENON_REAL, MPI_MAX, 0,
+    MPI_Reduce(MPI_IN_PLACE, &max_err, (NGLMMHD), MPI_PARTHENON_REAL, MPI_MAX, 0,
                MPI_COMM_WORLD);
   } else {
-    MPI_Reduce(&l1_err, &l1_err, (NMHDWAVE), MPI_PARTHENON_REAL, MPI_SUM, 0,
+    MPI_Reduce(&l1_err, &l1_err, (NGLMMHD), MPI_PARTHENON_REAL, MPI_SUM, 0,
                MPI_COMM_WORLD);
-    MPI_Reduce(&max_err, &max_err, (NMHDWAVE), MPI_PARTHENON_REAL, MPI_MAX, 0,
+    MPI_Reduce(&max_err, &max_err, (NGLMMHD), MPI_PARTHENON_REAL, MPI_MAX, 0,
                MPI_COMM_WORLD);
   }
 #endif
@@ -302,10 +302,10 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     const auto vol = (mesh_size.x1max - mesh_size.x1min) *
                      (mesh_size.x2max - mesh_size.x2min) *
                      (mesh_size.x3max - mesh_size.x3min);
-    for (int i = 0; i < (NMHDWAVE); ++i)
+    for (int i = 0; i < (NGLMMHD); ++i)
       l1_err[i] = l1_err[i] / vol;
     // compute rms error
-    for (int i = 0; i < (NMHDWAVE); ++i) {
+    for (int i = 0; i < (NGLMMHD); ++i) {
       rms_err += SQR(l1_err[i]);
       max_max_over_l1 = std::max(max_max_over_l1, (max_err[i] / l1_err[i]));
     }
