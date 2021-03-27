@@ -77,8 +77,45 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           u0.get(), u1.get());
     }
   }
-
   const int num_partitions = pmesh->DefaultNumPartitions();
+
+  // calculate hyperbolic divergence cleaning speed
+  // TODO(pgrete) Merge with dt calc
+  // TODO(pgrete) Add "MeshTask" with reduction to Parthenon
+  if (hydro_pkg->Param<bool>("calc_c_h") && (stage == 1)) {
+    // need to make sure that there's only one region in order to MPI_reduce to work
+    TaskRegion &single_task_region = tc.AddRegion(1);
+    auto &tl = single_task_region[0];
+    // First globally reset c_h
+    auto prev_task = tl.AddTask(
+        none,
+        [](StateDescriptor *hydro_pkg) {
+          hydro_pkg->UpdateParam("c_h", 0.0);
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+    // Adding one task for each partition. Given that they're all in one task list
+    // they'll be executed sequentially. Given that a par_reduce to a host var is
+    // blocking it's also save to store the variable in the Params for now.
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto new_c_h = tl.AddTask(prev_task, CalculateCleaningSpeed, mu0.get());
+      prev_task = new_c_h;
+    }
+#ifdef MPI_PARALLEL
+    auto reduce_c_h = tl.AddTask(
+        prev_task,
+        [](StateDescriptor *hydro_pkg) {
+          auto c_h = hydro_pkg->Param<Real>("c_h");
+          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &c_h, 1, MPI_PARTHENON_REAL,
+                                            MPI_MAX, MPI_COMM_WORLD));
+          hydro_pkg->UpdateParam("c_h", c_h);
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+#endif
+  }
+
   // note that task within this region that contains one tasklist per pack
   // could still be executed in parallel
   TaskRegion &single_tasklist_per_pack_region = tc.AddRegion(num_partitions);
@@ -158,43 +195,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto new_dt = tl.AddTask(
           fill_derived, parthenon::Update::EstimateTimestep<MeshData<Real>>, mu0.get());
     }
-  }
-
-  // calculate hyperbolic divergence cleaning speed
-  // TODO(pgrete) Merge with dt calc
-  // TODO(pgrete) Add "MeshTask" with reduction to Parthenon
-  if (hydro_pkg->Param<bool>("calc_c_h") && (stage == integrator->nstages)) {
-    // need to make sure that there's only one region in order to MPI_reduce to work
-    TaskRegion &single_task_region = tc.AddRegion(1);
-    auto &tl = single_task_region[0];
-    // First globally reset c_h
-    auto prev_task = tl.AddTask(
-        none,
-        [](StateDescriptor *hydro_pkg) {
-          hydro_pkg->UpdateParam("c_h", 0.0);
-          return TaskStatus::complete;
-        },
-        hydro_pkg.get());
-    // Adding one task for each partition. Given that they're all in one task list
-    // they'll be executed sequentially. Given that a par_reduce to a host var is
-    // blocking it's also save to store the variable in the Params for now.
-    for (int i = 0; i < num_partitions; i++) {
-      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_c_h = tl.AddTask(prev_task, CalculateCleaningSpeed, mu0.get());
-      prev_task = new_c_h;
-    }
-#ifdef MPI_PARALLEL
-    auto reduce_c_h = tl.AddTask(
-        prev_task,
-        [](StateDescriptor *hydro_pkg) {
-          auto c_h = hydro_pkg->Param<Real>("c_h");
-          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &c_h, 1, MPI_PARTHENON_REAL,
-                                            MPI_MAX, MPI_COMM_WORLD));
-          hydro_pkg->UpdateParam("c_h", c_h);
-          return TaskStatus::complete;
-        },
-        hydro_pkg.get());
-#endif
   }
 
   if (stage == integrator->nstages && pmesh->adaptive) {
