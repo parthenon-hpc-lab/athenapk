@@ -25,6 +25,7 @@
 #include "hydro.hpp"
 #include "reconstruct/dc_inline.hpp"
 #include "rsolvers/glmmhd_derigs.hpp"
+#include "rsolvers/hlld.hpp"
 #include "rsolvers/hydro_hlle.hpp"
 #include "rsolvers/riemann.hpp"
 #include "utils/error_checking.hpp"
@@ -191,11 +192,37 @@ void DerigsGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
       });
 }
 
+void DednerGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
+  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
+  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const auto c_h = hydro_pkg->Param<Real>("c_h");
+
+  // Using a fixed, grid indendent ratio c_r = c_p^2 /c_h = 0.18 for now
+  // as done by Dedner though there is potential (small) dx dependency in there
+  // as pointed out by Mignone & Tzeferacos 2010
+  const auto coeff = std::exp(-beta_dt * c_h / 0.18);
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "DednerGLMMHDSource", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        cons_pack(b, IPS, k, j, i) = prim_pack(b, IPS, k, j, i) * coeff;
+      });
+}
+
 TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   if (hydro_pkg->Param<bool>("use_DerigsGLMMHDSource")) {
     DerigsGLMMHDSource(md, beta_dt);
+  }
+  if (hydro_pkg->Param<bool>("use_DednerGLMMHDSource")) {
+    DednerGLMMHDSource(md, beta_dt);
   }
 
   return TaskStatus::complete;
@@ -213,6 +240,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   const auto fluid_str = pin->GetOrAddString("hydro", "fluid", "euler");
   auto fluid = Fluid::undefined;
   bool use_DerigsGLMMHDSource = false;
+  bool use_DednerGLMMHDSource = false;
   bool calc_c_h = false; // hyperbolic divergence cleaning speed
   int nhydro = -1;
 
@@ -222,7 +250,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (fluid_str == "glmmhd") {
     fluid = Fluid::glmmhd;
     nhydro = 9; // above plus B_x, B_y, B_z, psi
-    use_DerigsGLMMHDSource = true;
+    use_DednerGLMMHDSource = true;
     calc_c_h = true;
     pkg->AddParam<Real>("c_h", 0.0);
   } else {
@@ -231,6 +259,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("fluid", Fluid::glmmhd);
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("use_DerigsGLMMHDSource", use_DerigsGLMMHDSource);
+  pkg->AddParam<>("use_DednerGLMMHDSource", use_DednerGLMMHDSource);
   pkg->AddParam<>("calc_c_h", calc_c_h);
 
   bool needs_scratch = false;
@@ -659,7 +688,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
         if constexpr (fluid == Fluid::euler) {
           RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
         } else if constexpr (fluid == Fluid::glmmhd) {
-          DerigsFlux(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
+          // DerigsFlux(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
+          HLLD(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
         } else {
           PARTHENON_FAIL("Unknown fluid method");
         }
@@ -709,7 +739,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
               if constexpr (fluid == Fluid::euler) {
                 RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
-                DerigsFlux(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
+                // DerigsFlux(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
+                HLLD(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
               }
@@ -764,7 +795,8 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
               if constexpr (fluid == Fluid::euler) {
                 RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
-                DerigsFlux(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
+                // DerigsFlux(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
+                HLLD(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
               }

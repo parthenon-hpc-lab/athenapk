@@ -98,7 +98,8 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
 
         Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
         Real e_B = 0.5 * (SQR(u_b1) + SQR(u_b2) + SQR(u_b3));
-        Real e_psi = 0.5 * SQR(u_psi);
+        // Real e_psi = 0.5 * SQR(u_psi);
+        Real e_psi = 0.0; //disable for now while using Dedner GLMMHD
         w_p = gm1 * (u_e - e_k - e_B - e_psi); // (3.18) Derigs+18
 
         // apply pressure floor, correct total energy

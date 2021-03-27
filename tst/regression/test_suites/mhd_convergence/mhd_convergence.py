@@ -142,7 +142,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         data = np.genfromtxt(os.path.join(parameters.output_path, "linearwave-errors.dat"))
 
         # quick and dirty test
-        if data[23,4] > 6.12e-12:
+        if data[23,4] > 6.14e-12:
             analyze_status = False
 
         markers = 'ov^<>sp*hXD'
@@ -154,7 +154,8 @@ class TestCase(utils.test_case.TestCaseAbs):
                         #f'Scr: {"T" if cfg["use_scratch"] else "F"}'
                     )))
 
-        plt.plot([32,512], [1e-6,1e-6/(512/32)], '--', label="first order")
+        plt.plot([32,512], [7e-7,7e-7/(512/32)], '--', label="first order")
+        plt.plot([32,512], [1.7e-7,1.7e-7/(512/32)**2], '--', label="second order")
         plt.plot([32,512], [3.7e-8,3.7e-8/(512/32)**2], '--', label="second order")
         plt.plot([32,512], [3.6e-9,3.6e-9/(512/32)**3], '--', label="third order")
 

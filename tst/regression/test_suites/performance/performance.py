@@ -53,7 +53,7 @@ perf_cfgs = [
     {"mx" : 256, "mb" : 256, "use_scratch" : True , "integrator" : "rk3", "recon" : "wenoz"},
     {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk3", "recon" : "wenoz"},
     {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "rk3", "recon" : "wenoz"},
-    {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk2", "recon" : "ppm", "fluid" : "glmmhd"},
+    {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "vl2", "recon" : "plm", "fluid" : "glmmhd"},
     {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk3", "recon" : "wenoz", "fluid" : "glmmhd"},
 ]
 
