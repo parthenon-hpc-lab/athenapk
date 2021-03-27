@@ -1,4 +1,8 @@
 //========================================================================================
+// AthenaPK - a performance portable block structured AMR astrophysical MHD
+// code. Copyright (c) 2021, Athena-Parthenon Collaboration. All rights
+// reserved. Licensed under the BSD 3-Clause License (the "LICENSE").
+//========================================================================================
 // Athena++ astrophysical MHD code
 // Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
@@ -10,18 +14,20 @@
 //! - T. Miyoshi & K. Kusano, "A multi-state HLL approximate Riemann solver for ideal
 //!   MHD", JCP, 208, 315 (2005)
 
+#ifndef RSOLVERS_HLLD_HPP_
+#define RSOLVERS_HLLD_HPP_
+
 // C headers
 
 // C++ headers
 #include <algorithm> // max(), min()
 #include <cmath>     // sqrt()
 
-// Athena++ headers
-#include "../../../athena.hpp"
-#include "../../../athena_arrays.hpp"
-#include "../../../eos/eos.hpp"
-#include "../../../mesh/mesh.hpp"
-#include "../../hydro.hpp"
+// Athena headers
+#include "../../eos/adiabatic_glmmhd.hpp"
+#include "../../main.hpp"
+#include "interface/variable_pack.hpp"
+#include "riemann.hpp"
 
 // container to store (density, momentum, total energy, tranverse magnetic field)
 // minimizes changes required to adopt athena4.2 version of this solver
@@ -31,27 +37,28 @@ struct Cons1D {
 
 #define SMALL_NUMBER 1.0e-8
 
-//----------------------------------------------------------------------------------------
+KOKKOS_FORCEINLINE_FUNCTION void HLLD(parthenon::team_mbr_t const &member, const int k,
+                                      const int j, const int il, const int iu,
+                                      const int ivx, const ScratchPad2D<Real> &wl,
+                                      const ScratchPad2D<Real> &wr,
+                                      VariableFluxPack<Real> &cons,
+                                      const AdiabaticGLMMHDEOS &eos, const Real c_h) {
+  const int ivy = IVX + ((ivx - IVX) + 1) % 3;
+  const int ivz = IVX + ((ivx - IVX) + 2) % 3;
+  const int iBx = ivx - 1 + NHYDRO;
+  const int iBy = ivy - 1 + NHYDRO;
+  const int iBz = ivz - 1 + NHYDRO;
 
-void Hydro::RiemannSolver(const int k, const int j, const int il, const int iu,
-                          const int ivx, const AthenaArray<Real> &bx,
-                          AthenaArray<Real> &wl, AthenaArray<Real> &wr,
-                          AthenaArray<Real> &flx, AthenaArray<Real> &ey,
-                          AthenaArray<Real> &ez, AthenaArray<Real> &wct,
-                          const AthenaArray<Real> &dxw) {
-  int ivy = IVX + ((ivx - IVX) + 1) % 3;
-  int ivz = IVX + ((ivx - IVX) + 2) % 3;
-  Real flxi[(NWAVE)];              // temporary variable to store flux
-  Real wli[(NWAVE)], wri[(NWAVE)]; // L/R states, primitive variables (input)
-  Real spd[5];                     // signal speeds, left to right
+  const auto gamma = eos.GetGamma();
+  const auto gm1 = gamma - 1.0;
+  const auto igm1 = 1.0 / gm1;
 
-  Real igm1;
-  EquationOfState *peos = pmy_block->peos;
-  if (!GENERAL_EOS) igm1 = 1.0 / (peos->GetGamma() - 1.0);
-  Real dt = pmy_block->pmy_mesh->dt;
+  // TODO(pgrete) move to a more central center and add logic
+  constexpr int NGLMMHD = 9;
 
-#pragma omp simd simdlen(SIMD_WIDTH) private(wli, wri, spd, flxi)
-  for (int i = il; i <= iu; ++i) {
+  parthenon::par_for_inner(member, il, iu, [&](const int i) {
+    Real wli[NGLMMHD], wri[NGLMMHD], flxi[NGLMMHD];
+    Real spd[5];                     // signal speeds, left to right
     Cons1D ul, ur;                   // L/R states, conserved variables (computed)
     Cons1D ulst, uldst, urdst, urst; // Conserved variable for all states
     Cons1D fl, fr;                   // Fluxes for left & right states
@@ -63,24 +70,33 @@ void Hydro::RiemannSolver(const int k, const int j, const int il, const int iu,
     wli[IVY] = wl(ivy, i);
     wli[IVZ] = wl(ivz, i);
     wli[IPR] = wl(IPR, i);
-    wli[IBY] = wl(IBY, i);
-    wli[IBZ] = wl(IBZ, i);
+    wli[IB1] = wl(iBx, i);
+    wli[IB2] = wl(iBy, i);
+    wli[IB3] = wl(iBz, i);
+    wli[IPS] = wl(IPS, i);
 
     wri[IDN] = wr(IDN, i);
     wri[IVX] = wr(ivx, i);
     wri[IVY] = wr(ivy, i);
     wri[IVZ] = wr(ivz, i);
     wri[IPR] = wr(IPR, i);
-    wri[IBY] = wr(IBY, i);
-    wri[IBZ] = wr(IBZ, i);
+    wri[IB1] = wr(iBx, i);
+    wri[IB2] = wr(iBy, i);
+    wri[IB3] = wr(iBz, i);
+    wri[IPS] = wr(IPS, i);
 
-    Real bxi = bx(k, j, i);
+    // first solve the decoupled state, see eq (24) in Mignone & Tzeferacos (2010)
+    Real bxi = 0.5 * (wli[IB1] + wri[IB1]) - 0.5 / c_h * (wri[IPS] - wli[IPS]);
+    Real psii = 0.5 * (wli[IPS] + wri[IPS]) - 0.5 * c_h * (wri[IB1] - wli[IB1]);
+    // and store flux
+    flxi[IB1] = psii;
+    flxi[IPS] = SQR(c_h) * bxi;
 
     // Compute L/R states for selected conserved variables
     Real bxsq = bxi * bxi;
     // (KGF): group transverse vector components for floating-point associativity symmetry
-    Real pbl = 0.5 * (bxsq + (SQR(wli[IBY]) + SQR(wli[IBZ]))); // magnetic pressure (l/r)
-    Real pbr = 0.5 * (bxsq + (SQR(wri[IBY]) + SQR(wri[IBZ])));
+    Real pbl = 0.5 * (bxsq + (SQR(wli[IB2]) + SQR(wli[IB3]))); // magnetic pressure (l/r)
+    Real pbr = 0.5 * (bxsq + (SQR(wri[IB2]) + SQR(wri[IB3])));
     Real kel = 0.5 * wli[IDN] * (SQR(wli[IVX]) + (SQR(wli[IVY]) + SQR(wli[IVZ])));
     Real ker = 0.5 * wri[IDN] * (SQR(wri[IVX]) + (SQR(wri[IVY]) + SQR(wri[IVZ])));
 
@@ -88,30 +104,24 @@ void Hydro::RiemannSolver(const int k, const int j, const int il, const int iu,
     ul.mx = wli[IVX] * ul.d;
     ul.my = wli[IVY] * ul.d;
     ul.mz = wli[IVZ] * ul.d;
-    if (GENERAL_EOS) {
-      ul.e = peos->EgasFromRhoP(ul.d, wli[IPR]) + kel + pbl;
-    } else {
-      ul.e = wli[IPR] * igm1 + kel + pbl;
-    }
-    ul.by = wli[IBY];
-    ul.bz = wli[IBZ];
+    ul.e = wli[IPR] * igm1 + kel + pbl;
+    ul.by = wli[IB2];
+    ul.bz = wli[IB3];
 
     ur.d = wri[IDN];
     ur.mx = wri[IVX] * ur.d;
     ur.my = wri[IVY] * ur.d;
     ur.mz = wri[IVZ] * ur.d;
-    if (GENERAL_EOS) {
-      ur.e = peos->EgasFromRhoP(ur.d, wri[IPR]) + ker + pbr;
-    } else {
-      ur.e = wri[IPR] * igm1 + ker + pbr;
-    }
-    ur.by = wri[IBY];
-    ur.bz = wri[IBZ];
+    ur.e = wri[IPR] * igm1 + ker + pbr;
+    ur.by = wri[IB2];
+    ur.bz = wri[IB3];
 
     //--- Step 2.  Compute L & R wave speeds according to Miyoshi & Kusano, eqn. (67)
 
-    Real cfl = pmy_block->peos->FastMagnetosonicSpeed(wli, bxi);
-    Real cfr = pmy_block->peos->FastMagnetosonicSpeed(wri, bxi);
+    const auto cfl =
+        eos.FastMagnetosonicSpeed(wli[IDN], wli[IPR], wli[iBx], wli[iBy], wli[iBz]);
+    const auto cfr =
+        eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[iBx], wri[iBy], wri[iBz]);
 
     spd[0] = std::min(wli[IVX] - cfl, wri[IVX] - cfr);
     spd[4] = std::max(wli[IVX] + cfl, wri[IVX] + cfr);
@@ -322,8 +332,8 @@ void Hydro::RiemannSolver(const int k, const int j, const int il, const int iu,
       flxi[IVY] = fl.my;
       flxi[IVZ] = fl.mz;
       flxi[IEN] = fl.e;
-      flxi[IBY] = fl.by;
-      flxi[IBZ] = fl.bz;
+      flxi[IB2] = fl.by;
+      flxi[IB3] = fl.bz;
     } else if (spd[4] <= 0.0) {
       // return Fr if flow is supersonic
       flxi[IDN] = fr.d;
@@ -331,8 +341,8 @@ void Hydro::RiemannSolver(const int k, const int j, const int il, const int iu,
       flxi[IVY] = fr.my;
       flxi[IVZ] = fr.mz;
       flxi[IEN] = fr.e;
-      flxi[IBY] = fr.by;
-      flxi[IBZ] = fr.bz;
+      flxi[IB2] = fr.by;
+      flxi[IB3] = fr.bz;
     } else if (spd[1] >= 0.0) {
       // return Fl*
       flxi[IDN] = fl.d + ulst.d;
@@ -340,8 +350,8 @@ void Hydro::RiemannSolver(const int k, const int j, const int il, const int iu,
       flxi[IVY] = fl.my + ulst.my;
       flxi[IVZ] = fl.mz + ulst.mz;
       flxi[IEN] = fl.e + ulst.e;
-      flxi[IBY] = fl.by + ulst.by;
-      flxi[IBZ] = fl.bz + ulst.bz;
+      flxi[IB2] = fl.by + ulst.by;
+      flxi[IB3] = fl.bz + ulst.bz;
     } else if (spd[2] >= 0.0) {
       // return Fl**
       flxi[IDN] = fl.d + ulst.d + uldst.d;
@@ -349,8 +359,8 @@ void Hydro::RiemannSolver(const int k, const int j, const int il, const int iu,
       flxi[IVY] = fl.my + ulst.my + uldst.my;
       flxi[IVZ] = fl.mz + ulst.mz + uldst.mz;
       flxi[IEN] = fl.e + ulst.e + uldst.e;
-      flxi[IBY] = fl.by + ulst.by + uldst.by;
-      flxi[IBZ] = fl.bz + ulst.bz + uldst.bz;
+      flxi[IB2] = fl.by + ulst.by + uldst.by;
+      flxi[IB3] = fl.bz + ulst.bz + uldst.bz;
     } else if (spd[3] > 0.0) {
       // return Fr**
       flxi[IDN] = fr.d + urst.d + urdst.d;
@@ -358,8 +368,8 @@ void Hydro::RiemannSolver(const int k, const int j, const int il, const int iu,
       flxi[IVY] = fr.my + urst.my + urdst.my;
       flxi[IVZ] = fr.mz + urst.mz + urdst.mz;
       flxi[IEN] = fr.e + urst.e + urdst.e;
-      flxi[IBY] = fr.by + urst.by + urdst.by;
-      flxi[IBZ] = fr.bz + urst.bz + urdst.bz;
+      flxi[IB2] = fr.by + urst.by + urdst.by;
+      flxi[IB3] = fr.bz + urst.bz + urdst.bz;
     } else {
       // return Fr*
       flxi[IDN] = fr.d + urst.d;
@@ -367,19 +377,20 @@ void Hydro::RiemannSolver(const int k, const int j, const int il, const int iu,
       flxi[IVY] = fr.my + urst.my;
       flxi[IVZ] = fr.mz + urst.mz;
       flxi[IEN] = fr.e + urst.e;
-      flxi[IBY] = fr.by + urst.by;
-      flxi[IBZ] = fr.bz + urst.bz;
+      flxi[IB2] = fr.by + urst.by;
+      flxi[IB3] = fr.bz + urst.bz;
     }
 
-    flx(IDN, k, j, i) = flxi[IDN];
-    flx(ivx, k, j, i) = flxi[IVX];
-    flx(ivy, k, j, i) = flxi[IVY];
-    flx(ivz, k, j, i) = flxi[IVZ];
-    flx(IEN, k, j, i) = flxi[IEN];
-    ey(k, j, i) = -flxi[IBY];
-    ez(k, j, i) = flxi[IBZ];
-
-    wct(k, j, i) = GetWeightForCT(flxi[IDN], wli[IDN], wri[IDN], dxw(i), dt);
-  }
-  return;
+    cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
+    cons.flux(ivx, ivx, k, j, i) = flxi[IVX];
+    cons.flux(ivx, ivy, k, j, i) = flxi[IVY];
+    cons.flux(ivx, ivz, k, j, i) = flxi[IVZ];
+    cons.flux(ivx, IEN, k, j, i) = flxi[IEN];
+    cons.flux(ivx, iBx, k, j, i) = flxi[IB1];
+    cons.flux(ivx, iBy, k, j, i) = flxi[IB2];
+    cons.flux(ivx, iBz, k, j, i) = flxi[IB3];
+    cons.flux(ivx, IPS, k, j, i) = flxi[IPS];
+  });
 }
+
+#endif // RSOLVERS_HLLD_HPP_
