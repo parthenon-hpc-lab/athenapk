@@ -19,7 +19,8 @@ project(athenaPK LANGUAGES CXX)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX17_STANDARD_COMPILE_OPTION "-std=c++17")
 
 # make paths in target_source() absolute
 # used for sources in src/pgen folder

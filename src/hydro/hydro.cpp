@@ -68,24 +68,34 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   bool pack_in_one = pin->GetOrAddBoolean("parthenon/mesh", "pack_in_one", true);
   pkg->AddParam<>("pack_in_one", pack_in_one);
 
+  bool needs_scratch = false;
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
   auto recon = Reconstruction::undefined;
+  // flux used in all stages expect the first. First stage is set below based on integr.
+  FluxFun_t *flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::undefined>;
   if (recon_str == "dc") {
     recon = Reconstruction::dc;
+    flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::dc>;
     recon_need_nghost = 1;
   } else if (recon_str == "plm") {
     recon = Reconstruction::plm;
+    flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::plm>;
     recon_need_nghost = 2;
   } else if (recon_str == "ppm") {
     recon = Reconstruction::ppm;
+    flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::ppm>;
     recon_need_nghost = 3;
+    needs_scratch = true;
   } else if (recon_str == "wenoz") {
     recon = Reconstruction::wenoz;
+    flux_other_stage = Hydro::CalculateFluxesWScratch<Reconstruction::wenoz>;
     recon_need_nghost = 3;
+    needs_scratch = true;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
   }
+  // Adding recon independently of flux function pointer as it's used in 3D flux func.
   pkg->AddParam<>("reconstruction", recon);
 
   // not using GetOrAdd here until there's a reasonable default
@@ -111,6 +121,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   const auto integrator_str = pin->GetString("parthenon/time", "integrator");
   auto integrator = Integrator::undefined;
+  FluxFun_t *flux_first_stage = flux_other_stage;
+
   if (integrator_str == "rk1") {
     integrator = Integrator::rk1;
   } else if (integrator_str == "rk2") {
@@ -119,10 +131,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     integrator = Integrator::rk3;
   } else if (integrator_str == "vl2") {
     integrator = Integrator::vl2;
+    // override first stage (predictor) to first order
+    flux_first_stage = Hydro::CalculateFluxesWScratch<Reconstruction::dc>;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown integration method.");
   }
   pkg->AddParam<>("integrator", integrator);
+  pkg->AddParam<FluxFun_t *>("flux_first_stage", flux_first_stage);
+  pkg->AddParam<FluxFun_t *>("flux_other_stage", flux_other_stage);
 
   auto eos_str = pin->GetString("hydro", "eos");
   if (eos_str == "adiabatic") {
@@ -139,8 +155,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam("use_scratch", use_scratch);
   pkg->AddParam("scratch_level", scratch_level);
 
-  if (!use_scratch &&
-      ((recon == Reconstruction::ppm) || (recon == Reconstruction::wenoz))) {
+  if (!use_scratch && needs_scratch) {
     PARTHENON_FAIL("AthenaPK hydro: Reconstruction needs hydro/use_scratch=true");
   }
 
@@ -341,7 +356,8 @@ TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md,
   return TaskStatus::complete;
 }
 
-TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stage) {
+template <Reconstruction recon>
+TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -363,16 +379,12 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
   const int nhydro = pkg->Param<int>("nhydro");
   const auto &eos = pkg->Param<AdiabaticHydroEOS>("eos");
 
-  const auto recon = pkg->Param<Reconstruction>("reconstruction");
-  const auto integrator = pkg->Param<Integrator>("integrator");
-
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
   size_t scratch_size_in_bytes =
       parthenon::ScratchPad2D<Real>::shmem_size(nhydro, nx1) * 2;
 
-  // TODO(pgrete): hardcoded stages
   parthenon::par_for_outer(
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
       scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
@@ -383,15 +395,16 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level), nhydro, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level), nhydro, nx1);
         // get reconstructed state on faces
-        if (recon == Reconstruction::dc ||
-            (integrator == Integrator::vl2 && stage == 1)) {
+        if constexpr (recon == Reconstruction::dc) {
           DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
-        } else if (recon == Reconstruction::ppm) {
+        } else if constexpr (recon == Reconstruction::ppm) {
           PiecewiseParabolicX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
-        } else if (recon == Reconstruction::wenoz) {
+        } else if constexpr (recon == Reconstruction::wenoz) {
           WENOZX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
-        } else {
+        } else if constexpr (recon == Reconstruction::plm) {
           PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        } else {
+          PARTHENON_FAIL("Unknown reconstruction method");
         }
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
@@ -425,15 +438,16 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
                                             nx1);
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
-            if (recon == Reconstruction::dc ||
-                (integrator == Integrator::vl2 && stage == 1)) {
+            if constexpr (recon == Reconstruction::dc) {
               DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
-            } else if (recon == Reconstruction::ppm) {
+            } else if constexpr (recon == Reconstruction::ppm) {
               PiecewiseParabolicX2(member, k, j, il, iu, prim, wlb, wr);
-            } else if (recon == Reconstruction::wenoz) {
+            } else if constexpr (recon == Reconstruction::wenoz) {
               WENOZX2(member, k, j, il, iu, prim, wlb, wr);
-            } else {
+            } else if constexpr (recon == Reconstruction::plm) {
               PiecewiseLinearX2(member, k, j, il, iu, prim, wlb, wr);
+            } else {
+              PARTHENON_FAIL("Unknown reconstruction method");
             }
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
@@ -473,15 +487,16 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md, int stag
                                             nx1);
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
-            if (recon == Reconstruction::dc ||
-                (integrator == Integrator::vl2 && stage == 1)) {
+            if constexpr (recon == Reconstruction::dc) {
               DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
-            } else if (recon == Reconstruction::ppm) {
+            } else if constexpr (recon == Reconstruction::ppm) {
               PiecewiseParabolicX3(member, k, j, il, iu, prim, wlb, wr);
-            } else if (recon == Reconstruction::wenoz) {
+            } else if constexpr (recon == Reconstruction::wenoz) {
               WENOZX3(member, k, j, il, iu, prim, wlb, wr);
-            } else {
+            } else if constexpr (recon == Reconstruction::plm) {
               PiecewiseLinearX3(member, k, j, il, iu, prim, wlb, wr);
+            } else {
+              PARTHENON_FAIL("Unknown reconstruction method");
             }
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
