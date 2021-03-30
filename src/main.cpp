@@ -40,6 +40,10 @@ int main(int argc, char *argv[]) {
     pman.app_input->InitUserMeshData = linear_wave_mhd::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave_mhd::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = linear_wave_mhd::UserWorkAfterLoop;
+  } else if (problem == "cpaw") {
+    pman.app_input->InitUserMeshData = cpaw::InitUserMeshData;
+    pman.app_input->ProblemGenerator = cpaw::ProblemGenerator;
+    pman.app_input->UserWorkAfterLoop = cpaw::UserWorkAfterLoop;
   } else if (problem == "blast") {
     pman.app_input->InitUserMeshData = blast::InitUserMeshData;
     pman.app_input->ProblemGenerator = blast::ProblemGenerator;
