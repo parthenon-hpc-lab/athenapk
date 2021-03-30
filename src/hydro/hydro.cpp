@@ -131,6 +131,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     Real pfloor = pin->GetOrAddReal("hydro", "pfloor", std::sqrt(1024 * float_min));
     AdiabaticHydroEOS eos(pfloor, dfloor, gamma);
     pkg->AddParam<>("eos", eos);
+    pkg->AddParam<Real>("AdibaticIndex", gamma,true);
+    pkg->AddParam<std::string>("EquationOfState", eos_str,true);
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
   }
@@ -150,12 +152,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   int nhydro_out = pkg->Param<int>("nhydro");
 
   std::string field_name = "cons";
+  std::vector<std::string> component_labels(nhydro);
+  component_labels[IDN]="Density";
+  component_labels[IM1]="MomentumDensity1";
+  component_labels[IM2]="MomentumDensity2";
+  component_labels[IM3]="MomentumDensity3";
+  component_labels[IEN]="TotalEnergyDensity";
   Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost},
-             std::vector<int>({nhydro}));
+             std::vector<int>({nhydro}), component_labels);
   pkg->AddField(field_name, m);
 
   field_name = "prim";
-  m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}));
+  component_labels[IDN]="Density";
+  component_labels[IVX]="Velocity1";
+  component_labels[IVY]="Velocity2";
+  component_labels[IVZ]="Velocity3";
+  component_labels[IPR]="Pressure";
+  m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}), component_labels);
   pkg->AddField(field_name, m);
 
   if (!use_scratch) {
