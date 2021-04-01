@@ -33,6 +33,10 @@
 namespace linear_wave {
 using namespace parthenon::driver::prelude;
 
+// TODO(pgrete) temp fix to address removal in Parthenon. Update when merging with MHD
+constexpr int NWAVE = 5;
+constexpr int NFIELD = 0;
+
 // Parameters which define initial solution -- made global so that they can be shared
 // with functions A1,2,3 which compute vector potentials
 Real d0, p0, u0, bx0, by0, bz0, dby, dbz;
