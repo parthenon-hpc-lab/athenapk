@@ -39,7 +39,7 @@ namespace rand_blast {
 using namespace parthenon::driver::prelude;
 
 constexpr int num_blast = 30;
-std::array<std::array<Real, 3>, num_blast> blasts = {{
+const std::array<std::array<Real, 3>, num_blast> blasts_ = {{
     {7.825E-07, 1.32E-02, 7.56E-02},     {-5.413E-02, -4.672E-02, -7.810E-02},
     {-3.211E-02, 6.793E-02, 9.346E-02},  {-6.165E-02, 5.194E-02, -1.690E-02},
     {5.346E-03, 5.297E-02, 6.711E-02},   {7.698E-04, -6.165E-02, -9.331E-02},
@@ -82,6 +82,7 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &eos = hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos");
   const auto gm1 = eos.GetGamma() - 1.0;
+  auto blasts = blasts_; // make sure blasts is captured
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "RandomBlastSource", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
