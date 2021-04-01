@@ -23,6 +23,7 @@
 #include "../refinement/refinement.hpp"
 #include "defs.hpp"
 #include "hydro.hpp"
+#include "outputs/outputs.hpp"
 #include "reconstruct/dc_inline.hpp"
 #include "rsolvers/glmmhd_derigs.hpp"
 #include "rsolvers/hlld.hpp"
@@ -45,6 +46,58 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
   return packages;
+}
+
+// TODO(pgrete) This usage of templates it not great... at all.. need to fix
+template <int idx, bool kin_en = false, bool mag_en = false>
+Real HydroHst(MeshData<Real> *md) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+
+  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+
+  Real sum = 0.0;
+
+  // Sanity checks
+  if ((idx >= 0) && (kin_en || mag_en)) {
+    PARTHENON_FAIL("Undetermined behavior for idx >= 0");
+  }
+  if ((idx < 0) && (kin_en && mag_en)) {
+    PARTHENON_FAIL("Kin en and mag en cannot be simultaneously true.");
+  }
+  if ((idx < 0) && (!kin_en && !mag_en)) {
+    PARTHENON_FAIL("Kin en and mag en cannot be simultaneously false.");
+  }
+  Kokkos::parallel_reduce(
+      "HydroHst",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+        const auto &cons = cons_pack(b);
+        const auto &coords = cons_pack.coords(b);
+
+        if (idx >= 0) {
+          lsum += cons(idx, k, j, i) * coords.Volume(k, j, i);
+        } else if (kin_en) {
+          lsum += 0.5 / cons(IDN, k, j, i) *
+                  (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                   SQR(cons(IM3, k, j, i))) *
+                  coords.Volume(k, j, i);
+        } else if (mag_en) {
+          lsum += 0.5 *
+                  (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                   SQR(cons(IB3, k, j, i))) *
+                  coords.Volume(k, j, i);
+        }
+      },
+      sum);
+
+  return sum;
 }
 
 // TOOD(pgrete) check is we can enlist this with FillDerived directly
@@ -321,6 +374,32 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
   // Adding recon independently of flux function pointer as it's used in 3D flux func.
   pkg->AddParam<>("reconstruction", recon);
+
+  parthenon::HstVar_list hst_vars = {};
+  parthenon::HistoryOutputVar hst_var = {parthenon::UserHistoryOperation::sum,
+                                         HydroHst<IDN>, "mass"};
+  hst_vars.emplace_back(hst_var);
+  hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IM1>, "1-mom"};
+  hst_vars.emplace_back(hst_var);
+  hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IM2>, "2-mom"};
+  hst_vars.emplace_back(hst_var);
+  hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IM3>, "3-mom"};
+  hst_vars.emplace_back(hst_var);
+  hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<-1, true>, "KE"};
+  hst_vars.emplace_back(hst_var);
+  hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IEN>, "tot-E"};
+  hst_vars.emplace_back(hst_var);
+  if (fluid == Fluid::glmmhd) {
+    hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IB1>, "1-mag"};
+    hst_vars.emplace_back(hst_var);
+    hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IB2>, "2-mag"};
+    hst_vars.emplace_back(hst_var);
+    hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IB3>, "3-mag"};
+    hst_vars.emplace_back(hst_var);
+    hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<-1, false, true>, "ME"};
+    hst_vars.emplace_back(hst_var);
+  }
+  pkg->AddParam<>(parthenon::hist_str, hst_vars);
 
   // not using GetOrAdd here until there's a reasonable default
   const auto nghost = pin->GetInteger("parthenon/mesh", "nghost");
