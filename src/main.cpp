@@ -55,6 +55,8 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = field_loop::ProblemGenerator;
   } else if (problem == "kh") {
     pman.app_input->ProblemGenerator = kh::ProblemGenerator;
+  } else if (problem == "rand_blast") {
+    pman.app_input->ProblemGenerator = rand_blast::ProblemGenerator;
   }
 
   pman.ParthenonInitPackagesAndMesh();

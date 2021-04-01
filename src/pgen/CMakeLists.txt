@@ -9,4 +9,5 @@ target_sources(athenaPK PRIVATE
     advection.cpp
     blast.cpp
     kh.cpp
+    rand_blast.cpp
     )

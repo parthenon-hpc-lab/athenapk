@@ -1,0 +1,62 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem   = 3D Random blasts
+reference = Balsara and Kim 2004 ApJ 602:1079–1090
+
+<job>
+problem_id = rand_blast
+
+<problem/rand_blast>
+rho0         = 1.0      # initial mean density
+p0           = 0.3      # initial mean pressure
+Bx0          = 0.056117 # initial magnetic field (x-direction)
+
+<parthenon/mesh>
+refinement = none
+nghost = 2
+
+nx1 = 128
+x1min = -0.1 
+x1max = 0.1
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 128
+x2min = -0.1
+x2max = 0.1
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 128
+x3min = -0.1
+x3max = 0.1
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1=64
+nx2=64 
+nx3=64
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.3
+tlim = 0.03
+nlim = 100000
+perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+
+<hydro>
+fluid = glmmhd
+eos = adiabatic
+reconstruction = plm
+gamma = 1.666666666666667 # gamma = C_p/C_v
+use_scratch = true
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+<parthenon/output0>
+file_type = hdf5
+dt = 0.003
+variables = prim
