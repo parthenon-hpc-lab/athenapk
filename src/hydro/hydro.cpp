@@ -228,6 +228,13 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
   return TaskStatus::complete;
 }
 
+TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const parthenon::SimTime &tm) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  auto ProblemSourceFirstOrder = hydro_pkg->Param<SourceFun_t>("ProblemsourceFirstOrder");
+  ProblemSourceFirstOrder(md, tm);
+  return TaskStatus::complete;
+}
+
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto pkg = std::make_shared<StateDescriptor>("Hydro");
 
@@ -392,6 +399,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   if (!use_scratch && needs_scratch) {
     PARTHENON_FAIL("AthenaPK hydro: Reconstruction needs hydro/use_scratch=true");
   }
+
+  pkg->AddParam<SourceFun_t>("ProblemsourceFirstOrder", ProblemSoureFirstOrderDefault);
 
   std::string field_name = "cons";
   Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost},

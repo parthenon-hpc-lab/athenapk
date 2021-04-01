@@ -150,19 +150,30 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
     // add non-operator split source terms
-    auto source = tl.AddTask(none, AddUnsplitSources, mu0.get(),
-                             integrator->beta[stage - 1] * integrator->dt);
+    auto source_unsplit = tl.AddTask(none, AddUnsplitSources, mu0.get(),
+                                     integrator->beta[stage - 1] * integrator->dt);
 
     // compute the divergence of fluxes of conserved variables
 
     auto update = tl.AddTask(
-        source, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
-        mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
+        source_unsplit, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>,
+        mu0.get(), mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
         integrator->beta[stage - 1] * integrator->dt);
 
+    auto source_split_first_order = update;
+
+    // Add operator split source terms at first order, i.e., full dt update
+    // after all stages of the integration.
+    // Not recommended for but allows easy "reset" of variable for some
+    // problem types, see random blasts.
+    if (stage == integrator->nstages) {
+      source_split_first_order =
+          tl.AddTask(update, AddSplitSourcesFirstOrder, mu0.get(), tm);
+    }
+
     // update ghost cells
-    auto send =
-        tl.AddTask(update, parthenon::cell_centered_bvars::SendBoundaryBuffers, mu0);
+    auto send = tl.AddTask(source_split_first_order,
+                           parthenon::cell_centered_bvars::SendBoundaryBuffers, mu0);
     auto recv =
         tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mu0);
     auto fill_from_bufs =

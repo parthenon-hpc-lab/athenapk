@@ -28,6 +28,12 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md);
 using FluxFun_t =
     decltype(CalculateFluxesWScratch<Fluid::undefined, Reconstruction::undefined>);
 
+TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const parthenon::SimTime &tm);
+
+using SourceFun_t = std::function<void(MeshData<Real> *md, const parthenon::SimTime &tm)>;
+static void ProblemSoureFirstOrderDefault(MeshData<Real> *md,
+                                          const parthenon::SimTime &tm) {}
+
 } // namespace Hydro
 
 #endif // HYDRO_HYDRO_HPP_
