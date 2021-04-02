@@ -42,14 +42,15 @@ using namespace parthenon::package::prelude;
 
 namespace Hydro {
 
+using parthenon::HistoryOutputVar;
+
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
   return packages;
 }
 
-// TODO(pgrete) This usage of templates it not great... at all.. need to fix
-template <int idx, bool kin_en = false, bool mag_en = false>
+template <Hst hst, int idx = -1>
 Real HydroHst(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
@@ -62,14 +63,8 @@ Real HydroHst(MeshData<Real> *md) {
   Real sum = 0.0;
 
   // Sanity checks
-  if ((idx >= 0) && (kin_en || mag_en)) {
-    PARTHENON_FAIL("Undetermined behavior for idx >= 0");
-  }
-  if ((idx < 0) && (kin_en && mag_en)) {
-    PARTHENON_FAIL("Kin en and mag en cannot be simultaneously true.");
-  }
-  if ((idx < 0) && (!kin_en && !mag_en)) {
-    PARTHENON_FAIL("Kin en and mag en cannot be simultaneously false.");
+  if ((hst == Hst::idx) && (idx < 0)) {
+    PARTHENON_FAIL("Idx based hst output needs index >= 0");
   }
   Kokkos::parallel_reduce(
       "HydroHst",
@@ -81,18 +76,33 @@ Real HydroHst(MeshData<Real> *md) {
         const auto &cons = cons_pack(b);
         const auto &coords = cons_pack.coords(b);
 
-        if (idx >= 0) {
+        if (hst == Hst::idx) {
           lsum += cons(idx, k, j, i) * coords.Volume(k, j, i);
-        } else if (kin_en) {
+        } else if (hst == Hst::ekin) {
           lsum += 0.5 / cons(IDN, k, j, i) *
                   (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
                    SQR(cons(IM3, k, j, i))) *
                   coords.Volume(k, j, i);
-        } else if (mag_en) {
+        } else if (hst == Hst::emag) {
           lsum += 0.5 *
                   (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                    SQR(cons(IB3, k, j, i))) *
                   coords.Volume(k, j, i);
+          // relative divergence of B error, i.e., L * div(B) / |B|
+        } else if (hst == Hst::divb) {
+          lsum +=
+              0.5 *
+              (std::sqrt(SQR(coords.Dx(X1DIR, k, j, i)) + SQR(coords.Dx(X2DIR, k, j, i)) +
+                         SQR(coords.Dx(X3DIR, k, j, i)))) *
+              ((cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /
+                   coords.Dx(X1DIR, k, j, i) +
+               (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) /
+                   coords.Dx(X2DIR, k, j, i) +
+               (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
+                   coords.Dx(X3DIR, k, j, i)) /
+              std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                        SQR(cons(IB3, k, j, i))) *
+              coords.Volume(k, j, i);
         }
       },
       sum);
@@ -376,28 +386,29 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("reconstruction", recon);
 
   parthenon::HstVar_list hst_vars = {};
-  parthenon::HistoryOutputVar hst_var = {parthenon::UserHistoryOperation::sum,
-                                         HydroHst<IDN>, "mass"};
-  hst_vars.emplace_back(hst_var);
-  hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IM1>, "1-mom"};
-  hst_vars.emplace_back(hst_var);
-  hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IM2>, "2-mom"};
-  hst_vars.emplace_back(hst_var);
-  hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IM3>, "3-mom"};
-  hst_vars.emplace_back(hst_var);
-  hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<-1, true>, "KE"};
-  hst_vars.emplace_back(hst_var);
-  hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IEN>, "tot-E"};
-  hst_vars.emplace_back(hst_var);
+  hst_vars.emplace_back(HistoryOutputVar(
+      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IDN>, "mass"}));
+  hst_vars.emplace_back(HistoryOutputVar(
+      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IM1>, "1-mom"}));
+  hst_vars.emplace_back(HistoryOutputVar(
+      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IM2>, "2-mom"}));
+  hst_vars.emplace_back(HistoryOutputVar(
+      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IM3>, "3-mom"}));
+  hst_vars.emplace_back(HistoryOutputVar(
+      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::ekin>, "KE"}));
+  hst_vars.emplace_back(HistoryOutputVar(
+      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IEN>, "tot-E"}));
   if (fluid == Fluid::glmmhd) {
-    hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IB1>, "1-mag"};
-    hst_vars.emplace_back(hst_var);
-    hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IB2>, "2-mag"};
-    hst_vars.emplace_back(hst_var);
-    hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<IB3>, "3-mag"};
-    hst_vars.emplace_back(hst_var);
-    hst_var = {parthenon::UserHistoryOperation::sum, HydroHst<-1, false, true>, "ME"};
-    hst_vars.emplace_back(hst_var);
+    hst_vars.emplace_back(HistoryOutputVar(
+        {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IB1>, "1-mag"}));
+    hst_vars.emplace_back(HistoryOutputVar(
+        {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IB2>, "2-mag"}));
+    hst_vars.emplace_back(HistoryOutputVar(
+        {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IB3>, "3-mag"}));
+    hst_vars.emplace_back(HistoryOutputVar(
+        {parthenon::UserHistoryOperation::sum, HydroHst<Hst::emag>, "ME"}));
+    hst_vars.emplace_back(HistoryOutputVar(
+        {parthenon::UserHistoryOperation::sum, HydroHst<Hst::divb>, "relDivB"}));
   }
   pkg->AddParam<>(parthenon::hist_str, hst_vars);
 

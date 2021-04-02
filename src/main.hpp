@@ -42,6 +42,8 @@ enum class Reconstruction {undefined, dc, plm, ppm, wenoz};
 enum class Integrator {undefined, rk1, rk2, vl2, rk3};
 enum class Fluid {undefined, euler, glmmhd};
 
+enum class Hst {idx, ekin, emag, divb};
+
 constexpr parthenon::Real float_min{std::numeric_limits<float>::min()};
 
 #endif  // MAIN_HPP_
