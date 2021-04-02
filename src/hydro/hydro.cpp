@@ -88,18 +88,18 @@ Real HydroHst(MeshData<Real> *md) {
                   (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                    SQR(cons(IB3, k, j, i))) *
                   coords.Volume(k, j, i);
-          // relative divergence of B error, i.e., L * div(B) / |B|
+          // relative divergence of B error, i.e., L * |div(B)| / |B|
         } else if (hst == Hst::divb) {
           lsum +=
               0.5 *
               (std::sqrt(SQR(coords.Dx(X1DIR, k, j, i)) + SQR(coords.Dx(X2DIR, k, j, i)) +
                          SQR(coords.Dx(X3DIR, k, j, i)))) *
-              ((cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /
-                   coords.Dx(X1DIR, k, j, i) +
-               (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) /
-                   coords.Dx(X2DIR, k, j, i) +
-               (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
-                   coords.Dx(X3DIR, k, j, i)) /
+              std::abs((cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /
+                           coords.Dx(X1DIR, k, j, i) +
+                       (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) /
+                           coords.Dx(X2DIR, k, j, i) +
+                       (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
+                           coords.Dx(X3DIR, k, j, i)) /
               std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                         SQR(cons(IB3, k, j, i))) *
               coords.Volume(k, j, i);
@@ -399,12 +399,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   hst_vars.emplace_back(HistoryOutputVar(
       {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IEN>, "tot-E"}));
   if (fluid == Fluid::glmmhd) {
-    hst_vars.emplace_back(HistoryOutputVar(
-        {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IB1>, "1-mag"}));
-    hst_vars.emplace_back(HistoryOutputVar(
-        {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IB2>, "2-mag"}));
-    hst_vars.emplace_back(HistoryOutputVar(
-        {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IB3>, "3-mag"}));
     hst_vars.emplace_back(HistoryOutputVar(
         {parthenon::UserHistoryOperation::sum, HydroHst<Hst::emag>, "ME"}));
     hst_vars.emplace_back(HistoryOutputVar(
