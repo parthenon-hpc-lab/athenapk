@@ -120,7 +120,8 @@ void ConsToPrim(MeshData<Real> *md) {
   eos.ConservedToPrimitive(md);
 }
 
-// Calculate c_h. Currently using c_h = lambda_max (which is the fast magnetosonic speed)
+// Calculate c_h.
+// Using c_h = max(u_i + c_f_i), see (15) in Mignone & Tzeferakos (2010)
 // This may not be ideal as it could violate the cfl condition and
 // c_h = lambda_max - |u|_max,mesh should be used, see 3.7 (and 3.6) in Derigs+18
 TaskStatus CalculateCleaningSpeed(MeshData<Real> *md) {
@@ -146,21 +147,27 @@ TaskStatus CalculateCleaningSpeed(MeshData<Real> *md) {
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmax_c_f) {
         const auto &prim = prim_pack(b);
         const auto &coords = prim_pack.coords(b);
-        lmax_c_f = fmax(lmax_c_f,
-                        eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
-                                                  prim(IB1, k, j, i), prim(IB2, k, j, i),
-                                                  prim(IB3, k, j, i)));
+        lmax_c_f =
+            fmax(lmax_c_f,
+                 std::abs(prim(IVX, k, j, i)) +
+                     eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
+                                               prim(IB1, k, j, i), prim(IB2, k, j, i),
+                                               prim(IB3, k, j, i)));
         if (nx2) {
-          lmax_c_f = fmax(
-              lmax_c_f, eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
-                                                  prim(IB2, k, j, i), prim(IB3, k, j, i),
-                                                  prim(IB1, k, j, i)));
+          lmax_c_f =
+              fmax(lmax_c_f,
+                   std::abs(prim(IVY, k, j, i)) +
+                       eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
+                                                 prim(IB2, k, j, i), prim(IB3, k, j, i),
+                                                 prim(IB1, k, j, i)));
         }
         if (nx3) {
-          lmax_c_f = fmax(
-              lmax_c_f, eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
-                                                  prim(IB3, k, j, i), prim(IB1, k, j, i),
-                                                  prim(IB2, k, j, i)));
+          lmax_c_f =
+              fmax(lmax_c_f,
+                   std::abs(prim(IVZ, k, j, i)) +
+                       eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
+                                                 prim(IB3, k, j, i), prim(IB1, k, j, i),
+                                                 prim(IB2, k, j, i)));
         }
       },
       Kokkos::Max<Real>(max_c_f));
