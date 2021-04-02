@@ -120,8 +120,7 @@ void ConsToPrim(MeshData<Real> *md) {
   eos.ConservedToPrimitive(md);
 }
 
-// Calculate c_h.
-// Using c_h = max(u_i + c_f_i), see (15) in Mignone & Tzeferakos (2010)
+// Calculate c_h. Currently using c_h = lambda_max (which is the fast magnetosonic speed)
 // This may not be ideal as it could violate the cfl condition and
 // c_h = lambda_max - |u|_max,mesh should be used, see 3.7 (and 3.6) in Derigs+18
 TaskStatus CalculateCleaningSpeed(MeshData<Real> *md) {
@@ -147,27 +146,21 @@ TaskStatus CalculateCleaningSpeed(MeshData<Real> *md) {
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmax_c_f) {
         const auto &prim = prim_pack(b);
         const auto &coords = prim_pack.coords(b);
-        lmax_c_f =
-            fmax(lmax_c_f,
-                 std::abs(prim(IVX, k, j, i)) +
-                     eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
-                                               prim(IB1, k, j, i), prim(IB2, k, j, i),
-                                               prim(IB3, k, j, i)));
+        lmax_c_f = fmax(lmax_c_f,
+                        eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
+                                                  prim(IB1, k, j, i), prim(IB2, k, j, i),
+                                                  prim(IB3, k, j, i)));
         if (nx2) {
-          lmax_c_f =
-              fmax(lmax_c_f,
-                   std::abs(prim(IVY, k, j, i)) +
-                       eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
-                                                 prim(IB2, k, j, i), prim(IB3, k, j, i),
-                                                 prim(IB1, k, j, i)));
+          lmax_c_f = fmax(
+              lmax_c_f, eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
+                                                  prim(IB2, k, j, i), prim(IB3, k, j, i),
+                                                  prim(IB1, k, j, i)));
         }
         if (nx3) {
-          lmax_c_f =
-              fmax(lmax_c_f,
-                   std::abs(prim(IVZ, k, j, i)) +
-                       eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
-                                                 prim(IB3, k, j, i), prim(IB1, k, j, i),
-                                                 prim(IB2, k, j, i)));
+          lmax_c_f = fmax(
+              lmax_c_f, eos.FastMagnetosonicSpeed(prim(IDN, k, j, i), prim(IPR, k, j, i),
+                                                  prim(IB3, k, j, i), prim(IB1, k, j, i),
+                                                  prim(IB2, k, j, i)));
         }
       },
       Kokkos::Max<Real>(max_c_f));
@@ -262,6 +255,7 @@ void DerigsGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
       });
 }
 
+template <bool extended>
 void DednerGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -281,6 +275,30 @@ void DednerGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
       DEFAULT_LOOP_PATTERN, "DednerGLMMHDSource", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        // Use extended source terms that is non-conservative but has better
+        // stability properties as reported by Dedner+ and M&T
+        if constexpr (extended) {
+          auto &cons = cons_pack(b);
+          const auto &prim = prim_pack(b);
+          const auto &coords = prim_pack.coords(b);
+          const Real divB = 0.5 * ((prim(IB1, k, j, i + 1) - prim(IB1, k, j, i - 1)) /
+                                       coords.Dx(X1DIR, k, j, i) +
+                                   (prim(IB2, k, j + 1, i) - prim(IB2, k, j - 1, i)) /
+                                       coords.Dx(X2DIR, k, j, i) +
+                                   (prim(IB3, k + 1, j, i) - prim(IB3, k - 1, j, i)) /
+                                       coords.Dx(X3DIR, k, j, i));
+          cons(IM1, k, j, i) -= beta_dt * divB * prim(IB1, k, j, i);
+          cons(IM2, k, j, i) -= beta_dt * divB * prim(IB2, k, j, i);
+          cons(IM3, k, j, i) -= beta_dt * divB * prim(IB3, k, j, i);
+          cons(IEN, k, j, i) -=
+              0.5 * beta_dt *
+              (prim(IB1, k, j, i) * (prim(IPS, k, j, i + 1) - prim(IPS, k, j, i - 1)) /
+                   coords.Dx(X1DIR, k, j, i) +
+               prim(IB2, k, j, i) * (prim(IPS, k, j + 1, i) - prim(IPS, k, j - 1, i)) /
+                   coords.Dx(X2DIR, k, j, i) +
+               prim(IB3, k, j, i) * (prim(IPS, k + 1, j, i) - prim(IPS, k - 1, j, i)) /
+                   coords.Dx(X3DIR, k, j, i));
+        }
         cons_pack(b, IPS, k, j, i) = prim_pack(b, IPS, k, j, i) * coeff;
       });
 }
@@ -292,7 +310,10 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
     DerigsGLMMHDSource(md, beta_dt);
   }
   if (hydro_pkg->Param<bool>("use_DednerGLMMHDSource")) {
-    DednerGLMMHDSource(md, beta_dt);
+    DednerGLMMHDSource<false>(md, beta_dt);
+  }
+  if (hydro_pkg->Param<bool>("use_DednerExtGLMMHDSource")) {
+    DednerGLMMHDSource<true>(md, beta_dt);
   }
 
   return TaskStatus::complete;
@@ -318,6 +339,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto fluid = Fluid::undefined;
   bool use_DerigsGLMMHDSource = false;
   bool use_DednerGLMMHDSource = false;
+  bool use_DednerExtGLMMHDSource = false;
   bool calc_c_h = false; // hyperbolic divergence cleaning speed
   int nhydro = -1;
 
@@ -327,7 +349,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (fluid_str == "glmmhd") {
     fluid = Fluid::glmmhd;
     nhydro = 9; // above plus B_x, B_y, B_z, psi
-    use_DednerGLMMHDSource = true;
+    // TODO(pgrete) reeval default value based on testing
+    if (pin->GetOrAddBoolean("hydro", "DednerExtendedSource", false)) {
+      use_DednerExtGLMMHDSource = true;
+    } else {
+      use_DednerGLMMHDSource = true;
+    }
     calc_c_h = true;
     pkg->AddParam<Real>("c_h", 0.0);
   } else {
@@ -337,6 +364,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("use_DerigsGLMMHDSource", use_DerigsGLMMHDSource);
   pkg->AddParam<>("use_DednerGLMMHDSource", use_DednerGLMMHDSource);
+  pkg->AddParam<>("use_DednerExtGLMMHDSource", use_DednerExtGLMMHDSource);
   pkg->AddParam<>("calc_c_h", calc_c_h);
 
   bool needs_scratch = false;
