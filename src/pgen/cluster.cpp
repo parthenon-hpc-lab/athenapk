@@ -30,6 +30,7 @@
 
 // Athena headers
 #include "../main.hpp"
+#include "../physical_constants.hpp"
 
 namespace cluster {
 using namespace parthenon::driver::prelude;
@@ -45,6 +46,15 @@ using namespace parthenon::driver::prelude;
 void InitUserMeshData(ParameterInput *pin) {
 
 
+  /************************************************************
+   * Read Unit Parameters
+   ************************************************************/
+  //CGS unit per code unit, or code unit in cgs
+  const Real code_length_cgs  = pin->GetOrAddReal("problem", "code_length_cgs",1);
+  const Real code_mass_cgs  = pin->GetOrAddReal("problem", "code_mass_cgs",1);
+  const Real code_time_cgs  = pin->GetOrAddReal("problem", "code_time_cgs",1);
+
+  PhysicalConstants constants(code_length_cgs,code_mass_cgs,code_time_cgs);
 
 }
 
