@@ -34,6 +34,10 @@
 
 namespace cluster {
 using namespace parthenon::driver::prelude;
+using namespace parthenon::package::prelude;
+
+// Cluster headers
+#include "cluster/cluster_gravity.hpp"
 
 
 //========================================================================================
@@ -45,6 +49,8 @@ using namespace parthenon::driver::prelude;
 
 void InitUserMeshData(ParameterInput *pin) {
 
+  //FIXME(forrestglines) How do you get this pkg?
+  auto pkg = std::make_shared<StateDescriptor>("Hydro");
 
   /************************************************************
    * Read Unit Parameters
@@ -56,7 +62,62 @@ void InitUserMeshData(ParameterInput *pin) {
 
   PhysicalConstants constants(code_length_cgs,code_mass_cgs,code_time_cgs);
 
-}
+  pkg->AddParam<>("physical_constants",constants);
 
+  /************************************************************
+   * Read Cluster Gravity Parameters
+   ************************************************************/
+
+  const Real hubble_parameter = pin->GetOrAddReal("problem", "hubble_parameter",70*constants.km_s()/constants.mpc());
+  const Real rho_crit = 3*hubble_parameter*hubble_parameter/(8*M_PI*constants.gravitational_constant());
+
+  const bool include_nfw_g    = pin->GetOrAddBoolean("problem","include_nfw_g",false);
+
+  BCG which_bcg_g;
+  const std::string which_bcg_g_str = pin->GetOrAddString("problem","which_bcg_g","NONE");
+  if(which_bcg_g_str == "NONE"){
+    which_bcg_g = BCG::NONE;
+  } else if( which_bcg_g_str == "ENZO"){
+    which_bcg_g = BCG::ENZO;
+  } else if( which_bcg_g_str == "MEECE"){
+    which_bcg_g = BCG::MEECE;
+  } else if( which_bcg_g_str == "MATHEWS"){
+    which_bcg_g = BCG::MATHEWS;
+  } else if( which_bcg_g_str == "HERNQUIST"){
+    which_bcg_g = BCG::HERNQUIST;
+  } else {
+    std::stringstream msg;
+    msg << "### FATAL ERROR in function [InitUserMeshData]" << std::endl 
+        << "Unknown BCG type "<< which_bcg_g_str << std::endl;
+    throw std::runtime_error(msg.str().c_str());
+  }
+
+  const bool include_smbh_g   = pin->GetOrAddBoolean("problem","include_smbh_g",false);
+
+  const Real M_nfw_200        = pin->GetOrAddReal("problem", "M_nfw_200"  ,8.5e14*constants.msun());
+  const Real c_nfw            = pin->GetOrAddReal("problem", "c_nfw"      ,6.81);
+
+  const Real alpha_bcg_s      = pin->GetOrAddReal("problem", "alpha_bcg_s",0.1);
+  const Real beta_bcg_s       = pin->GetOrAddReal("problem", "beta_bcg_s" ,1.43);
+  const Real M_bcg_s          = pin->GetOrAddReal("problem", "M_bcg_s"    ,7.5e10*constants.msun());
+  const Real R_bcg_s          = pin->GetOrAddReal("problem", "R_bcg_s"    ,4*constants.kpc());
+
+  const Real m_smbh           = pin->GetOrAddReal("problem", "m_smbh"     ,3.4e8*constants.msun());
+
+  const Real g_smoothing_radius = pin->GetOrAddReal("problem","g_smoothing_radius",0.0);
+
+  //Build cluster_gravity object
+  ClusterGravity cluster_gravity(constants, rho_crit,
+      include_nfw_g,which_bcg_g,include_smbh_g,
+      M_nfw_200,c_nfw,
+      M_bcg_s,R_bcg_s,alpha_bcg_s,beta_bcg_s,
+      m_smbh,
+      g_smoothing_radius);
+
+  pkg->AddParam<>("gravitational_field",cluster_gravity);
+}
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
+
+}
 
 } // namespace cluster

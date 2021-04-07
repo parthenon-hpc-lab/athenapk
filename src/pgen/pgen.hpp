@@ -70,4 +70,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm);
 } // namespace rand_blast
 
+namespace cluster {
+using namespace parthenon::driver::prelude;
+
+void InitUserMeshData(ParameterInput *pin);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace cluster
+
 #endif // PGEN_PGEN_HPP_
