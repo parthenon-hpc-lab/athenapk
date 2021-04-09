@@ -39,7 +39,7 @@ using namespace parthenon::driver::prelude;
 //  functions in this file.  Called in Mesh constructor.
 //========================================================================================
 
-void InitUserMeshData(ParameterInput *pin) {
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   // TODO make use of offsets and domain sizes. Problem currently assumes cubic box
   // center at (0,0,0).
   const auto x1min = pin->GetReal("parthenon/mesh", "x1min");

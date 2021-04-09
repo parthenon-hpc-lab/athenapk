@@ -47,10 +47,10 @@ using namespace parthenon::package::prelude;
 //  functions in this file.  Called in Mesh constructor.
 //========================================================================================
 
-void InitUserMeshData(ParameterInput *pin) {
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 
   //FIXME(forrestglines) How do you get this pkg?
-  auto pkg = std::make_shared<StateDescriptor>("Hydro");
+  auto pkg = mesh->packages.Get("Hydro");
 
   /************************************************************
    * Read Unit Parameters

@@ -12,7 +12,7 @@
 namespace linear_wave {
 using namespace parthenon::driver::prelude;
 
-void InitUserMeshData(ParameterInput *pin);
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
                        parthenon::SimTime &tm);
@@ -38,7 +38,7 @@ void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
 namespace blast {
 using namespace parthenon::driver::prelude;
 
-void InitUserMeshData(ParameterInput *pin);
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
                        parthenon::SimTime &tm);
@@ -47,7 +47,7 @@ void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
 namespace advection {
 using namespace parthenon::driver::prelude;
 
-void InitUserMeshData(ParameterInput *pin);
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 } // namespace advection
 
@@ -73,7 +73,7 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm);
 namespace cluster {
 using namespace parthenon::driver::prelude;
 
-void InitUserMeshData(ParameterInput *pin);
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 } // namespace cluster
 
