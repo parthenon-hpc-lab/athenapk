@@ -26,6 +26,7 @@
 #include "outputs/outputs.hpp"
 #include "reconstruct/dc_inline.hpp"
 #include "rsolvers/glmmhd_derigs.hpp"
+#include "rsolvers/glmmhd_hlle.hpp"
 #include "rsolvers/hlld.hpp"
 #include "rsolvers/hydro_hlle.hpp"
 #include "rsolvers/riemann.hpp"
@@ -817,7 +818,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
           RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
         } else if constexpr (fluid == Fluid::glmmhd) {
           // DerigsFlux(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
-          HLLD(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
+          GLMMHD_HLLE(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
         } else {
           PARTHENON_FAIL("Unknown fluid method");
         }
@@ -868,7 +869,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
                 RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
                 // DerigsFlux(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
-                HLLD(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
+                GLMMHD_HLLE(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
               }
@@ -924,7 +925,7 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
                 RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
                 // DerigsFlux(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
-                HLLD(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
+                GLMMHD_HLLE(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
               }
