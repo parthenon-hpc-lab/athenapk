@@ -119,9 +119,9 @@ KOKKOS_FORCEINLINE_FUNCTION void HLLD(parthenon::team_mbr_t const &member, const
     //--- Step 2.  Compute L & R wave speeds according to Miyoshi & Kusano, eqn. (67)
 
     const auto cfl =
-        eos.FastMagnetosonicSpeed(wli[IDN], wli[IPR], wli[iBx], wli[iBy], wli[iBz]);
+        eos.FastMagnetosonicSpeed(wli[IDN], wli[IPR], wli[IB1], wli[IB2], wli[IB3]);
     const auto cfr =
-        eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[iBx], wri[iBy], wri[iBz]);
+        eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[IB1], wri[IB2], wri[IB3]);
 
     spd[0] = std::min(wli[IVX] - cfl, wri[IVX] - cfr);
     spd[4] = std::max(wli[IVX] + cfl, wri[IVX] + cfr);
