@@ -26,14 +26,14 @@ class ClusterGravity
   bool include_smbh_g_;
 
   //NFW Parameters
-  Real GMC_nfw_; //G , Mass, and Constants rolled into one, to minimize footprint
   Real R_nfw_s_;
+  Real GMC_nfw_; //G , Mass, and Constants rolled into one, to minimize footprint
 
   //BCG Parameters
-  Real GMC_bcg_; //G , Mass, and Constants rolled into one, to minimize footprint
-  Real R_bcg_s_;
   Real alpha_bcg_s_;
   Real beta_bcg_s_;
+  Real R_bcg_s_;
+  Real GMC_bcg_; //G , Mass, and Constants rolled into one, to minimize footprint
 
   //SMBH Parameters
   Real GMC_smbh_; //G , Mass, and Constants rolled into one, to minimize footprint
@@ -75,33 +75,54 @@ class ClusterGravity
 
 public:
 
-  ClusterGravity(
-    const PhysicalConstants constants,
-    const Real rho_crit,
-    const bool include_nfw_g,
-    const BCG which_bcg_g,
-    const bool include_smbh_g,
-    const Real M_nfw_200,
-    const Real c_nfw,
-    const Real M_bcg_s,
-    const Real R_bcg_s,
-    const Real alpha_bcg_s,
-    const Real beta_bcg_s,
-    const Real M_smbh,
-    const Real smoothing_r):
-      include_nfw_g_(include_nfw_g),which_bcg_g_(which_bcg_g),include_smbh_g_(include_smbh_g),
+  ClusterGravity(ParameterInput *pin)
+  {
+    PhysicalConstants constants(pin);
 
-      GMC_nfw_(calc_GMC_nfw(constants.gravitational_constant(),M_nfw_200,c_nfw)),
-      R_nfw_s_(calc_R_nfw_s(rho_crit,M_nfw_200,c_nfw)),
+    //Determine which element to include
+    include_nfw_g_    = pin->GetOrAddBoolean("problem","include_nfw_g",false);
+    const std::string which_bcg_g_str = pin->GetOrAddString("problem","which_bcg_g","NONE");
+    if(which_bcg_g_str == "NONE"){
+      which_bcg_g_ = BCG::NONE;
+    } else if( which_bcg_g_str == "ENZO"){
+      which_bcg_g_ = BCG::ENZO;
+    } else if( which_bcg_g_str == "MEECE"){
+      which_bcg_g_ = BCG::MEECE;
+    } else if( which_bcg_g_str == "MATHEWS"){
+      which_bcg_g_ = BCG::MATHEWS;
+    } else if( which_bcg_g_str == "HERNQUIST"){
+      which_bcg_g_ = BCG::HERNQUIST;
+    } else {
+      std::stringstream msg;
+      msg << "### FATAL ERROR in function [InitUserMeshData]" << std::endl 
+          << "Unknown BCG type "<< which_bcg_g_str << std::endl;
+      throw std::runtime_error(msg.str().c_str());
+    }
 
-      GMC_bcg_(calc_GMC_bcg(constants.gravitational_constant(),
-          which_bcg_g,M_bcg_s,R_bcg_s,alpha_bcg_s,beta_bcg_s)),
-      R_bcg_s_(R_bcg_s),alpha_bcg_s_(alpha_bcg_s),beta_bcg_s_(beta_bcg_s),
+    include_smbh_g_   = pin->GetOrAddBoolean("problem","include_smbh_g",false);
 
-      GMC_smbh_(calc_GMC_smbh(constants.gravitational_constant(),M_smbh)),
+    //Initialize the NFW Profile
+    const Real hubble_parameter = pin->GetOrAddReal("problem", "hubble_parameter",70*constants.km_s()/constants.mpc());
+    const Real rho_crit = 3*hubble_parameter*hubble_parameter/(8*M_PI*constants.gravitational_constant());
 
-      smoothing_r_(smoothing_r)
-  {}
+    const Real M_nfw_200        = pin->GetOrAddReal("problem", "M_nfw_200"  ,8.5e14*constants.msun());
+    const Real c_nfw            = pin->GetOrAddReal("problem", "c_nfw"      ,6.81);
+    R_nfw_s_ = calc_R_nfw_s(rho_crit,M_nfw_200,c_nfw);
+    GMC_nfw_ = calc_GMC_nfw(constants.gravitational_constant(),M_nfw_200,c_nfw);
+
+    //Initialize the NFW Profile
+    alpha_bcg_s_      = pin->GetOrAddReal("problem", "alpha_bcg_s",0.1);
+    beta_bcg_s_       = pin->GetOrAddReal("problem", "beta_bcg_s" ,1.43);
+    const Real M_bcg_s          = pin->GetOrAddReal("problem", "M_bcg_s"    ,7.5e10*constants.msun());
+    R_bcg_s_          = pin->GetOrAddReal("problem", "R_bcg_s"    ,4*constants.kpc());
+    GMC_bcg_ = calc_GMC_bcg(constants.gravitational_constant(),
+        which_bcg_g_,M_bcg_s,R_bcg_s_,alpha_bcg_s_,beta_bcg_s_);
+
+    const Real m_smbh           = pin->GetOrAddReal("problem", "m_smbh"     ,3.4e8*constants.msun());
+    GMC_smbh_  = calc_GMC_smbh(constants.gravitational_constant(),m_smbh),
+
+    smoothing_r_ = pin->GetOrAddReal("problem","g_smoothing_radius",0.0);
+  }
 
   //Inline functions to compute gravitational acceleration
   KOKKOS_INLINE_FUNCTION Real g_from_r(const Real r) const 

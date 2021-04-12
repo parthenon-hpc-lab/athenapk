@@ -6,9 +6,13 @@
 #ifndef PHYSICAL_CONSTANTS_HPP_
 #define PHYSICAL_CONSTANTS_HPP_
 
+//Parthenon headers
+#include <parameter_input.hpp>
+
+// Athena headers
 #include "basic_types.hpp"
 
-class PhysicalConstants{
+class PhysicalConstants {
 
   private:
     //CGS unit per X
@@ -70,8 +74,10 @@ class PhysicalConstants{
 
   public:
 
-    PhysicalConstants(const Real code_length_cm=1, const Real code_mass_g=1, const Real code_time_s=1):
-      code_length_cgs_(code_length_cm),code_mass_cgs_(code_mass_g),code_time_cgs_(code_time_s)
+    PhysicalConstants(  parthenon::ParameterInput *pin):
+      code_length_cgs_(pin->GetOrAddReal("problem", "code_length_cgs",1)),
+      code_mass_cgs_(pin->GetOrAddReal("problem", "code_mass_cgs",1)),
+      code_time_cgs_(pin->GetOrAddReal("problem", "code_time_cgs",1))
     {}
 
     //Physical Constants in code units
