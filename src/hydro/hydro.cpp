@@ -25,7 +25,6 @@
 #include "hydro.hpp"
 #include "outputs/outputs.hpp"
 #include "reconstruct/dc_inline.hpp"
-#include "rsolvers/glmmhd_derigs.hpp"
 #include "rsolvers/glmmhd_hlle.hpp"
 #include "rsolvers/hlld.hpp"
 #include "rsolvers/hydro_hlle.hpp"
@@ -176,86 +175,6 @@ TaskStatus CalculateCleaningSpeed(MeshData<Real> *md) {
   return TaskStatus::complete;
 }
 
-void DerigsGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
-  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-
-  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
-
-  bool nx2 = prim_pack.GetDim(2) > 1;
-  bool nx3 = prim_pack.GetDim(3) > 1;
-  parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "GLMMHDSource", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        auto &cons = cons_pack(b);
-        const auto &prim = prim_pack(b);
-        const auto &coords = prim_pack.coords(b);
-
-        Real &vx = prim(IVX, k, j, i);
-        Real &vy = prim(IVY, k, j, i);
-        Real &vz = prim(IVZ, k, j, i);
-        Real &Bx = prim(IB1, k, j, i);
-        Real &By = prim(IB2, k, j, i);
-        Real &Bz = prim(IB3, k, j, i);
-        Real &psi = prim(IPS, k, j, i);
-
-        Real uB = vx * Bx + vy * By + vz * Bz;
-
-        // add non conservative magnetic field divergence  Derigs+18 (4.46)
-        const Real beta_dt_Bxdx = beta_dt *
-                                  (prim(IB1, k, j, i + 1) - prim(IB1, k, j, i - 1)) /
-                                  (2.0 * coords.Dx(parthenon::X1DIR, k, j, i));
-        const Real beta_dt_psidx = beta_dt *
-                                   (prim(IPS, k, j, i + 1) - prim(IPS, k, j, i - 1)) /
-                                   (2.0 * coords.Dx(parthenon::X1DIR, k, j, i));
-        cons(IVX, k, j, i) += beta_dt_Bxdx * Bx;
-        cons(IVY, k, j, i) += beta_dt_Bxdx * By;
-        cons(IVZ, k, j, i) += beta_dt_Bxdx * Bz;
-        cons(IEN, k, j, i) += beta_dt_Bxdx * uB + beta_dt_psidx * vx * psi;
-        cons(IB1, k, j, i) += beta_dt_Bxdx * vx;
-        cons(IB2, k, j, i) += beta_dt_Bxdx * vy;
-        cons(IB3, k, j, i) += beta_dt_Bxdx * vz;
-        cons(IPS, k, j, i) += beta_dt_psidx * vx;
-
-        if (nx2) {
-          const Real beta_dt_Bydy = beta_dt *
-                                    (prim(IB2, k, j + 1, i) - prim(IB1, k, j - 1, i)) /
-                                    (2.0 * coords.Dx(parthenon::X2DIR, k, j, i));
-          const Real beta_dt_psidy = beta_dt *
-                                     (prim(IPS, k, j + 1, i) - prim(IPS, k, j - 1, i)) /
-                                     (2.0 * coords.Dx(parthenon::X2DIR, k, j, i));
-          cons(IVX, k, j, i) += beta_dt_Bydy * Bx;
-          cons(IVY, k, j, i) += beta_dt_Bydy * By;
-          cons(IVZ, k, j, i) += beta_dt_Bydy * Bz;
-          cons(IEN, k, j, i) += beta_dt_Bydy * uB + beta_dt_psidy * vy * psi;
-          cons(IB1, k, j, i) += beta_dt_Bydy * vx;
-          cons(IB2, k, j, i) += beta_dt_Bydy * vy;
-          cons(IB3, k, j, i) += beta_dt_Bydy * vz;
-          cons(IPS, k, j, i) += beta_dt_psidy * vy;
-
-          if (nx3) {
-            const Real beta_dt_Bzdz = beta_dt *
-                                      (prim(IB3, k + 1, j, i) - prim(IB3, k - 1, j, i)) /
-                                      (2.0 * coords.Dx(parthenon::X3DIR, k, j, i));
-            const Real beta_dt_psidz = beta_dt *
-                                       (prim(IPS, k + 1, j, i) - prim(IPS, k - 1, j, i)) /
-                                       (2.0 * coords.Dx(parthenon::X3DIR, k, j, i));
-            cons(IVX, k, j, i) += beta_dt_Bzdz * Bx;
-            cons(IVY, k, j, i) += beta_dt_Bzdz * By;
-            cons(IVZ, k, j, i) += beta_dt_Bzdz * Bz;
-            cons(IEN, k, j, i) += beta_dt_Bzdz * uB + beta_dt_psidz * vz * psi;
-            cons(IB1, k, j, i) += beta_dt_Bzdz * vx;
-            cons(IB2, k, j, i) += beta_dt_Bzdz * vy;
-            cons(IB3, k, j, i) += beta_dt_Bzdz * vz;
-            cons(IPS, k, j, i) += beta_dt_psidz * vz;
-          }
-        }
-      });
-}
-
 template <bool extended>
 void DednerGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
@@ -308,9 +227,6 @@ void DednerGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
 TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  if (hydro_pkg->Param<bool>("use_DerigsGLMMHDSource")) {
-    DerigsGLMMHDSource(md, beta_dt);
-  }
   if (hydro_pkg->Param<bool>("use_DednerGLMMHDSource")) {
     DednerGLMMHDSource<false>(md, beta_dt);
   }
@@ -339,7 +255,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   const auto fluid_str = pin->GetOrAddString("hydro", "fluid", "euler");
   auto fluid = Fluid::undefined;
-  bool use_DerigsGLMMHDSource = false;
   bool use_DednerGLMMHDSource = false;
   bool use_DednerExtGLMMHDSource = false;
   bool calc_c_h = false; // hyperbolic divergence cleaning speed
@@ -364,7 +279,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
   pkg->AddParam<>("fluid", Fluid::glmmhd);
   pkg->AddParam<>("nhydro", nhydro);
-  pkg->AddParam<>("use_DerigsGLMMHDSource", use_DerigsGLMMHDSource);
   pkg->AddParam<>("use_DednerGLMMHDSource", use_DednerGLMMHDSource);
   pkg->AddParam<>("use_DednerExtGLMMHDSource", use_DednerExtGLMMHDSource);
   pkg->AddParam<>("calc_c_h", calc_c_h);
@@ -818,7 +732,6 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
         if constexpr (fluid == Fluid::euler) {
           RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
         } else if constexpr (fluid == Fluid::glmmhd) {
-          // DerigsFlux(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
           GLMMHD_HLLE(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
         } else {
           PARTHENON_FAIL("Unknown fluid method");
@@ -869,7 +782,6 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
               if constexpr (fluid == Fluid::euler) {
                 RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
-                // DerigsFlux(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
                 GLMMHD_HLLE(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
@@ -925,7 +837,6 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
               if constexpr (fluid == Fluid::euler) {
                 RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
-                // DerigsFlux(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
                 GLMMHD_HLLE(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");

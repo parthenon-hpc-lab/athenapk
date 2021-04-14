@@ -98,28 +98,11 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
 
         Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
         Real e_B = 0.5 * (SQR(u_b1) + SQR(u_b2) + SQR(u_b3));
-        // Real e_psi = 0.5 * SQR(u_psi);
-        Real e_psi = 0.0; //disable for now while using Dedner GLMMHD
-        w_p = gm1 * (u_e - e_k - e_B - e_psi); // (3.18) Derigs+18
+        w_p = gm1 * (u_e - e_k - e_B);
 
         // apply pressure floor, correct total energy
-        u_e =
-            (w_p > pressure_floor_) ? u_e : ((pressure_floor_ / gm1) + e_k + e_B + e_psi);
+        u_e = (w_p > pressure_floor_) ? u_e : ((pressure_floor_ / gm1) + e_k + e_B);
         w_p = (w_p > pressure_floor_) ? w_p : pressure_floor_;
-
-        // TODO(pgrete) Disable entropy calculation for now
-        // Entropy variables
-        // auto beta = 0.5 * w_d / w_p; // Derigs+18 (4.1): inverse temperature
-        // auto s = std::log(w_p / std::pow(w_d, gam)); // Derigs+18 (4.1): entropy per part.
-        // nu(IDN, k, j, i) = (gam - s) / gm1 - e_k / w_p; // Derigs+18 (4.3)
-        // nu(IVX, k, j, i) = 2.0 * beta * w_vx;           // Derigs+18 (4.3)
-        // nu(IVY, k, j, i) = 2.0 * beta * w_vy;           // Derigs+18 (4.3)
-        // nu(IVZ, k, j, i) = 2.0 * beta * w_vz;           // Derigs+18 (4.3)
-        // nu(IPR, k, j, i) = -2.0 * beta;                 // Derigs+18 (4.3)
-        // nu(IB1, k, j, i) = 2.0 * beta * w_Bx;           // Derigs+18 (4.3)
-        // nu(IB2, k, j, i) = 2.0 * beta * w_By;           // Derigs+18 (4.3)
-        // nu(IB3, k, j, i) = 2.0 * beta * w_Bz;           // Derigs+18 (4.3)
-        // nu(IPS, k, j, i) = 2.0 * beta * w_psi;          // Derigs+18 (4.3)
       });
 }
 
