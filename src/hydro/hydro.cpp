@@ -477,9 +477,9 @@ Real EstimateTimestep(MeshData<Real> *md) {
         const auto &coords = prim_pack.coords(b);
         Real w[(NHYDRO)];
         w[IDN] = prim(IDN, k, j, i);
-        w[IVX] = prim(IVX, k, j, i);
-        w[IVY] = prim(IVY, k, j, i);
-        w[IVZ] = prim(IVZ, k, j, i);
+        w[IV1] = prim(IV1, k, j, i);
+        w[IV2] = prim(IV2, k, j, i);
+        w[IV3] = prim(IV3, k, j, i);
         w[IPR] = prim(IPR, k, j, i);
         Real lambda_max_x, lambda_max_y, lambda_max_z;
         if constexpr (fluid == Fluid::euler) {
@@ -504,14 +504,14 @@ Real EstimateTimestep(MeshData<Real> *md) {
           PARTHENON_FAIL("Unknown fluid in EstimateTimestep");
         }
         min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) /
-                                  (fabs(w[IVX]) + lambda_max_x));
+                                  (fabs(w[IV1]) + lambda_max_x));
         if (nx2) {
           min_dt = fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) /
-                                    (fabs(w[IVY]) + lambda_max_y));
+                                    (fabs(w[IV2]) + lambda_max_y));
         }
         if (nx3) {
           min_dt = fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) /
-                                    (fabs(w[IVZ]) + lambda_max_z));
+                                    (fabs(w[IV3]) + lambda_max_z));
         }
       },
       Kokkos::Min<Real>(min_dt_hyperbolic));
@@ -588,9 +588,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         member.team_barrier();
 
         if constexpr (fluid == Fluid::euler) {
-          RiemannSolver(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
+          RiemannSolver(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         } else if constexpr (fluid == Fluid::glmmhd) {
-          GLMMHD_HLLE(member, k, j, ib.s, ib.e + 1, IVX, wl, wr, cons, eos, c_h);
+          GLMMHD_HLLE(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         } else {
           PARTHENON_FAIL("Unknown fluid method");
         }
@@ -638,9 +638,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
             if (j > jb.s - 1) {
               if constexpr (fluid == Fluid::euler) {
-                RiemannSolver(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
+                RiemannSolver(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
-                GLMMHD_HLLE(member, k, j, il, iu, IVY, wl, wr, cons, eos, c_h);
+                GLMMHD_HLLE(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
               }
@@ -693,9 +693,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
             if (k > kb.s - 1) {
               if constexpr (fluid == Fluid::euler) {
-                RiemannSolver(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
+                RiemannSolver(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
-                GLMMHD_HLLE(member, k, j, il, iu, IVZ, wl, wr, cons, eos, c_h);
+                GLMMHD_HLLE(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
               }

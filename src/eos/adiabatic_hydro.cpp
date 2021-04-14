@@ -50,9 +50,9 @@ void AdiabaticHydroEOS::ConservedToPrimitive(MeshBlockData<Real> *rc, int il, in
         Real &u_e = cons(IEN, k, j, i);
 
         Real &w_d = prim(IDN, k, j, i);
-        Real &w_vx = prim(IVX, k, j, i);
-        Real &w_vy = prim(IVY, k, j, i);
-        Real &w_vz = prim(IVZ, k, j, i);
+        Real &w_vx = prim(IV1, k, j, i);
+        Real &w_vy = prim(IV2, k, j, i);
+        Real &w_vz = prim(IV3, k, j, i);
         Real &w_p = prim(IPR, k, j, i);
 
         // apply density floor, without changing momentum or energy
@@ -102,9 +102,9 @@ void AdiabaticHydroEOS::ConservedToPrimitive(MeshData<Real> *md) const {
         Real &u_e = cons(IEN, k, j, i);
 
         Real &w_d = prim(IDN, k, j, i);
-        Real &w_vx = prim(IVX, k, j, i);
-        Real &w_vy = prim(IVY, k, j, i);
-        Real &w_vz = prim(IVZ, k, j, i);
+        Real &w_vx = prim(IV1, k, j, i);
+        Real &w_vy = prim(IV2, k, j, i);
+        Real &w_vz = prim(IV3, k, j, i);
         Real &w_p = prim(IPR, k, j, i);
 
         // apply density floor, without changing momentum or energy
@@ -150,9 +150,9 @@ void AdiabaticHydroEOS::PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>
         Real &u_e = cons(IEN, k, j, i);
 
         const Real &w_d = prim(IDN, k, j, i);
-        const Real &w_vx = prim(IVX, k, j, i);
-        const Real &w_vy = prim(IVY, k, j, i);
-        const Real &w_vz = prim(IVZ, k, j, i);
+        const Real &w_vx = prim(IV1, k, j, i);
+        const Real &w_vy = prim(IV2, k, j, i);
+        const Real &w_vz = prim(IV3, k, j, i);
         const Real &w_p = prim(IPR, k, j, i);
 
         u_d = w_d;

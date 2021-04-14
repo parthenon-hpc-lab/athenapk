@@ -73,9 +73,9 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
         Real &u_psi = cons(IPS, k, j, i);
 
         Real &w_d = prim(IDN, k, j, i);
-        Real &w_vx = prim(IVX, k, j, i);
-        Real &w_vy = prim(IVY, k, j, i);
-        Real &w_vz = prim(IVZ, k, j, i);
+        Real &w_vx = prim(IV1, k, j, i);
+        Real &w_vy = prim(IV2, k, j, i);
+        Real &w_vz = prim(IV3, k, j, i);
         Real &w_p = prim(IPR, k, j, i);
         Real &w_Bx = prim(IB1, k, j, i);
         Real &w_By = prim(IB2, k, j, i);

@@ -507,7 +507,7 @@ Real MaxV2(MeshBlock *pmb, int iout) {
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
-        max_v2 = std::max(std::abs(w(IVY, k, j, i)), max_v2);
+        max_v2 = std::max(std::abs(w(IV2, k, j, i)), max_v2);
       }
     }
   }

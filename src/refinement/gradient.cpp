@@ -78,8 +78,8 @@ AmrTag VelocityGradient(MeshBlockData<Real> *rc) {
       "check refine: velocity gradient", kb.s, kb.e, jb.s - 1, jb.e + 1, ib.s - 1,
       ib.e + 1,
       KOKKOS_LAMBDA(const int k, const int j, const int i, Real &lvgmax) {
-        Real vgy = std::abs(w(IVY, k, j, i + 1) - w(IVY, k, j, i - 1)) * 0.5;
-        Real vgx = std::abs(w(IVX, k, j + 1, i) - w(IVX, k, j - 1, i)) * 0.5;
+        Real vgy = std::abs(w(IV2, k, j, i + 1) - w(IV2, k, j, i - 1)) * 0.5;
+        Real vgx = std::abs(w(IV1, k, j + 1, i) - w(IV1, k, j - 1, i)) * 0.5;
         Real vg = std::sqrt(vgx * vgx + vgy * vgy);
         if (vg > lvgmax) lvgmax = vg;
       },

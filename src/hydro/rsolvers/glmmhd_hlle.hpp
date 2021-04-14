@@ -29,8 +29,8 @@ GLMMHD_HLLE(parthenon::team_mbr_t const &member, const int k, const int j, const
             const int iu, const int ivx, const ScratchPad2D<Real> &wl,
             const ScratchPad2D<Real> &wr, VariableFluxPack<Real> &cons,
             const AdiabaticGLMMHDEOS &eos, const Real c_h) {
-  const int ivy = IVX + ((ivx - IVX) + 1) % 3;
-  const int ivz = IVX + ((ivx - IVX) + 2) % 3;
+  const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
+  const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
   const int iBx = ivx - 1 + NHYDRO;
   const int iBy = ivy - 1 + NHYDRO;
   const int iBz = ivz - 1 + NHYDRO;
@@ -49,9 +49,9 @@ GLMMHD_HLLE(parthenon::team_mbr_t const &member, const int k, const int j, const
     //--- Step 1.  Load L/R states into local variables
 
     wli[IDN] = wl(IDN, i);
-    wli[IVX] = wl(ivx, i);
-    wli[IVY] = wl(ivy, i);
-    wli[IVZ] = wl(ivz, i);
+    wli[IV1] = wl(ivx, i);
+    wli[IV2] = wl(ivy, i);
+    wli[IV3] = wl(ivz, i);
     wli[IPR] = wl(IPR, i);
     wli[IB1] = wl(iBx, i);
     wli[IB2] = wl(iBy, i);
@@ -59,9 +59,9 @@ GLMMHD_HLLE(parthenon::team_mbr_t const &member, const int k, const int j, const
     wli[IPS] = wl(IPS, i);
 
     wri[IDN] = wr(IDN, i);
-    wri[IVX] = wr(ivx, i);
-    wri[IVY] = wr(ivy, i);
-    wri[IVZ] = wr(ivz, i);
+    wri[IV1] = wr(ivx, i);
+    wri[IV2] = wr(ivy, i);
+    wri[IV3] = wr(ivz, i);
     wri[IPR] = wr(IPR, i);
     wri[IB1] = wr(iBx, i);
     wri[IB2] = wr(iBy, i);
@@ -82,9 +82,9 @@ GLMMHD_HLLE(parthenon::team_mbr_t const &member, const int k, const int j, const
     Real isdlpdr = 1.0 / (sqrtdl + sqrtdr);
 
     wroe[IDN] = sqrtdl * sqrtdr;
-    wroe[IVX] = (sqrtdl * wli[IVX] + sqrtdr * wri[IVX]) * isdlpdr;
-    wroe[IVY] = (sqrtdl * wli[IVY] + sqrtdr * wri[IVY]) * isdlpdr;
-    wroe[IVZ] = (sqrtdl * wli[IVZ] + sqrtdr * wri[IVZ]) * isdlpdr;
+    wroe[IV1] = (sqrtdl * wli[IV1] + sqrtdr * wri[IV1]) * isdlpdr;
+    wroe[IV2] = (sqrtdl * wli[IV2] + sqrtdr * wri[IV2]) * isdlpdr;
+    wroe[IV3] = (sqrtdl * wli[IV3] + sqrtdr * wri[IV3]) * isdlpdr;
     // Note Roe average of magnetic field is different
     wroe[IB2] = (sqrtdr * wli[IB2] + sqrtdl * wri[IB2]) * isdlpdr;
     wroe[IB3] = (sqrtdr * wli[IB3] + sqrtdl * wri[IB3]) * isdlpdr;
@@ -98,9 +98,9 @@ GLMMHD_HLLE(parthenon::team_mbr_t const &member, const int k, const int j, const
     Real pbr = 0.5 * (bxi * bxi + SQR(wri[IB2]) + SQR(wri[IB3]));
     Real el, er, hroe;
     el = wli[IPR] / gm1 +
-         0.5 * wli[IDN] * (SQR(wli[IVX]) + SQR(wli[IVY]) + SQR(wli[IVZ])) + pbl;
+         0.5 * wli[IDN] * (SQR(wli[IV1]) + SQR(wli[IV2]) + SQR(wli[IV3])) + pbl;
     er = wri[IPR] / gm1 +
-         0.5 * wri[IDN] * (SQR(wri[IVX]) + SQR(wri[IVY]) + SQR(wri[IVZ])) + pbr;
+         0.5 * wri[IDN] * (SQR(wri[IV1]) + SQR(wri[IV2]) + SQR(wri[IV3])) + pbr;
     hroe = ((el + wli[IPR] + pbl) / sqrtdl + (er + wri[IPR] + pbr) / sqrtdr) * isdlpdr;
 
     //--- Step 3. Compute fast magnetosonic speed in L,R, and Roe-averaged states
@@ -114,7 +114,7 @@ GLMMHD_HLLE(parthenon::team_mbr_t const &member, const int k, const int j, const
     Real bt_starsq, twid_asq;
     bt_starsq = (gm1 - (gm1 - 1.0) * y) * btsq;
     Real hp = hroe - (vaxsq + btsq / wroe[IDN]);
-    Real vsq = SQR(wroe[IVX]) + SQR(wroe[IVY]) + SQR(wroe[IVZ]);
+    Real vsq = SQR(wroe[IV1]) + SQR(wroe[IV2]) + SQR(wroe[IV3]);
     twid_asq = std::max((gm1 * (hp - 0.5 * vsq) - (gm1 - 1.0) * x), 0.0);
     Real ct2 = bt_starsq / wroe[IDN];
     Real tsum = vaxsq + ct2 + twid_asq;
@@ -126,41 +126,41 @@ GLMMHD_HLLE(parthenon::team_mbr_t const &member, const int k, const int j, const
 
     //--- Step 4. Compute the max/min wave speeds based on L/R and Roe-averaged values
 
-    Real al = std::min((wroe[IVX] - a), (wli[IVX] - cl));
-    Real ar = std::max((wroe[IVX] + a), (wri[IVX] + cr));
+    Real al = std::min((wroe[IV1] - a), (wli[IV1] - cl));
+    Real ar = std::max((wroe[IV1] + a), (wri[IV1] + cr));
 
     Real bp = ar > 0.0 ? ar : 0.0;
     Real bm = al < 0.0 ? al : 0.0;
 
     //--- Step 5. Compute L/R fluxes along the lines bm/bp: F_L - (S_L)U_L; F_R - (S_R)U_R
 
-    Real vxl = wli[IVX] - bm;
-    Real vxr = wri[IVX] - bp;
+    Real vxl = wli[IV1] - bm;
+    Real vxr = wri[IV1] - bp;
 
     fl[IDN] = wli[IDN] * vxl;
     fr[IDN] = wri[IDN] * vxr;
 
-    fl[IVX] = wli[IDN] * wli[IVX] * vxl + pbl - SQR(bxi);
-    fr[IVX] = wri[IDN] * wri[IVX] * vxr + pbr - SQR(bxi);
+    fl[IV1] = wli[IDN] * wli[IV1] * vxl + pbl - SQR(bxi);
+    fr[IV1] = wri[IDN] * wri[IV1] * vxr + pbr - SQR(bxi);
 
-    fl[IVY] = wli[IDN] * wli[IVY] * vxl - bxi * wli[IB2];
-    fr[IVY] = wri[IDN] * wri[IVY] * vxr - bxi * wri[IB2];
+    fl[IV2] = wli[IDN] * wli[IV2] * vxl - bxi * wli[IB2];
+    fr[IV2] = wri[IDN] * wri[IV2] * vxr - bxi * wri[IB2];
 
-    fl[IVZ] = wli[IDN] * wli[IVZ] * vxl - bxi * wli[IB3];
-    fr[IVZ] = wri[IDN] * wri[IVZ] * vxr - bxi * wri[IB3];
+    fl[IV3] = wli[IDN] * wli[IV3] * vxl - bxi * wli[IB3];
+    fr[IV3] = wri[IDN] * wri[IV3] * vxr - bxi * wri[IB3];
 
-    fl[IVX] += wli[IPR];
-    fr[IVX] += wri[IPR];
-    fl[IEN] = el * vxl + wli[IVX] * (wli[IPR] + pbl - bxi * bxi);
-    fr[IEN] = er * vxr + wri[IVX] * (wri[IPR] + pbr - bxi * bxi);
-    fl[IEN] -= bxi * (wli[IB2] * wli[IVY] + wli[IB3] * wli[IVZ]);
-    fr[IEN] -= bxi * (wri[IB2] * wri[IVY] + wri[IB3] * wri[IVZ]);
+    fl[IV1] += wli[IPR];
+    fr[IV1] += wri[IPR];
+    fl[IEN] = el * vxl + wli[IV1] * (wli[IPR] + pbl - bxi * bxi);
+    fr[IEN] = er * vxr + wri[IV1] * (wri[IPR] + pbr - bxi * bxi);
+    fl[IEN] -= bxi * (wli[IB2] * wli[IV2] + wli[IB3] * wli[IV3]);
+    fr[IEN] -= bxi * (wri[IB2] * wri[IV2] + wri[IB3] * wri[IV3]);
 
-    fl[IB2] = wli[IB2] * vxl - bxi * wli[IVY];
-    fr[IB2] = wri[IB2] * vxr - bxi * wri[IVY];
+    fl[IB2] = wli[IB2] * vxl - bxi * wli[IV2];
+    fr[IB2] = wri[IB2] * vxr - bxi * wri[IV2];
 
-    fl[IB3] = wli[IB3] * vxl - bxi * wli[IVZ];
-    fr[IB3] = wri[IB3] * vxr - bxi * wri[IVZ];
+    fl[IB3] = wli[IB3] * vxl - bxi * wli[IV3];
+    fr[IB3] = wri[IB3] * vxr - bxi * wri[IV3];
 
     //--- Step 6. Compute the HLLE flux at interface.
 
@@ -168,17 +168,17 @@ GLMMHD_HLLE(parthenon::team_mbr_t const &member, const int k, const int j, const
     if (bp != bm) tmp = 0.5 * (bp + bm) / (bp - bm);
 
     flxi[IDN] = 0.5 * (fl[IDN] + fr[IDN]) + (fl[IDN] - fr[IDN]) * tmp;
-    flxi[IVX] = 0.5 * (fl[IVX] + fr[IVX]) + (fl[IVX] - fr[IVX]) * tmp;
-    flxi[IVY] = 0.5 * (fl[IVY] + fr[IVY]) + (fl[IVY] - fr[IVY]) * tmp;
-    flxi[IVZ] = 0.5 * (fl[IVZ] + fr[IVZ]) + (fl[IVZ] - fr[IVZ]) * tmp;
+    flxi[IV1] = 0.5 * (fl[IV1] + fr[IV1]) + (fl[IV1] - fr[IV1]) * tmp;
+    flxi[IV2] = 0.5 * (fl[IV2] + fr[IV2]) + (fl[IV2] - fr[IV2]) * tmp;
+    flxi[IV3] = 0.5 * (fl[IV3] + fr[IV3]) + (fl[IV3] - fr[IV3]) * tmp;
     flxi[IEN] = 0.5 * (fl[IEN] + fr[IEN]) + (fl[IEN] - fr[IEN]) * tmp;
     flxi[IB2] = 0.5 * (fl[IB2] + fr[IB2]) + (fl[IB2] - fr[IB2]) * tmp;
     flxi[IB3] = 0.5 * (fl[IB3] + fr[IB3]) + (fl[IB3] - fr[IB3]) * tmp;
 
     cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
-    cons.flux(ivx, ivx, k, j, i) = flxi[IVX];
-    cons.flux(ivx, ivy, k, j, i) = flxi[IVY];
-    cons.flux(ivx, ivz, k, j, i) = flxi[IVZ];
+    cons.flux(ivx, ivx, k, j, i) = flxi[IV1];
+    cons.flux(ivx, ivy, k, j, i) = flxi[IV2];
+    cons.flux(ivx, ivz, k, j, i) = flxi[IV3];
     cons.flux(ivx, IEN, k, j, i) = flxi[IEN];
     cons.flux(ivx, iBx, k, j, i) = flxi[IB1];
     cons.flux(ivx, iBy, k, j, i) = flxi[IB2];

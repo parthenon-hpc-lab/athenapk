@@ -16,9 +16,9 @@
 // to be deleted/updated temporary helpers
 //constexpr int NHYDRO = 5;
 //constexpr int IDN = 0;
-//constexpr int IVX = 1;
-//constexpr int IVY = 2;
-//constexpr int IVZ = 3;
+//constexpr int IV1 = 1;
+//constexpr int IV2 = 2;
+//constexpr int IV3 = 3;
 //constexpr int IPR = 4;
 
 //constexpr int IM1 = 1;
@@ -36,7 +36,7 @@ enum { IDN = 0, IM1 = 1, IM2 = 2, IM3 = 3, IEN = 4 , NHYDRO = 5,
        IB1 = 5, IB2 = 6, IB3 = 7, IPS = 8};
 
 // array indices for 1D primitives: velocity, transverse components of field
-enum { IVX = 1, IVY = 2, IVZ = 3, IPR = 4 };
+enum { IV1 = 1, IV2 = 2, IV3 = 3, IPR = 4 };
 
 enum class Reconstruction {undefined, dc, plm, ppm, wenoz};
 enum class Integrator {undefined, rk1, rk2, vl2, rk3};

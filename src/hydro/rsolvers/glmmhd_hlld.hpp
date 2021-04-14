@@ -41,8 +41,8 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
             const int iu, const int ivx, const ScratchPad2D<Real> &wl,
             const ScratchPad2D<Real> &wr, VariableFluxPack<Real> &cons,
             const AdiabaticGLMMHDEOS &eos, const Real c_h) {
-  const int ivy = IVX + ((ivx - IVX) + 1) % 3;
-  const int ivz = IVX + ((ivx - IVX) + 2) % 3;
+  const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
+  const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
   const int iBx = ivx - 1 + NHYDRO;
   const int iBy = ivy - 1 + NHYDRO;
   const int iBz = ivz - 1 + NHYDRO;
@@ -64,9 +64,9 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     //--- Step 1.  Load L/R states into local variables
 
     wli[IDN] = wl(IDN, i);
-    wli[IVX] = wl(ivx, i);
-    wli[IVY] = wl(ivy, i);
-    wli[IVZ] = wl(ivz, i);
+    wli[IV1] = wl(ivx, i);
+    wli[IV2] = wl(ivy, i);
+    wli[IV3] = wl(ivz, i);
     wli[IPR] = wl(IPR, i);
     wli[IB1] = wl(iBx, i);
     wli[IB2] = wl(iBy, i);
@@ -74,9 +74,9 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     wli[IPS] = wl(IPS, i);
 
     wri[IDN] = wr(IDN, i);
-    wri[IVX] = wr(ivx, i);
-    wri[IVY] = wr(ivy, i);
-    wri[IVZ] = wr(ivz, i);
+    wri[IV1] = wr(ivx, i);
+    wri[IV2] = wr(ivy, i);
+    wri[IV3] = wr(ivz, i);
     wri[IPR] = wr(IPR, i);
     wri[IB1] = wr(iBx, i);
     wri[IB2] = wr(iBy, i);
@@ -95,21 +95,21 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     // (KGF): group transverse vector components for floating-point associativity symmetry
     Real pbl = 0.5 * (bxsq + (SQR(wli[IB2]) + SQR(wli[IB3]))); // magnetic pressure (l/r)
     Real pbr = 0.5 * (bxsq + (SQR(wri[IB2]) + SQR(wri[IB3])));
-    Real kel = 0.5 * wli[IDN] * (SQR(wli[IVX]) + (SQR(wli[IVY]) + SQR(wli[IVZ])));
-    Real ker = 0.5 * wri[IDN] * (SQR(wri[IVX]) + (SQR(wri[IVY]) + SQR(wri[IVZ])));
+    Real kel = 0.5 * wli[IDN] * (SQR(wli[IV1]) + (SQR(wli[IV2]) + SQR(wli[IV3])));
+    Real ker = 0.5 * wri[IDN] * (SQR(wri[IV1]) + (SQR(wri[IV2]) + SQR(wri[IV3])));
 
     ul.d = wli[IDN];
-    ul.mx = wli[IVX] * ul.d;
-    ul.my = wli[IVY] * ul.d;
-    ul.mz = wli[IVZ] * ul.d;
+    ul.mx = wli[IV1] * ul.d;
+    ul.my = wli[IV2] * ul.d;
+    ul.mz = wli[IV3] * ul.d;
     ul.e = wli[IPR] * igm1 + kel + pbl;
     ul.by = wli[IB2];
     ul.bz = wli[IB3];
 
     ur.d = wri[IDN];
-    ur.mx = wri[IVX] * ur.d;
-    ur.my = wri[IVY] * ur.d;
-    ur.mz = wri[IVZ] * ur.d;
+    ur.mx = wri[IV1] * ur.d;
+    ur.my = wri[IV2] * ur.d;
+    ur.mz = wri[IV3] * ur.d;
     ur.e = wri[IPR] * igm1 + ker + pbr;
     ur.by = wri[IB2];
     ur.bz = wri[IB3];
@@ -121,16 +121,16 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     const auto cfr =
         eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[IB1], wri[IB2], wri[IB3]);
 
-    spd[0] = std::min(wli[IVX] - cfl, wri[IVX] - cfr);
-    spd[4] = std::max(wli[IVX] + cfl, wri[IVX] + cfr);
+    spd[0] = std::min(wli[IV1] - cfl, wri[IV1] - cfr);
+    spd[4] = std::max(wli[IV1] + cfl, wri[IV1] + cfr);
 
     // Real cfmax = std::max(cfl,cfr);
-    // if (wli[IVX] <= wri[IVX]) {
-    //   spd[0] = wli[IVX] - cfmax;
-    //   spd[4] = wri[IVX] + cfmax;
+    // if (wli[IV1] <= wri[IV1]) {
+    //   spd[0] = wli[IV1] - cfmax;
+    //   spd[4] = wri[IV1] + cfmax;
     // } else {
-    //   spd[0] = wri[IVX] - cfmax;
-    //   spd[4] = wli[IVX] + cfmax;
+    //   spd[0] = wri[IV1] - cfmax;
+    //   spd[4] = wli[IV1] + cfmax;
     // }
 
     //--- Step 3.  Compute L/R fluxes
@@ -139,25 +139,25 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     Real ptr = wri[IPR] + pbr;
 
     fl.d = ul.mx;
-    fl.mx = ul.mx * wli[IVX] + ptl - bxsq;
-    fl.my = ul.my * wli[IVX] - bxi * ul.by;
-    fl.mz = ul.mz * wli[IVX] - bxi * ul.bz;
-    fl.e = wli[IVX] * (ul.e + ptl - bxsq) - bxi * (wli[IVY] * ul.by + wli[IVZ] * ul.bz);
-    fl.by = ul.by * wli[IVX] - bxi * wli[IVY];
-    fl.bz = ul.bz * wli[IVX] - bxi * wli[IVZ];
+    fl.mx = ul.mx * wli[IV1] + ptl - bxsq;
+    fl.my = ul.my * wli[IV1] - bxi * ul.by;
+    fl.mz = ul.mz * wli[IV1] - bxi * ul.bz;
+    fl.e = wli[IV1] * (ul.e + ptl - bxsq) - bxi * (wli[IV2] * ul.by + wli[IV3] * ul.bz);
+    fl.by = ul.by * wli[IV1] - bxi * wli[IV2];
+    fl.bz = ul.bz * wli[IV1] - bxi * wli[IV3];
 
     fr.d = ur.mx;
-    fr.mx = ur.mx * wri[IVX] + ptr - bxsq;
-    fr.my = ur.my * wri[IVX] - bxi * ur.by;
-    fr.mz = ur.mz * wri[IVX] - bxi * ur.bz;
-    fr.e = wri[IVX] * (ur.e + ptr - bxsq) - bxi * (wri[IVY] * ur.by + wri[IVZ] * ur.bz);
-    fr.by = ur.by * wri[IVX] - bxi * wri[IVY];
-    fr.bz = ur.bz * wri[IVX] - bxi * wri[IVZ];
+    fr.mx = ur.mx * wri[IV1] + ptr - bxsq;
+    fr.my = ur.my * wri[IV1] - bxi * ur.by;
+    fr.mz = ur.mz * wri[IV1] - bxi * ur.bz;
+    fr.e = wri[IV1] * (ur.e + ptr - bxsq) - bxi * (wri[IV2] * ur.by + wri[IV3] * ur.bz);
+    fr.by = ur.by * wri[IV1] - bxi * wri[IV2];
+    fr.bz = ur.bz * wri[IV1] - bxi * wri[IV3];
 
     //--- Step 4.  Compute middle and Alfven wave speeds
 
-    Real sdl = spd[0] - wli[IVX]; // S_i-u_i (i=L or R)
-    Real sdr = spd[4] - wri[IVX];
+    Real sdl = spd[0] - wli[IV1]; // S_i-u_i (i=L or R)
+    Real sdr = spd[4] - wri[IV1];
 
     // S_M: eqn (38) of Miyoshi & Kusano
     // (KGF): group ptl, ptr terms for floating-point associativity symmetry
@@ -182,8 +182,8 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     //--- Step 5.  Compute intermediate states
     // eqn (23) explicitly becomes eq (41) of Miyoshi & Kusano
     // TODO(felker): place an assertion that ptstl==ptstr
-    Real ptstl = ptl + ul.d * sdl * (spd[2] - wli[IVX]);
-    Real ptstr = ptr + ur.d * sdr * (spd[2] - wri[IVX]);
+    Real ptstl = ptl + ul.d * sdl * (spd[2] - wli[IV1]);
+    Real ptstr = ptr + ur.d * sdr * (spd[2] - wri[IV1]);
     // Real ptstl = ptl + ul.d*sdl*(sdl-sdml); // these equations had issues when averaged
     // Real ptstr = ptr + ur.d*sdr*(sdr-sdmr);
     Real ptst = 0.5 * (ptstr + ptstl); // total pressure (star state)
@@ -192,16 +192,16 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     ulst.mx = ulst.d * spd[2];
     if (std::abs(ul.d * sdl * sdml - bxsq) < (SMALL_NUMBER)*ptst) {
       // Degenerate case
-      ulst.my = ulst.d * wli[IVY];
-      ulst.mz = ulst.d * wli[IVZ];
+      ulst.my = ulst.d * wli[IV2];
+      ulst.mz = ulst.d * wli[IV3];
 
       ulst.by = ul.by;
       ulst.bz = ul.bz;
     } else {
       // eqns (44) and (46) of M&K
       Real tmp = bxi * (sdl - sdml) / (ul.d * sdl * sdml - bxsq);
-      ulst.my = ulst.d * (wli[IVY] - ul.by * tmp);
-      ulst.mz = ulst.d * (wli[IVZ] - ul.bz * tmp);
+      ulst.my = ulst.d * (wli[IV2] - ul.by * tmp);
+      ulst.mz = ulst.d * (wli[IV3] - ul.bz * tmp);
 
       // eqns (45) and (47) of M&K
       tmp = (ul.d * SQR(sdl) - bxsq) / (ul.d * sdl * sdml - bxsq);
@@ -213,24 +213,24 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     Real vbstl = (ulst.mx * bxi + (ulst.my * ulst.by + ulst.mz * ulst.bz)) * ulst_d_inv;
     // eqn (48) of M&K
     // (KGF): group transverse by, bz terms for floating-point associativity symmetry
-    ulst.e = (sdl * ul.e - ptl * wli[IVX] + ptst * spd[2] +
-              bxi * (wli[IVX] * bxi + (wli[IVY] * ul.by + wli[IVZ] * ul.bz) - vbstl)) *
+    ulst.e = (sdl * ul.e - ptl * wli[IV1] + ptst * spd[2] +
+              bxi * (wli[IV1] * bxi + (wli[IV2] * ul.by + wli[IV3] * ul.bz) - vbstl)) *
              sdml_inv;
 
     // ur* - eqn (39) of M&K
     urst.mx = urst.d * spd[2];
     if (std::abs(ur.d * sdr * sdmr - bxsq) < (SMALL_NUMBER)*ptst) {
       // Degenerate case
-      urst.my = urst.d * wri[IVY];
-      urst.mz = urst.d * wri[IVZ];
+      urst.my = urst.d * wri[IV2];
+      urst.mz = urst.d * wri[IV3];
 
       urst.by = ur.by;
       urst.bz = ur.bz;
     } else {
       // eqns (44) and (46) of M&K
       Real tmp = bxi * (sdr - sdmr) / (ur.d * sdr * sdmr - bxsq);
-      urst.my = urst.d * (wri[IVY] - ur.by * tmp);
-      urst.mz = urst.d * (wri[IVZ] - ur.bz * tmp);
+      urst.my = urst.d * (wri[IV2] - ur.by * tmp);
+      urst.mz = urst.d * (wri[IV3] - ur.bz * tmp);
 
       // eqns (45) and (47) of M&K
       tmp = (ur.d * SQR(sdr) - bxsq) / (ur.d * sdr * sdmr - bxsq);
@@ -242,8 +242,8 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     Real vbstr = (urst.mx * bxi + (urst.my * urst.by + urst.mz * urst.bz)) * urst_d_inv;
     // eqn (48) of M&K
     // (KGF): group transverse by, bz terms for floating-point associativity symmetry
-    urst.e = (sdr * ur.e - ptr * wri[IVX] + ptst * spd[2] +
-              bxi * (wri[IVX] * bxi + (wri[IVY] * ur.by + wri[IVZ] * ur.bz) - vbstr)) *
+    urst.e = (sdr * ur.e - ptr * wri[IV1] + ptst * spd[2] +
+              bxi * (wri[IV1] * bxi + (wri[IV2] * ur.by + wri[IV3] * ur.bz) - vbstr)) *
              sdmr_inv;
     // ul** and ur** - if Bx is near zero, same as *-states
     if (0.5 * bxsq < (SMALL_NUMBER)*ptst) {
@@ -326,63 +326,63 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     if (spd[0] >= 0.0) {
       // return Fl if flow is supersonic
       flxi[IDN] = fl.d;
-      flxi[IVX] = fl.mx;
-      flxi[IVY] = fl.my;
-      flxi[IVZ] = fl.mz;
+      flxi[IV1] = fl.mx;
+      flxi[IV2] = fl.my;
+      flxi[IV3] = fl.mz;
       flxi[IEN] = fl.e;
       flxi[IB2] = fl.by;
       flxi[IB3] = fl.bz;
     } else if (spd[4] <= 0.0) {
       // return Fr if flow is supersonic
       flxi[IDN] = fr.d;
-      flxi[IVX] = fr.mx;
-      flxi[IVY] = fr.my;
-      flxi[IVZ] = fr.mz;
+      flxi[IV1] = fr.mx;
+      flxi[IV2] = fr.my;
+      flxi[IV3] = fr.mz;
       flxi[IEN] = fr.e;
       flxi[IB2] = fr.by;
       flxi[IB3] = fr.bz;
     } else if (spd[1] >= 0.0) {
       // return Fl*
       flxi[IDN] = fl.d + ulst.d;
-      flxi[IVX] = fl.mx + ulst.mx;
-      flxi[IVY] = fl.my + ulst.my;
-      flxi[IVZ] = fl.mz + ulst.mz;
+      flxi[IV1] = fl.mx + ulst.mx;
+      flxi[IV2] = fl.my + ulst.my;
+      flxi[IV3] = fl.mz + ulst.mz;
       flxi[IEN] = fl.e + ulst.e;
       flxi[IB2] = fl.by + ulst.by;
       flxi[IB3] = fl.bz + ulst.bz;
     } else if (spd[2] >= 0.0) {
       // return Fl**
       flxi[IDN] = fl.d + ulst.d + uldst.d;
-      flxi[IVX] = fl.mx + ulst.mx + uldst.mx;
-      flxi[IVY] = fl.my + ulst.my + uldst.my;
-      flxi[IVZ] = fl.mz + ulst.mz + uldst.mz;
+      flxi[IV1] = fl.mx + ulst.mx + uldst.mx;
+      flxi[IV2] = fl.my + ulst.my + uldst.my;
+      flxi[IV3] = fl.mz + ulst.mz + uldst.mz;
       flxi[IEN] = fl.e + ulst.e + uldst.e;
       flxi[IB2] = fl.by + ulst.by + uldst.by;
       flxi[IB3] = fl.bz + ulst.bz + uldst.bz;
     } else if (spd[3] > 0.0) {
       // return Fr**
       flxi[IDN] = fr.d + urst.d + urdst.d;
-      flxi[IVX] = fr.mx + urst.mx + urdst.mx;
-      flxi[IVY] = fr.my + urst.my + urdst.my;
-      flxi[IVZ] = fr.mz + urst.mz + urdst.mz;
+      flxi[IV1] = fr.mx + urst.mx + urdst.mx;
+      flxi[IV2] = fr.my + urst.my + urdst.my;
+      flxi[IV3] = fr.mz + urst.mz + urdst.mz;
       flxi[IEN] = fr.e + urst.e + urdst.e;
       flxi[IB2] = fr.by + urst.by + urdst.by;
       flxi[IB3] = fr.bz + urst.bz + urdst.bz;
     } else {
       // return Fr*
       flxi[IDN] = fr.d + urst.d;
-      flxi[IVX] = fr.mx + urst.mx;
-      flxi[IVY] = fr.my + urst.my;
-      flxi[IVZ] = fr.mz + urst.mz;
+      flxi[IV1] = fr.mx + urst.mx;
+      flxi[IV2] = fr.my + urst.my;
+      flxi[IV3] = fr.mz + urst.mz;
       flxi[IEN] = fr.e + urst.e;
       flxi[IB2] = fr.by + urst.by;
       flxi[IB3] = fr.bz + urst.bz;
     }
 
     cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
-    cons.flux(ivx, ivx, k, j, i) = flxi[IVX];
-    cons.flux(ivx, ivy, k, j, i) = flxi[IVY];
-    cons.flux(ivx, ivz, k, j, i) = flxi[IVZ];
+    cons.flux(ivx, ivx, k, j, i) = flxi[IV1];
+    cons.flux(ivx, ivy, k, j, i) = flxi[IV2];
+    cons.flux(ivx, ivz, k, j, i) = flxi[IV3];
     cons.flux(ivx, IEN, k, j, i) = flxi[IEN];
     cons.flux(ivx, iBx, k, j, i) = flxi[IB1];
     cons.flux(ivx, iBy, k, j, i) = flxi[IB2];
