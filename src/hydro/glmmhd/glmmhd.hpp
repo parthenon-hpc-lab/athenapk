@@ -7,11 +7,13 @@
 //========================================================================================
 
 // Parthenon headers
-// #include <parthenon/package.hpp>
+#include <parthenon/package.hpp>
 
-// using namespace parthenon::package::prelude;
+using namespace parthenon::package::prelude;
 
 namespace Hydro::GLMMHD {
+
+TaskStatus CalculateCleaningSpeed(MeshData<Real> *md);
 
 template <bool extended>
 void DednerSource(MeshData<Real> *md, const Real beta_dt);

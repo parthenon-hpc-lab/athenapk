@@ -18,8 +18,9 @@
 #include "refinement/refinement.hpp"
 #include "tasks/task_id.hpp"
 #include "utils/partition_stl_containers.hpp"
-// Athena headers
+// AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
 
@@ -99,7 +100,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // blocking it's also save to store the variable in the Params for now.
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_c_h = tl.AddTask(prev_task, CalculateCleaningSpeed, mu0.get());
+      auto new_c_h = tl.AddTask(prev_task, GLMMHD::CalculateCleaningSpeed, mu0.get());
       prev_task = new_c_h;
     }
 #ifdef MPI_PARALLEL
