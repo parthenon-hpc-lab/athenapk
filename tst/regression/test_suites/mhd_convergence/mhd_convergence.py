@@ -34,6 +34,7 @@ method_cfgs = [
     {"integrator" : "rk1", "recon" : "dc"},
     {"integrator" : "vl2", "recon" : "plm"},
     {"integrator" : "rk2", "recon" : "plm"},
+    {"integrator" : "rk2", "recon" : "ppm"},
     {"integrator" : "rk3", "recon" : "ppm"},
     {"integrator" : "rk3", "recon" : "wenoz"},
 ]
@@ -76,8 +77,8 @@ class TestCase(utils.test_case.TestCaseAbs):
         res = lin_res[(step - 1) % n_res]
         integrator = method_cfgs[(step - 1) // n_res]["integrator"]
         recon = method_cfgs[(step - 1) // n_res]["recon"]
-        mb_nx1 = ((2 * res) // parameters.num_ranks)
         # ensure that nx1 is <= 128 when using scratch (V100 limit on test system)
+        mb_nx1 = ((2 * res) // parameters.num_ranks)
         while (mb_nx1 > 128):
             mb_nx1 //= 2
 
@@ -91,6 +92,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             'parthenon/mesh/nghost=%d' % (3 if (recon == "ppm" or recon == "wenoz") else 2),
             'parthenon/time/integrator=%s' % integrator,
             'hydro/reconstruction=%s' % recon,
+            'hydro/fluid=glmmhd',
             ]
 
         return parameters
@@ -137,7 +139,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         data = np.genfromtxt(os.path.join(parameters.output_path, "linearwave-errors.dat"))
 
         # quick and dirty test
-        if data[6,4] > 1.547584e-08:
+        if data[23,4] > 6.14e-12:
             analyze_status = False
 
         markers = 'ov^<>sp*hXD'
@@ -148,16 +150,19 @@ class TestCase(utils.test_case.TestCaseAbs):
                         f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
                     )))
 
-        plt.plot([32,512], [1e-6,1e-6/(512/32)], '--', label="first order")
-        plt.plot([32,512], [2e-7,2e-7/(512/32)**2], '--', label="second order")
+        plt.plot([32,512], [7e-7,7e-7/(512/32)], '--', label="first order")
+        plt.plot([32,512], [1.7e-7,1.7e-7/(512/32)**2], '--', label="second order")
+        plt.plot([32,512], [3.7e-8,3.7e-8/(512/32)**2], '--', label="second order")
         plt.plot([32,512], [3.6e-9,3.6e-9/(512/32)**3], '--', label="third order")
+
+        plt.ylim(1e-12,5e-6)
 
         plt.legend()
         plt.xscale("log")
         plt.yscale("log")
         plt.ylabel("L1 err")
         plt.xlabel("Linear resolution")
-        plt.savefig(os.path.join(parameters.output_path, "linearwave-errors.png"),
+        plt.savefig(os.path.join(parameters.output_path, "mhd-linearwave-errors.png"),
                     bbox_inches='tight')
 
         return analyze_status

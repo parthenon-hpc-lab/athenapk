@@ -18,6 +18,8 @@ before_script:
   - export PATH=${OMPI_DIR}/bin:$PATH
   - export LD_LIBRARY_PATH=${OMPI_DIR}/lib:$LD_LIBRARY_PATH
   - export KOKKOS_NUM_DEVICES=1
+  - export CUDA_VISIBLE_DEVICES=0
+# trying to use a less frequently used GPU on the node
   - module load anaconda3/2020.02
   # required as functions like "activate" are not available in subshells, see
   # see https://github.com/conda/conda/issues/7980
@@ -78,28 +80,11 @@ cuda-regression:
     - make -j${J} athenaPK
     - nvidia-smi
     - ctest
-    - for M in 128; do
-      for N in 128 64 32; do
-        ./bin/athenaPK -i ../inputs/linear_wave3d.in parthenon/meshblock/nx1=$((2*N)) parthenon/meshblock/nx2=$N parthenon/meshblock/nx3=$N parthenon/mesh/nx1=$((2*M)) parthenon/mesh/nx2=$M parthenon/mesh/nx3=$M hydro/use_scratch=false hydro/scratch_level=0;
-      done; done
-    - for M in 128; do
-      for N in 128 64 32; do
-        ./bin/athenaPK -i ../inputs/linear_wave3d.in parthenon/meshblock/nx1=$((2*N)) parthenon/meshblock/nx2=$N parthenon/meshblock/nx3=$N parthenon/mesh/nx1=$((2*M)) parthenon/mesh/nx2=$M parthenon/mesh/nx3=$M hydro/use_scratch=true hydro/scratch_level=1;
-      done; done
-    - for M in 16 32 64 128; do
-      export N=$M;
-        ./bin/athenaPK -i ../inputs/linear_wave3d.in parthenon/meshblock/nx1=$((2*N)) parthenon/meshblock/nx2=$N parthenon/meshblock/nx3=$N parthenon/mesh/nx1=$((2*M)) parthenon/mesh/nx2=$M parthenon/mesh/nx3=$M hydro/use_scratch=false hydro/scratch_level=0;
-      done
-    - for M in 16 32 64 128; do
-      export N=$M;
-        ./bin/athenaPK -i ../inputs/linear_wave3d.in parthenon/meshblock/nx1=$((2*N)) parthenon/meshblock/nx2=$N parthenon/meshblock/nx3=$N parthenon/mesh/nx1=$((2*M)) parthenon/mesh/nx2=$M parthenon/mesh/nx3=$M hydro/use_scratch=true hydro/scratch_level=1;
-      done
-    - diff linearwave-errors.dat ../tst/regression/linearwave-errors.dat.ref
   artifacts:
     when: always
     expire_in: 3 days
     paths:
       - build-cuda/CMakeFiles/CMakeOutput.log
-      - build-cuda/linearwave-errors.dat
       - build-cuda/tst/regression/outputs/convergence
+      - build-cuda/tst/regression/outputs/mhd_convergence
       - build-cuda/tst/regression/outputs/performance

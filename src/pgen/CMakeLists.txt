@@ -2,8 +2,12 @@
 # Licensed under the 3-Clause License (the "LICENSE");
 
 target_sources(athenaPK PRIVATE
+    cpaw.cpp
     linear_wave.cpp
+    linear_wave_mhd.cpp
+    field_loop.cpp
     advection.cpp
     blast.cpp
     kh.cpp
+    rand_blast.cpp
     )

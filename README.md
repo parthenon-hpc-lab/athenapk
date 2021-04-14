@@ -1,6 +1,6 @@
 # AthenaPK
 
-AthenaPK: a performance portable version of Athena++ built on [Parthenon](https://github.com/lanl/parthenon) and [Kokkos](https://github.com/kokkos/kokkos).
+AthenaPK: a performance portable version based on [Athena++](https://github.com/PrincetonUniversity/athena-public-version),  [Parthenon](https://github.com/lanl/parthenon) and [Kokkos](https://github.com/kokkos/kokkos).
 
 ## Current state of the code
 
@@ -10,14 +10,16 @@ For this reason, it is highly recommended to only use AthenaPK with the Kokkos a
 Neither other versions or nor using preinstalled Parthenon/Kokkos libraries have been tested.
 
 Current features include
-- first and second order hydrodynamics with
+- first, second, and third order (magneto)hydrodynamics with
   - RK1, RK2, RK3, VL2 integrators
   - piecewise constant (DC), piecewise linear (PLM), piecewise parabolic (PPM), and WENOZ reconstruction
-  - HLLE Riemann solver
+  - HLLE (hydro and MHD) and HLLD (MHD) Riemann solvers
   - Adiabatic equation of state
+  - MHD based on hyperbolic divergence cleaning following Dedner+ 2002
 - static and adaptive mesh refinement
 - problem generators for
   - a linear wave
+  - circularly polarized Alfven wave
   - blast wave
   - Kelvin-Helmholtz instability
 
@@ -44,7 +46,7 @@ please either
 ##### Required
 
 * CMake 3.13 or greater
-* C++14 compatible compiler
+* C++17 compatible compiler
 * Parthenon (using the submodule version provided by AthenaPK)
 * Kokkos (using the submodule version provided by AthenaPK)
 

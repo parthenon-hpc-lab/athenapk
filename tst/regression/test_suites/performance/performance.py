@@ -29,41 +29,40 @@ import utils.test_case
 sys.dont_write_bytecode = True
 
 perf_cfgs = [
-    {"mx" : 256, "mb" : 256, "use_scratch" : False , "integrator" : "vl2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 256, "use_scratch" : True  , "integrator" : "vl2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 128, "use_scratch" : False , "integrator" : "vl2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "vl2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 64 , "use_scratch" : False , "integrator" : "vl2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "vl2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 256, "use_scratch" : False , "integrator" : "rk2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 256, "use_scratch" : True  , "integrator" : "rk2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 128, "use_scratch" : False , "integrator" : "rk2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 64 , "use_scratch" : False , "integrator" : "rk2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "rk2", "recon" : "plm"},
-    {"mx" : 256, "mb" : 256, "use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
-    {"mx" : 256, "mb" : 256, "use_scratch" : True  , "integrator" : "rk1", "recon" : "dc"},
-    {"mx" : 256, "mb" : 128, "use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
-    {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk1", "recon" : "dc"},
-    {"mx" : 256, "mb" : 64 , "use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
-    {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "rk1", "recon" : "dc"},
-    {"mx" : 256, "mb" : 256, "use_scratch" : True , "integrator" : "rk3", "recon" : "ppm"},
-    {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk3", "recon" : "ppm"},
-    {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "rk3", "recon" : "ppm"},
-    {"mx" : 256, "mb" : 256, "use_scratch" : True , "integrator" : "rk3", "recon" : "wenoz"},
-    {"mx" : 256, "mb" : 128, "use_scratch" : True , "integrator" : "rk3", "recon" : "wenoz"},
-    {"mx" : 256, "mb" : 64 , "use_scratch" : True , "integrator" : "rk3", "recon" : "wenoz"},
+    {"mx" : 256, "mb" : 256, "integrator" : "vl2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 128, "integrator" : "vl2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 64 , "integrator" : "vl2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 256, "integrator" : "rk2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 128, "integrator" : "rk2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 64 , "integrator" : "rk2", "recon" : "plm"},
+    {"mx" : 256, "mb" : 256, "integrator" : "rk1", "recon" : "dc"},
+    {"mx" : 256, "mb" : 128, "integrator" : "rk1", "recon" : "dc"},
+    {"mx" : 256, "mb" : 64 , "integrator" : "rk1", "recon" : "dc"},
+    {"mx" : 256, "mb" : 256, "integrator" : "rk3", "recon" : "ppm"},
+    {"mx" : 256, "mb" : 128, "integrator" : "rk3", "recon" : "ppm"},
+    {"mx" : 256, "mb" : 64 , "integrator" : "rk3", "recon" : "ppm"},
+    {"mx" : 256, "mb" : 256, "integrator" : "rk3", "recon" : "wenoz"},
+    {"mx" : 256, "mb" : 128, "integrator" : "rk3", "recon" : "wenoz"},
+    {"mx" : 256, "mb" : 64 , "integrator" : "rk3", "recon" : "wenoz"},
+    {"mx" : 256, "mb" : 128, "integrator" : "vl2", "recon" : "plm", "fluid" : "glmmhd"},
+    {"mx" : 256, "mb" : 128, "integrator" : "rk3", "recon" : "wenoz", "fluid" : "glmmhd"},
 ]
+
+for cfg in perf_cfgs:
+    if "fluid" not in cfg.keys():
+        cfg["fluid"] = "euler"
 
 class TestCase(utils.test_case.TestCaseAbs):
     def Prepare(self,parameters, step):
         mx = perf_cfgs[step - 1]["mx"]
         mb = perf_cfgs[step - 1]["mb"]
         integrator = perf_cfgs[step - 1]["integrator"]
-        use_scratch = perf_cfgs[step - 1]["use_scratch"]
         recon = perf_cfgs[step - 1]["recon"]
+        fluid = perf_cfgs[step - 1]["fluid"]
 
         parameters.driver_cmd_line_args = [
+            'problem/linear_wave/compute_error=false',
+            'parthenon/mesh/x1max=1.5',
             'parthenon/mesh/nx1=%d' % mx,
             'parthenon/meshblock/nx1=%d' % mb,
             'parthenon/mesh/nx2=%d' % mx,
@@ -75,7 +74,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             'parthenon/time/integrator=%s' % integrator,
             'parthenon/time/nlim=10',
             'hydro/reconstruction=%s' % recon,
-            'hydro/use_scratch=%s' % ("true" if use_scratch else "false"),
+            'hydro/fluid=%s' % fluid,
             ]
 
         return parameters
@@ -100,7 +99,8 @@ class TestCase(utils.test_case.TestCaseAbs):
             p[1].plot(perfs[i]/perfs[0],i,'o')
             labels.append((
                 f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
-                f'Scr: {"T" if cfg["use_scratch"] else "F"} Mesh ${cfg["mx"]}^3$ MB ${cfg["mb"]}^3$'
+                f'Mesh ${cfg["mx"]}^3$ MB ${cfg["mb"]}^3$'
+                f'{" MHD" if cfg["fluid"] == "glmmhd" else ""}'
                 ))
 
         p[0].set_xlabel("Mzone-cycles/s")

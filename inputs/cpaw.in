@@ -1,19 +1,21 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 <comment>
-problem = 3D Hydro linear wave convergence
+problem   = 3D Circularly Polarized Alfven Wave
+reference = G. Toth. JCP, vol. 161, pp. 605-662 (2000).
 
 <job>
-problem_id = linear_wave
+problem_id = cpaw
 
-<problem/linear_wave>
-compute_error = true  # when 'true' outputs L1 error compared to initial data
-wave_flag = 0         # Wave family number (0 - 4 for adiabatic hydro)
-amp       = 1.0e-6    # Wave Amplitude
-vflow     = 0.0       # background flow velocity
-test      = true
+<problem/cpaw>
+compute_error = true  # set value to one to compute L1 error compared to initial data
+b_par   = 1.0         # B parallel
+b_perp  = 0.1         # B perpendicular
+pres    = 0.1         # pressure
+v_par   = 0.0         # vpar = {0, 1} -> {traveling, standing} wave
+dir     = 1           # 1: right polarization (whistler wave), 2: left
 
 <parthenon/mesh>
 refinement = none
@@ -38,9 +40,9 @@ ix3_bc = periodic
 ox3_bc = periodic
 
 <parthenon/meshblock>
-nx1=16
-nx2=16
-nx3=16
+nx1=32
+nx2=32 
+nx3=32
 
 <parthenon/time>
 integrator = vl2
@@ -50,14 +52,13 @@ nlim = 100000
 perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 
 <hydro>
-fluid = euler
+fluid = glmmhd
 eos = adiabatic
-riemann = hlle
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 <parthenon/output0>
 file_type = hdf5
-dt = -0.01
+dt = 0.1
 variables = cons

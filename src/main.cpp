@@ -36,6 +36,14 @@ int main(int argc, char *argv[]) {
     pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
+  } else if (problem == "linear_wave_mhd") {
+    pman.app_input->InitUserMeshData = linear_wave_mhd::InitUserMeshData;
+    pman.app_input->ProblemGenerator = linear_wave_mhd::ProblemGenerator;
+    pman.app_input->UserWorkAfterLoop = linear_wave_mhd::UserWorkAfterLoop;
+  } else if (problem == "cpaw") {
+    pman.app_input->InitUserMeshData = cpaw::InitUserMeshData;
+    pman.app_input->ProblemGenerator = cpaw::ProblemGenerator;
+    pman.app_input->UserWorkAfterLoop = cpaw::UserWorkAfterLoop;
   } else if (problem == "blast") {
     pman.app_input->InitUserMeshData = blast::InitUserMeshData;
     pman.app_input->ProblemGenerator = blast::ProblemGenerator;
@@ -43,8 +51,12 @@ int main(int argc, char *argv[]) {
   } else if (problem == "advection") {
     pman.app_input->InitUserMeshData = advection::InitUserMeshData;
     pman.app_input->ProblemGenerator = advection::ProblemGenerator;
+  } else if (problem == "field_loop") {
+    pman.app_input->ProblemGenerator = field_loop::ProblemGenerator;
   } else if (problem == "kh") {
     pman.app_input->ProblemGenerator = kh::ProblemGenerator;
+  } else if (problem == "rand_blast") {
+    pman.app_input->ProblemGenerator = rand_blast::ProblemGenerator;
   }
 
   pman.ParthenonInitPackagesAndMesh();

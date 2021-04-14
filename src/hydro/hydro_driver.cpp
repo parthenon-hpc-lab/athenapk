@@ -14,11 +14,13 @@
 #include "bvals/cc/bvals_cc_in_one.hpp"
 #include "interface/update.hpp"
 #include "parthenon/driver.hpp"
+#include "parthenon/package.hpp"
 #include "refinement/refinement.hpp"
 #include "tasks/task_id.hpp"
 #include "utils/partition_stl_containers.hpp"
-// Athena headers
+// AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
 
@@ -39,6 +41,7 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   const auto &stage_name = integrator->stage_name;
+  auto hydro_pkg = blocks[0]->packages.Get("Hydro");
 
   TaskID none(0);
   // Number of task lists that can be executed indepenently and thus *may*
@@ -75,8 +78,45 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           u0.get(), u1.get());
     }
   }
-
   const int num_partitions = pmesh->DefaultNumPartitions();
+
+  // calculate hyperbolic divergence cleaning speed
+  // TODO(pgrete) Merge with dt calc
+  // TODO(pgrete) Add "MeshTask" with reduction to Parthenon
+  if (hydro_pkg->Param<bool>("calc_c_h") && (stage == 1)) {
+    // need to make sure that there's only one region in order to MPI_reduce to work
+    TaskRegion &single_task_region = tc.AddRegion(1);
+    auto &tl = single_task_region[0];
+    // First globally reset c_h
+    auto prev_task = tl.AddTask(
+        none,
+        [](StateDescriptor *hydro_pkg) {
+          hydro_pkg->UpdateParam("c_h", 0.0);
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+    // Adding one task for each partition. Given that they're all in one task list
+    // they'll be executed sequentially. Given that a par_reduce to a host var is
+    // blocking it's also save to store the variable in the Params for now.
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto new_c_h = tl.AddTask(prev_task, GLMMHD::CalculateCleaningSpeed, mu0.get());
+      prev_task = new_c_h;
+    }
+#ifdef MPI_PARALLEL
+    auto reduce_c_h = tl.AddTask(
+        prev_task,
+        [](StateDescriptor *hydro_pkg) {
+          auto c_h = hydro_pkg->Param<Real>("c_h");
+          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &c_h, 1, MPI_PARTHENON_REAL,
+                                            MPI_MAX, MPI_COMM_WORLD));
+          hydro_pkg->UpdateParam("c_h", c_h);
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+#endif
+  }
+
   // note that task within this region that contains one tasklist per pack
   // could still be executed in parallel
   TaskRegion &single_tasklist_per_pack_region = tc.AddRegion(num_partitions);
@@ -85,17 +125,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
 
     TaskID advect_flux;
-    const auto &use_scratch =
-        blocks[0]->packages.Get("Hydro")->Param<bool>("use_scratch");
-    const auto &eos = blocks[0]->packages.Get("Hydro")->Param<AdiabaticHydroEOS>("eos");
-    if (use_scratch) {
-      const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
-      FluxFun_t *calc_flux =
-          blocks[0]->packages.Get("Hydro")->Param<FluxFun_t *>(flux_str);
-      advect_flux = tl.AddTask(none, calc_flux, mu0);
-    } else {
-      advect_flux = tl.AddTask(none, Hydro::CalculateFluxes, stage, mu0, eos);
-    }
+    const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
+    FluxFun_t *calc_flux = hydro_pkg->Param<FluxFun_t *>(flux_str);
+    advect_flux = tl.AddTask(none, calc_flux, mu0);
   }
   TaskRegion &async_region_2 = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {
@@ -113,16 +145,31 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
+    // add non-operator split source terms
+    auto source_unsplit = tl.AddTask(none, AddUnsplitSources, mu0.get(),
+                                     integrator->beta[stage - 1] * integrator->dt);
+
     // compute the divergence of fluxes of conserved variables
 
     auto update = tl.AddTask(
-        none, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
-        mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
+        source_unsplit, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>,
+        mu0.get(), mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
         integrator->beta[stage - 1] * integrator->dt);
 
+    auto source_split_first_order = update;
+
+    // Add operator split source terms at first order, i.e., full dt update
+    // after all stages of the integration.
+    // Not recommended for but allows easy "reset" of variable for some
+    // problem types, see random blasts.
+    if (stage == integrator->nstages) {
+      source_split_first_order =
+          tl.AddTask(update, AddSplitSourcesFirstOrder, mu0.get(), tm);
+    }
+
     // update ghost cells
-    auto send =
-        tl.AddTask(update, parthenon::cell_centered_bvars::SendBoundaryBuffers, mu0);
+    auto send = tl.AddTask(source_split_first_order,
+                           parthenon::cell_centered_bvars::SendBoundaryBuffers, mu0);
     auto recv =
         tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mu0);
     auto fill_from_bufs =
