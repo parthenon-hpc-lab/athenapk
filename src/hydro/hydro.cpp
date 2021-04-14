@@ -24,8 +24,8 @@
 #include "hydro.hpp"
 #include "outputs/outputs.hpp"
 #include "reconstruct/dc_inline.hpp"
-#include "rsolvers/glmmhd_hlle.hpp"
 #include "rsolvers/glmmhd_hlld.hpp"
+#include "rsolvers/glmmhd_hlle.hpp"
 #include "rsolvers/hydro_hlle.hpp"
 #include "utils/error_checking.hpp"
 
@@ -349,21 +349,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   const auto nghost = pin->GetInteger("parthenon/mesh", "nghost");
   if (nghost < recon_need_nghost) {
     PARTHENON_FAIL("AthenaPK hydro: Need more ghost zones for chosen reconstruction.");
-  }
-
-  // TODO(pgrete) potentially move this logic closer to the recon itself (e.g., when the
-  // mesh is initialized so that mesh vars can be reused)
-  auto dx1 = (pin->GetReal("parthenon/mesh", "x1max") -
-              pin->GetReal("parthenon/mesh", "x1min")) /
-             static_cast<Real>(pin->GetInteger("parthenon/mesh", "nx1"));
-  auto dx2 = (pin->GetReal("parthenon/mesh", "x2max") -
-              pin->GetReal("parthenon/mesh", "x2min")) /
-             static_cast<Real>(pin->GetInteger("parthenon/mesh", "nx2"));
-  auto dx3 = (pin->GetReal("parthenon/mesh", "x3max") -
-              pin->GetReal("parthenon/mesh", "x3min")) /
-             static_cast<Real>(pin->GetInteger("parthenon/mesh", "nx3"));
-  if ((dx1 != dx2) || (dx2 != dx3)) {
-    PARTHENON_FAIL("AthenaPK hydro: Current simple recon. methods need uniform meshes.");
   }
 
   const auto integrator_str = pin->GetString("parthenon/time", "integrator");
