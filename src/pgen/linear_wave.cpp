@@ -191,8 +191,6 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
     // Even for MHD, there are only cell-centered mesh variables
     int ncells4 = NHYDRO + NFIELD;
-    int nl = 0;
-    int nu = ncells4 - 1;
     // Save analytic solution of conserved variables in 4D scratch array on host
     Kokkos::View<Real ****, parthenon::LayoutWrapper, parthenon::HostMemSpace> cons_(
         "cons scratch", ncells4, pmb->cellbounds.ncellsk(IndexDomain::entire),

@@ -52,7 +52,7 @@ RiemannSolver(parthenon::team_mbr_t const &member, const int k, const int j, con
   Real gm1 = gamma - 1.0;
   Real igm1 = 1.0 / gm1;
   parthenon::par_for_inner(member, il, iu, [&](const int i) {
-    Real wli[(NHYDRO)], wri[(NHYDRO)], wroe[(NHYDRO)];
+    Real wli[(NHYDRO)], wri[(NHYDRO)];
     Real fl[(NHYDRO)], fr[(NHYDRO)], flxi[(NHYDRO)];
     //--- Step 1.  Load L/R states into local variables
     wli[IDN] = wl(IDN, i);

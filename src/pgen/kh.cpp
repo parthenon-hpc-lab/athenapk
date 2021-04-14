@@ -46,7 +46,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-  std::int64_t iseed = -1 - pmb->gid;
   auto gam = pin->GetReal("hydro", "gamma");
   auto gm1 = (gam - 1.0);
 
