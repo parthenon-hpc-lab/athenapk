@@ -102,7 +102,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         for (int i = ib.s; i <= ib.e; i++) {
           u(IDN, k, j, i) = 1.0;
           u(IM1, k, j, i) = vflow * std::tanh((coords.x2v(j)) / a);
-          u(IM2, k, j, i) = amp * std::cos(TWO_PI * coords.x1v(i)) *
+          u(IM2, k, j, i) = amp * std::cos(2.0 * M_PI * coords.x1v(i)) *
                             std::exp(-(SQR(coords.x2v(j))) / SQR(sigma));
           u(IM3, k, j, i) = 0.0;
           u(IEN, k, j, i) =
@@ -128,7 +128,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           u(IDN, k, j, i) =
               0.505 + 0.495 * std::tanh((std::abs(coords.x2v(j)) - 0.5) / a);
           u(IM1, k, j, i) = vflow * std::tanh((std::abs(coords.x2v(j)) - 0.5) / a);
-          u(IM2, k, j, i) = amp * vflow * std::sin(TWO_PI * coords.x1v(i)) *
+          u(IM2, k, j, i) = amp * vflow * std::sin(2.0 * M_PI * coords.x1v(i)) *
                             std::exp(-((std::abs(coords.x2v(j)) - 0.5) *
                                        (std::abs(coords.x2v(j)) - 0.5)) /
                                      (sigma * sigma));
@@ -212,11 +212,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           // domain The assumption of periodic domain with x1min=-0.5 and x1max=0.5 is
           // hardcoded here (v2 is the only quantity in the IC with x1 dependence)
 
-          Real ave_sine = std::sin(TWO_PI * coords.x1v(i));
+          Real ave_sine = std::sin(2.0 * M_PI * coords.x1v(i));
           if (coords.x1v(i) > 0.0) {
-            ave_sine -= std::sin(TWO_PI * (-0.5 + coords.x1v(i)));
+            ave_sine -= std::sin(2.0 * M_PI * (-0.5 + coords.x1v(i)));
           } else {
-            ave_sine -= std::sin(TWO_PI * (0.5 + coords.x1v(i)));
+            ave_sine -= std::sin(2.0 * M_PI * (0.5 + coords.x1v(i)));
           }
           ave_sine /= 2.0;
 
@@ -256,7 +256,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           u(IDN, k, j, i) = w + (1.0 - w) * drat;
           u(IM1, k, j, i) = w * vflow - (1.0 - w) * vflow * drat;
           u(IM2, k, j, i) =
-              u(IDN, k, j, i) * amp * std::sin(2.0 * TWO_PI * coords.x1v(i)) *
+              u(IDN, k, j, i) * amp * std::sin(2.0 * 2.0 * M_PI * coords.x1v(i)) *
               std::exp(-SQR(std::abs(coords.x2v(j)) - 0.25) / (sigma * sigma));
           u(IM3, k, j, i) = 0.0;
           // Pressure scaled to give a sound speed of 1 with gamma=1.4
