@@ -122,7 +122,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   // function once by having the first local MeshBock taking care of it does the job.
   if (pmb->lid == 0) {
     auto hydro_pkg = pmb->packages.Get("Hydro");
-    hydro_pkg->UpdateParam<Hydro::SourceFun_t>("ProblemsourceFirstOrder", RandomBlasts);
+    hydro_pkg->UpdateParam<Hydro::SourceFirstOrderFun_t>(
+        Hydro::source_first_order_param_key, RandomBlasts);
   }
   // nxN != ncellsN, in general. Allocate to extend through ghost zones, regardless # dim
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
