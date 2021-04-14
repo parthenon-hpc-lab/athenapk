@@ -26,8 +26,10 @@ void PLM(const Real &q_im1, const Real &q_i, const Real &q_ip1, Real &ql_ip1,
 
   // Apply limiters for Cartesian-like coordinate with uniform mesh spacing
   Real dq2 = dql * dqr;
-  Real dqm = dq2 / (dql + dqr);
-  if (dq2 <= 0.0) dqm = 0.0;
+  Real dqm = 0.0;
+  if (dq2 > 0.0) {
+    dqm = dq2 / (dql + dqr);
+  }
 
   // compute ql_(i+1/2) and qr_(i-1/2) using limited slopes
   ql_ip1 = q_i + dqm;
