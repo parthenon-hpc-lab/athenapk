@@ -278,7 +278,8 @@ void DednerGLMMHDSource(MeshData<Real> *md, const Real beta_dt) {
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         // Use extended source terms that is non-conservative but has better
         // stability properties as reported by Dedner+ and M&T
-        if constexpr (extended) {
+        // TODO(pgrete) Once nvcc is fixed this could be constexpr if again
+        if (extended) {
           auto &cons = cons_pack(b);
           const auto &prim = prim_pack(b);
           const auto &coords = prim_pack.coords(b);
