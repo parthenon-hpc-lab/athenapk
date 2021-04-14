@@ -14,8 +14,8 @@
 //! - T. Miyoshi & K. Kusano, "A multi-state HLL approximate Riemann solver for ideal
 //!   MHD", JCP, 208, 315 (2005)
 
-#ifndef RSOLVERS_HLLD_HPP_
-#define RSOLVERS_HLLD_HPP_
+#ifndef RSOLVERS_GLMMHD_HLLD_HPP_
+#define RSOLVERS_GLMMHD_HLLD_HPP_
 
 // C headers
 
@@ -27,7 +27,6 @@
 #include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../main.hpp"
 #include "interface/variable_pack.hpp"
-#include "riemann.hpp"
 
 // container to store (density, momentum, total energy, tranverse magnetic field)
 // minimizes changes required to adopt athena4.2 version of this solver
@@ -37,12 +36,11 @@ struct Cons1D {
 
 #define SMALL_NUMBER 1.0e-8
 
-KOKKOS_FORCEINLINE_FUNCTION void HLLD(parthenon::team_mbr_t const &member, const int k,
-                                      const int j, const int il, const int iu,
-                                      const int ivx, const ScratchPad2D<Real> &wl,
-                                      const ScratchPad2D<Real> &wr,
-                                      VariableFluxPack<Real> &cons,
-                                      const AdiabaticGLMMHDEOS &eos, const Real c_h) {
+KOKKOS_FORCEINLINE_FUNCTION void
+GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
+            const int iu, const int ivx, const ScratchPad2D<Real> &wl,
+            const ScratchPad2D<Real> &wr, VariableFluxPack<Real> &cons,
+            const AdiabaticGLMMHDEOS &eos, const Real c_h) {
   const int ivy = IVX + ((ivx - IVX) + 1) % 3;
   const int ivz = IVX + ((ivx - IVX) + 2) % 3;
   const int iBx = ivx - 1 + NHYDRO;
@@ -393,4 +391,4 @@ KOKKOS_FORCEINLINE_FUNCTION void HLLD(parthenon::team_mbr_t const &member, const
   });
 }
 
-#endif // RSOLVERS_HLLD_HPP_
+#endif // RSOLVERS_GLMMHD_HLLD_HPP_

@@ -8,10 +8,6 @@ add_executable(
         eos/adiabatic_hydro.cpp
         hydro/hydro_driver.cpp
         hydro/hydro.cpp
-        hydro/rsolvers/hydro_hlle.cpp
-        hydro/rsolvers/hydro_hlle_kji.cpp
-        recon/dc.cpp
-        recon/plm.cpp
         refinement/gradient.cpp
         refinement/other.cpp
 )

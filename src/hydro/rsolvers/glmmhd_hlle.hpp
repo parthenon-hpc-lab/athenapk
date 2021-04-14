@@ -23,9 +23,6 @@
 #include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../main.hpp"
 #include "interface/variable_pack.hpp"
-#include "riemann.hpp"
-
-//#define SMALL_NUMBER 1.0e-8
 
 KOKKOS_FORCEINLINE_FUNCTION void
 GLMMHD_HLLE(parthenon::team_mbr_t const &member, const int k, const int j, const int il,

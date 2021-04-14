@@ -18,7 +18,6 @@
 #include "../pgen/pgen.hpp"
 #include "../recon/plm_simple.hpp"
 #include "../recon/ppm_simple.hpp"
-#include "../recon/recon.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
 #include "defs.hpp"
@@ -26,9 +25,8 @@
 #include "outputs/outputs.hpp"
 #include "reconstruct/dc_inline.hpp"
 #include "rsolvers/glmmhd_hlle.hpp"
-#include "rsolvers/hlld.hpp"
+#include "rsolvers/glmmhd_hlld.hpp"
 #include "rsolvers/hydro_hlle.hpp"
-#include "rsolvers/riemann.hpp"
 #include "utils/error_checking.hpp"
 
 using namespace parthenon::package::prelude;
@@ -283,7 +281,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("use_DednerExtGLMMHDSource", use_DednerExtGLMMHDSource);
   pkg->AddParam<>("calc_c_h", calc_c_h);
 
-  bool needs_scratch = false;
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
   auto recon = Reconstruction::undefined;
@@ -292,44 +289,35 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   if (recon_str == "dc") {
     recon = Reconstruction::dc;
     if (fluid == Fluid::euler) {
-      flux_other_stage = Hydro::CalculateFluxesWScratch<Fluid::euler, Reconstruction::dc>;
+      flux_other_stage = Hydro::CalculateFluxes<Fluid::euler, Reconstruction::dc>;
     } else if (fluid == Fluid::glmmhd) {
-      flux_other_stage =
-          Hydro::CalculateFluxesWScratch<Fluid::glmmhd, Reconstruction::dc>;
+      flux_other_stage = Hydro::CalculateFluxes<Fluid::glmmhd, Reconstruction::dc>;
     }
     recon_need_nghost = 1;
   } else if (recon_str == "plm") {
     recon = Reconstruction::plm;
     if (fluid == Fluid::euler) {
-      flux_other_stage =
-          Hydro::CalculateFluxesWScratch<Fluid::euler, Reconstruction::plm>;
+      flux_other_stage = Hydro::CalculateFluxes<Fluid::euler, Reconstruction::plm>;
     } else if (fluid == Fluid::glmmhd) {
-      flux_other_stage =
-          Hydro::CalculateFluxesWScratch<Fluid::glmmhd, Reconstruction::plm>;
+      flux_other_stage = Hydro::CalculateFluxes<Fluid::glmmhd, Reconstruction::plm>;
     }
     recon_need_nghost = 2;
   } else if (recon_str == "ppm") {
     recon = Reconstruction::ppm;
     if (fluid == Fluid::euler) {
-      flux_other_stage =
-          Hydro::CalculateFluxesWScratch<Fluid::euler, Reconstruction::ppm>;
+      flux_other_stage = Hydro::CalculateFluxes<Fluid::euler, Reconstruction::ppm>;
     } else if (fluid == Fluid::glmmhd) {
-      flux_other_stage =
-          Hydro::CalculateFluxesWScratch<Fluid::glmmhd, Reconstruction::ppm>;
+      flux_other_stage = Hydro::CalculateFluxes<Fluid::glmmhd, Reconstruction::ppm>;
     }
     recon_need_nghost = 3;
-    needs_scratch = true;
   } else if (recon_str == "wenoz") {
     recon = Reconstruction::wenoz;
     if (fluid == Fluid::euler) {
-      flux_other_stage =
-          Hydro::CalculateFluxesWScratch<Fluid::euler, Reconstruction::wenoz>;
+      flux_other_stage = Hydro::CalculateFluxes<Fluid::euler, Reconstruction::wenoz>;
     } else if (fluid == Fluid::glmmhd) {
-      flux_other_stage =
-          Hydro::CalculateFluxesWScratch<Fluid::glmmhd, Reconstruction::wenoz>;
+      flux_other_stage = Hydro::CalculateFluxes<Fluid::glmmhd, Reconstruction::wenoz>;
     }
     recon_need_nghost = 3;
-    needs_scratch = true;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
   }
@@ -392,10 +380,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     integrator = Integrator::vl2;
     // override first stage (predictor) to first order
     if (fluid == Fluid::euler) {
-      flux_first_stage = Hydro::CalculateFluxesWScratch<Fluid::euler, Reconstruction::dc>;
+      flux_first_stage = Hydro::CalculateFluxes<Fluid::euler, Reconstruction::dc>;
     } else if (fluid == Fluid::glmmhd) {
-      flux_first_stage =
-          Hydro::CalculateFluxesWScratch<Fluid::glmmhd, Reconstruction::dc>;
+      flux_first_stage = Hydro::CalculateFluxes<Fluid::glmmhd, Reconstruction::dc>;
     }
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown integration method.");
@@ -426,14 +413,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
   }
-  auto use_scratch = pin->GetOrAddBoolean("hydro", "use_scratch", true);
   auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 0);
-  pkg->AddParam("use_scratch", use_scratch);
   pkg->AddParam("scratch_level", scratch_level);
-
-  if (!use_scratch && needs_scratch) {
-    PARTHENON_FAIL("AthenaPK hydro: Reconstruction needs hydro/use_scratch=true");
-  }
 
   pkg->AddParam<SourceFun_t>("ProblemsourceFirstOrder", ProblemSoureFirstOrderDefault);
 
@@ -446,14 +427,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   field_name = "prim";
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}));
   pkg->AddField(field_name, m);
-
-  if (!use_scratch) {
-    //  temporary array if reconstructed values are calculated separately
-    m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
-                 std::vector<int>({nhydro}));
-    pkg->AddField("wl", m);
-    pkg->AddField("wr", m);
-  }
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
   if (refine_str == "pressure_gradient") {
@@ -560,103 +533,8 @@ Real EstimateTimestep(MeshData<Real> *md) {
   return cfl * min_dt_hyperbolic;
 } // namespace Hydro
 
-// Compute fluxes at faces given the constant velocity field and
-// some field "advected" that we are pushing around.
-// This routine implements all the "physics" in this example
-TaskStatus CalculateFluxes(const int stage, std::shared_ptr<MeshData<Real>> &md) {
-  auto wl = md->PackVariables(std::vector<std::string>{"wl"});
-  auto wr = md->PackVariables(std::vector<std::string>{"wr"});
-  auto const &w = md->PackVariables(std::vector<std::string>{"prim"});
-  // auto cons = md->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
-  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
-  auto cons = md->PackVariablesAndFluxes(flags_ind);
-
-  const auto &eos = md->GetBlockData(0)
-                        ->GetBlockPointer()
-                        ->packages.Get("Hydro")
-                        ->Param<AdiabaticHydroEOS>("eos");
-
-  const IndexDomain interior = IndexDomain::interior;
-  const IndexRange ib = cons.cellbounds.GetBoundsI(interior);
-  const IndexRange jb = cons.cellbounds.GetBoundsJ(interior);
-  const IndexRange kb = cons.cellbounds.GetBoundsK(interior);
-
-  int il, iu, jl, ju, kl, ku;
-  jl = jb.s, ju = jb.e, kl = kb.s, ku = kb.e;
-  // TODO(pgrete): are these looop limits are likely too large for 2nd order
-  if (cons.GetNdim() > 1) {
-    if (cons.GetNdim() == 2) { // 2D
-      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s, ku = kb.e;
-    } else { // 3D
-      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
-    }
-  }
-
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
-  auto pkg = pmb->packages.Get("Hydro");
-  const auto recon = pkg->Param<Reconstruction>("reconstruction");
-  const auto integrator = pkg->Param<Integrator>("integrator");
-
-  Kokkos::Profiling::pushRegion("Reconstruct X");
-  if (recon == Reconstruction::dc || (integrator == Integrator::vl2 && stage == 1)) {
-    DonorCellX1KJI(kl, ku, jl, ju, ib.s, ib.e + 1, w, wl, wr);
-  } else {
-    PiecewiseLinearX1KJI(kl, ku, jl, ju, ib.s, ib.e + 1, w, wl, wr);
-  }
-  Kokkos::Profiling::popRegion(); // Reconstruct X
-
-  Kokkos::Profiling::pushRegion("Riemann X");
-  RiemannSolver(kl, ku, jl, ju, ib.s, ib.e + 1, IVX, wl, wr, cons, eos);
-  Kokkos::Profiling::popRegion(); // Riemann X
-
-  //--------------------------------------------------------------------------------------
-  // j-direction
-  if (cons.GetNdim() >= 2) {
-    // set the loop limits
-    il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
-    if (cons.GetNdim() == 2) // 2D
-      kl = kb.s, ku = kb.e;
-    else // 3D
-      kl = kb.s - 1, ku = kb.e + 1;
-    // reconstruct L/R states at j
-    Kokkos::Profiling::pushRegion("Reconstruct Y");
-    if (recon == Reconstruction::dc || (integrator == Integrator::vl2 && stage == 1)) {
-      DonorCellX2KJI(kl, ku, jb.s, jb.e + 1, il, iu, w, wl, wr);
-    } else {
-      PiecewiseLinearX2KJI(kl, ku, jb.s, jb.e + 1, il, iu, w, wl, wr);
-    }
-    Kokkos::Profiling::popRegion(); // Reconstruct Y
-
-    Kokkos::Profiling::pushRegion("Riemann Y");
-    RiemannSolver(kl, ku, jb.s, jb.e + 1, il, iu, IVY, wl, wr, cons, eos);
-    Kokkos::Profiling::popRegion(); // Riemann Y
-  }
-
-  //--------------------------------------------------------------------------------------
-  // k-direction
-
-  if (cons.GetNdim() >= 3) {
-    // set the loop limits
-    il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
-    // reconstruct L/R states at k
-    Kokkos::Profiling::pushRegion("Reconstruct Z");
-    if (recon == Reconstruction::dc || (integrator == Integrator::vl2 && stage == 1)) {
-      DonorCellX3KJI(kb.s, kb.e + 1, jl, ju, il, iu, w, wl, wr);
-    } else {
-      PiecewiseLinearX3KJI(kb.s, kb.e + 1, jl, ju, il, iu, w, wl, wr);
-    }
-    Kokkos::Profiling::popRegion(); // Reconstruct Z
-
-    Kokkos::Profiling::pushRegion("Riemann Z");
-    RiemannSolver(kb.s, kb.e + 1, jl, ju, il, iu, IVZ, wl, wr, cons, eos);
-    Kokkos::Profiling::popRegion(); // Riemann Z
-  }
-
-  return TaskStatus::complete;
-}
-
 template <Fluid fluid, Reconstruction recon>
-TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
+TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -689,11 +567,6 @@ TaskStatus CalculateFluxesWScratch(std::shared_ptr<MeshData<Real>> &md) {
     c_h = pkg->Param<Real>("c_h");
   }
 
-  // if (fluid == Fluid::glmmhd) {
-  //   num_scratch_vars *= 2;
-  //   prim_list.emplace_back(std::string("entropy"));
-  // }
-  // may also contain entropy vars for simplicity
   auto const &prim_in = md->PackVariables(prim_list);
 
   const int scratch_level =

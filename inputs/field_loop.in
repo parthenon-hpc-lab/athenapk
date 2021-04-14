@@ -56,7 +56,6 @@ fluid = glmmhd
 eos = adiabatic
 reconstruction = ppm
 gamma = 1.666666666666667 # gamma = C_p/C_v
-use_scratch = true
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 <parthenon/output0>

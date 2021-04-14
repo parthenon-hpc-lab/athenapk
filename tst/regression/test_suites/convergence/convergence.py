@@ -31,14 +31,11 @@ sys.dont_write_bytecode = True
 # if this is updated make sure to update the assert statements for the number of MPI ranks, too
 lin_res = [16, 32, 64, 128] # resolution for linear convergence
 method_cfgs = [
-    {"use_scratch" : False , "integrator" : "rk1", "recon" : "dc"},
-    {"use_scratch" : True  , "integrator" : "rk1", "recon" : "dc"},
-    {"use_scratch" : False , "integrator" : "vl2", "recon" : "plm"},
-    {"use_scratch" : True  , "integrator" : "vl2", "recon" : "plm"},
-    {"use_scratch" : False , "integrator" : "rk2", "recon" : "plm"},
-    {"use_scratch" : True  , "integrator" : "rk2", "recon" : "plm"},
-    {"use_scratch" : True  , "integrator" : "rk3", "recon" : "ppm"},
-    {"use_scratch" : True  , "integrator" : "rk3", "recon" : "wenoz"},
+    {"integrator" : "rk1", "recon" : "dc"},
+    {"integrator" : "vl2", "recon" : "plm"},
+    {"integrator" : "rk2", "recon" : "plm"},
+    {"integrator" : "rk3", "recon" : "ppm"},
+    {"integrator" : "rk3", "recon" : "wenoz"},
 ]
 
 class TestCase(utils.test_case.TestCaseAbs):
@@ -78,11 +75,10 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         res = lin_res[(step - 1) % n_res]
         integrator = method_cfgs[(step - 1) // n_res]["integrator"]
-        use_scratch = method_cfgs[(step - 1) // n_res]["use_scratch"]
         recon = method_cfgs[(step - 1) // n_res]["recon"]
-        # ensure that nx1 is <= 128 when using scratch (V100 limit on test system)
         mb_nx1 = ((2 * res) // parameters.num_ranks)
-        while (mb_nx1 > 128 and use_scratch):
+        # ensure that nx1 is <= 128 when using scratch (V100 limit on test system)
+        while (mb_nx1 > 128):
             mb_nx1 //= 2
 
         parameters.driver_cmd_line_args = [
@@ -95,7 +91,6 @@ class TestCase(utils.test_case.TestCaseAbs):
             'parthenon/mesh/nghost=%d' % (3 if (recon == "ppm" or recon == "wenoz") else 2),
             'parthenon/time/integrator=%s' % integrator,
             'hydro/reconstruction=%s' % recon,
-            'hydro/use_scratch=%s' % ("true" if use_scratch else "false"),
             ]
 
         return parameters
@@ -142,7 +137,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         data = np.genfromtxt(os.path.join(parameters.output_path, "linearwave-errors.dat"))
 
         # quick and dirty test
-        if data[10,4] > 1.547584e-08:
+        if data[6,4] > 1.547584e-08:
             analyze_status = False
 
         markers = 'ov^<>sp*hXD'
@@ -151,7 +146,6 @@ class TestCase(utils.test_case.TestCaseAbs):
                     data[i * n_res:(i + 1) * n_res, 4],
                     marker = markers[i], label = ((
                         f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
-                        f'Scr: {"T" if cfg["use_scratch"] else "F"}'
                     )))
 
         plt.plot([32,512], [1e-6,1e-6/(512/32)], '--', label="first order")

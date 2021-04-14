@@ -30,7 +30,6 @@
 
 // Athena headers
 #include "../../main.hpp"
-#include "riemann.hpp"
 
 using parthenon::ParArray4D;
 using parthenon::Real;

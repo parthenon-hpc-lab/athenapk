@@ -6,10 +6,10 @@
 include(${PROJECT_SOURCE_DIR}/external/parthenon/cmake/TestSetup.cmake)
 
 setup_test_serial("convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 32" "convergence")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 20" "convergence")
 
 setup_test_serial("mhd_convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 24" "convergence")
 
 setup_test_serial("performance" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 26" "performance")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 15" "performance")

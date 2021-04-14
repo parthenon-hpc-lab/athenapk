@@ -76,7 +76,6 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         res = lin_res[(step - 1) % n_res]
         integrator = method_cfgs[(step - 1) // n_res]["integrator"]
-        #use_scratch = method_cfgs[(step - 1) // n_res]["use_scratch"]
         recon = method_cfgs[(step - 1) // n_res]["recon"]
         # ensure that nx1 is <= 128 when using scratch (V100 limit on test system)
         mb_nx1 = ((2 * res) // parameters.num_ranks)
@@ -93,8 +92,6 @@ class TestCase(utils.test_case.TestCaseAbs):
             'parthenon/mesh/nghost=%d' % (3 if (recon == "ppm" or recon == "wenoz") else 2),
             'parthenon/time/integrator=%s' % integrator,
             'hydro/reconstruction=%s' % recon,
-            'hydro/use_scratch=true',
-            #'hydro/use_scratch=%s' % ("true" if use_scratch else "false"),
             'hydro/fluid=glmmhd',
             ]
 
@@ -151,7 +148,6 @@ class TestCase(utils.test_case.TestCaseAbs):
                     data[i * n_res:(i + 1) * n_res, 4],
                     marker = markers[i], label = ((
                         f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
-                        #f'Scr: {"T" if cfg["use_scratch"] else "F"}'
                     )))
 
         plt.plot([32,512], [7e-7,7e-7/(512/32)], '--', label="first order")
