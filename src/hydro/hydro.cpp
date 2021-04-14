@@ -325,25 +325,25 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("reconstruction", recon);
 
   parthenon::HstVar_list hst_vars = {};
-  hst_vars.emplace_back(HistoryOutputVar(
-      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IDN>, "mass"}));
-  hst_vars.emplace_back(HistoryOutputVar(
-      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IM1>, "1-mom"}));
-  hst_vars.emplace_back(HistoryOutputVar(
-      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IM2>, "2-mom"}));
-  hst_vars.emplace_back(HistoryOutputVar(
-      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IM3>, "3-mom"}));
-  hst_vars.emplace_back(HistoryOutputVar(
-      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::ekin>, "KE"}));
-  hst_vars.emplace_back(HistoryOutputVar(
-      {parthenon::UserHistoryOperation::sum, HydroHst<Hst::idx, IEN>, "tot-E"}));
+  hst_vars.emplace_back(HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                         HydroHst<Hst::idx, IDN>, "mass"));
+  hst_vars.emplace_back(HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                         HydroHst<Hst::idx, IM1>, "1-mom"));
+  hst_vars.emplace_back(HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                         HydroHst<Hst::idx, IM2>, "2-mom"));
+  hst_vars.emplace_back(HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                         HydroHst<Hst::idx, IM3>, "3-mom"));
+  hst_vars.emplace_back(
+      HistoryOutputVar(parthenon::UserHistoryOperation::sum, HydroHst<Hst::ekin>, "KE"));
+  hst_vars.emplace_back(HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                         HydroHst<Hst::idx, IEN>, "tot-E"));
   if (fluid == Fluid::glmmhd) {
-    hst_vars.emplace_back(HistoryOutputVar(
-        {parthenon::UserHistoryOperation::sum, HydroHst<Hst::emag>, "ME"}));
-    hst_vars.emplace_back(HistoryOutputVar(
-        {parthenon::UserHistoryOperation::sum, HydroHst<Hst::divb>, "relDivB"}));
+    hst_vars.emplace_back(HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                           HydroHst<Hst::emag>, "ME"));
+    hst_vars.emplace_back(HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                           HydroHst<Hst::divb>, "relDivB"));
   }
-  pkg->AddParam<>(parthenon::hist_str, hst_vars);
+  pkg->AddParam<>(parthenon::hist_param_key, hst_vars);
 
   // not using GetOrAdd here until there's a reasonable default
   const auto nghost = pin->GetInteger("parthenon/mesh", "nghost");
