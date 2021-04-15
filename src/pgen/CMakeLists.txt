@@ -11,4 +11,5 @@ target_sources(athenaPK PRIVATE
     kh.cpp
     rand_blast.cpp
     cluster.cpp
+    cluster/hydrostatic_equilibrium_sphere.cpp
     )
