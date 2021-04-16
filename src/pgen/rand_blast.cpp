@@ -108,23 +108,18 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm) {
       });
 }
 
+
+void ProblemInitPackageData(ParameterInput *pin, StateDescriptor *pkg) {
+  std::cout << "Hello world" << std::endl;
+}
+
+
 //========================================================================================
 //! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
 //! \brief Initialize uniform background for random blasts
 //========================================================================================
 
 void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
-
-  // It seems that there's currently no straightforward way to add a downstream function
-  // at the Mesh level and/or a straightforward way to call an initializer with access to
-  // the Mesh/Package. It may be useful to add a PackageUser Callback to the state
-  // descriptor that is called upon initialization. For now just making sure we enlist the
-  // function once by having the first local MeshBock taking care of it does the job.
-  if (pmb->lid == 0) {
-    auto hydro_pkg = pmb->packages.Get("Hydro");
-    hydro_pkg->UpdateParam<Hydro::SourceFirstOrderFun_t>(
-        Hydro::source_first_order_param_key, RandomBlasts);
-  }
   // nxN != ncellsN, in general. Allocate to extend through ghost zones, regardless # dim
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);

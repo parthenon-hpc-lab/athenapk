@@ -1,5 +1,5 @@
-// Athena-Parthenon - a performance portable block structured AMR MHD code
-// Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+// AthenaPK - a performance portable block structured AMR MHD code
+// Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE");
 
 // Parthenon headers
@@ -10,6 +10,12 @@
 #include "hydro/hydro.hpp"
 #include "hydro/hydro_driver.hpp"
 #include "pgen/pgen.hpp"
+
+// Initialize defaults for package specific callback functions
+std::function<void(ParameterInput *pin, StateDescriptor *pkg)>
+    Hydro::ProblemInitPackageData = nullptr;
+Hydro::SourceFirstOrderFun_t Hydro::ProblemSourceFirstOrder = nullptr;
+Hydro::SourceUnsplitFun_t Hydro::ProblemSourceUnsplit = nullptr;
 
 int main(int argc, char *argv[]) {
   using parthenon::ParthenonManager;
@@ -29,7 +35,7 @@ int main(int argc, char *argv[]) {
   // Now that ParthenonInit has been called and setup succeeded, the code can now
   // make use of MPI and Kokkos
 
-  // Redefine parthenon defaults
+  // Redefine defaults
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
   if (problem == "linear_wave") {
@@ -57,6 +63,8 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = kh::ProblemGenerator;
   } else if (problem == "rand_blast") {
     pman.app_input->ProblemGenerator = rand_blast::ProblemGenerator;
+    Hydro::ProblemInitPackageData = rand_blast::ProblemInitPackageData;
+    Hydro::ProblemSourceFirstOrder = rand_blast::RandomBlasts;
   }
 
   pman.ParthenonInitPackagesAndMesh();
