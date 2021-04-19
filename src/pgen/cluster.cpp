@@ -48,45 +48,43 @@ using namespace parthenon::package::prelude;
 //  functions in this file.  Called in Mesh constructor.
 //========================================================================================
 
-void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
-
-  auto pkg = mesh->packages.Get("Hydro");
-
-  /************************************************************
-   * Read Unit Parameters
-   ************************************************************/
-  //CGS unit per code unit, or code unit in cgs
-  PhysicalConstants constants(pin);
-
-  pkg->AddParam<>("physical_constants",constants);
-
-  /************************************************************
-   * Read Cluster Gravity Parameters
-   ************************************************************/
-
-  //Build cluster_gravity object
-  ClusterGravity cluster_gravity(pin);
-
-  pkg->AddParam<>("gravitational_field",cluster_gravity);
-
-
-  /************************************************************
-   * Read Initial Entropy Profile
-   ************************************************************/
-
-  //Build entropy_profile object
-  ACCEPTEntropyProfile entropy_profile(pin);
-
-  /************************************************************
-   * Build Hydrostatic Equilibrium Sphere
-   ************************************************************/
-
-  HydrostaticEquilibriumSphere hse_sphere(pin,cluster_gravity,entropy_profile);
-  pkg->AddParam<>("hydrostatic_equilbirum_sphere",hse_sphere);
-
-}
-
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  if (pmb->lid == 0) {
+
+    /************************************************************
+     * Read Unit Parameters
+     ************************************************************/
+    //CGS unit per code unit, or code unit in cgs
+    PhysicalConstants constants(pin);
+
+    hydro_pkg->AddParam<>("physical_constants",constants);
+
+    /************************************************************
+     * Read Cluster Gravity Parameters
+     ************************************************************/
+
+    //Build cluster_gravity object
+    ClusterGravity cluster_gravity(pin);
+
+    hydro_pkg->AddParam<>("gravitational_field",cluster_gravity);
+
+
+    /************************************************************
+     * Read Initial Entropy Profile
+     ************************************************************/
+
+    //Build entropy_profile object
+    ACCEPTEntropyProfile entropy_profile(pin);
+
+    /************************************************************
+     * Build Hydrostatic Equilibrium Sphere
+     ************************************************************/
+
+    HydrostaticEquilibriumSphere hse_sphere(pin,cluster_gravity,entropy_profile);
+    hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere",hse_sphere);
+  }
+
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -106,10 +104,9 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
   /************************************************************
    * Initialize a HydrostaticEquilibriumSphere
    ************************************************************/
-  auto pkg = pmb->packages.Get("Hydro");
-  const auto &he_sphere = pkg->Param<
+  const auto &he_sphere = hydro_pkg->Param<
     HydrostaticEquilibriumSphere<ClusterGravity,ACCEPTEntropyProfile>>
-    ("hydrostatic_equilbirum_sphere");
+    ("hydrostatic_equilibirum_sphere");
   
   const auto P_rho_profile = he_sphere.generate_P_rho_profile<
     Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper, parthenon::HostMemSpace>,parthenon::UniformCartesian> 

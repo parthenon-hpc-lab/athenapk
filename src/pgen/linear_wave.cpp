@@ -68,7 +68,7 @@ Real MaxV2(MeshBlock *pmb, int iout);
 //  functions in this file.  Called in Mesh constructor.
 //========================================================================================
 
-void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
+void InitUserMeshData(ParameterInput *pin) {
   // read global parameters
   wave_flag = pin->GetInteger("problem/linear_wave", "wave_flag");
   amp = pin->GetReal("problem/linear_wave", "amp");
