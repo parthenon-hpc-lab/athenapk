@@ -128,18 +128,17 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
   if (hydro_pkg->Param<bool>("use_DednerExtGLMMHDSource")) {
     GLMMHD::DednerSource<true>(md, beta_dt);
   }
-  const auto &ProblemSourceUnsplit =
-      hydro_pkg->Param<SourceUnsplitFun_t>(source_unsplit_param_key);
-  ProblemSourceUnsplit(md, beta_dt);
+  if (ProblemSourceUnsplit != nullptr) {
+    ProblemSourceUnsplit(md, beta_dt);
+  }
 
   return TaskStatus::complete;
 }
 
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const parthenon::SimTime &tm) {
-  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  const auto &ProblemSourceFirstOrder =
-      hydro_pkg->Param<SourceFirstOrderFun_t>(source_first_order_param_key);
-  ProblemSourceFirstOrder(md, tm);
+  if (ProblemSourceFirstOrder != nullptr) {
+    ProblemSourceFirstOrder(md, tm);
+  }
   return TaskStatus::complete;
 }
 
@@ -299,11 +298,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 0);
   pkg->AddParam("scratch_level", scratch_level);
 
-  pkg->AddParam<SourceFirstOrderFun_t>(source_first_order_param_key,
-                                       ProblemSourceFirstOrderDefault);
-  pkg->AddParam<SourceUnsplitFun_t>(source_unsplit_param_key,
-                                    ProblemSourceUnsplitDefault);
-
   std::string field_name = "cons";
   Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost},
              std::vector<int>({nhydro}));
@@ -343,6 +337,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                       "refinement/maxdensity_refine_above");
     pkg->AddParam<Real>("refinement/maxdensity_deref_below", deref_below);
     pkg->AddParam<Real>("refinement/maxdensity_refine_above", refine_above);
+  }
+
+  if (ProblemInitPackageData != nullptr) {
+    ProblemInitPackageData(pin, pkg.get());
   }
 
   return pkg;

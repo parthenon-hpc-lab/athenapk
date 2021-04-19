@@ -66,6 +66,8 @@ namespace rand_blast {
 using namespace parthenon::driver::prelude;
 
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
+void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm);
 } // namespace rand_blast
 
 #endif // PGEN_PGEN_HPP_
