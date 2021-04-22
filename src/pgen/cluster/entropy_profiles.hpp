@@ -22,11 +22,11 @@ class ACCEPTEntropyProfile{
   {
     PhysicalConstants constants(pin);
 
-    K_0_     = pin->GetOrAddReal("problem", "K_0_kev_cm2",
+    K_0_     = pin->GetOrAddReal("problem", "K_0",
         20*constants.kev()*constants.cm()*constants.cm());
-    K_100_   = pin->GetOrAddReal("problem", "K_100_kev_cm2",
+    K_100_   = pin->GetOrAddReal("problem", "K_100",
         120*constants.kev()*constants.cm()*constants.cm());
-    R_K_     = pin->GetOrAddReal("problem", "R_K_kpc",
+    R_K_     = pin->GetOrAddReal("problem", "R_K",
         100*constants.kpc());
     alpha_K_ = pin->GetOrAddReal("problem", "alpha_K",1.75);
   }

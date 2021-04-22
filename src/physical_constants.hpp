@@ -45,6 +45,15 @@ class PhysicalConstants {
     // (cgs unit per code unit)
     const parthenon::Real code_length_cgs_, code_mass_cgs_, code_time_cgs_;
     
+  public:
+
+    PhysicalConstants(  parthenon::ParameterInput *pin):
+      code_length_cgs_(pin->GetOrAddReal("problem", "code_length_cgs",1)),
+      code_mass_cgs_(pin->GetOrAddReal("problem", "code_mass_cgs",1)),
+      code_time_cgs_(pin->GetOrAddReal("problem", "code_time_cgs",1))
+    {}
+
+    //Code scales in cgs
     parthenon::Real code_length_cgs() const {
      return code_length_cgs_; 
     }
@@ -72,13 +81,6 @@ class PhysicalConstants {
       return sqrt(code_mass_cgs())/sqrt(code_length_cgs())/code_time_cgs();
     }
 
-  public:
-
-    PhysicalConstants(  parthenon::ParameterInput *pin):
-      code_length_cgs_(pin->GetOrAddReal("problem", "code_length_cgs",1)),
-      code_mass_cgs_(pin->GetOrAddReal("problem", "code_mass_cgs",1)),
-      code_time_cgs_(pin->GetOrAddReal("problem", "code_time_cgs",1))
-    {}
 
     //Physical Constants in code units
     parthenon::Real k_boltzmann() const {

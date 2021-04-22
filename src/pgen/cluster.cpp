@@ -59,6 +59,9 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
     PhysicalConstants constants(pin);
 
     hydro_pkg->AddParam<>("physical_constants",constants);
+    hydro_pkg->AddParam<>("code_length_cgs", constants.code_length_cgs());
+    hydro_pkg->AddParam<>("code_mass_cgs", constants.code_mass_cgs());
+    hydro_pkg->AddParam<>("code_time_cgs", constants.code_time_cgs());
 
     /************************************************************
      * Read Cluster Gravity Parameters
