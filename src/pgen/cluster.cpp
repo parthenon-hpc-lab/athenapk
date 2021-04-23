@@ -31,6 +31,8 @@
 // Athena headers
 #include "../main.hpp"
 #include "../physical_constants.hpp"
+#include "../hydro/srcterms/gravitational_field.hpp"
+#include "../hydro/hydro.hpp"
 
 // Cluster headers
 #include "cluster/cluster_gravity.hpp"
@@ -40,6 +42,22 @@
 namespace cluster {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
+
+
+void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt){
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const bool& gravity_srcterm =  
+    hydro_pkg->Param<bool>("gravity_srcterm");
+
+  if( gravity_srcterm ){
+    const ClusterGravity& cluster_gravity =
+      hydro_pkg->Param<ClusterGravity>("cluster_gravity");
+
+    GravitationalFieldSrcTerm(md,beta_dt,cluster_gravity);
+  }
+
+}
 
 //========================================================================================
 //! \fn void InitUserMeshData(ParameterInput *pin)
@@ -69,9 +87,11 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
 
     //Build cluster_gravity object
     ClusterGravity cluster_gravity(pin);
+    hydro_pkg->AddParam<>("cluster_gravity",cluster_gravity);
 
-    hydro_pkg->AddParam<>("gravitational_field",cluster_gravity);
-
+    //Include gravity as a source term during evolution
+    const bool gravity_srcterm = pin->GetBoolean("problem", "gravity_srcterm");
+    hydro_pkg->AddParam<>("gravity_srcterm",gravity_srcterm);
 
     /************************************************************
      * Read Initial Entropy Profile

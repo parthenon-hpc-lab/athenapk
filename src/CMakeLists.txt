@@ -11,6 +11,7 @@ add_executable(
         hydro/hydro.cpp
         hydro/glmmhd/dedner_source.cpp
         hydro/glmmhd/cleaning_speed.cpp
+        hydro/srcterms/gravitational_field.hpp
         refinement/gradient.cpp
         refinement/other.cpp
 )

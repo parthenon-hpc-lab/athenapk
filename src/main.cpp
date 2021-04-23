@@ -67,6 +67,7 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceFirstOrder = rand_blast::RandomBlasts;
   } else if (problem == "cluster") {
     pman.app_input->ProblemGenerator = cluster::ProblemGenerator;
+    Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;
   }
 
   pman.ParthenonInitPackagesAndMesh();

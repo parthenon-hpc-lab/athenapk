@@ -1,0 +1,119 @@
+
+<comment>
+problem   = Isolated galaxy cluster
+
+<job>
+problem_id = cluster   # problem ID: basename of output filenames
+
+<parthenon/output1>
+file_type  = hst       # History data dump
+dt         = 1e-3      # time increment between outputs
+
+<parthenon/output2>
+file_type  = hdf5      # HDF5 data dump
+variables  = cons      # Variables to be output
+dt         = 1.e-2     # Time increment between outputs
+id         = cons      # Name to append to output
+
+<parthenon/time>
+cfl_number = 0.3       # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1        # cycle limit
+tlim       = 1e-2       # time limit
+integrator  = vl2       # time integration algorithm
+perf_cycle_offset  = 10         # interval for stdout summary info
+
+
+<parthenon/mesh>
+refinement  = static
+nghost = 2
+
+nx1        = 64       # Number of zones in X1-direction
+x1min      =-0.1       # minimum value of X1
+x1max      = 0.1       # maximum value of X1
+ix1_bc     = outflow   # inner-X1 boundary flag
+ox1_bc     = outflow   # outer-X1 boundary flag
+
+nx2        = 64       # Number of zones in X2-direction
+x2min      =-0.1       # minimum value of X2
+x2max      = 0.1       # maximum value of X2
+ix2_bc     = outflow   # inner-X2 boundary flag
+ox2_bc     = outflow   # outer-X2 boundary flag
+
+nx3        = 64       # Number of zones in X3-direction
+x3min      =-0.1       # minimum value of X3
+x3max      = 0.1       # maximum value of X3
+ix3_bc     = outflow   # inner-X3 boundary flag
+ox3_bc     = outflow   # outer-X3 boundary flag
+
+
+<parthenon/static_refinement0>
+x1min = -0.0125
+x1max =  0.0125
+x2min = -0.0125
+x2max =  0.0125
+x3min = -0.0125
+x3max =  0.0125
+level = 2
+
+
+<parthenon/meshblock>
+nx1        = 32        # Number of zones in X1-direction
+nx2        = 32        # Number of zones in X2-direction
+nx3        = 32        # Number of zones in X3-direction
+
+<hydro>
+gamma = 1.6666666666666667 # gamma = C_p/C_v
+eos = adiabatic
+riemann = hlle
+reconstruction = plm
+use_scratch = false
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+
+<problem>
+#Units parameters
+code_length_cgs = 3.085677580962325e+24
+code_mass_cgs = 1.98841586e+47
+code_time_cgs = 3.15576e+16
+
+hubble_parameter = 0.0715898515654728
+
+#Which gravitational fields to include
+include_nfw_g = True
+which_bcg_g = HERNQUIST
+include_smbh_g = True
+
+#NFW parameters
+c_nfw = 6.0
+M_nfw_200 = 10.000000000000002
+
+#BCG parameters
+M_bcg_s = 0.0010000000000000002
+R_bcg_s = 0.004
+
+#SMBH parameters
+M_smbh = 1.0000000000000002e-06
+
+#Smooth gravity at origin, for numerical reasons
+g_smoothing_radius = 1e-6
+
+#Include gravity as a source term
+gravity_srcterm = true
+
+#Entropy profile parameters
+K_0 = 8.851337676479303e-121
+K_100 = 1.3277006514718954e-119
+R_K = 0.1
+alpha_K = 1.1
+
+He_mass_fraction = 0.25
+
+#Fix density at radius to close system of equations
+R_fix = 2.0
+rho_fix = 0.01477557589278723
+
+#Building the radii at which to sample initial rho,P
+R_sampling = 4.0
+max_dR = 0.001
+
+test_he_sphere = true
