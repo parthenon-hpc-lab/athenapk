@@ -119,6 +119,13 @@ void ConsToPrim(MeshData<Real> *md) {
   eos.ConservedToPrimitive(md);
 }
 
+// Add unsplit sources, i.e., source that are integrated in all stages of the
+// explicit integration scheme.
+// Note 1: Given that the sources are integrated in an unsplit manner, ensure
+// that potential timestep constrains are also properly enforced when the
+// respective source in active.
+// Note 2: Directly update the "cons" variables based on the "prim" variables
+// as the "cons" variables have already been updated when this function is called.
 TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
