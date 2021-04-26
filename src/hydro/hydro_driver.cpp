@@ -145,18 +145,20 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
-    // add non-operator split source terms
-    auto source_unsplit = tl.AddTask(none, AddUnsplitSources, mu0.get(),
-                                     integrator->beta[stage - 1] * integrator->dt);
-
     // compute the divergence of fluxes of conserved variables
-
     auto update = tl.AddTask(
-        source_unsplit, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>,
-        mu0.get(), mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
+        none, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
+        mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
         integrator->beta[stage - 1] * integrator->dt);
 
-    auto source_split_first_order = update;
+    // Add non-operator split source terms.
+    // Note: Directly update the "cons" variables of mu0 based on the "prim" variables
+    // of mu0 as the "cons" variables have already been updated in this stage from the
+    // fluxes in the previous step.
+    auto source_unsplit = tl.AddTask(update, AddUnsplitSources, mu0.get(),
+                                     integrator->beta[stage - 1] * integrator->dt);
+
+    auto source_split_first_order = source_unsplit;
 
     // Add operator split source terms at first order, i.e., full dt update
     // after all stages of the integration.
