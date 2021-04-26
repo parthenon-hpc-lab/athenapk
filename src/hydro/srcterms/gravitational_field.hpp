@@ -89,8 +89,8 @@ void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md, const p
   using parthenon::IndexDomain;
 
 	//Grab some necessary variables
-  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
