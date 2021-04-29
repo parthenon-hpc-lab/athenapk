@@ -24,6 +24,7 @@ import matplotlib.pylab as plt
 import sys
 import os
 import utils.test_case
+import utils.compare_analytic as compare_analytic
 import unyt
 
 """ To prevent littering up imported folders with .pyc files or __pycache_ folder"""
@@ -31,30 +32,7 @@ sys.dont_write_bytecode = True
 
 
 class TestCase(utils.test_case.TestCaseAbs):
-    def Prepare(self,parameters, step):
-        """
-        Any preprocessing that is needed before the drive is run can be done in
-        this method
-
-        This includes preparing files or any other pre processing steps that
-        need to be implemented.  The method also provides access to the
-        parameters object which controls which parameters are being used to run
-        the driver. 
-
-        It is possible to append arguments to the driver_cmd_line_args if it is
-        desired to  override the parthenon input file. Each element in the list
-        is simply a string of the form '<block>/<field>=<value>', where the
-        contents of the string are exactly what one would type on the command
-        line run running a parthenon driver.
-
-        As an example if the following block was uncommented it would overwrite
-        any of the parameters that were specified in the parthenon input file
-        parameters.driver_cmd_line_args = ['output1/file_type=vtk',
-                'output1/variable=cons',
-                'output1/dt=0.4',
-                'time/tlim=0.4',
-                'mesh/nx1=400']
-        """
+    def __init__(self):
 
         #Define cluster parameters
         #Setup units
@@ -109,6 +87,36 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.R_sampling = 4.0
         self.max_dR = 0.001
 
+        self.R_min = unyt.unyt_quantity(1e-3,"kpc")
+        self.R_max = unyt.unyt_quantity(5e3,"kpc")
+        
+        self.norm_tol = 1e-3
+
+    def Prepare(self,parameters, step):
+        """
+        Any preprocessing that is needed before the drive is run can be done in
+        this method
+
+        This includes preparing files or any other pre processing steps that
+        need to be implemented.  The method also provides access to the
+        parameters object which controls which parameters are being used to run
+        the driver. 
+
+        It is possible to append arguments to the driver_cmd_line_args if it is
+        desired to  override the parthenon input file. Each element in the list
+        is simply a string of the form '<block>/<field>=<value>', where the
+        contents of the string are exactly what one would type on the command
+        line run running a parthenon driver.
+
+        As an example if the following block was uncommented it would overwrite
+        any of the parameters that were specified in the parthenon input file
+        parameters.driver_cmd_line_args = ['output1/file_type=vtk',
+                'output1/variable=cons',
+                'output1/dt=0.4',
+                'time/tlim=0.4',
+                'mesh/nx1=400']
+        """
+
         parameters.driver_cmd_line_args = [
                 f"hydro/gamma={self.adiabatic_index}",
                 f"problem/code_length_cgs={self.code_length.in_units('cm').v}",
@@ -135,11 +143,6 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"problem/max_dR={self.max_dR}",
             ]
 
-        self.R_min = unyt.unyt_quantity(1e-3,"kpc")
-        self.R_max = unyt.unyt_quantity(5e3,"kpc")
-
-        
-        self.norm_tol = 1e-3
 
         return parameters
 
@@ -289,6 +292,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             he_sphere_dP_dr = unyt.unyt_array(he_sphere_data[1:,8],"code_mass/(code_length**2*code_time**2)")
         except IOError:
             print("test_he_sphere.dat file not accessible")
+            return False
 
         profile_comparison_vars = ((analytic_P,   he_sphere_P,   "Pressure"),
                                    (analytic_K,   he_sphere_K,   "Entropy"),
@@ -336,6 +340,26 @@ class TestCase(utils.test_case.TestCaseAbs):
             return False
 
         files = [f"{parameters.output_path}/parthenon.cons.{i:05d}.phdf" for i in range(2)]
+
+        #Compare the initial output to the analytic model
+        def analytic_gold(X,Y,Z,analytic_var):
+            r = np.sqrt(X**2 + Y**2 + Z**2)
+            analytic_interp = unyt.unyt_array(np.interp(r,analytic_R,analytic_var),
+                                                analytic_var.units)
+            return analytic_interp
+
+        analytic_components = {
+                "Pressure":lambda X,Y,Z,time : analytic_gold(X,Y,Z,analytic_P).v,
+                "Density":lambda X,Y,Z,time : analytic_gold(X,Y,Z,analytic_rho).v,
+                }
+
+        #Use a very loose tolerance, linf relative error
+        analytic_status = compare_analytic.compare_analytic(
+                files[0], analytic_components,err_func=compare_analytic.linf_rel_err,tol=1e-1)
+
+        print(analytic_status,analyze_status)
+
+        analyze_status &= (analytic_status)
 
         #Due to HSE, initial and final outputs should match, within a loose tolerance
         compare_status = phdf_diff.compare(files,check_metadata=False,tol=5e-2,relative=True)
