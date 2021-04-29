@@ -169,7 +169,7 @@ public:
         }
         break;
       case BCG::HERNQUIST:
-        g_r += GMC_bcg_/(( 1 + r/R_bcg_s_)*( 1 + r/R_bcg_s_));
+        g_r += GMC_bcg_/( ( 1 + r/R_bcg_s_)*( 1 + r/R_bcg_s_) );
         break;
     }
 

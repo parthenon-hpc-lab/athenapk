@@ -12,13 +12,13 @@ dt         = 1e-3      # time increment between outputs
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = cons      # Variables to be output
-dt         = 1.e-2     # Time increment between outputs
+dt         = 1.e-3     # Time increment between outputs
 id         = cons      # Name to append to output
 
 <parthenon/time>
 cfl_number = 0.3       # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1        # cycle limit
-tlim       = 1e-2       # time limit
+tlim       = 1e-3       # time limit
 integrator  = vl2       # time integration algorithm
 perf_cycle_offset  = 10         # interval for stdout summary info
 

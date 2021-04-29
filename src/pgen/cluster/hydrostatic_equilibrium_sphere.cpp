@@ -255,7 +255,7 @@ HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::generate_P_rho_
 
   dP_dr_from_r_P_functor dP_dr_from_r_P(*this);
 
-  //Make is the i right before R_fix_
+  //Make is the i right befo./src/bvals/cc/bvals_cc_in_one.cppre R_fix_
   for(int i = i_fix+1; i > 0; i--){ //Move is up one, to account for initial R_fix_
     P(i-1) = step_rk4(Ri,R(i-1),Pi,dP_dr_from_r_P);
     Ri = R(i-1);
