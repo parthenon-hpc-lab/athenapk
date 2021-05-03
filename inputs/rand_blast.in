@@ -12,7 +12,8 @@ problem_id = rand_blast
 <problem/rand_blast>
 rho0         = 1.0      # initial mean density
 p0           = 0.3      # initial mean pressure
-Bx0          = 0.056117 # initial magnetic field (x-direction)
+Bx0          = 0.015811388300841896 # initial magnetic field (x-direction): Orig value 0.056117/sqrt(4pi) for different code units
+dt_between_blasts = 0.00125 # code time between blast
 
 <parthenon/mesh>
 refinement = none
@@ -44,7 +45,7 @@ nx3=64
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
-tlim = 0.03
+tlim = 0.005948
 nlim = 100000
 perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 
@@ -58,7 +59,7 @@ scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 <parthenon/output0>
 file_type = hdf5
-dt = 0.003
+dt = 0.0011896
 variables = prim
 
 <parthenon/output1>
