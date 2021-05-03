@@ -24,7 +24,8 @@ before_script:
   # required as functions like "activate" are not available in subshells, see
   # see https://github.com/conda/conda/issues/7980
   - source /opt/sns/anaconda3/2020.02/etc/profile.d/conda.sh
-  - conda install -c conda-forge unyt --use-local
+  - pip install --user unyt
+
 
 cache:
   key: global-1
