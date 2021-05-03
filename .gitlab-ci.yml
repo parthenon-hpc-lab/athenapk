@@ -77,7 +77,6 @@ cuda-regression:
       -DKokkos_ENABLE_CUDA=True -DKokkos_ARCH_VOLTA70=True
       -DCMAKE_CXX_COMPILER=${PWD}/../external/Kokkos/bin/nvcc_wrapper
       -DPARTHENON_DISABLE_MPI=ON
-      -DPARTHENON_DISABLE_HDF5=ON
       ../
     - make -j${J} athenaPK
     - nvidia-smi
