@@ -43,6 +43,7 @@ prep-cuda:
     - springdale7
   script:
     - module load gcc/7.3.0 cudatoolkit/11.1
+    - module avail
     - if [ ! -d ./local/openmpi-${OMPI_VER} ]; then
       mkdir -p ./local/openmpi-${OMPI_VER};
       wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-${OMPI_VER}.tar.bz2;
@@ -77,9 +78,9 @@ cuda-regression:
       -DPARTHENON_DISABLE_MPI=ON
       -DPARTHENON_DISABLE_HDF5=ON
       ../
-    - make -j${J} athenaPK
+#    - make -j${J} athenaPK
     - nvidia-smi
-    - ctest
+#    - ctest
   artifacts:
     when: always
     expire_in: 3 days
