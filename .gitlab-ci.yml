@@ -13,8 +13,8 @@ before_script:
   - export PATH=${PWD}/cmake-${CMAKE_VERSION}-Linux-x86_64/bin:$PATH
   - export HDF5_VER=1.10.7
   - export OMPI_VER=4.1.0
-  - export OMPI_DIR=$(pwd)/local/openmpi-${OMPI_VER}
-  - export OPAL_PREFIX=$(pwd)/local/openmpi-${OMPI_VER}
+  - export OMPI_DIR=/home/build/athenapk/openmpi-${OMPI_VER}
+  - export OPAL_PREFIX=/home/build/athenapk/openmpi-${OMPI_VER}
   - export PATH=${OMPI_DIR}/bin:$PATH
   - export LD_LIBRARY_PATH=${OMPI_DIR}/lib:$LD_LIBRARY_PATH
   - export KOKKOS_NUM_DEVICES=1
@@ -24,16 +24,13 @@ before_script:
   # required as functions like "activate" are not available in subshells, see
   # see https://github.com/conda/conda/issues/7980
   - source /opt/sns/anaconda3/2020.02/etc/profile.d/conda.sh
-  - module load gcc/7.3.0 cudatoolkit/11.1 hdf5/gcc/1.10.0
   - pip install --user unyt
-  - HDF5_DIR=$HDF5DIR pip install --user --no-binary=h5py --ignore-installed h5py
 
 
 cache:
-  key: global-1
+  key: global-2
   paths:
     - external/parthenon/tst/regression/gold_standard/
-    - local/
 
 stages:
   - prep
@@ -47,20 +44,28 @@ prep-cuda:
     - springdale7
   script:
     - module load gcc/7.3.0 cudatoolkit/11.1
-    - if [ ! -d ./local/openmpi-${OMPI_VER} ]; then
-      mkdir -p ./local/openmpi-${OMPI_VER};
+    - if [ ! -d /home/build/athenapk/openmpi-${OMPI_VER} ]; then
+      mkdir -p /home/build/athenapk/openmpi-${OMPI_VER};
+      TMPDIR=$(mktemp -d);
+      cd $TMPDIR;
       wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-${OMPI_VER}.tar.bz2;
       tar xjf openmpi-${OMPI_VER}.tar.bz2;
       cd openmpi-${OMPI_VER};
-      ./configure --prefix=${PWD}/../local/openmpi-${OMPI_VER} --disable-mpi-fortran --with-cuda --without-ucx --without-ofi && make all install;
-      cd ..;
+      ./configure --prefix=/home/build/athenapk/openmpi-${OMPI_VER} --disable-mpi-fortran --with-cuda --without-ucx --without-ofi && make all install;
+      cd;
+      rm -rf $TMPDIR;
       fi
-    - if [ ! -d local/hdf5-${HDF5_VER}-gcc ]; then
+    - if [ ! -d /home/build/athenapk/hdf5-${HDF5_VER}-gcc ]; then
+      TMPDIR=$(mktemp -d);
+      cd $TMPDIR;
       wget https://hdf-wordpress-1.s3.amazonaws.com/wp-content/uploads/manual/HDF5/HDF5_1_10_7/src/hdf5-${HDF5_VER}.tar.bz2;
       tar xjf hdf5-${HDF5_VER}.tar.bz2;
-      mkdir -p ./local/hdf5-${HDF5_VER}-gcc/parallel;
+      mkdir -p /home/build/athenapk/hdf5-${HDF5_VER}-gcc/serial /home/build/athenapk/hdf5-${HDF5_VER}-gcc/parallel;
       cd hdf5-${HDF5_VER};
-      CC=mpicc ./configure --prefix=${PWD}/../local/hdf5-${HDF5_VER}-gcc/parallel --enable-parallel && make -j8 && make install && make clean;
+      CC=gcc ./configure --prefix=/home/build/athenapk/hdf5-${HDF5_VER}-gcc/serial && make -j8 && make install && make clean;
+      CC=mpicc ./configure --prefix=/home/build/athenapk/hdf5-${HDF5_VER}-gcc/parallel --enable-parallel && make -j8 && make install && make clean;
+      cd;
+      rm -rf $TMPDIR;
       fi
 
 cuda-regression:
@@ -69,8 +74,7 @@ cuda-regression:
     - springdale7
   stage: regression
   script:
-#    - module load openmpi/cuda-10.2/gcc/4.0.3/64 gcc/7.3.0 cudatoolkit/10.2
-    - module load gcc/7.3.0 cudatoolkit/11.1 hdf5/gcc/1.10.0
+    - module load gcc/7.3.0 cudatoolkit/11.1
     - mkdir build-cuda
     - cd build-cuda
     - cmake
@@ -78,6 +82,7 @@ cuda-regression:
       -DKokkos_ENABLE_CUDA=True -DKokkos_ARCH_VOLTA70=True
       -DCMAKE_CXX_COMPILER=${PWD}/../external/Kokkos/bin/nvcc_wrapper
       -DPARTHENON_DISABLE_MPI=ON
+      -DHDF5_ROOT=/home/build/athenapk/hdf5-${HDF5_VER}-gcc/serial
       ../
     - make -j${J} athenaPK
     - nvidia-smi
