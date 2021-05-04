@@ -13,8 +13,6 @@ before_script:
   - export PATH=${PWD}/cmake-${CMAKE_VERSION}-Linux-x86_64/bin:$PATH
   - export HDF5_VER=1.10.7
   - export HDF5_ROOT=$(pwd)/local/hdf5-${HDF5_VER}-gcc/serial
-  - export HDF5_LIBRARIES=${HDF5_ROOT}/lib
-  - export HDF5_INCLUDE_DIRS=${HDF5_ROOT}/include
   - export OMPI_VER=4.1.0
   - export OMPI_DIR=$(pwd)/local/openmpi-${OMPI_VER}
   - export OPAL_PREFIX=$(pwd)/local/openmpi-${OMPI_VER}
