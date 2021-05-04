@@ -339,7 +339,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             print("Couldn't find module to compare Parthenon hdf5 files.")
             return False
 
-        files = [f"{parameters.output_path}/parthenon.cons.{i:05d}.phdf" for i in range(2)]
+        files = [f"{parameters.output_path}/parthenon.prim.{i:05d}.phdf" for i in range(2)]
 
         #Compare the initial output to the analytic model
         def analytic_gold(X,Y,Z,analytic_var):
