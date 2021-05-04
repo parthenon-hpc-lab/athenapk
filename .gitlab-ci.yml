@@ -12,7 +12,7 @@ before_script:
   - wget -qO- http://www.cmake.org/files/v${CMAKE_VERSION:0:4}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz | tar -xz
   - export PATH=${PWD}/cmake-${CMAKE_VERSION}-Linux-x86_64/bin:$PATH
   - export HDF5_VER=1.10.7
-  - export HDF5_ROOT=$(pwd)/local/hdf5-${HDF5_VER}-gcc/serial
+  - export CMAKE_PREFIX_PATH=$(pwd)/local/hdf5-${HDF5_VER}-gcc/serial
   - export OMPI_VER=4.1.0
   - export OMPI_DIR=$(pwd)/local/openmpi-${OMPI_VER}
   - export OPAL_PREFIX=$(pwd)/local/openmpi-${OMPI_VER}
