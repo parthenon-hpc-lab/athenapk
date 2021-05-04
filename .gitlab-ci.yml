@@ -24,7 +24,9 @@ before_script:
   # required as functions like "activate" are not available in subshells, see
   # see https://github.com/conda/conda/issues/7980
   - source /opt/sns/anaconda3/2020.02/etc/profile.d/conda.sh
+  - module load gcc/7.3.0 cudatoolkit/11.1 hdf5/gcc/1.10.0
   - pip install --user unyt
+  - HDF5_DIR=$HDF5DIR pip install --user --no-binary=h5py --ignore-installed h5py
 
 
 cache:
