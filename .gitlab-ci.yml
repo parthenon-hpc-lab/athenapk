@@ -42,7 +42,10 @@ prep-cuda:
     - gpu
     - springdale7
   script:
-    - module load gcc/7.3.0 cudatoolkit/11.1
+    - module load gcc/7.3.0 cudatoolkit/11.1 hdf5/gcc/1.10.0
+    - which python
+    - python --version
+    - python -c 'import h5py'
     - module avail
     - if [ ! -d ./local/openmpi-${OMPI_VER} ]; then
       mkdir -p ./local/openmpi-${OMPI_VER};
