@@ -30,7 +30,6 @@ import unyt
 """ To prevent littering up imported folders with .pyc files or __pycache_ folder"""
 sys.dont_write_bytecode = True
 
-
 class TestCase(utils.test_case.TestCaseAbs):
     def __init__(self):
 
@@ -331,7 +330,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         plt.savefig(f"{parameters.output_path}/analytic_comparison.png")
 
         #Check that the initial and final outputs match
-        sys.path.insert(1, parameters.parthenon_path + '/scripts/python')
+        sys.path.insert(1, parameters.parthenon_path + '/scripts/python/packages/parthenon_tools/parthenon_tools')
 
         try:
             import phdf_diff
@@ -355,14 +354,18 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         #Use a very loose tolerance, linf relative error
         analytic_status = compare_analytic.compare_analytic(
-                files[0], analytic_components,err_func=compare_analytic.linf_rel_err,tol=1e-1)
+            files[0], analytic_components,err_func=compare_analytic.linf_rel_err,tol=1e-1)
 
         print(analytic_status,analyze_status)
 
         analyze_status &= (analytic_status)
 
         #Due to HSE, initial and final outputs should match, within a loose tolerance
-        compare_status = phdf_diff.compare(files,check_metadata=False,tol=5e-2,relative=True)
+        compare_status = phdf_diff.compare(files,check_metadata=False,tol=5e-2,
+                relative=True,quiet=False,one=True)
+
+        if(compare_status != 0):
+            print("ERROR: initial and final outputs differ by too much")
 
         analyze_status &= (compare_status==0)
 
