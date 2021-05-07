@@ -71,6 +71,6 @@ void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md, const p
   return;
 }
 
-}
+} //namespace cluster
 
 #endif // HYDRO_SRCTERMS_GRAVITATIONAL_FIELD_HPP_

@@ -46,7 +46,7 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::HydrostaticEqui
   atomic_mass_unit_=constants.atomic_mass_unit();
   k_boltzmann_=constants.k_boltzmann();
 
-  const Real He_mass_fraction = pin->GetOrAddReal("problem", "He_mass_fraction",0.25);
+  const Real He_mass_fraction = pin->GetReal("problem", "He_mass_fraction");
   const Real H_mass_fraction = 1.0 - He_mass_fraction;
 
   mu_   = 1/(He_mass_fraction*3./4. + (1-He_mass_fraction)*2);

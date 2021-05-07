@@ -32,6 +32,7 @@
 #include "../main.hpp"
 #include "../physical_constants.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
+#include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../hydro/hydro.hpp"
 
 // Cluster headers
@@ -59,6 +60,21 @@ void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt){
 
 }
 
+void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm){
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const bool& enable_tabular_cooling =  
+    hydro_pkg->Param<bool>("enable_tabular_cooling");
+
+  if( enable_tabular_cooling ){
+    const TabularCooling& tabular_cooling =
+      hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    tabular_cooling.SubcyclingFirstOrderSrcTerm(md,tm);
+  }
+
+}
+
 //========================================================================================
 //! \fn void InitUserMeshData(ParameterInput *pin)
 //  \brief Function to initialize problem-specific data in mesh class.  Can also be used
@@ -82,6 +98,12 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
     hydro_pkg->AddParam<>("code_time_cgs", constants.code_time_cgs());
 
     /************************************************************
+     * Read Uniform Gas
+     ************************************************************/
+
+     //TODO(forrestglines)
+
+    /************************************************************
      * Read Cluster Gravity Parameters
      ************************************************************/
 
@@ -92,6 +114,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
     //Include gravity as a source term during evolution
     const bool gravity_srcterm = pin->GetBoolean("problem", "gravity_srcterm");
     hydro_pkg->AddParam<>("gravity_srcterm",gravity_srcterm);
+
 
     /************************************************************
      * Read Initial Entropy Profile
@@ -106,6 +129,18 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
 
     HydrostaticEquilibriumSphere hse_sphere(pin,cluster_gravity,entropy_profile);
     hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere",hse_sphere);
+
+    /************************************************************
+     * Read Tabular Cooling
+     ************************************************************/
+    const bool enable_tabular_cooling = pin->GetOrAddBoolean("problem", "enable_tabular_cooling",false);
+    if(enable_tabular_cooling){
+      TabularCooling tabular_cooling(pin);
+      hydro_pkg->AddParam<>("enable_tabular_cooling",enable_tabular_cooling);
+      hydro_pkg->AddParam<>("tabular_cooling",tabular_cooling);
+    }
+
+
   }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
