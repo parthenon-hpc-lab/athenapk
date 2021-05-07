@@ -101,7 +101,22 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
      * Read Uniform Gas
      ************************************************************/
 
-     //TODO(forrestglines)
+    const bool init_uniform_gas = pin->GetOrAddBoolean("problem", "init_uniform_gas",false);
+    hydro_pkg->AddParam<>("init_uniform_gas",init_uniform_gas);
+
+    if(init_uniform_gas){
+      const Real uniform_gas_rho  = pin->GetReal("problem", "uniform_gas_rho" );
+      const Real uniform_gas_ux   = pin->GetReal("problem", "uniform_gas_ux"  );
+      const Real uniform_gas_uy   = pin->GetReal("problem", "uniform_gas_uy"  );
+      const Real uniform_gas_uz   = pin->GetReal("problem", "uniform_gas_uz"  );
+      const Real uniform_gas_pres = pin->GetReal("problem", "uniform_gas_pres");
+
+      hydro_pkg->AddParam<>("uniform_gas_rho" ,uniform_gas_rho );
+      hydro_pkg->AddParam<>("uniform_gas_ux"  ,uniform_gas_ux  );
+      hydro_pkg->AddParam<>("uniform_gas_uy"  ,uniform_gas_uy  );
+      hydro_pkg->AddParam<>("uniform_gas_uz"  ,uniform_gas_uz  );
+      hydro_pkg->AddParam<>("uniform_gas_pres",uniform_gas_pres);
+    }
 
     /************************************************************
      * Read Cluster Gravity Parameters
@@ -133,10 +148,12 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
     /************************************************************
      * Read Tabular Cooling
      ************************************************************/
+    
     const bool enable_tabular_cooling = pin->GetOrAddBoolean("problem", "enable_tabular_cooling",false);
+    hydro_pkg->AddParam<>("enable_tabular_cooling",enable_tabular_cooling);
+
     if(enable_tabular_cooling){
       TabularCooling tabular_cooling(pin);
-      hydro_pkg->AddParam<>("enable_tabular_cooling",enable_tabular_cooling);
       hydro_pkg->AddParam<>("tabular_cooling",tabular_cooling);
     }
 
@@ -159,37 +176,65 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
   const Real gam = pin->GetReal("hydro", "gamma");
   const Real gm1 = (gam - 1.0);
 
-  /************************************************************
-   * Initialize a HydrostaticEquilibriumSphere
-   ************************************************************/
-  const auto &he_sphere = hydro_pkg->Param<
-    HydrostaticEquilibriumSphere<ClusterGravity,ACCEPTEntropyProfile>>
-    ("hydrostatic_equilibirum_sphere");
-  
-  const auto P_rho_profile = he_sphere.generate_P_rho_profile<
-    Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper, parthenon::HostMemSpace>,parthenon::UniformCartesian> 
-   (ib,jb,kb,coords);
+  if(init_uniform_gas){
+    const Real rho  = hydro_pkg->Param<Real>("uniform_gas_rho" );
+    const Real ux   = hydro_pkg->Param<Real>("uniform_gas_ux"  );
+    const Real uy   = hydro_pkg->Param<Real>("uniform_gas_uy"  );
+    const Real uz   = hydro_pkg->Param<Real>("uniform_gas_uz"  );
+    const Real pres = hydro_pkg->Param<Real>("uniform_gas_pres");
 
-  // initialize conserved variables
-  for (int k = kb.s; k <= kb.e; k++) {
-    for (int j = jb.s; j <= jb.e; j++) {
-      for (int i = ib.s; i <= ib.e; i++) {
+    const Real Mx = rho*ux;
+    const Real My = rho*uy;
+    const Real Mz = rho*uz;
+    const Real E  = rho*(0.5*(ux*uy + uy*uy + uz*uz) + pres/(gm1*rho);)
 
-        //Calculate radius
-        const Real r = sqrt(coords.x1v(i)*coords.x1v(i)
-                          + coords.x2v(j)*coords.x2v(j)
-                          + coords.x3v(k)*coords.x3v(k));
+    for (int k = kb.s; k <= kb.e; k++) {
+      for (int j = jb.s; j <= jb.e; j++) {
+        for (int i = ib.s; i <= ib.e; i++) {
 
-        //Get pressure and density from generated profile
-        const Real P_r = P_rho_profile.P_from_r(r);
-        const Real rho_r = P_rho_profile.rho_from_r(r);
+          u(IDN,k,j,i) = rho;
+          u(IM1,k,j,i) = Mx; 
+          u(IM2,k,j,i) = My; 
+          u(IM3,k,j,i) = Mz; 
+          u(IEN,k,j,i) = E;
+        }
+      }
+    }
 
-        //Fill conserved states, 0 initial velocity
-        u(IDN,k,j,i) = rho_r;
-        u(IM1,k,j,i) = 0.0; 
-        u(IM2,k,j,i) = 0.0; 
-        u(IM3,k,j,i) = 0.0; 
-        u(IEN,k,j,i) = P_r/gm1;
+  }
+  else {
+    /************************************************************
+    * Initialize a HydrostaticEquilibriumSphere
+    ************************************************************/
+    const auto &he_sphere = hydro_pkg->Param<
+      HydrostaticEquilibriumSphere<ClusterGravity,ACCEPTEntropyProfile>>
+      ("hydrostatic_equilibirum_sphere");
+    
+    const auto P_rho_profile = he_sphere.generate_P_rho_profile<
+      Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper, parthenon::HostMemSpace>,parthenon::UniformCartesian> 
+    (ib,jb,kb,coords);
+
+    // initialize conserved variables
+    for (int k = kb.s; k <= kb.e; k++) {
+      for (int j = jb.s; j <= jb.e; j++) {
+        for (int i = ib.s; i <= ib.e; i++) {
+
+          //Calculate radius
+          const Real r = sqrt(coords.x1v(i)*coords.x1v(i)
+                            + coords.x2v(j)*coords.x2v(j)
+                            + coords.x3v(k)*coords.x3v(k));
+
+          //Get pressure and density from generated profile
+          const Real P_r = P_rho_profile.P_from_r(r);
+          const Real rho_r = P_rho_profile.rho_from_r(r);
+
+          //Fill conserved states, 0 initial velocity
+          u(IDN,k,j,i) = rho_r;
+          u(IM1,k,j,i) = 0.0; 
+          u(IM2,k,j,i) = 0.0; 
+          u(IM3,k,j,i) = 0.0; 
+          u(IEN,k,j,i) = P_r/gm1;
+        }
       }
     }
   }
