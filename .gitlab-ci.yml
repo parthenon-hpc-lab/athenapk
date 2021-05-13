@@ -96,4 +96,5 @@ cuda-regression:
       - build-cuda/tst/regression/outputs/convergence
       - build-cuda/tst/regression/outputs/mhd_convergence
       - build-cuda/tst/regression/outputs/performance
-      - build-cuda/tst/regression/outputs/cluster_hse
+      - build-cuda/tst/regression/outputs/cluster_hse/analytic_comparison.png
+      - build-cuda/tst/regression/outputs/cluster_tabular_cooling/convergence.png
