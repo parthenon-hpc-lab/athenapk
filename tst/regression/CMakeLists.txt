@@ -15,4 +15,7 @@ setup_test_serial("performance" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 17" "performance")
 
 setup_test_serial("cluster_hse" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hse.in --num_steps 1" "cluster.hse")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hse.in --num_steps 1" "convergence")
+
+setup_test_serial("cluster_tabular_cooling" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/cooling.in --num_steps 10" "convergence")
