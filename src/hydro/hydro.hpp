@@ -31,11 +31,14 @@ TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const parthenon::SimTim
 using SourceFirstOrderFun_t =
     std::function<void(MeshData<Real> *md, const parthenon::SimTime &tm)>;
 using SourceUnsplitFun_t = std::function<void(MeshData<Real> *md, const Real beta_dt)>;
+using EstimateTimestepFun_t = std::function<Real(MeshData<Real> *md)>;
+using InitPackageDataFun_t =
+    std::function<void(ParameterInput *pin, StateDescriptor *pkg)>;
 
 extern SourceFirstOrderFun_t ProblemSourceFirstOrder;
 extern SourceUnsplitFun_t ProblemSourceUnsplit;
-extern std::function<void(ParameterInput *pin, StateDescriptor *pkg)>
-    ProblemInitPackageData;
+extern EstimateTimestepFun_t ProblemEstimateTimestep;
+extern InitPackageDataFun_t ProblemInitPackageData;
 
 } // namespace Hydro
 

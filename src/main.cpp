@@ -12,10 +12,12 @@
 #include "pgen/pgen.hpp"
 
 // Initialize defaults for package specific callback functions
-std::function<void(ParameterInput *pin, StateDescriptor *pkg)>
-    Hydro::ProblemInitPackageData = nullptr;
-Hydro::SourceFirstOrderFun_t Hydro::ProblemSourceFirstOrder = nullptr;
-Hydro::SourceUnsplitFun_t Hydro::ProblemSourceUnsplit = nullptr;
+namespace Hydro {
+InitPackageDataFun_t ProblemInitPackageData = nullptr;
+SourceFirstOrderFun_t ProblemSourceFirstOrder = nullptr;
+EstimateTimestepFun_t ProblemEstimateTimestep = nullptr;
+SourceUnsplitFun_t ProblemSourceUnsplit = nullptr;
+} // namespace Hydro
 
 int main(int argc, char *argv[]) {
   using parthenon::ParthenonManager;
