@@ -421,7 +421,12 @@ Real EstimateTimestep(MeshData<Real> *md) {
         }
       },
       Kokkos::Min<Real>(min_dt_hyperbolic));
-  return cfl * min_dt_hyperbolic;
+
+  auto min_dt = min_dt_hyperbolic;
+  if (ProblemEstimateTimestep != nullptr) {
+    min_dt = std::min(min_dt, ProblemEstimateTimestep(md));
+  }
+  return cfl * min_dt;
 }
 
 template <Fluid fluid, Reconstruction recon>

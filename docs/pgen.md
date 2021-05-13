@@ -1,9 +1,11 @@
-# Source functions
+# Problem specific callbacks
+
+## Source functions
 
 Additional (physical) source terms (e.g., the ones typically on the right hand side of
 system of equations) can be added in various ways from an algorithmic point of view.
 
-## Unsplit 
+### Unsplit
 
 Unsplit sources are added at each stage of the (multi-stage) integration after the
 (conserved) fluxes are calculated.
@@ -21,7 +23,7 @@ by implementing a function with that signature and assigning it to the
 
 Note, there is no requirement to call the function `MyUnsplitSource`.
 
-## Split first order (generally not recommended)
+### Split first order (generally not recommended)
 
 If for special circumstances sources need to be added in a fully operator split way,
 i.e., the source function is only called *after* the full hydro (or MHD) integration,
@@ -36,7 +38,21 @@ Note, as the name suggests, this method is only first order accurate (while ther
 is no requirement to call the function `MyFirstOrderSource`).
 
 
-## Split second order (Strang splitting)
+### Split second order (Strang splitting)
 
 Not implemented yet.
 
+
+## Timestep restrictions
+
+If additional problem specific physics are implemented (e.g., through the source
+functions above) that require a custom timestep, it can be added via the
+`ProblemEstimateTimestep` callback with the following signature
+```c++
+Real ProblemEstimateTimestep(MeshData<Real> *md);
+```
+
+The return value is expected to be the minimum value over all blocks in the
+contained in the `MeshData` container, cf., the hydro/mhd `EstimateTimestep` function.
+Note, that the hyperbolic CFL value is currently applied after the function call, i.e.,
+it is also applied to the problem specific function.
