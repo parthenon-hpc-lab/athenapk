@@ -48,7 +48,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
     (constants.erg()*pow(constants.cm(),3)/constants.s());
 
   integration_order_ = pin->GetOrAddInteger("cooling", "integration_order",2);
-  max_iter_ = pin->GetOrAddInteger("cooling", "integration_order",100);
+  max_iter_ = pin->GetOrAddInteger("cooling", "max_iter",100);
   cooling_time_cfl_ = pin->GetOrAddReal("cooling", "cfl",0.1);
   d_log_temp_tol_ = pin->GetOrAddReal("cooling", "d_log_temp_tol",1e-8);
   d_e_tol_ = pin->GetOrAddReal("cooling", "d_e_tol",1e-8);
@@ -268,7 +268,8 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
       };
 
       Real sub_t = 0;//current subcycle time
-      Real sub_dt = duration;//current subcycle dt
+      Real sub_dt = std::min((internal_e_initial/DeDt_wrapper(0,internal_e_initial))/max_iter,
+                              duration);//current subcycle dt
 
       //Use minumum subcycle timestep when d_e_tol == 0
       if(d_e_tol == 0){
@@ -320,7 +321,10 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
           //   minimum subcycle ime step instead
 
           sub_attempt++;
-          if (d_e_err >= d_e_tol_ && sub_dt > min_sub_dt){
+          if (std::isnan(d_e_err)){
+            reattempt_sub = true;
+            sub_dt = min_sub_dt;
+          } else if (d_e_err >= d_e_tol_ && sub_dt > min_sub_dt){
             //Reattempt this subcycle
             reattempt_sub = true;
             //Error was too high, shrink the timestep

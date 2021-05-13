@@ -176,6 +176,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
   const Real gam = pin->GetReal("hydro", "gamma");
   const Real gm1 = (gam - 1.0);
 
+  const auto &init_uniform_gas = hydro_pkg->Param<bool>("init_uniform_gas");
   if(init_uniform_gas){
     const Real rho  = hydro_pkg->Param<Real>("uniform_gas_rho" );
     const Real ux   = hydro_pkg->Param<Real>("uniform_gas_ux"  );
@@ -186,7 +187,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
     const Real Mx = rho*ux;
     const Real My = rho*uy;
     const Real Mz = rho*uz;
-    const Real E  = rho*(0.5*(ux*uy + uy*uy + uz*uz) + pres/(gm1*rho);)
+    const Real E  = rho*(0.5*(ux*uy + uy*uy + uz*uz) + pres/(gm1*rho));
 
     for (int k = kb.s; k <= kb.e; k++) {
       for (int j = jb.s; j <= jb.e; j++) {
