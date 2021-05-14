@@ -341,15 +341,15 @@ class TestCase(utils.test_case.TestCaseAbs):
         files = [f"{parameters.output_path}/parthenon.prim.{i:05d}.phdf" for i in range(2)]
 
         #Compare the initial output to the analytic model
-        def analytic_gold(X,Y,Z,analytic_var):
+        def analytic_gold(Z,Y,X,analytic_var):
             r = np.sqrt(X**2 + Y**2 + Z**2)
             analytic_interp = unyt.unyt_array(np.interp(r,analytic_R,analytic_var),
                                                 analytic_var.units)
             return analytic_interp
 
         analytic_components = {
-                "Pressure":lambda X,Y,Z,time : analytic_gold(X,Y,Z,analytic_P).v,
-                "Density":lambda X,Y,Z,time : analytic_gold(X,Y,Z,analytic_rho).v,
+                "Pressure":lambda Z,Y,X,time : analytic_gold(Z,Y,X,analytic_P).v,
+                "Density":lambda Z,Y,X,time : analytic_gold(Z,Y,X,analytic_rho).v,
                 }
 
         #Use a very loose tolerance, linf relative error

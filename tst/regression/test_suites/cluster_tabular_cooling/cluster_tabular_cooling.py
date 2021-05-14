@@ -227,15 +227,15 @@ class TestCase(utils.test_case.TestCaseAbs):
             return False
 
         analytic_uniform_gas_components = {
-            "Density":lambda X,Y,Z,time :
+            "Density":lambda Z,Y,X,time :
                 (np.ones_like(X)*self.uniform_gas_rho).in_units("code_mass*code_length**-3").v,
-            "Velocity1":lambda X,Y,Z,time :
+            "Velocity1":lambda Z,Y,X,time :
                 (np.ones_like(X)*self.uniform_gas_ux).in_units("code_length*code_time**-1").v,
-            "Velocity2":lambda X,Y,Z,time :
+            "Velocity2":lambda Z,Y,X,time :
                 (np.ones_like(X)*self.uniform_gas_uy).in_units("code_length*code_time**-1").v,
-            "Velocity3":lambda X,Y,Z,time :
+            "Velocity3":lambda Z,Y,X,time :
                 (np.ones_like(X)*self.uniform_gas_uz).in_units("code_length*code_time**-1").v,
-            "Pressure":lambda X,Y,Z,time :
+            "Pressure":lambda Z,Y,X,time :
                 (np.ones_like(X)*self.uniform_gas_pres).in_units("code_mass*code_length**-1*code_time**-2").v,
             }
         def zero_corrected_linf_err(gold,test):
