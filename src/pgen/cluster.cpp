@@ -19,6 +19,7 @@
 #include <cmath>     // sqrt()
 #include <cstdio>    // fopen(), fprintf(), freopen()
 #include <iostream>  // endl
+#include <limits>
 #include <sstream>   // stringstream
 #include <stdexcept> // runtime_error
 #include <string>    // c_str()
@@ -72,7 +73,26 @@ void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm){
 
     tabular_cooling.SubcyclingFirstOrderSrcTerm(md,tm);
   }
+}
 
+Real ClusterEstimateTimestep(MeshData<Real> *md){
+  Real min_dt = std::numeric_limits<Real>::max();
+
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const bool& enable_tabular_cooling =  
+    hydro_pkg->Param<bool>("enable_tabular_cooling");
+
+  if( enable_tabular_cooling ){
+    const TabularCooling& tabular_cooling =
+      hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    const Real cooling_min_dt = tabular_cooling.TimeStep(md);
+
+    min_dt = std::min(min_dt,cooling_min_dt);
+  }
+
+  return min_dt;
 }
 
 //========================================================================================

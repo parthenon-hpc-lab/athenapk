@@ -268,7 +268,7 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
       };
 
       Real sub_t = 0;//current subcycle time
-      Real sub_dt = std::min((internal_e_initial/DeDt_wrapper(0,internal_e_initial))/max_iter,
+      Real sub_dt = std::min((-internal_e_initial/DeDt_wrapper(0,internal_e_initial))/max_iter,
                               duration);//current subcycle dt
 
       //Use minumum subcycle timestep when d_e_tol == 0
@@ -279,12 +279,11 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
       unsigned int sub_iter = 0;
       while( sub_t*(1+KEpsilon_) < duration ){
 
-        if(sub_iter >= 2*max_iter){
-          //TODO(forrestglines): Still necessary?
-          //After rewriting, this should never happen (see note on subcycle acceptance)
+        if(sub_iter > max_iter){
+          //Due to sub_dt >= min_dt, this error should never happen
           std::stringstream msg;
           msg << "### FATAL ERROR in function [TabularCooling::CoolingUserWorkInLoop]" << std::endl 
-              << "Too many iterations in time " << i << "," << j << "," << k << std::endl
+              << "Logical error: too many iterations in time" << sub_iter << "/" << max_iter << std::endl
               << "internal_e_initial = " << internal_e_initial << std::endl
               << "rho = " << rho << std::endl
               << "duration = " << duration << std::endl;
