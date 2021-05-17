@@ -281,13 +281,7 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
         if(sub_iter > max_iter){
           //Due to sub_dt >= min_dt, this error should never happen
-          std::stringstream msg;
-          msg << "### FATAL ERROR in function [TabularCooling::CoolingUserWorkInLoop]" << std::endl 
-              << "Logical error: too many iterations in time" << sub_iter << "/" << max_iter << std::endl
-              << "internal_e_initial = " << internal_e_initial << std::endl
-              << "rho = " << rho << std::endl
-              << "duration = " << duration << std::endl;
-          throw std::runtime_error(msg.str().c_str());
+          Kokkos::abort("FATAL ERROR in [TabularCooling::CoolingUserWorkInLoop]: Sub cycles exceed max_iter (This should be impossible)");
         }
 
         //Next higher order estimate
@@ -323,14 +317,14 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
           if (std::isnan(d_e_err)){
             reattempt_sub = true;
             sub_dt = min_sub_dt;
-          } else if (d_e_err >= d_e_tol_ && sub_dt > min_sub_dt){
+          } else if (d_e_err >= d_e_tol && sub_dt > min_sub_dt){
             //Reattempt this subcycle
             reattempt_sub = true;
             //Error was too high, shrink the timestep
             if( d_e_tol == 0){
               sub_dt = min_sub_dt;
             } else {
-              sub_dt = RKStepper::OptimalStep(sub_dt,d_e_err,d_e_tol_);
+              sub_dt = RKStepper::OptimalStep(sub_dt,d_e_err,d_e_tol);
             }
             //Don't drop timestep under maximum iteration count
             if( sub_dt < min_sub_dt || sub_attempt >= max_iter){
@@ -348,7 +342,7 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
         if(d_e_err ==0){
           sub_dt = duration-sub_t;
         } else {
-          sub_dt = RKStepper::OptimalStep(sub_dt,d_e_err,d_e_tol_);
+          sub_dt = RKStepper::OptimalStep(sub_dt,d_e_err,d_e_tol);
         }
 
         if(d_e_tol == 0){
