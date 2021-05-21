@@ -313,7 +313,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 	cons_labels[IM2]="MomentumDensity2";
 	cons_labels[IM3]="MomentumDensity3";
 	cons_labels[IEN]="TotalEnergyDensity";
-  Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost},
+  Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
              std::vector<int>({nhydro}),cons_labels);
   pkg->AddField(field_name, m);
 
