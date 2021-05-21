@@ -157,7 +157,7 @@ class TabularCooling
     void SubcyclingSplitSrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::SimTime &tm,
       const RKStepper rk_stepper) const;
 
-    parthenon::Real TimeStep(parthenon::MeshData<parthenon::Real> *md) const;
+    parthenon::Real EstimateTimeStep(parthenon::MeshData<parthenon::Real> *md) const;
 
     void TestCoolingTable(parthenon::ParameterInput *pin) const;
 

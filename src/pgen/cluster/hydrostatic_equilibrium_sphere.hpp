@@ -14,7 +14,7 @@
 #include <parameter_input.hpp>
 
 // Athena headers
-#include "../../physical_constants.hpp"
+#include "../../units.hpp"
 
 namespace cluster {
 

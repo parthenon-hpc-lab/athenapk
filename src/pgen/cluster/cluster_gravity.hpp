@@ -12,7 +12,7 @@
 #include <parameter_input.hpp>
 
 // Athena headers
-#include "../../physical_constants.hpp"
+#include "../../units.hpp"
 
 namespace cluster {
 
@@ -83,7 +83,7 @@ public:
 
   ClusterGravity(parthenon::ParameterInput *pin)
   {
-    PhysicalConstants constants(pin);
+    Units units(pin);
 
     //Determine which element to include
     include_nfw_g_    = pin->GetOrAddBoolean("problem","include_nfw_g",false);
@@ -108,24 +108,24 @@ public:
     include_smbh_g_   = pin->GetOrAddBoolean("problem","include_smbh_g",false);
 
     //Initialize the NFW Profile
-    const parthenon::Real hubble_parameter = pin->GetOrAddReal("problem", "hubble_parameter",70*constants.km_s()/constants.mpc());
-    const parthenon::Real rho_crit = 3*hubble_parameter*hubble_parameter/(8*M_PI*constants.gravitational_constant());
+    const parthenon::Real hubble_parameter = pin->GetOrAddReal("problem", "hubble_parameter",70*units.km_s()/units.mpc());
+    const parthenon::Real rho_crit = 3*hubble_parameter*hubble_parameter/(8*M_PI*units.gravitational_constant());
 
-    const parthenon::Real M_nfw_200        = pin->GetOrAddReal("problem", "M_nfw_200"  ,8.5e14*constants.msun());
+    const parthenon::Real M_nfw_200        = pin->GetOrAddReal("problem", "M_nfw_200"  ,8.5e14*units.msun());
     const parthenon::Real c_nfw            = pin->GetOrAddReal("problem", "c_nfw"      ,6.81);
     R_nfw_s_ = calc_R_nfw_s(rho_crit,M_nfw_200,c_nfw);
-    GMC_nfw_ = calc_GMC_nfw(constants.gravitational_constant(),M_nfw_200,c_nfw);
+    GMC_nfw_ = calc_GMC_nfw(units.gravitational_constant(),M_nfw_200,c_nfw);
 
     //Initialize the NFW Profile
     alpha_bcg_s_      = pin->GetOrAddReal("problem", "alpha_bcg_s",0.1);
     beta_bcg_s_       = pin->GetOrAddReal("problem", "beta_bcg_s" ,1.43);
-    const parthenon::Real M_bcg_s          = pin->GetOrAddReal("problem", "M_bcg_s"    ,7.5e10*constants.msun());
-    R_bcg_s_          = pin->GetOrAddReal("problem", "R_bcg_s"    ,4*constants.kpc());
-    GMC_bcg_ = calc_GMC_bcg(constants.gravitational_constant(),
+    const parthenon::Real M_bcg_s          = pin->GetOrAddReal("problem", "M_bcg_s"    ,7.5e10*units.msun());
+    R_bcg_s_          = pin->GetOrAddReal("problem", "R_bcg_s"    ,4*units.kpc());
+    GMC_bcg_ = calc_GMC_bcg(units.gravitational_constant(),
         which_bcg_g_,M_bcg_s,R_bcg_s_,alpha_bcg_s_,beta_bcg_s_);
 
-    const parthenon::Real m_smbh           = pin->GetOrAddReal("problem", "m_smbh"     ,3.4e8*constants.msun());
-    GMC_smbh_  = calc_GMC_smbh(constants.gravitational_constant(),m_smbh),
+    const parthenon::Real m_smbh           = pin->GetOrAddReal("problem", "m_smbh"     ,3.4e8*units.msun());
+    GMC_smbh_  = calc_GMC_smbh(units.gravitational_constant(),m_smbh),
 
     smoothing_r_ = pin->GetOrAddReal("problem","g_smoothing_radius",0.0);
   }

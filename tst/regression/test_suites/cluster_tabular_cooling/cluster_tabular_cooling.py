@@ -137,9 +137,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"hydro/gamma={self.adiabatic_index}",
                 f"problem/He_mass_fraction={self.He_mass_fraction}",
 
-                f"problem/code_length_cgs={self.code_length.in_units('cm').v}",
-                f"problem/code_mass_cgs={self.code_mass.in_units('g').v}",
-                f"problem/code_time_cgs={self.code_time.in_units('s').v}",
+                f"units/code_length_cgs={self.code_length.in_units('cm').v}",
+                f"units/code_mass_cgs={self.code_mass.in_units('g').v}",
+                f"units/code_time_cgs={self.code_time.in_units('s').v}",
 
                 f"problem/init_uniform_gas=true",
                 f"problem/uniform_gas_rho={self.uniform_gas_rho.in_units('code_mass*code_length**-3').v}",

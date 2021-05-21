@@ -118,9 +118,9 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         parameters.driver_cmd_line_args = [
                 f"hydro/gamma={self.adiabatic_index}",
-                f"problem/code_length_cgs={self.code_length.in_units('cm').v}",
-                f"problem/code_mass_cgs={self.code_mass.in_units('g').v}",
-                f"problem/code_time_cgs={self.code_time.in_units('s').v}",
+                f"units/code_length_cgs={self.code_length.in_units('cm').v}",
+                f"units/code_mass_cgs={self.code_mass.in_units('g').v}",
+                f"units/code_time_cgs={self.code_time.in_units('s').v}",
                 f"problem/hubble_parameter={self.hubble_parameter.in_units('1/code_time').v}",
                 f"problem/include_nfw_g={self.include_nfw_g}",
                 f"problem/which_bcg_g={self.which_bcg_g}",

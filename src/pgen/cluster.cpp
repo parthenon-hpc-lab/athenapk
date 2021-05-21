@@ -31,7 +31,7 @@
 
 // Athena headers
 #include "../main.hpp"
-#include "../physical_constants.hpp"
+#include "../units.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
 #include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../hydro/hydro.hpp"
@@ -87,7 +87,7 @@ Real ClusterEstimateTimestep(MeshData<Real> *md){
     const TabularCooling& tabular_cooling =
       hydro_pkg->Param<TabularCooling>("tabular_cooling");
 
-    const Real cooling_min_dt = tabular_cooling.TimeStep(md);
+    const Real cooling_min_dt = tabular_cooling.EstimateTimeStep(md);
 
     min_dt = std::min(min_dt,cooling_min_dt);
   }
@@ -110,12 +110,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
      * Read Unit Parameters
      ************************************************************/
     //CGS unit per code unit, or code unit in cgs
-    PhysicalConstants constants(pin);
-
-    hydro_pkg->AddParam<>("physical_constants",constants);
-    hydro_pkg->AddParam<>("code_length_cgs", constants.code_length_cgs());
-    hydro_pkg->AddParam<>("code_mass_cgs", constants.code_mass_cgs());
-    hydro_pkg->AddParam<>("code_time_cgs", constants.code_time_cgs());
+    Units units(pin);
+    hydro_pkg->AddParam<>("units",units);
 
     /************************************************************
      * Read Uniform Gas

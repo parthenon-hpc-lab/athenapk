@@ -3,8 +3,8 @@
 // Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
 
-#ifndef PHYSICAL_CONSTANTS_HPP_
-#define PHYSICAL_CONSTANTS_HPP_
+#ifndef UNITS_HPP_
+#define UNITS_HPP_
 
 //Parthenon headers
 #include <parameter_input.hpp>
@@ -12,7 +12,7 @@
 // Athena headers
 #include "basic_types.hpp"
 
-class PhysicalConstants {
+class Units {
 
   private:
     //CGS unit per X
@@ -47,10 +47,10 @@ class PhysicalConstants {
     
   public:
 
-    PhysicalConstants(  parthenon::ParameterInput *pin):
-      code_length_cgs_(pin->GetOrAddReal("problem", "code_length_cgs",1)),
-      code_mass_cgs_(pin->GetOrAddReal("problem", "code_mass_cgs",1)),
-      code_time_cgs_(pin->GetOrAddReal("problem", "code_time_cgs",1))
+    Units(parthenon::ParameterInput *pin):
+      code_length_cgs_(pin->GetOrAddReal("units", "code_length_cgs",1)),
+      code_mass_cgs_(pin->GetOrAddReal("units", "code_mass_cgs",1)),
+      code_time_cgs_(pin->GetOrAddReal("units", "code_time_cgs",1))
     {}
 
     //Code scales in cgs

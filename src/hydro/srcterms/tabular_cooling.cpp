@@ -19,14 +19,14 @@
 
 // Athena headers
 #include "tabular_cooling.hpp"
-#include "../../physical_constants.hpp"
+#include "../../units.hpp"
 
 namespace cluster {
 using namespace parthenon;
 
 TabularCooling::TabularCooling(ParameterInput *pin)
 {
-  PhysicalConstants constants(pin);
+  Units units(pin);
 
   const Real He_mass_fraction = pin->GetReal("problem", "He_mass_fraction");
   const Real H_mass_fraction = 1.0 - He_mass_fraction;
@@ -34,8 +34,8 @@ TabularCooling::TabularCooling(ParameterInput *pin)
 
   gm1_ = pin->GetReal("hydro", "gamma") - 1.0;
 
-  mu_m_u_gm1_by_k_B_ =  mu*constants.atomic_mass_unit()*gm1_/constants.k_boltzmann();
-  X_by_m_u_ = H_mass_fraction/constants.atomic_mass_unit();
+  mu_m_u_gm1_by_k_B_ =  mu*units.atomic_mass_unit()*gm1_/units.k_boltzmann();
+  X_by_m_u_ = H_mass_fraction/units.atomic_mass_unit();
 
   const std::string table_filename = pin->GetString("cooling","table_filename");
 
@@ -45,7 +45,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
   const Real lambda_units_cgs = pin->GetReal("cooling", "lambda_units_cgs");
   //Convert erg cm^3/s to code units
   const Real lambda_units = lambda_units_cgs/
-    (constants.erg()*pow(constants.cm(),3)/constants.s());
+    (units.erg()*pow(units.cm(),3)/units.s());
 
   integration_order_ = pin->GetOrAddInteger("cooling", "integration_order",2);
   max_iter_ = pin->GetOrAddInteger("cooling", "max_iter",100);
@@ -372,7 +372,7 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
 }
 
-Real TabularCooling::TimeStep(MeshData<Real> *md) const{
+Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const{
   //Grab member variables for compiler
 
   //Everything needed by DeDt

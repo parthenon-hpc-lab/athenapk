@@ -11,6 +11,9 @@
 // Parthenon headers
 #include <parameter_input.hpp>
 
+// Athena headers
+#include "../../units.hpp"
+
 namespace cluster {
 
 class ACCEPTEntropyProfile{
@@ -20,14 +23,14 @@ class ACCEPTEntropyProfile{
   public:
     ACCEPTEntropyProfile(parthenon::ParameterInput *pin)
   {
-    PhysicalConstants constants(pin);
+    Units units(pin);
 
     K_0_     = pin->GetOrAddReal("problem", "K_0",
-        20*constants.kev()*constants.cm()*constants.cm());
+        20*units.kev()*units.cm()*units.cm());
     K_100_   = pin->GetOrAddReal("problem", "K_100",
-        120*constants.kev()*constants.cm()*constants.cm());
+        120*units.kev()*units.cm()*units.cm());
     R_K_     = pin->GetOrAddReal("problem", "R_K",
-        100*constants.kpc());
+        100*units.kpc());
     alpha_K_ = pin->GetOrAddReal("problem", "alpha_K",1.75);
   }
 

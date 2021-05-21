@@ -20,7 +20,7 @@
 #include <parameter_input.hpp>
 
 // Athena headers
-#include "../../physical_constants.hpp"
+#include "../../units.hpp"
 
 // Cluster headers
 #include "cluster_gravity.hpp"
@@ -41,10 +41,10 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::HydrostaticEqui
   gravitational_field_(gravitational_field),
   entropy_profile_(entropy_profile)
 {
-  PhysicalConstants constants(pin);
+  Units units(pin);
 
-  atomic_mass_unit_=constants.atomic_mass_unit();
-  k_boltzmann_=constants.k_boltzmann();
+  atomic_mass_unit_=units.atomic_mass_unit();
+  k_boltzmann_=units.k_boltzmann();
 
   const Real He_mass_fraction = pin->GetReal("problem", "He_mass_fraction");
   const Real H_mass_fraction = 1.0 - He_mass_fraction;
@@ -53,9 +53,9 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::HydrostaticEqui
   mu_e_ = 1/(He_mass_fraction*2./4. + (1-He_mass_fraction));
 
   R_fix_   = pin->GetOrAddReal("problem", "R_fix",
-      1953.9724519818478*constants.kpc());
+      1953.9724519818478*units.kpc());
   rho_fix_ = pin->GetOrAddReal("problem", "rho_fix",
-      8.607065015897638e-30*constants.g()/pow(constants.kpc(),3));
+      8.607065015897638e-30*units.g()/pow(units.kpc(),3));
   const Real gam = pin->GetReal("hydro", "gamma");
   const Real gm1 = (gam - 1.0);
 
@@ -66,9 +66,9 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::HydrostaticEqui
   const bool test_he_sphere = pin->GetOrAddBoolean("problem","test_he_sphere",false);
   if(test_he_sphere){
     const Real test_he_sphere_R_start = pin->GetOrAddReal("problem", 
-        "test_he_sphere_R_start_kpc", 1e-3*constants.kpc());
+        "test_he_sphere_R_start_kpc", 1e-3*units.kpc());
     const Real test_he_sphere_R_end = pin->GetOrAddReal("problem",
-        "test_he_sphere_R_end_kpc", 4000*constants.kpc());
+        "test_he_sphere_R_end_kpc", 4000*units.kpc());
     const int test_he_sphere_n_r = pin->GetOrAddInteger("problem",
         "test_he_sphere_n_r", 4000);
     if( Globals::my_rank == 0){

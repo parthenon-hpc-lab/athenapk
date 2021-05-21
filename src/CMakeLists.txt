@@ -5,7 +5,7 @@ add_executable(
     athenaPK
         main.cpp
         eos/adiabatic_glmmhd.cpp
-        physical_constants.hpp
+        units.hpp
         eos/adiabatic_hydro.cpp
         hydro/hydro_driver.cpp
         hydro/hydro.cpp
