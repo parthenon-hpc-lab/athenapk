@@ -32,6 +32,39 @@
 
 namespace cluster {
 
+//Struct to take one RK step using heun's method to compute 2nd and 1st order estimations in y1_h and y1_l
+struct RK12Stepper{
+  template <typename Function>
+  static KOKKOS_INLINE_FUNCTION void Step(const parthenon::Real t0, const parthenon::Real h, const parthenon::Real y0, Function f,
+      parthenon::Real &y1_h, parthenon::Real &y1_l ){
+    const parthenon::Real f_t0_y0 = f(t0,y0);
+    y1_l = y0 + h*f_t0_y0; //1st order
+    y1_h = y0 + h/2.*( f_t0_y0 + f(t0 + h,y1_l) ); //2nd order
+  }
+  static KOKKOS_INLINE_FUNCTION parthenon::Real OptimalStep(const parthenon::Real h, const parthenon::Real err, const parthenon::Real tol){
+    return 0.95*h*pow(tol/err,2);
+  }
+};
+
+//Struct to take a 5th and 4th order RK step to compute 5th and 4th order estimations in y1_h and y1_l
+struct RK45Stepper{
+  template <typename Function>
+  static KOKKOS_INLINE_FUNCTION void Step(const parthenon::Real t0, const parthenon::Real h, const parthenon::Real y0, Function f,
+      parthenon::Real &y1_h, parthenon::Real &y1_l ){
+    const parthenon::Real k1 = h*f(t0,y0);
+    const parthenon::Real k2 = h*f(t0 + 1./4.*h, y0 + 1./4.*k1);
+    const parthenon::Real k3 = h*f(t0 + 3./8.*h, y0 + 3./32.*k1 + 9./32.*k2);
+    const parthenon::Real k4 = h*f(t0 + 12./13.*h, y0 + 1932./2197.*k1 - 7200./2197.*k2 + 7296./2197.*k3);
+    const parthenon::Real k5 = h*f(t0 + h, y0 + 439./216.*k1 - 8.*k2 + 3680./513.*k3 - 845./4104.*k4);
+    const parthenon::Real k6 = h*f(t0 + 1./2.*h, y0 - 8./27.*k1 + 2.*k2 - 3544./2565.*k3 + 1859./4104.*k4 - 11./40.*k5); //TODO(forrestglines): Check k2?
+    y1_l = y0 + 25./216.*k1  + 1408./2565.*k3 + 2197./4104.*k4 - 1./5.*k5; //4th order
+    y1_h = y0 + 16./135.*k1  + 6656./12825.*k3 + 28561./56430.*k4 - 9./50.*k5 + 2./55.*k6; //5th order
+  }
+  static KOKKOS_INLINE_FUNCTION parthenon::Real OptimalStep(const parthenon::Real h, const parthenon::Real err, const parthenon::Real tol){
+    return 0.95*h*pow(tol/err,5);
+  }
+};
+
 class TabularCooling
 {
   private:
@@ -66,38 +99,6 @@ class TabularCooling
     //Used for roundoff as subcycle approaches end of timestep
     static constexpr parthenon::Real KEpsilon_ = 1e-12;
 
-    //Struct to take one RK step using heun's method to compute 2nd and 1st order estimations in y1_h and y1_l
-    struct RK12Stepper{
-      template <typename Function>
-      static KOKKOS_INLINE_FUNCTION void Step(const parthenon::Real t0, const parthenon::Real h, const parthenon::Real y0, Function f,
-          parthenon::Real &y1_h, parthenon::Real &y1_l ){
-        const parthenon::Real f_t0_y0 = f(t0,y0);
-        y1_l = y0 + h*f_t0_y0; //1st order
-        y1_h = y0 + h/2.*( f_t0_y0 + f(t0 + h,y1_l) ); //2nd order
-      }
-      static KOKKOS_INLINE_FUNCTION parthenon::Real OptimalStep(const parthenon::Real h, const parthenon::Real err, const parthenon::Real tol){
-        return 0.95*h*pow(tol/err,2);
-      }
-    };
-
-    //Struct to take a 5th and 4th order RK step to compute 5th and 4th order estimations in y1_h and y1_l
-    struct RK45Stepper{
-      template <typename Function>
-      static KOKKOS_INLINE_FUNCTION void Step(const parthenon::Real t0, const parthenon::Real h, const parthenon::Real y0, Function f,
-          parthenon::Real &y1_h, parthenon::Real &y1_l ){
-        const parthenon::Real k1 = h*f(t0,y0);
-        const parthenon::Real k2 = h*f(t0 + 1./4.*h, y0 + 1./4.*k1);
-        const parthenon::Real k3 = h*f(t0 + 3./8.*h, y0 + 3./32.*k1 + 9./32.*k2);
-        const parthenon::Real k4 = h*f(t0 + 12./13.*h, y0 + 1932./2197.*k1 - 7200./2197.*k2 + 7296./2197.*k3);
-        const parthenon::Real k5 = h*f(t0 + h, y0 + 439./216.*k1 - 8.*k2 + 3680./513.*k3 - 845./4104.*k4);
-        const parthenon::Real k6 = h*f(t0 + 1./2.*h, y0 - 8./27.*k1 + 2.*k2 - 3544./2565.*k3 + 1859./4104.*k4 - 11./40.*k5); //TODO(forrestglines): Check k2?
-        y1_l = y0 + 25./216.*k1  + 1408./2565.*k3 + 2197./4104.*k4 - 1./5.*k5; //4th order
-        y1_h = y0 + 16./135.*k1  + 6656./12825.*k3 + 28561./56430.*k4 - 9./50.*k5 + 2./55.*k6; //5th order
-      }
-      static KOKKOS_INLINE_FUNCTION parthenon::Real OptimalStep(const parthenon::Real h, const parthenon::Real err, const parthenon::Real tol){
-        return 0.95*h*pow(tol/err,5);
-      }
-    };
 
     //Interpolate a cooling rate from the table
     static KOKKOS_INLINE_FUNCTION parthenon::Real DeDt(
