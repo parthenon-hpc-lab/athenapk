@@ -18,6 +18,8 @@
 # Modules
 import math
 import numpy as np
+import scipy as sp
+import scipy.optimize
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pylab as plt
@@ -81,6 +83,11 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.machine_epsilon = 1e-14
         self.integration_order_tol = {2:1e-4,5:1e-10}
 
+        self.cooling_cfl_convergence_test = 1e100
+        self.cooling_cfl_dual_order_test = 0.1
+
+        self.convergence_tol = 0.1
+
     def Prepare(self,parameters, step):
         """
         Any preprocessing that is needed before the drive is run can be done in
@@ -113,6 +120,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             integration_order,max_iter = self.integration_orders_and_max_iters[step-1]
             #force the full number of iterations
             d_e_tol = 0 
+            #Use a very high cooling cfl so that cooling time doesn't affect the timestep
+            #(Makes the convergence more obvious)
+            cooling_cfl = self.cooling_cfl_convergence_test
         else:
             #Test the adaptiveness of the dual-order RK integrators
             adapt_step = step - len(self.integration_orders_and_max_iters)
@@ -121,6 +131,8 @@ class TestCase(utils.test_case.TestCaseAbs):
             max_iter = max(self.max_iters)
             #Use a small but non-zero tolerance
             d_e_tol = self.machine_epsilon
+            #Use a reasonable cooling cfl
+            cooling_cfl = self.cooling_cfl_convergence_test
 
         #Create the tabular cooling file (in log cgs)
         table_filename = "exponential.cooling"
@@ -154,6 +166,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"cooling/lambda_units_cgs=1",
 
                 f"cooling/integration_order={integration_order}",
+                f"cooling/cfl={cooling_cfl}",
                 f"cooling/max_iter={max_iter}",
                 f"cooling/d_e_tol={d_e_tol}",
             ]
@@ -318,6 +331,13 @@ class TestCase(utils.test_case.TestCaseAbs):
                 adapt_step = step - len(self.integration_orders_and_max_iters)
                 integration_order = self.integration_orders[adapt_step-1]
                 adapt_final_internal_es[integration_order] = internal_e
+
+        for integration_order in self.integration_orders:
+            final_internal_es = unyt.unyt_array(
+                [ conv_final_internal_es[(integration_order,mi)].in_units("code_length**2*code_time**-2") 
+                    for mi in self.max_iters ],
+                "code_length**2*code_time**-2")
+
         
         #Plot the error for the convergence test
         fig,ax = plt.subplots(1,1)
@@ -327,16 +347,32 @@ class TestCase(utils.test_case.TestCaseAbs):
                 [ conv_final_internal_es[(integration_order,mi)].in_units("code_length**2*code_time**-2") 
                     for mi in self.max_iters ],
                 "code_length**2*code_time**-2")
+            max_iters = np.array(self.max_iters,dtype=float)
 
-            conv_err = np.abs( (analytic_final_internal_e-final_internal_es)/analytic_final_internal_e)
+            final_internal_e_errs = np.abs( (analytic_final_internal_e-final_internal_es)/analytic_final_internal_e)
+
+            #Estimate the converge rate for each integration order
+            conv_model = lambda log_n,log_a,conv_rate : conv_rate*log_n + log_a
+            popt,pconv = sp.optimize.curve_fit(conv_model,np.log10(max_iters),np.log10(final_internal_e_errs))
+
+            conv_a,conv_measured = popt
+
+            if conv_measured  > -integration_order + self.convergence_tol:
+                print(f"ERROR: Convergence rate of RK{integration_order-1}{integration_order} exceeds tolerance")
+                print(f"    {conv_measured} > {-integration_order} + {self.convergence_tol}")
+                analyze_status = False
 
             #Plot this err versus steps
-            sc = ax.scatter(self.max_iters,conv_err,label=f"RK{integration_order-1}{integration_order}")
+            sc = ax.scatter(max_iters,final_internal_e_errs,label=f"RK{integration_order-1}{integration_order}")
 
             #Plot the expected scaling for the error
-            ax.plot(self.max_iters, (conv_err[0]/self.max_iters[0]**-integration_order)*
-                                    np.array(self.max_iters,dtype=float)**(-integration_order),
-                color=sc.get_facecolors()[0],linestyle="--",label=f"#n^{{{-integration_order}}}$")
+            ax.plot(self.max_iters, (final_internal_e_errs[0]/max_iters[0]**-integration_order)*
+                                    max_iters**(-integration_order),
+                color=sc.get_facecolors()[0],linestyle="--",label=f"Expected: $n^{{{-integration_order}}}$")
+
+            #Plot the Measured scaling for the error
+            ax.plot(self.max_iters, (10**conv_a)*max_iters**conv_measured,
+                color=sc.get_facecolors()[0],linestyle=":",label=f"Measured: $n^{{{conv_measured:.1f}}}$")
 
             #Check that the adaptive approach is within test_epsilon of the best err
             adapt_final_internal_e = adapt_final_internal_es[integration_order]
