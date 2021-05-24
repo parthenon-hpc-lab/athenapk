@@ -74,6 +74,7 @@ cuda-regression:
     - springdale7
   stage: regression
   script:
+    - module avail
     - module load gcc/7.3.0 cudatoolkit/11.1
     - mkdir build-cuda
     - cd build-cuda
