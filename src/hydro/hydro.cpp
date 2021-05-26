@@ -501,7 +501,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         if constexpr (fluid == Fluid::euler) {
           RiemannSolver(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         } else if constexpr (fluid == Fluid::glmmhd) {
-          GLMMHD_HLLE(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
+          GLMMHD_HLLD(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         } else {
           PARTHENON_FAIL("Unknown fluid method");
         }
@@ -551,7 +551,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
               if constexpr (fluid == Fluid::euler) {
                 RiemannSolver(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
-                GLMMHD_HLLE(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
+                GLMMHD_HLLD(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
               }
@@ -606,7 +606,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
               if constexpr (fluid == Fluid::euler) {
                 RiemannSolver(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               } else if constexpr (fluid == Fluid::glmmhd) {
-                GLMMHD_HLLE(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
+                GLMMHD_HLLD(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               } else {
                 PARTHENON_FAIL("Unknown fluid method");
               }

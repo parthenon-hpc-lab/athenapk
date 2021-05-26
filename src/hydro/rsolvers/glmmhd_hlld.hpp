@@ -51,113 +51,93 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
   const auto gm1 = gamma - 1.0;
   const auto igm1 = 1.0 / gm1;
 
-  // TODO(pgrete) move to a more central center and add logic
-  constexpr int NGLMMHD = 9;
-
   parthenon::par_for_inner(member, il, iu, [&](const int i) {
-    Real wli[NGLMMHD], wri[NGLMMHD], flxi[NGLMMHD];
     Real spd[5];                     // signal speeds, left to right
     Cons1D ul, ur;                   // L/R states, conserved variables (computed)
     Cons1D ulst, uldst, urdst, urst; // Conserved variable for all states
     Cons1D fl, fr;                   // Fluxes for left & right states
 
     //--- Step 1.  Load L/R states into local variables
-
-    wli[IDN] = wl(IDN, i);
-    wli[IV1] = wl(ivx, i);
-    wli[IV2] = wl(ivy, i);
-    wli[IV3] = wl(ivz, i);
-    wli[IPR] = wl(IPR, i);
-    wli[IB1] = wl(iBx, i);
-    wli[IB2] = wl(iBy, i);
-    wli[IB3] = wl(iBz, i);
-    wli[IPS] = wl(IPS, i);
-
-    wri[IDN] = wr(IDN, i);
-    wri[IV1] = wr(ivx, i);
-    wri[IV2] = wr(ivy, i);
-    wri[IV3] = wr(ivz, i);
-    wri[IPR] = wr(IPR, i);
-    wri[IB1] = wr(iBx, i);
-    wri[IB2] = wr(iBy, i);
-    wri[IB3] = wr(iBz, i);
-    wri[IPS] = wr(IPS, i);
+    // Removed to reduce register pressure
 
     // first solve the decoupled state, see eq (24) in Mignone & Tzeferacos (2010)
-    Real bxi = 0.5 * (wli[IB1] + wri[IB1]) - 0.5 / c_h * (wri[IPS] - wli[IPS]);
-    Real psii = 0.5 * (wli[IPS] + wri[IPS]) - 0.5 * c_h * (wri[IB1] - wli[IB1]);
+    Real bxi = 0.5 * (wl(iBx, i) + wr(iBx, i)) - 0.5 / c_h * (wr(IPS, i) - wl(IPS, i));
+    Real psii = 0.5 * (wl(IPS, i) + wr(IPS, i)) - 0.5 * c_h * (wr(iBx, i) - wl(iBx, i));
     // and store flux
-    flxi[IB1] = psii;
-    flxi[IPS] = SQR(c_h) * bxi;
+    cons.flux(ivx, iBx, k, j, i) = psii;
+    cons.flux(ivx, IPS, k, j, i) = SQR(c_h) * bxi;
 
     // Compute L/R states for selected conserved variables
     Real bxsq = bxi * bxi;
     // (KGF): group transverse vector components for floating-point associativity symmetry
-    Real pbl = 0.5 * (bxsq + (SQR(wli[IB2]) + SQR(wli[IB3]))); // magnetic pressure (l/r)
-    Real pbr = 0.5 * (bxsq + (SQR(wri[IB2]) + SQR(wri[IB3])));
-    Real kel = 0.5 * wli[IDN] * (SQR(wli[IV1]) + (SQR(wli[IV2]) + SQR(wli[IV3])));
-    Real ker = 0.5 * wri[IDN] * (SQR(wri[IV1]) + (SQR(wri[IV2]) + SQR(wri[IV3])));
+    Real pbl =
+        0.5 * (bxsq + (SQR(wl(iBy, i)) + SQR(wl(iBz, i)))); // magnetic pressure (l/r)
+    Real pbr = 0.5 * (bxsq + (SQR(wr(iBy, i)) + SQR(wr(iBz, i))));
+    Real kel = 0.5 * wl(IDN, i) * (SQR(wl(ivx, i)) + (SQR(wl(ivy, i)) + SQR(wl(ivz, i))));
+    Real ker = 0.5 * wr(IDN, i) * (SQR(wr(ivx, i)) + (SQR(wr(ivy, i)) + SQR(wr(ivz, i))));
 
-    ul.d = wli[IDN];
-    ul.mx = wli[IV1] * ul.d;
-    ul.my = wli[IV2] * ul.d;
-    ul.mz = wli[IV3] * ul.d;
-    ul.e = wli[IPR] * igm1 + kel + pbl;
-    ul.by = wli[IB2];
-    ul.bz = wli[IB3];
+    ul.d = wl(IDN, i);
+    ul.mx = wl(ivx, i) * ul.d;
+    ul.my = wl(ivy, i) * ul.d;
+    ul.mz = wl(ivz, i) * ul.d;
+    ul.e = wl(IPR, i) * igm1 + kel + pbl;
+    ul.by = wl(iBy, i);
+    ul.bz = wl(iBz, i);
 
-    ur.d = wri[IDN];
-    ur.mx = wri[IV1] * ur.d;
-    ur.my = wri[IV2] * ur.d;
-    ur.mz = wri[IV3] * ur.d;
-    ur.e = wri[IPR] * igm1 + ker + pbr;
-    ur.by = wri[IB2];
-    ur.bz = wri[IB3];
+    ur.d = wr(IDN, i);
+    ur.mx = wr(ivx, i) * ur.d;
+    ur.my = wr(ivy, i) * ur.d;
+    ur.mz = wr(ivz, i) * ur.d;
+    ur.e = wr(IPR, i) * igm1 + ker + pbr;
+    ur.by = wr(iBy, i);
+    ur.bz = wr(iBz, i);
 
     //--- Step 2.  Compute L & R wave speeds according to Miyoshi & Kusano, eqn. (67)
 
-    const auto cfl =
-        eos.FastMagnetosonicSpeed(wli[IDN], wli[IPR], wli[IB1], wli[IB2], wli[IB3]);
-    const auto cfr =
-        eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[IB1], wri[IB2], wri[IB3]);
+    const auto cfl = eos.FastMagnetosonicSpeed(wl(IDN, i), wl(IPR, i), wl(iBx, i),
+                                               wl(iBy, i), wl(iBz, i));
+    const auto cfr = eos.FastMagnetosonicSpeed(wr(IDN, i), wr(IPR, i), wr(iBx, i),
+                                               wr(iBy, i), wr(iBz, i));
 
-    spd[0] = std::min(wli[IV1] - cfl, wri[IV1] - cfr);
-    spd[4] = std::max(wli[IV1] + cfl, wri[IV1] + cfr);
+    spd[0] = std::min(wl(ivx, i) - cfl, wr(ivx, i) - cfr);
+    spd[4] = std::max(wl(ivx, i) + cfl, wr(ivx, i) + cfr);
 
     // Real cfmax = std::max(cfl,cfr);
-    // if (wli[IV1] <= wri[IV1]) {
-    //   spd[0] = wli[IV1] - cfmax;
-    //   spd[4] = wri[IV1] + cfmax;
+    // if (wl(ivx, i) <= wr(ivx, i)) {
+    //   spd[0] = wl(ivx, i) - cfmax;
+    //   spd[4] = wr(ivx, i) + cfmax;
     // } else {
-    //   spd[0] = wri[IV1] - cfmax;
-    //   spd[4] = wli[IV1] + cfmax;
+    //   spd[0] = wr(ivx, i) - cfmax;
+    //   spd[4] = wl(ivx, i) + cfmax;
     // }
 
     //--- Step 3.  Compute L/R fluxes
 
-    Real ptl = wli[IPR] + pbl; // total pressures L,R
-    Real ptr = wri[IPR] + pbr;
+    Real ptl = wl(IPR, i) + pbl; // total pressures L,R
+    Real ptr = wr(IPR, i) + pbr;
 
     fl.d = ul.mx;
-    fl.mx = ul.mx * wli[IV1] + ptl - bxsq;
-    fl.my = ul.my * wli[IV1] - bxi * ul.by;
-    fl.mz = ul.mz * wli[IV1] - bxi * ul.bz;
-    fl.e = wli[IV1] * (ul.e + ptl - bxsq) - bxi * (wli[IV2] * ul.by + wli[IV3] * ul.bz);
-    fl.by = ul.by * wli[IV1] - bxi * wli[IV2];
-    fl.bz = ul.bz * wli[IV1] - bxi * wli[IV3];
+    fl.mx = ul.mx * wl(ivx, i) + ptl - bxsq;
+    fl.my = ul.my * wl(ivx, i) - bxi * ul.by;
+    fl.mz = ul.mz * wl(ivx, i) - bxi * ul.bz;
+    fl.e = wl(ivx, i) * (ul.e + ptl - bxsq) -
+           bxi * (wl(ivy, i) * ul.by + wl(ivz, i) * ul.bz);
+    fl.by = ul.by * wl(ivx, i) - bxi * wl(ivy, i);
+    fl.bz = ul.bz * wl(ivx, i) - bxi * wl(ivz, i);
 
     fr.d = ur.mx;
-    fr.mx = ur.mx * wri[IV1] + ptr - bxsq;
-    fr.my = ur.my * wri[IV1] - bxi * ur.by;
-    fr.mz = ur.mz * wri[IV1] - bxi * ur.bz;
-    fr.e = wri[IV1] * (ur.e + ptr - bxsq) - bxi * (wri[IV2] * ur.by + wri[IV3] * ur.bz);
-    fr.by = ur.by * wri[IV1] - bxi * wri[IV2];
-    fr.bz = ur.bz * wri[IV1] - bxi * wri[IV3];
+    fr.mx = ur.mx * wr(ivx, i) + ptr - bxsq;
+    fr.my = ur.my * wr(ivx, i) - bxi * ur.by;
+    fr.mz = ur.mz * wr(ivx, i) - bxi * ur.bz;
+    fr.e = wr(ivx, i) * (ur.e + ptr - bxsq) -
+           bxi * (wr(ivy, i) * ur.by + wr(ivz, i) * ur.bz);
+    fr.by = ur.by * wr(ivx, i) - bxi * wr(ivy, i);
+    fr.bz = ur.bz * wr(ivx, i) - bxi * wr(ivz, i);
 
     //--- Step 4.  Compute middle and Alfven wave speeds
 
-    Real sdl = spd[0] - wli[IV1]; // S_i-u_i (i=L or R)
-    Real sdr = spd[4] - wri[IV1];
+    Real sdl = spd[0] - wl(ivx, i); // S_i-u_i (i=L or R)
+    Real sdr = spd[4] - wr(ivx, i);
 
     // S_M: eqn (38) of Miyoshi & Kusano
     // (KGF): group ptl, ptr terms for floating-point associativity symmetry
@@ -182,8 +162,8 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     //--- Step 5.  Compute intermediate states
     // eqn (23) explicitly becomes eq (41) of Miyoshi & Kusano
     // TODO(felker): place an assertion that ptstl==ptstr
-    Real ptstl = ptl + ul.d * sdl * (spd[2] - wli[IV1]);
-    Real ptstr = ptr + ur.d * sdr * (spd[2] - wri[IV1]);
+    Real ptstl = ptl + ul.d * sdl * (spd[2] - wl(ivx, i));
+    Real ptstr = ptr + ur.d * sdr * (spd[2] - wr(ivx, i));
     // Real ptstl = ptl + ul.d*sdl*(sdl-sdml); // these equations had issues when averaged
     // Real ptstr = ptr + ur.d*sdr*(sdr-sdmr);
     Real ptst = 0.5 * (ptstr + ptstl); // total pressure (star state)
@@ -192,16 +172,16 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     ulst.mx = ulst.d * spd[2];
     if (std::abs(ul.d * sdl * sdml - bxsq) < (SMALL_NUMBER)*ptst) {
       // Degenerate case
-      ulst.my = ulst.d * wli[IV2];
-      ulst.mz = ulst.d * wli[IV3];
+      ulst.my = ulst.d * wl(ivy, i);
+      ulst.mz = ulst.d * wl(ivz, i);
 
       ulst.by = ul.by;
       ulst.bz = ul.bz;
     } else {
       // eqns (44) and (46) of M&K
       Real tmp = bxi * (sdl - sdml) / (ul.d * sdl * sdml - bxsq);
-      ulst.my = ulst.d * (wli[IV2] - ul.by * tmp);
-      ulst.mz = ulst.d * (wli[IV3] - ul.bz * tmp);
+      ulst.my = ulst.d * (wl(ivy, i) - ul.by * tmp);
+      ulst.mz = ulst.d * (wl(ivz, i) - ul.bz * tmp);
 
       // eqns (45) and (47) of M&K
       tmp = (ul.d * SQR(sdl) - bxsq) / (ul.d * sdl * sdml - bxsq);
@@ -213,24 +193,25 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     Real vbstl = (ulst.mx * bxi + (ulst.my * ulst.by + ulst.mz * ulst.bz)) * ulst_d_inv;
     // eqn (48) of M&K
     // (KGF): group transverse by, bz terms for floating-point associativity symmetry
-    ulst.e = (sdl * ul.e - ptl * wli[IV1] + ptst * spd[2] +
-              bxi * (wli[IV1] * bxi + (wli[IV2] * ul.by + wli[IV3] * ul.bz) - vbstl)) *
-             sdml_inv;
+    ulst.e =
+        (sdl * ul.e - ptl * wl(ivx, i) + ptst * spd[2] +
+         bxi * (wl(ivx, i) * bxi + (wl(ivy, i) * ul.by + wl(ivz, i) * ul.bz) - vbstl)) *
+        sdml_inv;
 
     // ur* - eqn (39) of M&K
     urst.mx = urst.d * spd[2];
     if (std::abs(ur.d * sdr * sdmr - bxsq) < (SMALL_NUMBER)*ptst) {
       // Degenerate case
-      urst.my = urst.d * wri[IV2];
-      urst.mz = urst.d * wri[IV3];
+      urst.my = urst.d * wr(ivy, i);
+      urst.mz = urst.d * wr(ivz, i);
 
       urst.by = ur.by;
       urst.bz = ur.bz;
     } else {
       // eqns (44) and (46) of M&K
       Real tmp = bxi * (sdr - sdmr) / (ur.d * sdr * sdmr - bxsq);
-      urst.my = urst.d * (wri[IV2] - ur.by * tmp);
-      urst.mz = urst.d * (wri[IV3] - ur.bz * tmp);
+      urst.my = urst.d * (wr(ivy, i) - ur.by * tmp);
+      urst.mz = urst.d * (wr(ivz, i) - ur.bz * tmp);
 
       // eqns (45) and (47) of M&K
       tmp = (ur.d * SQR(sdr) - bxsq) / (ur.d * sdr * sdmr - bxsq);
@@ -242,9 +223,10 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
     Real vbstr = (urst.mx * bxi + (urst.my * urst.by + urst.mz * urst.bz)) * urst_d_inv;
     // eqn (48) of M&K
     // (KGF): group transverse by, bz terms for floating-point associativity symmetry
-    urst.e = (sdr * ur.e - ptr * wri[IV1] + ptst * spd[2] +
-              bxi * (wri[IV1] * bxi + (wri[IV2] * ur.by + wri[IV3] * ur.bz) - vbstr)) *
-             sdmr_inv;
+    urst.e =
+        (sdr * ur.e - ptr * wr(ivx, i) + ptst * spd[2] +
+         bxi * (wr(ivx, i) * bxi + (wr(ivy, i) * ur.by + wr(ivz, i) * ur.bz) - vbstr)) *
+        sdmr_inv;
     // ul** and ur** - if Bx is near zero, same as *-states
     if (0.5 * bxsq < (SMALL_NUMBER)*ptst) {
       uldst = ulst;
@@ -325,69 +307,59 @@ GLMMHD_HLLD(parthenon::team_mbr_t const &member, const int k, const int j, const
 
     if (spd[0] >= 0.0) {
       // return Fl if flow is supersonic
-      flxi[IDN] = fl.d;
-      flxi[IV1] = fl.mx;
-      flxi[IV2] = fl.my;
-      flxi[IV3] = fl.mz;
-      flxi[IEN] = fl.e;
-      flxi[IB2] = fl.by;
-      flxi[IB3] = fl.bz;
+      cons.flux(ivx, IDN, k, j, i) = fl.d;
+      cons.flux(ivx, ivx, k, j, i) = fl.mx;
+      cons.flux(ivx, ivy, k, j, i) = fl.my;
+      cons.flux(ivx, ivz, k, j, i) = fl.mz;
+      cons.flux(ivx, IEN, k, j, i) = fl.e;
+      cons.flux(ivx, iBy, k, j, i) = fl.by;
+      cons.flux(ivx, iBz, k, j, i) = fl.bz;
     } else if (spd[4] <= 0.0) {
       // return Fr if flow is supersonic
-      flxi[IDN] = fr.d;
-      flxi[IV1] = fr.mx;
-      flxi[IV2] = fr.my;
-      flxi[IV3] = fr.mz;
-      flxi[IEN] = fr.e;
-      flxi[IB2] = fr.by;
-      flxi[IB3] = fr.bz;
+      cons.flux(ivx, IDN, k, j, i) = fr.d;
+      cons.flux(ivx, ivx, k, j, i) = fr.mx;
+      cons.flux(ivx, ivy, k, j, i) = fr.my;
+      cons.flux(ivx, ivz, k, j, i) = fr.mz;
+      cons.flux(ivx, IEN, k, j, i) = fr.e;
+      cons.flux(ivx, iBy, k, j, i) = fr.by;
+      cons.flux(ivx, iBz, k, j, i) = fr.bz;
     } else if (spd[1] >= 0.0) {
       // return Fl*
-      flxi[IDN] = fl.d + ulst.d;
-      flxi[IV1] = fl.mx + ulst.mx;
-      flxi[IV2] = fl.my + ulst.my;
-      flxi[IV3] = fl.mz + ulst.mz;
-      flxi[IEN] = fl.e + ulst.e;
-      flxi[IB2] = fl.by + ulst.by;
-      flxi[IB3] = fl.bz + ulst.bz;
+      cons.flux(ivx, IDN, k, j, i) = fl.d + ulst.d;
+      cons.flux(ivx, ivx, k, j, i) = fl.mx + ulst.mx;
+      cons.flux(ivx, ivy, k, j, i) = fl.my + ulst.my;
+      cons.flux(ivx, ivz, k, j, i) = fl.mz + ulst.mz;
+      cons.flux(ivx, IEN, k, j, i) = fl.e + ulst.e;
+      cons.flux(ivx, iBy, k, j, i) = fl.by + ulst.by;
+      cons.flux(ivx, iBz, k, j, i) = fl.bz + ulst.bz;
     } else if (spd[2] >= 0.0) {
       // return Fl**
-      flxi[IDN] = fl.d + ulst.d + uldst.d;
-      flxi[IV1] = fl.mx + ulst.mx + uldst.mx;
-      flxi[IV2] = fl.my + ulst.my + uldst.my;
-      flxi[IV3] = fl.mz + ulst.mz + uldst.mz;
-      flxi[IEN] = fl.e + ulst.e + uldst.e;
-      flxi[IB2] = fl.by + ulst.by + uldst.by;
-      flxi[IB3] = fl.bz + ulst.bz + uldst.bz;
+      cons.flux(ivx, IDN, k, j, i) = fl.d + ulst.d + uldst.d;
+      cons.flux(ivx, ivx, k, j, i) = fl.mx + ulst.mx + uldst.mx;
+      cons.flux(ivx, ivy, k, j, i) = fl.my + ulst.my + uldst.my;
+      cons.flux(ivx, ivz, k, j, i) = fl.mz + ulst.mz + uldst.mz;
+      cons.flux(ivx, IEN, k, j, i) = fl.e + ulst.e + uldst.e;
+      cons.flux(ivx, iBy, k, j, i) = fl.by + ulst.by + uldst.by;
+      cons.flux(ivx, iBz, k, j, i) = fl.bz + ulst.bz + uldst.bz;
     } else if (spd[3] > 0.0) {
       // return Fr**
-      flxi[IDN] = fr.d + urst.d + urdst.d;
-      flxi[IV1] = fr.mx + urst.mx + urdst.mx;
-      flxi[IV2] = fr.my + urst.my + urdst.my;
-      flxi[IV3] = fr.mz + urst.mz + urdst.mz;
-      flxi[IEN] = fr.e + urst.e + urdst.e;
-      flxi[IB2] = fr.by + urst.by + urdst.by;
-      flxi[IB3] = fr.bz + urst.bz + urdst.bz;
+      cons.flux(ivx, IDN, k, j, i) = fr.d + urst.d + urdst.d;
+      cons.flux(ivx, ivx, k, j, i) = fr.mx + urst.mx + urdst.mx;
+      cons.flux(ivx, ivy, k, j, i) = fr.my + urst.my + urdst.my;
+      cons.flux(ivx, ivz, k, j, i) = fr.mz + urst.mz + urdst.mz;
+      cons.flux(ivx, IEN, k, j, i) = fr.e + urst.e + urdst.e;
+      cons.flux(ivx, iBy, k, j, i) = fr.by + urst.by + urdst.by;
+      cons.flux(ivx, iBz, k, j, i) = fr.bz + urst.bz + urdst.bz;
     } else {
       // return Fr*
-      flxi[IDN] = fr.d + urst.d;
-      flxi[IV1] = fr.mx + urst.mx;
-      flxi[IV2] = fr.my + urst.my;
-      flxi[IV3] = fr.mz + urst.mz;
-      flxi[IEN] = fr.e + urst.e;
-      flxi[IB2] = fr.by + urst.by;
-      flxi[IB3] = fr.bz + urst.bz;
+      cons.flux(ivx, IDN, k, j, i) = fr.d + urst.d;
+      cons.flux(ivx, ivx, k, j, i) = fr.mx + urst.mx;
+      cons.flux(ivx, ivy, k, j, i) = fr.my + urst.my;
+      cons.flux(ivx, ivz, k, j, i) = fr.mz + urst.mz;
+      cons.flux(ivx, IEN, k, j, i) = fr.e + urst.e;
+      cons.flux(ivx, iBy, k, j, i) = fr.by + urst.by;
+      cons.flux(ivx, iBz, k, j, i) = fr.bz + urst.bz;
     }
-
-    cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
-    cons.flux(ivx, ivx, k, j, i) = flxi[IV1];
-    cons.flux(ivx, ivy, k, j, i) = flxi[IV2];
-    cons.flux(ivx, ivz, k, j, i) = flxi[IV3];
-    cons.flux(ivx, IEN, k, j, i) = flxi[IEN];
-    cons.flux(ivx, iBx, k, j, i) = flxi[IB1];
-    cons.flux(ivx, iBy, k, j, i) = flxi[IB2];
-    cons.flux(ivx, iBz, k, j, i) = flxi[IB3];
-    cons.flux(ivx, IPS, k, j, i) = flxi[IPS];
   });
 }
 
