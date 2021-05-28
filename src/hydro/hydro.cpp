@@ -510,13 +510,190 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
     scratch_size_in_bytes =
-        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
+        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 6;
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
     if (pmb->block_size.nx3 == 1) // 2D
       kl = kb.s, ku = kb.e;
     else // 3D
       kl = kb.s - 1, ku = kb.e + 1;
+
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x2 flux mem reconswap", DevExecSpace(),
+        scratch_size_in_bytes, scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
+          const auto &coords = cons_in.coords(b);
+          const auto &prim = prim_in(b);
+          auto &cons = cons_in(b);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> pjm1(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> pj(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> pjp1(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+
+          parthenon::par_for_inner(member, il, iu, [&](const int i) {
+            for (int n = 0; n < num_scratch_vars; ++n) {
+              pjm1(n, i) = prim(n, k, jb.s - 2, i);
+              pj(n, i) = prim(n, k, jb.s - 1, i);
+            }
+          });
+          for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
+            // Cache j+1 pencil
+            parthenon::par_for_inner(member, il, iu, [&](const int i) {
+              for (int n = 0; n < num_scratch_vars; ++n) {
+                pjp1(n, i) = prim(n, k, j + 1, i);
+              }
+            });
+            member.team_barrier();
+
+            // reconstruct L/R states at j
+            parthenon::par_for_inner(member, il, iu, [&](const int i) {
+              for (int n = 0; n < num_scratch_vars; ++n) {
+                PLM(pjm1(n, i), pj(n, i), pjp1(n, i), wlb(n, i), wr(n, i));
+              }
+            });
+            // Sync all threads in the team so that scratch memory is consistent
+            member.team_barrier();
+
+            if (j > jb.s - 1) {
+              if constexpr (fluid == Fluid::euler) {
+                RiemannSolver(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
+              } else if constexpr (fluid == Fluid::glmmhd) {
+                GLMMHD_HLLD(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
+              } else {
+                PARTHENON_FAIL("Unknown fluid method");
+              }
+              member.team_barrier();
+            }
+
+            // swap the arrays for the next step
+            auto *tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+
+            // advance pencil cache
+            pjm1.assign_data(pj.data());
+            pj.assign_data(pjp1.data());
+          }
+        });
+
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x2 flux mem", DevExecSpace(), scratch_size_in_bytes,
+        scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
+          const auto &coords = cons_in.coords(b);
+          const auto &prim = prim_in(b);
+          auto &cons = cons_in(b);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> pjm1(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> pj(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> pjp1(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+
+          for (int n = 0; n < num_scratch_vars; ++n) {
+            parthenon::par_for_inner(member, il, iu, [&](const int i) {
+              pjm1(n, i) = prim(n, k, jb.s - 2, i);
+              pj(n, i) = prim(n, k, jb.s - 1, i);
+            });
+          }
+          for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
+            // Cache j+1 pencil
+            for (int n = 0; n < num_scratch_vars; ++n) {
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                pjp1(n, i) = prim(n, k, j + 1, i);
+              });
+            }
+            member.team_barrier();
+
+            // reconstruct L/R states at j
+            for (int n = 0; n < num_scratch_vars; ++n) {
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                PLM(pjm1(n, i), pj(n, i), pjp1(n, i), wlb(n, i), wr(n, i));
+              });
+            }
+            // Sync all threads in the team so that scratch memory is consistent
+            member.team_barrier();
+
+            if (j > jb.s - 1) {
+              if constexpr (fluid == Fluid::euler) {
+                RiemannSolver(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
+              } else if constexpr (fluid == Fluid::glmmhd) {
+                GLMMHD_HLLD(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
+              } else {
+                PARTHENON_FAIL("Unknown fluid method");
+              }
+              member.team_barrier();
+            }
+
+            // swap the arrays for the next step
+            auto *tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+
+            // advance pencil cache
+            pjm1.assign_data(pj.data());
+            pj.assign_data(pjp1.data());
+          }
+        });
+
+    scratch_size_in_bytes =
+        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
+
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x2 flux reconswap", DevExecSpace(),
+        scratch_size_in_bytes, scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
+          const auto &coords = cons_in.coords(b);
+          const auto &prim = prim_in(b);
+          auto &cons = cons_in(b);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
+          for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
+            // reconstruct L/R states at j
+            parthenon::par_for_inner(member, il, iu, [&](const int i) {
+              for (int n = 0; n < num_scratch_vars; ++n) {
+                PLM(prim(n, k, j - 1, i), prim(n, k, j, i), prim(n, k, j + 1, i),
+                    wlb(n, i), wr(n, i));
+              }
+            });
+            // Sync all threads in the team so that scratch memory is consistent
+            member.team_barrier();
+
+            if (j > jb.s - 1) {
+              if constexpr (fluid == Fluid::euler) {
+                RiemannSolver(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
+              } else if constexpr (fluid == Fluid::glmmhd) {
+                GLMMHD_HLLD(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
+              } else {
+                PARTHENON_FAIL("Unknown fluid method");
+              }
+              member.team_barrier();
+            }
+
+            // swap the arrays for the next step
+            auto *tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+          }
+        });
 
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
