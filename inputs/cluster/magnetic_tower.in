@@ -12,13 +12,13 @@ dt         = 1e-4      # time increment between outputs
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = prim      # Variables to be output
-dt         = 1.0     # Time increment between outputs
+dt         = 0.01     # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/time>
 cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 1.0       # time limit
+tlim       = 0.01       # time limit
 integrator  = vl2       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
@@ -91,15 +91,15 @@ uniform_gas_uz = 0
 uniform_gas_pres = 1.5454368403867562
 
 #Include an initial magnetic tower
-enable_initial_magnetic_tower = true
-initial_magnetic_tower_field = 1.0
+enable_initial_magnetic_tower = True
+initial_magnetic_tower_field = 0.12431560000204142
 initial_magnetic_tower_alpha = 20
 initial_magnetic_tower_l_scale = 0.01
 
 #Include magnetic tower feedback
 enable_feedback_magnetic_tower = true
 feedback_magnetic_tower_mode = const_field
-feedback_magnetic_tower_field = 1.0
-feedback_magnetic_tower_power = 0.0
+feedback_magnetic_tower_field = 0.12431560000204142
+feedback_magnetic_tower_power = 0.0016599828166743962
 feedback_magnetic_tower_alpha = 20
 feedback_magnetic_tower_l_scale = 0.01
