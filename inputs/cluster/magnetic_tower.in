@@ -1,0 +1,105 @@
+
+<comment>
+problem   = Isolated galaxy cluster
+
+<job>
+problem_id = cluster   # problem ID: basename of output filenames
+
+<parthenon/output1>
+file_type  = hst       # History data dump
+dt         = 1e-4      # time increment between outputs
+
+<parthenon/output2>
+file_type  = hdf5      # HDF5 data dump
+variables  = prim      # Variables to be output
+dt         = 1.0     # Time increment between outputs
+id         = prim      # Name to append to output
+
+<parthenon/time>
+cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1         # cycle limit
+tlim       = 1.0       # time limit
+integrator  = vl2       # time integration algorithm
+perf_cycle_offset  = 10 # interval for stdout summary info
+
+
+<parthenon/mesh>
+refinement  = static
+nghost = 2
+
+nx1        = 64        # Number of zones in X1-direction
+x1min      =-0.1       # minimum value of X1
+x1max      = 0.1       # maximum value of X1
+ix1_bc     = outflow   # inner-X1 boundary flag
+ox1_bc     = outflow   # outer-X1 boundary flag
+
+nx2        = 64        # Number of zones in X2-direction
+x2min      =-0.1       # minimum value of X2
+x2max      = 0.1       # maximum value of X2
+ix2_bc     = outflow   # inner-X2 boundary flag
+ox2_bc     = outflow   # outer-X2 boundary flag
+
+nx3        = 64        # Number of zones in X3-direction
+x3min      =-0.1       # minimum value of X3
+x3max      = 0.1       # maximum value of X3
+ix3_bc     = outflow   # inner-X3 boundary flag
+ox3_bc     = outflow   # outer-X3 boundary flag
+
+<parthenon/static_refinement0>
+x1min = -0.025
+x1max =  0.025
+x2min = -0.025
+x2max =  0.025
+x3min = -0.025
+x3max =  0.025
+level = 2
+
+
+<parthenon/meshblock>
+nx1        = 8        # Number of zones in X1-direction
+nx2        = 8        # Number of zones in X2-direction
+nx3        = 8        # Number of zones in X3-direction
+
+<hydro>
+fluid = glmmhd
+gamma = 1.6666666666666667 # gamma = C_p/C_v
+eos = adiabatic
+riemann = hlle
+reconstruction = plm
+use_scratch = false
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+<units>
+#Units parameters
+code_length_cgs = 3.085677580962325e+24
+code_mass_cgs = 1.98841586e+47
+code_time_cgs = 3.15576e+16
+
+<problem>
+
+He_mass_fraction = 0.25
+
+#Disable gravity as a source term
+gravity_srcterm = false
+
+#Initialize with a uniform gas
+init_uniform_gas = true
+uniform_gas_rho = 147.7557589278723
+uniform_gas_ux = 0
+uniform_gas_uy = 0
+uniform_gas_uz = 0
+uniform_gas_pres = 1.5454368403867562
+
+#Include an initial magnetic tower
+enable_initial_magnetic_tower = true
+initial_magnetic_tower_field = 1.0
+initial_magnetic_tower_alpha = 20
+initial_magnetic_tower_l_scale = 0.01
+
+#Include magnetic tower feedback
+enable_feedback_magnetic_tower = true
+feedback_magnetic_tower_mode = const_field
+feedback_magnetic_tower_field = 1.0
+feedback_magnetic_tower_power = 0.0
+feedback_magnetic_tower_alpha = 20
+feedback_magnetic_tower_l_scale = 0.01

@@ -182,7 +182,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
-  pkg->AddParam<>("fluid", Fluid::glmmhd);
+  pkg->AddParam<>("fluid", Fluid::glmmhd);//FIXME(forrestglines): Should this line be fluid?
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("use_DednerGLMMHDSource", use_DednerGLMMHDSource);
   pkg->AddParam<>("use_DednerExtGLMMHDSource", use_DednerExtGLMMHDSource);
