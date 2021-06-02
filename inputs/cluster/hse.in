@@ -69,6 +69,7 @@ reconstruction = plm
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
+He_mass_fraction = 0.25
 
 <units>
 #Units parameters
@@ -106,8 +107,6 @@ K_0 = 8.851337676479303e-121
 K_100 = 1.3277006514718954e-119
 R_K = 0.1
 alpha_K = 1.1
-
-He_mass_fraction = 0.25
 
 #Fix density at radius to close system of equations
 R_fix = 2.0

@@ -25,13 +25,13 @@ class ACCEPTEntropyProfile{
   {
     Units units(pin);
 
-    K_0_     = pin->GetOrAddReal("problem", "K_0",
+    K_0_     = pin->GetOrAddReal("problem/cluster", "K_0",
         20*units.kev()*units.cm()*units.cm());
-    K_100_   = pin->GetOrAddReal("problem", "K_100",
+    K_100_   = pin->GetOrAddReal("problem/cluster", "K_100",
         120*units.kev()*units.cm()*units.cm());
-    R_K_     = pin->GetOrAddReal("problem", "R_K",
+    R_K_     = pin->GetOrAddReal("problem/cluster", "R_K",
         100*units.kpc());
-    alpha_K_ = pin->GetOrAddReal("problem", "alpha_K",1.75);
+    alpha_K_ = pin->GetOrAddReal("problem/cluster", "alpha_K",1.75);
   }
 
     //Get entropy from radius, using broken power law profile for entropy

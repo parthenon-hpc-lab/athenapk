@@ -46,30 +46,30 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::HydrostaticEqui
   atomic_mass_unit_=units.atomic_mass_unit();
   k_boltzmann_=units.k_boltzmann();
 
-  const Real He_mass_fraction = pin->GetReal("problem", "He_mass_fraction");
+  const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
   const Real H_mass_fraction = 1.0 - He_mass_fraction;
 
   mu_   = 1/(He_mass_fraction*3./4. + (1-He_mass_fraction)*2);
   mu_e_ = 1/(He_mass_fraction*2./4. + (1-He_mass_fraction));
 
-  R_fix_   = pin->GetOrAddReal("problem", "R_fix",
+  R_fix_   = pin->GetOrAddReal("problem/cluster", "R_fix",
       1953.9724519818478*units.kpc());
-  rho_fix_ = pin->GetOrAddReal("problem", "rho_fix",
+  rho_fix_ = pin->GetOrAddReal("problem/cluster", "rho_fix",
       8.607065015897638e-30*units.g()/pow(units.kpc(),3));
   const Real gam = pin->GetReal("hydro", "gamma");
   const Real gm1 = (gam - 1.0);
 
-  R_sampling_ = pin->GetOrAddReal("problem","R_sampling",4.0);
-  max_dR_ = pin->GetOrAddReal("problem","max_dR",1e-3);
+  R_sampling_ = pin->GetOrAddReal("problem/cluster","R_sampling",4.0);
+  max_dR_ = pin->GetOrAddReal("problem/cluster","max_dR",1e-3);
 
   //Test out the HSE sphere if requested
-  const bool test_he_sphere = pin->GetOrAddBoolean("problem","test_he_sphere",false);
+  const bool test_he_sphere = pin->GetOrAddBoolean("problem/cluster","test_he_sphere",false);
   if(test_he_sphere){
-    const Real test_he_sphere_R_start = pin->GetOrAddReal("problem", 
+    const Real test_he_sphere_R_start = pin->GetOrAddReal("problem/cluster", 
         "test_he_sphere_R_start_kpc", 1e-3*units.kpc());
-    const Real test_he_sphere_R_end = pin->GetOrAddReal("problem",
+    const Real test_he_sphere_R_end = pin->GetOrAddReal("problem/cluster",
         "test_he_sphere_R_end_kpc", 4000*units.kpc());
-    const int test_he_sphere_n_r = pin->GetOrAddInteger("problem",
+    const int test_he_sphere_n_r = pin->GetOrAddInteger("problem/cluster",
         "test_he_sphere_n_r", 4000);
     if( Globals::my_rank == 0){
       typedef Kokkos::View<Real*  , Kokkos::LayoutRight, HostMemSpace> View1D;
@@ -103,7 +103,7 @@ Real HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::PRhoProfil
     msg << "### FATAL ERROR in function [HydrostaticEquilibriumSphere::PRhoProfile]" << std::endl 
         << "R(i_r) to R_(i_r+1) does not contain r" <<std::endl
         <<"R(i_r) R_r R(i_r+1):"<< R_(i_r) << " " << r << " " << R_(i_r+1) <<std::endl;
-    throw std::runtime_error(msg.str().c_str());
+    PARTHENON_FAIL(msg.str().c_str());
   }
 
   //Linearly interpolate Pressure from P
@@ -250,7 +250,7 @@ HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::generate_P_rho_
     msg << "### FATAL ERROR in function [HydrostaticEquilibriumSphere::generate_P_rho_profile]" << std::endl 
       << "R(i_fix) to R_(i_fix+1) does not contain R_fix_" <<std::endl
       <<"R(i_fix) R_fix_ R(i_fix+1):"<< R(i_fix) << " " << R_fix_ << " " << R(i_fix+1) <<std::endl;
-    throw std::runtime_error(msg.str().c_str());
+    PARTHENON_FAIL(msg.str().c_str());
   }
 
   dP_dr_from_r_P_functor dP_dr_from_r_P(*this);

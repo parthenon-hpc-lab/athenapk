@@ -59,6 +59,8 @@ reconstruction = plm
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
+He_mass_fraction = 0.25
+
 <units>
 #Units parameters
 code_length_cgs = 3.085677580962325e+24
@@ -66,8 +68,6 @@ code_mass_cgs = 1.98841586e+47
 code_time_cgs = 3.15576e+16
 
 <problem/cluster>
-
-He_mass_fraction = 0.25
 
 #Disable gravity as a source term
 gravity_srcterm = false

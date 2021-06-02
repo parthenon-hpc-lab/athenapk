@@ -46,26 +46,23 @@ void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md, const p
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.coords(b);
 
-        const Real r2 = coords.x1v(i)*coords.x1v(i)
-                      + coords.x2v(j)*coords.x2v(j)
-                      + coords.x3v(k)*coords.x3v(k);
-        const Real r = sqrt(r2);
+        const Real r = sqrt(coords.x1v(i)*coords.x1v(i)
+                          + coords.x2v(j)*coords.x2v(j)
+                          + coords.x3v(k)*coords.x3v(k));
 
-        const Real g_r = gravitationalField.g_from_r(r,r2);
+        const Real g_r = gravitationalField.g_from_r(r);
 
         //Apply g_r as a source term
         const Real den = prim(IDN,k,j,i);
-        const Real src = beta_dt*den*g_r/r; //FIXME watch out for previous /r errors
+        const Real src = (r == 0)? 0 : beta_dt*den*g_r/r; //FIXME watch out for previous /r errors
         cons(IM1,k,j,i) -= src*coords.x1v(i);
         cons(IM2,k,j,i) -= src*coords.x2v(j);
         cons(IM3,k,j,i) -= src*coords.x3v(k);
-        if (true) { //FIXME if Adiabatic EOS
-          //FIXME Double check this
-          cons(IEN,k,j,i) -= src*(
-              coords.x1v(i)*prim(IV1,k,j,i)
-            + coords.x2v(j)*prim(IV2,k,j,i)
-            + coords.x3v(k)*prim(IV3,k,j,i));
-        }
+        //FIXME Double check this
+        cons(IEN,k,j,i) -= src*(
+            coords.x1v(i)*prim(IV1,k,j,i)
+          + coords.x2v(j)*prim(IV2,k,j,i)
+          + coords.x3v(k)*prim(IV3,k,j,i));
       
       });
 }
