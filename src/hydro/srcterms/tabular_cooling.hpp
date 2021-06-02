@@ -1,12 +1,12 @@
-#ifndef HYDRO_SRCTERMS_TABULAR_COOLING_HPP_
-#define HYDRO_SRCTERMS_TABULAR_COOLING_HPP_
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK astrophysical MHD code
+// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file tabular_cooling.hpp
 //  \brief Class for defining tabular cooling
+#ifndef HYDRO_SRCTERMS_TABULAR_COOLING_HPP_
+#define HYDRO_SRCTERMS_TABULAR_COOLING_HPP_
 
 // C++ headers
 #include <sstream>    // stringstream

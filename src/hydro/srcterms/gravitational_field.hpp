@@ -1,8 +1,6 @@
-#ifndef HYDRO_SRCTERMS_GRAVITATIONAL_FIELD_HPP_
-#define HYDRO_SRCTERMS_GRAVITATIONAL_FIELD_HPP_
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK astrophysical MHD code
+// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file gravitational_field.hpp
@@ -10,7 +8,8 @@
 // GravitationalFieldSrcTerm is templated function to apply an arbitrary
 // gravitational field as a source term
 //========================================================================================
-
+#ifndef HYDRO_SRCTERMS_GRAVITATIONAL_FIELD_HPP_
+#define HYDRO_SRCTERMS_GRAVITATIONAL_FIELD_HPP_
 
 // Parthenon headers
 #include <interface/mesh_data.hpp>

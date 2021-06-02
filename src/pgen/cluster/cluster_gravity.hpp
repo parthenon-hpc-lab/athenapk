@@ -1,12 +1,12 @@
-#ifndef CLUSTER_CLUSTER_GRAVITY_HPP_
-#define CLUSTER_CLUSTER_GRAVITY_HPP_
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK astrophysical MHD code
+// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cluster_gravity.hpp
 //  \brief Class for defining gravitational acceleration for a cluster+bcg+smbh
+#ifndef CLUSTER_CLUSTER_GRAVITY_HPP_
+#define CLUSTER_CLUSTER_GRAVITY_HPP_
 
 // Parthenon headers
 #include <parameter_input.hpp>
