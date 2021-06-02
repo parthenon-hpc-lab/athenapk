@@ -176,7 +176,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
 
     //Build Initial Magnetic Tower object
     const bool enable_initial_magnetic_tower = 
-      pin->GetOrAddBoolean("problem", "enable_initial_magnetic_tower",false);
+      pin->GetOrAddBoolean("problem/cluster", "enable_initial_magnetic_tower",false);
     hydro_pkg->AddParam<>("enable_initial_magnetic_tower",enable_initial_magnetic_tower);
 
     if( hydro_pkg->Param<bool>("enable_initial_magnetic_tower") ){
@@ -192,7 +192,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
      ************************************************************/
 
     const bool enable_feedback_magnetic_tower = 
-      pin->GetOrAddBoolean("problem", "enable_feedback_magnetic_tower",false);
+      pin->GetOrAddBoolean("problem/cluster", "enable_feedback_magnetic_tower",false);
     hydro_pkg->AddParam<>("enable_feedback_magnetic_tower",enable_feedback_magnetic_tower);
 
     if( hydro_pkg->Param<bool>("enable_feedback_magnetic_tower") ){

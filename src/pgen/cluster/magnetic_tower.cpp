@@ -80,8 +80,15 @@ void MagneticTower::MagneticFieldSrcTerm(
     //Scale the magnetic field to treat the current "strength_" as a power
     const Real linear_contrib = hydro_pkg->Param<Real>("mt_linear_contrib");
     const Real quadratic_contrib = hydro_pkg->Param<Real>("mt_quadratic_contrib");
-    field_rate = (-0.5*linear_contrib + sqrt( 0.25*linear_contrib + 4*strength_*quadratic_contrib))/
-                  (2*strength_);
+    if( linear_contrib <= 0|| quadratic_contrib <= 0){
+      std::stringstream msg;
+      msg << "MagneticTower::MagneticFieldSrcTerm Non-positive"
+          << " linear_contrib: " <<  std::to_string(linear_contrib)
+          << " or quadratic_contrib: " <<  std::to_string(quadratic_contrib);
+      PARTHENON_FAIL(msg.str().c_str());
+    }
+    field_rate = (-linear_contrib + sqrt( linear_contrib*linear_contrib + 4*strength_*beta_dt*quadratic_contrib))/
+                  (2*beta_dt*quadratic_contrib);
   } else {
     //The current "strength_" is the field rate
     field_rate = strength_;
@@ -196,14 +203,16 @@ void MagneticTower::ReducePowerContrib(parthenon::MeshData<parthenon::Real> *md)
       auto &prim = prim_pack(b);
       const auto &coords = cons_pack.coords(b);
 
+      const Real cell_volume = coords.Volume(k,j,i);
+
       //Compute the magnetic field at cell centers directly
       Real b_x,b_y,b_z;
       mt.compute_field_cartesian(coords.x1v(i), coords.x2v(j), coords.x3v(k),
                                   b_x, b_y, b_z);
 
       //increases B**2 by 2*B0*Bnew + dt**2*Bnew**2)
-      team_mt_power_reduction.data[0] += prim(IB1, k, j, i)*b_x + prim(IB2, k, j, i)*b_y + prim(IB3, k, j, i)*b_z; 
-      team_mt_power_reduction.data[1] += 0.5*(b_x*b_x + b_y*b_y + b_z*b_z) ;
+      team_mt_power_reduction.data[0] += (prim(IB1, k, j, i)*b_x + prim(IB2, k, j, i)*b_y + prim(IB3, k, j, i)*b_z)*cell_volume; 
+      team_mt_power_reduction.data[1] += 0.5*(b_x*b_x + b_y*b_y + b_z*b_z)*cell_volume;
 
   },reducer_sum);
   
@@ -232,9 +241,9 @@ TaskStatus ReduceMagneticTowerPowerContrib(parthenon::MeshData<parthenon::Real> 
 
 //Generate a magnetic tower intended for initial conditions from parameters
 void InitInitialMagneticTower(std::shared_ptr<StateDescriptor> hydro_pkg, parthenon::ParameterInput *pin){
-  const Real initial_magnetic_tower_field  = pin->GetReal("problem", "initial_magnetic_tower_field" );
-  const Real initial_magnetic_tower_alpha  = pin->GetReal("problem", "initial_magnetic_tower_alpha" );
-  const Real initial_magnetic_tower_l_scale  = pin->GetReal("problem", "initial_magnetic_tower_l_scale" );
+  const Real initial_magnetic_tower_field  = pin->GetReal("problem/cluster", "initial_magnetic_tower_field" );
+  const Real initial_magnetic_tower_alpha  = pin->GetReal("problem/cluster", "initial_magnetic_tower_alpha" );
+  const Real initial_magnetic_tower_l_scale  = pin->GetReal("problem/cluster", "initial_magnetic_tower_l_scale" );
 
   const JetCoords initial_jet_coords(pin);
 
@@ -264,7 +273,7 @@ MagneticTowerFeedbackMode ParseFeedbackMode(std::string str){
 //Generate a magnetic tower intended for feedback from parameters
 void InitFeedbackMagneticTower(std::shared_ptr<StateDescriptor> hydro_pkg, parthenon::ParameterInput *pin){
 
-  std::string mode_str = pin->GetString("problem","feedback_magnetic_tower_mode");
+  std::string mode_str = pin->GetString("problem/cluster","feedback_magnetic_tower_mode");
   MagneticTowerFeedbackMode mode = ParseFeedbackMode(mode_str);
 
   Real feedback_strength;
@@ -275,12 +284,12 @@ void InitFeedbackMagneticTower(std::shared_ptr<StateDescriptor> hydro_pkg, parth
     }
     case MagneticTowerFeedbackMode::const_field : {
       hydro_pkg->AddParam<bool>("magnetic_tower_power_scaling",false);
-      feedback_strength = pin->GetReal("problem", "feedback_magnetic_tower_field" );
+      feedback_strength = pin->GetReal("problem/cluster", "feedback_magnetic_tower_field" );
       break;
     }
     case MagneticTowerFeedbackMode::const_power : {
       hydro_pkg->AddParam<bool>("magnetic_tower_power_scaling",true);
-      feedback_strength = pin->GetReal("problem", "feedback_magnetic_tower_power" );
+      feedback_strength = pin->GetReal("problem/cluster", "feedback_magnetic_tower_power" );
       break;
     }
     case MagneticTowerFeedbackMode::agn_triggered : {
@@ -291,9 +300,14 @@ void InitFeedbackMagneticTower(std::shared_ptr<StateDescriptor> hydro_pkg, parth
     }
   }
 
-  const Real feedback_magnetic_tower_field  = pin->GetReal("problem", "feedback_magnetic_tower_field" );
-  const Real feedback_magnetic_tower_alpha  = pin->GetReal("problem", "feedback_magnetic_tower_alpha" );
-  const Real feedback_magnetic_tower_l_scale  = pin->GetReal("problem", "feedback_magnetic_tower_l_scale" );
+  if(hydro_pkg->Param<bool>("magnetic_tower_power_scaling")){
+    hydro_pkg->AddParam<Real>("mt_linear_contrib",0.0);
+    hydro_pkg->AddParam<Real>("mt_quadratic_contrib",0.0);
+  }
+
+  const Real feedback_magnetic_tower_field  = pin->GetReal("problem/cluster", "feedback_magnetic_tower_field" );
+  const Real feedback_magnetic_tower_alpha  = pin->GetReal("problem/cluster", "feedback_magnetic_tower_alpha" );
+  const Real feedback_magnetic_tower_l_scale  = pin->GetReal("problem/cluster", "feedback_magnetic_tower_l_scale" );
 
   const JetCoords feedback_jet_coords(pin);
 
