@@ -57,7 +57,12 @@ TabularCooling::TabularCooling(ParameterInput *pin)
     * Read tab file with IOWrapper
     ****************************************/
   IOWrapper input;
-  input.Open(table_filename.c_str(),IOWrapper::FileMode::read);
+  const int io_ret = input.Open(table_filename.c_str(),IOWrapper::FileMode::read);
+  if(io_ret == false){
+      msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl 
+        << "Unable to open table_filename:" << table_filename.c_str() << std::endl;
+      PARTHENON_FAIL(msg.str().c_str());
+  }
 
   /****************************************
     * Read tab file from IOWrapper into a stringstream tab
@@ -69,8 +74,9 @@ TabularCooling::TabularCooling(ParameterInput *pin)
   parthenon::IOWrapperSizeT word_size=sizeof(char);
 
   do {
-    if (Globals::my_rank==0) // only the master process reads the cooling table
+    if (Globals::my_rank==0){ // only the master process reads the cooling table
       ret=input.Read(buf, word_size, bufsize);
+    }
 #ifdef MPI_PARALLEL
     // then broadcasts it
     // no need for fence as cooling table is independent of execution/memory space
