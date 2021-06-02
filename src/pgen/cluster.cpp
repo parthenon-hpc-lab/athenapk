@@ -1,6 +1,6 @@
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK astrophysical MHD code
+// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cluster.cpp
@@ -126,15 +126,15 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
      * Read Uniform Gas
      ************************************************************/
 
-    const bool init_uniform_gas = pin->GetOrAddBoolean("problem", "init_uniform_gas",false);
+    const bool init_uniform_gas = pin->GetOrAddBoolean("problem/cluster", "init_uniform_gas",false);
     hydro_pkg->AddParam<>("init_uniform_gas",init_uniform_gas);
 
     if(init_uniform_gas){
-      const Real uniform_gas_rho  = pin->GetReal("problem", "uniform_gas_rho" );
-      const Real uniform_gas_ux   = pin->GetReal("problem", "uniform_gas_ux"  );
-      const Real uniform_gas_uy   = pin->GetReal("problem", "uniform_gas_uy"  );
-      const Real uniform_gas_uz   = pin->GetReal("problem", "uniform_gas_uz"  );
-      const Real uniform_gas_pres = pin->GetReal("problem", "uniform_gas_pres");
+      const Real uniform_gas_rho  = pin->GetReal("problem/cluster", "uniform_gas_rho" );
+      const Real uniform_gas_ux   = pin->GetReal("problem/cluster", "uniform_gas_ux"  );
+      const Real uniform_gas_uy   = pin->GetReal("problem/cluster", "uniform_gas_uy"  );
+      const Real uniform_gas_uz   = pin->GetReal("problem/cluster", "uniform_gas_uz"  );
+      const Real uniform_gas_pres = pin->GetReal("problem/cluster", "uniform_gas_pres");
 
       hydro_pkg->AddParam<>("uniform_gas_rho" ,uniform_gas_rho );
       hydro_pkg->AddParam<>("uniform_gas_ux"  ,uniform_gas_ux  );
@@ -152,7 +152,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
     hydro_pkg->AddParam<>("cluster_gravity",cluster_gravity);
 
     //Include gravity as a source term during evolution
-    const bool gravity_srcterm = pin->GetBoolean("problem", "gravity_srcterm");
+    const bool gravity_srcterm = pin->GetBoolean("problem/cluster", "gravity_srcterm");
     hydro_pkg->AddParam<>("gravity_srcterm",gravity_srcterm);
 
 
@@ -207,7 +207,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
      * Read Tabular Cooling
      ************************************************************/
     
-    const bool enable_tabular_cooling = pin->GetOrAddBoolean("problem", "enable_tabular_cooling",false);
+    const bool enable_tabular_cooling = pin->GetOrAddBoolean("problem/cluster", "enable_tabular_cooling",false);
     hydro_pkg->AddParam<>("enable_tabular_cooling",enable_tabular_cooling);
 
     if(enable_tabular_cooling){

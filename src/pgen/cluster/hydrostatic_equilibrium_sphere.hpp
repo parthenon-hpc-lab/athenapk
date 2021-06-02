@@ -1,13 +1,13 @@
-
-#ifndef CLUSTER_HYDROSTATIC_EQUILIBRIUM_SPHERE_HPP_
-#define CLUSTER_HYDROSTATIC_EQUILIBRIUM_SPHERE_HPP_
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK astrophysical MHD code
+// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file hydrostatic_equilbirum_sphere
 //  \brief Class for initializing a sphere in hydrostatic equiblibrium
+
+#ifndef CLUSTER_HYDROSTATIC_EQUILIBRIUM_SPHERE_HPP_
+#define CLUSTER_HYDROSTATIC_EQUILIBRIUM_SPHERE_HPP_
 
 // Parthenon headers
 #include <mesh/domain.hpp>

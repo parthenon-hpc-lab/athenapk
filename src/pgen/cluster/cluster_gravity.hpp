@@ -1,12 +1,12 @@
-#ifndef CLUSTER_CLUSTER_GRAVITY_HPP_
-#define CLUSTER_CLUSTER_GRAVITY_HPP_
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK astrophysical MHD code
+// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cluster_gravity.hpp
 //  \brief Class for defining gravitational acceleration for a cluster+bcg+smbh
+#ifndef CLUSTER_CLUSTER_GRAVITY_HPP_
+#define CLUSTER_CLUSTER_GRAVITY_HPP_
 
 // Parthenon headers
 #include <parameter_input.hpp>
@@ -86,8 +86,8 @@ public:
     Units units(pin);
 
     //Determine which element to include
-    include_nfw_g_    = pin->GetOrAddBoolean("problem","include_nfw_g",false);
-    const std::string which_bcg_g_str = pin->GetOrAddString("problem","which_bcg_g","NONE");
+    include_nfw_g_    = pin->GetOrAddBoolean("problem/cluster","include_nfw_g",false);
+    const std::string which_bcg_g_str = pin->GetOrAddString("problem/cluster","which_bcg_g","NONE");
     if(which_bcg_g_str == "NONE"){
       which_bcg_g_ = BCG::NONE;
     } else if( which_bcg_g_str == "ENZO"){
@@ -102,44 +102,39 @@ public:
       std::stringstream msg;
       msg << "### FATAL ERROR in function [InitUserMeshData]" << std::endl 
           << "Unknown BCG type "<< which_bcg_g_str << std::endl;
-      throw std::runtime_error(msg.str().c_str());
+      PARTHENON_FAIL(msg.str().c_str());
     }
 
-    include_smbh_g_   = pin->GetOrAddBoolean("problem","include_smbh_g",false);
+    include_smbh_g_   = pin->GetOrAddBoolean("problem/cluster","include_smbh_g",false);
 
     //Initialize the NFW Profile
-    const parthenon::Real hubble_parameter = pin->GetOrAddReal("problem", "hubble_parameter",70*units.km_s()/units.mpc());
+    const parthenon::Real hubble_parameter = pin->GetOrAddReal("problem/cluster", "hubble_parameter",70*units.km_s()/units.mpc());
     const parthenon::Real rho_crit = 3*hubble_parameter*hubble_parameter/(8*M_PI*units.gravitational_constant());
 
-    const parthenon::Real M_nfw_200        = pin->GetOrAddReal("problem", "M_nfw_200"  ,8.5e14*units.msun());
-    const parthenon::Real c_nfw            = pin->GetOrAddReal("problem", "c_nfw"      ,6.81);
+    const parthenon::Real M_nfw_200        = pin->GetOrAddReal("problem/cluster", "M_nfw_200"  ,8.5e14*units.msun());
+    const parthenon::Real c_nfw            = pin->GetOrAddReal("problem/cluster", "c_nfw"      ,6.81);
     R_nfw_s_ = calc_R_nfw_s(rho_crit,M_nfw_200,c_nfw);
     GMC_nfw_ = calc_GMC_nfw(units.gravitational_constant(),M_nfw_200,c_nfw);
 
     //Initialize the NFW Profile
-    alpha_bcg_s_      = pin->GetOrAddReal("problem", "alpha_bcg_s",0.1);
-    beta_bcg_s_       = pin->GetOrAddReal("problem", "beta_bcg_s" ,1.43);
-    const parthenon::Real M_bcg_s          = pin->GetOrAddReal("problem", "M_bcg_s"    ,7.5e10*units.msun());
-    R_bcg_s_          = pin->GetOrAddReal("problem", "R_bcg_s"    ,4*units.kpc());
+    alpha_bcg_s_      = pin->GetOrAddReal("problem/cluster", "alpha_bcg_s",0.1);
+    beta_bcg_s_       = pin->GetOrAddReal("problem/cluster", "beta_bcg_s" ,1.43);
+    const parthenon::Real M_bcg_s          = pin->GetOrAddReal("problem/cluster", "M_bcg_s"    ,7.5e10*units.msun());
+    R_bcg_s_          = pin->GetOrAddReal("problem/cluster", "R_bcg_s"    ,4*units.kpc());
     GMC_bcg_ = calc_GMC_bcg(units.gravitational_constant(),
         which_bcg_g_,M_bcg_s,R_bcg_s_,alpha_bcg_s_,beta_bcg_s_);
 
-    const parthenon::Real m_smbh           = pin->GetOrAddReal("problem", "m_smbh"     ,3.4e8*units.msun());
+    const parthenon::Real m_smbh           = pin->GetOrAddReal("problem/cluster", "m_smbh"     ,3.4e8*units.msun());
     GMC_smbh_  = calc_GMC_smbh(units.gravitational_constant(),m_smbh),
 
-    smoothing_r_ = pin->GetOrAddReal("problem","g_smoothing_radius",0.0);
+    smoothing_r_ = pin->GetOrAddReal("problem/cluster","g_smoothing_radius",0.0);
   }
 
   //Inline functions to compute gravitational acceleration
-  KOKKOS_INLINE_FUNCTION parthenon::Real g_from_r(const parthenon::Real r) const 
-    __attribute__((always_inline)){
-    return g_from_r(r,r*r);
-  }
-
-  KOKKOS_INLINE_FUNCTION parthenon::Real g_from_r(const parthenon::Real r_in, const parthenon::Real r2_in) const 
+  KOKKOS_INLINE_FUNCTION parthenon::Real g_from_r(const parthenon::Real r_in) const 
     __attribute__((always_inline)){
 
-    const parthenon::Real r2 = std::max(r2_in,smoothing_r_*smoothing_r_);
+    const parthenon::Real r2 = std::max(r_in*r_in,smoothing_r_*smoothing_r_);
     const parthenon::Real r  = std::max(r_in,smoothing_r_);
 
     parthenon::Real g_r = 0;

@@ -69,6 +69,7 @@ reconstruction = plm
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
+He_mass_fraction = 0.25
 
 <units>
 #Units parameters
@@ -76,7 +77,7 @@ code_length_cgs = 3.085677580962325e+24
 code_mass_cgs = 1.98841586e+47
 code_time_cgs = 3.15576e+16
 
-<problem>
+<problem/cluster>
 hubble_parameter = 0.0715898515654728
 
 #Which gravitational fields to include
@@ -106,8 +107,6 @@ K_0 = 8.851337676479303e-121
 K_100 = 1.3277006514718954e-119
 R_K = 0.1
 alpha_K = 1.1
-
-He_mass_fraction = 0.25
 
 #Fix density at radius to close system of equations
 R_fix = 2.0

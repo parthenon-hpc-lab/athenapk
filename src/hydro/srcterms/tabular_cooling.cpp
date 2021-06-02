@@ -1,6 +1,6 @@
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK astrophysical MHD code
+// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file tabular_cooling.cpp
@@ -28,7 +28,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
 {
   Units units(pin);
 
-  const Real He_mass_fraction = pin->GetReal("problem", "He_mass_fraction");
+  const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
   const Real H_mass_fraction = 1.0 - He_mass_fraction;
   const Real mu   = 1/(He_mass_fraction*3./4. + (1-He_mass_fraction)*2);
 
@@ -57,7 +57,12 @@ TabularCooling::TabularCooling(ParameterInput *pin)
     * Read tab file with IOWrapper
     ****************************************/
   IOWrapper input;
-  input.Open(table_filename.c_str(),IOWrapper::FileMode::read);
+  const int io_ret = input.Open(table_filename.c_str(),IOWrapper::FileMode::read);
+  if(io_ret == false){
+      msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl 
+        << "Unable to open table_filename:" << table_filename.c_str() << std::endl;
+      PARTHENON_FAIL(msg.str().c_str());
+  }
 
   /****************************************
     * Read tab file from IOWrapper into a stringstream tab
@@ -69,8 +74,9 @@ TabularCooling::TabularCooling(ParameterInput *pin)
   parthenon::IOWrapperSizeT word_size=sizeof(char);
 
   do {
-    if (Globals::my_rank==0) // only the master process reads the cooling table
+    if (Globals::my_rank==0){ // only the master process reads the cooling table
       ret=input.Read(buf, word_size, bufsize);
+    }
 #ifdef MPI_PARALLEL
     // then broadcasts it
     // no need for fence as cooling table is independent of execution/memory space
@@ -105,7 +111,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl 
         << "Index " <<std::max(log_temp_col,log_lambda_col) 
         <<  " out of range on \"" << line << "\""<< std::endl;
-      throw std::runtime_error(msg.str().c_str());
+      PARTHENON_FAIL(msg.str().c_str());
     }
 
     try {
@@ -119,7 +125,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
     } catch( const std::invalid_argument &ia){
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl 
         << "Number: \"" << ia.what() << "\" could not be parsed as double" << std::endl;
-      throw std::runtime_error(msg.str().c_str());
+      PARTHENON_FAIL(msg.str().c_str());
     }
 
   }
@@ -132,7 +138,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
   if(log_temps.size() < 2 || log_lambdas.size() < 2){
     msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl 
       << "Not enough data to interpolate cooling" << std::endl;
-    throw std::runtime_error(msg.str().c_str());
+    PARTHENON_FAIL(msg.str().c_str());
   }
 
   //Ensure that the first log_temp is increasing
@@ -142,7 +148,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
   if( d_log_temp <= 0){
     msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl 
       << "second log_temp in table is descreasing" << std::endl;
-    throw std::runtime_error(msg.str().c_str());
+    PARTHENON_FAIL(msg.str().c_str());
   }
 
   //Ensure that log_temps is evenly spaced
@@ -152,7 +158,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
     if( d_log_temp_i < 0 ){
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl 
         << "log_temp in table is descreasing at i= "<< i << " log_temp= " << log_temps[i] << std::endl;
-      throw std::runtime_error(msg.str().c_str());
+      PARTHENON_FAIL(msg.str().c_str());
     }
 
     if( fabs(d_log_temp_i-d_log_temp)/d_log_temp > d_log_temp_tol_){
@@ -164,7 +170,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
         <<" diff= " << d_log_temp_i-d_log_temp
         <<" rel_diff= " << fabs(d_log_temp_i-d_log_temp)/d_log_temp
         <<" tol= " << d_log_temp_tol_ <<  std::endl;
-      throw std::runtime_error(msg.str().c_str());
+      PARTHENON_FAIL(msg.str().c_str());
     }
   }
 
@@ -182,9 +188,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
   //Read log_lambdas in host_log_lambdas, changing to code units along the way
   auto host_log_lambdas = Kokkos::create_mirror_view(log_lambdas_);
   for(unsigned int i = 0; i < n_temp_; i++){
-    //FIXME:TODO(forrestglines) Check the unit conversion
-    const Real log_lambda = log_lambdas[i] - log10(lambda_units);
-    host_log_lambdas(i) = log_lambda;
+    host_log_lambdas(i) = log_lambdas[i] - log10(lambda_units);
   } 
   //Copy host_log_lambdas into device memory
   Kokkos::deep_copy(log_lambdas_,host_log_lambdas);
@@ -205,11 +209,10 @@ void TabularCooling::SubcyclingFirstOrderSrcTerm(MeshData<Real> *md, const SimTi
         std::stringstream msg;
         msg << "### FATAL ERROR in function [TabularCooling::SubcyclingSplitSrcTerm]" << std::endl 
             << "Unknown integration order " << integration_order_ << std::endl;
-        throw std::runtime_error(msg.str().c_str());
+        PARTHENON_FAIL(msg.str().c_str());
       }
   }
 
-  return;
 }
 
 template< typename RKStepper >
