@@ -76,7 +76,7 @@ code_length_cgs = 3.085677580962325e+24
 code_mass_cgs = 1.98841586e+47
 code_time_cgs = 3.15576e+16
 
-<problem>
+<problem/cluster>
 hubble_parameter = 0.0715898515654728
 
 #Which gravitational fields to include

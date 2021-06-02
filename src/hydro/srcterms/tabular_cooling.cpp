@@ -209,7 +209,6 @@ void TabularCooling::SubcyclingFirstOrderSrcTerm(MeshData<Real> *md, const SimTi
       }
   }
 
-  return;
 }
 
 template< typename RKStepper >

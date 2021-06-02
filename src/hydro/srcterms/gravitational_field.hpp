@@ -68,7 +68,6 @@ void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md, const p
         }
       
       });
-  return;
 }
 
 } //namespace cluster
