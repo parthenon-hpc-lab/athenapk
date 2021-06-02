@@ -53,6 +53,8 @@ TabularCooling::TabularCooling(ParameterInput *pin)
   d_log_temp_tol_ = pin->GetOrAddReal("cooling", "d_log_temp_tol",1e-8);
   d_e_tol_ = pin->GetOrAddReal("cooling", "d_e_tol",1e-8);
 
+  std::stringstream msg;
+
   /****************************************
     * Read tab file with IOWrapper
     ****************************************/
@@ -67,7 +69,7 @@ TabularCooling::TabularCooling(ParameterInput *pin)
   /****************************************
     * Read tab file from IOWrapper into a stringstream tab
     ****************************************/
-  std::stringstream tab_ss, msg;
+  std::stringstream tab_ss;
   const int bufsize=4096;
   char *buf=new char[bufsize];
   std::ptrdiff_t ret;
