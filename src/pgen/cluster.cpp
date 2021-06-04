@@ -49,7 +49,7 @@ using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 
 
-void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt){
+void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt, const parthenon::SimTime &tm){
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   if( hydro_pkg->Param<bool>("gravity_srcterm") ){
@@ -65,7 +65,7 @@ void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt){
     
     //TODO(forrestglines): MagneticFieldSrcTerm is only good for divergence
     //cleaning, cell centered field methods
-    magnetic_tower.MagneticFieldSrcTerm(md,beta_dt);
+    magnetic_tower.MagneticFieldSrcTerm(md,beta_dt,tm);
   }
 
 }

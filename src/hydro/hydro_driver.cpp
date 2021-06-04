@@ -141,7 +141,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // blocking it's also save to store the variable in the Params for now.
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_mt_power_contrib = tl.AddTask(prev_task, cluster::ReduceMagneticTowerPowerContrib, mu0.get());
+      auto new_mt_power_contrib = tl.AddTask(prev_task, cluster::ReduceMagneticTowerPowerContrib, mu0.get(),tm);
       prev_task = new_mt_power_contrib;
     }
 #ifdef MPI_PARALLEL
@@ -199,7 +199,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // of mu0 as the "cons" variables have already been updated in this stage from the
     // fluxes in the previous step.
     auto source_unsplit = tl.AddTask(update, AddUnsplitSources, mu0.get(),
-                                     integrator->beta[stage - 1] * integrator->dt);
+                                     integrator->beta[stage - 1] * integrator->dt, tm);
 
     auto source_split_first_order = source_unsplit;
 

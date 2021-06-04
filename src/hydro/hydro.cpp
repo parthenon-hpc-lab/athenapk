@@ -126,7 +126,7 @@ void ConsToPrim(MeshData<Real> *md) {
 // respective source in active.
 // Note 2: Directly update the "cons" variables based on the "prim" variables
 // as the "cons" variables have already been updated when this function is called.
-TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
+TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt, const parthenon::SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   if (hydro_pkg->Param<bool>("use_DednerGLMMHDSource")) {
@@ -136,7 +136,7 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
     GLMMHD::DednerSource<true>(md, beta_dt);
   }
   if (ProblemSourceUnsplit != nullptr) {
-    ProblemSourceUnsplit(md, beta_dt);
+    ProblemSourceUnsplit(md, beta_dt, tm);
   }
 
   return TaskStatus::complete;

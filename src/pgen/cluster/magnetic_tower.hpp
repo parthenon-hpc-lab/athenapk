@@ -136,19 +136,15 @@ class MagneticTower {
 
     //Apply a cell centered magnetic field (of strength `beta_dt*strength_) to the conserved variables
     //NOTE: This source term is only acceptable for divergence cleaning methods
-    void MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real beta_dt) const;
+    void MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real beta_dt,
+                              const parthenon::SimTime &tm) const;
 
     //Compute the increase to magnetic energy (1/2*B**2) over local meshes.
     //Sets params "mt_linear_contrib" and "mt_quadratic_contrib" to the increase
     //relative to B0 and B0**2, indepedent of the current `strength_`. Used for
     //scaling the total magnetic feedback energy. 
-    void ReducePowerContrib(parthenon::MeshData<parthenon::Real> *md) const;
+    void ReducePowerContrib(parthenon::MeshData<parthenon::Real> *md, const parthenon::SimTime &tm) const;
       
-
-    //Scale `strength_` to match magnetic feedback power `d (1/2*B**2)/dt` over the entire mesh.
-    //Due to the quadratic contribution to power, `dt` is required
-    void ScaleStrengthToPower(parthenon::Mesh* mesh, const parthenon::Real dt) const;
-
     //TODO(forrestglines): These are needed for CT
     //void MagneticEnergySrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real beta_dt);
     //void MagneticEMF(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real beta_dt);
@@ -161,7 +157,8 @@ void InitInitialMagneticTower(std::shared_ptr<parthenon::StateDescriptor> hydro_
 void InitFeedbackMagneticTower(std::shared_ptr<parthenon::StateDescriptor> hydro_pkg, parthenon::ParameterInput *pin);
 
 
-parthenon::TaskStatus ReduceMagneticTowerPowerContrib(parthenon::MeshData<parthenon::Real> *md);
+parthenon::TaskStatus ReduceMagneticTowerPowerContrib(parthenon::MeshData<parthenon::Real> *md,
+  const parthenon::SimTime &tm);
 
 } // namespace cluster
 

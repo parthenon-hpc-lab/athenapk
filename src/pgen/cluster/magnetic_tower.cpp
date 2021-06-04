@@ -59,7 +59,8 @@ void MagneticTower::AddPotential<>(
 //Apply a cell centered magnetic field to the conserved variables
 //NOTE: This source term is only acceptable for divergence cleaning methods
 void MagneticTower::MagneticFieldSrcTerm(
-    parthenon::MeshData<parthenon::Real> *md, const parthenon::Real beta_dt) const {
+    parthenon::MeshData<parthenon::Real> *md, const parthenon::Real beta_dt,
+    const parthenon::SimTime &tm) const{
   using parthenon::IndexRange;
   using parthenon::IndexDomain;
   using parthenon::Real;
@@ -98,7 +99,7 @@ void MagneticTower::MagneticFieldSrcTerm(
   //Make a construct a copy of this with "beta_dt" included in the field factor to send to the device
   const MagneticTower mt = MagneticTower(field_rate*beta_dt,l_scale_,alpha_,jet_coords_);
 
-  const parthenon::Real time = 0;//TODO(forrestglines):FIXME
+  const parthenon::Real time = tm.time;
 
   parthenon::par_for(
     DEFAULT_LOOP_PATTERN, "MagneticTower::MagneticFieldSrcTerm", parthenon::DevExecSpace(), 0,
@@ -176,7 +177,8 @@ using namespace parthenon;
 //Compute the increase to magnetic energy (1/2*B**2). Returns the increase
 //relative to B0 and B0**2 separately Used for scaling the total magnetic
 //feedback energy
-void MagneticTower::ReducePowerContrib(parthenon::MeshData<parthenon::Real> *md) const {
+void MagneticTower::ReducePowerContrib(parthenon::MeshData<parthenon::Real> *md,
+  const parthenon::SimTime &tm) const {
   using parthenon::IndexRange;
   using parthenon::IndexDomain;
   using parthenon::Real;
@@ -197,7 +199,7 @@ void MagneticTower::ReducePowerContrib(parthenon::MeshData<parthenon::Real> *md)
   MTPowerReductionType mt_power_reduction;
   Kokkos::Sum< MTPowerReductionType > reducer_sum(mt_power_reduction);
 
-  const parthenon::Real time = 0;//TODO(forrestglines):FIXME
+  const parthenon::Real time = tm.time;
 
   Kokkos::parallel_reduce("MagneticTowerScaleFactor",
     Kokkos::MDRangePolicy< Kokkos::Rank<4> >(
@@ -232,14 +234,15 @@ void MagneticTower::ReducePowerContrib(parthenon::MeshData<parthenon::Real> *md)
   return;
 }
 
-TaskStatus ReduceMagneticTowerPowerContrib(parthenon::MeshData<parthenon::Real> *md){
+TaskStatus ReduceMagneticTowerPowerContrib(parthenon::MeshData<parthenon::Real> *md,
+  const parthenon::SimTime &tm){
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   //Get the feedback magnetic tower
   const MagneticTower& magnetic_tower =
     hydro_pkg->Param<MagneticTower>("feedback_magnetic_tower");
 
-  magnetic_tower.ReducePowerContrib(md);
+  magnetic_tower.ReducePowerContrib(md,tm);
   
   return TaskStatus::complete;
 }
