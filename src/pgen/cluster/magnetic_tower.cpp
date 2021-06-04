@@ -27,7 +27,8 @@ using namespace parthenon;
 template <typename View3D>
 void MagneticTower::AddPotential(
     MeshBlock *pmb, IndexRange kb, IndexRange jb, IndexRange ib,
-    const View3D &A_x, const View3D &A_y, const View3D &A_z ) const {
+    const View3D &A_x, const View3D &A_y, const View3D &A_z,
+    const parthenon::Real time) const {
 
   auto &coords = pmb->coords;
 
@@ -39,7 +40,7 @@ void MagneticTower::AddPotential(
     KOKKOS_LAMBDA(const int &k, const int &j, const int &i){
       //Compute and apply potential
       Real a_x, a_y, a_z;
-      mt.compute_potential_cartesian(coords.x1v(i), coords.x2v(j), coords.x3v(k),
+      mt.compute_potential_cartesian(time,coords.x1v(i), coords.x2v(j), coords.x3v(k),
                                       a_x, a_y, a_z);
       A_x( k, j, i) += a_x;
       A_y( k, j, i) += a_y;
@@ -52,7 +53,8 @@ void MagneticTower::AddPotential(
 template
 void MagneticTower::AddPotential<>(
     MeshBlock *pmb, IndexRange kb, IndexRange jb, IndexRange ib,
-    const ParArray3D<Real> &A_x, const ParArray3D<Real> &A_y, const ParArray3D<Real> &A_z ) const;
+    const ParArray3D<Real> &A_x, const ParArray3D<Real> &A_y, const ParArray3D<Real> &A_z,
+    const parthenon::Real time) const;
 
 //Apply a cell centered magnetic field to the conserved variables
 //NOTE: This source term is only acceptable for divergence cleaning methods
@@ -96,6 +98,8 @@ void MagneticTower::MagneticFieldSrcTerm(
   //Make a construct a copy of this with "beta_dt" included in the field factor to send to the device
   const MagneticTower mt = MagneticTower(field_rate*beta_dt,l_scale_,alpha_,jet_coords_);
 
+  const parthenon::Real time = 0;//TODO(forrestglines):FIXME
+
   parthenon::par_for(
     DEFAULT_LOOP_PATTERN, "MagneticTower::MagneticFieldSrcTerm", parthenon::DevExecSpace(), 0,
     cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -106,7 +110,7 @@ void MagneticTower::MagneticFieldSrcTerm(
 
       //Compute the magnetic field at cell centers directly
       Real b_x,b_y,b_z;
-      mt.compute_field_cartesian(coords.x1v(i), coords.x2v(j), coords.x3v(k),
+      mt.compute_field_cartesian(time,coords.x1v(i), coords.x2v(j), coords.x3v(k),
                                   b_x, b_y, b_z);
 
       //Add the new magnetic energy
@@ -121,7 +125,6 @@ void MagneticTower::MagneticFieldSrcTerm(
       cons(IB2, k, j, i) += b_y;
       cons(IB3, k, j, i) += b_z;
     });
-  return;
 }
 
 
@@ -194,6 +197,8 @@ void MagneticTower::ReducePowerContrib(parthenon::MeshData<parthenon::Real> *md)
   MTPowerReductionType mt_power_reduction;
   Kokkos::Sum< MTPowerReductionType > reducer_sum(mt_power_reduction);
 
+  const parthenon::Real time = 0;//TODO(forrestglines):FIXME
+
   Kokkos::parallel_reduce("MagneticTowerScaleFactor",
     Kokkos::MDRangePolicy< Kokkos::Rank<4> >(
       {0,kb.s,jb.s,ib.s},{cons_pack.GetDim(5),kb.e+1,jb.e+1,ib.e+1},{1,1,1,ib.e+1-ib.s}),
@@ -207,7 +212,7 @@ void MagneticTower::ReducePowerContrib(parthenon::MeshData<parthenon::Real> *md)
 
       //Compute the magnetic field at cell centers directly
       Real b_x,b_y,b_z;
-      mt.compute_field_cartesian(coords.x1v(i), coords.x2v(j), coords.x3v(k),
+      mt.compute_field_cartesian(time,coords.x1v(i), coords.x2v(j), coords.x3v(k),
                                   b_x, b_y, b_z);
 
       //increases B**2 by 2*B0*Bnew + dt**2*Bnew**2)

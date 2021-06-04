@@ -34,74 +34,76 @@ class MagneticTower {
 
     //Scale coordinates
     KOKKOS_INLINE_FUNCTION void compute_scaled_coords(
+      const parthenon::Real time,
       const parthenon::Real x, const parthenon::Real y, const parthenon::Real z,
-      parthenon::Real& r, parthenon::Real& r2, 
+      parthenon::Real& r,
       parthenon::Real& cos_theta, parthenon::Real& sin_theta,
       parthenon::Real& h) const 
       __attribute__((always_inline)){
           //Calculate the jet coordinates            
-          jet_coords_.compute_cylindrical_coords(x,y,z,r,r2,cos_theta,sin_theta,h);
+          jet_coords_.compute_cylindrical_coords(time,x,y,z,r,cos_theta,sin_theta,h);
           r /= l_scale_;
-          r2 /= l_scale_*l_scale_;
           h /= -l_scale_;
       }
 
     //Compute Jet Potential in jet coordinates
     KOKKOS_INLINE_FUNCTION void compute_potential_jet_coords(
-      const parthenon::Real r, const parthenon::Real r2, const parthenon::Real h2,
+      const parthenon::Real r, const parthenon::Real h,
       parthenon::Real& a_r, parthenon::Real& a_theta, parthenon::Real& a_h) const 
       __attribute__((always_inline)){
           //Compute the potential in jet_coords
           a_r = 0.0;
-          a_theta = strength_*l_scale_*r*exp( -r2 - h2);
-          a_h =  strength_*l_scale_*alpha_/2.0*exp(-r2 - h2);
+          a_theta = strength_*l_scale_*r*exp( -r*r - h*h);
+          a_h =  strength_*l_scale_*alpha_/2.0*exp(-r*r - h*h);
       }
 
     //Compute Magnetic Potential in Cartesian coordinates
     KOKKOS_INLINE_FUNCTION void compute_potential_cartesian(
+      const parthenon::Real time,
       const parthenon::Real x, const parthenon::Real y, const parthenon::Real z,
       parthenon::Real& a_x, parthenon::Real& a_y, parthenon::Real& a_z) const 
       __attribute__((always_inline)){
           //Calculate the jet coordinates            
-          parthenon::Real r,r2,cos_theta,sin_theta,h;
-          jet_coords_.compute_cylindrical_coords(x,y,z,r,r2,cos_theta,sin_theta,h);
+          parthenon::Real r,cos_theta,sin_theta,h;
+          jet_coords_.compute_cylindrical_coords(time,x,y,z,r,cos_theta,sin_theta,h);
 
           //Compute the potential in jet_coords
           parthenon::Real a_r, a_theta, a_h;
-          compute_potential_jet_coords(r,r2,h*h,a_r,a_theta,a_h);
+          compute_potential_jet_coords(r,h,a_r,a_theta,a_h);
 
           //Convert potential to cartesian
-          jet_coords_.jet_vector_to_cartesian(r,r2,cos_theta,sin_theta,h,
+          jet_coords_.jet_vector_to_cartesian(time,r,cos_theta,sin_theta,h,
                                   a_r,a_theta,a_h,
                                   a_x,a_y,a_z);
       }
 
     //Compute Magnetic Fields in Jet Coordinates
     KOKKOS_INLINE_FUNCTION void compute_field_jet_coords(
-      const parthenon::Real r, const parthenon::Real r2, const parthenon::Real h,
+      const parthenon::Real r, const parthenon::Real h,
       parthenon::Real& b_r, parthenon::Real& b_theta, parthenon::Real& b_h) const 
       __attribute__((always_inline)){
           //Compute the field in jet_coords
-          b_r = strength_*2*h*r*exp( -r2 -h*h );
-          b_theta = strength_*alpha_*r*exp( -r2 -h*h );
-          b_h =  strength_*2*( 1 -r2 )*exp( -r2 -h*h );
+          b_r = strength_*2*h*r*exp( -r*r -h*h );
+          b_theta = strength_*alpha_*r*exp( -r*r -h*h );
+          b_h =  strength_*2*( 1 -r*r )*exp( -r*r -h*h );
       }
 
     //Compute Magnetic field in Cartesian coordinates
     KOKKOS_INLINE_FUNCTION void compute_field_cartesian(
+      const parthenon::Real time,
       const parthenon::Real x, const parthenon::Real y, const parthenon::Real z,
       parthenon::Real& b_x, parthenon::Real& b_y, parthenon::Real& b_z) const 
       __attribute__((always_inline)){
           //Calculate the jet coordinates            
-          parthenon::Real r,r2,cos_theta,sin_theta,h;
-          jet_coords_.compute_cylindrical_coords(x,y,z,r,r2,cos_theta,sin_theta,h);
+          parthenon::Real r,cos_theta,sin_theta,h;
+          jet_coords_.compute_cylindrical_coords(time,x,y,z,r,cos_theta,sin_theta,h);
 
           //Compute the magnetic field in jet_coords
           parthenon::Real b_r, b_theta, b_h;
-          compute_field_jet_coords(r,r2,h*h,b_r,b_theta,b_h);
+          compute_field_jet_coords(r,h,b_r,b_theta,b_h);
 
           //Convert potential to cartesian
-          jet_coords_.jet_vector_to_cartesian(r,r2,cos_theta,sin_theta,h,
+          jet_coords_.jet_vector_to_cartesian(time,r,cos_theta,sin_theta,h,
                                   b_r,b_theta,b_h,
                                   b_x,b_y,b_z);
       }
@@ -130,7 +132,7 @@ class MagneticTower {
     template <typename View3D>
     void AddPotential(
         parthenon::MeshBlock *pmb, parthenon::IndexRange kb, parthenon::IndexRange jb, parthenon::IndexRange ib,
-        const View3D &A_x, const View3D &A_y, const View3D &A_z ) const;
+        const View3D &A_x, const View3D &A_y, const View3D &A_z, const parthenon::Real time) const;
 
     //Apply a cell centered magnetic field (of strength `beta_dt*strength_) to the conserved variables
     //NOTE: This source term is only acceptable for divergence cleaning methods
