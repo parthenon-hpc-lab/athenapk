@@ -13,6 +13,7 @@
 // Parthenon headers
 #include "bvals/cc/bvals_cc_in_one.hpp"
 #include "interface/update.hpp"
+#include "mesh/refinement_cc_in_one.hpp"
 #include "parthenon/driver.hpp"
 #include "parthenon/package.hpp"
 #include "refinement/refinement.hpp"
@@ -176,6 +177,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mu0);
     auto fill_from_bufs =
         tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, mu0);
+    if (pmesh->multilevel) {
+      tl.AddTask(fill_from_bufs,
+                 parthenon::cell_centered_refinement::RestrictPhysicalBounds, mu0.get());
+    }
   }
 
   TaskRegion &async_region_3 = tc.AddRegion(num_task_lists_executed_independently);
