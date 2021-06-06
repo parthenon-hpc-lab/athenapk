@@ -166,8 +166,8 @@ std::ostream&  HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::
  * HydrostaticEquilibriumSphere::generate_P_rho_profile(x,y,z)
  ************************************************************/
 template <typename EntropyProfile, typename GravitationalField>
-template <typename View1D, typename Coords>
-HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::PRhoProfile<View1D> 
+template <typename View1D, typename Coords> typename
+HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::template PRhoProfile<View1D>
 HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::generate_P_rho_profile(
     IndexRange ib, IndexRange jb, IndexRange kb,
     Coords coords) const {
@@ -215,8 +215,8 @@ HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::generate_P_rho_
  * HydrostaticEquilibriumSphere::generate_P_rho_profile(Ri,Re,nR)
  ************************************************************/
 template <typename EntropyProfile, typename GravitationalField>
-template <typename View1D>
-HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::PRhoProfile<View1D> 
+template <typename View1D> typename
+HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::template PRhoProfile<View1D>
 HydrostaticEquilibriumSphere<EntropyProfile,GravitationalField>::generate_P_rho_profile(
     const Real R_start, const Real R_end, const unsigned int n_R) const {
 
