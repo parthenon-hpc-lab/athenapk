@@ -313,6 +313,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 	cons_labels[IM2]="MomentumDensity2";
 	cons_labels[IM3]="MomentumDensity3";
 	cons_labels[IEN]="TotalEnergyDensity";
+  if( fluid == Fluid::glmmhd ){
+    cons_labels[IB1] = "MagneticField1";
+    cons_labels[IB2] = "MagneticField2";
+    cons_labels[IB3] = "MagneticField3";
+    cons_labels[IPS] = "MagneticPhi";
+  }
   Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
              std::vector<int>({nhydro}),cons_labels);
   pkg->AddField(field_name, m);
@@ -325,6 +331,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 	prim_labels[IV2]="Velocity2";
 	prim_labels[IV3]="Velocity3";
 	prim_labels[IPR]="Pressure";
+  if( fluid == Fluid::glmmhd ){
+    prim_labels[IB1] = "MagneticField1";
+    prim_labels[IB2] = "MagneticField2";
+    prim_labels[IB3] = "MagneticField3";
+    prim_labels[IPS] = "MagneticPhi";
+  }
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}),prim_labels);
   pkg->AddField(field_name, m);
 
