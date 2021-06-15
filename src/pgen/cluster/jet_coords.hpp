@@ -29,6 +29,8 @@ class JetCoords {
     const parthenon::Real jet_phi_; 
     //Precesion rate of Jet-axis, radians/time
     const parthenon::Real jet_theta_dot_;
+    //Initial precession offset in radians of Jet-axis (Useful for testing)
+    const parthenon::Real jet_theta0_;
 
     //Some variables to save recomputing trig in kernels
     const parthenon::Real cos_jet_phi_,sin_jet_phi_,cos_jet_phi_pihalf_,sin_jet_phi_pihalf_;
@@ -49,6 +51,7 @@ class JetCoords {
     JetCoords(parthenon::ParameterInput *pin):
       jet_phi_(pin->GetOrAddReal("problem/cluster", "jet_phi", 0)),
       jet_theta_dot_(pin->GetOrAddReal("problem/cluster", "jet_theta_dot", 0)),
+      jet_theta0_(pin->GetOrAddReal("problem/cluster", "jet_theta0", 0)),
       cos_jet_phi_(cos(jet_phi_)),sin_jet_phi_(sin(jet_phi_)),
       cos_jet_phi_pihalf_(cos(jet_phi_+M_PI/2.)),sin_jet_phi_pihalf_(sin(jet_phi_+M_PI/2.))
       {}
@@ -61,7 +64,7 @@ class JetCoords {
       parthenon::Real& h) const 
       __attribute__((always_inline)){
           //polar orientation of "theta=0" jet-axis
-          const parthenon::Real jet_theta = jet_theta_dot_*time;
+          const parthenon::Real jet_theta = jet_theta_dot_*time + jet_theta0_;
           const parthenon::Real cos_jet_theta = cos(jet_theta);
           const parthenon::Real sin_jet_theta = sin(jet_theta);
 
@@ -102,7 +105,7 @@ class JetCoords {
       parthenon::Real& v_x, parthenon::Real& v_y, parthenon::Real& v_z) const 
       __attribute__((always_inline)){
         //polar orientation of "theta=0" jet-axis
-        const parthenon::Real jet_theta = jet_theta_dot_*time;
+        const parthenon::Real jet_theta = jet_theta_dot_*time + jet_theta0_;
 
         //Rotate the v_r,v_theta_h from jet-cylindrical to jet-cartesian, the -theta around z then -phi around y
         v_x = v_r*(sin(jet_theta)*sin_theta*cos(jet_phi_) + cos(jet_phi_)*cos(jet_theta)*cos_theta)

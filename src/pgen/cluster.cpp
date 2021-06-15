@@ -41,6 +41,7 @@
 #include "cluster/cluster_gravity.hpp"
 #include "cluster/entropy_profiles.hpp"
 #include "cluster/hydrostatic_equilibrium_sphere.hpp"
+#include "cluster/hydro_agn_feedback.hpp"
 #include "cluster/magnetic_tower.hpp"
 
 namespace cluster {
@@ -66,6 +67,12 @@ void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt, const parthenon::Sim
     //TODO(forrestglines): MagneticFieldSrcTerm is only good for divergence
     //cleaning, cell centered field methods
     magnetic_tower.MagneticFieldSrcTerm(md,beta_dt,tm);
+  }
+  if( hydro_pkg->Param<bool>("enable_hydro_agn_feedback") ){
+    const HydroAGNFeedback& hydro_agn_feedback =
+      hydro_pkg->Param<HydroAGNFeedback>("hydro_agn_feedback");
+
+      hydro_agn_feedback.FeedbackSrcTerm(md, beta_dt, tm);
   }
 
 }
@@ -147,28 +154,40 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
      * Read Cluster Gravity Parameters
      ************************************************************/
 
-    //Build cluster_gravity object
-    ClusterGravity cluster_gravity(pin);
-    hydro_pkg->AddParam<>("cluster_gravity",cluster_gravity);
-
     //Include gravity as a source term during evolution
     const bool gravity_srcterm = pin->GetBoolean("problem/cluster", "gravity_srcterm");
     hydro_pkg->AddParam<>("gravity_srcterm",gravity_srcterm);
+
+    //TODO(forrestglines):If not uniform gas or gravity_srcterm?
+    if( !hydro_pkg->Param<bool>("init_uniform_gas") || 
+         hydro_pkg->Param<bool>("gravity_srcterm") ) {
+      //Build cluster_gravity object
+      ClusterGravity cluster_gravity(pin);
+      hydro_pkg->AddParam<>("cluster_gravity",cluster_gravity);
+    }
+
 
 
     /************************************************************
      * Read Initial Entropy Profile
      ************************************************************/
 
-    //Build entropy_profile object
-    ACCEPTEntropyProfile entropy_profile(pin);
+    if( !hydro_pkg->Param<bool>("init_uniform_gas") ){
+      //Build entropy_profile object
+    }
 
     /************************************************************
      * Build Hydrostatic Equilibrium Sphere
      ************************************************************/
 
-    HydrostaticEquilibriumSphere hse_sphere(pin,cluster_gravity,entropy_profile);
-    hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere",hse_sphere);
+    if( !hydro_pkg->Param<bool>("init_uniform_gas") ){
+
+      const ClusterGravity& cluster_gravity = hydro_pkg->Param<ClusterGravity>("cluster_gravity");
+      ACCEPTEntropyProfile entropy_profile(pin);
+
+      HydrostaticEquilibriumSphere hse_sphere(pin,cluster_gravity,entropy_profile);
+      hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere",hse_sphere);
+    }
 
     /************************************************************
      * Read Initial Magnetic Tower
@@ -201,6 +220,20 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
       }
       //Build Feedback Magnetic Tower object
       InitFeedbackMagneticTower(hydro_pkg,pin);
+    }
+
+    /************************************************************
+     * Read Hydro AGN Feedback
+     ************************************************************/
+
+    const bool enable_hydro_agn_feedback = 
+      pin->GetOrAddBoolean("problem/cluster", "enable_hydro_agn_feedback",false);
+    hydro_pkg->AddParam<>("enable_hydro_agn_feedback",enable_hydro_agn_feedback);
+
+    if( hydro_pkg->Param<bool>("enable_hydro_agn_feedback") ){
+      //Build Feedback Magnetic Tower object
+      HydroAGNFeedback hydro_agn_feedback(pin);
+      hydro_pkg->AddParam<>("hydro_agn_feedback",hydro_agn_feedback);
     }
 
     /************************************************************
