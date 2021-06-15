@@ -42,6 +42,10 @@ prep-cuda:
     - gpu
     - springdale7
   script:
+    - module avail
+    - module load cudatoolkit/11.1
+    - module avail
+    - exit 1
     - module load gcc/7.3.0 cudatoolkit/11.1
     - if [ ! -d ./local/openmpi-${OMPI_VER} ]; then
       mkdir -p ./local/openmpi-${OMPI_VER};
