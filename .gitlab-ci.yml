@@ -39,6 +39,12 @@ prep-cuda:
     - springdale7
   script:
     - module load cudatoolkit/11.1 rh/devtoolset/8 openmpi/cuda-11.0/gcc/4.0.4/64 hdf5/gcc/1.10.0
+    - module show openmpi/cuda-11.0/gcc/4.0.4/64
+    - ls /usr/local/openmpi/cuda-11.0/4.0.4/gcc/x86_64/bin
+    - env
+    - which mpicxx
+    - mpicxx --version
+    - exit 1
     - mkdir -p opt
     - if [ ! -d opt/cmake-${CMAKE_VER}-linux-x86_64 ]; then
       cd opt;
