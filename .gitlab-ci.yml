@@ -1,3 +1,6 @@
+variables:
+  CMAKE_VER: '3.20.3'
+
 # Is performed before the scripts in the stages step
 before_script:
   - git submodule init
@@ -6,17 +9,10 @@ before_script:
   - export OMP_PROC_BIND=close
   - export OMP_PLACES=cores
   - export OMP_NUM_THREADS=1
-  - export CMAKE_VERSION=3.19.6
+  - export CMAKE_VERSION=3.20.3
   - export CTEST_OUTPUT_ON_FAILURE=1
   - export J=4 && echo Using ${J} cores during build
-  - wget -qO- http://www.cmake.org/files/v${CMAKE_VERSION:0:4}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz | tar -xz
-  - export PATH=${PWD}/cmake-${CMAKE_VERSION}-Linux-x86_64/bin:$PATH
-  - export HDF5_VER=1.10.7
-  - export OMPI_VER=4.1.0
-  - export OMPI_DIR=$(pwd)/local/openmpi-${OMPI_VER}
-  - export OPAL_PREFIX=$(pwd)/local/openmpi-${OMPI_VER}
-  - export PATH=${OMPI_DIR}/bin:$PATH
-  - export LD_LIBRARY_PATH=${OMPI_DIR}/lib:$LD_LIBRARY_PATH
+  - export PATH=${PWD}/opt/cmake-${CMAKE_VER}-linux-x86_64/bin:$PATH
   - export KOKKOS_NUM_DEVICES=1
   - export CUDA_VISIBLE_DEVICES=0
 # trying to use a less frequently used GPU on the node
@@ -25,11 +21,11 @@ before_script:
   # see https://github.com/conda/conda/issues/7980
   - source /opt/sns/anaconda3/2020.02/etc/profile.d/conda.sh
 
-cache:
-  key: global-1
+cache: &global_cache
+  key: global-2
   paths:
-    - external/parthenon/tst/regression/gold_standard/
-    - local/
+    - opt/
+  policy: pull-push
 
 stages:
   - prep
@@ -42,37 +38,27 @@ prep-cuda:
     - gpu
     - springdale7
   script:
-    - module avail
-    - module load cudatoolkit/11.1 rh/devtoolset/8
-    - g++ --version
-    - module avail
-    - exit 1
-    - module load gcc/7.3.0 cudatoolkit/11.1
-    - if [ ! -d ./local/openmpi-${OMPI_VER} ]; then
-      mkdir -p ./local/openmpi-${OMPI_VER};
-      wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-${OMPI_VER}.tar.bz2;
-      tar xjf openmpi-${OMPI_VER}.tar.bz2;
-      cd openmpi-${OMPI_VER};
-      ./configure --prefix=${PWD}/../local/openmpi-${OMPI_VER} --disable-mpi-fortran --with-cuda --without-ucx --without-ofi && make all install;
+    - module load cudatoolkit/11.1 rh/devtoolset/8 openmpi/cuda-11.0/gcc/4.0.4/64 hdf5/gcc/1.10.0
+    - mkdir -p opt
+    - if [ ! -d opt/cmake-${CMAKE_VER}-linux-x86_64 ]; then
+      cd opt;
+      wget -qO- http://www.cmake.org/files/v${CMAKE_VER:0:4}/cmake-${CMAKE_VER}-linux-x86_64.tar.gz | tar -xz;
       cd ..;
       fi
-    - if [ ! -d local/hdf5-${HDF5_VER}-gcc ]; then
-      wget https://hdf-wordpress-1.s3.amazonaws.com/wp-content/uploads/manual/HDF5/HDF5_1_10_7/src/hdf5-${HDF5_VER}.tar.bz2;
-      tar xjf hdf5-${HDF5_VER}.tar.bz2;
-      mkdir -p ./local/hdf5-${HDF5_VER}-gcc/serial ./local/hdf5-${HDF5_VER}-gcc/parallel;
-      cd hdf5-${HDF5_VER};
-      CC=gcc ./configure --prefix=${PWD}/../local/hdf5-${HDF5_VER}-gcc/serial && make -j8 && make install && make clean;
-      CC=mpicc ./configure --prefix=${PWD}/../local/hdf5-${HDF5_VER}-gcc/parallel --enable-parallel && make -j8 && make install && make clean;
-      fi
+
 
 cuda-regression:
   tags:
     - gpu
     - springdale7
+  cache:
+    # inherit all global cache settings
+    <<: *global_cache
+    # override the policy (cache not changed in this stage)
+    policy: pull    
   stage: regression
   script:
-#    - module load openmpi/cuda-10.2/gcc/4.0.3/64 gcc/7.3.0 cudatoolkit/10.2
-    - module load gcc/7.3.0 cudatoolkit/11.1
+    - module load cudatoolkit/11.1 rh/devtoolset/8 openmpi/cuda-11.0/gcc/4.0.4/64 hdf5/gcc/1.10.0
     - mkdir build-cuda
     - cd build-cuda
     - cmake
@@ -80,7 +66,16 @@ cuda-regression:
       -DKokkos_ENABLE_CUDA=True -DKokkos_ARCH_VOLTA70=True
       -DCMAKE_CXX_COMPILER=${PWD}/../external/Kokkos/bin/nvcc_wrapper
       -DPARTHENON_DISABLE_MPI=ON
-      -DPARTHENON_DISABLE_HDF5=ON
+      ../
+    - make -j${J} athenaPK
+    - nvidia-smi
+    - ctest
+    - mkdir ../build-cuda-mpi
+    - cd ../build-cuda-mpi
+    - cmake
+      -DKokkos_ARCH_SKX=True
+      -DKokkos_ENABLE_CUDA=True -DKokkos_ARCH_VOLTA70=True
+      -DCMAKE_CXX_COMPILER=${PWD}/../external/Kokkos/bin/nvcc_wrapper
       ../
     - make -j${J} athenaPK
     - nvidia-smi
@@ -93,3 +88,7 @@ cuda-regression:
       - build-cuda/tst/regression/outputs/convergence
       - build-cuda/tst/regression/outputs/mhd_convergence
       - build-cuda/tst/regression/outputs/performance
+      - build-cuda-mpi/CMakeFiles/CMakeOutput.log
+      - build-cuda-mpi/tst/regression/outputs/convergence
+      - build-cuda-mpi/tst/regression/outputs/mhd_convergence
+      - build-cuda-mpi/tst/regression/outputs/performance
