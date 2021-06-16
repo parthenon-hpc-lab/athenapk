@@ -43,7 +43,8 @@ prep-cuda:
     - springdale7
   script:
     - module avail
-    - module load cudatoolkit/11.1
+    - module load cudatoolkit/11.1 rh/devtoolset/8
+    - g++ --version
     - module avail
     - exit 1
     - module load gcc/7.3.0 cudatoolkit/11.1
