@@ -24,7 +24,7 @@ namespace cluster {
 using namespace parthenon;
 
 HydroAGNFeedback::HydroAGNFeedback(parthenon::ParameterInput* pin):
-  power_(0),
+  power_(pin->GetOrAddReal("problem/cluster","agn_power",0.0)),
   thermal_fraction_(pin->GetReal("problem/cluster","agn_thermal_fraction")),
   kinetic_fraction_(pin->GetReal("problem/cluster","agn_kinetic_fraction")),
   thermal_radius_(pin->GetReal("problem/cluster","agn_thermal_radius")),

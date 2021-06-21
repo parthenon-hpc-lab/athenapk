@@ -182,7 +182,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
-  pkg->AddParam<>("fluid", Fluid::glmmhd);//FIXME(forrestglines): Should this line be fluid?
+  pkg->AddParam<>("fluid", fluid);
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("use_DednerGLMMHDSource", use_DednerGLMMHDSource);
   pkg->AddParam<>("use_DednerExtGLMMHDSource", use_DednerExtGLMMHDSource);
@@ -305,6 +305,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
   auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 0);
   pkg->AddParam("scratch_level", scratch_level);
+
+  auto integrate_flux_div = pin->GetOrAddBoolean("hydro", "integrate_flux_div", true);
+  pkg->AddParam("integrate_flux_div", integrate_flux_div);
 
   std::string field_name = "cons";
   std::vector<std::string> cons_labels(nhydro);

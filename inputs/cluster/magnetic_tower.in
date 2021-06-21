@@ -11,9 +11,9 @@ dt         = 1e-4      # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
-variables  = prim      # Variables to be output
+variables  = cons      # Variables to be output
 dt         = 0.01     # Time increment between outputs
-id         = prim      # Name to append to output
+id         = cons      # Name to append to output
 
 <parthenon/time>
 cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
@@ -68,6 +68,7 @@ riemann = hlle
 reconstruction = plm
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+integrate_flux_div = false
 
 He_mass_fraction = 0.25
 
@@ -89,6 +90,11 @@ uniform_gas_ux = 0
 uniform_gas_uy = 0
 uniform_gas_uz = 0
 uniform_gas_pres = 1.5454368403867562
+
+#Define a precessing jet
+jet_phi = 0.0
+jet_theta_dot = 0
+jet_theta0 = 0
 
 #Include an initial magnetic tower
 enable_initial_magnetic_tower = True

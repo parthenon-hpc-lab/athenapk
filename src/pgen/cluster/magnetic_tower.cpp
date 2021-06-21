@@ -46,8 +46,6 @@ void MagneticTower::AddPotential(
       A_y( k, j, i) += a_y;
       A_z( k, j, i) += a_z;
     });
-
-  return;
 }
 
 template
@@ -77,20 +75,22 @@ void MagneticTower::MagneticFieldSrcTerm(
   IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
 
+
   Real field_rate;
 
   if (hydro_pkg->Param<bool>("magnetic_tower_power_scaling")){
     //Scale the magnetic field to treat the current "strength_" as a power
     const Real linear_contrib = hydro_pkg->Param<Real>("mt_linear_contrib");
     const Real quadratic_contrib = hydro_pkg->Param<Real>("mt_quadratic_contrib");
-    if( linear_contrib <= 0|| quadratic_contrib <= 0){
+    const Real disc = linear_contrib*linear_contrib + 4*beta_dt*quadratic_contrib;
+    if( disc < 0 || quadratic_contrib == 0){
       std::stringstream msg;
-      msg << "MagneticTower::MagneticFieldSrcTerm Non-positive"
+      msg << "MagneticTower::MagneticFieldSrcTerm No field rate works"
           << " linear_contrib: " <<  std::to_string(linear_contrib)
           << " or quadratic_contrib: " <<  std::to_string(quadratic_contrib);
       PARTHENON_FAIL(msg.str().c_str());
     }
-    field_rate = (-linear_contrib + sqrt( linear_contrib*linear_contrib + 4*strength_*beta_dt*quadratic_contrib))/
+    field_rate = (-linear_contrib + sqrt( disc ))/
                   (2*beta_dt*quadratic_contrib);
   } else {
     //The current "strength_" is the field rate

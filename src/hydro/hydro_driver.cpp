@@ -188,11 +188,17 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
+    Real flux_div_beta_dt = flux_div_beta_dt = integrator->beta[stage - 1] * integrator->dt;
+    if(! hydro_pkg->Param<bool>("integrate_flux_div")){
+      //Effectively ignore flux divergence
+      flux_div_beta_dt = 0.0;
+    }
+
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(
         none, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
         mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
-        integrator->beta[stage - 1] * integrator->dt);
+        flux_div_beta_dt);
 
     // Add non-operator split source terms.
     // Note: Directly update the "cons" variables of mu0 based on the "prim" variables

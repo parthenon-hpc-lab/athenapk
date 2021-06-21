@@ -59,7 +59,7 @@ class JetCoords {
     KOKKOS_INLINE_FUNCTION void compute_cylindrical_coords(
       const parthenon::Real time,
       const parthenon::Real x, const parthenon::Real y, const parthenon::Real z,
-      parthenon::Real r,
+      parthenon::Real& r,
       parthenon::Real& cos_theta, parthenon::Real& sin_theta,
       parthenon::Real& h) const 
       __attribute__((always_inline)){

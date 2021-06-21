@@ -19,3 +19,6 @@ setup_test_serial("cluster_hse" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
 
 setup_test_serial("cluster_tabular_cooling" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/cooling.in --num_steps 10" "convergence")
+
+setup_test_serial("cluster_magnetic_tower" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/magnetic_tower.in --num_steps 4" "convergence")

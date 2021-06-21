@@ -126,7 +126,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
      * Read Unit Parameters
      ************************************************************/
     //CGS unit per code unit, or code unit in cgs
-    Units units(pin);
+    Units units(pin,hydro_pkg);
     hydro_pkg->AddParam<>("units",units);
 
     /************************************************************
@@ -350,7 +350,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
     IndexRange a_kb = kb; a_kb.s -= 1; a_kb.e += 1;
 
     if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd &&
-       hydro_pkg->Param<bool>("enable_feedback_magnetic_tower")){
+       hydro_pkg->Param<bool>("enable_initial_magnetic_tower")){
       /************************************************************
       * Initialize an initial magnetic tower
       ************************************************************/
