@@ -110,7 +110,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin){
      * Read Unit Parameters
      ************************************************************/
     //CGS unit per code unit, or code unit in cgs
-    Units units(pin);
+    Units units(pin,hydro_pkg);
     hydro_pkg->AddParam<>("units",units);
 
     /************************************************************

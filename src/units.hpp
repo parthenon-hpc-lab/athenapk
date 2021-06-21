@@ -8,6 +8,7 @@
 
 //Parthenon headers
 #include <parameter_input.hpp>
+#include <parthenon/package.hpp>
 
 // Athena headers
 #include "basic_types.hpp"
@@ -47,11 +48,23 @@ class Units {
     
   public:
 
+    //Create a Units object without adding it to a Package
     Units(parthenon::ParameterInput *pin):
       code_length_cgs_(pin->GetOrAddReal("units", "code_length_cgs",1)),
       code_mass_cgs_(pin->GetOrAddReal("units", "code_mass_cgs",1)),
       code_time_cgs_(pin->GetOrAddReal("units", "code_time_cgs",1))
     {}
+
+    //Create a Units object and add it to a Package so that it gets outputted
+    Units(parthenon::ParameterInput *pin, std::shared_ptr<parthenon::StateDescriptor> pkg):
+      code_length_cgs_(pin->GetOrAddReal("units", "code_length_cgs",1)),
+      code_mass_cgs_(pin->GetOrAddReal("units", "code_mass_cgs",1)),
+      code_time_cgs_(pin->GetOrAddReal("units", "code_time_cgs",1))
+    {
+      pkg->AddParam<>("code_length_cgs",code_length_cgs_);
+      pkg->AddParam<>("code_mass_cgs",code_mass_cgs_);
+      pkg->AddParam<>("code_time_cgs",code_time_cgs_);
+    }
 
     //Code scales in cgs
     parthenon::Real code_length_cgs() const {
