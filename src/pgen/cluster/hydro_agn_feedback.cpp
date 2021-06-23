@@ -81,6 +81,8 @@ void HydroAGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const JetCoords& jet_coords = jet_coords_;
   const parthenon::Real time = tm.time;
 
+  std::cout << std::setprecision(std::numeric_limits<long double>::digits10 + 1);
+
   //Constant volumetric heating
   parthenon::par_for(
     DEFAULT_LOOP_PATTERN, "HydroAGNFeedback::FeedbackSrcTerm", parthenon::DevExecSpace(), 0,

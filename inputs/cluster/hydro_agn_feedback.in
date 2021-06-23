@@ -11,9 +11,9 @@ dt         = 1e-4      # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
-variables  = prim      # Variables to be output
+variables  = cons,prim      # Variables to be output
 dt         = 0.01     # Time increment between outputs
-id         = prim      # Name to append to output
+id         = vars      # Name to append to output
 
 <parthenon/time>
 cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
@@ -61,7 +61,7 @@ nx2        = 8        # Number of zones in X2-direction
 nx3        = 8        # Number of zones in X3-direction
 
 <hydro>
-fluid = glmmhd
+fluid = euler
 gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
 riemann = hlle
@@ -98,9 +98,9 @@ jet_theta0 = 2
 
 #Include hydrodynamics AGN feedback
 enable_hydro_agn_feedback = true
-agn_power = 0.0
-agn_thermal_fraction = 0.25
-agn_kinetic_fraction = 0.25
+agn_power = 1.65998282e-04
+agn_thermal_fraction = 1.0
+agn_kinetic_fraction = 0.0
 agn_thermal_radius = 0.0125
 agn_jet_efficiency = 1e-3
 agn_jet_height = 0.02

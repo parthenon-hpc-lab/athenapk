@@ -59,7 +59,7 @@ class PrecessedJetCoords:
             np.sum((pos_cart - pos_h*self.jet_n[:,None])*self.jet_m[:,None],axis=0)
         ) 
         pos_theta[pos_rho == 0] = 0
-        return (pos_h,pos_rho,pos_theta)
+        return (pos_rho,pos_theta,pos_h)
 
     def jet_to_cart_vec(self,pos_cart,vec_jet):
         
@@ -68,7 +68,7 @@ class PrecessedJetCoords:
         vec_h = vec_jet[2]
         
         #Compute pos in the jet-cylindrical-axis
-        pos_h,pos_h,pos_theta = self.cart_to_jet_coords(pos_cart)
+        pos_rho,pos_theta,pos_h = self.cart_to_jet_coords(pos_cart)
             
         #Compute vector in cartesian coords
         vec_x = vec_rho*(np.sin(self.theta)*np.sin(pos_theta)*np.cos(self.phi) + np.cos(self.phi)*np.cos(self.theta)*np.cos(pos_theta)) \
@@ -98,7 +98,7 @@ class ZJetCoords:
         pos_theta[pos_rho == 0] = 0
         pos_h = pos_cart[2]
 
-        return (pos_h,pos_rho,pos_theta)
+        return (pos_rho,pos_theta,pos_h)
 
     def jet_to_cart_vec(self,pos_cart,vec_jet):
         

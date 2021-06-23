@@ -89,6 +89,12 @@ void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm){
 
     tabular_cooling.SubcyclingFirstOrderSrcTerm(md,tm);
   }
+  //if( hydro_pkg->Param<bool>("enable_hydro_agn_feedback") ){
+  //  const HydroAGNFeedback& hydro_agn_feedback =
+  //    hydro_pkg->Param<HydroAGNFeedback>("hydro_agn_feedback");
+
+  //    hydro_agn_feedback.FeedbackSrcTerm(md, tm.dt, tm);
+  //}
 }
 
 Real ClusterEstimateTimestep(MeshData<Real> *md){
