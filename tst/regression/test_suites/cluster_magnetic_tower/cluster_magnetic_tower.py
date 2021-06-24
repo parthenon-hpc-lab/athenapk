@@ -151,9 +151,9 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.uniform_gas_Mx =  self.uniform_gas_rho*self.uniform_gas_ux
         self.uniform_gas_My =  self.uniform_gas_rho*self.uniform_gas_uy
         self.uniform_gas_Mz =  self.uniform_gas_rho*self.uniform_gas_uz
-        self.uniform_gas_internal_e = 1./2.*self.uniform_gas_rho *(
-            (self.uniform_gas_ux**2 + self.uniform_gas_uy**2 + self.uniform_gas_uz**2)
-            + self.uniform_gas_pres/( self.uniform_gas_rho*(self.adiabatic_index - 1.)) )
+        self.uniform_gas_energy_density = \
+            1./2.*self.uniform_gas_rho*(self.uniform_gas_ux**2 + self.uniform_gas_uy**2 + self.uniform_gas_uz**2) \
+            + self.uniform_gas_pres/(self.adiabatic_index - 1.)
 
         #The precessing jet
         self.jet_phi = 0.2
@@ -348,7 +348,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                     #    np.ones_like(Z)*self.uniform_gas_My.in_units("code_mass*code_length**-2*code_time**-1").v,
                     #"MomentumDensity3":lambda Z,Y,X,time :
                     #    np.ones_like(Z)*self.uniform_gas_Mz.in_units("code_mass*code_length**-2*code_time**-1").v,
-                    "TotalEnergyDensity":lambda Z,Y,X,time : (self.uniform_gas_internal_e 
+                    "TotalEnergyDensity":lambda Z,Y,X,time : (self.uniform_gas_energy_density 
                         + b_energy_func(Z,Y,X,B0_initial)).in_units("code_mass*code_length**-1*code_time**-2").v,
                     "MagneticField1":lambda Z,Y,X,time : 
                         field_func(Z,Y,X,B0_initial).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[0].v,
@@ -360,10 +360,16 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             phdf_files = [f"{parameters.output_path}/parthenon.{output_id}.{i:05d}.phdf" for i in range(2)]
 
+            def zero_corrected_linf_err(gold,test):
+                non_zero_linf = np.max(np.abs((gold[gold!=0]-test[gold!=0])/gold[gold!=0]),initial=0)
+                zero_linf = np.max(np.abs((gold[gold==0]-test[gold==0])),initial=0)
+
+                return np.max((non_zero_linf,zero_linf))
+
             #Use a very loose tolerance, linf relative error
             initial_analytic_status,final_analytic_status = [
                 compare_analytic.compare_analytic(
-                    phdf_file, analytic_components,err_func=compare_analytic.linf_rel_err,tol=1e-3)
+                    phdf_file, analytic_components,err_func=zero_corrected_linf_err,tol=1e-3)
                 for analytic_components,phdf_file in zip((initial_analytic_components,final_analytic_components),
                                                           phdf_files)]
 

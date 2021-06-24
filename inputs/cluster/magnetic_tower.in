@@ -11,9 +11,9 @@ dt         = 1e-4      # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
-variables  = cons      # Variables to be output
+variables  = cons,prim      # Variables to be output
 dt         = 0.01     # Time increment between outputs
-id         = cons      # Name to append to output
+id         = vars      # Name to append to output
 
 <parthenon/time>
 cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
@@ -105,7 +105,7 @@ initial_magnetic_tower_l_scale = 0.01
 #Include magnetic tower feedback
 enable_feedback_magnetic_tower = true
 feedback_magnetic_tower_mode = const_field
-feedback_magnetic_tower_field = 0.12431560000204142
+feedback_magnetic_tower_field = 1.2431560000204142
 feedback_magnetic_tower_power = 0.0016599828166743962
 feedback_magnetic_tower_alpha = 20
 feedback_magnetic_tower_l_scale = 0.01
