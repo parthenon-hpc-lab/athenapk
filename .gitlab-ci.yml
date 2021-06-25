@@ -2,6 +2,7 @@ variables:
   CMAKE_VER: '3.20.3'
   HDF5_VER: '1.10.7'
   OMPI_VER: '4.1.0'
+  REBUILD_DEP: 'FALSE'
 
 # Is performed before the scripts in the stages step
 before_script:
