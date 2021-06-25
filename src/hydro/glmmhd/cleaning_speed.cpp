@@ -8,8 +8,8 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
-#include "../../main.hpp"
 #include "../../eos/adiabatic_glmmhd.hpp"
+#include "../../main.hpp"
 
 using namespace parthenon::package::prelude;
 
