@@ -17,10 +17,10 @@
 // Parthenon headers
 #include "mesh/mesh.hpp"
 
-using parthenon::MeshData;
 using parthenon::MeshBlock;
 using parthenon::MeshBlockData;
 using parthenon::MeshBlockVarPack;
+using parthenon::MeshData;
 using parthenon::Real;
 
 // Declarations
