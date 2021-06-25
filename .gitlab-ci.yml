@@ -29,7 +29,18 @@ before_script:
 
 stages:
   - prep
+  - format
   - regression
+
+format:
+  stage: format
+  tags:
+    - gpu
+    - springdale7
+  script:
+    - pip install clang-format
+    # using this cumbersome workaround as clang-format 9 shipped with pip does not support -Werror yet
+    - for fname in $(find tst src -iname \*.cpp -o -iname \*.hpp); do diff -u $fname <(/home/build/.local/bin/clang-format -style=file $fname); done
 
 prep-cuda:
   stage: prep
