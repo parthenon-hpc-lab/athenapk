@@ -306,8 +306,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam("scratch_level", scratch_level);
 
   std::string field_name = "cons";
-  Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost},
-             std::vector<int>({nhydro}));
+  Metadata m(
+      {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
+      std::vector<int>({nhydro}));
   pkg->AddField(field_name, m);
 
   // TODO(pgrete) check if this could be "one-copy" for two stage SSP integrators

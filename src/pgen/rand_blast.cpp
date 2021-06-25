@@ -108,11 +108,9 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm) {
       });
 }
 
-
 void ProblemInitPackageData(ParameterInput *pin, StateDescriptor *pkg) {
   std::cout << "Hello world" << std::endl;
 }
-
 
 //========================================================================================
 //! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
