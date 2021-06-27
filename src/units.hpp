@@ -10,7 +10,7 @@
 #include <parameter_input.hpp>
 #include <parthenon/package.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "basic_types.hpp"
 
 class Units {

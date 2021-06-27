@@ -1,6 +1,6 @@
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file hydrostatic_equilbirum_sphere.cpp
@@ -19,7 +19,7 @@
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../../units.hpp"
 
 // Cluster headers
@@ -103,7 +103,7 @@ Real HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::PRhoProfi
         << "R(i_r) to R_(i_r+1) does not contain r" << std::endl
         << "R(i_r) R_r R(i_r+1):" << R_(i_r) << " " << r << " " << R_(i_r + 1)
         << std::endl;
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
 
   // Linearly interpolate Pressure from P
@@ -244,7 +244,7 @@ HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::generate_P_rho
         << "R(i_fix) to R_(i_fix+1) does not contain R_fix_" << std::endl
         << "R(i_fix) R_fix_ R(i_fix+1):" << R(i_fix) << " " << R_fix_ << " "
         << R(i_fix + 1) << std::endl;
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
 
   dP_dr_from_r_P_functor dP_dr_from_r_P(*this);

@@ -1,6 +1,6 @@
 //========================================================================================
-// AthenaPK astrophysical MHD code
-// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file tabular_cooling.hpp
@@ -23,14 +23,14 @@
 #include <mesh/meshblock_pack.hpp>
 #include <outputs/io_wrapper.hpp>
 
-// Athena++ headers
+// AthenaPK headers
 #include "../../main.hpp"
 
 #ifdef MPI_PARALLEL
 #include <mpi.h>
 #endif
 
-namespace cluster {
+namespace cooling {
 
 // Struct to take one RK step using heun's method to compute 2nd and 1st order estimations
 // in y1_h and y1_l
@@ -181,6 +181,6 @@ class TabularCooling {
   void TestCoolingTable(parthenon::ParameterInput *pin) const;
 };
 
-} // namespace cluster
+} // namespace cooling
 
 #endif // HYDRO_SRCTERMS_TABULAR_COOLING_HPP_

@@ -76,9 +76,6 @@ using namespace parthenon::driver::prelude;
 void InitUserMeshData(ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt);
-void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm);
-parthenon::Real ClusterEstimateTimestep(MeshData<Real> *md);
-
 } // namespace cluster
 
 #endif // PGEN_PGEN_HPP_

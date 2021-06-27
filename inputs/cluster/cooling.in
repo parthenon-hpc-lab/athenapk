@@ -16,7 +16,7 @@ dt         = 1.0     # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/time>
-cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
 tlim       = 1.0       # time limit
 integrator  = vl2       # time integration algorithm
@@ -80,11 +80,9 @@ uniform_gas_uy = 0
 uniform_gas_uz = 0
 uniform_gas_pres = 1.5454368403867562
 
-#Enable tabular cooling
-enable_tabular_cooling = true
-
 <cooling>
-table_filename = "schure.cooling"
+enable_tabular_cooling = true
+table_filename = schure.cooling
 log_temp_col = 0
 log_lambda_col = 1
 lambda_units_cgs = 1

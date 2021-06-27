@@ -1,6 +1,6 @@
 //========================================================================================
-// AthenaPK astrophysical MHD code
-// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file tabular_cooling.cpp
@@ -17,11 +17,11 @@
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../../units.hpp"
 #include "tabular_cooling.hpp"
 
-namespace cluster {
+namespace cooling {
 using namespace parthenon;
 
 TabularCooling::TabularCooling(ParameterInput *pin) {
@@ -62,7 +62,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   if (io_ret == false) {
     msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
         << "Unable to open table_filename:" << table_filename.c_str() << std::endl;
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
 
   /****************************************
@@ -113,7 +113,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "Index " << std::max(log_temp_col, log_lambda_col) << " out of range on \""
           << line << "\"" << std::endl;
-      PARTHENON_FAIL(msg.str().c_str());
+      PARTHENON_FAIL(msg);
     }
 
     try {
@@ -127,7 +127,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     } catch (const std::invalid_argument &ia) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "Number: \"" << ia.what() << "\" could not be parsed as double" << std::endl;
-      PARTHENON_FAIL(msg.str().c_str());
+      PARTHENON_FAIL(msg);
     }
   }
 
@@ -139,7 +139,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   if (log_temps.size() < 2 || log_lambdas.size() < 2) {
     msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
         << "Not enough data to interpolate cooling" << std::endl;
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
 
   // Ensure that the first log_temp is increasing
@@ -149,7 +149,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   if (d_log_temp <= 0) {
     msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
         << "second log_temp in table is descreasing" << std::endl;
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
 
   // Ensure that log_temps is evenly spaced
@@ -160,7 +160,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "log_temp in table is descreasing at i= " << i
           << " log_temp= " << log_temps[i] << std::endl;
-      PARTHENON_FAIL(msg.str().c_str());
+      PARTHENON_FAIL(msg);
     }
 
     if (fabs(d_log_temp_i - d_log_temp) / d_log_temp > d_log_temp_tol_) {
@@ -170,7 +170,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
           << " diff= " << d_log_temp_i - d_log_temp
           << " rel_diff= " << fabs(d_log_temp_i - d_log_temp) / d_log_temp
           << " tol= " << d_log_temp_tol_ << std::endl;
-      PARTHENON_FAIL(msg.str().c_str());
+      PARTHENON_FAIL(msg);
     }
   }
 
@@ -209,7 +209,7 @@ void TabularCooling::SubcyclingFirstOrderSrcTerm(MeshData<Real> *md,
     msg << "### FATAL ERROR in function [TabularCooling::SubcyclingSplitSrcTerm]"
         << std::endl
         << "Unknown integration order " << integration_order_ << std::endl;
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
   }
 }
@@ -477,15 +477,10 @@ void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
       });
 
   // Copy Device arrays to host
-  auto h_rho = Kokkos::create_mirror_view(d_rho);
-  auto h_pres = Kokkos::create_mirror_view(d_pres);
-  auto h_internal_e = Kokkos::create_mirror_view(d_internal_e);
-  auto h_de_dt = Kokkos::create_mirror_view(d_de_dt);
-
-  Kokkos::deep_copy(h_rho, d_rho);
-  Kokkos::deep_copy(h_pres, d_pres);
-  Kokkos::deep_copy(h_internal_e, d_internal_e);
-  Kokkos::deep_copy(h_de_dt, d_de_dt);
+  auto h_rho = Kokkos::create_mirror_view_and_copy(HostMemSpace(), d_rho);
+  auto h_pres = Kokkos::create_mirror_view_and_copy(HostMemSpace(), d_pres);
+  auto h_internal_e = Kokkos::create_mirror_view_and_copy(HostMemSpace(), d_internal_e);
+  auto h_de_dt = Kokkos::create_mirror_view_and_copy(HostMemSpace(), d_de_dt);
 
   // Write to file
   std::ofstream file(test_filename);
@@ -496,7 +491,6 @@ void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
            << h_de_dt(j, i) << " " << std::endl;
     }
   }
-  file.close();
 }
 
-} // namespace cluster
+} // namespace cooling

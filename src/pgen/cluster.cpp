@@ -1,6 +1,6 @@
 //========================================================================================
-// AthenaPK astrophysical MHD code
-// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cluster.cpp
@@ -29,10 +29,9 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
-#include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
 #include "../units.hpp"
 
@@ -56,38 +55,6 @@ void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt) {
 
     GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
   }
-}
-
-void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm) {
-  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  const bool &enable_tabular_cooling = hydro_pkg->Param<bool>("enable_tabular_cooling");
-
-  if (enable_tabular_cooling) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-    tabular_cooling.SubcyclingFirstOrderSrcTerm(md, tm);
-  }
-}
-
-Real ClusterEstimateTimestep(MeshData<Real> *md) {
-  Real min_dt = std::numeric_limits<Real>::max();
-
-  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  const bool &enable_tabular_cooling = hydro_pkg->Param<bool>("enable_tabular_cooling");
-
-  if (enable_tabular_cooling) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-    const Real cooling_min_dt = tabular_cooling.EstimateTimeStep(md);
-
-    min_dt = std::min(min_dt, cooling_min_dt);
-  }
-
-  return min_dt;
 }
 
 //========================================================================================
@@ -155,19 +122,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
     HydrostaticEquilibriumSphere hse_sphere(pin, cluster_gravity, entropy_profile);
     hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere", hse_sphere);
-
-    /************************************************************
-     * Read Tabular Cooling
-     ************************************************************/
-
-    const bool enable_tabular_cooling =
-        pin->GetOrAddBoolean("problem/cluster", "enable_tabular_cooling", false);
-    hydro_pkg->AddParam<>("enable_tabular_cooling", enable_tabular_cooling);
-
-    if (enable_tabular_cooling) {
-      TabularCooling tabular_cooling(pin);
-      hydro_pkg->AddParam<>("tabular_cooling", tabular_cooling);
-    }
   }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
