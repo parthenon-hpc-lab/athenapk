@@ -411,11 +411,6 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
 
         const Real internal_e = pres / (rho * gm1);
 
-        using std::min;
-
-        const Real temp = mu_m_u_gm1_by_k_B * internal_e;
-        const Real log_temp = log10(temp);
-
         const Real de_dt =
             DeDt(internal_e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start,
                  log_temp_final, d_log_temp, n_temp, log_lambdas);
@@ -425,7 +420,7 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
         const Real cooling_time = (de_dt == 0 ? std::numeric_limits<Real>::infinity()
                                               : fabs(internal_e / de_dt));
 
-        thread_min_cooling_time = min(cooling_time, min_cooling_time);
+        thread_min_cooling_time = std::min(cooling_time, min_cooling_time);
       },
       reducer_min);
 

@@ -195,7 +195,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
-  pkg->AddParam<>("fluid", Fluid::glmmhd);
+  pkg->AddParam<>("fluid", fluid);
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("use_DednerGLMMHDSource", use_DednerGLMMHDSource);
   pkg->AddParam<>("use_DednerExtGLMMHDSource", use_DednerExtGLMMHDSource);
@@ -400,7 +400,7 @@ template <Fluid fluid>
 Real EstimateTimestep(MeshData<Real> *md) {
   // get to package via first block in Meshdata (which exists by construction)
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  const auto &cfl = hydro_pkg->Param<Real>("cfl");
+  const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &eos =
       hydro_pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
@@ -464,7 +464,7 @@ Real EstimateTimestep(MeshData<Real> *md) {
       },
       Kokkos::Min<Real>(min_dt_hyperbolic));
 
-  auto min_dt = min_dt_hyperbolic;
+  auto min_dt = cfl_hyp * min_dt_hyperbolic;
 
   const bool &enable_tabular_cooling = hydro_pkg->Param<bool>("enable_tabular_cooling");
 
@@ -478,7 +478,7 @@ Real EstimateTimestep(MeshData<Real> *md) {
   if (ProblemEstimateTimestep != nullptr) {
     min_dt = std::min(min_dt, ProblemEstimateTimestep(md));
   }
-  return cfl * min_dt;
+  return min_dt;
 }
 
 template <Fluid fluid, Reconstruction recon>
