@@ -267,10 +267,16 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
                       d_log_temp, n_temp, log_lambdas);
         };
 
+        // Check if cooling is actually happening, e.g., when below T_cool_min
+        const Real dedt_initial = DeDt_wrapper(0, internal_e_initial);
+        if (dedt_initial == 0.0) {
+          // Cooling is initially 0, so it will remain 0 and we can return early
+          return;
+        }
+
         Real sub_t = 0; // current subcycle time
-        Real sub_dt = std::min(
-            (-internal_e_initial / DeDt_wrapper(0, internal_e_initial)) / max_iter,
-            duration); // current subcycle dt
+        Real sub_dt = std::min((-internal_e_initial / dedt_initial) / max_iter,
+                               duration); // current subcycle dt
 
         // Use minumum subcycle timestep when d_e_tol == 0
         if (d_e_tol == 0) {
@@ -278,7 +284,9 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
         }
 
         unsigned int sub_iter = 0;
-        while (sub_t * (1 + KEpsilon_) < duration) {
+        // check for dedt != 0.0 required in case cooling floor it hit during subcycling
+        while ((sub_t * (1 + KEpsilon_) < duration) &&
+               (DeDt_wrapper(0, internal_e) != 0.0)) {
 
           if (sub_iter > max_iter) {
             // Due to sub_dt >= min_dt, this error should never happen
@@ -312,14 +320,11 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
             // -If the error on the subcycle is too high, compute a new time
             // step to reattempt the subcycle
             //   -But if the new time step is smaller than the minimum subcycle
-            //   time step (total step duration/ max iterations), uust use the
-            //   minimum subcycle ime step instead
+            //   time step (total step duration/ max iterations), just use the
+            //   minimum subcycle time step instead
 
             sub_attempt++;
-            if (std::isnan(d_e_err)) {
-              reattempt_sub = true;
-              sub_dt = min_sub_dt;
-            } else if (d_e_err >= d_e_tol && sub_dt > min_sub_dt) {
+            if (d_e_err >= d_e_tol && sub_dt > min_sub_dt) {
               // Reattempt this subcycle
               reattempt_sub = true;
               // Error was too high, shrink the timestep
@@ -340,10 +345,12 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
           internal_e = internal_e_next_h;
 
-          // Grow the timestep
+          // skip to the end of subcycling if error is 0 (very unlikely)
           if (d_e_err == 0) {
             sub_dt = duration - sub_t;
           } else {
+            // Grow the timestep
+            // (or shrink in case d_e_err >= d_e_tol and sub_dt is already at min_sub_dt)
             sub_dt = RKStepper::OptimalStep(sub_dt, d_e_err, d_e_tol);
           }
 
