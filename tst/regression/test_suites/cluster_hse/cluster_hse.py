@@ -24,7 +24,6 @@ import matplotlib.pylab as plt
 import sys
 import os
 import utils.test_case
-import utils.compare_analytic as compare_analytic
 import unyt
 
 """ To prevent littering up imported folders with .pyc files or __pycache_ folder"""
@@ -334,6 +333,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         try:
             import phdf_diff
+            import compare_analytic
         except ModuleNotFoundError:
             print("Couldn't find module to compare Parthenon hdf5 files.")
             return False
@@ -354,7 +354,9 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         #Use a very loose tolerance, linf relative error
         analytic_status = compare_analytic.compare_analytic(
-            files[0], analytic_components,err_func=compare_analytic.linf_rel_err,tol=1e-1)
+            files[0], analytic_components,
+            err_func=lambda gold,test:compare_analytic.norm_err_func(gold, test,
+            norm_ord=np.inf, relative=True, ignore_gold_zero=False),tol=1e-1)
 
         print(analytic_status,analyze_status)
 

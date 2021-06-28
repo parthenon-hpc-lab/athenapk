@@ -27,7 +27,6 @@ import sys
 import os
 import itertools
 import utils.test_case
-import utils.compare_analytic as compare_analytic
 import unyt
 
 """ To prevent littering up imported folders with .pyc files or __pycache_ folder"""
@@ -235,6 +234,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         try:
             import phdf
+            import compare_analytic
         except ModuleNotFoundError:
             print("Couldn't find module to read Parthenon hdf5 files.")
             return False
