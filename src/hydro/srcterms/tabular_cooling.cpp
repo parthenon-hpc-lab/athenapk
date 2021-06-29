@@ -218,6 +218,8 @@ template <typename RKStepper>
 void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &tm,
                                             const RKStepper rk_stepper) const {
 
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
   // Grab member variables for compiler
 
   // Everything needed by DeDt
@@ -250,16 +252,21 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-
-        const Real rho = prim(IDN, k, j, i);
-        const Real pres = prim(IPR, k, j, i);
-
-        Real internal_e = pres / (rho * gm1);
+        // Need to use `cons` here as prim may still contain state at t_0;
+        const Real rho = cons(IDN, k, j, i);
+        // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
+        // function could be useful.
+        Real internal_e = cons(IEN, k, j, i) -
+                          0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                 SQR(cons(IM3, k, j, i)) / rho);
+        if (mhd_enabled) {
+          internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                               SQR(cons(IB3, k, j, i)));
+        }
+        internal_e /= rho;
         const Real internal_e_initial = internal_e;
 
         const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
-
-        using std::min;
 
         // Wrap DeDt into a functor for the RKStepper
         auto DeDt_wrapper = [&](const Real t, const Real e) {
@@ -275,8 +282,8 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
         }
 
         Real sub_t = 0; // current subcycle time
-        Real sub_dt = std::min((-internal_e_initial / dedt_initial) / max_iter,
-                               duration); // current subcycle dt
+        // Try full dt. If error is too large adaptive timestepping will reduce sub_dt
+        Real sub_dt = duration;
 
         // Use minumum subcycle timestep when d_e_tol == 0
         if (d_e_tol == 0) {
@@ -369,7 +376,9 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
         // Remove the cooling from the specific total energy
         cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
-        // prim(IPR,k,j,i) = rho*internal_e*gm1;
+        // Latter technically not required if no other tasks follows before
+        // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
+        prim(IPR, k, j, i) = rho * internal_e * gm1;
       });
 }
 
