@@ -232,11 +232,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
-        u(IDN,k,j,i) = 1.0;
+        u(IDN, k, j, i) = 1.0;
         u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * x1size / diag;
         u(IM2, k, j, i) = u(IDN, k, j, i) * vflow * x2size / diag;
         u(IM3, k, j, i) = u(IDN, k, j, i) * vflow * x3size / diag;
-        if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j)) + SQR(coords.x3v(k))) < rad*rad) {
+        if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j)) + SQR(coords.x3v(k))) < rad * rad) {
           u(IDN, k, j, i) = drat;
           u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * x1size / diag;
           u(IM2, k, j, i) = u(IDN, k, j, i) * vflow * x2size / diag;

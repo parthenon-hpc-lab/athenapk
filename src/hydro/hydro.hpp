@@ -25,12 +25,14 @@ template <Fluid fluid, Reconstruction recon>
 TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md);
 using FluxFun_t = decltype(CalculateFluxes<Fluid::undefined, Reconstruction::undefined>);
 
-TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt, const parthenon::SimTime &tm);
+TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt,
+                             const parthenon::SimTime &tm);
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const parthenon::SimTime &tm);
 
 using SourceFirstOrderFun_t =
     std::function<void(MeshData<Real> *md, const parthenon::SimTime &tm)>;
-using SourceUnsplitFun_t = std::function<void(MeshData<Real> *md, const Real beta_dt, const parthenon::SimTime &tm)>;
+using SourceUnsplitFun_t = std::function<void(MeshData<Real> *md, const Real beta_dt,
+                                              const parthenon::SimTime &tm)>;
 using EstimateTimestepFun_t = std::function<Real(MeshData<Real> *md)>;
 using InitPackageDataFun_t =
     std::function<void(ParameterInput *pin, StateDescriptor *pkg)>;

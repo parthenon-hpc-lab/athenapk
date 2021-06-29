@@ -17,7 +17,7 @@ using parthenon::Real;
 namespace gradient {
 AmrTag PressureGradient(MeshBlockData<Real> *rc);
 AmrTag VelocityGradient(MeshBlockData<Real> *rc);
-}
+} // namespace gradient
 namespace other {
 parthenon::AmrTag MaxDensity(MeshBlockData<Real> *rc);
 }

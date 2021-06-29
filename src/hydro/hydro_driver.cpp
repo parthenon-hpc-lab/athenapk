@@ -20,10 +20,10 @@
 #include "utils/partition_stl_containers.hpp"
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../pgen/cluster/magnetic_tower.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
-#include "../pgen/cluster/magnetic_tower.hpp"
 
 using namespace parthenon::driver::prelude;
 
@@ -120,10 +120,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // calculate magnetic tower scaling
   // TODO(forrestglines) Is this the correct place for this task?
   // TODO(forrestglines) Is this the correct stage to calculate this?
-  if ((stage == 1) &&
-      hydro_pkg->AllParams().hasKey("magnetic_tower_power_scaling") && 
-      hydro_pkg->Param<bool>("magnetic_tower_power_scaling")
-  ) {
+  if ((stage == 1) && hydro_pkg->AllParams().hasKey("magnetic_tower_power_scaling") &&
+      hydro_pkg->Param<bool>("magnetic_tower_power_scaling")) {
     // need to make sure that there's only one region in order to MPI_reduce to work
     TaskRegion &single_task_region = tc.AddRegion(1);
     auto &tl = single_task_region[0];
@@ -141,7 +139,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // blocking it's also save to store the variable in the Params for now.
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_mt_power_contrib = tl.AddTask(prev_task, cluster::ReduceMagneticTowerPowerContrib, mu0.get(),tm);
+      auto new_mt_power_contrib =
+          tl.AddTask(prev_task, cluster::ReduceMagneticTowerPowerContrib, mu0.get(), tm);
       prev_task = new_mt_power_contrib;
     }
 #ifdef MPI_PARALLEL
@@ -150,8 +149,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         [](StateDescriptor *hydro_pkg) {
           Real mt_contribs[] = {hydro_pkg->Param<Real>("mt_linear_contrib"),
                                 hydro_pkg->Param<Real>("mt_quadratic_contrib")};
-          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &mt_contribs, 2, MPI_PARTHENON_REAL,
-                                            MPI_MAX, MPI_COMM_WORLD));
+          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &mt_contribs, 2,
+                                            MPI_PARTHENON_REAL, MPI_MAX, MPI_COMM_WORLD));
           hydro_pkg->UpdateParam("mt_linear_contrib", mt_contribs[0]);
           hydro_pkg->UpdateParam("mt_quadratic_contrib", mt_contribs[1]);
           return TaskStatus::complete;
@@ -188,17 +187,18 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
-    Real flux_div_beta_dt = flux_div_beta_dt = integrator->beta[stage - 1] * integrator->dt;
-    if(! hydro_pkg->Param<bool>("integrate_flux_div")){
-      //Effectively ignore flux divergence
+    Real flux_div_beta_dt = flux_div_beta_dt =
+        integrator->beta[stage - 1] * integrator->dt;
+    if (!hydro_pkg->Param<bool>("integrate_flux_div")) {
+      // Effectively ignore flux divergence
       flux_div_beta_dt = 0.0;
     }
 
     // compute the divergence of fluxes of conserved variables
-    auto update = tl.AddTask(
-        none, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
-        mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
-        flux_div_beta_dt);
+    auto update =
+        tl.AddTask(none, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>,
+                   mu0.get(), mu1.get(), integrator->gam0[stage - 1],
+                   integrator->gam1[stage - 1], flux_div_beta_dt);
 
     // Add non-operator split source terms.
     // Note: Directly update the "cons" variables of mu0 based on the "prim" variables

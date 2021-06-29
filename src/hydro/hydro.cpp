@@ -126,7 +126,8 @@ void ConsToPrim(MeshData<Real> *md) {
 // respective source in active.
 // Note 2: Directly update the "cons" variables based on the "prim" variables
 // as the "cons" variables have already been updated when this function is called.
-TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt, const parthenon::SimTime &tm) {
+TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt,
+                             const parthenon::SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   if (hydro_pkg->Param<bool>("use_DednerGLMMHDSource")) {
@@ -311,36 +312,38 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   std::string field_name = "cons";
   std::vector<std::string> cons_labels(nhydro);
-	cons_labels[IDN]="Density";
-	cons_labels[IM1]="MomentumDensity1";
-	cons_labels[IM2]="MomentumDensity2";
-	cons_labels[IM3]="MomentumDensity3";
-	cons_labels[IEN]="TotalEnergyDensity";
-  if( fluid == Fluid::glmmhd ){
+  cons_labels[IDN] = "Density";
+  cons_labels[IM1] = "MomentumDensity1";
+  cons_labels[IM2] = "MomentumDensity2";
+  cons_labels[IM3] = "MomentumDensity3";
+  cons_labels[IEN] = "TotalEnergyDensity";
+  if (fluid == Fluid::glmmhd) {
     cons_labels[IB1] = "MagneticField1";
     cons_labels[IB2] = "MagneticField2";
     cons_labels[IB3] = "MagneticField3";
     cons_labels[IPS] = "MagneticPhi";
   }
-  Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
-             std::vector<int>({nhydro}),cons_labels);
+  Metadata m(
+      {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
+      std::vector<int>({nhydro}), cons_labels);
   pkg->AddField(field_name, m);
 
   // TODO(pgrete) check if this could be "one-copy" for two stage SSP integrators
   field_name = "prim";
   std::vector<std::string> prim_labels(nhydro);
-	prim_labels[IDN]="Density";
-	prim_labels[IV1]="Velocity1";
-	prim_labels[IV2]="Velocity2";
-	prim_labels[IV3]="Velocity3";
-	prim_labels[IPR]="Pressure";
-  if( fluid == Fluid::glmmhd ){
+  prim_labels[IDN] = "Density";
+  prim_labels[IV1] = "Velocity1";
+  prim_labels[IV2] = "Velocity2";
+  prim_labels[IV3] = "Velocity3";
+  prim_labels[IPR] = "Pressure";
+  if (fluid == Fluid::glmmhd) {
     prim_labels[IB1] = "MagneticField1";
     prim_labels[IB2] = "MagneticField2";
     prim_labels[IB3] = "MagneticField3";
     prim_labels[IPS] = "MagneticPhi";
   }
-  m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}),prim_labels);
+  m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}),
+               prim_labels);
   pkg->AddField(field_name, m);
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");

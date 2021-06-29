@@ -36,7 +36,7 @@ enum class Fluid { undefined, euler, glmmhd };
 
 enum class Hst { idx, ekin, emag, divb };
 
-enum class CartesianDir { x, y, z};
+enum class CartesianDir { x, y, z };
 
 constexpr parthenon::Real float_min{std::numeric_limits<float>::min()};
 
