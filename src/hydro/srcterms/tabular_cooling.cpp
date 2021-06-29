@@ -268,22 +268,24 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
         const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
 
-        // Wrap DeDt into a functor for the RKStepper
-        auto DeDt_wrapper = [&](const Real t, const Real e) {
-          return DeDt(e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
-                      d_log_temp, n_temp, log_lambdas);
-        };
+        bool dedt_valid = true;
 
-        // Check if cooling is actually happening, e.g., when below T_cool_min
-        const Real dedt_initial = DeDt_wrapper(0, internal_e_initial);
-        if (dedt_initial == 0.0) {
-          // Cooling is initially 0, so it will remain 0 and we can return early
-          return;
-        }
+        // Wrap DeDt into a functor for the RKStepper
+        auto DeDt_wrapper = [&](const Real t, const Real e, bool& valid) {
+          return DeDt(e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
+                      d_log_temp, n_temp, log_lambdas, valid);
+        };
 
         Real sub_t = 0; // current subcycle time
         // Try full dt. If error is too large adaptive timestepping will reduce sub_dt
         Real sub_dt = duration;
+
+        // Check if cooling is actually happening, e.g., when below T_cool_min
+        const Real dedt_initial = DeDt_wrapper(sub_t, internal_e_initial, dedt_valid);
+        if (dedt_initial == 0.0) {
+          // Cooling is initially 0, so it will remain 0 and we can return early
+          return;
+        }
 
         // Use minumum subcycle timestep when d_e_tol == 0
         if (d_e_tol == 0) {
@@ -293,11 +295,11 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
         unsigned int sub_iter = 0;
         // check for dedt != 0.0 required in case cooling floor it hit during subcycling
         while ((sub_t * (1 + KEpsilon_) < duration) &&
-               (DeDt_wrapper(0, internal_e) != 0.0)) {
+               (DeDt_wrapper(sub_t, internal_e, dedt_valid) != 0.0)) {
 
           if (sub_iter > max_iter) {
             // Due to sub_dt >= min_dt, this error should never happen
-            Kokkos::abort("FATAL ERROR in [TabularCooling::CoolingUserWorkInLoop]: Sub "
+            Kokkos::abort("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: Sub "
                           "cycles exceed max_iter (This should be impossible)");
           }
 
@@ -313,36 +315,51 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
             // Next lower order estimate
             Real internal_e_next_l;
             // Do one dual order RK step
+            dedt_valid = true;
             RKStepper::Step(sub_t, sub_dt, internal_e, DeDt_wrapper, internal_e_next_h,
-                            internal_e_next_l);
-
-            // Compute error
-            d_e_err = fabs((internal_e_next_h - internal_e_next_l) / internal_e_next_h);
-
-            reattempt_sub = false;
-            // Accepting or reattempting the subcycle:
-            //
-            // -If the error is small, accept the subcycle
-            //
-            // -If the error on the subcycle is too high, compute a new time
-            // step to reattempt the subcycle
-            //   -But if the new time step is smaller than the minimum subcycle
-            //   time step (total step duration/ max iterations), just use the
-            //   minimum subcycle time step instead
-
+                            internal_e_next_l,dedt_valid);
+            
             sub_attempt++;
-            if (d_e_err >= d_e_tol && sub_dt > min_sub_dt) {
-              // Reattempt this subcycle
-              reattempt_sub = true;
-              // Error was too high, shrink the timestep
-              if (d_e_tol == 0) {
-                sub_dt = min_sub_dt;
-              } else {
-                sub_dt = RKStepper::OptimalStep(sub_dt, d_e_err, d_e_tol);
+
+            if( !dedt_valid ){
+              if( sub_dt == min_sub_dt){
+                Kokkos::abort("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: Minumum sub_dt "
+                              "leads to negative internal energy");
               }
-              // Don't drop timestep under maximum iteration count
-              if (sub_dt < min_sub_dt || sub_attempt >= max_iter) {
+              reattempt_sub = true;
+              sub_dt = min_sub_dt;
+            } else {
+
+              // Compute error
+              d_e_err = fabs((internal_e_next_h - internal_e_next_l) / internal_e_next_h);
+
+              reattempt_sub = false;
+              // Accepting or reattempting the subcycle:
+              //
+              // -If the error is small, accept the subcycle
+              //
+              // -If the error on the subcycle is too high, compute a new time
+              // step to reattempt the subcycle
+              //   -But if the new time step is smaller than the minimum subcycle
+              //   time step (total step duration/ max iterations), just use the
+              //   minimum subcycle time step instead
+
+              if( std::isnan(d_e_err)){
+                reattempt_sub = true;
                 sub_dt = min_sub_dt;
+              } else if (d_e_err >= d_e_tol && sub_dt > min_sub_dt) {
+                // Reattempt this subcycle
+                reattempt_sub = true;
+                // Error was too high, shrink the timestep
+                if (d_e_tol == 0) {
+                  sub_dt = min_sub_dt;
+                } else {
+                  sub_dt = RKStepper::OptimalStep(sub_dt, d_e_err, d_e_tol);
+                }
+                // Don't drop timestep under maximum iteration count
+                if (sub_dt < min_sub_dt || sub_attempt >= max_iter) {
+                  sub_dt = min_sub_dt;
+                }
               }
             }
 
@@ -420,9 +437,11 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
 
         const Real internal_e = pres / (rho * gm1);
 
+        bool dedt_valid = true;
+
         const Real de_dt =
             DeDt(internal_e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start,
-                 log_temp_final, d_log_temp, n_temp, log_lambdas);
+                 log_temp_final, d_log_temp, n_temp, log_lambdas,dedt_valid);
 
         // Compute cooling time
         // If de_dt is zero, using infinite cooling time
@@ -480,9 +499,11 @@ void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
 
         d_internal_e(j, i) = internal_e;
 
+        bool dedt_valid = true;
+
         const Real de_dt =
             DeDt(internal_e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start,
-                 log_temp_final, d_log_temp, n_temp, log_lambdas);
+                 log_temp_final, d_log_temp, n_temp, log_lambdas,dedt_valid);
 
         d_de_dt(j, i) = de_dt;
       });
