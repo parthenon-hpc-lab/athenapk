@@ -1,6 +1,6 @@
 //========================================================================================
-// AthenaPK astrophysical MHD code
-// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file gravitational_field.hpp
@@ -17,7 +17,7 @@
 #include <mesh/domain.hpp>
 #include <mesh/meshblock_pack.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../../main.hpp"
 
 namespace cluster {

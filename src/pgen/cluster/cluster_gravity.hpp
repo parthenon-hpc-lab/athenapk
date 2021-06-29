@@ -1,6 +1,6 @@
 //========================================================================================
-// AthenaPK astrophysical MHD code
-// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cluster_gravity.hpp
@@ -11,7 +11,7 @@
 // Parthenon headers
 #include <parameter_input.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../../units.hpp"
 
 namespace cluster {
@@ -112,7 +112,7 @@ class ClusterGravity {
       std::stringstream msg;
       msg << "### FATAL ERROR in function [InitUserMeshData]" << std::endl
           << "Unknown BCG type " << which_bcg_g_str << std::endl;
-      PARTHENON_FAIL(msg.str().c_str());
+      PARTHENON_FAIL(msg);
     }
 
     include_smbh_g_ = pin->GetOrAddBoolean("problem/cluster", "include_smbh_g", false);

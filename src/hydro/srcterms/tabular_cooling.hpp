@@ -1,6 +1,6 @@
 //========================================================================================
-// AthenaPK astrophysical MHD code
-// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file tabular_cooling.hpp
@@ -23,14 +23,14 @@
 #include <mesh/meshblock_pack.hpp>
 #include <outputs/io_wrapper.hpp>
 
-// Athena++ headers
+// AthenaPK headers
 #include "../../main.hpp"
 
 #ifdef MPI_PARALLEL
 #include <mpi.h>
 #endif
 
-namespace cluster {
+namespace cooling {
 
 // Struct to take one RK step using heun's method to compute 2nd and 1st order estimations
 // in y1_h and y1_l
@@ -38,10 +38,10 @@ struct RK12Stepper {
   template <typename Function>
   static KOKKOS_INLINE_FUNCTION void
   Step(const parthenon::Real t0, const parthenon::Real h, const parthenon::Real y0,
-       Function f, parthenon::Real &y1_h, parthenon::Real &y1_l) {
-    const parthenon::Real f_t0_y0 = f(t0, y0);
-    y1_l = y0 + h * f_t0_y0;                          // 1st order
-    y1_h = y0 + h / 2. * (f_t0_y0 + f(t0 + h, y1_l)); // 2nd order
+       Function f, parthenon::Real &y1_h, parthenon::Real &y1_l, bool &valid) {
+    const parthenon::Real f_t0_y0 = f(t0, y0, valid);
+    y1_l = y0 + h * f_t0_y0;                                 // 1st order
+    y1_h = y0 + h / 2. * (f_t0_y0 + f(t0 + h, y1_l, valid)); // 2nd order
   }
   static KOKKOS_INLINE_FUNCTION parthenon::Real OptimalStep(const parthenon::Real h,
                                                             const parthenon::Real err,
@@ -56,20 +56,22 @@ struct RK45Stepper {
   template <typename Function>
   static KOKKOS_INLINE_FUNCTION void
   Step(const parthenon::Real t0, const parthenon::Real h, const parthenon::Real y0,
-       Function f, parthenon::Real &y1_h, parthenon::Real &y1_l) {
-    const parthenon::Real k1 = h * f(t0, y0);
-    const parthenon::Real k2 = h * f(t0 + 1. / 4. * h, y0 + 1. / 4. * k1);
+       Function f, parthenon::Real &y1_h, parthenon::Real &y1_l, bool &valid) {
+    const parthenon::Real k1 = h * f(t0, y0, valid);
+    const parthenon::Real k2 = h * f(t0 + 1. / 4. * h, y0 + 1. / 4. * k1, valid);
     const parthenon::Real k3 =
-        h * f(t0 + 3. / 8. * h, y0 + 3. / 32. * k1 + 9. / 32. * k2);
+        h * f(t0 + 3. / 8. * h, y0 + 3. / 32. * k1 + 9. / 32. * k2, valid);
     const parthenon::Real k4 =
         h * f(t0 + 12. / 13. * h,
-              y0 + 1932. / 2197. * k1 - 7200. / 2197. * k2 + 7296. / 2197. * k3);
-    const parthenon::Real k5 = h * f(t0 + h, y0 + 439. / 216. * k1 - 8. * k2 +
-                                                 3680. / 513. * k3 - 845. / 4104. * k4);
-    const parthenon::Real k6 =
-        h * f(t0 + 1. / 2. * h, y0 - 8. / 27. * k1 + 2. * k2 - 3544. / 2565. * k3 +
-                                    1859. / 4104. * k4 -
-                                    11. / 40. * k5); // TODO(forrestglines): Check k2?
+              y0 + 1932. / 2197. * k1 - 7200. / 2197. * k2 + 7296. / 2197. * k3, valid);
+    const parthenon::Real k5 =
+        h * f(t0 + h,
+              y0 + 439. / 216. * k1 - 8. * k2 + 3680. / 513. * k3 - 845. / 4104. * k4,
+              valid);
+    const parthenon::Real k6 = h * f(t0 + 1. / 2. * h,
+                                     y0 - 8. / 27. * k1 + 2. * k2 - 3544. / 2565. * k3 +
+                                         1859. / 4104. * k4 - 11. / 40. * k5,
+                                     valid); // TODO(forrestglines): Check k2?
     y1_l = y0 + 25. / 216. * k1 + 1408. / 2565. * k3 + 2197. / 4104. * k4 -
            1. / 5. * k5; // 4th order
     y1_h = y0 + 16. / 135. * k1 + 6656. / 12825. * k3 + 28561. / 56430. * k4 -
@@ -122,8 +124,13 @@ class TabularCooling {
        const parthenon::Real &n_h2_by_rho, const parthenon::Real &log_temp_start,
        const parthenon::Real &log_temp_final, const parthenon::Real &d_log_temp,
        const unsigned int n_temp,
-       const parthenon::ParArray1D<parthenon::Real> &log_lambdas) {
+       const parthenon::ParArray1D<parthenon::Real> &log_lambdas, bool &valid) {
     using namespace parthenon;
+
+    if (e < 0 || std::isnan(e)) {
+      valid = false;
+      return 0;
+    }
 
     const Real temp = mu_m_u_gm1_by_k_B * e;
     const Real log_temp = log10(temp);
@@ -181,6 +188,6 @@ class TabularCooling {
   void TestCoolingTable(parthenon::ParameterInput *pin) const;
 };
 
-} // namespace cluster
+} // namespace cooling
 
 #endif // HYDRO_SRCTERMS_TABULAR_COOLING_HPP_

@@ -24,7 +24,6 @@ import matplotlib.pylab as plt
 import sys
 import os
 import utils.test_case
-import utils.compare_analytic as compare_analytic
 import unyt
 import itertools
 
@@ -297,9 +296,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             sys.path.insert(1, parameters.parthenon_path + '/scripts/python/packages/parthenon_tools/parthenon_tools')
 
             try:
-                import phdf_diff
+                import compare_analytic
             except ModuleNotFoundError:
-                print("Couldn't find module to compare Parthenon hdf5 files.")
+                print("Couldn't find module to analyze Parthenon hdf5 files.")
                 return False
 
             initial_analytic_components = {

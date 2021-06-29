@@ -1,6 +1,6 @@
 //========================================================================================
-// AthenaPK astrophysical MHD code
-// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cluster.cpp
@@ -30,7 +30,7 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
 #include "../hydro/srcterms/tabular_cooling.hpp"
@@ -106,12 +106,12 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
     const TabularCooling &tabular_cooling =
         hydro_pkg->Param<TabularCooling>("tabular_cooling");
 
-    const Real cooling_min_dt = tabular_cooling.EstimateTimeStep(md);
+  if (gravity_srcterm) {
+    const ClusterGravity &cluster_gravity =
+        hydro_pkg->Param<ClusterGravity>("cluster_gravity");
 
     min_dt = std::min(min_dt, cooling_min_dt);
   }
-
-  return min_dt;
 }
 
 //========================================================================================

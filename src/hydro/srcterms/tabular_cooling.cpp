@@ -1,6 +1,6 @@
 //========================================================================================
-// AthenaPK astrophysical MHD code
-// Copyright(C) 2021 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file tabular_cooling.cpp
@@ -17,11 +17,11 @@
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../../units.hpp"
 #include "tabular_cooling.hpp"
 
-namespace cluster {
+namespace cooling {
 using namespace parthenon;
 
 TabularCooling::TabularCooling(ParameterInput *pin) {
@@ -62,7 +62,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   if (io_ret == false) {
     msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
         << "Unable to open table_filename:" << table_filename.c_str() << std::endl;
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
 
   /****************************************
@@ -113,7 +113,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "Index " << std::max(log_temp_col, log_lambda_col) << " out of range on \""
           << line << "\"" << std::endl;
-      PARTHENON_FAIL(msg.str().c_str());
+      PARTHENON_FAIL(msg);
     }
 
     try {
@@ -127,7 +127,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     } catch (const std::invalid_argument &ia) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "Number: \"" << ia.what() << "\" could not be parsed as double" << std::endl;
-      PARTHENON_FAIL(msg.str().c_str());
+      PARTHENON_FAIL(msg);
     }
   }
 
@@ -139,7 +139,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   if (log_temps.size() < 2 || log_lambdas.size() < 2) {
     msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
         << "Not enough data to interpolate cooling" << std::endl;
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
 
   // Ensure that the first log_temp is increasing
@@ -149,7 +149,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   if (d_log_temp <= 0) {
     msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
         << "second log_temp in table is descreasing" << std::endl;
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
 
   // Ensure that log_temps is evenly spaced
@@ -160,7 +160,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "log_temp in table is descreasing at i= " << i
           << " log_temp= " << log_temps[i] << std::endl;
-      PARTHENON_FAIL(msg.str().c_str());
+      PARTHENON_FAIL(msg);
     }
 
     if (fabs(d_log_temp_i - d_log_temp) / d_log_temp > d_log_temp_tol_) {
@@ -170,7 +170,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
           << " diff= " << d_log_temp_i - d_log_temp
           << " rel_diff= " << fabs(d_log_temp_i - d_log_temp) / d_log_temp
           << " tol= " << d_log_temp_tol_ << std::endl;
-      PARTHENON_FAIL(msg.str().c_str());
+      PARTHENON_FAIL(msg);
     }
   }
 
@@ -209,7 +209,7 @@ void TabularCooling::SubcyclingFirstOrderSrcTerm(MeshData<Real> *md,
     msg << "### FATAL ERROR in function [TabularCooling::SubcyclingSplitSrcTerm]"
         << std::endl
         << "Unknown integration order " << integration_order_ << std::endl;
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
   }
 }
@@ -218,6 +218,8 @@ template <typename RKStepper>
 void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &tm,
                                             const RKStepper rk_stepper) const {
 
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
   // Grab member variables for compiler
 
   // Everything needed by DeDt
@@ -250,27 +252,40 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-
-        const Real rho = prim(IDN, k, j, i);
-        const Real pres = prim(IPR, k, j, i);
-
-        Real internal_e = pres / (rho * gm1);
+        // Need to use `cons` here as prim may still contain state at t_0;
+        const Real rho = cons(IDN, k, j, i);
+        // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
+        // function could be useful.
+        Real internal_e = cons(IEN, k, j, i) -
+                          0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                 SQR(cons(IM3, k, j, i)) / rho);
+        if (mhd_enabled) {
+          internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                               SQR(cons(IB3, k, j, i)));
+        }
+        internal_e /= rho;
         const Real internal_e_initial = internal_e;
 
         const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
 
-        using std::min;
+        bool dedt_valid = true;
 
         // Wrap DeDt into a functor for the RKStepper
-        auto DeDt_wrapper = [&](const Real t, const Real e) {
+        auto DeDt_wrapper = [&](const Real t, const Real e, bool &valid) {
           return DeDt(e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
-                      d_log_temp, n_temp, log_lambdas);
+                      d_log_temp, n_temp, log_lambdas, valid);
         };
 
         Real sub_t = 0; // current subcycle time
-        Real sub_dt = std::min(
-            (-internal_e_initial / DeDt_wrapper(0, internal_e_initial)) / max_iter,
-            duration); // current subcycle dt
+        // Try full dt. If error is too large adaptive timestepping will reduce sub_dt
+        Real sub_dt = duration;
+
+        // Check if cooling is actually happening, e.g., when below T_cool_min
+        const Real dedt_initial = DeDt_wrapper(sub_t, internal_e_initial, dedt_valid);
+        if (dedt_initial == 0.0) {
+          // Cooling is initially 0, so it will remain 0 and we can return early
+          return;
+        }
 
         // Use minumum subcycle timestep when d_e_tol == 0
         if (d_e_tol == 0) {
@@ -278,11 +293,13 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
         }
 
         unsigned int sub_iter = 0;
-        while (sub_t * (1 + KEpsilon_) < duration) {
+        // check for dedt != 0.0 required in case cooling floor it hit during subcycling
+        while ((sub_t * (1 + KEpsilon_) < duration) &&
+               (DeDt_wrapper(sub_t, internal_e, dedt_valid) != 0.0)) {
 
           if (sub_iter > max_iter) {
             // Due to sub_dt >= min_dt, this error should never happen
-            Kokkos::abort("FATAL ERROR in [TabularCooling::CoolingUserWorkInLoop]: Sub "
+            Kokkos::abort("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: Sub "
                           "cycles exceed max_iter (This should be impossible)");
           }
 
@@ -298,39 +315,52 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
             // Next lower order estimate
             Real internal_e_next_l;
             // Do one dual order RK step
+            dedt_valid = true;
             RKStepper::Step(sub_t, sub_dt, internal_e, DeDt_wrapper, internal_e_next_h,
-                            internal_e_next_l);
-
-            // Compute error
-            d_e_err = fabs((internal_e_next_h - internal_e_next_l) / internal_e_next_h);
-
-            reattempt_sub = false;
-            // Accepting or reattempting the subcycle:
-            //
-            // -If the error is small, accept the subcycle
-            //
-            // -If the error on the subcycle is too high, compute a new time
-            // step to reattempt the subcycle
-            //   -But if the new time step is smaller than the minimum subcycle
-            //   time step (total step duration/ max iterations), uust use the
-            //   minimum subcycle ime step instead
+                            internal_e_next_l, dedt_valid);
 
             sub_attempt++;
-            if (std::isnan(d_e_err)) {
+
+            if (!dedt_valid) {
+              if (sub_dt == min_sub_dt) {
+                Kokkos::abort("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
+                              "Minumum sub_dt "
+                              "leads to negative internal energy");
+              }
               reattempt_sub = true;
               sub_dt = min_sub_dt;
-            } else if (d_e_err >= d_e_tol && sub_dt > min_sub_dt) {
-              // Reattempt this subcycle
-              reattempt_sub = true;
-              // Error was too high, shrink the timestep
-              if (d_e_tol == 0) {
+            } else {
+
+              // Compute error
+              d_e_err = fabs((internal_e_next_h - internal_e_next_l) / internal_e_next_h);
+
+              reattempt_sub = false;
+              // Accepting or reattempting the subcycle:
+              //
+              // -If the error is small, accept the subcycle
+              //
+              // -If the error on the subcycle is too high, compute a new time
+              // step to reattempt the subcycle
+              //   -But if the new time step is smaller than the minimum subcycle
+              //   time step (total step duration/ max iterations), just use the
+              //   minimum subcycle time step instead
+
+              if (std::isnan(d_e_err)) {
+                reattempt_sub = true;
                 sub_dt = min_sub_dt;
-              } else {
-                sub_dt = RKStepper::OptimalStep(sub_dt, d_e_err, d_e_tol);
-              }
-              // Don't drop timestep under maximum iteration count
-              if (sub_dt < min_sub_dt || sub_attempt >= max_iter) {
-                sub_dt = min_sub_dt;
+              } else if (d_e_err >= d_e_tol && sub_dt > min_sub_dt) {
+                // Reattempt this subcycle
+                reattempt_sub = true;
+                // Error was too high, shrink the timestep
+                if (d_e_tol == 0) {
+                  sub_dt = min_sub_dt;
+                } else {
+                  sub_dt = RKStepper::OptimalStep(sub_dt, d_e_err, d_e_tol);
+                }
+                // Don't drop timestep under maximum iteration count
+                if (sub_dt < min_sub_dt || sub_attempt >= max_iter) {
+                  sub_dt = min_sub_dt;
+                }
               }
             }
 
@@ -340,10 +370,12 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
           internal_e = internal_e_next_h;
 
-          // Grow the timestep
+          // skip to the end of subcycling if error is 0 (very unlikely)
           if (d_e_err == 0) {
             sub_dt = duration - sub_t;
           } else {
+            // Grow the timestep
+            // (or shrink in case d_e_err >= d_e_tol and sub_dt is already at min_sub_dt)
             sub_dt = RKStepper::OptimalStep(sub_dt, d_e_err, d_e_tol);
           }
 
@@ -362,7 +394,9 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
         // Remove the cooling from the specific total energy
         cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
-        // prim(IPR,k,j,i) = rho*internal_e*gm1;
+        // Latter technically not required if no other tasks follows before
+        // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
+        prim(IPR, k, j, i) = rho * internal_e * gm1;
       });
 }
 
@@ -404,21 +438,18 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
 
         const Real internal_e = pres / (rho * gm1);
 
-        using std::min;
-
-        const Real temp = mu_m_u_gm1_by_k_B * internal_e;
-        const Real log_temp = log10(temp);
+        bool dedt_valid = true;
 
         const Real de_dt =
             DeDt(internal_e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start,
-                 log_temp_final, d_log_temp, n_temp, log_lambdas);
+                 log_temp_final, d_log_temp, n_temp, log_lambdas, dedt_valid);
 
         // Compute cooling time
         // If de_dt is zero, using infinite cooling time
         const Real cooling_time = (de_dt == 0 ? std::numeric_limits<Real>::infinity()
                                               : fabs(internal_e / de_dt));
 
-        thread_min_cooling_time = min(cooling_time, min_cooling_time);
+        thread_min_cooling_time = std::min(cooling_time, min_cooling_time);
       },
       reducer_min);
 
@@ -469,23 +500,20 @@ void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
 
         d_internal_e(j, i) = internal_e;
 
+        bool dedt_valid = true;
+
         const Real de_dt =
             DeDt(internal_e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start,
-                 log_temp_final, d_log_temp, n_temp, log_lambdas);
+                 log_temp_final, d_log_temp, n_temp, log_lambdas, dedt_valid);
 
         d_de_dt(j, i) = de_dt;
       });
 
   // Copy Device arrays to host
-  auto h_rho = Kokkos::create_mirror_view(d_rho);
-  auto h_pres = Kokkos::create_mirror_view(d_pres);
-  auto h_internal_e = Kokkos::create_mirror_view(d_internal_e);
-  auto h_de_dt = Kokkos::create_mirror_view(d_de_dt);
-
-  Kokkos::deep_copy(h_rho, d_rho);
-  Kokkos::deep_copy(h_pres, d_pres);
-  Kokkos::deep_copy(h_internal_e, d_internal_e);
-  Kokkos::deep_copy(h_de_dt, d_de_dt);
+  auto h_rho = Kokkos::create_mirror_view_and_copy(HostMemSpace(), d_rho);
+  auto h_pres = Kokkos::create_mirror_view_and_copy(HostMemSpace(), d_pres);
+  auto h_internal_e = Kokkos::create_mirror_view_and_copy(HostMemSpace(), d_internal_e);
+  auto h_de_dt = Kokkos::create_mirror_view_and_copy(HostMemSpace(), d_de_dt);
 
   // Write to file
   std::ofstream file(test_filename);
@@ -496,7 +524,6 @@ void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
            << h_de_dt(j, i) << " " << std::endl;
     }
   }
-  file.close();
 }
 
-} // namespace cluster
+} // namespace cooling

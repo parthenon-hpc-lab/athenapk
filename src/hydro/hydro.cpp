@@ -28,6 +28,7 @@
 #include "rsolvers/glmmhd_hlld.hpp"
 #include "rsolvers/glmmhd_hlle.hpp"
 #include "rsolvers/hydro_hlle.hpp"
+#include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
 
 using namespace parthenon::package::prelude;
@@ -41,6 +42,7 @@ using namespace parthenon::package::prelude;
 
 namespace Hydro {
 
+using cooling::TabularCooling;
 using parthenon::HistoryOutputVar;
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
@@ -144,6 +146,17 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt,
 }
 
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const parthenon::SimTime &tm) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const bool &enable_tabular_cooling = hydro_pkg->Param<bool>("enable_tabular_cooling");
+
+  if (enable_tabular_cooling) {
+    const TabularCooling &tabular_cooling =
+        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    tabular_cooling.SubcyclingFirstOrderSrcTerm(md, tm);
+  }
+
   if (ProblemSourceFirstOrder != nullptr) {
     ProblemSourceFirstOrder(md, tm);
   }
@@ -304,6 +317,20 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
   }
+
+  /************************************************************
+   * Read Tabular Cooling
+   ************************************************************/
+
+  const bool enable_tabular_cooling =
+      pin->GetOrAddBoolean("cooling", "enable_tabular_cooling", false);
+  pkg->AddParam<>("enable_tabular_cooling", enable_tabular_cooling);
+
+  if (enable_tabular_cooling) {
+    TabularCooling tabular_cooling(pin);
+    pkg->AddParam<>("tabular_cooling", tabular_cooling);
+  }
+
   auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 0);
   pkg->AddParam("scratch_level", scratch_level);
 
@@ -388,12 +415,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 template <Fluid fluid>
 Real EstimateTimestep(MeshData<Real> *md) {
   // get to package via first block in Meshdata (which exists by construction)
-  auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  const auto &cfl = pkg->Param<Real>("cfl");
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &eos =
-      pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
-                                           AdiabaticGLMMHDEOS>::type>("eos");
+      hydro_pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
+                                                 AdiabaticGLMMHDEOS>::type>("eos");
 
   IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -453,11 +480,21 @@ Real EstimateTimestep(MeshData<Real> *md) {
       },
       Kokkos::Min<Real>(min_dt_hyperbolic));
 
-  auto min_dt = min_dt_hyperbolic;
+  auto min_dt = cfl_hyp * min_dt_hyperbolic;
+
+  const bool &enable_tabular_cooling = hydro_pkg->Param<bool>("enable_tabular_cooling");
+
+  if (enable_tabular_cooling) {
+    const TabularCooling &tabular_cooling =
+        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    min_dt = std::min(min_dt, tabular_cooling.EstimateTimeStep(md));
+  }
+
   if (ProblemEstimateTimestep != nullptr) {
     min_dt = std::min(min_dt, ProblemEstimateTimestep(md));
   }
-  return cfl * min_dt;
+  return min_dt;
 }
 
 template <Fluid fluid, Reconstruction recon>
