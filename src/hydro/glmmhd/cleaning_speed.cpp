@@ -21,7 +21,7 @@ namespace Hydro::GLMMHD {
 TaskStatus CalculateCleaningSpeed(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"}).pack;
   const auto &eos = hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos");
 
   IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);

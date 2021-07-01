@@ -74,7 +74,7 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm) {
   if (blast_i < 0) {
     return;
   }
-  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"}).pack;
   IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);

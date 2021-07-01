@@ -16,8 +16,8 @@ namespace Hydro::GLMMHD {
 
 template <bool extended>
 void DednerSource(MeshData<Real> *md, const Real beta_dt) {
-  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"}).pack;
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"}).pack;
 
   IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);

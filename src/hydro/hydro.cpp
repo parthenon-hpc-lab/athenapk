@@ -53,7 +53,7 @@ template <Hst hst, int idx = -1>
 Real HydroHst(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"}).pack;
 
   IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -360,7 +360,7 @@ Real EstimateTimestep(MeshData<Real> *md) {
   // get to package via first block in Meshdata (which exists by construction)
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &cfl = pkg->Param<Real>("cfl");
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"}).pack;
   const auto &eos =
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                            AdiabaticGLMMHDEOS>::type>("eos");
@@ -447,7 +447,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   }
 
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
-  auto cons_in = md->PackVariablesAndFluxes(flags_ind);
+  auto cons_in = md->PackVariablesAndFluxes(flags_ind).pack;
   auto pkg = pmb->packages.Get("Hydro");
   const int nhydro = pkg->Param<int>("nhydro");
 
@@ -464,7 +464,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     c_h = pkg->Param<Real>("c_h");
   }
 
-  auto const &prim_in = md->PackVariables(prim_list);
+  auto const &prim_in = md->PackVariables(prim_list).pack;
 
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM

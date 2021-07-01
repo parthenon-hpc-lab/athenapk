@@ -22,7 +22,6 @@
 #include "mesh/domain.hpp"
 #include "parthenon_arrays.hpp"
 using parthenon::IndexDomain;
-using parthenon::MeshBlockVarPack;
 using parthenon::ParArray4D;
 
 //----------------------------------------------------------------------------------------
@@ -80,8 +79,8 @@ void AdiabaticHydroEOS::ConservedToPrimitive(MeshBlockData<Real> *rc, int il, in
 //           int il, int iu, int jl, int ju, int kl, int ku)
 // \brief Converts conserved into primitive variables in adiabatic hydro.
 void AdiabaticHydroEOS::ConservedToPrimitive(MeshData<Real> *md) const {
-  auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"}).pack;
+  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"}).pack;
   auto ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
   auto jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
   auto kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);

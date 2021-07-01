@@ -18,7 +18,6 @@
 
 using parthenon::MeshBlock;
 using parthenon::MeshBlockData;
-using parthenon::MeshBlockVarPack;
 using parthenon::Real;
 
 class AdiabaticGLMMHDEOS : public EquationOfState {
