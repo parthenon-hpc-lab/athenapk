@@ -29,19 +29,19 @@ import itertools
 
 
 class PrecessedJetCoords:
-    def __init__(self,theta,phi):
-        self.theta = theta
-        self.phi = phi
+    def __init__(self,jet_phi,jet_theta):
+        self.jet_phi = jet_phi
+        self.jet_theta = jet_theta
 
         #Axis of the jet
-        self.jet_n = np.array((np.cos(self.theta)*np.sin(self.phi),
-                    np.sin(self.theta)*np.sin(self.phi),
-                    np.cos(self.phi)))
+        self.jet_n = np.array((np.cos(self.jet_phi)*np.sin(self.jet_theta),
+                    np.sin(self.jet_phi)*np.sin(self.jet_theta),
+                    np.cos(self.jet_theta)))
         
-        #Axis defining theta_j=0
-        self.jet_m = np.array((np.cos(self.theta)*np.sin(self.phi - np.pi/2),
-                    np.sin(self.theta)*np.sin(self.phi - np.pi/2),
-                    np.cos(self.phi - np.pi/2)))
+        #Axis defining jet_phi_j=0
+        self.jet_m = np.array((np.cos(self.jet_phi)*np.sin(self.jet_theta - np.pi/2),
+                    np.sin(self.jet_phi)*np.sin(self.jet_theta - np.pi/2),
+                    np.cos(self.jet_theta - np.pi/2)))
 
         #Axis along theta_j=pi/2
         self.jet_o = np.cross(self.jet_n,self.jet_m)
@@ -70,16 +70,16 @@ class PrecessedJetCoords:
         pos_rho,pos_theta,pos_h = self.cart_to_jet_coords(pos_cart)
             
         #Compute vector in cartesian coords
-        vec_x = vec_rho*(np.sin(self.theta)*np.sin(pos_theta)*np.cos(self.phi) + np.cos(self.phi)*np.cos(self.theta)*np.cos(pos_theta)) \
-            + vec_theta*(np.sin(self.theta)*np.cos(self.phi)*np.cos(pos_theta) - np.sin(pos_theta)*np.cos(self.phi)*np.cos(self.theta)) \
-            + vec_h*np.sin(self.phi)
+        vec_x = vec_rho*(np.sin(self.jet_phi)*np.sin(pos_theta)*np.cos(self.jet_theta) + np.cos(self.jet_theta)*np.cos(self.jet_phi)*np.cos(pos_theta)) \
+            + vec_theta*(np.sin(self.jet_phi)*np.cos(self.jet_theta)*np.cos(pos_theta) - np.sin(pos_theta)*np.cos(self.jet_theta)*np.cos(self.jet_phi)) \
+            + vec_h*np.sin(self.jet_theta)
 
-        vec_y = vec_rho*(-np.sin(self.theta)*np.cos(pos_theta) + np.sin(pos_theta)*np.cos(self.theta)) \
-            + vec_theta*(np.sin(self.theta)*np.sin(pos_theta) + np.cos(self.theta)*np.cos(pos_theta))
+        vec_y = vec_rho*(-np.sin(self.jet_phi)*np.cos(pos_theta) + np.sin(pos_theta)*np.cos(self.jet_phi)) \
+            + vec_theta*(np.sin(self.jet_phi)*np.sin(pos_theta) + np.cos(self.jet_phi)*np.cos(pos_theta))
 
-        vec_z = vec_rho*(-np.sin(self.phi)*np.sin(self.theta)*np.sin(pos_theta) - np.sin(self.phi)*np.cos(self.theta)*np.cos(pos_theta)) \
-            + vec_theta*(-np.sin(self.phi)*np.sin(self.theta)*np.cos(pos_theta) + np.sin(self.phi)*np.sin(pos_theta)*np.cos(self.theta)) \
-            + vec_h*np.cos(self.phi)
+        vec_z = vec_rho*(-np.sin(self.jet_theta)*np.sin(self.jet_phi)*np.sin(pos_theta) - np.sin(self.jet_theta)*np.cos(self.jet_phi)*np.cos(pos_theta)) \
+            + vec_theta*(-np.sin(self.jet_theta)*np.sin(self.jet_phi)*np.cos(pos_theta) + np.sin(self.jet_theta)*np.sin(pos_theta)*np.cos(self.jet_phi)) \
+            + vec_h*np.cos(self.jet_theta)
         
         return (vec_x,vec_y,vec_z)
 
@@ -155,10 +155,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             + self.uniform_gas_pres/(self.adiabatic_index - 1.)
 
         #The precessing jet
-        self.jet_phi = 0.2
-        self.jet_theta_dot = 0
-        self.jet_theta0 = 1
-        self.precessed_jet_coords = PrecessedJetCoords(self.jet_theta0,self.jet_phi)
+        self.jet_theta = 0.2
+        self.jet_phi_dot = 0
+        self.jet_phi0 = 1
+        self.precessed_jet_coords = PrecessedJetCoords(self.jet_phi0,self.jet_theta)
         self.zjet_coords = ZJetCoords()
 
         #Initial and Feedback shared parameters
@@ -224,9 +224,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"problem/cluster/uniform_gas_uz={self.uniform_gas_uz.in_units('code_length*code_time**-1').v}",
                 f"problem/cluster/uniform_gas_pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
 
-                f"problem/cluster/jet_phi={self.jet_phi if precessed_jet else 0}",
-                f"problem/cluster/jet_theta_dot={self.jet_theta_dot if precessed_jet else 0}",
-                f"problem/cluster/jet_theta0={self.jet_theta0 if precessed_jet else 0}",
+                f"problem/cluster/jet_theta={self.jet_theta if precessed_jet else 0}",
+                f"problem/cluster/jet_phi_dot={self.jet_phi_dot if precessed_jet else 0}",
+                f"problem/cluster/jet_phi0={self.jet_phi0 if precessed_jet else 0}",
 
                 f"problem/cluster/initial_magnetic_tower_field={self.initial_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time').v}",
                 f"problem/cluster/initial_magnetic_tower_alpha={self.magnetic_tower_alpha}",

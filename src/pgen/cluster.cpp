@@ -8,8 +8,8 @@
 //
 // Setups up an idealized galaxy cluster with an ACCEPT-like entropy profile in
 // hydrostatic equilbrium with an NFW+BCG+SMBH gravitational profile,
-// optionally with an initial magnetic tower field. Includes tabular cooling,
-// AGN feedback, AGN triggering via cold gas, simple SNIA Feedback
+// optionally with an initial magnetic tower field. Includes AGN feedback, AGN
+// triggering via cold gas, simple SNIA Feedback
 //========================================================================================
 
 // C headers
@@ -33,7 +33,6 @@
 // AthenaPK headers
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
-#include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
 #include "../units.hpp"
 
@@ -79,14 +78,6 @@ void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt,
 void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const bool &enable_tabular_cooling = hydro_pkg->Param<bool>("enable_tabular_cooling");
-
-  if (enable_tabular_cooling) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-    tabular_cooling.SubcyclingFirstOrderSrcTerm(md, tm);
-  }
   // if( hydro_pkg->Param<bool>("enable_hydro_agn_feedback") ){
   //  const HydroAGNFeedback& hydro_agn_feedback =
   //    hydro_pkg->Param<HydroAGNFeedback>("hydro_agn_feedback");
@@ -100,18 +91,7 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const bool &enable_tabular_cooling = hydro_pkg->Param<bool>("enable_tabular_cooling");
-
-  if (enable_tabular_cooling) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-  if (gravity_srcterm) {
-    const ClusterGravity &cluster_gravity =
-        hydro_pkg->Param<ClusterGravity>("cluster_gravity");
-
-    min_dt = std::min(min_dt, cooling_min_dt);
-  }
+  return min_dt;
 }
 
 //========================================================================================
@@ -242,18 +222,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       hydro_pkg->AddParam<>("hydro_agn_feedback", hydro_agn_feedback);
     }
 
-    /************************************************************
-     * Read Tabular Cooling
-     ************************************************************/
-
-    const bool enable_tabular_cooling =
-        pin->GetOrAddBoolean("problem/cluster", "enable_tabular_cooling", false);
-    hydro_pkg->AddParam<>("enable_tabular_cooling", enable_tabular_cooling);
-
-    if (enable_tabular_cooling) {
-      TabularCooling tabular_cooling(pin);
-      hydro_pkg->AddParam<>("tabular_cooling", tabular_cooling);
-    }
   }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);

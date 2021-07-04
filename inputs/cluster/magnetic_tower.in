@@ -92,9 +92,9 @@ uniform_gas_uz = 0
 uniform_gas_pres = 1.5454368403867562
 
 #Define a precessing jet
-jet_phi = 0.0
-jet_theta_dot = 0
-jet_theta0 = 0
+jet_theta = 0.0
+jet_phi_dot = 0
+jet_phi0 = 0
 
 #Include an initial magnetic tower
 enable_initial_magnetic_tower = True

@@ -25,15 +25,15 @@ namespace cluster {
 class JetCoords {
  private:
   // Jet-axis Radians off the z-axis
-  const parthenon::Real jet_phi_;
+  const parthenon::Real jet_theta_;
   // Precesion rate of Jet-axis, radians/time
-  const parthenon::Real jet_theta_dot_;
+  const parthenon::Real jet_phi_dot_;
   // Initial precession offset in radians of Jet-axis (Useful for testing)
-  const parthenon::Real jet_theta0_;
+  const parthenon::Real jet_phi0_;
 
   // Some variables to save recomputing trig in kernels
-  const parthenon::Real cos_jet_phi_, sin_jet_phi_, cos_jet_phi_pihalf_,
-      sin_jet_phi_pihalf_;
+  const parthenon::Real cos_jet_theta_, sin_jet_theta_, cos_jet_theta_pihalf_,
+      sin_jet_theta_pihalf_;
 
   // Dot product function -- TODO(forrestglines): probably move somewhere else
   static KOKKOS_INLINE_FUNCTION parthenon::Real
@@ -50,12 +50,12 @@ class JetCoords {
 
  public:
   JetCoords(parthenon::ParameterInput *pin)
-      : jet_phi_(pin->GetOrAddReal("problem/cluster", "jet_phi", 0)),
-        jet_theta_dot_(pin->GetOrAddReal("problem/cluster", "jet_theta_dot", 0)),
-        jet_theta0_(pin->GetOrAddReal("problem/cluster", "jet_theta0", 0)),
-        cos_jet_phi_(cos(jet_phi_)), sin_jet_phi_(sin(jet_phi_)),
-        cos_jet_phi_pihalf_(cos(jet_phi_ + M_PI / 2.)),
-        sin_jet_phi_pihalf_(sin(jet_phi_ + M_PI / 2.)) {}
+      : jet_theta_(pin->GetOrAddReal("problem/cluster", "jet_theta", 0)),
+        jet_phi_dot_(pin->GetOrAddReal("problem/cluster", "jet_phi_dot", 0)),
+        jet_phi0_(pin->GetOrAddReal("problem/cluster", "jet_phi0", 0)),
+        cos_jet_theta_(cos(jet_theta_)), sin_jet_theta_(sin(jet_theta_)),
+        cos_jet_theta_pihalf_(cos(jet_theta_ + M_PI / 2.)),
+        sin_jet_theta_pihalf_(sin(jet_theta_ + M_PI / 2.)) {}
 
   KOKKOS_INLINE_FUNCTION void
   compute_cylindrical_coords(const parthenon::Real time, const parthenon::Real x,
@@ -64,19 +64,19 @@ class JetCoords {
                              parthenon::Real &sin_theta, parthenon::Real &h) const
       __attribute__((always_inline)) {
     // polar orientation of "theta=0" jet-axis
-    const parthenon::Real jet_theta = jet_theta_dot_ * time + jet_theta0_;
-    const parthenon::Real cos_jet_theta = cos(jet_theta);
-    const parthenon::Real sin_jet_theta = sin(jet_theta);
+    const parthenon::Real jet_phi = jet_phi_dot_ * time + jet_phi0_;
+    const parthenon::Real cos_jet_phi = cos(jet_phi);
+    const parthenon::Real sin_jet_phi = sin(jet_phi);
 
     // The "jet" jet-axis as a cartesian unit vector
-    const parthenon::Real jet_n_x = cos_jet_theta * sin_jet_phi_;
-    const parthenon::Real jet_n_y = sin_jet_theta * sin_jet_phi_;
-    const parthenon::Real jet_n_z = cos(jet_phi_);
+    const parthenon::Real jet_n_x = cos_jet_phi * sin_jet_theta_;
+    const parthenon::Real jet_n_y = sin_jet_phi * sin_jet_theta_;
+    const parthenon::Real jet_n_z = cos(jet_theta_);
 
     // The "theta=0" jet-axis as a cartesian unit vector
-    const parthenon::Real jet_m_x = cos_jet_theta * sin_jet_phi_pihalf_;
-    const parthenon::Real jet_m_y = sin_jet_theta * sin_jet_phi_pihalf_;
-    const parthenon::Real jet_m_z = cos_jet_phi_pihalf_;
+    const parthenon::Real jet_m_x = cos_jet_phi * sin_jet_theta_pihalf_;
+    const parthenon::Real jet_m_y = sin_jet_phi * sin_jet_theta_pihalf_;
+    const parthenon::Real jet_m_z = cos_jet_theta_pihalf_;
 
     // The "theta=pi/2" jet-axis as a cartesian unit vector, o = n X m
     const parthenon::Real jet_o_x = jet_n_y * jet_m_z - jet_n_z * jet_m_y;
@@ -107,24 +107,24 @@ class JetCoords {
       const parthenon::Real v_h, parthenon::Real &v_x, parthenon::Real &v_y,
       parthenon::Real &v_z) const __attribute__((always_inline)) {
     // polar orientation of "theta=0" jet-axis
-    const parthenon::Real jet_theta = jet_theta_dot_ * time + jet_theta0_;
+    const parthenon::Real jet_phi = jet_phi_dot_ * time + jet_phi0_;
 
     // Rotate the v_r,v_theta_h from jet-cylindrical to jet-cartesian, the -theta around z
     // then -phi around y
-    v_x = v_r * (sin(jet_theta) * sin_theta * cos(jet_phi_) +
-                 cos(jet_phi_) * cos(jet_theta) * cos_theta) +
-          v_theta * (sin(jet_theta) * cos(jet_phi_) * cos_theta -
-                     sin_theta * cos(jet_phi_) * cos(jet_theta)) +
-          v_h * sin(jet_phi_);
+    v_x = v_r * (sin(jet_phi) * sin_theta * cos(jet_theta_) +
+                 cos(jet_theta_) * cos(jet_phi) * cos_theta) +
+          v_theta * (sin(jet_phi) * cos(jet_theta_) * cos_theta -
+                     sin_theta * cos(jet_theta_) * cos(jet_phi)) +
+          v_h * sin(jet_theta_);
 
-    v_y = v_r * (-sin(jet_theta) * cos_theta + sin_theta * cos(jet_theta)) +
-          v_theta * (sin(jet_theta) * sin_theta + cos(jet_theta) * cos_theta);
+    v_y = v_r * (-sin(jet_phi) * cos_theta + sin_theta * cos(jet_phi)) +
+          v_theta * (sin(jet_phi) * sin_theta + cos(jet_phi) * cos_theta);
 
-    v_z = v_r * (-sin(jet_phi_) * sin(jet_theta) * sin_theta -
-                 sin(jet_phi_) * cos(jet_theta) * cos_theta) +
-          v_theta * (-sin(jet_phi_) * sin(jet_theta) * cos_theta +
-                     sin(jet_phi_) * sin_theta * cos(jet_theta)) +
-          v_h * cos(jet_phi_);
+    v_z = v_r * (-sin(jet_theta_) * sin(jet_phi) * sin_theta -
+                 sin(jet_theta_) * cos(jet_phi) * cos_theta) +
+          v_theta * (-sin(jet_theta_) * sin(jet_phi) * cos_theta +
+                     sin(jet_theta_) * sin_theta * cos(jet_phi)) +
+          v_h * cos(jet_theta_);
   }
 };
 
