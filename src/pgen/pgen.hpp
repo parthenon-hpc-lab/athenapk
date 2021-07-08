@@ -67,7 +67,7 @@ using namespace parthenon::driver::prelude;
 
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
-void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm);
+void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real);
 } // namespace rand_blast
 
 namespace cluster {
@@ -75,7 +75,7 @@ using namespace parthenon::driver::prelude;
 
 void InitUserMeshData(ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
-void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt);
+void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt);
 } // namespace cluster
 
 #endif // PGEN_PGEN_HPP_
