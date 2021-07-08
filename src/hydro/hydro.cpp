@@ -128,7 +128,7 @@ void ConsToPrim(MeshData<Real> *md) {
 // respective source in active.
 // Note 2: Directly update the "cons" variables based on the "prim" variables
 // as the "cons" variables have already been updated when this function is called.
-TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
+TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   if (hydro_pkg->Param<bool>("use_DednerGLMMHDSource")) {
@@ -138,26 +138,43 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
     GLMMHD::DednerSource<true>(md, beta_dt);
   }
   if (ProblemSourceUnsplit != nullptr) {
-    ProblemSourceUnsplit(md, beta_dt);
+    ProblemSourceUnsplit(md, tm, beta_dt);
   }
 
   return TaskStatus::complete;
 }
 
-TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const parthenon::SimTime &tm) {
+TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const bool &enable_tabular_cooling = hydro_pkg->Param<bool>("enable_tabular_cooling");
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
 
-  if (enable_tabular_cooling) {
+  if (enable_cooling == Cooling::tabular) {
     const TabularCooling &tabular_cooling =
         hydro_pkg->Param<TabularCooling>("tabular_cooling");
 
-    tabular_cooling.SubcyclingFirstOrderSrcTerm(md, tm);
+    tabular_cooling.SrcTerm(md, tm.dt);
   }
-
   if (ProblemSourceFirstOrder != nullptr) {
-    ProblemSourceFirstOrder(md, tm);
+    ProblemSourceFirstOrder(md, tm, tm.dt);
+  }
+  return TaskStatus::complete;
+}
+
+TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm) {
+  // auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+
+  // if (enable_cooling == Cooling::tabular) {
+  //   const TabularCooling &tabular_cooling =
+  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+  //   tabular_cooling.SrcTerm(md, 0.5 * tm.dt);
+  // }
+
+  if (ProblemSourceStrangSplit != nullptr) {
+    ProblemSourceStrangSplit(md, tm, tm.dt);
   }
   return TaskStatus::complete;
 }
@@ -321,11 +338,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
    * Read Tabular Cooling
    ************************************************************/
 
-  const bool enable_tabular_cooling =
-      pin->GetOrAddBoolean("cooling", "enable_tabular_cooling", false);
-  pkg->AddParam<>("enable_tabular_cooling", enable_tabular_cooling);
+  const auto enable_cooling_str =
+      pin->GetOrAddString("cooling", "enable_cooling", "none");
 
-  if (enable_tabular_cooling) {
+  auto cooling = Cooling::none;
+  if (enable_cooling_str == "tabular") {
+    cooling = Cooling::tabular;
+  } else if (enable_cooling_str != "none") {
+    PARTHENON_FAIL("AthenaPK hydro: Unknown cooling string. Supported options are "
+                   "'none' and 'tabular'");
+  }
+  pkg->AddParam<>("enable_cooling", cooling);
+
+  if (cooling == Cooling::tabular) {
     TabularCooling tabular_cooling(pin);
     pkg->AddParam<>("tabular_cooling", tabular_cooling);
   }
@@ -340,6 +365,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   cons_labels[IM2] = "MomentumDensity2";
   cons_labels[IM3] = "MomentumDensity3";
   cons_labels[IEN] = "TotalEnergyDensity";
+  if (fluid == Fluid::glmmhd) {
+    cons_labels[IB1] = "MagneticField1";
+    cons_labels[IB2] = "MagneticField2";
+    cons_labels[IB3] = "MagneticField3";
+    cons_labels[IPS] = "MagneticPhi";
+  }
   Metadata m(
       {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
       std::vector<int>({nhydro}), cons_labels);
@@ -353,6 +384,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   prim_labels[IV2] = "Velocity2";
   prim_labels[IV3] = "Velocity3";
   prim_labels[IPR] = "Pressure";
+  if (fluid == Fluid::glmmhd) {
+    prim_labels[IB1] = "MagneticField1";
+    prim_labels[IB2] = "MagneticField2";
+    prim_labels[IB3] = "MagneticField3";
+    prim_labels[IPS] = "MagneticPhi";
+  }
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}),
                prim_labels);
   pkg->AddField(field_name, m);
@@ -466,9 +503,9 @@ Real EstimateTimestep(MeshData<Real> *md) {
 
   auto min_dt = cfl_hyp * min_dt_hyperbolic;
 
-  const bool &enable_tabular_cooling = hydro_pkg->Param<bool>("enable_tabular_cooling");
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
 
-  if (enable_tabular_cooling) {
+  if (enable_cooling == Cooling::tabular) {
     const TabularCooling &tabular_cooling =
         hydro_pkg->Param<TabularCooling>("tabular_cooling");
 

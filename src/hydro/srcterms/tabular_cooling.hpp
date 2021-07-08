@@ -84,6 +84,8 @@ struct RK45Stepper {
   }
 };
 
+enum class CoolIntegrator { undefined, rk12, rk45, mixed };
+
 class TabularCooling {
  private:
   // Defines uniformly spaced log temperature range of the table
@@ -103,8 +105,7 @@ class TabularCooling {
   // adiabatic_index -1
   parthenon::Real gm1_;
 
-  // Order of integration
-  unsigned int integration_order_;
+  CoolIntegrator integrator_;
 
   // Maximum number of iterations/subcycles
   unsigned int max_iter_;
@@ -175,13 +176,18 @@ class TabularCooling {
  public:
   TabularCooling(parthenon::ParameterInput *pin);
 
-  void SubcyclingFirstOrderSrcTerm(parthenon::MeshData<parthenon::Real> *md,
-                                   const parthenon::SimTime &tm) const;
+  void SrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt) const;
 
+  // Mixed integration scheme, i.e., try RK12 first and if error is too large
+  // switch to RK45 with adaptive timestepping
+  void MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
+                       const parthenon::Real dt) const;
+
+  // (Adaptive) subcyling using a fixed integration scheme
   template <typename RKStepper>
-  void SubcyclingSplitSrcTerm(parthenon::MeshData<parthenon::Real> *md,
-                              const parthenon::SimTime &tm,
-                              const RKStepper rk_stepper) const;
+  void SubcyclingFixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
+                                 const parthenon::Real dt,
+                                 const RKStepper rk_stepper) const;
 
   parthenon::Real EstimateTimeStep(parthenon::MeshData<parthenon::Real> *md) const;
 

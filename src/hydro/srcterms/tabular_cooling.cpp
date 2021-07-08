@@ -46,7 +46,16 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   const Real lambda_units =
       lambda_units_cgs / (units.erg() * pow(units.cm(), 3) / units.s());
 
-  integration_order_ = pin->GetOrAddInteger("cooling", "integration_order", 2);
+  const auto integrator_str = pin->GetOrAddString("cooling", "integrator", "rk12");
+  if (integrator_str == "rk12") {
+    integrator_ = CoolIntegrator::rk12;
+  } else if (integrator_str == "rk45") {
+    integrator_ = CoolIntegrator::rk45;
+  } else if (integrator_str == "mixed") {
+    integrator_ = CoolIntegrator::mixed;
+  } else {
+    integrator_ = CoolIntegrator::undefined;
+  }
   max_iter_ = pin->GetOrAddInteger("cooling", "max_iter", 100);
   cooling_time_cfl_ = pin->GetOrAddReal("cooling", "cfl", 0.1);
   d_log_temp_tol_ = pin->GetOrAddReal("cooling", "d_log_temp_tol", 1e-8);
@@ -194,29 +203,22 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
 }
 
-void TabularCooling::SubcyclingFirstOrderSrcTerm(MeshData<Real> *md,
-                                                 const SimTime &tm) const {
+void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
 
-  switch (integration_order_) {
-  case 2:
-    SubcyclingSplitSrcTerm<RK12Stepper>(md, tm, RK12Stepper());
-    break;
-  case 5:
-    SubcyclingSplitSrcTerm<RK45Stepper>(md, tm, RK45Stepper());
-    break;
-  default: {
-    std::stringstream msg;
-    msg << "### FATAL ERROR in function [TabularCooling::SubcyclingSplitSrcTerm]"
-        << std::endl
-        << "Unknown integration order " << integration_order_ << std::endl;
-    PARTHENON_FAIL(msg);
-  }
+  if (integrator_ == CoolIntegrator::rk12) {
+    SubcyclingFixedIntSrcTerm<RK12Stepper>(md, dt, RK12Stepper());
+  } else if (integrator_ == CoolIntegrator::rk45) {
+    SubcyclingFixedIntSrcTerm<RK45Stepper>(md, dt, RK45Stepper());
+  } else if (integrator_ == CoolIntegrator::mixed) {
+    MixedIntSrcTerm(md, dt);
+  } else {
+    PARTHENON_FAIL("Unknown cooling integrator.");
   }
 }
 
 template <typename RKStepper>
-void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &tm,
-                                            const RKStepper rk_stepper) const {
+void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt,
+                                               const RKStepper rk_stepper) const {
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
@@ -234,8 +236,7 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
   const Real gm1 = gm1_;
   const unsigned int max_iter = max_iter_;
 
-  const Real duration = tm.dt;
-  const Real min_sub_dt = duration / max_iter;
+  const Real min_sub_dt = dt / max_iter;
 
   const Real d_e_tol = d_e_tol_;
 
@@ -278,7 +279,7 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
         Real sub_t = 0; // current subcycle time
         // Try full dt. If error is too large adaptive timestepping will reduce sub_dt
-        Real sub_dt = duration;
+        Real sub_dt = dt;
 
         // Check if cooling is actually happening, e.g., when below T_cool_min
         const Real dedt_initial = DeDt_wrapper(sub_t, internal_e_initial, dedt_valid);
@@ -294,13 +295,14 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
         unsigned int sub_iter = 0;
         // check for dedt != 0.0 required in case cooling floor it hit during subcycling
-        while ((sub_t * (1 + KEpsilon_) < duration) &&
+        while ((sub_t * (1 + KEpsilon_) < dt) &&
                (DeDt_wrapper(sub_t, internal_e, dedt_valid) != 0.0)) {
 
           if (sub_iter > max_iter) {
             // Due to sub_dt >= min_dt, this error should never happen
-            Kokkos::abort("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: Sub "
-                          "cycles exceed max_iter (This should be impossible)");
+            PARTHENON_FAIL(
+                "FATAL ERROR in [TabularCooling::SubcyclingFixedIntSrcTerm]: Sub "
+                "cycles exceed max_iter (This should be impossible)");
           }
 
           // Next higher order estimate
@@ -323,9 +325,8 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
             if (!dedt_valid) {
               if (sub_dt == min_sub_dt) {
-                Kokkos::abort("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
-                              "Minumum sub_dt "
-                              "leads to negative internal energy");
+                PARTHENON_FAIL("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
+                               "Minumum sub_dt leads to negative internal energy");
               }
               reattempt_sub = true;
               sub_dt = min_sub_dt;
@@ -372,7 +373,7 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
 
           // skip to the end of subcycling if error is 0 (very unlikely)
           if (d_e_err == 0) {
-            sub_dt = duration - sub_t;
+            sub_dt = dt - sub_t;
           } else {
             // Grow the timestep
             // (or shrink in case d_e_err >= d_e_tol and sub_dt is already at min_sub_dt)
@@ -387,7 +388,7 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
           sub_dt = std::max(sub_dt, min_sub_dt);
 
           // Limit by end time
-          sub_dt = std::min(sub_dt, duration - sub_t);
+          sub_dt = std::min(sub_dt, dt - sub_t);
 
           sub_iter++;
         }
@@ -398,6 +399,11 @@ void TabularCooling::SubcyclingSplitSrcTerm(MeshData<Real> *md, const SimTime &t
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
         prim(IPR, k, j, i) = rho * internal_e * gm1;
       });
+}
+
+void TabularCooling::MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
+                                     const parthenon::Real dt) const {
+  PARTHENON_FAIL("need impl");
 }
 
 Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {

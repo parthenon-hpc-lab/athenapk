@@ -81,13 +81,13 @@ uniform_gas_uz = 0
 uniform_gas_pres = 1.5454368403867562
 
 <cooling>
-enable_tabular_cooling = true
+enable_cooling = tabular
 table_filename = schure.cooling
 log_temp_col = 0
 log_lambda_col = 1
 lambda_units_cgs = 1
 
-integration_order = 2
+integrator = rk12
 max_iter = 100
 cfl = 0.1
 d_log_temp_tol = 1e-8
