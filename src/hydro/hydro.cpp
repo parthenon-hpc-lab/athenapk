@@ -317,8 +317,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   if (eos_str == "adiabatic") {
     Real gamma = pin->GetReal("hydro", "gamma");
     pkg->AddParam<>("AdiabaticIndex", gamma);
-    Real dfloor = pin->GetOrAddReal("hydro", "dfloor", std::sqrt(1024 * float_min));
-    Real pfloor = pin->GetOrAddReal("hydro", "pfloor", std::sqrt(1024 * float_min));
+    // By default disable floors by setting a negative value
+    Real dfloor = pin->GetOrAddReal("hydro", "dfloor", -1.0);
+    Real pfloor = pin->GetOrAddReal("hydro", "pfloor", -1.0);
     if (fluid == Fluid::euler) {
       AdiabaticHydroEOS eos(pfloor, dfloor, gamma);
       pkg->AddParam<>("eos", eos);

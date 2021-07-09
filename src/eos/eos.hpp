@@ -34,11 +34,7 @@ class EquationOfState {
  public:
   EquationOfState(Real pressure_floor, Real density_floor)
       : pressure_floor_(pressure_floor), density_floor_(density_floor) {}
-  virtual void ConservedToPrimitive(MeshBlockData<Real> *rc, int il, int iu, int jl,
-                                    int ju, int kl, int ku) const = 0;
   virtual void ConservedToPrimitive(MeshData<Real> *md) const = 0;
-  virtual void PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il,
-                                    int iu, int jl, int ju, int kl, int ku) const = 0;
 
   KOKKOS_INLINE_FUNCTION
   Real GetPressureFloor() const { return pressure_floor_; }

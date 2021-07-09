@@ -29,17 +29,6 @@ using parthenon::ParArray4D;
 // \!fn void EquationOfState::ConservedToPrimitive(
 //           Container<Real> &rc,
 //           int il, int iu, int jl, int ju, int kl, int ku)
-// \brief Converts conserved into primitive variables in adiabatic MHD.
-void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshBlockData<Real> *rc, int il, int iu,
-                                              int jl, int ju, int kl, int ku) const {
-  PARTHENON_FAIL(
-      "AdiabaticGLMMHDEOS::ConservedToPrimitive for BlockData not implemented");
-}
-
-//----------------------------------------------------------------------------------------
-// \!fn void EquationOfState::ConservedToPrimitive(
-//           Container<Real> &rc,
-//           int il, int iu, int jl, int ju, int kl, int ku)
 // \brief Converts conserved into primitive variables in adiabatic hydro.
 void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
@@ -82,6 +71,11 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
         Real &w_Bz = prim(IB3, k, j, i);
         Real &w_psi = prim(IPS, k, j, i);
 
+        // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
+        // and the code will fail if a negative density is encountered.
+        PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ <= 0.0,
+                          "Got negative density. Consider enabling first-order flux "
+                          "correction or setting a reasonble density floor.");
         // apply density floor, without changing momentum or energy
         u_d = (u_d > density_floor_) ? u_d : density_floor_;
         w_d = u_d;
@@ -100,20 +94,13 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
         Real e_B = 0.5 * (SQR(u_b1) + SQR(u_b2) + SQR(u_b3));
         w_p = gm1 * (u_e - e_k - e_B);
 
+        // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
+        // and the code will fail if a negative pressure is encountered.
+        PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ <= 0.0,
+                          "Got negative pressure. Consider enabling first-order flux "
+                          "correction or setting a reasonble pressure floor.");
         // apply pressure floor, correct total energy
         u_e = (w_p > pressure_floor_) ? u_e : ((pressure_floor_ / gm1) + e_k + e_B);
         w_p = (w_p > pressure_floor_) ? w_p : pressure_floor_;
       });
-}
-
-//----------------------------------------------------------------------------------------
-// \!fn void EquationOfState::PrimitiveToConserved(
-//           Container<Real> &rc,
-//           Coordinates int il, int iu, int jl, int ju, int kl, int ku);
-// \brief Converts primitive variables into conservative variables
-
-void AdiabaticGLMMHDEOS::PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc,
-                                              int il, int iu, int jl, int ju, int kl,
-                                              int ku) const {
-  PARTHENON_FAIL("AdiabaticGLMMHDEOS::PrimitiveToConserved not implemented");
 }
