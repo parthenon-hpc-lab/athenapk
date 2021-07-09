@@ -123,6 +123,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+    auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
     // Add initial Strang split source terms, i.e., a dt/2 update
     // IMPORTANT 1: This task must also update `prim` and `cons` variables so that
@@ -137,6 +138,15 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
     auto calc_flux = tl.AddTask(source_split_strang_init, calc_flux_fun, mu0);
+
+    if (hydro_pkg->Param<bool>("first_order_flux_correct")) {
+      auto *first_order_flux_correct_fun =
+          hydro_pkg->Param<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun");
+      auto first_order_flux_correct =
+          tl.AddTask(calc_flux, FirstOrderFluxCorrect<Fluid::euler>, mu0.get(), mu1.get(),
+                     integrator->gam0[stage - 1], integrator->gam1[stage - 1],
+                     integrator->beta[stage - 1] * integrator->dt);
+    }
   }
   TaskRegion &async_region_2 = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {

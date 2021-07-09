@@ -313,6 +313,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<FluxFun_t *>("flux_first_stage", flux_first_stage);
   pkg->AddParam<FluxFun_t *>("flux_other_stage", flux_other_stage);
 
+  auto first_order_flux_correct =
+      pin->GetOrAddBoolean("hydro", "first_order_flux_correct", false);
+  pkg->AddParam<>("first_order_flux_correct", first_order_flux_correct);
+  if (first_order_flux_correct) {
+    if (fluid == Fluid::euler) {
+      pkg->AddParam<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun",
+                                                  FirstOrderFluxCorrect<Fluid::euler>);
+    } else if (fluid == Fluid::glmmhd) {
+      pkg->AddParam<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun",
+                                                  FirstOrderFluxCorrect<Fluid::glmmhd>);
+    }
+  }
+
   auto eos_str = pin->GetString("hydro", "eos");
   if (eos_str == "adiabatic") {
     Real gamma = pin->GetReal("hydro", "gamma");
@@ -709,6 +722,79 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
           }
         });
   }
+
+  return TaskStatus::complete;
+}
+
+// Apply first order flux correction, i.e., use first order reconstruction and a
+// diffusive LLF Riemann solver if a negative density or energy density is expected.
+// The current implementation is computationally not the most efficient one, but works
+// for all standard integrators (rk1, rk2, rk3, and vl) and with and without AMR.
+// In principle, without AMR one could directly use the results from the actual
+// flux divergence call.
+// However, with AMR (and coarse/fine flux correction) we need to correct the local
+// fluxes first before calling coarse/fine flux correction.
+// In addition, it may be enough to call first order flux correction once at the
+// final stage (rather than at every stage as right row).
+// However, this'd require an additional register to store the initial state and
+// we should first evaluate where the tradeoff between extra computational costs
+// (multiple calls) versus extra memory usage is.
+template <Fluid fluid>
+TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
+                                 const Real gam0, const Real gam1, const Real beta_dt) {
+
+  auto pmb = u0_data->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  int jl, ju, kl, ku;
+  jl = jb.s, ju = jb.e, kl = kb.s, ku = kb.e;
+  // TODO(pgrete): are these looop limits are likely too large for 2nd order
+  if (pmb->block_size.nx2 > 1) {
+    if (pmb->block_size.nx3 == 1) // 2D
+      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s, ku = kb.e;
+    else // 3D
+      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
+  }
+
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto u0_cons_pack = u0_data->PackVariablesAndFluxes(flags_ind);
+  auto u1_cons_pack = u1_data->PackVariablesAndFluxes(flags_ind);
+  auto pkg = pmb->packages.Get("Hydro");
+  const int nhydro = pkg->Param<int>("nhydro");
+
+  const auto &eos =
+      pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
+                                           AdiabaticGLMMHDEOS>::type>("eos");
+
+  // Hyperbolic divergence cleaning speed for GLM MHD
+  Real c_h = 0.0;
+  if (fluid == Fluid::glmmhd) {
+    c_h = pkg->Param<Real>("c_h");
+  }
+  auto num_scratch_vars = nhydro;
+  auto prim_list = std::vector<std::string>({"prim"});
+  auto const &u0_prim_pack = u0_data->PackVariables(prim_list);
+
+  const int ndim = pmb->pmy_mesh->ndim;
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "FirstOrderFluxCorrect", DevExecSpace(), 0,
+      u0_cons_pack.GetDim(5) - 1, kl, ku, jl, ju, ib.s - 1, ib.e + 1,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const auto &coords = u0_cons_pack.coords(b);
+        const auto &u0_prim = u0_prim_pack(b);
+        auto &u0_cons = u0_cons_pack(b);
+        const auto new_dens =
+            gam0 * u0_cons(IDN, k, j, i) + gam1 * u1_cons_pack(b, IDN, k, j, i) +
+            beta_dt * parthenon::Update::FluxDiv_(IDN, k, j, i, ndim, coords, u0_cons);
+        const auto new_energy =
+            gam0 * u0_cons(IEN, k, j, i) + gam1 * u1_cons_pack(b, IEN, k, j, i) +
+            beta_dt * parthenon::Update::FluxDiv_(IEN, k, j, i, ndim, coords, u0_cons);
+        PARTHENON_REQUIRE(new_dens > 0.0, "Expecting negative density after calc fluxes");
+        PARTHENON_REQUIRE(new_energy > 0.0,
+                          "Expecting negative energy after calc fluxes");
+      });
 
   return TaskStatus::complete;
 }
