@@ -46,10 +46,39 @@ void MagneticTower::AddPotential(MeshBlock *pmb, IndexRange kb, IndexRange jb,
       });
 }
 
+// Add magnetic field to provided conserved variables
+template <typename View4D>
+void MagneticTower::AddField(MeshBlock *pmb, IndexRange kb, IndexRange jb,
+                             IndexRange ib, const View4D &cons,
+                             const parthenon::Real time) const {
+
+  auto &coords = pmb->coords;
+
+  const MagneticTower mt = *this;
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "MagneticTower::AddPotential", parthenon::DevExecSpace(),
+      kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+        // Compute and apply potential
+        Real b_x, b_y, b_z;
+        mt.compute_field_cartesian(time, coords.x1v(i), coords.x2v(j), coords.x3v(k),
+                                       b_x, b_y, b_z);
+        cons(IB1, k, j, i) += b_x;
+        cons(IB2, k, j, i) += b_y;
+        cons(IB3, k, j, i) += b_z;
+      });
+}
+
 template void MagneticTower::AddPotential<>(MeshBlock *pmb, IndexRange kb, IndexRange jb,
                                             IndexRange ib, const ParArray3D<Real> &A_x,
                                             const ParArray3D<Real> &A_y,
                                             const ParArray3D<Real> &A_z,
+                                            const parthenon::Real time) const;
+
+template void MagneticTower::AddField<>(MeshBlock *pmb, IndexRange kb, IndexRange jb,
+                                            IndexRange ib,
+                                            const parthenon::ParArrayNDGeneric<Kokkos::View<double ******, Kokkos::LayoutRight, Kokkos::HostSpace>> &cons,
                                             const parthenon::Real time) const;
 
 // Apply a cell centered magnetic field to the conserved variables
@@ -241,8 +270,6 @@ void MagneticTower::ReducePowerContrib(parthenon::MeshData<parthenon::Real> *md,
   hydro_pkg->UpdateParam("mt_quadratic_contrib",
                          quadratic_contrib +
                              hydro_pkg->Param<parthenon::Real>("mt_quadratic_contrib"));
-
-  return;
 }
 
 TaskStatus ReduceMagneticTowerPowerContrib(parthenon::MeshData<parthenon::Real> *md,

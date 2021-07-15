@@ -110,17 +110,15 @@ void HydroAGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         if (kinetic_power > 0) {
           // Get position relative to the jet
           Real r, cos_theta, sin_theta, h;
-          jet_coords.compute_cylindrical_coords(time, x, y, z, r, cos_theta, sin_theta,
-                                                h);
+          jet_coords.compute_cylindrical_coords(time, x, y, z, r, cos_theta, sin_theta, h);
 
           if (r < jet_radius && fabs(h) < jet_height) {
             // Cell falls inside jet deposition volume
 
             // Get the vector of the jet axis
             Real jet_x, jet_y, jet_z;
-            jet_coords.jet_vector_to_cartesian(time, r, cos_theta, sin_theta, h, 0, 0,
-                                               1, // Unit vector pointing along jet axis
-                                               jet_x, jet_y, jet_z);
+            jet_coords.jet_vector_to_cartesian(time, cos_theta, sin_theta, 0, 0, 1, jet_x,
+                                               jet_y, jet_z);
 
             const int sign_jet = (h > 0) ? 1 : -1; // Above or below jet-disk
 

@@ -29,59 +29,79 @@ import itertools
 
 
 class PrecessedJetCoords:
-    def __init__(self,jet_phi,jet_theta):
-        self.jet_phi = jet_phi
-        self.jet_theta = jet_theta
+    #Note: Does note rotate the vector around the jet axis, only rotates the vector to `z_hat`
+    def __init__(self,phi_jet,theta_jet):
+        self.phi_jet = phi_jet
+        self.theta_jet = theta_jet
 
         #Axis of the jet
-        self.jet_n = np.array((np.cos(self.jet_phi)*np.sin(self.jet_theta),
-                    np.sin(self.jet_phi)*np.sin(self.jet_theta),
-                    np.cos(self.jet_theta)))
-        
-        #Axis defining jet_phi_j=0
-        self.jet_m = np.array((np.cos(self.jet_phi)*np.sin(self.jet_theta - np.pi/2),
-                    np.sin(self.jet_phi)*np.sin(self.jet_theta - np.pi/2),
-                    np.cos(self.jet_theta - np.pi/2)))
+        self.n_jet = np.array((np.cos(self.phi_jet)*np.sin(self.theta_jet),
+                    np.sin(self.phi_jet)*np.sin(self.theta_jet),
+                    np.cos(self.theta_jet)))
 
-        #Axis along theta_j=pi/2
-        self.jet_o = np.cross(self.jet_n,self.jet_m)
+        self.n_jet = np.array( ( np.cos(self.phi_jet)*np.sin(self.theta_jet),
+                                 np.sin(self.phi_jet)*np.sin(self.theta_jet),
+                                 np.cos(self.theta_jet) ) )
+
+        self.m_jet = np.array( ( np.cos(self.phi_jet)*np.sin(self.theta_jet+np.pi/2),
+                                  np.sin(self.phi_jet)*np.sin(self.theta_jet+np.pi/2),
+                                  np.cos(self.theta_jet+np.pi/2) ) )
+        self.o_jet = np.cross(self.n_jet,self.m_jet)
+        
 
     def cart_to_jet_coords(self,pos_cart):
         """
         Convert from cartesian coordinates to jet coordinates
         """
+        pos_jet_cart = np.array( ( np.tensordot(self.m_jet,pos_cart,axes=((0,),(0,))),
+                                   np.tensordot(self.o_jet,pos_cart,axes=((0,),(0,))),
+                                   np.tensordot(self.n_jet,pos_cart,axes=((0,),(0,))) ))
 
-        pos_h = np.sum(pos_cart*self.jet_n[:,None],axis=0)
-        pos_rho = np.linalg.norm( pos_cart - pos_h*self.jet_n[:,None],axis=0)
-        pos_theta = np.arctan2(
-            np.sum((pos_cart - pos_h*self.jet_n[:,None])*self.jet_o[:,None],axis=0),
-            np.sum((pos_cart - pos_h*self.jet_n[:,None])*self.jet_m[:,None],axis=0)
-        ) 
-        pos_theta[pos_rho == 0] = 0
-        return (pos_rho,pos_theta,pos_h)
+        h_pos = unyt.unyt_array(np.tensordot(self.n_jet,pos_cart,axes=((0,),(0,))),
+                           pos_cart.units)
+        r_pos = unyt.unyt_array(np.linalg.norm( pos_cart - np.multiply.outer(self.n_jet,h_pos),axis=0),
+                           pos_cart.units)
+
+        theta_pos = np.arctan2( np.tensordot(pos_cart,self.o_jet,axes=((0,),(0,))),
+                                np.tensordot(pos_cart,self.m_jet,axes=((0,),(0,))))
+        return (r_pos, theta_pos, h_pos)
 
     def jet_to_cart_vec(self,pos_cart,vec_jet):
-        
-        vec_rho = vec_jet[0]
-        vec_theta = vec_jet[1]
-        vec_h = vec_jet[2]
-        
-        #Compute pos in the jet-cylindrical-axis
-        pos_rho,pos_theta,pos_h = self.cart_to_jet_coords(pos_cart)
-            
-        #Compute vector in cartesian coords
-        vec_x = vec_rho*(np.sin(self.jet_phi)*np.sin(pos_theta)*np.cos(self.jet_theta) + np.cos(self.jet_theta)*np.cos(self.jet_phi)*np.cos(pos_theta)) \
-            + vec_theta*(np.sin(self.jet_phi)*np.cos(self.jet_theta)*np.cos(pos_theta) - np.sin(pos_theta)*np.cos(self.jet_theta)*np.cos(self.jet_phi)) \
-            + vec_h*np.sin(self.jet_theta)
 
-        vec_y = vec_rho*(-np.sin(self.jet_phi)*np.cos(pos_theta) + np.sin(pos_theta)*np.cos(self.jet_phi)) \
-            + vec_theta*(np.sin(self.jet_phi)*np.sin(pos_theta) + np.cos(self.jet_phi)*np.cos(pos_theta))
+        r_pos, theta_pos, h_pos = self.cart_to_jet_coords(pos_cart)
 
-        vec_z = vec_rho*(-np.sin(self.jet_theta)*np.sin(self.jet_phi)*np.sin(pos_theta) - np.sin(self.jet_theta)*np.cos(self.jet_phi)*np.cos(pos_theta)) \
-            + vec_theta*(-np.sin(self.jet_theta)*np.sin(self.jet_phi)*np.cos(pos_theta) + np.sin(self.jet_theta)*np.sin(pos_theta)*np.cos(self.jet_phi)) \
-            + vec_h*np.cos(self.jet_theta)
-        
-        return (vec_x,vec_y,vec_z)
+        #Convert jet-cylindrical vec_jet into jet-cartesian
+        R = np.array((( np.cos(theta_pos),-np.sin(theta_pos), np.zeros_like(theta_pos)),
+                      ( np.sin(theta_pos), np.cos(theta_pos), np.zeros_like(theta_pos)),
+                      ( np.zeros_like(theta_pos),np.zeros_like(theta_pos), np.ones_like(theta_pos)))).reshape(
+                              (3,3,*(theta_pos.shape)))
+        #vec_jet_cart = np.einsum("ij,jxyz",R,vec_jet)
+        vec_jet_cart = unyt.unyt_array((R[0,0]*vec_jet[0] + R[0,1]*vec_jet[1] + R[0,2]*vec_jet[2],
+                                   R[1,0]*vec_jet[0] + R[1,1]*vec_jet[1] + R[1,2]*vec_jet[2],
+                                   R[2,0]*vec_jet[0] + R[2,1]*vec_jet[1] + R[2,2]*vec_jet[2]),
+                                   vec_jet.units)
+                   
+
+        #Construct the matrix to rotate n_jet to z_hat
+        #From https://math.stackexchange.com/a/476311
+        z_hat = np.array( (0,0,1) )
+
+        v = np.cross(self.n_jet,z_hat)
+        c = np.dot(self.n_jet,z_hat)
+
+        vcross = np.array( ((    0,-v[2], v[1]),
+                            ( v[2],    0,-v[0]),
+                            (-v[1], v[0],    0)))
+
+        R = np.eye(3) + vcross + np.linalg.matrix_power(vcross,2)/(1 + c)
+
+        #vec_cart = np.matmul(R,vec_jet_cart)
+        vec_cart = unyt.unyt_array((R[0,0]*vec_jet_cart[0] + R[0,1]*vec_jet_cart[1] + R[0,2]*vec_jet_cart[2],
+                               R[1,0]*vec_jet_cart[0] + R[1,1]*vec_jet_cart[1] + R[1,2]*vec_jet_cart[2],
+                               R[2,0]*vec_jet_cart[0] + R[2,1]*vec_jet_cart[1] + R[2,2]*vec_jet_cart[2]),
+                               vec_jet_cart.units)
+
+        return vec_cart
 
 class ZJetCoords:
     def __init__(self):
@@ -92,7 +112,7 @@ class ZJetCoords:
         Convert from cartesian coordinates to jet coordinates
         """
 
-        pos_rho = np.linalg.norm(pos_cart[:2])
+        pos_rho = np.sqrt(pos_cart[0]**2 + pos_cart[1]**2)
         pos_theta = np.arctan2(pos_cart[1],pos_cart[0]) 
         pos_theta[pos_rho == 0] = 0
         pos_h = pos_cart[2]
@@ -105,12 +125,11 @@ class ZJetCoords:
         vec_theta = vec_jet[1]
         vec_h = vec_jet[2]
 
-        pos_rho,pos_theta,pos_h = self.cart_to_jet_coords(pos_cart)
+        r_pos,theta_pos,h_pos = self.cart_to_jet_coords(pos_cart)
         
         #Compute vector in cartesian coords
-        vec_x = vec_rho*np.cos(pos_theta) - vec_theta*np.sin(pos_theta)
-        vec_y =-vec_rho*np.sin(pos_theta) + vec_theta*np.cos(pos_theta)
-
+        vec_x = vec_rho*np.cos(theta_pos) - vec_theta*np.sin(theta_pos)
+        vec_y =-vec_rho*np.sin(theta_pos) + vec_theta*np.cos(theta_pos)
         vec_z = vec_h
         
         return (vec_x,vec_y,vec_z)
@@ -155,10 +174,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             + self.uniform_gas_pres/(self.adiabatic_index - 1.)
 
         #The precessing jet
-        self.jet_theta = 0.2
-        self.jet_phi_dot = 0
-        self.jet_phi0 = 1
-        self.precessed_jet_coords = PrecessedJetCoords(self.jet_phi0,self.jet_theta)
+        self.theta_jet = 0.2
+        self.phi_jet_dot = 0
+        self.phi_jet0 = 1
+        self.precessed_jet_coords = PrecessedJetCoords(self.phi_jet0,self.theta_jet)
         self.zjet_coords = ZJetCoords()
 
         #Initial and Feedback shared parameters
@@ -170,7 +189,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         #The Feedback Tower
         #For const field tests
-        self.feedback_magnetic_tower_field = unyt.unyt_quantity(1e-6,"G/Gyr")
+        self.feedback_magnetic_tower_field = unyt.unyt_quantity(1e-4,"G/Gyr")
         #For const energy tests
         self.feedback_magnetic_tower_power = unyt.unyt_quantity(1e44,"erg/s")
         
@@ -178,6 +197,9 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         self.steps = 4
         self.step_params_list = list(itertools.product( ("const_field","const_power"),(True,False)))
+
+        self.EB_initial_tol = 1e-5
+        self.EB_final_tol = 1e-5
 
     def Prepare(self,parameters, step):
         """
@@ -224,9 +246,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"problem/cluster/uniform_gas_uz={self.uniform_gas_uz.in_units('code_length*code_time**-1').v}",
                 f"problem/cluster/uniform_gas_pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
 
-                f"problem/cluster/jet_theta={self.jet_theta if precessed_jet else 0}",
-                f"problem/cluster/jet_phi_dot={self.jet_phi_dot if precessed_jet else 0}",
-                f"problem/cluster/jet_phi0={self.jet_phi0 if precessed_jet else 0}",
+                f"problem/cluster/jet_theta={self.theta_jet if precessed_jet else 0}",
+                f"problem/cluster/jet_phi_dot={self.phi_jet_dot if precessed_jet else 0}",
+                f"problem/cluster/jet_phi0={self.phi_jet0 if precessed_jet else 0}",
 
                 f"problem/cluster/initial_magnetic_tower_field={self.initial_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time').v}",
                 f"problem/cluster/initial_magnetic_tower_alpha={self.magnetic_tower_alpha}",
@@ -268,33 +290,6 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.mu_e = 1/(self.Yp*2./4. + (1-self.Yp))
         
         magnetic_units = 'sqrt(code_mass)/sqrt(code_length)/code_time'
-        l = self.magnetic_tower_l_scale
-
-        def precessed_field(Z,Y,X,B0):
-            R,Theta,H = self.precessed_jet_coords.cart_to_jet_coords(np.array((X,Y,Z)))
-            R = unyt.unyt_array(R,"code_length")
-            H = unyt.unyt_array(H,"code_length")
-
-            B_r = B0*2*H/l*R/l*np.exp( - (R/l)**2 - (H/l)**2)
-            B_theta = B0*self.magnetic_tower_alpha*R/l*np.exp( - (R/l)**2 - (H/l)**2)
-            B_h = B0*2*( 1 - (R/l)**2 )*np.exp( - (R/l)**2 - (H/l)**2)
-
-            B_x,B_y,B_z = self.precessed_jet_coords.jet_to_cart_vec(np.array((X,Y,Z)),np.array((B_r,B_theta,B_h)))
-
-            return unyt.unyt_array((B_z, B_y, B_x),magnetic_units)
-
-        def zjet_field(Z,Y,X,B0):
-            R,Theta,H = self.zjet_coords.cart_to_jet_coords(np.array((X,Y,Z)))
-            R = unyt.unyt_array(R,"code_length")
-            H = unyt.unyt_array(H,"code_length")
-
-            B_r = B0*2*H/l*R/l*np.exp( - (R/l)**2 - (H/l)**2)
-            B_theta = B0*self.magnetic_tower_alpha*R/l*np.exp( - (R/l)**2 - (H/l)**2)
-            B_h = B0*2*( 1 - (R/l)**2 )*np.exp( - (R/l)**2 - (H/l)**2)
-
-            B_x,B_y,B_z = self.zjet_coords.jet_to_cart_vec(np.array((X,Y,Z)),np.array((B_r,B_theta,B_h)))
-
-            return unyt.unyt_array((B_z, B_y, B_x),magnetic_units)
 
         for step in range(1,self.steps+1):
             feedback_mode,precessed_jet = self.step_params_list[step-1]
@@ -304,27 +299,43 @@ class TestCase(utils.test_case.TestCaseAbs):
             print(f"Testing {output_id}")
 
             B0_initial = self.initial_magnetic_tower_field
+            #Compute the initial magnetic energy
+            EB_initial_anyl = np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3*B0_initial**2
 
             if feedback_mode == "const_field":
                 B0_final = self.feedback_magnetic_tower_field*self.tlim + self.initial_magnetic_tower_field
-
                 #Estimate the final magnetic field using the total energy of the tower out to inifinity
-                EB_final = np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3*B0_final**2
+                EB_final_anyl = np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3*B0_final**2
             elif feedback_mode == "const_power":
                 #Estimate the final magnetic field using the total energy of the tower out to inifinity
                 #Slightly inaccurate due to finite domain
-                B0_final = np.sqrt(self.feedback_magnetic_tower_power*self.tlim/(
-                    np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3)
-                    + self.initial_magnetic_tower_field**2)
-                EB_final = self.feedback_magnetic_tower_power*self.tlim + \
+                B0_final = np.sqrt((EB_initial_anyl + self.feedback_magnetic_tower_power*self.tlim)/(
+                    np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3))
+                EB_final_anyl = self.feedback_magnetic_tower_power*self.tlim + \
                     (np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3)*B0_initial**2
             else:
                 raise Exception(f"Feedback mode {feedback_mode} not supported in analysis")
 
             if precessed_jet is True:
-                field_func = precessed_field
+                jet_coords = self.precessed_jet_coords
             else:
-                field_func = zjet_field
+                jet_coords = self.zjet_coords
+
+            def field_func(Z,Y,X,B0):
+                l = self.magnetic_tower_l_scale
+                alpha = self.magnetic_tower_alpha
+
+                pos_cart = unyt.unyt_array((X,Y,Z),"code_length")
+                R,Theta,H = jet_coords.cart_to_jet_coords(pos_cart)
+
+                B_r = B0*2*(H/l)*(R/l)     *np.exp( -(R/l)**2 -(H/l)**2)
+                B_theta = B0*alpha*(R/l)   *np.exp( -(R/l)**2 -(H/l)**2)
+                B_h = B0*2*( 1 - (R/l)**2 )*np.exp( -(R/l)**2 -(H/l)**2)
+                B_jet = unyt.unyt_array((B_r,B_theta,B_h),magnetic_units)
+
+                B_x,B_y,B_z = jet_coords.jet_to_cart_vec(pos_cart,B_jet)
+
+                return unyt.unyt_array((B_x, B_y, B_z),magnetic_units)
 
             b_energy_func = lambda Z,Y,X,B0 : 0.5*np.sum(field_func(Z,Y,X,B0)**2,axis=0)
 
@@ -333,6 +344,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             try:
                 import compare_analytic
+                import phdf
             except ModuleNotFoundError:
                 print("Couldn't find module to compare Parthenon hdf5 files.")
                 return False
@@ -348,16 +360,16 @@ class TestCase(utils.test_case.TestCaseAbs):
                     #"MomentumDensity3":lambda Z,Y,X,time :
                     #    np.ones_like(Z)*self.uniform_gas_Mz.in_units("code_mass*code_length**-2*code_time**-1").v,
                     "TotalEnergyDensity":lambda Z,Y,X,time : (self.uniform_gas_energy_density 
-                        + b_energy_func(Z,Y,X,B0_initial)).in_units("code_mass*code_length**-1*code_time**-2").v,
+                        + b_energy_func(Z,Y,X,field)).in_units("code_mass*code_length**-1*code_time**-2").v,
                     "MagneticField1":lambda Z,Y,X,time : 
-                        field_func(Z,Y,X,B0_initial).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[0].v,
+                        field_func(Z,Y,X,field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[0].v,
                     "MagneticField2":lambda Z,Y,X,time : 
-                        field_func(Z,Y,X,B0_initial).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[1].v,
+                        field_func(Z,Y,X,field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[1].v,
                     "MagneticField3":lambda Z,Y,X,time : 
-                        field_func(Z,Y,X,B0_initial).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[2].v,
+                        field_func(Z,Y,X,field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[2].v,
                     } for field in (B0_initial,B0_final)]
 
-            phdf_files = [f"{parameters.output_path}/parthenon.{output_id}.{i:05d}.phdf" for i in range(2)]
+            phdf_filenames = [f"{parameters.output_path}/parthenon.{output_id}.{i:05d}.phdf" for i in range(2)]
 
             def zero_corrected_linf_err(gold,test):
                 non_zero_linf = np.max(np.abs((gold[gold!=0]-test[gold!=0])/gold[gold!=0]),initial=0)
@@ -370,11 +382,50 @@ class TestCase(utils.test_case.TestCaseAbs):
                 compare_analytic.compare_analytic(
                     phdf_file, analytic_components,err_func=zero_corrected_linf_err,tol=1e-3)
                 for analytic_components,phdf_file in zip((initial_analytic_components,final_analytic_components),
-                                                          phdf_files)]
+                                                          phdf_filenames)]
 
             print("Analytic Statuses:",initial_analytic_status,final_analytic_status)
 
             analyze_status &= initial_analytic_status & final_analytic_status
+
+            for phdf_filename,EB_anyl,B0,EB_tol,label in zip(phdf_filenames,
+                    (EB_initial_anyl,EB_final_anyl),
+                    (B0_initial,B0_final),
+                    (self.EB_initial_tol,self.EB_final_tol),
+                    ("Initial","Final")):
+                #Compute the total magnetic energy from the phdf_file
+                phdf_file = phdf.phdf(phdf_filename)
+
+                #Get the cell volumes from phdf_file
+                xf = phdf_file.xf
+                yf = phdf_file.yf
+                zf = phdf_file.zf
+                cell_vols =  unyt.unyt_array(np.einsum('ai,aj,ak->aijk',np.diff(zf),np.diff(yf),np.diff(xf)),"code_length**3")
+
+                #Get the magnetic energy from phdf_file
+                B = unyt.unyt_array( 
+                    list(phdf_file.GetComponents(["MagneticField1","MagneticField2","MagneticField3"],flatten=False).values()),
+                    magnetic_units)
+                EB = np.sum(0.5*np.sum(B**2,axis=0)*cell_vols)
+
+                #Get the estimated magnetic energy from the expected mt_tower field
+
+                Z,Y,X = phdf_file.GetVolumeLocations(flatten=False)
+                Z = unyt.unyt_array(Z,"code_length")
+                Y = unyt.unyt_array(Y,"code_length")
+                X = unyt.unyt_array(X,"code_length")
+                EB_expected = np.sum( b_energy_func(Z,Y,X,B0)*cell_vols )
+
+                EB_anyl_rel_err = np.abs((EB - EB_anyl)/EB_anyl)
+                EB_expected_rel_err = np.abs((EB - EB_expected)/EB_expected)
+
+                if EB_anyl_rel_err > EB_tol:
+                    print(f"{label} Analytic Relative Energy Error: {EB_anyl_rel_err} exceeds tolerance {EB_tol}")
+                    analyze_status = False
+                if EB_expected_rel_err > EB_tol:
+                    print(f"{label} Expected Relative Energy Error: {EB_expected_rel_err} exceeds tolerance {EB_tol}")
+                    analyze_status = False
+
 
 
         return analyze_status
