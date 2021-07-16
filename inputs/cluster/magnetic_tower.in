@@ -109,3 +109,4 @@ feedback_magnetic_tower_field = 12.431560000204144
 feedback_magnetic_tower_power = 0.0016599828166743962
 feedback_magnetic_tower_alpha = 20
 feedback_magnetic_tower_l_scale = 0.01
+magnetic_tower_srcterm_use_potential = true

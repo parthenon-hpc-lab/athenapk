@@ -59,14 +59,13 @@ void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt,
     GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
   }
 
-  if (hydro_pkg->Param<bool>("enable_feedback_magnetic_tower")) {
-    const MagneticTower &magnetic_tower =
-        hydro_pkg->Param<MagneticTower>("feedback_magnetic_tower");
+  //Adds magnetic tower feedback as an unsplit term
+  //if (hydro_pkg->Param<bool>("enable_feedback_magnetic_tower")) {
+  //  const MagneticTower &magnetic_tower =
+  //      hydro_pkg->Param<MagneticTower>("feedback_magnetic_tower");
+  //  magnetic_tower.MagneticFieldSrcTerm(md, beta_dt, tm);
+  //}
 
-    // TODO(forrestglines): MagneticFieldSrcTerm is only good for divergence
-    // cleaning, cell centered field methods
-    magnetic_tower.MagneticFieldSrcTerm(md, beta_dt, tm);
-  }
   if (hydro_pkg->Param<bool>("enable_hydro_agn_feedback")) {
     const HydroAGNFeedback &hydro_agn_feedback =
         hydro_pkg->Param<HydroAGNFeedback>("hydro_agn_feedback");
@@ -84,6 +83,13 @@ void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm) 
 
   //    hydro_agn_feedback.FeedbackSrcTerm(md, tm.dt, tm);
   //}
+
+  //Adds magnetic tower feedback as a first order term
+  if (hydro_pkg->Param<bool>("enable_feedback_magnetic_tower")) {
+    const MagneticTower &magnetic_tower =
+        hydro_pkg->Param<MagneticTower>("feedback_magnetic_tower");
+    magnetic_tower.MagneticFieldSrcTerm(md, tm.dt, tm);
+  }
 }
 
 Real ClusterEstimateTimestep(MeshData<Real> *md) {
@@ -345,8 +351,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyMagneticPotential",
         parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-          const Real diff = (a_z(k, j + 1, i) - a_z(k, j - 1, i)) / coords.dx2v(j) / 2.0 -
-                            (a_y(k + 1, j, i) - a_y(k - 1, j, i)) / coords.dx3v(k) / 2.0;
           u(IB1, k, j, i) = (a_z(k, j + 1, i) - a_z(k, j - 1, i)) / coords.dx2v(j) / 2.0 -
                             (a_y(k + 1, j, i) - a_y(k - 1, j, i)) / coords.dx3v(k) / 2.0;
           u(IB2, k, j, i) = (a_x(k + 1, j, i) - a_x(k - 1, j, i)) / coords.dx3v(k) / 2.0 -

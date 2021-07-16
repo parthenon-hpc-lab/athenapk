@@ -175,14 +175,15 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         #The precessing jet
         self.theta_jet = 0.2
-        self.phi_jet_dot = 0
-        self.phi_jet0 = 1
+        self.phi_dot_jet = 0 #Use phi_dot = 0 for stationary jet
+        self.phi_jet0 = 1 #Offset initial jet
         self.precessed_jet_coords = PrecessedJetCoords(self.phi_jet0,self.theta_jet)
         self.zjet_coords = ZJetCoords()
 
         #Initial and Feedback shared parameters
         self.magnetic_tower_alpha = 20
-        self.magnetic_tower_l_scale = unyt.unyt_quantity(10,"kpc")
+        self.magnetic_tower_l_scale = unyt.unyt_quantity(1,"code_length")
+        #self.magnetic_tower_l_scale = unyt.unyt_quantity(10,"kpc")
 
         #The Initial Tower
         self.initial_magnetic_tower_field = unyt.unyt_quantity(1e-6,"G")
@@ -192,14 +193,17 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.feedback_magnetic_tower_field = unyt.unyt_quantity(1e-4,"G/Gyr")
         #For const energy tests
         self.feedback_magnetic_tower_power = unyt.unyt_quantity(1e44,"erg/s")
-        
+
+        #Tolerance of magnetic fields and magnetic energy density
         self.norm_tol = 1e-3
+
+        #Tolerance on total initial and final magnetic energy
+        self.b_eng_initial_tol = 1e-5
+        self.b_eng_final_tol = 1e-5
 
         self.steps = 4
         self.step_params_list = list(itertools.product( ("const_field","const_power"),(True,False)))
 
-        self.EB_initial_tol = 1e-5
-        self.EB_final_tol = 1e-5
 
     def Prepare(self,parameters, step):
         """
@@ -247,7 +251,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"problem/cluster/uniform_gas_pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
 
                 f"problem/cluster/jet_theta={self.theta_jet if precessed_jet else 0}",
-                f"problem/cluster/jet_phi_dot={self.phi_jet_dot if precessed_jet else 0}",
+                f"problem/cluster/jet_phi_dot={self.phi_dot_jet if precessed_jet else 0}",
                 f"problem/cluster/jet_phi0={self.phi_jet0 if precessed_jet else 0}",
 
                 f"problem/cluster/initial_magnetic_tower_field={self.initial_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time').v}",
@@ -300,18 +304,18 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             B0_initial = self.initial_magnetic_tower_field
             #Compute the initial magnetic energy
-            EB_initial_anyl = np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3*B0_initial**2
+            b_eng_initial_anyl = np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3*B0_initial**2
 
             if feedback_mode == "const_field":
                 B0_final = self.feedback_magnetic_tower_field*self.tlim + self.initial_magnetic_tower_field
                 #Estimate the final magnetic field using the total energy of the tower out to inifinity
-                EB_final_anyl = np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3*B0_final**2
+                b_eng_final_anyl = np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3*B0_final**2
             elif feedback_mode == "const_power":
                 #Estimate the final magnetic field using the total energy of the tower out to inifinity
                 #Slightly inaccurate due to finite domain
-                B0_final = np.sqrt((EB_initial_anyl + self.feedback_magnetic_tower_power*self.tlim)/(
+                B0_final = np.sqrt((b_eng_initial_anyl + self.feedback_magnetic_tower_power*self.tlim)/(
                     np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3))
-                EB_final_anyl = self.feedback_magnetic_tower_power*self.tlim + \
+                b_eng_final_anyl = self.feedback_magnetic_tower_power*self.tlim + \
                     (np.pi**(3./2.)/(8*np.sqrt(2))*(5 + self.magnetic_tower_alpha**2)*self.magnetic_tower_l_scale**3)*B0_initial**2
             else:
                 raise Exception(f"Feedback mode {feedback_mode} not supported in analysis")
@@ -388,10 +392,10 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             analyze_status &= initial_analytic_status & final_analytic_status
 
-            for phdf_filename,EB_anyl,B0,EB_tol,label in zip(phdf_filenames,
-                    (EB_initial_anyl,EB_final_anyl),
+            for phdf_filename,b_eng_anyl,B0,b_eng_tol,label in zip(phdf_filenames,
+                    (b_eng_initial_anyl,b_eng_final_anyl),
                     (B0_initial,B0_final),
-                    (self.EB_initial_tol,self.EB_final_tol),
+                    (self.b_eng_initial_tol,self.b_eng_final_tol),
                     ("Initial","Final")):
                 #Compute the total magnetic energy from the phdf_file
                 phdf_file = phdf.phdf(phdf_filename)
@@ -406,7 +410,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 B = unyt.unyt_array( 
                     list(phdf_file.GetComponents(["MagneticField1","MagneticField2","MagneticField3"],flatten=False).values()),
                     magnetic_units)
-                EB = np.sum(0.5*np.sum(B**2,axis=0)*cell_vols)
+                b_eng = np.sum(0.5*np.sum(B**2,axis=0)*cell_vols)
 
                 #Get the estimated magnetic energy from the expected mt_tower field
 
@@ -414,16 +418,16 @@ class TestCase(utils.test_case.TestCaseAbs):
                 Z = unyt.unyt_array(Z,"code_length")
                 Y = unyt.unyt_array(Y,"code_length")
                 X = unyt.unyt_array(X,"code_length")
-                EB_expected = np.sum( b_energy_func(Z,Y,X,B0)*cell_vols )
+                b_eng_expected = np.sum( b_energy_func(Z,Y,X,B0)*cell_vols )
 
-                EB_anyl_rel_err = np.abs((EB - EB_anyl)/EB_anyl)
-                EB_expected_rel_err = np.abs((EB - EB_expected)/EB_expected)
+                b_eng_anyl_rel_err = np.abs((b_eng - b_eng_anyl)/b_eng_anyl)
+                b_eng_expected_rel_err = np.abs((b_eng - b_eng_expected)/b_eng_expected)
 
-                if EB_anyl_rel_err > EB_tol:
-                    print(f"{label} Analytic Relative Energy Error: {EB_anyl_rel_err} exceeds tolerance {EB_tol}")
+                if b_eng_anyl_rel_err > b_eng_tol:
+                    print(f"{label} Analytic Relative Energy Error: {b_eng_anyl_rel_err} exceeds tolerance {b_eng_tol}")
                     analyze_status = False
-                if EB_expected_rel_err > EB_tol:
-                    print(f"{label} Expected Relative Energy Error: {EB_expected_rel_err} exceeds tolerance {EB_tol}")
+                if b_eng_expected_rel_err > b_eng_tol:
+                    print(f"{label} Expected Relative Energy Error: {b_eng_expected_rel_err} exceeds tolerance {b_eng_tol}")
                     analyze_status = False
 
 
