@@ -110,7 +110,8 @@ void HydroAGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         if (kinetic_power > 0) {
           // Get position relative to the jet
           Real r, cos_theta, sin_theta, h;
-          jet_coords.compute_cylindrical_coords(time, x, y, z, r, cos_theta, sin_theta, h);
+          jet_coords.compute_cylindrical_coords(time, x, y, z, r, cos_theta, sin_theta,
+                                                h);
 
           if (r < jet_radius && fabs(h) < jet_height) {
             // Cell falls inside jet deposition volume

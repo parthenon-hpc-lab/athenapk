@@ -36,10 +36,10 @@ class MagneticTower {
                                parthenon::Real &a_r, parthenon::Real &a_theta,
                                parthenon::Real &a_h) const
       __attribute__((always_inline)) {
-    const parthenon::Real exp_r2_h2 =  exp( -pow(r/l_scale_,2) - pow(h/l_scale_,2));
+    const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2) - pow(h / l_scale_, 2));
     // Compute the potential in jet_coords
     a_r = 0.0;
-    a_theta = strength_ * l_scale_ * (r/l_scale_) * exp_r2_h2;
+    a_theta = strength_ * l_scale_ * (r / l_scale_) * exp_r2_h2;
     a_h = strength_ * l_scale_ * alpha_ / 2.0 * exp_r2_h2;
   }
 
@@ -68,11 +68,11 @@ class MagneticTower {
                            parthenon::Real &b_r, parthenon::Real &b_theta,
                            parthenon::Real &b_h) const __attribute__((always_inline)) {
 
-    const parthenon::Real exp_r2_h2 =  exp( -pow(r/l_scale_,2) - pow(h/l_scale_,2));
+    const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2) - pow(h / l_scale_, 2));
     // Compute the field in jet_coords
-    b_r = strength_ * 2 * (h/l_scale_) * (r/l_scale_) * exp_r2_h2;
-    b_theta = strength_ * alpha_ * (r/l_scale_) * exp_r2_h2;
-    b_h = strength_ * 2 * (1 - pow(r/l_scale_,2)) * exp_r2_h2;
+    b_r = strength_ * 2 * (h / l_scale_) * (r / l_scale_) * exp_r2_h2;
+    b_theta = strength_ * alpha_ * (r / l_scale_) * exp_r2_h2;
+    b_h = strength_ * 2 * (1 - pow(r / l_scale_, 2)) * exp_r2_h2;
   }
 
   // Compute Magnetic field in Cartesian coordinates
@@ -122,9 +122,8 @@ class MagneticTower {
   // Add magnetic field to provided conserved variables (useful for debugging)
   template <typename View4D>
   void AddField(parthenon::MeshBlock *pmb, parthenon::IndexRange kb,
-                    parthenon::IndexRange jb, parthenon::IndexRange ib,
-                    const View4D &cons,
-                    const parthenon::Real time) const;
+                parthenon::IndexRange jb, parthenon::IndexRange ib, const View4D &cons,
+                const parthenon::Real time) const;
 
   // Apply a cell centered magnetic field (of strength `beta_dt*strength_) to the
   // conserved variables NOTE: This source term is only acceptable for divergence cleaning

@@ -59,8 +59,8 @@ void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt,
     GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
   }
 
-  //Adds magnetic tower feedback as an unsplit term
-  //if (hydro_pkg->Param<bool>("enable_feedback_magnetic_tower")) {
+  // Adds magnetic tower feedback as an unsplit term
+  // if (hydro_pkg->Param<bool>("enable_feedback_magnetic_tower")) {
   //  const MagneticTower &magnetic_tower =
   //      hydro_pkg->Param<MagneticTower>("feedback_magnetic_tower");
   //  magnetic_tower.MagneticFieldSrcTerm(md, beta_dt, tm);
@@ -84,7 +84,7 @@ void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm) 
   //    hydro_agn_feedback.FeedbackSrcTerm(md, tm.dt, tm);
   //}
 
-  //Adds magnetic tower feedback as a first order term
+  // Adds magnetic tower feedback as a first order term
   if (hydro_pkg->Param<bool>("enable_feedback_magnetic_tower")) {
     const MagneticTower &magnetic_tower =
         hydro_pkg->Param<MagneticTower>("feedback_magnetic_tower");
@@ -227,7 +227,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       HydroAGNFeedback hydro_agn_feedback(pin);
       hydro_pkg->AddParam<>("hydro_agn_feedback", hydro_agn_feedback);
     }
-
   }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -341,7 +340,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           hydro_pkg->Param<MagneticTower>("initial_magnetic_tower");
 
       magnetic_tower.AddPotential(pmb, a_kb, a_jb, a_ib, a_x, a_y, a_z, 0);
-      //magnetic_tower.AddField(pmb, kb, jb, ib, u, 0);
+      // magnetic_tower.AddField(pmb, kb, jb, ib, u, 0);
     }
 
     /************************************************************
@@ -361,7 +360,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           u(IEN, k, j, i) +=
               0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
         });
-  }  //END
+  } // END
 }
 
 } // namespace cluster

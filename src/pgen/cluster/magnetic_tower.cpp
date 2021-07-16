@@ -36,7 +36,7 @@ void MagneticTower::AddPotential(MeshBlock *pmb, IndexRange kb, IndexRange jb,
       DEFAULT_LOOP_PATTERN, "MagneticTower::AddPotential", parthenon::DevExecSpace(),
       kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-        //FIXME: Does coords need to be constructed here?
+        // FIXME: Does coords need to be constructed here?
         // Compute and apply potential
         Real a_x, a_y, a_z;
         mt.compute_potential_cartesian(time, coords.x1v(i), coords.x2v(j), coords.x3v(k),
@@ -49,9 +49,8 @@ void MagneticTower::AddPotential(MeshBlock *pmb, IndexRange kb, IndexRange jb,
 
 // Add magnetic field to provided conserved variables
 template <typename View4D>
-void MagneticTower::AddField(MeshBlock *pmb, IndexRange kb, IndexRange jb,
-                             IndexRange ib, const View4D &cons,
-                             const parthenon::Real time) const {
+void MagneticTower::AddField(MeshBlock *pmb, IndexRange kb, IndexRange jb, IndexRange ib,
+                             const View4D &cons, const parthenon::Real time) const {
 
   auto &coords = pmb->coords;
 
@@ -63,8 +62,8 @@ void MagneticTower::AddField(MeshBlock *pmb, IndexRange kb, IndexRange jb,
       KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
         // Compute and apply potential
         Real b_x, b_y, b_z;
-        mt.compute_field_cartesian(time, coords.x1v(i), coords.x2v(j), coords.x3v(k),
-                                       b_x, b_y, b_z);
+        mt.compute_field_cartesian(time, coords.x1v(i), coords.x2v(j), coords.x3v(k), b_x,
+                                   b_y, b_z);
         cons(IB1, k, j, i) += b_x;
         cons(IB2, k, j, i) += b_y;
         cons(IB3, k, j, i) += b_z;
@@ -77,10 +76,11 @@ template void MagneticTower::AddPotential<>(MeshBlock *pmb, IndexRange kb, Index
                                             const ParArray3D<Real> &A_z,
                                             const parthenon::Real time) const;
 
-template void MagneticTower::AddField<>(MeshBlock *pmb, IndexRange kb, IndexRange jb,
-                                            IndexRange ib,
-                                            const parthenon::ParArrayNDGeneric<Kokkos::View<double ******, Kokkos::LayoutRight, Kokkos::HostSpace>> &cons,
-                                            const parthenon::Real time) const;
+template void MagneticTower::AddField<>(
+    MeshBlock *pmb, IndexRange kb, IndexRange jb, IndexRange ib,
+    const parthenon::ParArrayNDGeneric<
+        Kokkos::View<double ******, Kokkos::LayoutRight, Kokkos::HostSpace>> &cons,
+    const parthenon::Real time) const;
 
 // Apply a cell centered magnetic field to the conserved variables
 // NOTE: This source term is only acceptable for divergence cleaning methods
@@ -132,9 +132,9 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
 
   if (hydro_pkg->Param<bool>("magnetic_tower_srcterm_use_potential") &&
       hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
-    //Construct magnetic vector potential then compute magnetic fields
+    // Construct magnetic vector potential then compute magnetic fields
 
-    //Currently reallocates this vector potential everytime step, could be allocated once
+    // Currently reallocates this vector potential everytime step, could be allocated once
     ParArray3D<Real> a_x("a_x", cons_pack.cellbounds.ncellsk(IndexDomain::entire),
                          cons_pack.cellbounds.ncellsj(IndexDomain::entire),
                          cons_pack.cellbounds.ncellsi(IndexDomain::entire));
@@ -154,7 +154,7 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
     a_kb.s -= 1;
     a_kb.e += 1;
 
-    //Construct the magnetic tower potential
+    // Construct the magnetic tower potential
     parthenon::par_for(
         DEFAULT_LOOP_PATTERN, "MagneticTower::MagneticFieldSrcTerm::ConstructPotential",
         parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, a_kb.s, a_kb.e, a_jb.s,
@@ -164,14 +164,14 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
           const auto &coords = cons_pack.coords(b);
 
           Real a_x_, a_y_, a_z_;
-          mt.compute_potential_cartesian(time, coords.x1v(i), coords.x2v(j), coords.x3v(k),
-                                        a_x_, a_y_, a_z_);
+          mt.compute_potential_cartesian(time, coords.x1v(i), coords.x2v(j),
+                                         coords.x3v(k), a_x_, a_y_, a_z_);
           a_x(k, j, i) = a_x_;
           a_y(k, j, i) = a_y_;
           a_z(k, j, i) = a_z_;
         });
 
-    //Take the curl of the potential and apply the new magnetic field
+    // Take the curl of the potential and apply the new magnetic field
     parthenon::par_for(
         DEFAULT_LOOP_PATTERN, "MagneticTower::MagneticFieldSrcTerm::ApplyPotential",
         parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e,
@@ -181,7 +181,7 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
           auto &prim = prim_pack(b);
           const auto &coords = cons_pack.coords(b);
 
-          //Take the curl of a to compute the magnetic field
+          // Take the curl of a to compute the magnetic field
           const Real b_x = (a_z(k, j + 1, i) - a_z(k, j - 1, i)) / coords.dx2v(j) / 2.0 -
                            (a_y(k + 1, j, i) - a_y(k - 1, j, i)) / coords.dx3v(k) / 2.0;
           const Real b_y = (a_x(k + 1, j, i) - a_x(k - 1, j, i)) / coords.dx3v(k) / 2.0 -
@@ -189,36 +189,37 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
           const Real b_z = (a_y(k, j, i + 1) - a_y(k, j, i - 1)) / coords.dx1v(i) / 2.0 -
                            (a_x(k, j + 1, i) - a_x(k, j - 1, i)) / coords.dx2v(j) / 2.0;
 
-          //Add the magnetic field to the conserved variables
+          // Add the magnetic field to the conserved variables
           cons(IB1, k, j, i) += b_x;
           cons(IB2, k, j, i) += b_y;
           cons(IB3, k, j, i) += b_z;
 
-          //Add the magnetic field energy given the existing field in prim
+          // Add the magnetic field energy given the existing field in prim
           // dE_B = 1/2*( 2*dt*B_old*B_new + dt**2*B_new**2)
           cons(IEN, k, j, i) += prim(IB1, k, j, i) * b_x + prim(IB2, k, j, i) * b_y +
                                 prim(IB3, k, j, i) * b_z +
                                 0.5 * (b_x * b_x + b_y * b_y + b_z * b_z);
         });
 
-  } else if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd){
-    //Add the magnetic fields directly to cell centers
-    //Might lead to div B!=0. With divB cleaning is this ok?)
+  } else if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+    // Add the magnetic fields directly to cell centers
+    // Might lead to div B!=0. With divB cleaning is this ok?)
 
     parthenon::par_for(
         DEFAULT_LOOP_PATTERN, "MagneticTower::MagneticFieldSrcTerm",
-        parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-        ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+        parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e,
+        ib.s, ib.e,
+        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
           auto &cons = cons_pack(b);
           auto &prim = prim_pack(b);
           const auto &coords = cons_pack.coords(b);
 
           // Compute the magnetic field at cell centers directly
           Real b_x, b_y, b_z;
-          mt.compute_field_cartesian(time, coords.x1v(i), coords.x2v(j), coords.x3v(k), b_x,
-                                    b_y, b_z);
+          mt.compute_field_cartesian(time, coords.x1v(i), coords.x2v(j), coords.x3v(k),
+                                     b_x, b_y, b_z);
 
-          //Add the magnetic field energy given the existing field in prim
+          // Add the magnetic field energy given the existing field in prim
           // dE_B = 1/2*( 2*dt*B_old*B_new + dt**2*B_new**2)
           cons(IEN, k, j, i) += prim(IB1, k, j, i) * b_x + prim(IB2, k, j, i) * b_y +
                                 prim(IB3, k, j, i) * b_z +
@@ -232,7 +233,7 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
           cons(IB3, k, j, i) += b_z;
         });
   } else {
-    //Was this called with Fluid::euler? An as yet unimplemented CT method?
+    // Was this called with Fluid::euler? An as yet unimplemented CT method?
     PARTHENON_FAIL("MagneticTower::MagneticFieldSrcTerm Fluid method not supported");
   }
 }
@@ -431,12 +432,11 @@ void InitFeedbackMagneticTower(std::shared_ptr<StateDescriptor> hydro_pkg,
   }
   }
 
-
   if (hydro_pkg->Param<bool>("magnetic_tower_power_scaling")) {
-    //Add parameters necessary for scaling the magnetic field to inject a fixed
-    //power over the timestep
+    // Add parameters necessary for scaling the magnetic field to inject a fixed
+    // power over the timestep
 
-    //These two parameters need to be computed via reduction for each timestep
+    // These two parameters need to be computed via reduction for each timestep
     hydro_pkg->AddParam<Real>("mt_linear_contrib", 0.0);
     hydro_pkg->AddParam<Real>("mt_quadratic_contrib", 0.0);
   }
@@ -455,10 +455,10 @@ void InitFeedbackMagneticTower(std::shared_ptr<StateDescriptor> hydro_pkg,
                                         feedback_jet_coords);
   hydro_pkg->AddParam<>("feedback_magnetic_tower", feedback_magnetic_tower);
 
-
-  const bool srcterm_use_potential =
-      pin->GetOrAddBoolean("problem/cluster", "magnetic_tower_srcterm_use_potential",true);
-  hydro_pkg->AddParam<bool>("magnetic_tower_srcterm_use_potential", srcterm_use_potential);
+  const bool srcterm_use_potential = pin->GetOrAddBoolean(
+      "problem/cluster", "magnetic_tower_srcterm_use_potential", true);
+  hydro_pkg->AddParam<bool>("magnetic_tower_srcterm_use_potential",
+                            srcterm_use_potential);
 }
 
 } // namespace cluster

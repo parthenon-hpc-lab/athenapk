@@ -48,18 +48,17 @@ class JetCoords {
     return sqrt(x * x + y * y + z * z);
   }
 
-
  public:
   explicit JetCoords(parthenon::ParameterInput *pin)
       : theta_jet_(pin->GetOrAddReal("problem/cluster", "jet_theta", 0)),
         phi_dot_jet(pin->GetOrAddReal("problem/cluster", "jet_phi_dot", 0)),
         phi0_jet_(pin->GetOrAddReal("problem/cluster", "jet_phi0", 0)),
-        cos_theta_jet_(cos(theta_jet_)), sin_theta_jet_(sin(theta_jet_))
-        {}
+        cos_theta_jet_(cos(theta_jet_)), sin_theta_jet_(sin(theta_jet_)) {}
 
-  KOKKOS_INLINE_FUNCTION void
-  get_n_jet(const parthenon::Real time, parthenon::Real &n_x_jet,
-            parthenon::Real &n_y_jet, parthenon::Real &n_z_jet) const{
+  KOKKOS_INLINE_FUNCTION void get_n_jet(const parthenon::Real time,
+                                        parthenon::Real &n_x_jet,
+                                        parthenon::Real &n_y_jet,
+                                        parthenon::Real &n_z_jet) const {
     // polar orientation of "theta=0" jet-axis
     const parthenon::Real phi_jet = phi_dot_jet * time + phi0_jet_;
     const parthenon::Real cos_phi_jet = cos(phi_jet);
@@ -86,23 +85,25 @@ class JetCoords {
     parthenon::Real n_x_jet, n_y_jet, n_z_jet;
     get_n_jet(time, n_x_jet, n_y_jet, n_z_jet);
 
-    //theta=0 in jet coords
-    const parthenon::Real m_x_jet = cos_phi_jet*cos_theta_jet_;
-    const parthenon::Real m_y_jet = sin_phi_jet*cos_theta_jet_;
+    // theta=0 in jet coords
+    const parthenon::Real m_x_jet = cos_phi_jet * cos_theta_jet_;
+    const parthenon::Real m_y_jet = sin_phi_jet * cos_theta_jet_;
     const parthenon::Real m_z_jet = -sin_theta_jet_;
-    //theta=pi/2/ in jet coords
-    const parthenon::Real o_x_jet = -sin_phi_jet*pow(sin_theta_jet_, 2) - sin_phi_jet*pow(cos_theta_jet_, 2);
-    const parthenon::Real o_y_jet = pow(sin_theta_jet_, 2)*cos_phi_jet + cos_phi_jet*pow(cos_theta_jet_, 2);
+    // theta=pi/2/ in jet coords
+    const parthenon::Real o_x_jet =
+        -sin_phi_jet * pow(sin_theta_jet_, 2) - sin_phi_jet * pow(cos_theta_jet_, 2);
+    const parthenon::Real o_y_jet =
+        pow(sin_theta_jet_, 2) * cos_phi_jet + cos_phi_jet * pow(cos_theta_jet_, 2);
     const parthenon::Real o_z_jet = 0;
 
-    //Position in jet-cartesian coordinates
+    // Position in jet-cartesian coordinates
     const parthenon::Real x_pos_jet = Dot(m_x_jet, m_y_jet, m_z_jet, x_pos, y_pos, z_pos);
     const parthenon::Real y_pos_jet = Dot(o_x_jet, o_y_jet, o_z_jet, x_pos, y_pos, z_pos);
     const parthenon::Real z_pos_jet = Dot(n_x_jet, n_y_jet, n_z_jet, x_pos, y_pos, z_pos);
 
     r_pos = sqrt(pow(fabs(x_pos_jet), 2) + pow(fabs(y_pos_jet), 2));
-    cos_theta_pos = x_pos_jet/r_pos;
-    sin_theta_pos = y_pos_jet/r_pos;
+    cos_theta_pos = x_pos_jet / r_pos;
+    sin_theta_pos = y_pos_jet / r_pos;
     h_pos = z_pos_jet;
   }
 
@@ -117,13 +118,13 @@ class JetCoords {
     parthenon::Real n_x_jet, n_y_jet, n_z_jet;
     get_n_jet(time, n_x_jet, n_y_jet, n_z_jet);
 
-    //The vector in jet-cartesian coordinates
+    // The vector in jet-cartesian coordinates
     const parthenon::Real v_x_jet = v_r * cos_theta_pos - v_theta * sin_theta_pos;
     const parthenon::Real v_y_jet = v_r * sin_theta_pos + v_theta * cos_theta_pos;
     const parthenon::Real v_z_jet = v_h;
 
-    //Rotate v_r,v_theta,v_h to v_x,v_y,v_z
-    //through the same rotation that takes n_jet to z_hat
+    // Rotate v_r,v_theta,v_h to v_x,v_y,v_z
+    // through the same rotation that takes n_jet to z_hat
     v_x = -n_x_jet * n_y_jet * v_y_jet / (n_z_jet + 1) - n_x_jet * v_z_jet +
           v_x_jet * (-pow(n_x_jet, 2) / (n_z_jet + 1) + 1);
     v_y = -n_x_jet * n_y_jet * v_x_jet / (n_z_jet + 1) - n_y_jet * v_z_jet +
