@@ -143,8 +143,8 @@ class ClusterGravity {
   KOKKOS_INLINE_FUNCTION parthenon::Real g_from_r(const parthenon::Real r_in) const
       __attribute__((always_inline)) {
 
-    const parthenon::Real r2 = std::max(r_in * r_in, smoothing_r_ * smoothing_r_);
     const parthenon::Real r = std::max(r_in, smoothing_r_);
+    const parthenon::Real r2 = r*r;
 
     parthenon::Real g_r = 0;
 

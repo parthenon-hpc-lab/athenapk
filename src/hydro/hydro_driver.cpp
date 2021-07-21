@@ -124,10 +124,19 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
 
-    TaskID advect_flux;
+    // Add initial Strang split source terms, i.e., a dt/2 update
+    // IMPORTANT 1: This task must also update `prim` and `cons` variables so that
+    // the source term is applied to all active registers in the flux calculation.
+    // IMPORTANT 2: The tasks should work using `cons` variables as input as in the
+    // final step, `prim` are not updated yet from the flux calculation.
+    TaskID source_split_strang_init = none;
+    if (stage == 1) {
+      source_split_strang_init = tl.AddTask(none, AddSplitSourcesStrang, mu0.get(), tm);
+    }
+
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
-    FluxFun_t *calc_flux = hydro_pkg->Param<FluxFun_t *>(flux_str);
-    advect_flux = tl.AddTask(none, calc_flux, mu0);
+    FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
+    auto calc_flux = tl.AddTask(source_split_strang_init, calc_flux_fun, mu0);
   }
   TaskRegion &async_region_2 = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {
@@ -155,18 +164,24 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // Note: Directly update the "cons" variables of mu0 based on the "prim" variables
     // of mu0 as the "cons" variables have already been updated in this stage from the
     // fluxes in the previous step.
-    auto source_unsplit = tl.AddTask(update, AddUnsplitSources, mu0.get(),
+    auto source_unsplit = tl.AddTask(update, AddUnsplitSources, mu0.get(), tm,
                                      integrator->beta[stage - 1] * integrator->dt);
 
     auto source_split_first_order = source_unsplit;
 
-    // Add operator split source terms at first order, i.e., full dt update
-    // after all stages of the integration.
-    // Not recommended for but allows easy "reset" of variable for some
-    // problem types, see random blasts.
     if (stage == integrator->nstages) {
+      // Add final Strang split source terms, i.e., a dt/2 update
+      // IMPORTANT: The tasks should work using `cons` variables as input as in the
+      // final step, `prim` are not updated yet from the flux calculation.
+      auto source_split_strang_final =
+          tl.AddTask(source_unsplit, AddSplitSourcesStrang, mu0.get(), tm);
+
+      // Add operator split source terms at first order, i.e., full dt update
+      // after all stages of the integration.
+      // Not recommended for but allows easy "reset" of variable for some
+      // problem types, see random blasts.
       source_split_first_order =
-          tl.AddTask(update, AddSplitSourcesFirstOrder, mu0.get(), tm);
+          tl.AddTask(source_split_strang_final, AddSplitSourcesFirstOrder, mu0.get(), tm);
     }
 
     // update ghost cells

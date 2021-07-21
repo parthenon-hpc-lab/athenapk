@@ -57,7 +57,7 @@ const std::array<std::array<Real, 3>, num_blast> blasts_ = {{
     {4.997E-02, -8.524E-02, 5.871E-02},  {8.455E-02, -4.098E-02, -4.438E-02},
 }};
 
-void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm) {
+void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real) {
   const Real dt_between_blasts = 0.00125;
   Real time_this_blast = -1.0;
   int blast_i = -1; // numer of blast to use. Negative -> no blast

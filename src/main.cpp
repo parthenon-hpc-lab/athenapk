@@ -10,13 +10,13 @@
 #include "hydro/hydro.hpp"
 #include "hydro/hydro_driver.hpp"
 #include "pgen/pgen.hpp"
-
 // Initialize defaults for package specific callback functions
 namespace Hydro {
 InitPackageDataFun_t ProblemInitPackageData = nullptr;
-SourceFirstOrderFun_t ProblemSourceFirstOrder = nullptr;
+SourceFun_t ProblemSourceFirstOrder = nullptr;
+SourceFun_t ProblemSourceStrangSplit = nullptr;
+SourceFun_t ProblemSourceUnsplit = nullptr;
 EstimateTimestepFun_t ProblemEstimateTimestep = nullptr;
-SourceUnsplitFun_t ProblemSourceUnsplit = nullptr;
 } // namespace Hydro
 
 int main(int argc, char *argv[]) {
