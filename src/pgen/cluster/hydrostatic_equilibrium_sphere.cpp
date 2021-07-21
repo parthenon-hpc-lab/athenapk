@@ -175,8 +175,10 @@ HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::generate_P_rho
   PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx1v(1), "No equidistant grid in x1dir");
   PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx2v(1), "No equidistant grid in x2dir");
   PARTHENON_REQUIRE(coords.dx3v(0) == coords.dx3v(1), "No equidistant grid in x3dir");
-  PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx2v(1), "No equidistant grid between x1 and x2 dir");
-  PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx3v(1), "No equidistant grid between x2 and x3 dir");
+  PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx2v(1),
+                    "No equidistant grid between x1 and x2 dir");
+  PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx3v(1),
+                    "No equidistant grid between x2 and x3 dir");
   const Real dR = std::min(coords.dx1v(0) / R_sampling_, max_dR_);
 
   // Loop through mesh for minimum and maximum radius

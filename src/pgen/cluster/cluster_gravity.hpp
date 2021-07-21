@@ -17,9 +17,9 @@
 namespace cluster {
 
 // Types of BCG's
-enum class BCG{ NONE,MATHEWS,HERNQUIST};
-//Mathews BCG: Mathews 2006 DOI: 10.1086/499119
-//Hernquiest BCG: Hernquist 1990 DOI:10.1086/168845 
+enum class BCG { NONE, MATHEWS, HERNQUIST };
+// Mathews BCG: Mathews 2006 DOI: 10.1086/499119
+// Hernquiest BCG: Hernquist 1990 DOI:10.1086/168845
 
 /************************************************************
  *  Cluster Gravity Class, for computing gravitational acceleration
@@ -144,7 +144,7 @@ class ClusterGravity {
       __attribute__((always_inline)) {
 
     const parthenon::Real r = std::max(r_in, smoothing_r_);
-    const parthenon::Real r2 = r*r;
+    const parthenon::Real r2 = r * r;
 
     parthenon::Real g_r = 0;
 
