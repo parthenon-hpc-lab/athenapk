@@ -2,7 +2,7 @@
 #define HYDRO_HYDRO_HPP_
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2020, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2020-2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
@@ -25,20 +25,20 @@ template <Fluid fluid, Reconstruction recon>
 TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md);
 using FluxFun_t = decltype(CalculateFluxes<Fluid::undefined, Reconstruction::undefined>);
 
-TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt,
-                             const parthenon::SimTime &tm);
-TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const parthenon::SimTime &tm);
+using parthenon::SimTime;
+TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real beta_dt);
+TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm);
+TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm);
 
-using SourceFirstOrderFun_t =
-    std::function<void(MeshData<Real> *md, const parthenon::SimTime &tm)>;
-using SourceUnsplitFun_t = std::function<void(MeshData<Real> *md, const Real beta_dt,
-                                              const parthenon::SimTime &tm)>;
+using SourceFun_t =
+    std::function<void(MeshData<Real> *md, const SimTime &tm, const Real dt)>;
 using EstimateTimestepFun_t = std::function<Real(MeshData<Real> *md)>;
 using InitPackageDataFun_t =
     std::function<void(ParameterInput *pin, StateDescriptor *pkg)>;
 
-extern SourceFirstOrderFun_t ProblemSourceFirstOrder;
-extern SourceUnsplitFun_t ProblemSourceUnsplit;
+extern SourceFun_t ProblemSourceFirstOrder;
+extern SourceFun_t ProblemSourceUnsplit;
+extern SourceFun_t ProblemSourceStrangSplit;
 extern EstimateTimestepFun_t ProblemEstimateTimestep;
 extern InitPackageDataFun_t ProblemInitPackageData;
 

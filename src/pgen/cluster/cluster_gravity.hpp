@@ -17,7 +17,9 @@
 namespace cluster {
 
 // Types of BCG's
-enum class BCG { NONE, ENZO, MEECE, MATHEWS, HERNQUIST };
+enum class BCG { NONE, MATHEWS, HERNQUIST };
+// Mathews BCG: Mathews 2006 DOI: 10.1086/499119
+// Hernquiest BCG: Hernquist 1990 DOI:10.1086/168845
 
 /************************************************************
  *  Cluster Gravity Class, for computing gravitational acceleration
@@ -73,10 +75,6 @@ class ClusterGravity {
     switch (which_bcg_g) {
     case BCG::NONE:
       return 0;
-    case BCG::ENZO:
-      return gravitational_constant * M_bcg_s * pow(2, -beta_bcg_s);
-    case BCG::MEECE:
-      return gravitational_constant * M_bcg_s * pow(2, -beta_bcg_s);
     case BCG::MATHEWS:
       return 1 / (R_bcg_s * R_bcg_s);
     case BCG::HERNQUIST:
@@ -100,10 +98,6 @@ class ClusterGravity {
         pin->GetOrAddString("problem/cluster", "which_bcg_g", "NONE");
     if (which_bcg_g_str == "NONE") {
       which_bcg_g_ = BCG::NONE;
-    } else if (which_bcg_g_str == "ENZO") {
-      which_bcg_g_ = BCG::ENZO;
-    } else if (which_bcg_g_str == "MEECE") {
-      which_bcg_g_ = BCG::MEECE;
     } else if (which_bcg_g_str == "MATHEWS") {
       which_bcg_g_ = BCG::MATHEWS;
     } else if (which_bcg_g_str == "HERNQUIST") {
@@ -149,8 +143,8 @@ class ClusterGravity {
   KOKKOS_INLINE_FUNCTION parthenon::Real g_from_r(const parthenon::Real r_in) const
       __attribute__((always_inline)) {
 
-    const parthenon::Real r2 = std::max(r_in * r_in, smoothing_r_ * smoothing_r_);
     const parthenon::Real r = std::max(r_in, smoothing_r_);
+    const parthenon::Real r2 = r * r;
 
     parthenon::Real g_r = 0;
 
@@ -162,14 +156,6 @@ class ClusterGravity {
     // Add BCG gravity
     switch (which_bcg_g_) {
     case BCG::NONE:
-      break;
-    case BCG::ENZO:
-      g_r += GMC_bcg_ / (r2 * pow(r / R_bcg_s_, -alpha_bcg_s_) *
-                         pow(1 + r / R_bcg_s_, beta_bcg_s_ - alpha_bcg_s_));
-      break;
-    case BCG::MEECE:
-      g_r += GMC_bcg_ / (r2 * pow(r / R_bcg_s_, -alpha_bcg_s_) *
-                         pow(1 + r / R_bcg_s_, beta_bcg_s_ - alpha_bcg_s_));
       break;
     case BCG::MATHEWS: {
       const parthenon::Real s_bcg = 0.9;

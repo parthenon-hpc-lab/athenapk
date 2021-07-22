@@ -48,8 +48,7 @@ using namespace parthenon;
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 
-void ClusterSrcTerm(MeshData<Real> *md, const Real beta_dt,
-                    const parthenon::SimTime &tm) {
+void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime tm, const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   if (hydro_pkg->Param<bool>("gravity_srcterm")) {
@@ -258,7 +257,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     const Real Mx = rho * ux;
     const Real My = rho * uy;
     const Real Mz = rho * uz;
-    const Real E = rho * (0.5 * (ux * uy + uy * uy + uz * uz) + pres / (gm1 * rho));
+    const Real E = rho * (0.5 * (ux * ux + uy * uy + uz * uz) + pres / (gm1 * rho));
 
     parthenon::par_for(
         DEFAULT_LOOP_PATTERN, "Cluster::ProblemGenerator::UniformGas",

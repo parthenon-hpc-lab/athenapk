@@ -172,6 +172,13 @@ HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::generate_P_rho
    ************************************************************/
 
   // Determine spacing of grid (WARNING assumes equispaced grid in x,y,z)
+  PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx1v(1), "No equidistant grid in x1dir");
+  PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx2v(1), "No equidistant grid in x2dir");
+  PARTHENON_REQUIRE(coords.dx3v(0) == coords.dx3v(1), "No equidistant grid in x3dir");
+  PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx2v(1),
+                    "No equidistant grid between x1 and x2 dir");
+  PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx3v(1),
+                    "No equidistant grid between x2 and x3 dir");
   const Real dR = std::min(coords.dx1v(0) / R_sampling_, max_dR_);
 
   // Loop through mesh for minimum and maximum radius
@@ -249,7 +256,7 @@ HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::generate_P_rho
 
   dP_dr_from_r_P_functor dP_dr_from_r_P(*this);
 
-  // Make is the i right befo./src/bvals/cc/bvals_cc_in_one.cppre R_fix_
+  // Make is the i right before R_fix_
   for (int i = i_fix + 1; i > 0; i--) { // Move is up one, to account for initial R_fix_
     P(i - 1) = step_rk4(Ri, R(i - 1), Pi, dP_dr_from_r_P);
     Ri = R(i - 1);
