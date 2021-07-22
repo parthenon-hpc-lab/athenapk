@@ -33,6 +33,7 @@ enum { IV1 = 1, IV2 = 2, IV3 = 3, IPR = 4 };
 enum class Reconstruction { undefined, dc, plm, ppm, wenoz };
 enum class Integrator { undefined, rk1, rk2, vl2, rk3 };
 enum class Fluid { undefined, euler, glmmhd };
+enum class Cooling { none, tabular };
 
 enum class Hst { idx, ekin, emag, divb };
 

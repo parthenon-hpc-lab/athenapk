@@ -83,6 +83,7 @@ prep-cuda:
       cd;
       rm -rf $TMPDIR;
       fi
+    - pip install unyt
 
 cuda-regression:
   tags:
@@ -98,7 +99,7 @@ cuda-regression:
       -DKokkos_ENABLE_CUDA=True -DKokkos_ARCH_VOLTA70=True
       -DCMAKE_CXX_COMPILER=${PWD}/../external/Kokkos/bin/nvcc_wrapper
       -DPARTHENON_DISABLE_MPI=ON
-      -DPARTHENON_DISABLE_HDF5=ON
+      -DHDF5_ROOT=/home/build/athenapk/hdf5-${HDF5_VER}-gcc/serial
       ../
     - make -j${J} athenaPK
     - nvidia-smi
@@ -111,3 +112,5 @@ cuda-regression:
       - build-cuda/tst/regression/outputs/convergence
       - build-cuda/tst/regression/outputs/mhd_convergence
       - build-cuda/tst/regression/outputs/performance
+      - build-cuda/tst/regression/outputs/cluster_hse/analytic_comparison.png
+      - build-cuda/tst/regression/outputs/cluster_tabular_cooling/convergence.png

@@ -10,13 +10,13 @@
 #include "hydro/hydro.hpp"
 #include "hydro/hydro_driver.hpp"
 #include "pgen/pgen.hpp"
-
 // Initialize defaults for package specific callback functions
 namespace Hydro {
 InitPackageDataFun_t ProblemInitPackageData = nullptr;
-SourceFirstOrderFun_t ProblemSourceFirstOrder = nullptr;
+SourceFun_t ProblemSourceFirstOrder = nullptr;
+SourceFun_t ProblemSourceStrangSplit = nullptr;
+SourceFun_t ProblemSourceUnsplit = nullptr;
 EstimateTimestepFun_t ProblemEstimateTimestep = nullptr;
-SourceUnsplitFun_t ProblemSourceUnsplit = nullptr;
 } // namespace Hydro
 
 int main(int argc, char *argv[]) {
@@ -67,6 +67,9 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = rand_blast::ProblemGenerator;
     Hydro::ProblemInitPackageData = rand_blast::ProblemInitPackageData;
     Hydro::ProblemSourceFirstOrder = rand_blast::RandomBlasts;
+  } else if (problem == "cluster") {
+    pman.app_input->ProblemGenerator = cluster::ProblemGenerator;
+    Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;
   }
 
   pman.ParthenonInitPackagesAndMesh();
