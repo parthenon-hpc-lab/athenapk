@@ -12,7 +12,7 @@
 namespace parthenon {
 
 // TODO(pgrete) need to make this more flexible especially for other problems
-void MeshBlock::ProblemGenerator(ParameterInput *pin) {
+void MeshBlock::ProblemGenerator(Mesh *mesh, ParameterInput *pin) {
   auto &rc = meshblock_data.Get();
   ParArray4D<Real> cons = rc.Get("cons").data.Get<4>();
 

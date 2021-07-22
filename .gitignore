@@ -34,3 +34,6 @@ compile_commands.json
 
 # jupyter notebook temp files
 .ipynb_checkpoints
+
+# CMake Test files
+Testing

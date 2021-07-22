@@ -28,6 +28,7 @@
 #include "rsolvers/glmmhd_hlld.hpp"
 #include "rsolvers/glmmhd_hlle.hpp"
 #include "rsolvers/hydro_hlle.hpp"
+#include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
 
 using namespace parthenon::package::prelude;
@@ -41,6 +42,7 @@ using namespace parthenon::package::prelude;
 
 namespace Hydro {
 
+using cooling::TabularCooling;
 using parthenon::HistoryOutputVar;
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
@@ -126,7 +128,7 @@ void ConsToPrim(MeshData<Real> *md) {
 // respective source in active.
 // Note 2: Directly update the "cons" variables based on the "prim" variables
 // as the "cons" variables have already been updated when this function is called.
-TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
+TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   if (hydro_pkg->Param<bool>("use_DednerGLMMHDSource")) {
@@ -136,15 +138,43 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const Real beta_dt) {
     GLMMHD::DednerSource<true>(md, beta_dt);
   }
   if (ProblemSourceUnsplit != nullptr) {
-    ProblemSourceUnsplit(md, beta_dt);
+    ProblemSourceUnsplit(md, tm, beta_dt);
   }
 
   return TaskStatus::complete;
 }
 
-TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const parthenon::SimTime &tm) {
+TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+
+  if (enable_cooling == Cooling::tabular) {
+    const TabularCooling &tabular_cooling =
+        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    tabular_cooling.SrcTerm(md, tm.dt);
+  }
   if (ProblemSourceFirstOrder != nullptr) {
-    ProblemSourceFirstOrder(md, tm);
+    ProblemSourceFirstOrder(md, tm, tm.dt);
+  }
+  return TaskStatus::complete;
+}
+
+TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm) {
+  // auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+
+  // if (enable_cooling == Cooling::tabular) {
+  //   const TabularCooling &tabular_cooling =
+  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+  //   tabular_cooling.SrcTerm(md, 0.5 * tm.dt);
+  // }
+
+  if (ProblemSourceStrangSplit != nullptr) {
+    ProblemSourceStrangSplit(md, tm, tm.dt);
   }
   return TaskStatus::complete;
 }
@@ -182,7 +212,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
-  pkg->AddParam<>("fluid", Fluid::glmmhd);
+  pkg->AddParam<>("fluid", fluid);
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("use_DednerGLMMHDSource", use_DednerGLMMHDSource);
   pkg->AddParam<>("use_DednerExtGLMMHDSource", use_DednerExtGLMMHDSource);
@@ -286,6 +316,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto eos_str = pin->GetString("hydro", "eos");
   if (eos_str == "adiabatic") {
     Real gamma = pin->GetReal("hydro", "gamma");
+    pkg->AddParam<>("AdiabaticIndex", gamma);
     Real dfloor = pin->GetOrAddReal("hydro", "dfloor", std::sqrt(1024 * float_min));
     Real pfloor = pin->GetOrAddReal("hydro", "pfloor", std::sqrt(1024 * float_min));
     if (fluid == Fluid::euler) {
@@ -302,18 +333,65 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
   }
+
+  /************************************************************
+   * Read Tabular Cooling
+   ************************************************************/
+
+  const auto enable_cooling_str =
+      pin->GetOrAddString("cooling", "enable_cooling", "none");
+
+  auto cooling = Cooling::none;
+  if (enable_cooling_str == "tabular") {
+    cooling = Cooling::tabular;
+  } else if (enable_cooling_str != "none") {
+    PARTHENON_FAIL("AthenaPK hydro: Unknown cooling string. Supported options are "
+                   "'none' and 'tabular'");
+  }
+  pkg->AddParam<>("enable_cooling", cooling);
+
+  if (cooling == Cooling::tabular) {
+    TabularCooling tabular_cooling(pin);
+    pkg->AddParam<>("tabular_cooling", tabular_cooling);
+  }
+
   auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 0);
   pkg->AddParam("scratch_level", scratch_level);
 
   std::string field_name = "cons";
+  std::vector<std::string> cons_labels(nhydro);
+  cons_labels[IDN] = "Density";
+  cons_labels[IM1] = "MomentumDensity1";
+  cons_labels[IM2] = "MomentumDensity2";
+  cons_labels[IM3] = "MomentumDensity3";
+  cons_labels[IEN] = "TotalEnergyDensity";
+  if (fluid == Fluid::glmmhd) {
+    cons_labels[IB1] = "MagneticField1";
+    cons_labels[IB2] = "MagneticField2";
+    cons_labels[IB3] = "MagneticField3";
+    cons_labels[IPS] = "MagneticPhi";
+  }
   Metadata m(
       {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
-      std::vector<int>({nhydro}));
+      std::vector<int>({nhydro}), cons_labels);
   pkg->AddField(field_name, m);
 
   // TODO(pgrete) check if this could be "one-copy" for two stage SSP integrators
   field_name = "prim";
-  m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}));
+  std::vector<std::string> prim_labels(nhydro);
+  prim_labels[IDN] = "Density";
+  prim_labels[IV1] = "Velocity1";
+  prim_labels[IV2] = "Velocity2";
+  prim_labels[IV3] = "Velocity3";
+  prim_labels[IPR] = "Pressure";
+  if (fluid == Fluid::glmmhd) {
+    prim_labels[IB1] = "MagneticField1";
+    prim_labels[IB2] = "MagneticField2";
+    prim_labels[IB3] = "MagneticField3";
+    prim_labels[IPS] = "MagneticPhi";
+  }
+  m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}),
+               prim_labels);
   pkg->AddField(field_name, m);
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
@@ -358,12 +436,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 template <Fluid fluid>
 Real EstimateTimestep(MeshData<Real> *md) {
   // get to package via first block in Meshdata (which exists by construction)
-  auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  const auto &cfl = pkg->Param<Real>("cfl");
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &eos =
-      pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
-                                           AdiabaticGLMMHDEOS>::type>("eos");
+      hydro_pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
+                                                 AdiabaticGLMMHDEOS>::type>("eos");
 
   IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -423,11 +501,21 @@ Real EstimateTimestep(MeshData<Real> *md) {
       },
       Kokkos::Min<Real>(min_dt_hyperbolic));
 
-  auto min_dt = min_dt_hyperbolic;
+  auto min_dt = cfl_hyp * min_dt_hyperbolic;
+
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+
+  if (enable_cooling == Cooling::tabular) {
+    const TabularCooling &tabular_cooling =
+        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    min_dt = std::min(min_dt, tabular_cooling.EstimateTimeStep(md));
+  }
+
   if (ProblemEstimateTimestep != nullptr) {
     min_dt = std::min(min_dt, ProblemEstimateTimestep(md));
   }
-  return cfl * min_dt;
+  return min_dt;
 }
 
 template <Fluid fluid, Reconstruction recon>
