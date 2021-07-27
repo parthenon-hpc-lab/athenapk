@@ -182,8 +182,8 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         #Initial and Feedback shared parameters
         self.magnetic_tower_alpha = 20
-        self.magnetic_tower_l_scale = unyt.unyt_quantity(1,"code_length")
-        #self.magnetic_tower_l_scale = unyt.unyt_quantity(10,"kpc")
+        #self.magnetic_tower_l_scale = unyt.unyt_quantity(1,"code_length")
+        self.magnetic_tower_l_scale = unyt.unyt_quantity(10,"kpc")
 
         #The Initial Tower
         self.initial_magnetic_tower_field = unyt.unyt_quantity(1e-6,"G")
@@ -357,12 +357,6 @@ class TestCase(utils.test_case.TestCaseAbs):
             initial_analytic_components,final_analytic_components = [{
                     "Density":lambda Z,Y,X,time :
                         np.ones_like(Z)*self.uniform_gas_rho.in_units("code_mass/code_length**3").v,
-                    #"MomentumDensity1":lambda Z,Y,X,time :
-                    #    np.ones_like(Z)*self.uniform_gas_Mx.in_units("code_mass*code_length**-2*code_time**-1").v,
-                    #"MomentumDensity2":lambda Z,Y,X,time :
-                    #    np.ones_like(Z)*self.uniform_gas_My.in_units("code_mass*code_length**-2*code_time**-1").v,
-                    #"MomentumDensity3":lambda Z,Y,X,time :
-                    #    np.ones_like(Z)*self.uniform_gas_Mz.in_units("code_mass*code_length**-2*code_time**-1").v,
                     "TotalEnergyDensity":lambda Z,Y,X,time : (self.uniform_gas_energy_density 
                         + b_energy_func(Z,Y,X,field)).in_units("code_mass*code_length**-1*code_time**-2").v,
                     "MagneticField1":lambda Z,Y,X,time : 
@@ -382,15 +376,24 @@ class TestCase(utils.test_case.TestCaseAbs):
                 return np.max((non_zero_linf,zero_linf))
 
             #Use a very loose tolerance, linf relative error
-            initial_analytic_status,final_analytic_status = [
-                compare_analytic.compare_analytic(
-                    phdf_file, analytic_components,err_func=zero_corrected_linf_err,tol=1e-3)
-                for analytic_components,phdf_file in zip((initial_analytic_components,final_analytic_components),
-                                                          phdf_filenames)]
+            analytic_statuses = []
+            for analytic_components,phdf_filename,label in zip(
+                (initial_analytic_components,final_analytic_components),
+                phdf_filenames,
+                ("Initial","Final")):
 
-            print("Analytic Statuses:",initial_analytic_status,final_analytic_status)
+                print(f"Checking {label} analytic expectations in {phdf_filename}")
 
-            analyze_status &= initial_analytic_status & final_analytic_status
+                analytic_status = compare_analytic.compare_analytic(
+                        phdf_filename, analytic_components,err_func=zero_corrected_linf_err,tol=1e-3)
+
+                if not analytic_status:
+                    print(f"{label} Analytic comparison failed\n")
+
+                analytic_statuses.append(analytic_status)
+
+
+            analyze_status &= np.all(analytic_statuses)
 
             for phdf_filename,b_eng_anyl,B0,b_eng_tol,label in zip(phdf_filenames,
                     (b_eng_initial_anyl,b_eng_final_anyl),
@@ -429,7 +432,6 @@ class TestCase(utils.test_case.TestCaseAbs):
                 if b_eng_expected_rel_err > b_eng_tol:
                     print(f"{label} Expected Relative Energy Error: {b_eng_expected_rel_err} exceeds tolerance {b_eng_tol}")
                     analyze_status = False
-
 
 
         return analyze_status

@@ -339,7 +339,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           hydro_pkg->Param<MagneticTower>("initial_magnetic_tower");
 
       magnetic_tower.AddPotential(pmb, a_kb, a_jb, a_ib, a_x, a_y, a_z, 0);
-      // magnetic_tower.AddField(pmb, kb, jb, ib, u, 0);
+      // magnetic_tower.AddField(pmb, kb, jb, ib, u, 0); //DEBUGGING
     }
 
     /************************************************************

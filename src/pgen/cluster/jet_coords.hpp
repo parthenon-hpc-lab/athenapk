@@ -24,11 +24,11 @@ namespace cluster {
 // TODO(forrestglines): Jet aligns along z-axis for now, will fix
 // TODO(forrestglines): Add precesion
 class JetCoords {
- private:
+ public:
   // Jet-axis Radians off the z-axis
   const parthenon::Real theta_jet_;
   // Precesion rate of Jet-axis, radians/time
-  const parthenon::Real phi_dot_jet;
+  const parthenon::Real phi_dot_jet_;
   // Initial precession offset in radians of Jet-axis (Useful for testing)
   const parthenon::Real phi0_jet_;
 
@@ -51,7 +51,7 @@ class JetCoords {
  public:
   explicit JetCoords(parthenon::ParameterInput *pin)
       : theta_jet_(pin->GetOrAddReal("problem/cluster", "jet_theta", 0)),
-        phi_dot_jet(pin->GetOrAddReal("problem/cluster", "jet_phi_dot", 0)),
+        phi_dot_jet_(pin->GetOrAddReal("problem/cluster", "jet_phi_dot", 0)),
         phi0_jet_(pin->GetOrAddReal("problem/cluster", "jet_phi0", 0)),
         cos_theta_jet_(cos(theta_jet_)), sin_theta_jet_(sin(theta_jet_)) {}
 
@@ -60,7 +60,7 @@ class JetCoords {
                                         parthenon::Real &n_y_jet,
                                         parthenon::Real &n_z_jet) const {
     // polar orientation of "theta=0" jet-axis
-    const parthenon::Real phi_jet = phi_dot_jet * time + phi0_jet_;
+    const parthenon::Real phi_jet = phi_dot_jet_ * time + phi0_jet_;
     const parthenon::Real cos_phi_jet = cos(phi_jet);
     const parthenon::Real sin_phi_jet = sin(phi_jet);
 
@@ -77,7 +77,7 @@ class JetCoords {
                              parthenon::Real &sin_theta_pos, parthenon::Real &h_pos) const
       __attribute__((always_inline)) {
     // polar orientation of "theta=0" jet-axis
-    const parthenon::Real phi_jet = phi_dot_jet * time + phi0_jet_;
+    const parthenon::Real phi_jet = phi_dot_jet_ * time + phi0_jet_;
     const parthenon::Real cos_phi_jet = cos(phi_jet);
     const parthenon::Real sin_phi_jet = sin(phi_jet);
 

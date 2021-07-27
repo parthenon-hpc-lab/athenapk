@@ -371,12 +371,19 @@ void InitInitialMagneticTower(std::shared_ptr<StateDescriptor> hydro_pkg,
                               parthenon::ParameterInput *pin) {
   const Real initial_magnetic_tower_field =
       pin->GetReal("problem/cluster", "initial_magnetic_tower_field");
+  hydro_pkg->AddParam<>("initial_magnetic_tower_field", initial_magnetic_tower_field);
   const Real initial_magnetic_tower_alpha =
       pin->GetReal("problem/cluster", "initial_magnetic_tower_alpha");
+  hydro_pkg->AddParam<>("initial_magnetic_tower_alpha", initial_magnetic_tower_alpha);
   const Real initial_magnetic_tower_l_scale =
       pin->GetReal("problem/cluster", "initial_magnetic_tower_l_scale");
+  hydro_pkg->AddParam<>("initial_magnetic_tower_l_scale", initial_magnetic_tower_l_scale);
 
   const JetCoords initial_jet_coords(pin);
+  hydro_pkg->AddParam<>("initial_jet_coords.theta_jet", initial_jet_coords.theta_jet_);
+  hydro_pkg->AddParam<>("initial_jet_coords.phi_dot_jet",
+                        initial_jet_coords.phi_dot_jet_);
+  hydro_pkg->AddParam<>("initial_jet_coords.phi0_jet_", initial_jet_coords.phi0_jet_);
 
   MagneticTower initial_magnetic_tower(
       initial_magnetic_tower_field, initial_magnetic_tower_alpha,
@@ -406,6 +413,7 @@ void InitFeedbackMagneticTower(std::shared_ptr<StateDescriptor> hydro_pkg,
 
   std::string mode_str =
       pin->GetString("problem/cluster", "feedback_magnetic_tower_mode");
+  hydro_pkg->AddParam<>("feedback_magnetic_tower_mode", mode_str);
   MagneticTowerFeedbackMode mode = ParseFeedbackMode(mode_str);
 
   Real feedback_strength;
@@ -417,11 +425,13 @@ void InitFeedbackMagneticTower(std::shared_ptr<StateDescriptor> hydro_pkg,
   case MagneticTowerFeedbackMode::const_field: {
     hydro_pkg->AddParam<bool>("magnetic_tower_power_scaling", false);
     feedback_strength = pin->GetReal("problem/cluster", "feedback_magnetic_tower_field");
+    hydro_pkg->AddParam<>("feedback_magnetic_tower_field", feedback_strength);
     break;
   }
   case MagneticTowerFeedbackMode::const_power: {
     hydro_pkg->AddParam<bool>("magnetic_tower_power_scaling", true);
     feedback_strength = pin->GetReal("problem/cluster", "feedback_magnetic_tower_power");
+    hydro_pkg->AddParam<>("feedback_magnetic_tower_power", feedback_strength);
     break;
   }
   case MagneticTowerFeedbackMode::agn_triggered: {
@@ -441,14 +451,19 @@ void InitFeedbackMagneticTower(std::shared_ptr<StateDescriptor> hydro_pkg,
     hydro_pkg->AddParam<Real>("mt_quadratic_contrib", 0.0);
   }
 
-  const Real feedback_magnetic_tower_field =
-      pin->GetReal("problem/cluster", "feedback_magnetic_tower_field");
   const Real feedback_magnetic_tower_alpha =
       pin->GetReal("problem/cluster", "feedback_magnetic_tower_alpha");
+  hydro_pkg->AddParam<>("feedback_magnetic_tower_alpha", feedback_magnetic_tower_alpha);
   const Real feedback_magnetic_tower_l_scale =
       pin->GetReal("problem/cluster", "feedback_magnetic_tower_l_scale");
+  hydro_pkg->AddParam<>("feedback_magnetic_tower_l_scale",
+                        feedback_magnetic_tower_l_scale);
 
   const JetCoords feedback_jet_coords(pin);
+  hydro_pkg->AddParam<>("feedback_jet_coords.theta_jet", feedback_jet_coords.theta_jet_);
+  hydro_pkg->AddParam<>("feedback_jet_coords.phi_dot_jet",
+                        feedback_jet_coords.phi_dot_jet_);
+  hydro_pkg->AddParam<>("feedback_jet_coords.phi0_jet", feedback_jet_coords.phi0_jet_);
 
   MagneticTower feedback_magnetic_tower(feedback_strength, feedback_magnetic_tower_alpha,
                                         feedback_magnetic_tower_l_scale,
