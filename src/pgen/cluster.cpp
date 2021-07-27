@@ -8,8 +8,8 @@
 //
 // Setups up an idealized galaxy cluster with an ACCEPT-like entropy profile in
 // hydrostatic equilbrium with an NFW+BCG+SMBH gravitational profile,
-// optionally with an initial magnetic tower field. Includes AGN feedback, AGN
-// triggering via cold gas, simple SNIA Feedback
+// optionally with an initial magnetic tower field. Includes tabular cooling,
+// AGN feedback, AGN triggering via cold gas(TODO), simple SNIA Feedback(TODO)
 //========================================================================================
 
 // C headers
@@ -25,8 +25,8 @@
 #include <string>    // c_str()
 
 // Parthenon headers
-#include <mesh/domain.hpp>
-#include <mesh/mesh.hpp>
+#include "mesh/domain.hpp"
+#include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -44,14 +44,15 @@
 #include "cluster/magnetic_tower.hpp"
 
 namespace cluster {
-using namespace parthenon;
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 
 void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime tm, const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  if (hydro_pkg->Param<bool>("gravity_srcterm")) {
+  const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
+
+  if (gravity_srcterm) {
     const ClusterGravity &cluster_gravity =
         hydro_pkg->Param<ClusterGravity>("cluster_gravity");
 
@@ -95,6 +96,8 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
   Real min_dt = std::numeric_limits<Real>::max();
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  // TODO time constraints imposed by jet velocity?
 
   return min_dt;
 }
@@ -143,11 +146,14 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
      * Read Cluster Gravity Parameters
      ************************************************************/
 
+    // Build cluster_gravity object
+    ClusterGravity cluster_gravity(pin);
+    hydro_pkg->AddParam<>("cluster_gravity", cluster_gravity);
+
     // Include gravity as a source term during evolution
     const bool gravity_srcterm = pin->GetBoolean("problem/cluster", "gravity_srcterm");
     hydro_pkg->AddParam<>("gravity_srcterm", gravity_srcterm);
 
-    // TODO(forrestglines):If not uniform gas or gravity_srcterm?
     if (!hydro_pkg->Param<bool>("init_uniform_gas") ||
         hydro_pkg->Param<bool>("gravity_srcterm")) {
       // Build cluster_gravity object
@@ -159,9 +165,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
      * Read Initial Entropy Profile
      ************************************************************/
 
-    if (!hydro_pkg->Param<bool>("init_uniform_gas")) {
-      // Build entropy_profile object
-    }
+    // Build entropy_profile object
+    ACCEPTEntropyProfile entropy_profile(pin);
 
     /************************************************************
      * Build Hydrostatic Equilibrium Sphere
@@ -226,6 +231,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       HydroAGNFeedback hydro_agn_feedback(pin);
       hydro_pkg->AddParam<>("hydro_agn_feedback", hydro_agn_feedback);
     }
+    HydrostaticEquilibriumSphere hse_sphere(pin, cluster_gravity, entropy_profile);
+    hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere", hse_sphere);
   }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -244,10 +251,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   /************************************************************
    * Initialize the initial hydro state
    ************************************************************/
-  if (hydro_pkg->Param<bool>("init_uniform_gas")) {
-    /************************************************************
-     * Initialize with a uniform gas
-     ************************************************************/
+  const auto &init_uniform_gas = hydro_pkg->Param<bool>("init_uniform_gas");
+  if (init_uniform_gas) {
     const Real rho = hydro_pkg->Param<Real>("uniform_gas_rho");
     const Real ux = hydro_pkg->Param<Real>("uniform_gas_ux");
     const Real uy = hydro_pkg->Param<Real>("uniform_gas_uy");
@@ -311,15 +316,15 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     /************************************************************
      * Initialize the initial magnetic field state via a vector potential
      ************************************************************/
-    ParArray3D<Real> a_x("a_x", pmb->cellbounds.ncellsk(IndexDomain::entire),
-                         pmb->cellbounds.ncellsj(IndexDomain::entire),
-                         pmb->cellbounds.ncellsi(IndexDomain::entire));
-    ParArray3D<Real> a_y("a_y", pmb->cellbounds.ncellsk(IndexDomain::entire),
-                         pmb->cellbounds.ncellsj(IndexDomain::entire),
-                         pmb->cellbounds.ncellsi(IndexDomain::entire));
-    ParArray3D<Real> a_z("a_z", pmb->cellbounds.ncellsk(IndexDomain::entire),
-                         pmb->cellbounds.ncellsj(IndexDomain::entire),
-                         pmb->cellbounds.ncellsi(IndexDomain::entire));
+    parthenon::ParArray3D<Real> a_x("a_x", pmb->cellbounds.ncellsk(IndexDomain::entire),
+                                    pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                    pmb->cellbounds.ncellsi(IndexDomain::entire));
+    parthenon::ParArray3D<Real> a_y("a_y", pmb->cellbounds.ncellsk(IndexDomain::entire),
+                                    pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                    pmb->cellbounds.ncellsi(IndexDomain::entire));
+    parthenon::ParArray3D<Real> a_z("a_z", pmb->cellbounds.ncellsk(IndexDomain::entire),
+                                    pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                    pmb->cellbounds.ncellsi(IndexDomain::entire));
     IndexRange a_ib = ib;
     a_ib.s -= 1;
     a_ib.e += 1;
@@ -339,7 +344,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           hydro_pkg->Param<MagneticTower>("initial_magnetic_tower");
 
       magnetic_tower.AddPotential(pmb, a_kb, a_jb, a_ib, a_x, a_y, a_z, 0);
-      // magnetic_tower.AddField(pmb, kb, jb, ib, u, 0); //DEBUGGING
+      // magnetic_tower.AddField(pmb, kb, jb, ib, u, 0); //FOR DEBUGGING
     }
 
     /************************************************************
