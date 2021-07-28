@@ -354,41 +354,61 @@ class TestCase(utils.test_case.TestCaseAbs):
             except ModuleNotFoundError:
                 print("Couldn't find module to compare Parthenon hdf5 files.")
                 return False
-
-
-            initial_analytic_components,final_analytic_components = [{
-                    "Density":lambda Z,Y,X,time :
-                        np.ones_like(Z)*self.uniform_gas_rho.in_units("code_mass/code_length**3").v,
-                    "TotalEnergyDensity":lambda Z,Y,X,time : (self.uniform_gas_energy_density 
-                        + b_energy_func(Z,Y,X,field)).in_units("code_mass*code_length**-1*code_time**-2").v,
-                    "MagneticField1":lambda Z,Y,X,time : 
-                        field_func(Z,Y,X,field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[0].v,
-                    "MagneticField2":lambda Z,Y,X,time : 
-                        field_func(Z,Y,X,field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[1].v,
-                    "MagneticField3":lambda Z,Y,X,time : 
-                        field_func(Z,Y,X,field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[2].v,
-                    } for field in (B0_initial,B0_final)]
+                
 
             phdf_filenames = [f"{parameters.output_path}/parthenon.{output_id}.{i:05d}.phdf" for i in range(2)]
 
-            def zero_corrected_linf_err(gold,test):
-                non_zero_linf = np.max(np.abs((gold[gold!=0]-test[gold!=0])/gold[gold!=0]),initial=0)
-                zero_linf = np.max(np.abs((gold[gold==0]-test[gold==0])),initial=0)
+            #Create a relative L-Inf errpr function, ignore where zero in gold data
+            rel_linf_err_func = lambda gold, test: compare_analytic.norm_err_func(
+                gold,test,norm_ord=np.inf,relative=True,ignore_gold_zero=True)
 
-                return np.max((non_zero_linf,zero_linf))
+            #Create a linf error function scaled by a magnetic field
+            #Avoids relative comparisons in areas where magnetic field is close to zero
+            def B_scaled_linf_err(gold,test,B0):
+                err_val = np.abs((gold - test)/B0)
+                return err_val.max()
 
             #Use a very loose tolerance, linf relative error
             analytic_statuses = []
-            for analytic_components,phdf_filename,label in zip(
-                (initial_analytic_components,final_analytic_components),
+            for B_field,phdf_filename,label in zip(
+                (B0_initial,B0_final),
                 phdf_filenames,
                 ("Initial","Final")):
 
-                print(f"Checking {label} analytic expectations in {phdf_filename}")
+                #Construct lambda functions for initial and final analytically
+                #expected density and total energy density
+                densities_analytic_components = {
+                    "Density":lambda Z,Y,X,time :
+                        np.ones_like(Z)*self.uniform_gas_rho.in_units("code_mass/code_length**3").v,
+                    "TotalEnergyDensity":lambda Z,Y,X,time : (self.uniform_gas_energy_density 
+                        + b_energy_func(Z,Y,X,B_field)).in_units("code_mass*code_length**-1*code_time**-2").v,
+                }
 
-                analytic_status = compare_analytic.compare_analytic(
-                        phdf_filename, analytic_components,err_func=zero_corrected_linf_err,tol=1e-3)
 
+                #Compare the simulation and analytic density and total energy density
+                densities_analytic_status = compare_analytic.compare_analytic(
+                        phdf_filename, densities_analytic_components,
+                        err_func=rel_linf_err_func,
+                        tol=1e-3)
+
+                #Construct lambda functions for initial and final analytically expected magnetic fields
+                field_analytic_components = {
+                    "MagneticField1":lambda Z,Y,X,time : 
+                        field_func(Z,Y,X,B_field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[0].v,
+                    "MagneticField2":lambda Z,Y,X,time : 
+                        field_func(Z,Y,X,B_field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[1].v,
+                    "MagneticField3":lambda Z,Y,X,time : 
+                        field_func(Z,Y,X,B_field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[2].v,
+                }
+
+                #Compare the simulation and analytic density and total energy density
+                field_analytic_status = compare_analytic.compare_analytic(
+                        phdf_filename, field_analytic_components,
+                        err_func=lambda gold,test: B_scaled_linf_err(gold,test,
+                            B_field.in_units("sqrt(code_mass)/sqrt(code_length)/code_time").v[()]),
+                        tol=1e-3)
+
+                analytic_status = (densities_analytic_status and field_analytic_status)
                 if not analytic_status:
                     print(f"{label} Analytic comparison failed\n")
 
@@ -409,7 +429,8 @@ class TestCase(utils.test_case.TestCaseAbs):
                 xf = phdf_file.xf
                 yf = phdf_file.yf
                 zf = phdf_file.zf
-                cell_vols =  unyt.unyt_array(np.einsum('ai,aj,ak->aijk',np.diff(zf),np.diff(yf),np.diff(xf)),"code_length**3")
+                cell_vols =  unyt.unyt_array(np.einsum('ai,aj,ak->aijk',
+                    np.diff(zf),np.diff(yf),np.diff(xf)),"code_length**3")
 
                 #Get the magnetic energy from phdf_file
                 B = unyt.unyt_array( 
@@ -423,16 +444,18 @@ class TestCase(utils.test_case.TestCaseAbs):
                 Z = unyt.unyt_array(Z,"code_length")
                 Y = unyt.unyt_array(Y,"code_length")
                 X = unyt.unyt_array(X,"code_length")
-                b_eng_expected = np.sum( b_energy_func(Z,Y,X,B0)*cell_vols )
+                b_eng_numer = np.sum( b_energy_func(Z,Y,X,B0)*cell_vols )
 
                 b_eng_anyl_rel_err = np.abs((b_eng - b_eng_anyl)/b_eng_anyl)
-                b_eng_expected_rel_err = np.abs((b_eng - b_eng_expected)/b_eng_expected)
+                b_eng_numer_rel_err = np.abs((b_eng - b_eng_numer)/b_eng_numer)
 
                 if b_eng_anyl_rel_err > b_eng_tol:
-                    print(f"{label} Analytic Relative Energy Error: {b_eng_anyl_rel_err} exceeds tolerance {b_eng_tol}")
+                    print(f"{label} Analytically Integrated Relative Energy Error: {b_eng_anyl_rel_err} exceeds tolerance {b_eng_tol}",
+                        f"Analytic {'>' if  b_eng_anyl > b_eng else '<'} Simulation")
                     analyze_status = False
-                if b_eng_expected_rel_err > b_eng_tol:
-                    print(f"{label} Expected Relative Energy Error: {b_eng_expected_rel_err} exceeds tolerance {b_eng_tol}")
+                if b_eng_numer_rel_err > b_eng_tol:
+                    print(f"{label} Numerically Integrated Relative Energy Error: {b_eng_numer_rel_err} exceeds tolerance {b_eng_tol}",
+                        f"Numerical {'>' if  b_eng_numer > b_eng else '<'} Simulation")
                     analyze_status = False
 
 
