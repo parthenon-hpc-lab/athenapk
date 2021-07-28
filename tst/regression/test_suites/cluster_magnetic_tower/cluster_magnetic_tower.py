@@ -300,7 +300,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             output_id = f"{feedback_mode}_precessed_{precessed_jet}"
             step_status = True
 
+            print(">"*20)
             print(f"Testing {output_id}")
+            print(">"*20)
 
             B0_initial = self.initial_magnetic_tower_field
             #Compute the initial magnetic energy

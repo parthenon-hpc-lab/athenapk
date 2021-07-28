@@ -47,7 +47,7 @@ namespace cluster {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 
-void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime tm, const Real beta_dt) {
+void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime& tm, const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
@@ -74,21 +74,14 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime tm, const Real 
   }
 }
 
-void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm) {
+void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  // if( hydro_pkg->Param<bool>("enable_hydro_agn_feedback") ){
-  //  const HydroAGNFeedback& hydro_agn_feedback =
-  //    hydro_pkg->Param<HydroAGNFeedback>("hydro_agn_feedback");
-
-  //    hydro_agn_feedback.FeedbackSrcTerm(md, tm.dt, tm);
-  //}
 
   // Adds magnetic tower feedback as a first order term
   if (hydro_pkg->Param<bool>("enable_feedback_magnetic_tower")) {
     const MagneticTower &magnetic_tower =
         hydro_pkg->Param<MagneticTower>("feedback_magnetic_tower");
-    magnetic_tower.MagneticFieldSrcTerm(md, tm.dt, tm);
+    magnetic_tower.MagneticFieldSrcTerm(md, dt, tm);
   }
 }
 

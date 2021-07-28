@@ -47,6 +47,14 @@ void MagneticTower::AddPotential(MeshBlock *pmb, IndexRange kb, IndexRange jb,
       });
 }
 
+//Instantiate the template definition in this source file
+template void MagneticTower::AddPotential<>(MeshBlock *pmb, IndexRange kb, IndexRange jb,
+                                            IndexRange ib, const ParArray3D<Real> &A_x,
+                                            const ParArray3D<Real> &A_y,
+                                            const ParArray3D<Real> &A_z,
+                                            const parthenon::Real time) const;
+
+
 // Add magnetic field to provided conserved variables
 template <typename View4D>
 void MagneticTower::AddField(MeshBlock *pmb, IndexRange kb, IndexRange jb, IndexRange ib,
@@ -70,20 +78,16 @@ void MagneticTower::AddField(MeshBlock *pmb, IndexRange kb, IndexRange jb, Index
       });
 }
 
-template void MagneticTower::AddPotential<>(MeshBlock *pmb, IndexRange kb, IndexRange jb,
-                                            IndexRange ib, const ParArray3D<Real> &A_x,
-                                            const ParArray3D<Real> &A_y,
-                                            const ParArray3D<Real> &A_z,
-                                            const parthenon::Real time) const;
-
+//Instantiate the template definition in this source file
 template void MagneticTower::AddField<>(
     MeshBlock *pmb, IndexRange kb, IndexRange jb, IndexRange ib,
     const parthenon::ParArrayNDGeneric<
-        Kokkos::View<double ******, Kokkos::LayoutRight, Kokkos::HostSpace>> &cons,
+        Kokkos::View<double ******, Kokkos::LayoutRight>> &cons,
     const parthenon::Real time) const;
 
 // Apply a cell centered magnetic field to the conserved variables
 // NOTE: This source term is only acceptable for divergence cleaning methods
+// CT methods need to apply the potential to the corner EMFs
 void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                                          const parthenon::Real beta_dt,
                                          const parthenon::SimTime &tm) const {
@@ -134,14 +138,24 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
       hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     // Construct magnetic vector potential then compute magnetic fields
 
-    // Currently reallocates this vector potential everytime step, could be allocated once
-    ParArray3D<Real> a_x("a_x", cons_pack.cellbounds.ncellsk(IndexDomain::entire),
+    // Currently reallocates this vector potential everytime step and constructs
+    // the potential in a separate kernel. There are two solutions:
+    //  1. Allocate a dependant variable in the hydro package for scratch
+    //  variables, use to store this potential. Would save time in allocations
+    //  but would still require more DRAM memory and two kernel launches
+    //  2. Compute the potential for all 6 neighbors in the same kernel,
+    //  constructing the derivative without storing the potential (more
+    //  arithmetically intensive, potentially faster)
+    ParArray4D<Real> a_x("a_x", cons_pack.GetDim(5),
+                         cons_pack.cellbounds.ncellsk(IndexDomain::entire),
                          cons_pack.cellbounds.ncellsj(IndexDomain::entire),
                          cons_pack.cellbounds.ncellsi(IndexDomain::entire));
-    ParArray3D<Real> a_y("a_y", cons_pack.cellbounds.ncellsk(IndexDomain::entire),
+    ParArray4D<Real> a_y("a_y", cons_pack.GetDim(5),
+                         cons_pack.cellbounds.ncellsk(IndexDomain::entire),
                          cons_pack.cellbounds.ncellsj(IndexDomain::entire),
                          cons_pack.cellbounds.ncellsi(IndexDomain::entire));
-    ParArray3D<Real> a_z("a_z", cons_pack.cellbounds.ncellsk(IndexDomain::entire),
+    ParArray4D<Real> a_z("a_z", cons_pack.GetDim(5),
+                         cons_pack.cellbounds.ncellsk(IndexDomain::entire),
                          cons_pack.cellbounds.ncellsj(IndexDomain::entire),
                          cons_pack.cellbounds.ncellsi(IndexDomain::entire));
     IndexRange a_ib = ib;
@@ -166,9 +180,9 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
           Real a_x_, a_y_, a_z_;
           mt.compute_potential_cartesian(time, coords.x1v(i), coords.x2v(j),
                                          coords.x3v(k), a_x_, a_y_, a_z_);
-          a_x(k, j, i) = a_x_;
-          a_y(k, j, i) = a_y_;
-          a_z(k, j, i) = a_z_;
+          a_x(b, k, j, i) = a_x_;
+          a_y(b, k, j, i) = a_y_;
+          a_z(b, k, j, i) = a_z_;
         });
 
     // Take the curl of the potential and apply the new magnetic field
@@ -182,12 +196,12 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
           const auto &coords = cons_pack.coords(b);
 
           // Take the curl of a to compute the magnetic field
-          const Real b_x = (a_z(k, j + 1, i) - a_z(k, j - 1, i)) / coords.dx2v(j) / 2.0 -
-                           (a_y(k + 1, j, i) - a_y(k - 1, j, i)) / coords.dx3v(k) / 2.0;
-          const Real b_y = (a_x(k + 1, j, i) - a_x(k - 1, j, i)) / coords.dx3v(k) / 2.0 -
-                           (a_z(k, j, i + 1) - a_z(k, j, i - 1)) / coords.dx1v(i) / 2.0;
-          const Real b_z = (a_y(k, j, i + 1) - a_y(k, j, i - 1)) / coords.dx1v(i) / 2.0 -
-                           (a_x(k, j + 1, i) - a_x(k, j - 1, i)) / coords.dx2v(j) / 2.0;
+          const Real b_x = (a_z(b, k, j + 1, i) - a_z(b, k, j - 1, i)) / coords.dx2v(j) / 2.0 -
+                           (a_y(b, k + 1, j, i) - a_y(b, k - 1, j, i)) / coords.dx3v(k) / 2.0;
+          const Real b_y = (a_x(b, k + 1, j, i) - a_x(b, k - 1, j, i)) / coords.dx3v(k) / 2.0 -
+                           (a_z(b, k, j, i + 1) - a_z(b, k, j, i - 1)) / coords.dx1v(i) / 2.0;
+          const Real b_z = (a_y(b, k, j, i + 1) - a_y(b, k, j, i - 1)) / coords.dx1v(i) / 2.0 -
+                           (a_x(b, k, j + 1, i) - a_x(b, k, j - 1, i)) / coords.dx2v(j) / 2.0;
 
           // Add the magnetic field to the conserved variables
           cons(IB1, k, j, i) += b_x;
