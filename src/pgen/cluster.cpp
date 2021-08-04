@@ -43,9 +43,58 @@
 #include "cluster/hydrostatic_equilibrium_sphere.hpp"
 #include "cluster/magnetic_tower.hpp"
 
+//DEBUGGING
+
+// Reduction array from
+// https://github.com/kokkos/kokkos/wiki/Custom-Reductions%3A-Built-In-Reducers-with-Custom-Scalar-Types
+template <class ScalarType, int N>
+struct ReductionMaxArray {
+  ScalarType data[N];
+
+  KOKKOS_INLINE_FUNCTION // Default constructor - Initialize to 0's
+  ReductionMaxArray() {
+    for (int i = 0; i < N; i++) {
+      data[i] = std::numeric_limits<ScalarType>::min();
+    }
+  }
+  KOKKOS_INLINE_FUNCTION // Copy Constructor
+  ReductionMaxArray(const ReductionMaxArray<ScalarType, N> &rhs) {
+    for (int i = 0; i < N; i++) {
+      data[i] = rhs.data[i];
+    }
+  }
+  KOKKOS_INLINE_FUNCTION // add operator
+      ReductionMaxArray<ScalarType, N> &
+      operator+=(const ReductionMaxArray<ScalarType, N> &src) {
+    for (int i = 0; i < N; i++) {
+      data[i] = max(data[i],src.data[i]);
+    }
+    return *this;
+  }
+  KOKKOS_INLINE_FUNCTION // volatile add operator
+      void
+      operator+=(const volatile ReductionMaxArray<ScalarType, N> &src) volatile {
+    for (int i = 0; i < N; i++) {
+      data[i] = max(data[i],src.data[i]);
+    }
+  }
+};
+typedef ReductionMaxArray<parthenon::Real, 20> MTMaxReductionType;
+
+namespace Kokkos { // reduction identity must be defined in Kokkos namespace
+template <>
+struct reduction_identity<MTMaxReductionType> {
+  KOKKOS_FORCEINLINE_FUNCTION static MTMaxReductionType sum() {
+    return MTMaxReductionType();
+  }
+};
+} // namespace Kokkos
+//END DEBUGGING
+
 namespace cluster {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
+
 
 void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime& tm, const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
@@ -337,7 +386,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           hydro_pkg->Param<MagneticTower>("initial_magnetic_tower");
 
       magnetic_tower.AddPotential(pmb, a_kb, a_jb, a_ib, a_x, a_y, a_z, 0);
-      // magnetic_tower.AddField(pmb, kb, jb, ib, u, 0); //FOR DEBUGGING
+      //magnetic_tower.AddField(pmb, kb, jb, ib, u, 0); //FOR DEBUGGING
     }
 
     /************************************************************
@@ -357,6 +406,101 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           u(IEN, k, j, i) +=
               0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
         });
+
+    //DEBUGGING: Check magnetic fields
+    if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd &&
+        hydro_pkg->Param<bool>("enable_initial_magnetic_tower")) {
+      /************************************************************
+       * Initialize an initial magnetic tower
+       ************************************************************/
+
+      const auto &magnetic_tower =
+          hydro_pkg->Param<MagneticTower>("initial_magnetic_tower");
+      parthenon::ParArray3D<Real> b_x("b_x", pmb->cellbounds.ncellsk(IndexDomain::entire),
+                                      pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                      pmb->cellbounds.ncellsi(IndexDomain::entire));
+      parthenon::ParArray3D<Real> b_y("b_y", pmb->cellbounds.ncellsk(IndexDomain::entire),
+                                      pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                      pmb->cellbounds.ncellsi(IndexDomain::entire));
+      parthenon::ParArray3D<Real> b_z("b_z", pmb->cellbounds.ncellsk(IndexDomain::entire),
+                                      pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                      pmb->cellbounds.ncellsi(IndexDomain::entire));
+
+      magnetic_tower.AddField(pmb, kb, jb, ib, b_x, b_y, b_z, 0); //FOR DEBUGGING
+
+      const parthenon::Real mt_B0 =
+        pin->GetReal("problem/cluster", "initial_magnetic_tower_field");
+
+      // Get the reduction of the linear and quadratic contributions ready
+      MTMaxReductionType mt_max_reduction;
+      Kokkos::Sum<MTMaxReductionType> reducer_maxes(mt_max_reduction);
+
+      Kokkos::parallel_reduce(
+          "cluster::ProblemGenerator::Compare magnetic Fields",
+          Kokkos::MDRangePolicy<Kokkos::Rank<3>>(
+              {kb.s, jb.s, ib.s}, {kb.e + 1, jb.e + 1, ib.e + 1},
+              {1, 1, ib.e + 1 - ib.s}),
+          KOKKOS_LAMBDA(const int &k, const int &j, const int &i,
+                        MTMaxReductionType &team_mt_max_reduction) {
+
+            parthenon::Real u_b_eng = 
+                0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
+            parthenon::Real analytic_b_eng = 
+              0.5 * (SQR(b_x(k, j, i)) + SQR(b_y(k, j, i)) + SQR(b_z(k, j, i)));
+
+            parthenon::Real err_x = b_x(k,j,i) - u(IB1, k, j, i);
+            parthenon::Real err_y = b_y(k,j,i) - u(IB2, k, j, i);
+            parthenon::Real err_z = b_z(k,j,i) - u(IB3, k, j, i);
+            parthenon::Real err_eng = analytic_b_eng - u_b_eng;
+
+            parthenon::Real bx = b_x(k,j,i);
+            parthenon::Real by = b_y(k,j,i);
+            parthenon::Real bz = b_z(k,j,i);
+
+            team_mt_max_reduction.data[0]  = fmax( team_mt_max_reduction.data[0] ,fabs(err_x));
+            team_mt_max_reduction.data[1]  = fmax( team_mt_max_reduction.data[1] ,fabs(err_y));
+            team_mt_max_reduction.data[2]  = fmax( team_mt_max_reduction.data[2] ,fabs(err_z));
+            team_mt_max_reduction.data[3]  = fmax( team_mt_max_reduction.data[3] ,fabs(err_eng));
+            team_mt_max_reduction.data[4]  = fmax( team_mt_max_reduction.data[4] ,fabs(err_x/b_x(k,j,i)));
+            team_mt_max_reduction.data[5]  = fmax( team_mt_max_reduction.data[5] ,fabs(err_y/b_y(k,j,i)));
+            team_mt_max_reduction.data[6]  = fmax( team_mt_max_reduction.data[6] ,fabs(err_z/b_z(k,j,i)));
+            team_mt_max_reduction.data[7]  = fmax( team_mt_max_reduction.data[7] ,fabs(err_eng/analytic_b_eng));
+            team_mt_max_reduction.data[8]  = fmax( team_mt_max_reduction.data[8] ,fabs(err_x/mt_B0));
+            team_mt_max_reduction.data[9]  = fmax( team_mt_max_reduction.data[9] ,fabs(err_y/mt_B0));
+            team_mt_max_reduction.data[10] = fmax( team_mt_max_reduction.data[10],fabs(err_z/mt_B0));
+            team_mt_max_reduction.data[11] = fmax( team_mt_max_reduction.data[11],fabs(err_eng/analytic_b_eng));
+            team_mt_max_reduction.data[12]  = fmax( team_mt_max_reduction.data[12] ,fabs(u(IB1, k, j, i)));
+            team_mt_max_reduction.data[13]  = fmax( team_mt_max_reduction.data[13] ,fabs(u(IB2, k, j, i)));
+            team_mt_max_reduction.data[14]  = fmax( team_mt_max_reduction.data[14] ,fabs(u(IB3, k, j, i)));
+            team_mt_max_reduction.data[15]  = fmax( team_mt_max_reduction.data[15] ,fabs(u_b_eng));
+            team_mt_max_reduction.data[16]  = fmax( team_mt_max_reduction.data[16] ,-fabs(b_x(k, j, i)));
+            team_mt_max_reduction.data[17]  = fmax( team_mt_max_reduction.data[17] ,-fabs(b_y(k, j, i)));
+            team_mt_max_reduction.data[18]  = fmax( team_mt_max_reduction.data[18] ,-fabs(b_z(k, j, i)));
+            team_mt_max_reduction.data[19]  = fmax( team_mt_max_reduction.data[19] ,-fabs(analytic_b_eng));
+          }, reducer_maxes);
+
+      std::cout<<"Magnetic tower testing on grid: "<< pmb->lid  <<std::endl;
+      std::cout<<"B_x linf:   " << mt_max_reduction.data[0]<<std::endl;
+      std::cout<<"B_y linf:   " << mt_max_reduction.data[1]<<std::endl;
+      std::cout<<"B_z linf:   " << mt_max_reduction.data[2]<<std::endl;
+      std::cout<<"B_eng linf: " << mt_max_reduction.data[3]<<std::endl;
+      std::cout<<"B_x rel linf:   " << mt_max_reduction.data[4]<<std::endl;
+      std::cout<<"B_y rel linf:   " << mt_max_reduction.data[5]<<std::endl;
+      std::cout<<"B_z rel linf:   " << mt_max_reduction.data[6]<<std::endl;
+      std::cout<<"B_eng rel linf: " << mt_max_reduction.data[7]<<std::endl;
+      std::cout<<"B_x rel B0 linf:   " << mt_max_reduction.data[8]<<std::endl;
+      std::cout<<"B_y rel B0 linf:   " << mt_max_reduction.data[9]<<std::endl;
+      std::cout<<"B_z rel B0 linf:   " << mt_max_reduction.data[10]<<std::endl;
+      std::cout<<"B_eng rel B0 linf: " << mt_max_reduction.data[11]<<std::endl;
+      std::cout<<"B_x max:   " << mt_max_reduction.data[12]<<std::endl;
+      std::cout<<"B_y max:   " << mt_max_reduction.data[13]<<std::endl;
+      std::cout<<"B_z max:   " << mt_max_reduction.data[14]<<std::endl;
+      std::cout<<"B_eng max: " << mt_max_reduction.data[15]<<std::endl;
+      std::cout<<"B_x min:   " << mt_max_reduction.data[16]<<std::endl;
+      std::cout<<"B_y min:   " << -mt_max_reduction.data[17]<<std::endl;
+      std::cout<<"B_z min:   " << -mt_max_reduction.data[18]<<std::endl;
+      std::cout<<"B_eng min: " << -mt_max_reduction.data[19]<<std::endl;
+    }
   } // END
 }
 

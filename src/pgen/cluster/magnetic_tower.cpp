@@ -17,6 +17,7 @@
 // Athena headers
 #include "../../main.hpp"
 #include "../../units.hpp"
+#include "Kokkos_HostSpace.hpp"
 #include "magnetic_tower.hpp"
 
 namespace cluster {
@@ -82,7 +83,39 @@ void MagneticTower::AddField(MeshBlock *pmb, IndexRange kb, IndexRange jb, Index
 template void MagneticTower::AddField<>(
     MeshBlock *pmb, IndexRange kb, IndexRange jb, IndexRange ib,
     const parthenon::ParArrayNDGeneric<
-        Kokkos::View<double ******, Kokkos::LayoutRight>> &cons,
+        Kokkos::View<double ******, Kokkos::LayoutRight, Kokkos::HostSpace>> &cons,
+    const parthenon::Real time) const;
+
+// Add magnetic field to provided fields
+template <typename View3D>
+void MagneticTower::AddField(MeshBlock *pmb, IndexRange kb, IndexRange jb, IndexRange ib,
+                             const View3D &B_x,const View3D &B_y,const View3D &B_z, 
+                             const parthenon::Real time) const {
+
+  auto &coords = pmb->coords;
+
+  const MagneticTower mt = *this;
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "MagneticTower::AddField", parthenon::DevExecSpace(),
+      kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+        // Compute and apply potential
+        Real b_x, b_y, b_z;
+        mt.compute_field_cartesian(time, coords.x1v(i), coords.x2v(j), coords.x3v(k), b_x,
+                                   b_y, b_z);
+        B_x( k, j, i) += b_x;
+        B_y( k, j, i) += b_y;
+        B_z( k, j, i) += b_z;
+      });
+}
+
+//Instantiate the template definition in this source file
+template void MagneticTower::AddField<>(
+    MeshBlock *pmb, IndexRange kb, IndexRange jb, IndexRange ib,
+    const ParArray3D<Real> &b_x,
+    const ParArray3D<Real> &b_y,
+    const ParArray3D<Real> &b_z,
     const parthenon::Real time) const;
 
 // Apply a cell centered magnetic field to the conserved variables
@@ -114,7 +147,7 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
     // Scale the magnetic field to treat the current "strength_" as a power
     const Real linear_contrib = hydro_pkg->Param<Real>("mt_linear_contrib");
     const Real quadratic_contrib = hydro_pkg->Param<Real>("mt_quadratic_contrib");
-    const Real disc = linear_contrib * linear_contrib + 4 * beta_dt * quadratic_contrib;
+    const Real disc = linear_contrib * linear_contrib + 4 * quadratic_contrib * beta_dt * strength_;
     if (disc < 0 || quadratic_contrib == 0) {
       std::stringstream msg;
       msg << "MagneticTower::MagneticFieldSrcTerm No field rate works"
@@ -130,7 +163,7 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
   // Make a construct a copy of this with "beta_dt" included in the field factor to send
   // to the device
   const MagneticTower mt =
-      MagneticTower(field_rate * beta_dt, l_scale_, alpha_, jet_coords_);
+      MagneticTower(field_rate * beta_dt, alpha_, l_scale_, jet_coords_);
 
   const parthenon::Real time = tm.time;
 
@@ -202,6 +235,13 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
                            (a_z(b, k, j, i + 1) - a_z(b, k, j, i - 1)) / coords.dx1v(i) / 2.0;
           const Real b_z = (a_y(b, k, j, i + 1) - a_y(b, k, j, i - 1)) / coords.dx1v(i) / 2.0 -
                            (a_x(b, k, j + 1, i) - a_x(b, k, j - 1, i)) / coords.dx2v(j) / 2.0;
+          //DEBUGGING std::cout<< std::endl;
+          //DEBUGGING std::cout<< (a_z(b, k, j + 1, i) - a_z(b, k, j - 1, i)) / coords.dx2v(j) / 2.0 << std::endl;
+          //DEBUGGING std::cout<< (a_y(b, k + 1, j, i) - a_y(b, k - 1, j, i)) / coords.dx3v(k) / 2.0 << std::endl;
+          //DEBUGGING std::cout<< (a_x(b, k + 1, j, i) - a_x(b, k - 1, j, i)) / coords.dx3v(k) / 2.0 << std::endl;          
+          //DEBUGGING std::cout<< (a_z(b, k, j, i + 1) - a_z(b, k, j, i - 1)) / coords.dx1v(i) / 2.0 << std::endl;          
+          //DEBUGGING std::cout<< (a_y(b, k, j, i + 1) - a_y(b, k, j, i - 1)) / coords.dx1v(i) / 2.0 << std::endl;          
+          //DEBUGGING std::cout<< (a_x(b, k, j + 1, i) - a_x(b, k, j - 1, i)) / coords.dx2v(j) / 2.0 << std::endl;
 
           // Add the magnetic field to the conserved variables
           cons(IB1, k, j, i) += b_x;
@@ -238,6 +278,9 @@ void MagneticTower::MagneticFieldSrcTerm(parthenon::MeshData<parthenon::Real> *m
           cons(IEN, k, j, i) += prim(IB1, k, j, i) * b_x + prim(IB2, k, j, i) * b_y +
                                 prim(IB3, k, j, i) * b_z +
                                 0.5 * (b_x * b_x + b_y * b_y + b_z * b_z);
+          //DEBUGGING std::cout<< b_x << std::endl;          
+          //DEBUGGING std::cout<< b_y << std::endl;          
+          //DEBUGGING std::cout<< b_z << std::endl;          
 
           // Update the magnetic fields
           // We're just using cell centered fields here and not bothering with a vector

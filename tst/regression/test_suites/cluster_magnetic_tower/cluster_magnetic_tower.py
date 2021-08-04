@@ -129,7 +129,7 @@ class ZJetCoords:
         
         #Compute vector in cartesian coords
         vec_x = vec_rho*np.cos(theta_pos) - vec_theta*np.sin(theta_pos)
-        vec_y =-vec_rho*np.sin(theta_pos) + vec_theta*np.cos(theta_pos)
+        vec_y = vec_rho*np.sin(theta_pos) + vec_theta*np.cos(theta_pos)
         vec_z = vec_h
         
         return (vec_x,vec_y,vec_z)
@@ -341,6 +341,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
                 B_x,B_y,B_z = jet_coords.jet_to_cart_vec(pos_cart,B_jet)
 
+
                 return unyt.unyt_array((B_x, B_y, B_z),magnetic_units)
 
             b_energy_func = lambda Z,Y,X,B0 : 0.5*np.sum(field_func(Z,Y,X,B0)**2,axis=0)
@@ -394,18 +395,19 @@ class TestCase(utils.test_case.TestCaseAbs):
                 #Construct lambda functions for initial and final analytically expected magnetic fields
                 field_analytic_components = {
                     "MagneticField1":lambda Z,Y,X,time : 
-                        field_func(Z,Y,X,B_field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[0].v,
+                        field_func(Z,Y,X,B_field).in_units(magnetic_units)[0].v,
                     "MagneticField2":lambda Z,Y,X,time : 
-                        field_func(Z,Y,X,B_field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[1].v,
+                        field_func(Z,Y,X,B_field).in_units(magnetic_units)[1].v,
                     "MagneticField3":lambda Z,Y,X,time : 
-                        field_func(Z,Y,X,B_field).in_units("sqrt(code_mass)/sqrt(code_length)/code_time")[2].v,
+                        field_func(Z,Y,X,B_field).in_units(magnetic_units)[2].v,
                 }
 
-                #Compare the simulation and analytic density and total energy density
+                #Compare the simulation and analytic magnetic fields,
+                #scaled by magnetic tower field scale
                 field_analytic_status = compare_analytic.compare_analytic(
                         phdf_filename, field_analytic_components,
                         err_func=lambda gold,test: B_scaled_linf_err(gold,test,
-                            B_field.in_units("sqrt(code_mass)/sqrt(code_length)/code_time").v[()]),
+                            B_field.in_units(magnetic_units).v[()]),
                         tol=1e-3)
 
                 analytic_status = (densities_analytic_status and field_analytic_status)

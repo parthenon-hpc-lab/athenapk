@@ -125,6 +125,15 @@ class MagneticTower {
                 parthenon::IndexRange jb, parthenon::IndexRange ib, const View4D &cons,
                 const parthenon::Real time) const;
 
+  // Add magnetic field to provided conserved variables (useful for debugging)
+  template <typename View3D>
+  void AddField(parthenon::MeshBlock *pmb, parthenon::IndexRange kb,
+                parthenon::IndexRange jb, parthenon::IndexRange ib,
+                const View3D &B_x,
+                const View3D &B_y,
+                const View3D &B_z,
+                const parthenon::Real time) const;
+
   // Apply a cell centered magnetic field (of strength `beta_dt*strength_) to the
   // conserved variables NOTE: This source term is only acceptable for divergence cleaning
   // methods
