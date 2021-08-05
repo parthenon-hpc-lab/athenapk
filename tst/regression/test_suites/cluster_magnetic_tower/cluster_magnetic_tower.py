@@ -243,26 +243,25 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"units/code_mass_cgs={self.code_mass.in_units('g').v}",
                 f"units/code_time_cgs={self.code_time.in_units('s').v}",
 
-                f"problem/cluster/init_uniform_gas=true",
-                f"problem/cluster/uniform_gas_rho={self.uniform_gas_rho.in_units('code_mass*code_length**-3').v}",
-                f"problem/cluster/uniform_gas_ux={self.uniform_gas_ux.in_units('code_length*code_time**-1').v}",
-                f"problem/cluster/uniform_gas_uy={self.uniform_gas_uy.in_units('code_length*code_time**-1').v}",
-                f"problem/cluster/uniform_gas_uz={self.uniform_gas_uz.in_units('code_length*code_time**-1').v}",
-                f"problem/cluster/uniform_gas_pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
+                f"problem/cluster/uniform_gas/init_uniform_gas=true",
+                f"problem/cluster/uniform_gas/rho={self.uniform_gas_rho.in_units('code_mass*code_length**-3').v}",
+                f"problem/cluster/uniform_gas/ux={self.uniform_gas_ux.in_units('code_length*code_time**-1').v}",
+                f"problem/cluster/uniform_gas/uy={self.uniform_gas_uy.in_units('code_length*code_time**-1').v}",
+                f"problem/cluster/uniform_gas/uz={self.uniform_gas_uz.in_units('code_length*code_time**-1').v}",
+                f"problem/cluster/uniform_gas/pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
 
-                f"problem/cluster/jet_theta={self.theta_jet if precessed_jet else 0}",
-                f"problem/cluster/jet_phi_dot={self.phi_dot_jet if precessed_jet else 0}",
-                f"problem/cluster/jet_phi0={self.phi_jet0 if precessed_jet else 0}",
+                f"problem/cluster/precessing_jet/jet_theta={self.theta_jet if precessed_jet else 0}",
+                f"problem/cluster/precessing_jet/jet_phi_dot={self.phi_dot_jet if precessed_jet else 0}",
+                f"problem/cluster/precessing_jet/jet_phi0={self.phi_jet0 if precessed_jet else 0}",
 
-                f"problem/cluster/initial_magnetic_tower_field={self.initial_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time').v}",
-                f"problem/cluster/initial_magnetic_tower_alpha={self.magnetic_tower_alpha}",
-                f"problem/cluster/initial_magnetic_tower_l_scale={self.magnetic_tower_l_scale.in_units('code_length').v}",
+                f"problem/cluster/magnetic_tower/alpha={self.magnetic_tower_alpha}",
+                f"problem/cluster/magnetic_tower/l_scale={self.magnetic_tower_l_scale.in_units('code_length').v}",
 
-                f"problem/cluster/feedback_magnetic_tower_mode={feedback_mode}",
-                f"problem/cluster/feedback_magnetic_tower_field={self.feedback_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time**2').v}",
-                f"problem/cluster/feedback_magnetic_tower_power={self.feedback_magnetic_tower_power.in_units('code_mass*code_length**2/code_time**3').v}",
-                f"problem/cluster/feedback_magnetic_tower_alpha={self.magnetic_tower_alpha}",
-                f"problem/cluster/feedback_magnetic_tower_l_scale={self.magnetic_tower_l_scale.in_units('code_length').v}",
+                f"problem/cluster/magnetic_tower/initial_field={self.initial_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time').v}",
+
+                f"problem/cluster/magnetic_tower/feedback_mode={feedback_mode}",
+                f"problem/cluster/magnetic_tower/feedback_field_rate={self.feedback_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time**2').v}",
+                f"problem/cluster/magnetic_tower/feedback_power={self.feedback_magnetic_tower_power.in_units('code_mass*code_length**2/code_time**3').v}",
             ]
 
 

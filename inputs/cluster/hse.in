@@ -80,6 +80,8 @@ code_time_cgs = 3.15576e+16
 <problem/cluster>
 hubble_parameter = 0.0715898515654728
 
+<problem/cluster/gravity>
+
 #Which gravitational fields to include
 include_nfw_g = True
 which_bcg_g = HERNQUIST
@@ -101,6 +103,8 @@ g_smoothing_radius = 1e-6
 
 #Include gravity as a source term
 gravity_srcterm = true
+
+<problem/cluster/hydrostatic_equilibrium>
 
 #Entropy profile parameters
 K_0 = 8.851337676479303e-121

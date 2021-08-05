@@ -167,15 +167,15 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
      ************************************************************/
 
     const bool init_uniform_gas =
-        pin->GetOrAddBoolean("problem/cluster", "init_uniform_gas", false);
+        pin->GetOrAddBoolean("problem/cluster/uniform_gas", "init_uniform_gas", false);
     hydro_pkg->AddParam<>("init_uniform_gas", init_uniform_gas);
 
     if (init_uniform_gas) {
-      const Real uniform_gas_rho = pin->GetReal("problem/cluster", "uniform_gas_rho");
-      const Real uniform_gas_ux = pin->GetReal("problem/cluster", "uniform_gas_ux");
-      const Real uniform_gas_uy = pin->GetReal("problem/cluster", "uniform_gas_uy");
-      const Real uniform_gas_uz = pin->GetReal("problem/cluster", "uniform_gas_uz");
-      const Real uniform_gas_pres = pin->GetReal("problem/cluster", "uniform_gas_pres");
+      const Real uniform_gas_rho = pin->GetReal("problem/cluster/uniform_gas" , "rho");
+      const Real uniform_gas_ux = pin->GetReal("problem/cluster/uniform_gas"  , "ux");
+      const Real uniform_gas_uy = pin->GetReal("problem/cluster/uniform_gas"  , "uy");
+      const Real uniform_gas_uz = pin->GetReal("problem/cluster/uniform_gas"  , "uz");
+      const Real uniform_gas_pres = pin->GetReal("problem/cluster/uniform_gas", "pres");
 
       hydro_pkg->AddParam<>("uniform_gas_rho", uniform_gas_rho);
       hydro_pkg->AddParam<>("uniform_gas_ux", uniform_gas_ux);
@@ -193,15 +193,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     hydro_pkg->AddParam<>("cluster_gravity", cluster_gravity);
 
     // Include gravity as a source term during evolution
-    const bool gravity_srcterm = pin->GetBoolean("problem/cluster", "gravity_srcterm");
+    const bool gravity_srcterm = pin->GetBoolean("problem/cluster/gravity", "gravity_srcterm");
     hydro_pkg->AddParam<>("gravity_srcterm", gravity_srcterm);
-
-    if (!hydro_pkg->Param<bool>("init_uniform_gas") ||
-        hydro_pkg->Param<bool>("gravity_srcterm")) {
-      // Build cluster_gravity object
-      ClusterGravity cluster_gravity(pin);
-      hydro_pkg->AddParam<>("cluster_gravity", cluster_gravity);
-    }
 
     /************************************************************
      * Read Initial Entropy Profile
@@ -214,15 +207,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
      * Build Hydrostatic Equilibrium Sphere
      ************************************************************/
 
-    if (!hydro_pkg->Param<bool>("init_uniform_gas")) {
-
-      const ClusterGravity &cluster_gravity =
-          hydro_pkg->Param<ClusterGravity>("cluster_gravity");
-      ACCEPTEntropyProfile entropy_profile(pin);
-
-      HydrostaticEquilibriumSphere hse_sphere(pin, cluster_gravity, entropy_profile);
-      hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere", hse_sphere);
-    }
+    HydrostaticEquilibriumSphere hse_sphere(pin, cluster_gravity, entropy_profile);
+    hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere", hse_sphere);
 
     /************************************************************
      * Read Initial Magnetic Tower
@@ -230,7 +216,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
     // Build Initial Magnetic Tower object
     const bool enable_initial_magnetic_tower =
-        pin->GetOrAddBoolean("problem/cluster", "enable_initial_magnetic_tower", false);
+        pin->GetOrAddBoolean("problem/cluster/magnetic_tower", "enable_initial_magnetic_tower", false);
     hydro_pkg->AddParam<>("enable_initial_magnetic_tower", enable_initial_magnetic_tower);
 
     if (hydro_pkg->Param<bool>("enable_initial_magnetic_tower")) {
@@ -247,7 +233,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
      ************************************************************/
 
     const bool enable_feedback_magnetic_tower =
-        pin->GetOrAddBoolean("problem/cluster", "enable_feedback_magnetic_tower", false);
+        pin->GetOrAddBoolean("problem/cluster/magnetic_tower", "enable_feedback_magnetic_tower", false);
     hydro_pkg->AddParam<>("enable_feedback_magnetic_tower",
                           enable_feedback_magnetic_tower);
 
@@ -265,7 +251,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
      ************************************************************/
 
     const bool enable_hydro_agn_feedback =
-        pin->GetOrAddBoolean("problem/cluster", "enable_hydro_agn_feedback", false);
+        pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_hydro_agn_feedback", false);
     hydro_pkg->AddParam<>("enable_hydro_agn_feedback", enable_hydro_agn_feedback);
 
     if (hydro_pkg->Param<bool>("enable_hydro_agn_feedback")) {
@@ -273,8 +259,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       HydroAGNFeedback hydro_agn_feedback(pin);
       hydro_pkg->AddParam<>("hydro_agn_feedback", hydro_agn_feedback);
     }
-    HydrostaticEquilibriumSphere hse_sphere(pin, cluster_gravity, entropy_profile);
-    hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere", hse_sphere);
+
   }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -429,7 +414,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       magnetic_tower.AddField(pmb, kb, jb, ib, b_x, b_y, b_z, 0); //FOR DEBUGGING
 
       const parthenon::Real mt_B0 =
-        pin->GetReal("problem/cluster", "initial_magnetic_tower_field");
+        pin->GetReal("problem/cluster/magnetic_twer", "initial_field");
 
       // Get the reduction of the linear and quadratic contributions ready
       MTMaxReductionType mt_max_reduction;
@@ -500,7 +485,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       std::cout<<"B_y min:   " << -mt_max_reduction.data[17]<<std::endl;
       std::cout<<"B_z min:   " << -mt_max_reduction.data[18]<<std::endl;
       std::cout<<"B_eng min: " << -mt_max_reduction.data[19]<<std::endl;
-    }
+    } //END DEBUGGING
+
   } // END
 }
 

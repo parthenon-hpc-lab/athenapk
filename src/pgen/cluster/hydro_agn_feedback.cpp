@@ -23,13 +23,13 @@ namespace cluster {
 using namespace parthenon;
 
 HydroAGNFeedback::HydroAGNFeedback(parthenon::ParameterInput *pin)
-    : power_(pin->GetOrAddReal("problem/cluster", "agn_power", 0.0)),
-      thermal_fraction_(pin->GetReal("problem/cluster", "agn_thermal_fraction")),
-      kinetic_fraction_(pin->GetReal("problem/cluster", "agn_kinetic_fraction")),
-      thermal_radius_(pin->GetReal("problem/cluster", "agn_thermal_radius")),
-      jet_efficiency_(pin->GetReal("problem/cluster", "agn_jet_efficiency")),
-      jet_radius_(pin->GetReal("problem/cluster", "agn_jet_radius")),
-      jet_height_(pin->GetReal("problem/cluster", "agn_jet_height")), jet_coords_(pin) {}
+    : power_(pin->GetOrAddReal("problem/cluster/agn_feedback", "agn_power", 0.0)),
+      thermal_fraction_(pin->GetReal("problem/cluster/agn_feedback", "thermal_fraction")),
+      kinetic_fraction_(pin->GetReal("problem/cluster/agn_feedback", "kinetic_fraction")),
+      thermal_radius_(pin->GetReal("problem/cluster/agn_feedback", "thermal_radius")),
+      jet_efficiency_(pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_efficiency")),
+      jet_radius_(pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_radius")),
+      jet_height_(pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_height")), jet_coords_(pin) {}
 
 void HydroAGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                                        const parthenon::Real beta_dt,
