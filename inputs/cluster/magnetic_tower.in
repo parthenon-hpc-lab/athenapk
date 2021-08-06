@@ -95,9 +95,9 @@ pres = 1.5454368403867562
 
 <problem/cluster/precessing_jet>
 #Define a precessing jet
-jet_theta = 0.0
+jet_theta = 1.2
 jet_phi_dot = 0
-jet_phi0 = 0
+jet_phi0 = 2.2
 
 <problem/cluster/magnetic_tower>
 #Include an initial magnetic tower
@@ -111,4 +111,4 @@ enable_feedback_magnetic_tower=true
 feedback_mode = const_field
 feedback_field_rate = 12.431560000204144
 feedback_power = 0.0016599828166743962
-srcterm_use_potential_curl = true
+srcterm_use_potential_curl = false

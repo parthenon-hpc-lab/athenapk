@@ -101,6 +101,7 @@ class JetCoords {
     const parthenon::Real y_pos_jet = Dot(o_x_jet, o_y_jet, o_z_jet, x_pos, y_pos, z_pos);
     const parthenon::Real z_pos_jet = Dot(n_x_jet, n_y_jet, n_z_jet, x_pos, y_pos, z_pos);
 
+    //Position in jet-cylindrical coordinates
     r_pos = sqrt(pow(fabs(x_pos_jet), 2) + pow(fabs(y_pos_jet), 2));
     cos_theta_pos = x_pos_jet / r_pos;
     sin_theta_pos = y_pos_jet / r_pos;
@@ -131,6 +132,14 @@ class JetCoords {
           v_y_jet * (-pow(n_y_jet, 2) / (n_z_jet + 1) + 1);
     v_z = n_x_jet * v_x_jet + n_y_jet * v_y_jet +
           v_z_jet * ((-pow(n_x_jet, 2) - pow(n_y_jet, 2)) / (n_z_jet + 1) + 1);
+
+    //DEBUGGING
+    const parthenon::Real cylindrical_norm = Norm(v_r,v_theta,v_h);
+    const parthenon::Real cartesian_norm = Norm(v_x,v_y,v_z);
+    if ( fabs(cylindrical_norm-cartesian_norm)/cylindrical_norm > 1e-6){
+      std::cout<<"Norms differ:" << cylindrical_norm <<" , " << cartesian_norm <<std::endl;
+    }
+    //END DEBUGGING
   }
 };
 

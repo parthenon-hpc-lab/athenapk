@@ -37,7 +37,6 @@ void MagneticTower::AddPotential(MeshBlock *pmb, IndexRange kb, IndexRange jb,
       DEFAULT_LOOP_PATTERN, "MagneticTower::AddPotential", parthenon::DevExecSpace(),
       kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-        // FIXME: Does coords need to be constructed here?
         // Compute and apply potential
         Real a_x, a_y, a_z;
         mt.compute_potential_cartesian(time, coords.x1v(i), coords.x2v(j), coords.x3v(k),
@@ -73,9 +72,15 @@ void MagneticTower::AddField(MeshBlock *pmb, IndexRange kb, IndexRange jb, Index
         Real b_x, b_y, b_z;
         mt.compute_field_cartesian(time, coords.x1v(i), coords.x2v(j), coords.x3v(k), b_x,
                                    b_y, b_z);
+
+        cons(IEN, k, j, i) +=
+             ( b_x*cons(IB1, k, j, i) + b_y*cons(IB2, k, j, i) + b_z*cons(IB3, k, j, i))
+            +0.5 * (SQR(b_x) + SQR(b_y) + SQR(b_z));
+            
         cons(IB1, k, j, i) += b_x;
         cons(IB2, k, j, i) += b_y;
         cons(IB3, k, j, i) += b_z;
+
       });
 }
 

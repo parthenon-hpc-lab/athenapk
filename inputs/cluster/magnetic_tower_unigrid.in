@@ -87,7 +87,7 @@ uniform_gas_pres = 1.5454368403867562
 
 <problem/cluster/precessing_jet>
 #Define a precessing jet
-jet_theta = 0.0
+jet_theta = 1
 jet_phi_dot = 0
 jet_phi0 = 0
 
