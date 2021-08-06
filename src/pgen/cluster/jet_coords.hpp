@@ -50,9 +50,9 @@ class JetCoords {
 
  public:
   explicit JetCoords(parthenon::ParameterInput *pin)
-      : theta_jet_(pin->GetOrAddReal("problem/cluster", "jet_theta", 0)),
-        phi_dot_jet_(pin->GetOrAddReal("problem/cluster", "jet_phi_dot", 0)),
-        phi0_jet_(pin->GetOrAddReal("problem/cluster", "jet_phi0", 0)),
+      : theta_jet_(pin->GetOrAddReal("problem/cluster/precessing_jet", "jet_theta", 0)),
+        phi_dot_jet_(pin->GetOrAddReal("problem/cluster/precessing_jet", "jet_phi_dot", 0)),
+        phi0_jet_(pin->GetOrAddReal("problem/cluster/precessing_jet", "jet_phi0", 0)),
         cos_theta_jet_(cos(theta_jet_)), sin_theta_jet_(sin(theta_jet_)) {}
 
   KOKKOS_INLINE_FUNCTION void get_n_jet(const parthenon::Real time,

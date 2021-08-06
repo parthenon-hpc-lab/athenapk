@@ -414,7 +414,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       magnetic_tower.AddField(pmb, kb, jb, ib, b_x, b_y, b_z, 0); //FOR DEBUGGING
 
       const parthenon::Real mt_B0 =
-        pin->GetReal("problem/cluster/magnetic_twer", "initial_field");
+        pin->GetReal("problem/cluster/magnetic_tower", "initial_field");
 
       // Get the reduction of the linear and quadratic contributions ready
       MTMaxReductionType mt_max_reduction;
