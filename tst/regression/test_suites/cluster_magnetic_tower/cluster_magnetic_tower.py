@@ -34,41 +34,27 @@ class PrecessedJetCoords:
         self.phi_jet = phi_jet
         self.theta_jet = theta_jet
 
-        #Axis of the jet
-        self.n_jet = np.array((np.cos(self.phi_jet)*np.sin(self.theta_jet),
-                    np.sin(self.phi_jet)*np.sin(self.theta_jet),
-                    np.cos(self.theta_jet)))
-
-        self.n_jet = np.array( ( np.cos(self.phi_jet)*np.sin(self.theta_jet),
-                                 np.sin(self.phi_jet)*np.sin(self.theta_jet),
-                                 np.cos(self.theta_jet) ) )
-
-        self.m_jet = np.array( ( np.cos(self.phi_jet)*np.sin(self.theta_jet+np.pi/2),
-                                  np.sin(self.phi_jet)*np.sin(self.theta_jet+np.pi/2),
-                                  np.cos(self.theta_jet+np.pi/2) ) )
-        self.o_jet = np.cross(self.n_jet,self.m_jet)
-        
-
-    def cart_to_jet_coords(self,pos_cart):
+    def cart_to_jet_coords(self,pos_sim):
         """
-        Convert from cartesian coordinates to jet coordinates
+        Convert from simulation cartesian coordinates to jet cylindrical coordinates
         """
-        pos_jet_cart = np.array( ( np.tensordot(self.m_jet,pos_cart,axes=((0,),(0,))),
-                                   np.tensordot(self.o_jet,pos_cart,axes=((0,),(0,))),
-                                   np.tensordot(self.n_jet,pos_cart,axes=((0,),(0,))) ))
 
-        h_pos = unyt.unyt_array(np.tensordot(self.n_jet,pos_cart,axes=((0,),(0,))),
-                           pos_cart.units)
-        r_pos = unyt.unyt_array(np.linalg.norm( pos_cart - np.multiply.outer(self.n_jet,h_pos),axis=0),
-                           pos_cart.units)
+        x_sim = pos_sim[0]
+        y_sim = pos_sim[1]
+        z_sim = pos_sim[2]
 
-        theta_pos = np.arctan2( np.tensordot(pos_cart,self.o_jet,axes=((0,),(0,))),
-                                np.tensordot(pos_cart,self.m_jet,axes=((0,),(0,))))
-        return (r_pos, theta_pos, h_pos)
+        x_jet = x_sim*np.cos(self.phi_jet)*np.cos(self.theta_jet) + y_sim*np.sin(self.phi_jet) - z_sim*np.sin(self.theta_jet)*np.cos(self.phi_jet)
+        y_jet = -x_sim*np.sin(self.phi_jet)*np.cos(self.theta_jet) + y_sim*np.cos(self.phi_jet) + z_sim*np.sin(self.phi_jet)*np.sin(self.theta_jet)
+        z_jet = x_sim*np.sin(self.theta_jet) + z_sim*np.cos(self.theta_jet)
 
-    def jet_to_cart_vec(self,pos_cart,vec_jet):
+        r_jet = np.sqrt( x_jet**2 + y_jet**2)
+        theta_jet = np.arctan2(y_jet,x_jet)
+        h_jet = z_jet
+        return (r_jet, theta_jet, h_jet)
 
-        r_pos, theta_pos, h_pos = self.cart_to_jet_coords(pos_cart)
+    def jet_to_cart_vec(self,pos_sim,vec_jet):
+
+        r_pos, theta_pos, h_pos = self.cart_to_jet_coords(pos_sim)
 
         #Convert jet-cylindrical vec_jet into jet-cartesian
         R = np.array((( np.cos(theta_pos),-np.sin(theta_pos), np.zeros_like(theta_pos)),
@@ -82,18 +68,18 @@ class PrecessedJetCoords:
                                    vec_jet.units)
                    
 
-        #Construct the matrix to rotate n_jet to z_hat
-        #From https://math.stackexchange.com/a/476311
-        z_hat = np.array( (0,0,1) )
+        R = np.array(((np.cos(self.phi_jet)*np.cos(self.theta_jet),
+                      -np.sin(self.phi_jet)*np.cos(self.theta_jet),
+                       np.sin(self.theta_jet)),
 
-        v = np.cross(self.n_jet,z_hat)
-        c = np.dot(self.n_jet,z_hat)
+                      (np.sin(self.phi_jet),
+                       np.cos(self.phi_jet),
+                       0),
 
-        vcross = np.array( ((    0,-v[2], v[1]),
-                            ( v[2],    0,-v[0]),
-                            (-v[1], v[0],    0)))
-
-        R = np.eye(3) + vcross + np.linalg.matrix_power(vcross,2)/(1 + c)
+                      (-np.sin(self.theta_jet)*np.cos(self.phi_jet),
+                       np.sin(self.phi_jet)*np.sin(self.theta_jet),
+                       np.cos(self.theta_jet))
+                       ))
 
         #vec_cart = np.matmul(R,vec_jet_cart)
         vec_cart = unyt.unyt_array((R[0,0]*vec_jet_cart[0] + R[0,1]*vec_jet_cart[1] + R[0,2]*vec_jet_cart[2],
@@ -353,8 +339,11 @@ class TestCase(utils.test_case.TestCaseAbs):
                 import phdf
             except ModuleNotFoundError:
                 print("Couldn't find module to compare Parthenon hdf5 files.")
-                return False
-                
+                return False 
+
+            ######################################## 
+            # Compare to the analytically expected magnetic field
+            ######################################## 
 
             phdf_filenames = [f"{parameters.output_path}/parthenon.{output_id}.{i:05d}.phdf" for i in range(2)]
 
@@ -415,7 +404,6 @@ class TestCase(utils.test_case.TestCaseAbs):
 
                 analytic_statuses.append(analytic_status)
 
-
             analyze_status &= np.all(analytic_statuses)
 
             for phdf_filename,b_eng_anyl,B0,b_eng_tol,label in zip(phdf_filenames,
@@ -423,7 +411,10 @@ class TestCase(utils.test_case.TestCaseAbs):
                     (B0_initial,B0_final),
                     (self.b_eng_initial_tol,self.b_eng_final_tol),
                     ("Initial","Final")):
-                #Compute the total magnetic energy from the phdf_file
+
+                ######################################## 
+                # Compare with the analytically expected total magnetic energy
+                ######################################## 
                 phdf_file = phdf.phdf(phdf_filename)
 
                 #Get the cell volumes from phdf_file
@@ -458,6 +449,69 @@ class TestCase(utils.test_case.TestCaseAbs):
                     print(f"{label} Numerically Integrated Relative Energy Error: {b_eng_numer_rel_err} exceeds tolerance {b_eng_tol}",
                         f"Numerical {'>' if  b_eng_numer > b_eng else '<'} Simulation")
                     analyze_status = False
+
+                ######################################## 
+                # Check divB
+                ######################################## 
+                
+                #FIXME: This computation of the fluxes would work better with 1 ghostzone from the simulation
+                #Compute cell lengths (note: these are NGridxNBlockSide)
+                dxf = np.diff(xf,axis=1)
+                dyf = np.diff(yf,axis=1)
+                dzf = np.diff(zf,axis=1)
+
+                dBxdx = 0.5*(B[0,:,:,:,2:]-B[0,:,:,:,:-2])[:,1:-1,1:-1,:]/dxf[:,np.newaxis,np.newaxis,1:-1]
+                dBydy = 0.5*(B[1,:,:,2:,:]-B[1,:,:,:-2,:])[:,1:-1,:,1:-1]/dyf[:,np.newaxis,1:-1,np.newaxis]
+                dBzdz = 0.5*(B[2,:,2:,:,:]-B[2,:,:-2,:,:])[:,:,1:-1,1:-1]/dzf[:,1:-1,np.newaxis,np.newaxis]
+
+                divB = dBxdx + dBydy + dBzdz
+                int_divB = np.sum(divB*cell_vols[:,1:-1,1:-1,1:-1])
+                
+                #DEBUGGING - alternative divergence calculation with too many interpolations
+                #def consecutive_mean(a,axis):
+                #    """
+                #    Returns the mean of consecutive elements along an axis
+                #    Reduces the shape of "a" by 1 along "axis"
+                #    """
+                #    ind = np.arange(a.shape[axis])
+                #    return 0.5*( a.take(ind[1:],axis=axis) + a.take(ind[:-1],axis=axis))
+                ##Interpoate X magnetic field along x edges by averaging in y and z
+                #B_xe = consecutive_mean(consecutive_mean(B[0],2),1)
+                ##Interpoate Y magnetic field along y edges by averaging in x and z
+                #B_ye = consecutive_mean(consecutive_mean(B[1],3),1)
+                ##Interpoate Z magnetic field along z edges by averaging in x and y
+                #B_ze = consecutive_mean(consecutive_mean(B[2],3),2)
+
+                ##Compute cell edge lengths
+                #dxe = consecutive_mean(consecutive_mean(np.diff(X,axis=3),2),1)
+                #dye = consecutive_mean(consecutive_mean(np.diff(Y,axis=2),3),1)
+                #dze = consecutive_mean(consecutive_mean(np.diff(Z,axis=1),3),2)
+
+                ##Compute the flux divergence at cell vertices
+                #divB = np.diff(B_xe,axis=3)/dxe + np.diff(B_ye,axis=2)/dye + np.diff(B_ze,axis=1)/dze
+
+                ##Integrate the flux divergence
+                #int_divB = np.sum(consecutive_mean(consecutive_mean(consecutive_mean(cell_vols,1),2),3)*divB)
+                #END DEBUGGING
+
+                #DEBUGGING - alternative divergence calculation with numpy  
+                #dxf = np.diff(xf,axis=1)
+                #dyf = np.diff(yf,axis=1)
+                #dzf = np.diff(zf,axis=1)
+                #divB = unyt.unyt_array( np.empty(B.shape[1:]),'sqrt(code_mass)/(code_length)**(3/2)/code_time')
+                #B_flipped = np.flip(B,axis=0) #B_z, B_y, B_x
+                #for grid_idx in range(dxf.shape[0]):
+                #    divB[grid_idx] = np.sum( [np.gradient(B_flipped[i,grid_idx], 
+                #                            dxf[grid_idx][0], axis=i) for i in  np.arange(3)],axis=0)
+                #int_divB = np.sum(divB*cell_vols)
+                #END DEBUGGING
+
+                print()
+                print(f"{label} max divB={np.max(divB)}")
+                print(f"{label} Integrated divB={int_divB}")
+                print()
+                
+
 
 
         return analyze_status

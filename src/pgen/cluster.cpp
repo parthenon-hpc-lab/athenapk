@@ -370,27 +370,27 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       const auto &magnetic_tower =
           hydro_pkg->Param<MagneticTower>("initial_magnetic_tower");
 
-      //magnetic_tower.AddPotential(pmb, a_kb, a_jb, a_ib, a_x, a_y, a_z, 0);
-      magnetic_tower.AddField(pmb, kb, jb, ib, u, 0); //FOR DEBUGGING
+      magnetic_tower.AddPotential(pmb, a_kb, a_jb, a_ib, a_x, a_y, a_z, 0);
+      //magnetic_tower.AddField(pmb, kb, jb, ib, u, 0); //FOR DEBUGGING
     }
 
     /************************************************************
      * Apply the potential to the conserved variables
      ************************************************************/
-    //parthenon::par_for(
-    //    DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyMagneticPotential",
-    //    parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-    //    KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-    //      u(IB1, k, j, i) = (a_z(k, j + 1, i) - a_z(k, j - 1, i)) / coords.dx2v(j) / 2.0 -
-    //                        (a_y(k + 1, j, i) - a_y(k - 1, j, i)) / coords.dx3v(k) / 2.0;
-    //      u(IB2, k, j, i) = (a_x(k + 1, j, i) - a_x(k - 1, j, i)) / coords.dx3v(k) / 2.0 -
-    //                        (a_z(k, j, i + 1) - a_z(k, j, i - 1)) / coords.dx1v(i) / 2.0;
-    //      u(IB3, k, j, i) = (a_y(k, j, i + 1) - a_y(k, j, i - 1)) / coords.dx1v(i) / 2.0 -
-    //                        (a_x(k, j + 1, i) - a_x(k, j - 1, i)) / coords.dx2v(j) / 2.0;
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyMagneticPotential",
+        parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+          u(IB1, k, j, i) = (a_z(k, j + 1, i) - a_z(k, j - 1, i)) / coords.dx2v(j) / 2.0 -
+                            (a_y(k + 1, j, i) - a_y(k - 1, j, i)) / coords.dx3v(k) / 2.0;
+          u(IB2, k, j, i) = (a_x(k + 1, j, i) - a_x(k - 1, j, i)) / coords.dx3v(k) / 2.0 -
+                            (a_z(k, j, i + 1) - a_z(k, j, i - 1)) / coords.dx1v(i) / 2.0;
+          u(IB3, k, j, i) = (a_y(k, j, i + 1) - a_y(k, j, i - 1)) / coords.dx1v(i) / 2.0 -
+                            (a_x(k, j + 1, i) - a_x(k, j - 1, i)) / coords.dx2v(j) / 2.0;
 
-    //      u(IEN, k, j, i) +=
-    //          0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
-    //    });
+          u(IEN, k, j, i) +=
+              0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
+        });
 
     //DEBUGGING: Check magnetic fields
     if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd &&

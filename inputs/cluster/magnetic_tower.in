@@ -111,4 +111,4 @@ enable_feedback_magnetic_tower=true
 feedback_mode = const_field
 feedback_field_rate = 12.431560000204144
 feedback_power = 0.0016599828166743962
-srcterm_use_potential_curl = false
+srcterm_use_potential_curl = true
