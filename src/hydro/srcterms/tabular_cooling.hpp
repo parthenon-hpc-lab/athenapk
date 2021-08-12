@@ -107,6 +107,9 @@ class TabularCooling {
 
   CoolIntegrator integrator_;
 
+  // Temperature floor (assumed in Kelvin and only used in cooling function)
+  parthenon::Real T_floor_;
+
   // Maximum number of iterations/subcycles
   unsigned int max_iter_;
 

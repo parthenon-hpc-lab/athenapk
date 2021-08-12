@@ -29,22 +29,10 @@ using parthenon::ParArray4D;
 // \!fn void EquationOfState::ConservedToPrimitive(
 //           Container<Real> &rc,
 //           int il, int iu, int jl, int ju, int kl, int ku)
-// \brief Converts conserved into primitive variables in adiabatic MHD.
-void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshBlockData<Real> *rc, int il, int iu,
-                                              int jl, int ju, int kl, int ku) const {
-  PARTHENON_FAIL(
-      "AdiabaticGLMMHDEOS::ConservedToPrimitive for BlockData not implemented");
-}
-
-//----------------------------------------------------------------------------------------
-// \!fn void EquationOfState::ConservedToPrimitive(
-//           Container<Real> &rc,
-//           int il, int iu, int jl, int ju, int kl, int ku)
 // \brief Converts conserved into primitive variables in adiabatic hydro.
 void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  // auto entropy_pack = md->PackVariables(std::vector<std::string>{"entropy"});
   auto ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
   auto jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
   auto kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
@@ -53,6 +41,11 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   auto gm1 = gam - 1.0;
   auto density_floor_ = GetDensityFloor();
   auto pressure_floor_ = GetPressureFloor();
+  auto e_floor_ = GetInternalEFloor();
+
+  auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const auto nhydro = pkg->Param<int>("nhydro");
+  const auto nscalars = pkg->Param<int>("nscalars");
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ConservedToPrimitive", parthenon::DevExecSpace(), 0,
@@ -82,6 +75,11 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
         Real &w_Bz = prim(IB3, k, j, i);
         Real &w_psi = prim(IPS, k, j, i);
 
+        // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
+        // and the code will fail if a negative density is encountered.
+        PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
+                          "Got negative density. Consider enabling first-order flux "
+                          "correction or setting a reasonble density floor.");
         // apply density floor, without changing momentum or energy
         u_d = (u_d > density_floor_) ? u_d : density_floor_;
         w_d = u_d;
@@ -100,20 +98,27 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
         Real e_B = 0.5 * (SQR(u_b1) + SQR(u_b2) + SQR(u_b3));
         w_p = gm1 * (u_e - e_k - e_B);
 
-        // apply pressure floor, correct total energy
-        u_e = (w_p > pressure_floor_) ? u_e : ((pressure_floor_ / gm1) + e_k + e_B);
-        w_p = (w_p > pressure_floor_) ? w_p : pressure_floor_;
+        // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
+        // and the code will fail if a negative pressure is encountered.
+        PARTHENON_REQUIRE(
+            w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
+            "Got negative pressure. Consider enabling first-order flux "
+            "correction or setting a reasonble pressure or temperature floor.");
+        // Temperature floor (if present) takes precedence over pressure floor
+        if (e_floor_ > 0.0) {
+          // apply temperature floor, correct total energy
+          const Real eff_pressure_floor = gm1 * u_d * e_floor_;
+          u_e = (w_p > eff_pressure_floor) ? u_e : ((u_d * e_floor_) + e_k + e_B);
+          w_p = (w_p > eff_pressure_floor) ? w_p : eff_pressure_floor;
+        } else {
+          // apply pressure floor, correct total energy
+          u_e = (w_p > pressure_floor_) ? u_e : ((pressure_floor_ / gm1) + e_k + e_B);
+          w_p = (w_p > pressure_floor_) ? w_p : pressure_floor_;
+        }
+
+        // Convert passive scalars
+        for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+          prim(n, k, j, i) = cons(n, k, j, i) * di;
+        }
       });
-}
-
-//----------------------------------------------------------------------------------------
-// \!fn void EquationOfState::PrimitiveToConserved(
-//           Container<Real> &rc,
-//           Coordinates int il, int iu, int jl, int ju, int kl, int ku);
-// \brief Converts primitive variables into conservative variables
-
-void AdiabaticGLMMHDEOS::PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc,
-                                              int il, int iu, int jl, int ju, int kl,
-                                              int ku) const {
-  PARTHENON_FAIL("AdiabaticGLMMHDEOS::PrimitiveToConserved not implemented");
 }

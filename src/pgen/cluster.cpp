@@ -33,7 +33,6 @@
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
 #include "../main.hpp"
-#include "../units.hpp"
 
 // Cluster headers
 #include "cluster/cluster_gravity.hpp"
@@ -67,14 +66,6 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real bet
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   if (pmb->lid == 0) {
-
-    /************************************************************
-     * Read Unit Parameters
-     ************************************************************/
-    // CGS unit per code unit, or code unit in cgs
-    Units units(pin, hydro_pkg);
-    hydro_pkg->AddParam<>("units", units);
-
     /************************************************************
      * Read Uniform Gas
      ************************************************************/
