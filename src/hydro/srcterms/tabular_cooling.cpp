@@ -20,6 +20,7 @@
 // AthenaPK headers
 #include "../../units.hpp"
 #include "tabular_cooling.hpp"
+#include "utils/error_checking.hpp"
 
 namespace cooling {
 using namespace parthenon;
@@ -60,6 +61,8 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   cooling_time_cfl_ = pin->GetOrAddReal("cooling", "cfl", 0.1);
   d_log_temp_tol_ = pin->GetOrAddReal("cooling", "d_log_temp_tol", 1e-8);
   d_e_tol_ = pin->GetOrAddReal("cooling", "d_e_tol", 1e-8);
+  // negative means disabled
+  T_floor_ = pin->GetOrAddReal("hydro", "Tfloor", -1.0);
 
   std::stringstream msg;
 
@@ -239,13 +242,16 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   const Real min_sub_dt = dt / max_iter;
 
   const Real d_e_tol = d_e_tol_;
+  const Real internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B;
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  // need to include ghost zones as this source is called prior to the other fluxes when
+  // split
+  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
 
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::SubcyclingSplitSrcTerm", DevExecSpace(), 0,
@@ -281,10 +287,10 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // Try full dt. If error is too large adaptive timestepping will reduce sub_dt
         Real sub_dt = dt;
 
-        // Check if cooling is actually happening, e.g., when below T_cool_min
-        const Real dedt_initial = DeDt_wrapper(sub_t, internal_e_initial, dedt_valid);
-        if (dedt_initial == 0.0) {
-          // Cooling is initially 0, so it will remain 0 and we can return early
+        // Check if cooling is actually happening, e.g., when T below T_cool_min or if
+        // temperature is already below floor.
+        const Real dedt_initial = DeDt_wrapper(0.0, internal_e_initial, dedt_valid);
+        if (dedt_initial == 0.0 || internal_e_initial < internal_e_floor) {
           return;
         }
 
@@ -393,6 +399,8 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           sub_iter++;
         }
 
+        PARTHENON_REQUIRE(internal_e > internal_e_floor, "cooled below floor");
+
         // Remove the cooling from the specific total energy
         cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
         // Latter technically not required if no other tasks follows before
@@ -403,7 +411,112 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
 void TabularCooling::MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                                      const parthenon::Real dt) const {
-  PARTHENON_FAIL("need impl");
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
+  // Grab member variables for compiler
+
+  // Everything needed by DeDt
+  const Real mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
+  const Real X_by_m_u = X_by_m_u_;
+  const Real log_temp_start = log_temp_start_;
+  const Real log_temp_final = log_temp_final_;
+  const Real d_log_temp = d_log_temp_;
+  const unsigned int n_temp = n_temp_;
+  const auto log_lambdas = log_lambdas_;
+
+  const Real gm1 = gm1_;
+
+  const Real d_e_tol = d_e_tol_;
+
+  const Real internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B;
+
+  // Grab some necessary variables
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  // need to include ghost zones as this source is called prior to the other fluxes when
+  // split
+  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
+
+  par_for(
+      DEFAULT_LOOP_PATTERN, "TabularCooling::MixedIntSrcTerm", DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+        auto &cons = cons_pack(b);
+        auto &prim = prim_pack(b);
+        // Need to use `cons` here as prim may still contain state at t_0;
+        const Real rho = cons(IDN, k, j, i);
+        PARTHENON_REQUIRE(rho > 0.0, "starting with negative density");
+
+        // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
+        // function could be useful.
+        Real internal_e = cons(IEN, k, j, i) -
+                          0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                 SQR(cons(IM3, k, j, i)) / rho);
+        if (mhd_enabled) {
+          internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                               SQR(cons(IB3, k, j, i)));
+        }
+        PARTHENON_REQUIRE(internal_e > 0.0, "starting with negative pressure");
+        internal_e /= rho;
+        const Real internal_e_initial = internal_e;
+
+        const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
+
+        bool dedt_valid = true;
+
+        // Wrap DeDt into a functor for the RKStepper
+        auto DeDt_wrapper = [&](const Real t, const Real e, bool &valid) {
+          return DeDt(e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
+                      d_log_temp, n_temp, log_lambdas, valid);
+        };
+
+        // Check if cooling is actually happening, e.g., when T below T_cool_min or if
+        // temperature is already below floor.
+        const Real dedt_initial = DeDt_wrapper(0.0, internal_e_initial, dedt_valid);
+        if (dedt_initial == 0.0 || internal_e_initial < internal_e_floor) {
+          return;
+        }
+
+        // Next higher order estimate
+        Real internal_e_next_h;
+        // Next lower order estimate
+        Real internal_e_next_l;
+        // Error in estimate of higher order
+        Real d_e_err;
+
+        // Do one dual order RK step
+        RK12Stepper::Step(0.0, dt, internal_e, DeDt_wrapper, internal_e_next_h,
+                          internal_e_next_l, dedt_valid);
+
+        PARTHENON_REQUIRE(dedt_valid,
+                          "RK12 (sub)step resulted in negative internal energy");
+
+        // Compute error
+        d_e_err = fabs((internal_e_next_h - internal_e_next_l) / internal_e_next_h);
+        // TODO(pgrete) switch to adaptive RK45 if error is too large.
+        PARTHENON_REQUIRE(d_e_err < d_e_tol,
+                          "Error of RK12 too large. Consider a smaller cooling_cfl.")
+
+        // Limit cooling to temperature floor
+        if (internal_e_initial > internal_e_floor &&
+            internal_e_next_h < internal_e_floor) {
+          internal_e = internal_e_floor;
+        } else {
+          internal_e = internal_e_next_h;
+        }
+
+        // TODO(pgrete) Remove following failsafe as it should never trigger (in theory)
+        PARTHENON_REQUIRE(internal_e_initial > internal_e,
+                          "Not cool... Gas didn't cool...");
+
+        // Remove the cooling from the specific total energy
+        cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
+        // Latter technically not required if no other tasks follows before
+        // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
+        prim(IPR, k, j, i) = rho * internal_e * gm1;
+      });
 }
 
 Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {

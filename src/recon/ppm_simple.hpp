@@ -20,6 +20,9 @@
 //! - (Mignone) A. Mignone, "High-order conservative reconstruction schemes for finite
 //!   volume methods in cylindrical and spherical coordinates", JCP, 270, 784 (2014
 
+#ifndef RECONSTRUCT_PPM_SIMPLE_HPP_
+#define RECONSTRUCT_PPM_SIMPLE_HPP_
+
 #include <algorithm> // max()
 #include <math.h>
 
@@ -158,59 +161,36 @@ void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip
   }
 }
 
-//----------------------------------------------------------------------------------------
-//! \fn PiecewiseParabolicX1()
-//  \brief Wrapper function for PPM reconstruction in x1-direction.
-//  This function should be called over [is-1,ie+1] to get BOTH L/R states over [is,ie]
-
-template <typename T>
-KOKKOS_INLINE_FUNCTION void
-PiecewiseParabolicX1(parthenon::team_mbr_t const &member, const int k, const int j,
-                     const int il, const int iu, const T &q, ScratchPad2D<Real> &ql,
-                     ScratchPad2D<Real> &qr) {
-  int nvar = q.GetDim(4);
-  for (int n = 0; n < nvar; ++n) {
+//! \fn Reconstruct<Reconstruction::ppm, int DIR>()
+//  \brief Wrapper function for PPM reconstruction
+//  In X1DIR call over [is-1,ie+1] to get BOTH L/R states over [is,ie]
+//  In X2DIR call over [js-1,je+1] to get BOTH L/R states over [js,je]
+//  In X3DIR call over [ks-1,ke+1] to get BOTH L/R states over [ks,ke]
+template <Reconstruction recon, int XNDIR>
+KOKKOS_INLINE_FUNCTION typename std::enable_if<recon == Reconstruction::ppm, void>::type
+Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
+            const int iu, const parthenon::VariablePack<Real> &q, ScratchPad2D<Real> &ql,
+            ScratchPad2D<Real> &qr) {
+  const auto nvar = q.GetDim(4);
+  for (auto n = 0; n < nvar; ++n) {
     parthenon::par_for_inner(member, il, iu, [&](const int i) {
-      PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
-          q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+      if constexpr (XNDIR == parthenon::X1DIR) {
+        // ql is ql_ip1 and qr is qr_i
+        PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+            q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+      } else if constexpr (XNDIR == parthenon::X2DIR) {
+        // ql is ql_jp1 and qr is qr_j
+        PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+            q(n, k, j + 2, i), ql(n, i), qr(n, i));
+      } else if constexpr (XNDIR == parthenon::X3DIR) {
+        // ql is ql_kp1 and qr is qr_k
+        PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
+            q(n, k + 2, j, i), ql(n, i), qr(n, i));
+      } else {
+        PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
+      }
     });
   }
 }
 
-//----------------------------------------------------------------------------------------
-//! \fn PiecewiseParabolicX2()
-//  \brief Wrapper function for PPM reconstruction in x2-direction.
-//  This function should be called over [js-1,je+1] to get BOTH L/R states over [js,je]
-
-template <typename T>
-KOKKOS_INLINE_FUNCTION void
-PiecewiseParabolicX2(parthenon::team_mbr_t const &member, const int k, const int j,
-                     const int il, const int iu, const T &q, ScratchPad2D<Real> &ql_jp1,
-                     ScratchPad2D<Real> &qr_j) {
-  int nvar = q.GetDim(4);
-  for (int n = 0; n < nvar; ++n) {
-    parthenon::par_for_inner(member, il, iu, [&](const int i) {
-      PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
-          q(n, k, j + 2, i), ql_jp1(n, i), qr_j(n, i));
-    });
-  }
-}
-
-//----------------------------------------------------------------------------------------
-//! \fn PiecewiseParabolicX3()
-//  \brief Wrapper function for PPM reconstruction in x3-direction.
-//  This function should be called over [ks-1,ke+1] to get BOTH L/R states over [ks,ke]
-
-template <typename T>
-KOKKOS_INLINE_FUNCTION void
-PiecewiseParabolicX3(parthenon::team_mbr_t const &member, const int k, const int j,
-                     const int il, const int iu, const T &q, ScratchPad2D<Real> &ql_kp1,
-                     ScratchPad2D<Real> &qr_k) {
-  int nvar = q.GetDim(4);
-  for (int n = 0; n < nvar; ++n) {
-    parthenon::par_for_inner(member, il, iu, [&](const int i) {
-      PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
-          q(n, k + 2, j, i), ql_kp1(n, i), qr_k(n, i));
-    });
-  }
-}
+#endif // RECONSTRUCT_PPM_SIMPLE_HPP_

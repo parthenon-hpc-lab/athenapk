@@ -16,18 +16,17 @@
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
 #include "../pgen/pgen.hpp"
+#include "../recon/dc_simple.hpp"
 #include "../recon/plm_simple.hpp"
 #include "../recon/ppm_simple.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
+#include "../units.hpp"
 #include "defs.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "outputs/outputs.hpp"
-#include "reconstruct/dc_inline.hpp"
-#include "rsolvers/glmmhd_hlld.hpp"
-#include "rsolvers/glmmhd_hlle.hpp"
-#include "rsolvers/hydro_hlle.hpp"
+#include "rsolvers/rsolvers.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
 
@@ -197,10 +196,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   if (fluid_str == "euler") {
     fluid = Fluid::euler;
-    nhydro = 5; // rho, u_x, u_y, u_z, E
+    nhydro = GetNVars<Fluid::euler>();
   } else if (fluid_str == "glmmhd") {
     fluid = Fluid::glmmhd;
-    nhydro = 9; // above plus B_x, B_y, B_z, psi
+    nhydro = GetNVars<Fluid::glmmhd>();
     // TODO(pgrete) reeval default value based on testing
     if (pin->GetOrAddBoolean("hydro", "DednerExtendedSource", false)) {
       use_DednerExtGLMMHDSource = true;
@@ -221,45 +220,66 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
   auto recon = Reconstruction::undefined;
-  // flux used in all stages expect the first. First stage is set below based on integr.
-  FluxFun_t *flux_other_stage = nullptr;
   if (recon_str == "dc") {
     recon = Reconstruction::dc;
-    if (fluid == Fluid::euler) {
-      flux_other_stage = Hydro::CalculateFluxes<Fluid::euler, Reconstruction::dc>;
-    } else if (fluid == Fluid::glmmhd) {
-      flux_other_stage = Hydro::CalculateFluxes<Fluid::glmmhd, Reconstruction::dc>;
-    }
     recon_need_nghost = 1;
   } else if (recon_str == "plm") {
     recon = Reconstruction::plm;
-    if (fluid == Fluid::euler) {
-      flux_other_stage = Hydro::CalculateFluxes<Fluid::euler, Reconstruction::plm>;
-    } else if (fluid == Fluid::glmmhd) {
-      flux_other_stage = Hydro::CalculateFluxes<Fluid::glmmhd, Reconstruction::plm>;
-    }
     recon_need_nghost = 2;
   } else if (recon_str == "ppm") {
     recon = Reconstruction::ppm;
-    if (fluid == Fluid::euler) {
-      flux_other_stage = Hydro::CalculateFluxes<Fluid::euler, Reconstruction::ppm>;
-    } else if (fluid == Fluid::glmmhd) {
-      flux_other_stage = Hydro::CalculateFluxes<Fluid::glmmhd, Reconstruction::ppm>;
-    }
     recon_need_nghost = 3;
   } else if (recon_str == "wenoz") {
     recon = Reconstruction::wenoz;
-    if (fluid == Fluid::euler) {
-      flux_other_stage = Hydro::CalculateFluxes<Fluid::euler, Reconstruction::wenoz>;
-    } else if (fluid == Fluid::glmmhd) {
-      flux_other_stage = Hydro::CalculateFluxes<Fluid::glmmhd, Reconstruction::wenoz>;
-    }
     recon_need_nghost = 3;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
   }
   // Adding recon independently of flux function pointer as it's used in 3D flux func.
   pkg->AddParam<>("reconstruction", recon);
+
+  const auto riemann_str = pin->GetString("hydro", "riemann");
+  auto riemann = RiemannSolver::undefined;
+  if (riemann_str == "llf") {
+    riemann = RiemannSolver::llf;
+    PARTHENON_REQUIRE(recon == Reconstruction::dc,
+                      "LLF Riemann solver only implemented with DC reconstruction.")
+  } else if (riemann_str == "hlle") {
+    riemann = RiemannSolver::hlle;
+  } else if (riemann_str == "hlld") {
+    riemann = RiemannSolver::hlld;
+  } else {
+    PARTHENON_FAIL("AthenaPK hydro: Unknown riemann solver.");
+  }
+  pkg->AddParam<>("riemann", riemann);
+
+  // Map contaning all compiled in flux functions
+  std::map<std::tuple<Fluid, Reconstruction, RiemannSolver>, FluxFun_t *>
+      flux_functions{};
+  // TODO(?) The following line could potentially be set by configure-time options
+  // so that the resulting binary can only contain a subset of included flux functions
+  // to reduce size.
+  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>(flux_functions);
+  // Add first order recon with LLF fluxes (implemented for testing as tight loop)
+  flux_functions[std::make_tuple(Fluid::euler, Reconstruction::dc, RiemannSolver::llf)] =
+      Hydro::CalculateFluxesTight<Fluid::euler>;
+  flux_functions[std::make_tuple(Fluid::glmmhd, Reconstruction::dc, RiemannSolver::llf)] =
+      Hydro::CalculateFluxesTight<Fluid::glmmhd>;
+
+  // flux used in all stages expect the first. First stage is set below based on integr.
+  FluxFun_t *flux_other_stage = nullptr;
+  flux_other_stage = flux_functions.at(std::make_tuple(fluid, recon, riemann));
 
   parthenon::HstVar_list hst_vars = {};
   hst_vars.emplace_back(HistoryOutputVar(parthenon::UserHistoryOperation::sum,
@@ -301,31 +321,68 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (integrator_str == "vl2") {
     integrator = Integrator::vl2;
     // override first stage (predictor) to first order
-    if (fluid == Fluid::euler) {
-      flux_first_stage = Hydro::CalculateFluxes<Fluid::euler, Reconstruction::dc>;
-    } else if (fluid == Fluid::glmmhd) {
-      flux_first_stage = Hydro::CalculateFluxes<Fluid::glmmhd, Reconstruction::dc>;
-    }
-  } else {
-    PARTHENON_FAIL("AthenaPK hydro: Unknown integration method.");
+    flux_first_stage =
+        flux_functions.at(std::make_tuple(fluid, Reconstruction::dc, riemann));
   }
   pkg->AddParam<>("integrator", integrator);
   pkg->AddParam<FluxFun_t *>("flux_first_stage", flux_first_stage);
   pkg->AddParam<FluxFun_t *>("flux_other_stage", flux_other_stage);
 
+  auto first_order_flux_correct =
+      pin->GetOrAddBoolean("hydro", "first_order_flux_correct", false);
+  if (first_order_flux_correct && integrator != Integrator::vl2) {
+    PARTHENON_FAIL("Please use 'vl2' integrator with first order flux correction. Other "
+                   "integrators have not been tested.")
+  }
+  pkg->AddParam<>("first_order_flux_correct", first_order_flux_correct);
+  if (first_order_flux_correct) {
+    if (fluid == Fluid::euler) {
+      pkg->AddParam<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun",
+                                                  FirstOrderFluxCorrect<Fluid::euler>);
+    } else if (fluid == Fluid::glmmhd) {
+      pkg->AddParam<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun",
+                                                  FirstOrderFluxCorrect<Fluid::glmmhd>);
+    }
+  }
+
+  if (pin->DoesBlockExist("units")) {
+    Units units(pin);
+    pkg->AddParam<>("units", units);
+  }
+
   auto eos_str = pin->GetString("hydro", "eos");
   if (eos_str == "adiabatic") {
     Real gamma = pin->GetReal("hydro", "gamma");
     pkg->AddParam<>("AdiabaticIndex", gamma);
-    Real dfloor = pin->GetOrAddReal("hydro", "dfloor", std::sqrt(1024 * float_min));
-    Real pfloor = pin->GetOrAddReal("hydro", "pfloor", std::sqrt(1024 * float_min));
+    // By default disable floors by setting a negative value
+    Real dfloor = pin->GetOrAddReal("hydro", "dfloor", -1.0);
+    Real pfloor = pin->GetOrAddReal("hydro", "pfloor", -1.0);
+    Real Tfloor = pin->GetOrAddReal("hydro", "Tfloor", -1.0);
+    Real efloor = Tfloor;
+    if (efloor > 0.0) {
+      if (!pkg->AllParams().hasKey("units")) {
+        PARTHENON_FAIL("Temperature floor requires units. "
+                       "Either set a 'units' block in input file or use a pressure floor "
+                       "(defined code units) instead.");
+      }
+      auto units = pkg->Param<Units>("units");
+
+      // TODO(pgrete) centralize e(code) <-> T(physical) conv.
+      const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
+      const auto H_mass_fraction = 1.0 - He_mass_fraction;
+      const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+      const auto mu_m_u_gm1_by_k_B =
+          mu * units.atomic_mass_unit() * (gamma - 1.0) / units.k_boltzmann();
+      efloor = Tfloor / mu_m_u_gm1_by_k_B;
+    }
+
     if (fluid == Fluid::euler) {
-      AdiabaticHydroEOS eos(pfloor, dfloor, gamma);
+      AdiabaticHydroEOS eos(pfloor, dfloor, efloor, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::euler>;
     } else if (fluid == Fluid::glmmhd) {
-      AdiabaticGLMMHDEOS eos(pfloor, dfloor, gamma);
+      AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticGLMMHDEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::glmmhd>;
@@ -358,7 +415,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 0);
   pkg->AddParam("scratch_level", scratch_level);
 
-  std::string field_name = "cons";
+  auto nscalars = pin->GetOrAddInteger("hydro", "nscalars", 0);
+  pkg->AddParam("nscalars", nscalars);
+
   std::vector<std::string> cons_labels(nhydro);
   cons_labels[IDN] = "Density";
   cons_labels[IM1] = "MomentumDensity1";
@@ -371,13 +430,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     cons_labels[IB3] = "MagneticField3";
     cons_labels[IPS] = "MagneticPhi";
   }
-  Metadata m(
-      {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
-      std::vector<int>({nhydro}), cons_labels);
-  pkg->AddField(field_name, m);
 
   // TODO(pgrete) check if this could be "one-copy" for two stage SSP integrators
-  field_name = "prim";
   std::vector<std::string> prim_labels(nhydro);
   prim_labels[IDN] = "Density";
   prim_labels[IV1] = "Velocity1";
@@ -390,9 +444,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     prim_labels[IB3] = "MagneticField3";
     prim_labels[IPS] = "MagneticPhi";
   }
-  m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro}),
+  for (auto i = 0; i < nscalars; i++) {
+    cons_labels.emplace_back("Scalar_" + std::to_string(i));
+    prim_labels.emplace_back("Scalar_" + std::to_string(i));
+  }
+
+  Metadata m(
+      {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
+      std::vector<int>({nhydro + nscalars}), cons_labels);
+  pkg->AddField("cons", m);
+
+  m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro + nscalars}),
                prim_labels);
-  pkg->AddField(field_name, m);
+  pkg->AddField("prim", m);
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
   if (refine_str == "pressure_gradient") {
@@ -518,7 +582,57 @@ Real EstimateTimestep(MeshData<Real> *md) {
   return min_dt;
 }
 
-template <Fluid fluid, Reconstruction recon>
+// Calculate fluxes using a tightly nested 3D loop over the entire block.
+// Currently only used for testing the LLF Riemann solver used in first-order flux corr.
+template <Fluid fluid>
+TaskStatus CalculateFluxesTight(std::shared_ptr<MeshData<Real>> &md) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto cons_in = md->PackVariablesAndFluxes(flags_ind);
+  auto pkg = pmb->packages.Get("Hydro");
+
+  const auto &eos =
+      pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
+                                           AdiabaticGLMMHDEOS>::type>("eos");
+
+  const auto nhydro = pkg->Param<int>("nhydro");
+  const auto nscalars = pkg->Param<int>("nscalars");
+
+  // Hyperbolic divergence cleaning speed for GLM MHD
+  Real c_h = 0.0;
+  if (fluid == Fluid::glmmhd) {
+    c_h = pkg->Param<Real>("c_h");
+  }
+
+  auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
+
+  const int ndim = pmb->pmy_mesh->ndim;
+  auto riemann = Riemann<fluid, RiemannSolver::llf>();
+  // loop bounds are chosen so that all active fluxes are calculated
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "DC LLF fluxes", parthenon::DevExecSpace(), 0,
+      cons_in.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e + 1, ib.s, ib.e + 1,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        auto &cons = cons_in(b);
+        const auto &prim = prim_in(b);
+        riemann.Solve(eos, k, j, i, IV1, prim, cons, c_h);
+        if (ndim >= 2) {
+          riemann.Solve(eos, k, j, i, IV2, prim, cons, c_h);
+        }
+        if (ndim >= 3) {
+          riemann.Solve(eos, k, j, i, IV3, prim, cons, c_h);
+        }
+      });
+
+  return TaskStatus::complete;
+}
+
+// Calculate fluxes using scratch pad memory, i.e., over cached pencils in i-dir.
+template <Fluid fluid, Reconstruction recon, RiemannSolver rsolver>
 TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -537,14 +651,14 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto cons_in = md->PackVariablesAndFluxes(flags_ind);
   auto pkg = pmb->packages.Get("Hydro");
-  const int nhydro = pkg->Param<int>("nhydro");
+  const auto nhydro = pkg->Param<int>("nhydro");
+  const auto nscalars = pkg->Param<int>("nscalars");
 
   const auto &eos =
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                            AdiabaticGLMMHDEOS>::type>("eos");
 
-  auto num_scratch_vars = nhydro;
-  auto prim_list = std::vector<std::string>({"prim"});
+  auto num_scratch_vars = nhydro + nscalars;
 
   // Hyperbolic divergence cleaning speed for GLM MHD
   Real c_h = 0.0;
@@ -552,7 +666,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     c_h = pkg->Param<Real>("c_h");
   }
 
-  auto const &prim_in = md->PackVariables(prim_list);
+  auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
 
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
@@ -560,6 +674,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
   size_t scratch_size_in_bytes =
       parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 2;
+
+  auto riemann = Riemann<fluid, rsolver>();
 
   parthenon::par_for_outer(
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
@@ -573,141 +689,265 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         // get reconstructed state on faces
-        if constexpr (recon == Reconstruction::dc) {
-          DonorCellX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
-        } else if constexpr (recon == Reconstruction::ppm) {
-          PiecewiseParabolicX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
-        } else if constexpr (recon == Reconstruction::wenoz) {
-          WENOZX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
-        } else if constexpr (recon == Reconstruction::plm) {
-          PiecewiseLinearX1(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
-        } else {
-          PARTHENON_FAIL("Unknown reconstruction method");
-        }
+        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
-        if constexpr (fluid == Fluid::euler) {
-          RiemannSolver(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
-        } else if constexpr (fluid == Fluid::glmmhd) {
-          GLMMHD_HLLE(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
-        } else {
-          PARTHENON_FAIL("Unknown fluid method");
+        riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
+        member.team_barrier();
+
+        // Passive scalar fluxes
+        for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+          parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
+            if (cons.flux(IV1, IDN, k, j, i) >= 0.0) {
+              cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wl(n, i);
+            } else {
+              cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wr(n, i);
+            }
+          });
         }
       });
+
   //--------------------------------------------------------------------------------------
   // j-direction
-  if (pmb->pmy_mesh->ndim >= 2) {
-    scratch_size_in_bytes =
-        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
-    // set the loop limits
-    il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
-    if (pmb->block_size.nx3 == 1) // 2D
-      kl = kb.s, ku = kb.e;
-    else // 3D
-      kl = kb.s - 1, ku = kb.e + 1;
+  if (pmb->pmy_mesh->ndim < 2) {
+    return TaskStatus::complete;
+  }
+  scratch_size_in_bytes =
+      parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
+  // set the loop limits
+  il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
+  if (pmb->block_size.nx3 == 1) // 2D
+    kl = kb.s, ku = kb.e;
+  else // 3D
+    kl = kb.s - 1, ku = kb.e + 1;
 
-    parthenon::par_for_outer(
-        DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
-        scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
-          const auto &coords = cons_in.coords(b);
-          const auto &prim = prim_in(b);
-          auto &cons = cons_in(b);
-          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
-                                           num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
-                                           num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
-                                            num_scratch_vars, nx1);
-          for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
-            // reconstruct L/R states at j
-            if constexpr (recon == Reconstruction::dc) {
-              DonorCellX2(member, k, j, il, iu, prim, wlb, wr);
-            } else if constexpr (recon == Reconstruction::ppm) {
-              PiecewiseParabolicX2(member, k, j, il, iu, prim, wlb, wr);
-            } else if constexpr (recon == Reconstruction::wenoz) {
-              WENOZX2(member, k, j, il, iu, prim, wlb, wr);
-            } else if constexpr (recon == Reconstruction::plm) {
-              PiecewiseLinearX2(member, k, j, il, iu, prim, wlb, wr);
-            } else {
-              PARTHENON_FAIL("Unknown reconstruction method");
-            }
-            // Sync all threads in the team so that scratch memory is consistent
+  parthenon::par_for_outer(
+      DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
+      scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
+      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
+        const auto &coords = cons_in.coords(b);
+        const auto &prim = prim_in(b);
+        auto &cons = cons_in(b);
+        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                         num_scratch_vars, nx1);
+        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                         num_scratch_vars, nx1);
+        parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                          num_scratch_vars, nx1);
+        for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
+          // reconstruct L/R states at j
+          Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
+          // Sync all threads in the team so that scratch memory is consistent
+          member.team_barrier();
+
+          if (j > jb.s - 1) {
+            riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
             member.team_barrier();
 
-            if (j > jb.s - 1) {
-              if constexpr (fluid == Fluid::euler) {
-                RiemannSolver(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
-              } else if constexpr (fluid == Fluid::glmmhd) {
-                GLMMHD_HLLE(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
-              } else {
-                PARTHENON_FAIL("Unknown fluid method");
-              }
-              member.team_barrier();
+            // Passive scalar fluxes
+            for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                if (cons.flux(IV2, IDN, k, j, i) >= 0.0) {
+                  cons.flux(IV2, n, k, j, i) = cons.flux(IV2, IDN, k, j, i) * wl(n, i);
+                } else {
+                  cons.flux(IV2, n, k, j, i) = cons.flux(IV2, IDN, k, j, i) * wr(n, i);
+                }
+              });
             }
-
-            // swap the arrays for the next step
-            auto *tmp = wl.data();
-            wl.assign_data(wlb.data());
-            wlb.assign_data(tmp);
+            member.team_barrier();
           }
-        });
-  }
+
+          // swap the arrays for the next step
+          auto *tmp = wl.data();
+          wl.assign_data(wlb.data());
+          wlb.assign_data(tmp);
+        }
+      });
 
   //--------------------------------------------------------------------------------------
   // k-direction
+  if (pmb->pmy_mesh->ndim < 2) {
+    return TaskStatus::complete;
+  }
+  // set the loop limits
+  il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
 
-  if (pmb->pmy_mesh->ndim >= 3) {
-    // set the loop limits
-    il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
+  parthenon::par_for_outer(
+      DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
+      scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
+      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
+        const auto &coords = cons_in.coords(b);
+        const auto &prim = prim_in(b);
+        auto &cons = cons_in(b);
+        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                         num_scratch_vars, nx1);
+        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                         num_scratch_vars, nx1);
+        parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                          num_scratch_vars, nx1);
+        for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
+          // reconstruct L/R states at j
+          Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
+          // Sync all threads in the team so that scratch memory is consistent
+          member.team_barrier();
 
-    parthenon::par_for_outer(
-        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
-        scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
-          const auto &coords = cons_in.coords(b);
-          const auto &prim = prim_in(b);
-          auto &cons = cons_in(b);
-          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
-                                           num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
-                                           num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
-                                            num_scratch_vars, nx1);
-          for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
-            // reconstruct L/R states at j
-            if constexpr (recon == Reconstruction::dc) {
-              DonorCellX3(member, k, j, il, iu, prim, wlb, wr);
-            } else if constexpr (recon == Reconstruction::ppm) {
-              PiecewiseParabolicX3(member, k, j, il, iu, prim, wlb, wr);
-            } else if constexpr (recon == Reconstruction::wenoz) {
-              WENOZX3(member, k, j, il, iu, prim, wlb, wr);
-            } else if constexpr (recon == Reconstruction::plm) {
-              PiecewiseLinearX3(member, k, j, il, iu, prim, wlb, wr);
-            } else {
-              PARTHENON_FAIL("Unknown reconstruction method");
-            }
-            // Sync all threads in the team so that scratch memory is consistent
+          if (k > kb.s - 1) {
+            riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
             member.team_barrier();
 
-            if (k > kb.s - 1) {
-              if constexpr (fluid == Fluid::euler) {
-                RiemannSolver(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
-              } else if constexpr (fluid == Fluid::glmmhd) {
-                GLMMHD_HLLE(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
-              } else {
-                PARTHENON_FAIL("Unknown fluid method");
-              }
-              member.team_barrier();
+            // Passive scalar fluxes
+            for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                if (cons.flux(IV3, IDN, k, j, i) >= 0.0) {
+                  cons.flux(IV3, n, k, j, i) = cons.flux(IV3, IDN, k, j, i) * wl(n, i);
+                } else {
+                  cons.flux(IV3, n, k, j, i) = cons.flux(IV3, IDN, k, j, i) * wr(n, i);
+                }
+              });
             }
-            // swap the arrays for the next step
-            auto *tmp = wl.data();
-            wl.assign_data(wlb.data());
-            wlb.assign_data(tmp);
+            member.team_barrier();
           }
-        });
+          // swap the arrays for the next step
+          auto *tmp = wl.data();
+          wl.assign_data(wlb.data());
+          wlb.assign_data(tmp);
+        }
+      });
+
+  return TaskStatus::complete;
+}
+
+// Apply first order flux correction, i.e., use first order reconstruction and a
+// diffusive LLF Riemann solver if a negative density or energy density is expected.
+// The current implementation is computationally not the most efficient one, but works
+// for all standard integrators (rk1, rk2, rk3, and vl) and with and without AMR.
+// In principle, without AMR one could directly use the results from the actual
+// flux divergence call.
+// However, with AMR (and coarse/fine flux correction) we need to correct the local
+// fluxes first before calling coarse/fine flux correction.
+// In addition, it may be enough to call first order flux correction once at the
+// final stage (rather than at every stage as right row).
+// However, this'd require an additional register to store the initial state and
+// we should first evaluate where the tradeoff between extra computational costs
+// (multiple calls) versus extra memory usage is.
+template <Fluid fluid>
+TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
+                                 const Real gam0, const Real gam1, const Real beta_dt) {
+  auto pmb = u0_data->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto u0_cons_pack = u0_data->PackVariablesAndFluxes(flags_ind);
+  auto u1_cons_pack = u1_data->PackVariablesAndFluxes(flags_ind);
+  auto pkg = pmb->packages.Get("Hydro");
+  const int nhydro = pkg->Param<int>("nhydro");
+
+  const auto &eos =
+      pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
+                                           AdiabaticGLMMHDEOS>::type>("eos");
+
+  // Hyperbolic divergence cleaning speed for GLM MHD
+  Real c_h = 0.0;
+  if (fluid == Fluid::glmmhd) {
+    c_h = pkg->Param<Real>("c_h");
   }
+  // Using "u1_prim" as "u0_prim" here because all current integrators start with copying
+  // the initial state to the "u0" register, see conditional for `stage == 1` in the
+  // hydro_driver where normally only "cons" is copied but in case for flux correction
+  // "prim", too. This means both during stage 1 and during stage 2 `u1` holds the
+  // original data at the beginning of the timestep. For flux correction we want to make a
+  // full (dt) low order update using the original data and thus use the "prim" data from
+  // u1 here.
+  auto const &u0_prim_pack = u1_data->PackVariables(std::vector<std::string>{"prim"});
+
+  const int ndim = pmb->pmy_mesh->ndim;
+
+  constexpr auto NVAR = GetNVars<fluid>();
+
+  auto riemann = Riemann<fluid, RiemannSolver::llf>();
+
+  std::int64_t num_corrected, num_need_floor;
+  // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
+  // of a single cell at the same time. So the neighboring cells need to be rechecked with
+  // the corrected fluxes as the corrected fluxes in one cell may result in the need to
+  // correct all the fluxes of an originally "good" neighboring cell.
+  size_t num_attempts = 0;
+  do {
+    num_corrected = 0;
+
+    Kokkos::parallel_reduce(
+        "FirstOrderFluxCorrect",
+        Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+            DevExecSpace(), {0, kb.s, jb.s, ib.s},
+            {u0_cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+            {1, 1, 1, ib.e + 1 - ib.s}),
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i,
+                      std::int64_t &lnum_corrected, std::int64_t &lnum_need_floor) {
+          const auto &coords = u0_cons_pack.coords(b);
+          const auto &u0_prim = u0_prim_pack(b);
+          auto &u0_cons = u0_cons_pack(b);
+
+          // In principle, the u_cons.fluxes could be updated in parallel by a different
+          // thread resulting in a race conditon here.
+          // However, if the fluxes of a cell have been updated (anywhere) then the entire
+          // kernel will be called again anyway, and, at that point the already fixed
+          // u0_cons.fluxes will automaticlly be used here.
+          Real new_cons[NVAR];
+          for (auto v = 0; v < NVAR; v++) {
+            new_cons[v] =
+                gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons_pack(b, v, k, j, i) +
+                beta_dt * parthenon::Update::FluxDiv_(v, k, j, i, ndim, coords, u0_cons);
+          }
+
+          // no need to include gamma - 1 as we only care for negative values
+          auto new_p =
+              new_cons[IEN] -
+              0.5 * (SQR(new_cons[IM1]) + SQR(new_cons[IM2]) + SQR(new_cons[IM3])) /
+                  new_cons[IDN];
+          if constexpr (fluid == Fluid::glmmhd) {
+            new_p -= 0.5 * (SQR(new_cons[IB1]) + SQR(new_cons[IB2]) + SQR(new_cons[IB3]));
+          }
+          // no correction required
+          if (new_cons[IDN] > 0.0 && new_p > 0.0) {
+            return;
+          }
+          // if already tried 3 times and only pressure is negative, then we'll rely
+          // on the pressure floor during ConsToPrim conversion
+          if (num_attempts > 2 && new_cons[IDN] > 0.0 && new_p < 0.0) {
+            lnum_need_floor += 1;
+            return;
+          }
+          // In principle, there could be a racecondion as this loop goes over all k,j,i
+          // and we updating the i+1 flux here.
+          // However, the results are idential because u0_prim is never updated in this
+          // kernel so we don't worry about it.
+          // TODO(pgrete) as we need to keep the function signature idential for now (due
+          // to Cuda compiler bug) we could potentially template these function and get
+          // rid of the `if constexpr`
+          riemann.Solve(eos, k, j, i, IV1, u0_prim, u0_cons, c_h);
+          riemann.Solve(eos, k, j, i + 1, IV1, u0_prim, u0_cons, c_h);
+
+          if (ndim >= 2) {
+            riemann.Solve(eos, k, j, i, IV2, u0_prim, u0_cons, c_h);
+            riemann.Solve(eos, k, j + 1, i, IV2, u0_prim, u0_cons, c_h);
+          }
+          if (ndim >= 3) {
+            riemann.Solve(eos, k, j, i, IV3, u0_prim, u0_cons, c_h);
+            riemann.Solve(eos, k + 1, j, i, IV3, u0_prim, u0_cons, c_h);
+          }
+          lnum_corrected += 1;
+        },
+        Kokkos::Sum<std::int64_t>(num_corrected),
+        Kokkos::Sum<std::int64_t>(num_need_floor));
+    // TODO(pgrete) make this optional and global (potentially store values in Params)
+    // std::cout << "[" << parthenon::Globals::my_rank << "] Attempt: " << num_attempts
+    //           << " Corrected (center): " << num_corrected
+    //           << " Failed (will rely on floor): " << num_need_floor << std::endl;
+    num_attempts += 1;
+  } while (num_corrected > 0 && num_attempts < 4);
 
   return TaskStatus::complete;
 }

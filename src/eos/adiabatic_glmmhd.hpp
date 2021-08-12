@@ -23,14 +23,11 @@ using parthenon::Real;
 
 class AdiabaticGLMMHDEOS : public EquationOfState {
  public:
-  AdiabaticGLMMHDEOS(Real pressure_floor, Real density_floor, Real gamma)
-      : EquationOfState(pressure_floor, density_floor), gamma_{gamma} {}
+  AdiabaticGLMMHDEOS(Real pressure_floor, Real density_floor, Real internal_e_floor,
+                     Real gamma)
+      : EquationOfState(pressure_floor, density_floor, internal_e_floor), gamma_{gamma} {}
 
-  void ConservedToPrimitive(MeshBlockData<Real> *rc, int il, int iu, int jl, int ju,
-                            int kl, int ku) const override;
   void ConservedToPrimitive(MeshData<Real> *md) const override;
-  void PrimitiveToConserved(std::shared_ptr<MeshBlockData<Real>> &rc, int il, int iu,
-                            int jl, int ju, int kl, int ku) const override;
 
   KOKKOS_INLINE_FUNCTION
   Real GetGamma() const { return gamma_; }

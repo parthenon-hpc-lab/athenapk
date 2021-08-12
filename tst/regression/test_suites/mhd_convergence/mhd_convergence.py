@@ -32,6 +32,7 @@ sys.dont_write_bytecode = True
 lin_res = [16, 32, 64, 128] # resolution for linear convergence
 method_cfgs = [
     {"integrator" : "rk1", "recon" : "dc"},
+    {"integrator" : "rk1", "recon" : "dc", "riemann" : "llf"},
     {"integrator" : "vl2", "recon" : "plm"},
     {"integrator" : "rk2", "recon" : "plm"},
     {"integrator" : "rk2", "recon" : "ppm"},
@@ -75,8 +76,14 @@ class TestCase(utils.test_case.TestCaseAbs):
         assert lin_res[0] / parameters.num_ranks >= 4, "Use <= 8 ranks for convergence test."
 
         res = lin_res[(step - 1) % n_res]
-        integrator = method_cfgs[(step - 1) // n_res]["integrator"]
-        recon = method_cfgs[(step - 1) // n_res]["recon"]
+        method_cfg = method_cfgs[(step - 1) // n_res]
+        integrator = method_cfg["integrator"]
+        recon = method_cfg["recon"]
+        if "riemann" in method_cfg.keys():
+            riemann = method_cfg["riemann"]
+        else:
+            riemann = "hlle"
+
         # ensure that nx1 is <= 128 when using scratch (V100 limit on test system)
         mb_nx1 = ((2 * res) // parameters.num_ranks)
         while (mb_nx1 > 128):
@@ -92,6 +99,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             'parthenon/mesh/nghost=%d' % (3 if (recon == "ppm" or recon == "wenoz") else 2),
             'parthenon/time/integrator=%s' % integrator,
             'hydro/reconstruction=%s' % recon,
+            'hydro/riemann=%s' % riemann,
             'hydro/fluid=glmmhd',
             ]
 
@@ -139,7 +147,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         data = np.genfromtxt(os.path.join(parameters.output_path, "linearwave-errors.dat"))
 
         # quick and dirty test
-        if data[23,4] > 6.14e-12:
+        if data[27,4] > 6.14e-12:
             analyze_status = False
 
         markers = 'ov^<>sp*hXD'
@@ -148,6 +156,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                     data[i * n_res:(i + 1) * n_res, 4],
                     marker = markers[i], label = ((
                         f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
+                        f'{"hlle" if "riemann" not in cfg.keys() else cfg["riemann"]}'
                     )))
 
         plt.plot([32,512], [7e-7,7e-7/(512/32)], '--', label="first order")
