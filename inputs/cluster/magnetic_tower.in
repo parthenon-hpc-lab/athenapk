@@ -99,16 +99,14 @@ jet_theta = 1.2
 jet_phi_dot = 0
 jet_phi0 = 2.2
 
+<problem/cluster/agn_feedback>
+agn_power = 0.0016599828166743962
+magnetic_fraction = 1
+kinetic_fraction = 0
+thermal_fraction = 0
+
 <problem/cluster/magnetic_tower>
-#Include an initial magnetic tower
-enable_initial_magnetic_tower=true
 alpha = 20
 l_scale = 0.01
 initial_field = 0.12431560000204142
-
-#Include magnetic tower feedback
-enable_feedback_magnetic_tower=true
-feedback_mode = const_field
-feedback_field_rate = 12.431560000204144
-feedback_power = 0.0016599828166743962
-srcterm_use_potential_curl = true
+fixed_field_rate = 12.431560000204144

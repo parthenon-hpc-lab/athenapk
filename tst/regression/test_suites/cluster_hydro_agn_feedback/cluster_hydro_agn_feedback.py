@@ -186,6 +186,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"problem/cluster/agn_feedback/agn_power={self.agn_power.in_units('code_mass*code_length**2/code_time**3').v}",
                 f"problem/cluster/agn_feedback/thermal_fraction={agn_thermal_fraction}",
                 f"problem/cluster/agn_feedback/kinetic_fraction={agn_kinetic_fraction}",
+                f"problem/cluster/agn_feedback/magnetic_fraction=0",
                 f"problem/cluster/agn_feedback/thermal_radius={self.agn_thermal_radius.in_units('code_length').v}",
                 f"problem/cluster/agn_feedback/kinetic_jet_efficiency={self.agn_jet_efficiency}",
                 f"problem/cluster/agn_feedback/kinetic_jet_radius={self.agn_jet_radius.in_units('code_length').v}",

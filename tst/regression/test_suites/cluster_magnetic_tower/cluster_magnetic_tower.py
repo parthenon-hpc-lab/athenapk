@@ -180,12 +180,17 @@ class TestCase(utils.test_case.TestCaseAbs):
         #For const energy tests
         self.feedback_magnetic_tower_power = unyt.unyt_quantity(1e44,"erg/s")
 
-        #Tolerance of magnetic fields and magnetic energy density
-        self.norm_tol = 1e-3
+        self.energy_density_tol = 1e-2
+
+        #Tolerance of linf error of magnetic fields, total energy density, and density
+        self.linf_analytic_tol = 5e-2
 
         #Tolerance on total initial and final magnetic energy
-        self.b_eng_initial_tol = 1e-5
-        self.b_eng_final_tol = 1e-5
+        self.b_eng_initial_tol = 1e-2
+        self.b_eng_final_tol = 1e-2
+
+        #Tolerance in max divergence over magnetic tower field scale
+        self.divB_tol = 1e-11
 
         self.steps = 4
         self.step_params_list = list(itertools.product( ("const_field","const_power"),(True,False)))
@@ -218,6 +223,13 @@ class TestCase(utils.test_case.TestCaseAbs):
         feedback_mode,precessed_jet = self.step_params_list[step-1]
         output_id = f"{feedback_mode}_precessed_{precessed_jet}"
 
+        if feedback_mode == "const_power":
+            agn_power = self.feedback_magnetic_tower_power.in_units('code_mass*code_length**2/code_time**3').v
+            fixed_field_rate =  0
+        else:
+            agn_power = 0
+            fixed_field_rate = self.feedback_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time**2').v
+
         parameters.driver_cmd_line_args = [
                 f"parthenon/output2/id={output_id}",
                 f"parthenon/output2/dt={self.tlim.in_units('code_time').v}",
@@ -240,14 +252,17 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"problem/cluster/precessing_jet/jet_phi_dot={self.phi_dot_jet if precessed_jet else 0}",
                 f"problem/cluster/precessing_jet/jet_phi0={self.phi_jet0 if precessed_jet else 0}",
 
+                f"problem/cluster/agn_feedback/agn_power={agn_power}",
+                f"problem/cluster/agn_feedback/magnetic_fraction=1",
+                f"problem/cluster/agn_feedback/kinetic_fraction=0",
+                f"problem/cluster/agn_feedback/thermal_fraction=0",
+
                 f"problem/cluster/magnetic_tower/alpha={self.magnetic_tower_alpha}",
                 f"problem/cluster/magnetic_tower/l_scale={self.magnetic_tower_l_scale.in_units('code_length').v}",
 
                 f"problem/cluster/magnetic_tower/initial_field={self.initial_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time').v}",
 
-                f"problem/cluster/magnetic_tower/feedback_mode={feedback_mode}",
-                f"problem/cluster/magnetic_tower/feedback_field_rate={self.feedback_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time**2').v}",
-                f"problem/cluster/magnetic_tower/feedback_power={self.feedback_magnetic_tower_power.in_units('code_mass*code_length**2/code_time**3').v}",
+                f"problem/cluster/magnetic_tower/fixed_field_rate={fixed_field_rate}",
             ]
 
 
@@ -342,7 +357,8 @@ class TestCase(utils.test_case.TestCaseAbs):
                 return False 
 
             ######################################## 
-            # Compare to the analytically expected magnetic field
+            # Compare to the analytically expected densities, total energy
+            # densities, and magnetic fields
             ######################################## 
 
             phdf_filenames = [f"{parameters.output_path}/parthenon.{output_id}.{i:05d}.phdf" for i in range(2)]
@@ -378,7 +394,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 densities_analytic_status = compare_analytic.compare_analytic(
                         phdf_filename, densities_analytic_components,
                         err_func=rel_linf_err_func,
-                        tol=1e-3)
+                        tol=self.linf_analytic_tol)
 
                 #Construct lambda functions for initial and final analytically expected magnetic fields
                 field_analytic_components = {
@@ -396,7 +412,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                         phdf_filename, field_analytic_components,
                         err_func=lambda gold,test: B_scaled_linf_err(gold,test,
                             B_field.in_units(magnetic_units).v[()]),
-                        tol=1e-3)
+                        tol=self.linf_analytic_tol)
 
                 analytic_status = (densities_analytic_status and field_analytic_status)
                 if not analytic_status:
@@ -465,53 +481,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                 dBzdz = 0.5*(B[2,:,2:,:,:]-B[2,:,:-2,:,:])[:,:,1:-1,1:-1]/dzf[:,1:-1,np.newaxis,np.newaxis]
 
                 divB = dBxdx + dBydy + dBzdz
-                int_divB = np.sum(divB*cell_vols[:,1:-1,1:-1,1:-1])
-                
-                #DEBUGGING - alternative divergence calculation with too many interpolations
-                #def consecutive_mean(a,axis):
-                #    """
-                #    Returns the mean of consecutive elements along an axis
-                #    Reduces the shape of "a" by 1 along "axis"
-                #    """
-                #    ind = np.arange(a.shape[axis])
-                #    return 0.5*( a.take(ind[1:],axis=axis) + a.take(ind[:-1],axis=axis))
-                ##Interpoate X magnetic field along x edges by averaging in y and z
-                #B_xe = consecutive_mean(consecutive_mean(B[0],2),1)
-                ##Interpoate Y magnetic field along y edges by averaging in x and z
-                #B_ye = consecutive_mean(consecutive_mean(B[1],3),1)
-                ##Interpoate Z magnetic field along z edges by averaging in x and y
-                #B_ze = consecutive_mean(consecutive_mean(B[2],3),2)
 
-                ##Compute cell edge lengths
-                #dxe = consecutive_mean(consecutive_mean(np.diff(X,axis=3),2),1)
-                #dye = consecutive_mean(consecutive_mean(np.diff(Y,axis=2),3),1)
-                #dze = consecutive_mean(consecutive_mean(np.diff(Z,axis=1),3),2)
-
-                ##Compute the flux divergence at cell vertices
-                #divB = np.diff(B_xe,axis=3)/dxe + np.diff(B_ye,axis=2)/dye + np.diff(B_ze,axis=1)/dze
-
-                ##Integrate the flux divergence
-                #int_divB = np.sum(consecutive_mean(consecutive_mean(consecutive_mean(cell_vols,1),2),3)*divB)
-                #END DEBUGGING
-
-                #DEBUGGING - alternative divergence calculation with numpy  
-                #dxf = np.diff(xf,axis=1)
-                #dyf = np.diff(yf,axis=1)
-                #dzf = np.diff(zf,axis=1)
-                #divB = unyt.unyt_array( np.empty(B.shape[1:]),'sqrt(code_mass)/(code_length)**(3/2)/code_time')
-                #B_flipped = np.flip(B,axis=0) #B_z, B_y, B_x
-                #for grid_idx in range(dxf.shape[0]):
-                #    divB[grid_idx] = np.sum( [np.gradient(B_flipped[i,grid_idx], 
-                #                            dxf[grid_idx][0], axis=i) for i in  np.arange(3)],axis=0)
-                #int_divB = np.sum(divB*cell_vols)
-                #END DEBUGGING
-
-                print()
-                print(f"{label} max divB={np.max(divB)}")
-                print(f"{label} Integrated divB={int_divB}")
-                print()
-                
-
-
+                if np.max(divB)/B0 > self.divB_tol:
+                    print(f"{label} Max div B Error: Max divB/B0 {np.max(divB)/B0} exceeds tolerance {self.divB_tol}")
+                    analyze_status = False
 
         return analyze_status

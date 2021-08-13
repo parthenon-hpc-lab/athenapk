@@ -35,9 +35,9 @@ using namespace parthenon;
  ************************************************************/
 template <typename GravitationalField, typename EntropyProfile>
 HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
-    HydrostaticEquilibriumSphere(ParameterInput *pin,
-                                 GravitationalField gravitational_field,
-                                 EntropyProfile entropy_profile)
+    HydrostaticEquilibriumSphere(
+        ParameterInput *pin, const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg,
+        GravitationalField gravitational_field, EntropyProfile entropy_profile)
     : gravitational_field_(gravitational_field), entropy_profile_(entropy_profile) {
   Units units(pin);
 
@@ -50,26 +50,29 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
   mu_ = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
   mu_e_ = 1 / (He_mass_fraction * 2. / 4. + (1 - He_mass_fraction));
 
-  R_fix_ =
-      pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "R_fix", 1953.9724519818478 * units.kpc());
+  R_fix_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "R_fix",
+                             1953.9724519818478 * units.kpc());
   rho_fix_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "rho_fix",
                                8.607065015897638e-30 * units.g() / pow(units.kpc(), 3));
   const Real gam = pin->GetReal("hydro", "gamma");
   const Real gm1 = (gam - 1.0);
 
-  R_sampling_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "R_sampling", 4.0);
+  R_sampling_ =
+      pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "R_sampling", 4.0);
   max_dR_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "max_dR", 1e-3);
 
   // Test out the HSE sphere if requested
-  const bool test_he_sphere =
-      pin->GetOrAddBoolean("problem/cluster/hydrostatic_equilibrium", "test_he_sphere", false);
+  const bool test_he_sphere = pin->GetOrAddBoolean(
+      "problem/cluster/hydrostatic_equilibrium", "test_he_sphere", false);
   if (test_he_sphere) {
-    const Real test_he_sphere_R_start = pin->GetOrAddReal(
-        "problem/cluster/hydrostatic_equilibrium", "test_he_sphere_R_start_kpc", 1e-3 * units.kpc());
-    const Real test_he_sphere_R_end = pin->GetOrAddReal(
-        "problem/cluster/hydrostatic_equilibrium", "test_he_sphere_R_end_kpc", 4000 * units.kpc());
-    const int test_he_sphere_n_r =
-        pin->GetOrAddInteger("problem/cluster/hydrostatic_equilibrium", "test_he_sphere_n_r", 4000);
+    const Real test_he_sphere_R_start =
+        pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium",
+                          "test_he_sphere_R_start_kpc", 1e-3 * units.kpc());
+    const Real test_he_sphere_R_end =
+        pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium",
+                          "test_he_sphere_R_end_kpc", 4000 * units.kpc());
+    const int test_he_sphere_n_r = pin->GetOrAddInteger(
+        "problem/cluster/hydrostatic_equilibrium", "test_he_sphere_n_r", 4000);
     if (Globals::my_rank == 0) {
       typedef Kokkos::View<Real *, Kokkos::LayoutRight, HostMemSpace> View1D;
 
@@ -82,6 +85,8 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
       test_he_file.close();
     }
   }
+
+  hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere", *this);
 }
 
 /************************************************************

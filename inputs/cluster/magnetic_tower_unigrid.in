@@ -72,35 +72,33 @@ code_time_cgs = 3.15576e+16
 
 <problem/cluster>
 
-#Disable gravity as a source term
 <problem/cluster/gravity>
+#Disable gravity as a source term
 gravity_srcterm = false
 
-<problem/cluster/precessing_jet>
+<problem/cluster/uniform_gas>
 #Initialize with a uniform gas
 init_uniform_gas = true
-uniform_gas_rho = 147.7557589278723
-uniform_gas_ux = 0
-uniform_gas_uy = 0
-uniform_gas_uz = 0
-uniform_gas_pres = 1.5454368403867562
+rho = 147.7557589278723
+ux = 0
+uy = 0
+uz = 0
+pres = 1.5454368403867562
 
 <problem/cluster/precessing_jet>
 #Define a precessing jet
-jet_theta = 1
+jet_theta = 1.2
 jet_phi_dot = 0
-jet_phi0 = 0
+jet_phi0 = 2.2
+
+<problem/cluster/agn_feedback>
+agn_power = 0.0016599828166743962
+magnetic_fraction = 1
+kinetic_fraction = 0
+thermal_fraction = 0
 
 <problem/cluster/magnetic_tower>
-#Include an initial magnetic tower
-enable_initial_magnetic_tower=true
 alpha = 20
 l_scale = 0.01
 initial_field = 0.12431560000204142
-
-#Include magnetic tower feedback
-enable_feedback_magnetic_tower=true
-feedback_mode = const_field
-feedback_field_rate = 12.431560000204144
-feedback_power = 0.0016599828166743962
-srcterm_use_potential_curl = true
+fixed_field_rate = 12.431560000204144

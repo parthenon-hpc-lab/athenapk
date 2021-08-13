@@ -128,9 +128,10 @@ class HydrostaticEquilibriumSphere {
   static constexpr parthenon::Real kRTol = 1e-15;
 
  public:
-  HydrostaticEquilibriumSphere(parthenon::ParameterInput *pin,
-                               GravitationalField gravitational_field,
-                               EntropyProfile entropy_profile);
+  HydrostaticEquilibriumSphere(
+      parthenon::ParameterInput *pin,
+      const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg,
+      GravitationalField gravitational_field, EntropyProfile entropy_profile);
 
   template <typename View1D>
   class PRhoProfile {

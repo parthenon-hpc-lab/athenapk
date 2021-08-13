@@ -1,5 +1,5 @@
-#ifndef CLUSTER_HYDRO_AGN_FEEDBACK_HPP_
-#define CLUSTER_HYDRO_AGN_FEEDBACK_HPP_
+#ifndef CLUSTER_AGN_FEEDBACK_HPP_
+#define CLUSTER_AGN_FEEDBACK_HPP_
 //========================================================================================
 // Athena++ astrophysical MHD code
 // Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
@@ -20,24 +20,24 @@
 namespace cluster {
 
 /************************************************************
- *  HydroAGNFeedback
+ *  AGNFeedback
  ************************************************************/
-class HydroAGNFeedback {
+class AGNFeedback {
  private:
   parthenon::Real power_;
-  const parthenon::Real thermal_fraction_, kinetic_fraction_;
+
+ public:
+  const parthenon::Real thermal_fraction_, kinetic_fraction_, magnetic_fraction_;
 
   // Thermal Heating Parameters
   const parthenon::Real thermal_radius_;
 
   // Kinetic Feedback Parameters
-  const parthenon::Real jet_efficiency_;
-  const parthenon::Real jet_radius_, jet_height_;
+  const parthenon::Real kinetic_jet_efficiency_;
+  const parthenon::Real kinetic_jet_radius_, kinetic_jet_height_;
 
-  JetCoords jet_coords_;
-
- public:
-  HydroAGNFeedback(parthenon::ParameterInput *pin);
+  AGNFeedback(parthenon::ParameterInput *pin,
+              const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg);
 
   parthenon::Real GetPower() const { return power_; }
   void SetPower(const parthenon::Real power) { power_ = power; }
@@ -49,4 +49,4 @@ class HydroAGNFeedback {
 
 } // namespace cluster
 
-#endif // CLUSTER_HYDRO_AGN_FEEDBACK_HPP_
+#endif // CLUSTER_AGN_FEEDBACK_HPP_

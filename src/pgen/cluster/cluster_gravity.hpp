@@ -89,11 +89,13 @@ class ClusterGravity {
   }
 
  public:
-  ClusterGravity(parthenon::ParameterInput *pin) {
+  ClusterGravity(parthenon::ParameterInput *pin,
+                 const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg) {
     Units units(pin);
 
     // Determine which element to include
-    include_nfw_g_ = pin->GetOrAddBoolean("problem/cluster/gravity", "include_nfw_g", false);
+    include_nfw_g_ =
+        pin->GetOrAddBoolean("problem/cluster/gravity", "include_nfw_g", false);
     const std::string which_bcg_g_str =
         pin->GetOrAddString("problem/cluster/gravity", "which_bcg_g", "NONE");
     if (which_bcg_g_str == "NONE") {
@@ -109,7 +111,8 @@ class ClusterGravity {
       PARTHENON_FAIL(msg);
     }
 
-    include_smbh_g_ = pin->GetOrAddBoolean("problem/cluster/gravity", "include_smbh_g", false);
+    include_smbh_g_ =
+        pin->GetOrAddBoolean("problem/cluster/gravity", "include_smbh_g", false);
 
     // Initialize the NFW Profile
     const parthenon::Real hubble_parameter = pin->GetOrAddReal(
@@ -119,7 +122,8 @@ class ClusterGravity {
 
     const parthenon::Real M_nfw_200 =
         pin->GetOrAddReal("problem/cluster/gravity", "M_nfw_200", 8.5e14 * units.msun());
-    const parthenon::Real c_nfw = pin->GetOrAddReal("problem/cluster/gravity", "c_nfw", 6.81);
+    const parthenon::Real c_nfw =
+        pin->GetOrAddReal("problem/cluster/gravity", "c_nfw", 6.81);
     R_nfw_s_ = calc_R_nfw_s(rho_crit, M_nfw_200, c_nfw);
     GMC_nfw_ = calc_GMC_nfw(units.gravitational_constant(), M_nfw_200, c_nfw);
 
@@ -136,7 +140,10 @@ class ClusterGravity {
         pin->GetOrAddReal("problem/cluster/gravity", "m_smbh", 3.4e8 * units.msun());
     GMC_smbh_ = calc_GMC_smbh(units.gravitational_constant(), m_smbh),
 
-    smoothing_r_ = pin->GetOrAddReal("problem/cluster/gravity", "g_smoothing_radius", 0.0);
+    smoothing_r_ =
+        pin->GetOrAddReal("problem/cluster/gravity", "g_smoothing_radius", 0.0);
+
+    hydro_pkg->AddParam<>("cluster_gravity", *this);
   }
 
   // Inline functions to compute gravitational acceleration

@@ -100,13 +100,13 @@ jet_theta_dot = 1
 jet_theta0 = 2
 
 <problem/cluster/agn_feedback>
-enable_hydro_agn_feedback=true
 agn_power = 1.65998282e-04
-thermal_fraction = 1.0
+magnetic_fraction = = 0.0
+thermal_fraction = 0.5
+kinetic_fraction = 0.5
 
-kinetic_fraction = 0.0
 thermal_radius = 0.0125
 
 kinetic_jet_efficiency = 1e-3
-kinetic_jet_height = 0.02
 kinetic_jet_radius = 0.01
+kinetic_jet_height = 0.02
