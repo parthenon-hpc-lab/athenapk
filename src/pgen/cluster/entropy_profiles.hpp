@@ -36,7 +36,7 @@ class ACCEPTEntropyProfile {
   }
 
   // Get entropy from radius, using broken power law profile for entropy
-  parthenon::Real K_from_r(const parthenon::Real r) const {
+  KOKKOS_INLINE_FUNCTION parthenon::Real K_from_r(const parthenon::Real r) const {
     const parthenon::Real K = K_0_ + K_100_ * pow(r / R_K_, alpha_K_);
     return K;
   }

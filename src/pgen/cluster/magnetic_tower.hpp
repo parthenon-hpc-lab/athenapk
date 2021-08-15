@@ -109,19 +109,6 @@ class MagneticTower {
   const parthenon::Real initial_field_;
   const parthenon::Real fixed_field_rate_;
 
-  // Add the specified magnetic field (and associated magnetic energy) to the
-  // conserved variables for all meshblocks with a MeshData
-  void AddSrcTerm(parthenon::Real field_to_add, parthenon::MeshData<parthenon::Real> *md,
-                  const parthenon::SimTime &tm) const;
-
-  // Compute the increase to magnetic energy (1/2*B**2) over local meshes.  Adds
-  // to linear_contrib and quadratic_contrib
-  // increases relative to B0 and B0**2. Necessary for scaling magnetic fields
-  // to inject a specified magnetic energy
-  void ReducePowerContribs(parthenon::Real &linear_contrib,
-                           parthenon::Real &quadratic_contrib,
-                           parthenon::MeshData<parthenon::Real> *md,
-                           const parthenon::SimTime &tm) const;
 
  public:
   MagneticTower(parthenon::ParameterInput *pin,
@@ -152,6 +139,20 @@ class MagneticTower {
   // conserved variables for all meshblocks with a MeshData
   void PowerSrcTerm(const parthenon::Real power, parthenon::MeshData<parthenon::Real> *md,
                     const parthenon::Real beta_dt, const parthenon::SimTime &tm) const;
+
+  // Add the specified magnetic field (and associated magnetic energy) to the
+  // conserved variables for all meshblocks with a MeshData
+  void AddSrcTerm(parthenon::Real field_to_add, parthenon::MeshData<parthenon::Real> *md,
+                  const parthenon::SimTime &tm) const;
+
+  // Compute the increase to magnetic energy (1/2*B**2) over local meshes.  Adds
+  // to linear_contrib and quadratic_contrib
+  // increases relative to B0 and B0**2. Necessary for scaling magnetic fields
+  // to inject a specified magnetic energy
+  void ReducePowerContribs(parthenon::Real &linear_contrib,
+                           parthenon::Real &quadratic_contrib,
+                           parthenon::MeshData<parthenon::Real> *md,
+                           const parthenon::SimTime &tm) const;
 
   friend parthenon::TaskStatus
   MagneticTowerResetPowerContribs(parthenon::StateDescriptor *hydro_pkg);

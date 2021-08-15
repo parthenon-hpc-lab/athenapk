@@ -203,8 +203,6 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
   MTPowerReductionType mt_power_reduction;
   Kokkos::Sum<MTPowerReductionType> reducer_sum(mt_power_reduction);
 
-  const parthenon::Real time = tm.time;
-
   Kokkos::parallel_reduce( // FIXME: change to parthenon_reduce?
       "MagneticTowerScaleFactor",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
