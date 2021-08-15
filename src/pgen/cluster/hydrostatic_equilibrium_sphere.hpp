@@ -59,7 +59,8 @@ class HydrostaticEquilibriumSphere {
 
   // Get pressure from density and entropy, using ideal gas law and definition
   // of entropy
-  KOKKOS_INLINE_FUNCTION parthenon::Real P_from_rho_K(const parthenon::Real rho, const parthenon::Real K) const {
+  KOKKOS_INLINE_FUNCTION parthenon::Real P_from_rho_K(const parthenon::Real rho,
+                                                      const parthenon::Real K) const {
     const parthenon::Real P =
         K * pow(mu_ / mu_e_, 2. / 3.) * pow(rho / (mu_ * atomic_mass_unit_), 5. / 3.);
     return P;
@@ -67,7 +68,8 @@ class HydrostaticEquilibriumSphere {
 
   // Get density from pressure and entropy, using ideal gas law and definition
   // of entropy
-  KOKKOS_INLINE_FUNCTION parthenon::Real rho_from_P_K(const parthenon::Real P, const parthenon::Real K) const {
+  KOKKOS_INLINE_FUNCTION parthenon::Real rho_from_P_K(const parthenon::Real P,
+                                                      const parthenon::Real K) const {
     const parthenon::Real rho =
         pow(P / K, 3. / 5.) * mu_ * atomic_mass_unit_ / pow(mu_ / mu_e_, 2. / 5);
     return rho;
@@ -86,7 +88,8 @@ class HydrostaticEquilibriumSphere {
   }
 
   // Get the temperature from density and pressure
-  KOKKOS_INLINE_FUNCTION parthenon::Real T_from_rho_P(const parthenon::Real rho, const parthenon::Real P) const {
+  KOKKOS_INLINE_FUNCTION parthenon::Real T_from_rho_P(const parthenon::Real rho,
+                                                      const parthenon::Real P) const {
     const parthenon::Real T = P / (n_from_rho(rho) * k_boltzmann_);
     return T;
   }
@@ -102,7 +105,6 @@ class HydrostaticEquilibriumSphere {
     const HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile> &sphere_;
 
    public:
-
     dP_dr_from_r_P_functor(
         const HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile> &sphere)
         : sphere_(sphere) {}
@@ -137,20 +139,18 @@ class HydrostaticEquilibriumSphere {
       const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg,
       GravitationalField gravitational_field, EntropyProfile entropy_profile);
 
-
   template <typename View1D, typename Coords>
   PRhoProfile<GravitationalField, EntropyProfile, View1D>
   generate_P_rho_profile(parthenon::IndexRange ib, parthenon::IndexRange jb,
                          parthenon::IndexRange kb, Coords coords) const;
 
   template <typename View1D>
-    PRhoProfile<GravitationalField, EntropyProfile, View1D> generate_P_rho_profile(const parthenon::Real R_start,
-        const parthenon::Real R_end,
-        const unsigned int n_R) const;
+  PRhoProfile<GravitationalField, EntropyProfile, View1D>
+  generate_P_rho_profile(const parthenon::Real R_start, const parthenon::Real R_end,
+                         const unsigned int n_R) const;
 
-    template <typename GF, typename EP, typename View1D>
+  template <typename GF, typename EP, typename View1D>
   friend class PRhoProfile;
-
 };
 
 template <typename GravitationalField, typename EntropyProfile, typename View1D>
@@ -164,25 +164,26 @@ class PRhoProfile {
   const parthenon::Real R_start_, R_end_;
 
  public:
-  PRhoProfile(const View1D R, const View1D P,
-              const HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile> &sphere)
+  PRhoProfile(
+      const View1D R, const View1D P,
+      const HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile> &sphere)
       : R_(R), P_(P), sphere_(sphere), n_R_(R_.extent(0)), R_start_(R_(0)),
         R_end_(R_(n_R_ - 1)) {}
 
-  KOKKOS_INLINE_FUNCTION parthenon::Real P_from_r(const parthenon::Real r) const{
+  KOKKOS_INLINE_FUNCTION parthenon::Real P_from_r(const parthenon::Real r) const {
     using parthenon::Real;
     // Determine indices in R bounding r
     const int i_r =
         static_cast<int>(floor((n_R_ - 1) / (R_end_ - R_start_) * (r - R_start_)));
 
     if (r < R_(i_r) - sphere_.kRTol || r > R_(i_r + 1) + sphere_.kRTol) {
-      //std::stringstream msg;
-      //msg << "### FATAL ERROR in function [HydrostaticEquilibriumSphere::PRhoProfile]"
+      // std::stringstream msg;
+      // msg << "### FATAL ERROR in function [HydrostaticEquilibriumSphere::PRhoProfile]"
       //    << std::endl
       //    << "R(i_r) to R_(i_r+1) does not contain r" << std::endl
       //    << "R(i_r) R_r R(i_r+1):" << R_(i_r) << " " << r << " " << R_(i_r + 1)
       //    << std::endl;
-      //PARTHENON_FAIL(msg);
+      // PARTHENON_FAIL(msg);
       Kokkos::abort("PRhoProfile::P_from_r R(i_r) to R_(i_r+1) does not contain r");
     }
 

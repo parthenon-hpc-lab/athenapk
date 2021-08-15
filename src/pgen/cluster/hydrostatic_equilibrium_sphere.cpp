@@ -92,9 +92,9 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
 ///************************************************************
 // * PRhoProfile::P_from_r
 // ************************************************************/
-//template <typename EntropyProfile, typename GravitationalField>
-//template <typename View1D>
-//Real HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::PRhoProfile<
+// template <typename EntropyProfile, typename GravitationalField>
+// template <typename View1D>
+// Real HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::PRhoProfile<
 //    View1D>::P_from_r(const Real r) const {
 //
 //  // Determine indices in R bounding r
@@ -121,9 +121,9 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
 ///************************************************************
 // * PRhoProfile::rho_from_r
 // ************************************************************/
-//template <typename EntropyProfile, typename GravitationalField>
-//template <typename View1D>
-//Real HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::PRhoProfile<
+// template <typename EntropyProfile, typename GravitationalField>
+// template <typename View1D>
+// Real HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::PRhoProfile<
 //    View1D>::rho_from_r(const Real r) const {
 //
 //  // Get pressure first
@@ -137,13 +137,13 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
 /************************************************************
  * PRhoProfile::write_to_ostream
  ************************************************************/
-template <typename GravitationalField,typename EntropyProfile,  typename View1D>
-std::ostream &
-PRhoProfile<GravitationalField,EntropyProfile, 
-    View1D>::write_to_ostream(std::ostream &os) const {
+template <typename GravitationalField, typename EntropyProfile, typename View1D>
+std::ostream &PRhoProfile<GravitationalField, EntropyProfile, View1D>::write_to_ostream(
+    std::ostream &os) const {
 
-    const typename HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::dP_dr_from_r_P_functor dP_dr_func(sphere_);
-      for (int i = 0; i < R_.extent(0); i++) {
+  const typename HydrostaticEquilibriumSphere<
+      GravitationalField, EntropyProfile>::dP_dr_from_r_P_functor dP_dr_func(sphere_);
+  for (int i = 0; i < R_.extent(0); i++) {
     const Real r = R_(i);
     const Real P = P_(i);
     const Real K = sphere_.entropy_profile_.K_from_r(r);
@@ -163,10 +163,10 @@ PRhoProfile<GravitationalField,EntropyProfile,
 /************************************************************
  * HydrostaticEquilibriumSphere::generate_P_rho_profile(x,y,z)
  ************************************************************/
-template < typename GravitationalField,typename EntropyProfile>
+template <typename GravitationalField, typename EntropyProfile>
 template <typename View1D, typename Coords>
-PRhoProfile<GravitationalField,EntropyProfile, View1D>
-HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::generate_P_rho_profile(
+PRhoProfile<GravitationalField, EntropyProfile, View1D>
+HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
     IndexRange ib, IndexRange jb, IndexRange kb, Coords coords) const {
 
   /************************************************************
@@ -219,8 +219,8 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::generate_P_rho_
  ************************************************************/
 template <typename GravitationalField, typename EntropyProfile>
 template <typename View1D>
-PRhoProfile<GravitationalField,EntropyProfile, View1D>
-HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile >::generate_P_rho_profile(
+PRhoProfile<GravitationalField, EntropyProfile, View1D>
+HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
     const Real R_start, const Real R_end, const unsigned int n_R) const {
 
   // Array of radii along which to compute the profile
@@ -279,36 +279,36 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile >::generate_P_rho
     Pi = P(i + 1);
   }
 
-  return PRhoProfile<GravitationalField,EntropyProfile,View1D>(R, P, *this);
+  return PRhoProfile<GravitationalField, EntropyProfile, View1D>(R, P, *this);
 }
 
 // Instantiate HydrostaticEquilibriumSphere
 template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>;
 
 // Instantiate PRhoProfile
-template class 
-    PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,parthenon::ParArray1D<parthenon::Real>>;
+template class PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
+                           parthenon::ParArray1D<parthenon::Real>>;
 #if defined(KOKKOS_ENABLE_CUDA)
-template class 
-    PRhoProfile<ClusterGravity,ACCEPTEntropyProfile,Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>;
+template class PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
+                           Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>;
 #endif
 
 // Instantiate generate_P_rho_profile
 template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
-    parthenon::ParArray1D<parthenon::Real>>
+                     parthenon::ParArray1D<parthenon::Real>>
     HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
         generate_P_rho_profile<parthenon::ParArray1D<parthenon::Real>,
                                parthenon::UniformCartesian>(
             parthenon::IndexRange, parthenon::IndexRange, parthenon::IndexRange,
             parthenon::UniformCartesian) const;
 template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
-    parthenon::ParArray1D<parthenon::Real>>
+                     parthenon::ParArray1D<parthenon::Real>>
 HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
     generate_P_rho_profile<parthenon::ParArray1D<parthenon::Real>>(
         const parthenon::Real, const parthenon::Real, const unsigned int) const;
 #if defined(KOKKOS_ENABLE_CUDA)
 template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
-    Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
+                     Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
     HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
         generate_P_rho_profile<
             Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>,
@@ -316,7 +316,7 @@ template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
                                          parthenon::IndexRange,
                                          parthenon::UniformCartesian) const;
 template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
-    Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
+                     Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
 HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
     generate_P_rho_profile<Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>(
         const parthenon::Real, const parthenon::Real, const unsigned int) const;

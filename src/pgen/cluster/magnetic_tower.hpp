@@ -109,7 +109,6 @@ class MagneticTower {
   const parthenon::Real initial_field_;
   const parthenon::Real fixed_field_rate_;
 
-
  public:
   MagneticTower(parthenon::ParameterInput *pin,
                 const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg,
