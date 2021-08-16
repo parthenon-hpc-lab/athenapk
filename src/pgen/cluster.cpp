@@ -230,8 +230,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
                 "hydrostatic_equilibirum_sphere");
 
     const auto P_rho_profile = he_sphere.generate_P_rho_profile<
-        Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
-                     parthenon::HostMemSpace>,
         parthenon::UniformCartesian>(ib, jb, kb, coords);
 
     // initialize conserved variables

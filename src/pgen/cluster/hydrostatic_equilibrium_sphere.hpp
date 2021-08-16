@@ -18,7 +18,7 @@
 
 namespace cluster {
 
-template <typename GravitationalField, typename EntropyProfile, typename View1D>
+template <typename GravitationalField, typename EntropyProfile>
 class PRhoProfile;
 
 /************************************************************
@@ -138,39 +138,39 @@ class HydrostaticEquilibriumSphere {
       GravitationalField gravitational_field, EntropyProfile entropy_profile);
 
 
-  template <typename View1D, typename Coords>
-  PRhoProfile<GravitationalField, EntropyProfile, View1D>
+  template <typename Coords>
+  PRhoProfile<GravitationalField, EntropyProfile>
   generate_P_rho_profile(parthenon::IndexRange ib, parthenon::IndexRange jb,
                          parthenon::IndexRange kb, Coords coords) const;
 
-  template <typename View1D>
-    PRhoProfile<GravitationalField, EntropyProfile, View1D> generate_P_rho_profile(const parthenon::Real R_start,
+  PRhoProfile<GravitationalField, EntropyProfile> generate_P_rho_profile(const parthenon::Real R_start,
         const parthenon::Real R_end,
         const unsigned int n_R) const;
 
-    template <typename GF, typename EP, typename View1D>
+    template <typename GF, typename EP>
   friend class PRhoProfile;
 
 };
 
-template <typename GravitationalField, typename EntropyProfile, typename View1D>
+template <typename GravitationalField, typename EntropyProfile>
 class PRhoProfile {
  private:
-  const View1D R_;
-  const View1D P_;
+  const parthenon::ParArray1D<parthenon::Real> R_;
+  const parthenon::ParArray1D<parthenon::Real> P_;
   const HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile> sphere_;
 
   const int n_R_;
   const parthenon::Real R_start_, R_end_;
 
  public:
-  PRhoProfile(const View1D R, const View1D P,
-              const HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile> &sphere)
-      : R_(R), P_(P), sphere_(sphere), n_R_(R_.extent(0)), R_start_(R_(0)),
-        R_end_(R_(n_R_ - 1)) {}
+  PRhoProfile(const parthenon::ParArray1D<parthenon::Real> R, const
+      parthenon::ParArray1D<parthenon::Real> P,
+      const parthenon::Real R_start, const parthenon::Real R_end,
+      const HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile> &sphere)
+      : R_(R), P_(P), sphere_(sphere), n_R_(R_.extent(0)), R_start_(R_start),
+        R_end_(R_end) {}
 
   KOKKOS_INLINE_FUNCTION parthenon::Real P_from_r(const parthenon::Real r) const{
-    using parthenon::Real;
     // Determine indices in R bounding r
     const int i_r =
         static_cast<int>(floor((n_R_ - 1) / (R_end_ - R_start_) * (r - R_start_)));
@@ -187,7 +187,7 @@ class PRhoProfile {
     }
 
     // Linearly interpolate Pressure from P
-    const Real P_r = (P_(i_r) * (R_(i_r + 1) - r) + P_(i_r + 1) * (r - R_(i_r))) /
+    const parthenon::Real P_r = (P_(i_r) * (R_(i_r + 1) - r) + P_(i_r + 1) * (r - R_(i_r))) /
                      (R_(i_r + 1) - R_(i_r));
 
     return P_r;

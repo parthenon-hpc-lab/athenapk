@@ -74,9 +74,8 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
     const int test_he_sphere_n_r = pin->GetOrAddInteger(
         "problem/cluster/hydrostatic_equilibrium", "test_he_sphere_n_r", 4000);
     if (Globals::my_rank == 0) {
-      typedef Kokkos::View<Real *, Kokkos::LayoutRight, HostMemSpace> View1D;
 
-      auto P_rho_profile = generate_P_rho_profile<View1D>(
+      auto P_rho_profile = generate_P_rho_profile(
           test_he_sphere_R_start, test_he_sphere_R_end, test_he_sphere_n_r);
 
       std::ofstream test_he_file;
@@ -89,63 +88,24 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
   hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere", *this);
 }
 
-///************************************************************
-// * PRhoProfile::P_from_r
-// ************************************************************/
-//template <typename EntropyProfile, typename GravitationalField>
-//template <typename View1D>
-//Real HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::PRhoProfile<
-//    View1D>::P_from_r(const Real r) const {
-//
-//  // Determine indices in R bounding r
-//  const int i_r =
-//      static_cast<int>(floor((n_R_ - 1) / (R_end_ - R_start_) * (r - R_start_)));
-//
-//  if (r < R_(i_r) - kRTol || r > R_(i_r + 1) + kRTol) {
-//    std::stringstream msg;
-//    msg << "### FATAL ERROR in function [HydrostaticEquilibriumSphere::PRhoProfile]"
-//        << std::endl
-//        << "R(i_r) to R_(i_r+1) does not contain r" << std::endl
-//        << "R(i_r) R_r R(i_r+1):" << R_(i_r) << " " << r << " " << R_(i_r + 1)
-//        << std::endl;
-//    PARTHENON_FAIL(msg);
-//  }
-//
-//  // Linearly interpolate Pressure from P
-//  const Real P_r = (P_(i_r) * (R_(i_r + 1) - r) + P_(i_r + 1) * (r - R_(i_r))) /
-//                   (R_(i_r + 1) - R_(i_r));
-//
-//  return P_r;
-//}
-//
-///************************************************************
-// * PRhoProfile::rho_from_r
-// ************************************************************/
-//template <typename EntropyProfile, typename GravitationalField>
-//template <typename View1D>
-//Real HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::PRhoProfile<
-//    View1D>::rho_from_r(const Real r) const {
-//
-//  // Get pressure first
-//  const Real P_r = P_from_r(r);
-//  // Compute entropy and pressure here
-//  const Real K_r = sphere_.entropy_profile_.K_from_r(r);
-//  const Real rho_r = sphere_.rho_from_P_K(P_r, K_r);
-//  return rho_r;
-//}
-
 /************************************************************
  * PRhoProfile::write_to_ostream
  ************************************************************/
-template <typename GravitationalField,typename EntropyProfile,  typename View1D>
+template <typename GravitationalField,typename EntropyProfile>
 std::ostream &
-PRhoProfile<GravitationalField,EntropyProfile, 
-    View1D>::write_to_ostream(std::ostream &os) const {
+PRhoProfile<GravitationalField,EntropyProfile>::write_to_ostream(std::ostream &os) const {
 
     const typename HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::dP_dr_from_r_P_functor dP_dr_func(sphere_);
-      for (int i = 0; i < R_.extent(0); i++) {
-    const Real r = R_(i);
-    const Real P = P_(i);
+
+    auto host_R = Kokkos::create_mirror_view(R_);
+    Kokkos::deep_copy(host_R,R_);
+    auto host_P = Kokkos::create_mirror_view(P_);
+    Kokkos::deep_copy(host_P,P_);
+
+
+      for (int i = 0; i < host_R.extent(0); i++) {
+    const Real r = host_R(i);
+    const Real P = host_P(i);
     const Real K = sphere_.entropy_profile_.K_from_r(r);
     const Real rho = sphere_.rho_from_P_K(P, K);
     const Real n = sphere_.n_from_rho(rho);
@@ -161,11 +121,11 @@ PRhoProfile<GravitationalField,EntropyProfile,
 }
 
 /************************************************************
- * HydrostaticEquilibriumSphere::generate_P_rho_profile(x,y,z)
+ *HydrostaticEquilibriumSphere::generate_P_rho_profile(x,y,z)
  ************************************************************/
 template < typename GravitationalField,typename EntropyProfile>
-template <typename View1D, typename Coords>
-PRhoProfile<GravitationalField,EntropyProfile, View1D>
+template < typename Coords>
+PRhoProfile<GravitationalField,EntropyProfile>
 HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::generate_P_rho_profile(
     IndexRange ib, IndexRange jb, IndexRange kb, Coords coords) const {
 
@@ -207,24 +167,24 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::generate_P_rho_
   R_end += R_sampling_ * dR;
 
   // Compute number of cells needed
-  const unsigned int n_R = static_cast<unsigned int>(ceil((R_end - R_start) / dR));
+  const auto n_R = static_cast<unsigned int>(ceil((R_end - R_start) / dR));
   // Make R_end  consistent
   R_end = R_start + dR * (n_R - 1);
 
-  return generate_P_rho_profile<View1D>(R_start, R_end, n_R);
+  return generate_P_rho_profile(R_start, R_end, n_R);
 }
 
 /************************************************************
  * HydrostaticEquilibriumSphere::generate_P_rho_profile(Ri,Re,nR)
  ************************************************************/
 template <typename GravitationalField, typename EntropyProfile>
-template <typename View1D>
-PRhoProfile<GravitationalField,EntropyProfile, View1D>
+PRhoProfile<GravitationalField,EntropyProfile>
 HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile >::generate_P_rho_profile(
     const Real R_start, const Real R_end, const unsigned int n_R) const {
 
   // Array of radii along which to compute the profile
-  View1D R("R", n_R);
+  ParArray1D<parthenon::Real> device_R("R", n_R);
+  auto R = Kokkos::create_mirror_view(device_R);
   const Real dR = (R_end - R_start) / (n_R - 1.0);
 
   // Use a linear R - possibly adapt if using a mesh with logrithmic r
@@ -236,7 +196,8 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile >::generate_P_rho
    * Integrate Pressure inward and outward from virial radius
    ************************************************************/
   // Create array for pressure
-  View1D P("P", n_R);
+  ParArray1D<parthenon::Real> device_P("P", n_R);
+  auto P = Kokkos::create_mirror_view(device_P);
 
   const Real K_fix = entropy_profile_.K_from_r(R_fix_);
   const Real P_fix = P_from_rho_K(rho_fix_, K_fix);
@@ -279,7 +240,12 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile >::generate_P_rho
     Pi = P(i + 1);
   }
 
-  return PRhoProfile<GravitationalField,EntropyProfile,View1D>(R, P, *this);
+  Kokkos::deep_copy(device_R,R);
+  Kokkos::deep_copy(device_P,P);
+
+  return PRhoProfile<GravitationalField,EntropyProfile>(device_R, device_P, 
+      R(0),R(n_R-1),
+      *this);
 }
 
 // Instantiate HydrostaticEquilibriumSphere
@@ -287,39 +253,13 @@ template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile
 
 // Instantiate PRhoProfile
 template class 
-    PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,parthenon::ParArray1D<parthenon::Real>>;
-#if defined(KOKKOS_ENABLE_CUDA)
-template class 
-    PRhoProfile<ClusterGravity,ACCEPTEntropyProfile,Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>;
-#endif
+    PRhoProfile<ClusterGravity, ACCEPTEntropyProfile>;
 
 // Instantiate generate_P_rho_profile
-template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
-    parthenon::ParArray1D<parthenon::Real>>
+template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile>
     HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-        generate_P_rho_profile<parthenon::ParArray1D<parthenon::Real>,
-                               parthenon::UniformCartesian>(
+        generate_P_rho_profile<parthenon::UniformCartesian>(
             parthenon::IndexRange, parthenon::IndexRange, parthenon::IndexRange,
             parthenon::UniformCartesian) const;
-template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
-    parthenon::ParArray1D<parthenon::Real>>
-HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-    generate_P_rho_profile<parthenon::ParArray1D<parthenon::Real>>(
-        const parthenon::Real, const parthenon::Real, const unsigned int) const;
-#if defined(KOKKOS_ENABLE_CUDA)
-template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
-    Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
-    HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-        generate_P_rho_profile<
-            Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>,
-            parthenon::UniformCartesian>(parthenon::IndexRange, parthenon::IndexRange,
-                                         parthenon::IndexRange,
-                                         parthenon::UniformCartesian) const;
-template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile,
-    Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
-HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-    generate_P_rho_profile<Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>(
-        const parthenon::Real, const parthenon::Real, const unsigned int) const;
-#endif
 
 } // namespace cluster
