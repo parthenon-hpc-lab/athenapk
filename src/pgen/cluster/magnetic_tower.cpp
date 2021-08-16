@@ -203,11 +203,10 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
   MTPowerReductionType mt_power_reduction;
   Kokkos::Sum<MTPowerReductionType> reducer_sum(mt_power_reduction);
 
-  Kokkos::parallel_reduce( // FIXME: change to parthenon_reduce?
-      "MagneticTowerScaleFactor",
-      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
-          {0, kb.s, jb.s, ib.s}, {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-          {1, 1, 1, ib.e + 1 - ib.s}),
+  parthenon::par_reduce(
+      parthenon::loop_pattern_mdrange_tag, "MagneticTowerScaleFactor",
+      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     MTPowerReductionType &team_mt_power_reduction) {
         auto &cons = cons_pack(b);

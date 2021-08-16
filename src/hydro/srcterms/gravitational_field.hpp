@@ -53,13 +53,10 @@ void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
         // Apply g_r as a source term
         const Real den = prim(IDN, k, j, i);
-        const Real src =
-            (r == 0) ? 0
-                     : beta_dt * den * g_r / r; // FIXME watch out for previous /r errors
+        const Real src = (r == 0) ? 0 : beta_dt * den * g_r / r;
         cons(IM1, k, j, i) -= src * coords.x1v(i);
         cons(IM2, k, j, i) -= src * coords.x2v(j);
         cons(IM3, k, j, i) -= src * coords.x3v(k);
-        // FIXME Double check this
         cons(IEN, k, j, i) -= src * (coords.x1v(i) * prim(IV1, k, j, i) +
                                      coords.x2v(j) * prim(IV2, k, j, i) +
                                      coords.x3v(k) * prim(IV3, k, j, i));
