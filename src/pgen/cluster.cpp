@@ -229,8 +229,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
             ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
                 "hydrostatic_equilibirum_sphere");
 
-    const auto P_rho_profile = he_sphere.generate_P_rho_profile<
-        parthenon::UniformCartesian>(ib, jb, kb, coords);
+    const auto P_rho_profile =
+        he_sphere.generate_P_rho_profile<parthenon::UniformCartesian>(ib, jb, kb, coords);
 
     // initialize conserved variables
     parthenon::par_for(

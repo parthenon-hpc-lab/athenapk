@@ -91,19 +91,19 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
 /************************************************************
  * PRhoProfile::write_to_ostream
  ************************************************************/
-template <typename GravitationalField,typename EntropyProfile>
-std::ostream &
-PRhoProfile<GravitationalField,EntropyProfile>::write_to_ostream(std::ostream &os) const {
+template <typename GravitationalField, typename EntropyProfile>
+std::ostream &PRhoProfile<GravitationalField, EntropyProfile>::write_to_ostream(
+    std::ostream &os) const {
 
-    const typename HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::dP_dr_from_r_P_functor dP_dr_func(sphere_);
+  const typename HydrostaticEquilibriumSphere<
+      GravitationalField, EntropyProfile>::dP_dr_from_r_P_functor dP_dr_func(sphere_);
 
-    auto host_R = Kokkos::create_mirror_view(R_);
-    Kokkos::deep_copy(host_R,R_);
-    auto host_P = Kokkos::create_mirror_view(P_);
-    Kokkos::deep_copy(host_P,P_);
+  auto host_R = Kokkos::create_mirror_view(R_);
+  Kokkos::deep_copy(host_R, R_);
+  auto host_P = Kokkos::create_mirror_view(P_);
+  Kokkos::deep_copy(host_P, P_);
 
-
-      for (int i = 0; i < host_R.extent(0); i++) {
+  for (int i = 0; i < host_R.extent(0); i++) {
     const Real r = host_R(i);
     const Real P = host_P(i);
     const Real K = sphere_.entropy_profile_.K_from_r(r);
@@ -123,10 +123,10 @@ PRhoProfile<GravitationalField,EntropyProfile>::write_to_ostream(std::ostream &o
 /************************************************************
  *HydrostaticEquilibriumSphere::generate_P_rho_profile(x,y,z)
  ************************************************************/
-template < typename GravitationalField,typename EntropyProfile>
-template < typename Coords>
-PRhoProfile<GravitationalField,EntropyProfile>
-HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::generate_P_rho_profile(
+template <typename GravitationalField, typename EntropyProfile>
+template <typename Coords>
+PRhoProfile<GravitationalField, EntropyProfile>
+HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
     IndexRange ib, IndexRange jb, IndexRange kb, Coords coords) const {
 
   /************************************************************
@@ -178,8 +178,8 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile>::generate_P_rho_
  * HydrostaticEquilibriumSphere::generate_P_rho_profile(Ri,Re,nR)
  ************************************************************/
 template <typename GravitationalField, typename EntropyProfile>
-PRhoProfile<GravitationalField,EntropyProfile>
-HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile >::generate_P_rho_profile(
+PRhoProfile<GravitationalField, EntropyProfile>
+HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
     const Real R_start, const Real R_end, const unsigned int n_R) const {
 
   // Array of radii along which to compute the profile
@@ -240,20 +240,18 @@ HydrostaticEquilibriumSphere<GravitationalField,EntropyProfile >::generate_P_rho
     Pi = P(i + 1);
   }
 
-  Kokkos::deep_copy(device_R,R);
-  Kokkos::deep_copy(device_P,P);
+  Kokkos::deep_copy(device_R, R);
+  Kokkos::deep_copy(device_P, P);
 
-  return PRhoProfile<GravitationalField,EntropyProfile>(device_R, device_P, 
-      R(0),R(n_R-1),
-      *this);
+  return PRhoProfile<GravitationalField, EntropyProfile>(device_R, device_P, R(0),
+                                                         R(n_R - 1), *this);
 }
 
 // Instantiate HydrostaticEquilibriumSphere
 template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>;
 
 // Instantiate PRhoProfile
-template class 
-    PRhoProfile<ClusterGravity, ACCEPTEntropyProfile>;
+template class PRhoProfile<ClusterGravity, ACCEPTEntropyProfile>;
 
 // Instantiate generate_P_rho_profile
 template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile>
