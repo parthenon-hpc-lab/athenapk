@@ -177,13 +177,6 @@ class PRhoProfile {
         static_cast<int>(floor((n_R_ - 1) / (R_end_ - R_start_) * (r - R_start_)));
 
     if (r < R_(i_r) - sphere_.kRTol || r > R_(i_r + 1) + sphere_.kRTol) {
-      // std::stringstream msg;
-      // msg << "### FATAL ERROR in function [HydrostaticEquilibriumSphere::PRhoProfile]"
-      //    << std::endl
-      //    << "R(i_r) to R_(i_r+1) does not contain r" << std::endl
-      //    << "R(i_r) R_r R(i_r+1):" << R_(i_r) << " " << r << " " << R_(i_r + 1)
-      //    << std::endl;
-      // PARTHENON_FAIL(msg);
       Kokkos::abort("PRhoProfile::P_from_r R(i_r) to R_(i_r+1) does not contain r");
     }
 

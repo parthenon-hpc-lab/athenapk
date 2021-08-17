@@ -95,9 +95,9 @@ pres = 1.5454368403867562
 
 <problem/cluster/precessing_jet>
 #Define a precessing jet
-jet_theta = 1.2
+jet_theta = 0.2
 jet_phi_dot = 0
-jet_phi0 = 2.2
+jet_phi0 = 1
 
 <problem/cluster/agn_feedback>
 agn_power = 0.0016599828166743962

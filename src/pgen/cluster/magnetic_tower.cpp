@@ -56,7 +56,7 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add,
   //  but would still require more DRAM memory and two kernel launches
   //  2. Compute the potential (12 needed in all) in the same kernel,
   //  constructing the derivative without storing the potential (more
-  //  arithmetically intensive, potentially faster)
+  //  arithmetically intensive, maybe faster)
   ParArray5D<Real> A("magnetic_tower_A", 3, cons_pack.GetDim(5),
                      cons_pack.cellbounds.ncellsk(IndexDomain::entire),
                      cons_pack.cellbounds.ncellsj(IndexDomain::entire),
