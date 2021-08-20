@@ -63,6 +63,7 @@ class Units {
     pkg->AddParam<>("code_length_cgs", code_length_cgs_);
     pkg->AddParam<>("code_mass_cgs", code_mass_cgs_);
     pkg->AddParam<>("code_time_cgs", code_time_cgs_);
+    pkg->AddParam<>("units", *this);
   }
 
   // Code scales in cgs

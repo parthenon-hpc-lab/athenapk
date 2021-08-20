@@ -346,8 +346,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
 
   if (pin->DoesBlockExist("units")) {
-    Units units(pin);
-    pkg->AddParam<>("units", units);
+    Units units(pin, pkg);
   }
 
   auto eos_str = pin->GetString("hydro", "eos");
