@@ -153,12 +153,12 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"units/code_mass_cgs={self.code_mass.in_units('g').v}",
                 f"units/code_time_cgs={self.code_time.in_units('s').v}",
 
-                f"problem/cluster/init_uniform_gas=true",
-                f"problem/cluster/uniform_gas_rho={self.uniform_gas_rho.in_units('code_mass*code_length**-3').v}",
-                f"problem/cluster/uniform_gas_ux={self.uniform_gas_ux.in_units('code_length*code_time**-1').v}",
-                f"problem/cluster/uniform_gas_uy={self.uniform_gas_uy.in_units('code_length*code_time**-1').v}",
-                f"problem/cluster/uniform_gas_uz={self.uniform_gas_uz.in_units('code_length*code_time**-1').v}",
-                f"problem/cluster/uniform_gas_pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
+                f"problem/cluster/uniform_gas/init_uniform_gas=true",
+                f"problem/cluster/uniform_gas/rho={self.uniform_gas_rho.in_units('code_mass*code_length**-3').v}",
+                f"problem/cluster/uniform_gas/ux={self.uniform_gas_ux.in_units('code_length*code_time**-1').v}",
+                f"problem/cluster/uniform_gas/uy={self.uniform_gas_uy.in_units('code_length*code_time**-1').v}",
+                f"problem/cluster/uniform_gas/uz={self.uniform_gas_uz.in_units('code_length*code_time**-1').v}",
+                f"problem/cluster/uniform_gas/pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
 
                 f"cooling/table_filename={table_filename}",
                 f"cooling/log_temp_col=0",

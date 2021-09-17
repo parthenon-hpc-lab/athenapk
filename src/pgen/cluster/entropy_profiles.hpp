@@ -19,24 +19,24 @@ namespace cluster {
 class ACCEPTEntropyProfile {
  private:
   // Entropy Profile
-  parthenon::Real K_0_, K_100_, R_K_, alpha_K_;
+  parthenon::Real k_0_, k_100_, r_k_, alpha_k_;
 
  public:
   ACCEPTEntropyProfile(parthenon::ParameterInput *pin) {
     Units units(pin);
 
-    K_0_ = pin->GetOrAddReal("problem/cluster", "K_0",
+    k_0_ = pin->GetOrAddReal("problem/cluster/entropy_profile", "k_0",
                              20 * units.kev() * units.cm() * units.cm());
-    K_100_ = pin->GetOrAddReal("problem/cluster", "K_100",
+    k_100_ = pin->GetOrAddReal("problem/cluster/entropy_profile", "k_100",
                                120 * units.kev() * units.cm() * units.cm());
-    R_K_ = pin->GetOrAddReal("problem/cluster", "R_K", 100 * units.kpc());
-    alpha_K_ = pin->GetOrAddReal("problem/cluster", "alpha_K", 1.75);
+    r_k_ = pin->GetOrAddReal("problem/cluster/entropy_profile", "r_k", 100 * units.kpc());
+    alpha_k_ = pin->GetOrAddReal("problem/cluster/entropy_profile", "alpha_k", 1.75);
   }
 
   // Get entropy from radius, using broken power law profile for entropy
-  parthenon::Real K_from_r(const parthenon::Real r) const {
-    const parthenon::Real K = K_0_ + K_100_ * pow(r / R_K_, alpha_K_);
-    return K;
+  KOKKOS_INLINE_FUNCTION parthenon::Real K_from_r(const parthenon::Real r) const {
+    const parthenon::Real k = k_0_ + k_100_ * pow(r / r_k_, alpha_k_);
+    return k;
   }
 };
 

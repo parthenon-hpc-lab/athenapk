@@ -127,4 +127,4 @@ class Units {
   parthenon::Real microgauss() const { return microgauss_cgs / code_magnetic_cgs(); }
 };
 
-#endif // PHYSICAL_CONSTANTS_HPP_
+#endif // UNITS_HPP_

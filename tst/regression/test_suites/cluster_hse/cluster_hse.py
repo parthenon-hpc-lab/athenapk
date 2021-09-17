@@ -57,14 +57,14 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         #NFW parameters
         self.c_nfw = 6.0
-        self.M_nfw_200 = unyt.unyt_quantity(1e15,"Msun")
+        self.m_nfw_200 = unyt.unyt_quantity(1e15,"Msun")
 
         #BCG parameters
-        self.M_bcg_s = unyt.unyt_quantity(1e11,"Msun")
-        self.R_bcg_s = unyt.unyt_quantity(4,"kpc")
+        self.m_bcg_s = unyt.unyt_quantity(1e11,"Msun")
+        self.r_bcg_s = unyt.unyt_quantity(4,"kpc")
 
         #SMBH parameters
-        self.M_smbh = unyt.unyt_quantity(1e8,"Msun")
+        self.m_smbh = unyt.unyt_quantity(1e8,"Msun")
 
         #Smooth gravity at origin, for numerical reasons
         self.g_smoothing_radius = unyt.unyt_quantity(0.0,"code_length")
@@ -122,23 +122,23 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"units/code_mass_cgs={self.code_mass.in_units('g').v}",
                 f"units/code_time_cgs={self.code_time.in_units('s').v}",
                 f"problem/cluster/hubble_parameter={self.hubble_parameter.in_units('1/code_time').v}",
-                f"problem/cluster/include_nfw_g={self.include_nfw_g}",
-                f"problem/cluster/which_bcg_g={self.which_bcg_g}",
-                f"problem/cluster/include_smbh_g={self.include_smbh_g}",
-                f"problem/cluster/c_nfw={self.c_nfw}",
-                f"problem/cluster/M_nfw_200={self.M_nfw_200.in_units('code_mass').v}",
-                f"problem/cluster/M_bcg_s={self.M_bcg_s.in_units('code_mass').v}",
-                f"problem/cluster/R_bcg_s={self.R_bcg_s.in_units('code_length').v}",
-                f"problem/cluster/M_smbh={self.M_smbh.in_units('code_mass').v}",
-                f"problem/cluster/g_smoothing_radius={self.g_smoothing_radius.in_units('code_length').v}",
-                f"problem/cluster/K_0={self.K_0.in_units('code_length**4*code_mass/code_time**2').v}",
-                f"problem/cluster/K_100={self.K_100.in_units('code_length**4*code_mass/code_time**2').v}",
-                f"problem/cluster/R_K={self.R_K.in_units('code_length').v}",
-                f"problem/cluster/alpha_K={self.alpha_K}",
-                f"problem/cluster/R_fix={self.R_fix.in_units('code_length').v}",
-                f"problem/cluster/rho_fix={self.rho_fix.in_units('code_mass/code_length**3').v}",
-                f"problem/cluster/R_sampling={self.R_sampling}",
-                f"problem/cluster/max_dR={self.max_dR}",
+                f"problem/cluster/gravity/include_nfw_g={self.include_nfw_g}",
+                f"problem/cluster/gravity/which_bcg_g={self.which_bcg_g}",
+                f"problem/cluster/gravity/include_smbh_g={self.include_smbh_g}",
+                f"problem/cluster/gravity/c_nfw={self.c_nfw}",
+                f"problem/cluster/gravity/m_nfw_200={self.m_nfw_200.in_units('code_mass').v}",
+                f"problem/cluster/gravity/m_bcg_s={self.m_bcg_s.in_units('code_mass').v}",
+                f"problem/cluster/gravity/r_bcg_s={self.r_bcg_s.in_units('code_length').v}",
+                f"problem/cluster/gravity/m_smbh={self.m_smbh.in_units('code_mass').v}",
+                f"problem/cluster/gravity/g_smoothing_radius={self.g_smoothing_radius.in_units('code_length').v}",
+                f"problem/cluster/entropy_profile/k_0={self.K_0.in_units('code_length**4*code_mass/code_time**2').v}",
+                f"problem/cluster/entropy_profile/k_100={self.K_100.in_units('code_length**4*code_mass/code_time**2').v}",
+                f"problem/cluster/entropy_profile/r_k={self.R_K.in_units('code_length').v}",
+                f"problem/cluster/entropy_profile/alpha_k={self.alpha_K}",
+                f"problem/cluster/hydrostatic_equilibrium/r_fix={self.R_fix.in_units('code_length').v}",
+                f"problem/cluster/hydrostatic_equilibrium/rho_fix={self.rho_fix.in_units('code_mass/code_length**3').v}",
+                f"problem/cluster/hydrostatic_equilibrium/r_sampling={self.R_sampling}",
+                f"problem/cluster/hydrostatic_equilibrium/max_dr={self.max_dR}",
             ]
 
 
@@ -179,7 +179,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         self.rho_crit = 3*self.hubble_parameter**2/(8*np.pi*self.G)
         self.rho_nfw_0 = 200./3*self.rho_crit*self.c_nfw**3/(np.log(1 + self.c_nfw) - self.c_nfw/(1 + self.c_nfw))
-        self.R_nfw_s = (self.M_nfw_200/(4*np.pi*self.rho_nfw_0*(np.log(1+self.c_nfw)-self.c_nfw/(1+self.c_nfw))))**(1./3.)
+        self.R_nfw_s = (self.m_nfw_200/(4*np.pi*self.rho_nfw_0*(np.log(1+self.c_nfw)-self.c_nfw/(1+self.c_nfw))))**(1./3.)
 
         #Thermodynamics+Entropy helpers
         def P_from_rho_K(rho,K):
@@ -197,16 +197,16 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         #Gravity helpers
         def g_nfw_from_r(r):
-            return self.G * self.M_nfw_200/( np.log(1 + self.c_nfw) - self.c_nfw/(1+self.c_nfw))*( np.log(1 + r/self.R_nfw_s) - r/(r+self.R_nfw_s))/r**2
+            return self.G * self.m_nfw_200/( np.log(1 + self.c_nfw) - self.c_nfw/(1+self.c_nfw))*( np.log(1 + r/self.R_nfw_s) - r/(r+self.R_nfw_s))/r**2
         
         def g_bcg_hernquist_from_r(r):
-            #M_bcg = 8*self.M_bcg_s*(r/self.R_bcg_s)**2/( 2*( 1 + r/self.R_bcg_s)**2)
-            #return G*M_bcg/r**2
-            g = self.G*self.M_bcg_s/(self.R_bcg_s**2)/( 2*( 1 + r/self.R_bcg_s)**2)
+            #m_bcg = 8*self.m_bcg_s*(r/self.r_bcg_s)**2/( 2*( 1 + r/self.r_bcg_s)**2)
+            #return G*m_bcg/r**2
+            g = self.G*self.m_bcg_s/(self.r_bcg_s**2)/( 2*( 1 + r/self.r_bcg_s)**2)
             return g
 
         def g_smbh_from_r(r):
-            return self.G*self.M_smbh/r**2
+            return self.G*self.m_smbh/r**2
 
         def g_from_r(r,include_gs):
             g = unyt.unyt_array(np.zeros_like(r),"code_length*code_time**-2")

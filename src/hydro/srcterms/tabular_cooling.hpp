@@ -142,14 +142,15 @@ class TabularCooling {
     if (log_temp < log_temp_start) {
       // Below table - return 0 or first entry?
       // log_lambda = log_lambdas(0);
-      // TODO(forrestglines):Currently, no cooling is implemented above the
-      // table. This behavior could be generalized via templates
+      // TODO(forrestglines):Currently, zero cooling is use for temperatures
+      // below the table. This behavior could be generalized via templates
       return 0;
     } else if (log_temp > log_temp_final) {
       // Above table
       // Return de/dt
-      // TODO(forrestglines):Currently free-free cooling is implemented above the
-      // table. This behavior could be generalized via templates
+      // TODO(forrestglines):Currently free-free cooling is used for
+      // temperatures above the table. This behavior could be generalized via
+      // templates
       log_lambda = 0.5 * log_temp - 0.5 * log_temp_final + log_lambdas(n_temp - 1);
     } else {
       // Inside table
