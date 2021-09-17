@@ -97,3 +97,39 @@ Some example input files are provided in the [inputs](inputs/) folder.
     # and check the resulting errors
     cat linearwave-errors.dat
 
+#### Data Analysis
+
+There exit several options to read/process data written by AthenaPK -- specifically in
+the `file_type = hdf5` format, see
+[Parthenon doc](https://github.com/lanl/parthenon/blob/develop/docs/outputs.md):
+
+1. With [ParaView](https://www.paraview.org/) and
+[VisIt](https://wci.llnl.gov/simulation/computer-codes/visit/).
+In ParaView, select the "XDMF Reader" when prompted.
+
+2. With [yt](https://yt-project.org/) -- though currently through a custom frontend
+that is not yet part of the main yt brach and, thus, has to be installed manually, e.g.,
+as follows:
+```bash
+cd ~/src # or any other folder of choice
+git clone https://github.com/forrestglines/yt.git
+cd yt
+git checkout parthenon-frontend
+
+# If you're using conda or virtualenv
+pip install -e .
+# OR alternatively, if you using the plain Python environment
+pip install --user -e .
+```
+Afterwards, `*.phdf` files can be read as usual with `yt.load()`.
+
+3. (Not recommended) Using the integrated Python script called "`phdf`" provided by Parthenon,
+i.e., the either install `parthenon_tools`
+(located in `external/parthenon/scripts/python/packages/parthenon/tools`) or add
+that directory to your Python path.
+Afterwards data can be read, e.g., as follows
+```Python
+data_file = phdf.phdf(data_filename)
+prim = data_file.Get("prim")
+```
+see also an internal regression test that uses this interface [here](tst/regression/test_suites/aniso_therm_cond_ring_conv/aniso_therm_cond_ring_conv.py).

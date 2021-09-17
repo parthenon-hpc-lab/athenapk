@@ -9,6 +9,7 @@
 // AthenaPK headers
 #include "hydro/hydro.hpp"
 #include "hydro/hydro_driver.hpp"
+#include "main.hpp"
 #include "pgen/pgen.hpp"
 // Initialize defaults for package specific callback functions
 namespace Hydro {
@@ -17,6 +18,7 @@ SourceFun_t ProblemSourceFirstOrder = nullptr;
 SourceFun_t ProblemSourceStrangSplit = nullptr;
 SourceFun_t ProblemSourceUnsplit = nullptr;
 EstimateTimestepFun_t ProblemEstimateTimestep = nullptr;
+std::function<AmrTag(MeshBlockData<Real> *mbd)> ProblemCheckRefinementBlock = nullptr;
 } // namespace Hydro
 
 int main(int argc, char *argv[]) {
@@ -57,6 +59,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = cloud::ProblemGenerator;
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x2] =
         cloud::InflowWindX2;
+    Hydro::ProblemCheckRefinementBlock = cloud::ProblemCheckRefinementBlock;
   } else if (problem == "blast") {
     pman.app_input->InitUserMeshData = blast::InitUserMeshData;
     pman.app_input->ProblemGenerator = blast::ProblemGenerator;
@@ -64,8 +67,13 @@ int main(int argc, char *argv[]) {
   } else if (problem == "advection") {
     pman.app_input->InitUserMeshData = advection::InitUserMeshData;
     pman.app_input->ProblemGenerator = advection::ProblemGenerator;
+  } else if (problem == "orszag_tang") {
+    pman.app_input->ProblemGenerator = orszag_tang::ProblemGenerator;
+  } else if (problem == "diffusion") {
+    pman.app_input->ProblemGenerator = diffusion::ProblemGenerator;
   } else if (problem == "field_loop") {
     pman.app_input->ProblemGenerator = field_loop::ProblemGenerator;
+    Hydro::ProblemInitPackageData = field_loop::ProblemInitPackageData;
   } else if (problem == "kh") {
     pman.app_input->ProblemGenerator = kh::ProblemGenerator;
   } else if (problem == "rand_blast") {

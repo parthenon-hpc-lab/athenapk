@@ -10,6 +10,8 @@ target_sources(athenaPK PRIVATE
     advection.cpp
     blast.cpp
     kh.cpp
+    orszag_tang.cpp
+    diffusion.cpp
     rand_blast.cpp
     cluster.cpp
     cluster/hydrostatic_equilibrium_sphere.cpp

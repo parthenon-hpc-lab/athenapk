@@ -37,6 +37,46 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
   pin->CheckDesired("parthenon/time", "cfl");
 }
 
+// Calculate mininum dx, which is used in calculating the divergence cleaning speed c_h
+TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
+  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+
+  Real mindx = std::numeric_limits<Real>::max();
+
+  bool nx2 = prim_pack.GetDim(2) > 1;
+  bool nx3 = prim_pack.GetDim(3) > 1;
+  pmb->par_reduce(
+      "CalculateGlobalMinDx", 0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmindx) {
+        const auto &coords = prim_pack.coords(b);
+        lmindx = fmin(lmindx, coords.dx1v(k, j, i));
+        if (nx2) {
+          lmindx = fmin(lmindx, coords.dx2v(k, j, i));
+        }
+        if (nx3) {
+          lmindx = fmin(lmindx, coords.dx3v(k, j, i));
+        }
+      },
+      Kokkos::Min<Real>(mindx));
+
+  // Reduction to host var is blocking and only have one of this tasks run at the same
+  // time so modifying the package should be safe.
+  auto mindx_pkg = hydro_pkg->Param<Real>("mindx");
+  if (mindx < mindx_pkg) {
+    hydro_pkg->UpdateParam("mindx", mindx);
+  }
+
+  return TaskStatus::complete;
+}
+
 // See the advection.hpp declaration for a description of how this function gets called.
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
@@ -62,7 +102,88 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     if (stage == 1) {
       pmb->meshblock_data.Add("u1", u0);
     }
+  }
 
+  const int num_partitions = pmesh->DefaultNumPartitions();
+
+  // Calculate hyperbolic divergence cleaning speed
+  // TODO(pgrete) Calculating mindx is only required after remeshing. Need to find a clean
+  // solution for this one-off global reduction.
+  if (hydro_pkg->Param<bool>("calc_c_h") && (stage == 1)) {
+    // need to make sure that there's only one region in order to MPI_reduce to work
+    TaskRegion &single_task_region = tc.AddRegion(1);
+    auto &tl = single_task_region[0];
+    // First globally reset c_h
+    auto prev_task = tl.AddTask(
+        none,
+        [](StateDescriptor *hydro_pkg) {
+          hydro_pkg->UpdateParam("mindx", std::numeric_limits<Real>::max());
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+    // Adding one task for each partition. Not using a (new) single partition containing
+    // all blocks here as this (default) split is also used for the following tasks and
+    // thus does not create an overhead (such as creating a new MeshBlockPack that is just
+    // used here). Given that all partitions are in one task list they'll be executed
+    // sequentially. Given that a par_reduce to a host var is blocking it's also save to
+    // store the variable in the Params for now.
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto new_mindx = tl.AddTask(prev_task, CalculateGlobalMinDx, mu0.get());
+      prev_task = new_mindx;
+    }
+    auto reduce_c_h = prev_task;
+#ifdef MPI_PARALLEL
+    reduce_c_h = tl.AddTask(
+        prev_task,
+        [](StateDescriptor *hydro_pkg) {
+          Real mins[2];
+          mins[0] = hydro_pkg->Param<Real>("mindx");
+          mins[1] = hydro_pkg->Param<Real>("dt_hyp");
+          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, mins, 2, MPI_PARTHENON_REAL,
+                                            MPI_MIN, MPI_COMM_WORLD));
+
+          hydro_pkg->UpdateParam("mindx", mins[0]);
+          hydro_pkg->UpdateParam("dt_hyp", mins[1]);
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+#endif
+    // Finally update c_h
+    auto update_c_h = tl.AddTask(
+        reduce_c_h,
+        [](StateDescriptor *hydro_pkg) {
+          const auto &mindx = hydro_pkg->Param<Real>("mindx");
+          const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
+          const auto &dt_hyp = hydro_pkg->Param<Real>("dt_hyp");
+          hydro_pkg->UpdateParam("c_h", cfl_hyp * mindx / dt_hyp);
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+  }
+
+  // First add split sources before the main time integration
+  if (stage == 1) {
+    TaskRegion &strang_init_region = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = strang_init_region[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+
+      // Add initial Strang split source terms, i.e., a dt/2 update
+      // IMPORTANT 1: This task must also update `prim` and `cons` variables so that
+      // the source term is applied to all active registers in the flux calculation.
+      // IMPORTANT 2: The tasks should work using `cons` variables as input as in the
+      // final step, `prim` are not updated yet from the flux calculation.
+      tl.AddTask(none, AddSplitSourcesStrang, mu0.get(), tm);
+    }
+  }
+
+  // Now start the main time integration by resetting the registers
+  TaskRegion &async_region_init_int = tc.AddRegion(num_task_lists_executed_independently);
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &pmb = blocks[i];
+    auto &tl = async_region_init_int[i];
+    auto &u0 = pmb->meshblock_data.Get();
     auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, u0.get(),
                                  BoundaryCommSubset::all);
 
@@ -83,44 +204,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           u0.get(), u1.get(), hydro_pkg->Param<bool>("first_order_flux_correct"));
     }
   }
-  const int num_partitions = pmesh->DefaultNumPartitions();
-
-  // calculate hyperbolic divergence cleaning speed
-  // TODO(pgrete) Merge with dt calc
-  // TODO(pgrete) Add "MeshTask" with reduction to Parthenon
-  if (hydro_pkg->Param<bool>("calc_c_h") && (stage == 1)) {
-    // need to make sure that there's only one region in order to MPI_reduce to work
-    TaskRegion &single_task_region = tc.AddRegion(1);
-    auto &tl = single_task_region[0];
-    // First globally reset c_h
-    auto prev_task = tl.AddTask(
-        none,
-        [](StateDescriptor *hydro_pkg) {
-          hydro_pkg->UpdateParam("c_h", 0.0);
-          return TaskStatus::complete;
-        },
-        hydro_pkg.get());
-    // Adding one task for each partition. Given that they're all in one task list
-    // they'll be executed sequentially. Given that a par_reduce to a host var is
-    // blocking it's also save to store the variable in the Params for now.
-    for (int i = 0; i < num_partitions; i++) {
-      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_c_h = tl.AddTask(prev_task, GLMMHD::CalculateCleaningSpeed, mu0.get());
-      prev_task = new_c_h;
-    }
-#ifdef MPI_PARALLEL
-    auto reduce_c_h = tl.AddTask(
-        prev_task,
-        [](StateDescriptor *hydro_pkg) {
-          auto c_h = hydro_pkg->Param<Real>("c_h");
-          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &c_h, 1, MPI_PARTHENON_REAL,
-                                            MPI_MAX, MPI_COMM_WORLD));
-          hydro_pkg->UpdateParam("c_h", c_h);
-          return TaskStatus::complete;
-        },
-        hydro_pkg.get());
-#endif
-  }
 
   // note that task within this region that contains one tasklist per pack
   // could still be executed in parallel
@@ -130,19 +213,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
-    // Add initial Strang split source terms, i.e., a dt/2 update
-    // IMPORTANT 1: This task must also update `prim` and `cons` variables so that
-    // the source term is applied to all active registers in the flux calculation.
-    // IMPORTANT 2: The tasks should work using `cons` variables as input as in the
-    // final step, `prim` are not updated yet from the flux calculation.
-    TaskID source_split_strang_init = none;
-    if (stage == 1) {
-      source_split_strang_init = tl.AddTask(none, AddSplitSourcesStrang, mu0.get(), tm);
-    }
-
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
-    auto calc_flux = tl.AddTask(source_split_strang_init, calc_flux_fun, mu0);
+    auto calc_flux = tl.AddTask(none, calc_flux_fun, mu0);
 
     // TODO(pgrete) figure out what to do about the sources from the first stage
     // that are potentially disregarded when the (m)hd fluxes are corrected in the second

@@ -7,10 +7,11 @@ add_executable(
         eos/adiabatic_glmmhd.cpp
         units.hpp
         eos/adiabatic_hydro.cpp
+        hydro/diffusion/diffusion.hpp
+        hydro/diffusion/conduction.cpp
         hydro/hydro_driver.cpp
         hydro/hydro.cpp
         hydro/glmmhd/dedner_source.cpp
-        hydro/glmmhd/cleaning_speed.cpp
         hydro/srcterms/gravitational_field.hpp
         hydro/srcterms/tabular_cooling.hpp
         hydro/srcterms/tabular_cooling.cpp

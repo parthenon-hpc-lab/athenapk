@@ -46,9 +46,62 @@
 
 // Athena headers
 #include "../main.hpp"
+#include "outputs/outputs.hpp"
 
 namespace field_loop {
-using namespace parthenon::driver::prelude;
+using namespace parthenon::package::prelude;
+
+Real B0_ = 0.0;
+
+// Relative divergence of B error, i.e., L * |div(B)| / |B_0|
+// This is different from the standard package one because it uses
+// a fixed B0, which is required in this pgen to get sensible results
+// as some fraction of the domain has |B| = 0
+Real RelDivBHst(MeshData<Real> *md) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const bool three_d = cons_pack.GetNdim() == 3;
+
+  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+
+  Real sum = 0.0;
+  auto B0 = B0_;
+
+  pmb->par_reduce(
+      "RelDivBHst", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+        const auto &cons = cons_pack(b);
+        const auto &coords = cons_pack.coords(b);
+
+        Real divb =
+            (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /
+                coords.Dx(X1DIR, k, j, i) +
+            (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) / coords.Dx(X2DIR, k, j, i);
+        if (three_d) {
+          divb += (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
+                  coords.Dx(X3DIR, k, j, i);
+        }
+        lsum +=
+            0.5 *
+            (std::sqrt(SQR(coords.Dx(X1DIR, k, j, i)) + SQR(coords.Dx(X2DIR, k, j, i)) +
+                       SQR(coords.Dx(X3DIR, k, j, i)))) *
+            std::abs(divb) / B0 * coords.Volume(k, j, i);
+      },
+      sum);
+
+  return sum;
+}
+
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
+  auto hst_vars = pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                                    RelDivBHst, "UserRelDivB"));
+  pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
+}
 
 //========================================================================================
 //! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
@@ -78,6 +131,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   // Read initial conditions, diffusion coefficients (if needed)
   Real rad = pin->GetReal("problem/field_loop", "rad");
   Real amp = pin->GetReal("problem/field_loop", "amp");
+  B0_ = amp;
   Real vflow = pin->GetReal("problem/field_loop", "vflow");
   Real drat = pin->GetOrAddReal("problem/field_loop", "drat", 1.0);
   int iprob = pin->GetInteger("problem/field_loop", "iprob");
@@ -85,7 +139,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   Real x1size = pmb->pmy_mesh->mesh_size.x1max - pmb->pmy_mesh->mesh_size.x1min;
   Real x2size = pmb->pmy_mesh->mesh_size.x2max - pmb->pmy_mesh->mesh_size.x2min;
-  Real x3size = pmb->pmy_mesh->mesh_size.x3max - pmb->pmy_mesh->mesh_size.x3min;
+
+  const bool two_d = pmb->pmy_mesh->ndim < 3;
+  // for 2D sim set x3size to zero so that v_z is 0 below
+  Real x3size =
+      two_d ? 0 : pmb->pmy_mesh->mesh_size.x3max - pmb->pmy_mesh->mesh_size.x3min;
 
   // For (iprob=4) -- rotated cylinder in 3D -- set up rotation angle and wavelength
   if (iprob == 4) {
@@ -111,24 +169,27 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   }
 
   // Use vector potential to initialize field loop
-  // the origin of the initial loop
-  Real x0 = pin->GetOrAddReal("problem/field_loop", "x0", 0.0);
-  Real y0 = pin->GetOrAddReal("problem/field_loop", "y0", 0.0);
-  // Real z0 = pin->GetOrAddReal("problem","z0",0.0);
-
   auto &coords = pmb->coords;
 
-  for (int k = kb.s - 1; k <= kb.e + 1; k++) {
+  // manually defining loop bounds here to make vector potential work
+  int kl, ku;
+  if (two_d) {
+    kl = 0;
+    ku = 0;
+  } else {
+    kl = kb.s - 1;
+    ku = kb.e + 1;
+  }
+  for (int k = kl; k <= ku; k++) {
     for (int j = jb.s - 1; j <= jb.e + 1; j++) {
       for (int i = ib.s - 1; i <= ib.e + 1; i++) {
         // (iprob=1): field loop in x1-x2 plane (cylinder in 3D) */
         if (iprob == 1) {
           ax(k, j, i) = 0.0;
           ay(k, j, i) = 0.0;
-          if ((SQR(coords.x1v(i) - x0) + SQR(coords.x2v(j) - y0)) < rad * rad) {
+          if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j))) < rad * rad) {
             az(k, j, i) =
-                amp *
-                (rad - std::sqrt(SQR(coords.x1v(i) - x0) + SQR(coords.x2v(j) - y0)));
+                amp * (rad - std::sqrt(SQR(coords.x1v(i)) + SQR(coords.x2v(j))));
           } else {
             az(k, j, i) = 0.0;
           }
@@ -223,36 +284,35 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   // Initialize density and momenta.  If drat != 1, then density and temperature will be
   // different inside loop than background values
 
-  Real diag = std::sqrt(x1size * x1size + x2size * x2size + x3size * x3size);
-
-  auto &rc = pmb->meshblock_data.Get();
-  auto &u_dev = rc->Get("cons").data;
+  auto &mbd = pmb->meshblock_data.Get();
+  auto &u_dev = mbd->Get("cons").data;
   // initializing on host
   auto u = u_dev.GetHostMirrorAndCopy();
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
         u(IDN, k, j, i) = 1.0;
-        u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * x1size / diag;
-        u(IM2, k, j, i) = u(IDN, k, j, i) * vflow * x2size / diag;
-        u(IM3, k, j, i) = u(IDN, k, j, i) * vflow * x3size / diag;
         if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j)) + SQR(coords.x3v(k))) < rad * rad) {
           u(IDN, k, j, i) = drat;
-          u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * x1size / diag;
-          u(IM2, k, j, i) = u(IDN, k, j, i) * vflow * x2size / diag;
-          u(IM3, k, j, i) = u(IDN, k, j, i) * vflow * x3size / diag;
         }
-        u(IB1, k, j, i) = (az(k, j + 1, i) - az(k, j - 1, i)) / coords.dx2v(j) / 2.0 -
-                          (ay(k + 1, j, i) - ay(k - 1, j, i)) / coords.dx3v(k) / 2.0;
-        u(IB2, k, j, i) = (ax(k + 1, j, i) - ax(k - 1, j, i)) / coords.dx3v(k) / 2.0 -
-                          (az(k, j, i + 1) - az(k, j, i - 1)) / coords.dx1v(i) / 2.0;
+        u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * x1size;
+        u(IM2, k, j, i) = u(IDN, k, j, i) * vflow * x2size;
+        u(IM3, k, j, i) = u(IDN, k, j, i) * vflow * x3size;
+        Real aydz =
+            two_d ? 0.0 : (ay(k + 1, j, i) - ay(k - 1, j, i)) / coords.dx3v(k) / 2.0;
+        Real axdz =
+            two_d ? 0.0 : (ax(k + 1, j, i) - ax(k - 1, j, i)) / coords.dx3v(k) / 2.0;
+        u(IB1, k, j, i) =
+            (az(k, j + 1, i) - az(k, j - 1, i)) / coords.dx2v(j) / 2.0 - aydz;
+        u(IB2, k, j, i) =
+            axdz - (az(k, j, i + 1) - az(k, j, i - 1)) / coords.dx1v(i) / 2.0;
         u(IB3, k, j, i) = (ay(k, j, i + 1) - ay(k, j, i - 1)) / coords.dx1v(i) / 2.0 -
                           (ax(k, j + 1, i) - ax(k, j - 1, i)) / coords.dx2v(j) / 2.0;
 
         u(IEN, k, j, i) =
             1.0 / gm1 +
             0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i))) +
-            (0.5) * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
+            0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
                 u(IDN, k, j, i);
       }
     }

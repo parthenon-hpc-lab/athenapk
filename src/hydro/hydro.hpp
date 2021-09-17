@@ -37,6 +37,7 @@ extern SourceFun_t ProblemSourceUnsplit;
 extern SourceFun_t ProblemSourceStrangSplit;
 extern EstimateTimestepFun_t ProblemEstimateTimestep;
 extern InitPackageDataFun_t ProblemInitPackageData;
+extern std::function<AmrTag(MeshBlockData<Real> *mbd)> ProblemCheckRefinementBlock;
 
 template <Fluid fluid>
 TaskStatus CalculateFluxesTight(std::shared_ptr<MeshData<Real>> &md);

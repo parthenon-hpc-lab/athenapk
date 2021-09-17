@@ -42,6 +42,7 @@ using namespace parthenon::driver::prelude;
 void InitUserMeshData(ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
+parthenon::AmrTag ProblemCheckRefinementBlock(MeshBlockData<Real> *mbd);
 } // namespace cloud
 
 namespace blast {
@@ -60,10 +61,23 @@ void InitUserMeshData(ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 } // namespace advection
 
+namespace orszag_tang {
+using namespace parthenon::driver::prelude;
+
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace orszag_tang
+
+namespace diffusion {
+using namespace parthenon::driver::prelude;
+
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace diffusion
+
 namespace field_loop {
 using namespace parthenon::driver::prelude;
 
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 } // namespace field_loop
 
 namespace kh {
