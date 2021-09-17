@@ -1,0 +1,69 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem   = Thermal diffusion setup
+
+<job>
+problem_id = diffusion
+
+<problem/diffusion>
+#iprob = 0    # Diffusion of step function in x1 direction; 1 for x2 direction; 2 for x3
+Bx = 1.0     # Bx for x1 step function (permutated for iprobs in other directions)
+By = 0.0     # By for x1 step function (permutated for iprobs in other directions)
+
+#iprob = 10   # Diffusion of Gaussian profile in x1 direction
+sigma = 0.1  # standard deviation of Gaussian for iprob=10
+
+iprob = 20   # ring diffusion in x1-x2 plane; 21 for x2-x3 plane; 22 for x3-x1 plane
+
+<parthenon/mesh>
+refinement = none
+nghost = 2
+
+nx1 = 128
+x1min = -1.0
+x1max = 1.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 128
+x2min = -1.0
+x2max = 1.0
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 1
+x3min = -1.0
+x3max = 1.0
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1=64
+nx2=64 
+nx3=1
+
+<parthenon/time>
+integrator = rk1
+cfl = 0.3
+tlim = 10.0
+nlim = 1000000
+
+<hydro>
+fluid = glmmhd
+riemann = none
+eos = adiabatic
+reconstruction = dc
+gamma = 2.0
+
+<diffusion>
+conduction = thermal_diff
+thermal_diff_coeff_code = 0.01
+
+<parthenon/output0>
+file_type = hdf5
+dt = 10.0
+variables = prim
+id = prim

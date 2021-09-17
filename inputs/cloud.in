@@ -52,7 +52,7 @@ riemann = hlle
 reconstruction = ppm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 first_order_flux_correct = true 
-DednerExtendedSource = true
+glmmhd_source = dedner_extended
 nscalars = 1
 
 #dfloor = -1.0                            # unused, in [code units]

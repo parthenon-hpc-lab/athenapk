@@ -30,11 +30,12 @@ enum {
 // array indices for 1D primitives: velocity, transverse components of field
 enum { IV1 = 1, IV2 = 2, IV3 = 3, IPR = 4 };
 
-enum class RiemannSolver { undefined, hlle, llf, hlld };
+enum class RiemannSolver { undefined, none, hlle, llf, hlld };
 enum class Reconstruction { undefined, dc, plm, ppm, wenoz };
 enum class Integrator { undefined, rk1, rk2, vl2, rk3 };
 enum class Fluid { undefined, euler, glmmhd };
 enum class Cooling { none, tabular };
+enum class Conduction { none, spitzer, thermal_diff };
 
 enum class Hst { idx, ekin, emag, divb };
 

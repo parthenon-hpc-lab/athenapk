@@ -9,14 +9,17 @@
 // Parthenon headers
 #include <parthenon/package.hpp>
 
+// AthenaPK headers
+#include "../../main.hpp"
+
 using namespace parthenon::package::prelude;
 
 namespace Hydro::GLMMHD {
 
-TaskStatus CalculateCleaningSpeed(MeshData<Real> *md);
-
 template <bool extended>
 void DednerSource(MeshData<Real> *md, const Real beta_dt);
+
+using SourceFun_t = std::function<void(MeshData<Real> *md, const Real beta_dt)>;
 
 } // namespace Hydro::GLMMHD
 

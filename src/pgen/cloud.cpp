@@ -107,33 +107,32 @@ void InitUserMeshData(ParameterInput *pin) {
   msg << "## Cloud crushing time: " << t_cc / units.myr() << " Myr" << std::endl;
 
   // (potentially) rescale global times only at the beginning of a simulation
-  if (!pin->DoesParameterExist("parthenon/time", "ncycle") ||
-      pin->GetInteger("parthenon/time", "ncycle") == 0) {
-    auto rescale_code_time_to_tcc =
-        pin->GetOrAddBoolean("problem/cloud", "rescale_code_time_to_tcc", false);
+  auto rescale_code_time_to_tcc =
+      pin->GetOrAddBoolean("problem/cloud", "rescale_code_time_to_tcc", false);
 
-    if (rescale_code_time_to_tcc) {
-      msg << "#### INFO:" << std::endl;
-      Real tlim_orig = pin->GetReal("parthenon/time", "tlim");
-      Real tlim_rescaled = tlim_orig * t_cc;
-      // rescale sim time limit
-      pin->SetReal("parthenon/time", "tlim", tlim_rescaled);
-      // rescale dt of each output block
-      parthenon::InputBlock *pib = pin->pfirst_block;
-      while (pib != nullptr) {
-        if (pib->block_name.compare(0, 16, "parthenon/output") == 0) {
-          auto dt = pin->GetReal(pib->block_name, "dt");
-          pin->SetReal(pib->block_name, "dt", dt * t_cc);
-        }
-        pib = pib->pnext; // move to next input block name
+  if (rescale_code_time_to_tcc) {
+    msg << "#### INFO:" << std::endl;
+    Real tlim_orig = pin->GetReal("parthenon/time", "tlim");
+    Real tlim_rescaled = tlim_orig * t_cc;
+    // rescale sim time limit
+    pin->SetReal("parthenon/time", "tlim", tlim_rescaled);
+    // rescale dt of each output block
+    parthenon::InputBlock *pib = pin->pfirst_block;
+    while (pib != nullptr) {
+      if (pib->block_name.compare(0, 16, "parthenon/output") == 0) {
+        auto dt = pin->GetReal(pib->block_name, "dt");
+        pin->SetReal(pib->block_name, "dt", dt * t_cc);
       }
-
-      msg << "## Interpreted time limits (partenon/time/tlim and dt for outputs) as in "
-             "multiples of the cloud crushing time."
-          << std::endl
-          << "## Simulation will now run for " << tlim_rescaled
-          << " [code_time] corresponding to " << tlim_orig << " [t_cc]." << std::endl;
+      pib = pib->pnext; // move to next input block name
     }
+
+    msg << "## Interpreted time limits (partenon/time/tlim and dt for outputs) as in "
+           "multiples of the cloud crushing time."
+        << std::endl
+        << "## Simulation will now run for " << tlim_rescaled
+        << " [code_time] corresponding to " << tlim_orig << " [t_cc]." << std::endl;
+    // Now disable rescaling of times so that this is done only once and not for restarts
+    pin->SetBoolean("problem/cloud", "rescale_code_time_to_tcc", false);
   }
   if (parthenon::Globals::my_rank == 0) {
     msg << "######################################" << std::endl;
@@ -242,5 +241,30 @@ void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
         }
       });
 }
+
+parthenon::AmrTag ProblemCheckRefinementBlock(MeshBlockData<Real> *mbd) {
+  auto pmb = mbd->GetBlockPointer();
+  auto w = mbd->Get("prim").data;
+
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+
+  Real maxscalar = 0.0;
+  pmb->par_reduce(
+      "cloud refinement", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
+      KOKKOS_LAMBDA(const int k, const int j, const int i, Real &lmaxscalar) {
+        // scalar is first variable after hydro vars
+        lmaxscalar = std::max(lmaxscalar, w(nhydro, k, j, i));
+      },
+      Kokkos::Max<Real>(maxscalar));
+
+  if (maxscalar > 0.01) return parthenon::AmrTag::refine;
+  if (maxscalar < 0.001) return parthenon::AmrTag::derefine;
+  return parthenon::AmrTag::same;
+};
 
 } // namespace cloud
