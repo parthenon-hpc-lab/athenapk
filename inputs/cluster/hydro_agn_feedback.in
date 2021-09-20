@@ -64,11 +64,11 @@ nx3        = 8        # Number of zones in X3-direction
 fluid = euler
 gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
-riemann = hlle
-reconstruction = plm
+riemann = none
+reconstruction = dc
+calc_dt_hyp = true
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
-integrate_flux_div = false
 
 He_mass_fraction = 0.25
 
