@@ -245,6 +245,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // Adding recon independently of flux function pointer as it's used in 3D flux func.
   pkg->AddParam<>("reconstruction", recon);
 
+  // Use hyperbolic timestep constraint by default
+  bool calc_dt_hyp = true;
   const auto riemann_str = pin->GetString("hydro", "riemann");
   auto riemann = RiemannSolver::undefined;
   if (riemann_str == "llf") {
@@ -257,10 +259,26 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     riemann = RiemannSolver::hlld;
   } else if (riemann_str == "none") {
     riemann = RiemannSolver::none;
+    // If hyperbolic fluxes are disabled, there's no restriction from those
+    // on the timestep
+    calc_dt_hyp = false;
+    PARTHENON_REQUIRE(recon == Reconstruction::dc,
+                      "Disabling hyperbolic fluxes via 'none' Riemann solver only "
+                      "supported in comination with DC reconstruction.")
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown riemann solver.");
   }
   pkg->AddParam<>("riemann", riemann);
+
+  // Set calculation of hyperbolic timestep. Input file option takes precedence.
+  if (pin->DoesParameterExist("hydro", "calc_dt_hyp")) {
+    calc_dt_hyp = pin->GetBoolean("hydro", "calc_dt_hyp");
+  }
+  pkg->AddParam<>("calc_dt_hyp", calc_dt_hyp);
+
+  // Maximum dt. Useful for debugging.
+  const auto max_dt = pin->GetOrAddReal("hydro", "max_dt", -1.0);
+  pkg->AddParam<>("max_dt", max_dt);
 
   // Map contaning all compiled in flux functions
   std::map<std::tuple<Fluid, Reconstruction, RiemannSolver>, FluxFun_t *>
@@ -632,7 +650,7 @@ Real EstimateTimestep(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto min_dt = std::numeric_limits<Real>::max();
 
-  if (hydro_pkg->Param<RiemannSolver>("riemann") != RiemannSolver::none) {
+  if (hydro_pkg->Param<bool>("calc_dt_hyp")) {
     min_dt = std::min(min_dt, EstimateHyperbolicTimestep<fluid>(md));
   }
 
@@ -652,6 +670,13 @@ Real EstimateTimestep(MeshData<Real> *md) {
   if (ProblemEstimateTimestep != nullptr) {
     min_dt = std::min(min_dt, ProblemEstimateTimestep(md));
   }
+
+  // maximum user dt
+  const auto max_dt = hydro_pkg->Param<Real>("max_dt");
+  if (max_dt > 0.0) {
+    min_dt = std::min(min_dt, max_dt);
+  }
+
   return min_dt;
 }
 
