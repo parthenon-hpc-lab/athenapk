@@ -1,5 +1,5 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 <comment>
@@ -21,7 +21,7 @@ x_discont = 0.5
 refinement = none
 nghost = 2
 
-nx1 = 128
+nx1 = 256
 x1min = 0.0
 x1max = 1.0
 ix1_bc = outflow
@@ -40,27 +40,25 @@ ix2_bc = periodic
 ox2_bc = periodic
 
 <partheon/meshblock>
-nx1 = 32
+nx1 = 64
 nx2 = 1
 nx3 = 1
 
-<parthenon/output1>
+<parthenon/output0>
 file_type = hdf5
 dt = 0.025
 variables = prim
+id = prim
 
 <parthenon/time>
-integrator = rk1
+integrator = vl2
 cfl = 0.5
 tlim = 0.4
 nlim = 10000
 
 <hydro>
+fluid = euler
 eos = adiabatic
 riemann = hlle
 reconstruction = plm
 gamma = 1.4
-
-<parthenon/Graphics>
-variables = cons
-

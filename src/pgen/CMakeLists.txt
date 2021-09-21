@@ -1,18 +1,19 @@
-# Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the 3-Clause License (the "LICENSE");
 
 target_sources(athenaPK PRIVATE
-    cpaw.cpp
-    cloud.cpp
-    linear_wave.cpp
-    linear_wave_mhd.cpp
-    field_loop.cpp
     advection.cpp
     blast.cpp
-    kh.cpp
-    orszag_tang.cpp
-    diffusion.cpp
-    rand_blast.cpp
+    cloud.cpp
     cluster.cpp
     cluster/hydrostatic_equilibrium_sphere.cpp
+    cpaw.cpp
+    diffusion.cpp
+    field_loop.cpp
+    kh.cpp
+    linear_wave.cpp
+    linear_wave_mhd.cpp
+    orszag_tang.cpp
+    rand_blast.cpp
+    sod.cpp
     )
