@@ -1,20 +1,24 @@
 
-// Athena-Parthenon - a performance portable block structured AMR MHD code
-// Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+// AthenaPK - a performance portable block structured AMR MHD code
+// Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
 
 // Parthenon headers
 #include "mesh/mesh.hpp"
+#include <parthenon/driver.hpp>
+#include <parthenon/package.hpp>
 
 // Athena headers
 #include "../main.hpp"
 
-namespace parthenon {
+namespace sod {
+using namespace parthenon::driver::prelude;
 
-// TODO(pgrete) need to make this more flexible especially for other problems
-void MeshBlock::ProblemGenerator(Mesh *mesh, ParameterInput *pin) {
-  auto &rc = meshblock_data.Get();
-  ParArray4D<Real> cons = rc.Get("cons").data.Get<4>();
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
   Real rho_l = pin->GetOrAddReal("problem/sod", "rho_l", 1.0);
   Real pres_l = pin->GetOrAddReal("problem/sod", "pres_l", 1.0);
@@ -22,15 +26,19 @@ void MeshBlock::ProblemGenerator(Mesh *mesh, ParameterInput *pin) {
   Real rho_r = pin->GetOrAddReal("problem/sod", "rho_r", 0.125);
   Real pres_r = pin->GetOrAddReal("problem/sod", "pres_r", 0.1);
   Real u_r = pin->GetOrAddReal("problem/sod", "u_r", 0.0);
-  Real x_discont = pin->GetOrAddReal("problem/sod", "x_dicont", 0.5);
+  Real x_discont = pin->GetOrAddReal("problem/sod", "x_discont", 0.5);
 
-  // TODO(pgrete): need to make sure an EOS is used here
   Real gamma = pin->GetReal("hydro", "gamma");
 
-  for (int k = 0; k < ncells3; k++) {
-    for (int j = 0; j < ncells2; j++) {
-      for (int i = 0; i < ncells1; i++) {
-        if (pcoord->x1v(i) < x_discont) {
+  // initialize conserved variables
+  auto &mbd = pmb->meshblock_data.Get();
+  auto &cons = mbd->Get("cons").data;
+  auto &coords = pmb->coords;
+
+  pmb->par_for(
+      "Init sod", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+        if (coords.x1v(i) < x_discont) {
           cons(IDN, k, j, i) = rho_l;
           cons(IM1, k, j, i) = rho_l * u_l;
           cons(IEN, k, j, i) = 0.5 * rho_l * u_l * u_l + pres_l / (gamma - 1.0);
@@ -39,8 +47,6 @@ void MeshBlock::ProblemGenerator(Mesh *mesh, ParameterInput *pin) {
           cons(IM1, k, j, i) = rho_r * u_r;
           cons(IEN, k, j, i) = 0.5 * rho_r * u_r * u_r + pres_r / (gamma - 1.0);
         }
-      }
-    }
-  }
+      });
 }
-} // namespace parthenon
+} // namespace sod
