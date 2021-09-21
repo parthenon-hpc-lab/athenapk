@@ -13,7 +13,7 @@ before_script:
   - export OMP_PLACES=cores
   - export OMP_NUM_THREADS=1
   - export CTEST_OUTPUT_ON_FAILURE=1
-  - export J=4 && echo Using ${J} cores during build
+  - export J=8 && echo Using ${J} cores during build
   - export PATH=/home/build/athenapk/cmake-${CMAKE_VER}-linux-x86_64/bin:$PATH
   - export OMPI_DIR=/home/build/athenapk/openmpi-${OMPI_VER}
   - export OPAL_PREFIX=/home/build/athenapk/openmpi-${OMPI_VER}

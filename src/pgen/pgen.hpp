@@ -101,4 +101,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt);
 } // namespace cluster
 
+namespace sod {
+using namespace parthenon::driver::prelude;
+
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace sod
+
 #endif // PGEN_PGEN_HPP_
