@@ -15,7 +15,7 @@ namespace sod {
 using namespace parthenon::driver::prelude;
 
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
-  auto hydro_pkg = pmb->packages.Get("Hydro");
+  //auto hydro_pkg = pmb->packages.Get("Hydro");
   auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -27,8 +27,16 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   Real pres_r = pin->GetOrAddReal("problem/sod", "pres_r", 0.1);
   Real u_r = pin->GetOrAddReal("problem/sod", "u_r", 0.0);
   Real x_discont = pin->GetOrAddReal("problem/sod", "x_discont", 0.5);
+  Real v_l = pin->GetOrAddReal("problem/sod", "v_l", 0.0)
+  Real v_r = pin->GetOrAddReal("problem/sod", "v_r", 0.0)
+  Real w_l = pin->GetOrAddReal("problem/sod", "w_l", 0.0)
+  Real w_r = pin->GetOrAddReal("problem/sod", "w_r", 0.0)
 
   Real gamma = pin->GetReal("hydro", "gamma");
+
+  Real B_x = pin->GetReal("problem/sod", "B_x");
+  Real B_y = pin->GetReal("problem/sod", "B_y");
+  Real B_z = pin->GetReal("problem/sod", "B_z");
 
   // initialize conserved variables
   auto &mbd = pmb->meshblock_data.Get();
@@ -41,11 +49,25 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         if (coords.x1v(i) < x_discont) {
           cons(IDN, k, j, i) = rho_l;
           cons(IM1, k, j, i) = rho_l * u_l;
-          cons(IEN, k, j, i) = 0.5 * rho_l * u_l * u_l + pres_l / (gamma - 1.0);
+          cons(IM2, k, j, i) = rho_l * v_l;
+          cons(IM3, k, j, i) = rho_l * w_l;
+          cons(IB1, k, j, i) = 0.0;
+          cons(IB2, k, j, i) = 1.0;
+          cons(IB3, k, j, i) = 0.0;
+          cons(IEN, k, j, i) = (0.5 * rho_l * u_l * u_l) + (0.5 * rho_l * v_l * v_l) + 
+                               (0.5 * rho_l * w_l * w_l) + pres_l / (gamma - 1.0) + 
+                               (0.5/rho_l * (B_x * B_x + B_y * B_y + B_z * B_z));
         } else {
           cons(IDN, k, j, i) = rho_r;
           cons(IM1, k, j, i) = rho_r * u_r;
-          cons(IEN, k, j, i) = 0.5 * rho_r * u_r * u_r + pres_r / (gamma - 1.0);
+          cons(IM2, k, j, i) = rho_r * v_r;
+          cons(IM3, k, j, i) = rho_r * w_r;
+          cons(IB1, k, j, i) = 0.0;
+          cons(IB2, k, j, i) = 1.0;
+          cons(IB3, k, j, i) = 0.0;
+          cons(IEN, k, j, i) = (0.5 * rho_r * u_r * u_r) + (0.5 * rho_r * v_r * v_r) + 
+                               (0.5 * rho_r * w_r * w_r) + pres_r / (gamma - 1.0) + 
+                               (0.5/rho_r * (B_x * B_x + B_y * B_y + B_z * B_z));
         }
       });
 }

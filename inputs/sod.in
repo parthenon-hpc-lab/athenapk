@@ -12,53 +12,60 @@ problem_id = sod
 rho_l     = 1.0
 pres_l    = 1.0
 u_l       = 0.0
+v_l       = 0.0
+w_l       = 0.0
 rho_r     = 0.125
 pres_r    = 0.1
 u_r       = 0.0
-x_discont = 0.5
+v_r       = 0.0
+w_r       = 0.0
+x_discont = 6.0
+B_x    = 0.0 
+B_y    = 1.0 
+B_z    = 0.0 
 
 <parthenon/mesh>
 refinement = none
 nghost = 2
 
-nx1 = 256
+nx1 = 512
 x1min = 0.0
-x1max = 1.0
+x1max = 16.0
 ix1_bc = outflow
 ox1_bc = outflow
 
-nx2 = 1 
+nx2 = 32
 x2min = -0.5
 x2max = 0.5
 ix2_bc = periodic
 ox2_bc = periodic
 
-nx3 = 1
+nx3 = 32
 x3min = -0.5
 x3max = 0.5
 ix2_bc = periodic
 ox2_bc = periodic
 
 <partheon/meshblock>
-nx1 = 64
+nx1 = 32
 nx2 = 1
 nx3 = 1
 
 <parthenon/output0>
 file_type = hdf5
-dt = 0.025
+dt = 0.1
 variables = prim
 id = prim
 
 <parthenon/time>
 integrator = vl2
-cfl = 0.5
-tlim = 0.4
+cfl = 0.3
+tlim = 2.0
 nlim = 10000
 
 <hydro>
-fluid = euler
+fluid = glmmhd
 eos = adiabatic
-riemann = hlle
+riemann = hlld
 reconstruction = plm
 gamma = 1.4
