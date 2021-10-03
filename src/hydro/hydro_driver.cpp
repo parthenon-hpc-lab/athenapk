@@ -305,10 +305,15 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto fill_derived =
         tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+  }
 
-    if (stage == integrator->nstages) {
-      auto new_dt = tl.AddTask(
-          fill_derived, parthenon::Update::EstimateTimestep<MeshData<Real>>, mu0.get());
+  if (stage == integrator->nstages) {
+    TaskRegion &tr = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = tr[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto new_dt = tl.AddTask(none, parthenon::Update::EstimateTimestep<MeshData<Real>>,
+                               mu0.get());
     }
   }
 
