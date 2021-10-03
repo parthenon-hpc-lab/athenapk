@@ -447,6 +447,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       diffflux = DiffFlux::unsplit;
     } else if (diffflux_str == "rkl2") {
       diffflux = DiffFlux::rkl2;
+      pkg->AddParam<Real>("dt_diff", 0.0); // diffusive timestep constraint
+      pkg->AddParam<int>("s_rkl", 0);      // number of steps in RKL2 super timestep
     } else if (diffflux_str != "none") {
       PARTHENON_FAIL("AthenaPK unknown method for diffusive fluxes. Options are: none, "
                      "unsplit, rkl2");
@@ -675,7 +677,9 @@ Real EstimateTimestep(MeshData<Real> *md) {
     min_dt = std::min(min_dt, tabular_cooling.EstimateTimeStep(md));
   }
 
-  if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
+  // For RKL2 STS, the diffusive timestep is calculated separately in the driver
+  if ((hydro_pkg->Param<DiffFlux>("diffflux") == DiffFlux::unsplit) &&
+      (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
     min_dt = std::min(min_dt, EstimateConductionTimestep(md));
   }
 

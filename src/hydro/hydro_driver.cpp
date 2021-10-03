@@ -206,9 +206,10 @@ TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
 // Assumes that prim and cons are in sync initially.
 // Guarantees that prim and cons are in sync at the end.
 void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
-                 const Real tau, const int s_rkl) {
+                 const Real tau) {
 
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
+  const auto s_rkl = hydro_pkg->Param<int>("s_rkl");
 
   TaskID none(0);
 
@@ -462,8 +463,90 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         hydro_pkg.get());
   }
 
+  // Calc number of stages for RKL2 STS
+  if ((hydro_pkg->Param<DiffFlux>("diffflux") == DiffFlux::rkl2) && (stage == 1)) {
+    // need to make sure that there's only one region in order to MPI_reduce to work
+    TaskRegion &single_task_region = tc.AddRegion(1);
+    auto &tl = single_task_region[0];
+    // First globally reset mindt_diff
+    auto prev_task = tl.AddTask(
+        none,
+        [](StateDescriptor *hydro_pkg) {
+          hydro_pkg->UpdateParam("dt_diff", std::numeric_limits<Real>::max());
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+    // Adding one task for each partition. Not using a (new) single partition containing
+    // all blocks here as this (default) split is also used for the following tasks and
+    // thus does not create an overhead (such as creating a new MeshBlockPack that is
+    // just used here). Given that all partitions are in one task list they'll be
+    // executed sequentially. Given that a par_reduce to a host var is blocking it's
+    // also save to store the variable in the Params for now.
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto new_mindt = tl.AddTask(
+          prev_task,
+          [](StateDescriptor *hydro_pkg, MeshData<Real> *md) {
+            const auto min_dt_diff = hydro_pkg->Param<Real>("dt_diff");
+            auto new_min_dt_diff = EstimateConductionTimestep(md);
+            if (new_min_dt_diff < min_dt_diff) {
+              hydro_pkg->UpdateParam("dt_diff", new_min_dt_diff);
+            }
+            return TaskStatus::complete;
+          },
+          hydro_pkg.get(), mu0.get());
+      prev_task = new_mindt;
+    }
+    auto reduce_mindt = prev_task;
+#ifdef MPI_PARALLEL
+    reduce_mindt = tl.AddTask(
+        prev_task,
+        [](StateDescriptor *hydro_pkg) {
+          Real mins[1];
+          mins[0] = hydro_pkg->Param<Real>("dt_diff");
+          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, mins, 1, MPI_PARTHENON_REAL,
+                                            MPI_MIN, MPI_COMM_WORLD));
+
+          hydro_pkg->UpdateParam("dt_diff", mins[0]);
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+#endif
+    // Finally calc number of stages
+    auto update_c_h = tl.AddTask(
+        reduce_mindt,
+        [](StateDescriptor *hydro_pkg, const Real tau) {
+          auto mindt_diff = hydro_pkg->Param<Real>("dt_diff");
+
+          // get number of RKL steps
+          // eq (21) using half hyperbolic timestep due to Strang split
+          int s_rkl =
+              static_cast<int>(0.5 * (std::sqrt(9.0 + 16.0 * tau / mindt_diff) - 1.0)) +
+              1;
+          // ensure odd number of stages
+          if (s_rkl % 2 == 0) s_rkl += 1;
+
+          if (parthenon::Globals::my_rank == 0) {
+            const auto ratio = 2.0 * tau / mindt_diff;
+            std::cout << "STS ratio: " << ratio << " Taking " << s_rkl << " steps."
+                      << std::endl;
+            if (ratio > 100.0) {
+              std::cout << "WARNING: ratio is > 100. Proceed at own risk." << std::endl;
+            }
+          }
+
+          hydro_pkg->UpdateParam("s_rkl", s_rkl);
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get(), 0.5 * tm.dt);
+  }
+
   // First add split sources before the main time integration
   if (stage == 1) {
+    const auto &diffflux = hydro_pkg->Param<DiffFlux>("diffflux");
+    if (diffflux == DiffFlux::rkl2) {
+      AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
+    }
     TaskRegion &strang_init_region = tc.AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = strang_init_region[i];
@@ -605,6 +688,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto fill_derived =
         tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+  }
+  const auto &diffflux = hydro_pkg->Param<DiffFlux>("diffflux");
+  if (diffflux == DiffFlux::rkl2 && stage == integrator->nstages) {
+    AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
   }
 
   if (stage == integrator->nstages) {
