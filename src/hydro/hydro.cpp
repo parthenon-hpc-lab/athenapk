@@ -922,10 +922,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         });
   }
 
-  const auto &conduction = pkg->Param<Conduction>("conduction");
   const auto &diffflux = pkg->Param<DiffFlux>("diffflux");
-  if ((diffflux == DiffFlux::unsplit) && (conduction != Conduction::none)) {
-    ThermalFluxAniso(md.get());
+  if (diffflux == DiffFlux::unsplit) {
+    CalcDiffFluxes(pkg.get(), md.get());
   }
 
   return TaskStatus::complete;

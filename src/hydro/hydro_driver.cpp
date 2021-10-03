@@ -12,6 +12,7 @@
 
 // Parthenon headers
 #include "bvals/cc/bvals_cc_in_one.hpp"
+#include "diffusion/diffusion.hpp"
 #include "interface/update.hpp"
 #include "parthenon/driver.hpp"
 #include "parthenon/package.hpp"
@@ -77,10 +78,309 @@ TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
   return TaskStatus::complete;
 }
 
+// Sets all fluxes to 0
+TaskStatus ResetFluxes(MeshData<Real> *md) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  // In principle, we'd only need to pack Metadata::WithFluxes here, but
+  // choosing to mirror other use in the code so that the packs are already cached.
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto cons_pack = md->PackVariablesAndFluxes(flags_ind);
+
+  const int ndim = pmb->pmy_mesh->ndim;
+  // Using separate loops for each dim as the launch overhead should be hidden
+  // by enough work over the entire pack and it allows to not use any conditionals.
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "ResetFluxes X1", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, 0, cons_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      ib.e + 1,
+      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+        auto &cons = cons_pack(b);
+        cons.flux(X1DIR, v, k, j, i) = 0.0;
+      });
+
+  if (ndim < 2) {
+    return TaskStatus::complete;
+  }
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "ResetFluxes X2", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, 0, cons_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e + 1,
+      ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+        auto &cons = cons_pack(b);
+        cons.flux(X2DIR, v, k, j, i) = 0.0;
+      });
+
+  if (ndim < 3) {
+    return TaskStatus::complete;
+  }
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "ResetFluxes X3", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, 0, cons_pack.GetDim(4) - 1, kb.s, kb.e + 1, jb.s, jb.e,
+      ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+        auto &cons = cons_pack(b);
+        cons.flux(X3DIR, v, k, j, i) = 0.0;
+      });
+  return TaskStatus::complete;
+}
+
+TaskStatus RKL2StepFirst(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
+                         MeshData<Real> *md_Yjm2, MeshData<Real> *md_MY0, const int s_rkl,
+                         const Real tau) {
+  auto pmb = md_Y0->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  // Compute coefficients. Meyer+2014 eq. (18)
+  Real mu_tilde_1 = 4. / 3. /
+                    (static_cast<Real>(s_rkl) * static_cast<Real>(s_rkl) +
+                     static_cast<Real>(s_rkl) - 2.);
+
+  // In principle, we'd only need to pack Metadata::WithFluxes here, but
+  // choosing to mirror other use in the code so that the packs are already cached.
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto Y0 = md_Y0->PackVariablesAndFluxes(flags_ind);
+  auto Yjm1 = md_Yjm1->PackVariablesAndFluxes(flags_ind);
+  auto Yjm2 = md_Yjm2->PackVariablesAndFluxes(flags_ind);
+  auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
+
+  const int ndim = pmb->pmy_mesh->ndim;
+  // Using separate loops for each dim as the launch overhead should be hidden
+  // by enough work over the entire pack and it allows to not use any conditionals.
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "RKL first step", parthenon::DevExecSpace(), 0,
+      Y0.GetDim(5) - 1, 0, Y0.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+        Yjm1(b, v, k, j, i) =
+            Y0(b, v, k, j, i) + mu_tilde_1 * tau * MY0(b, v, k, j, i); // Y_1
+        Yjm2(b, v, k, j, i) = Y0(b, v, k, j, i);                       // Y_0
+      });
+
+  return TaskStatus::complete;
+}
+
+TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
+                         MeshData<Real> *md_Yjm2, MeshData<Real> *md_MY0,
+                         MeshData<Real> *md_MYjm1, const Real mu_j, const Real nu_j,
+                         const Real mu_tilde_j, const Real gamma_tilde_j,
+                         const Real tau) {
+  auto pmb = md_Y0->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  // In principle, we'd only need to pack Metadata::WithFluxes here, but
+  // choosing to mirror other use in the code so that the packs are already cached.
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto Y0 = md_Y0->PackVariablesAndFluxes(flags_ind);
+  auto Yjm1 = md_Yjm1->PackVariablesAndFluxes(flags_ind);
+  auto Yjm2 = md_Yjm2->PackVariablesAndFluxes(flags_ind);
+  auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
+  auto MYjm1 = md_MYjm1->PackVariablesAndFluxes(flags_ind);
+
+  const int ndim = pmb->pmy_mesh->ndim;
+  // Using separate loops for each dim as the launch overhead should be hidden
+  // by enough work over the entire pack and it allows to not use any conditionals.
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "RKL other step", parthenon::DevExecSpace(), 0,
+      Y0.GetDim(5) - 1, 0, Y0.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+        // First calc this step
+        const Real Yj = mu_j * Yjm1(b, v, k, j, i) + nu_j * Yjm2(b, v, k, j, i) +
+                        (1.0 - mu_j - nu_j) * Y0(b, v, k, j, i) +
+                        mu_tilde_j * tau * MYjm1(b, v, k, j, i) +
+                        gamma_tilde_j * tau * MY0(b, v, k, j, i);
+        // Then shuffle vars for next step
+        Yjm2(b, v, k, j, i) = Yjm1(b, v, k, j, i);
+        Yjm1(b, v, k, j, i) = Yj;
+      });
+
+  return TaskStatus::complete;
+}
+
+// Assumes that prim and cons are in sync initially.
+// Guarantees that prim and cons are in sync at the end.
+void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
+                 const Real tau, const int s_rkl) {
+
+  auto hydro_pkg = blocks[0]->packages.Get("Hydro");
+
+  TaskID none(0);
+
+  TaskRegion &region_init = ptask_coll->AddRegion(blocks.size());
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &pmb = blocks[i];
+    auto &tl = region_init[i];
+    auto &u0 = pmb->meshblock_data.Get();
+    auto &u1 = pmb->meshblock_data.Get("u1");
+    // only need boundaries for Yjm1 (u1 here)
+    auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, u1.get(),
+                                 BoundaryCommSubset::all);
+
+    // Add extra registers. No-op for existing variables so it's safe to call every
+    // time.
+    // TODO(pgrete) this allocates all Variables, i.e., prim and cons vector, but only a
+    // subset is actually needed. Streamline to allocate only required vars.
+    pmb->meshblock_data.Add("MY0", u0);
+    pmb->meshblock_data.Add("Yjm2", u0);
+    pmb->meshblock_data.Add("MYjm1", u0);
+  }
+
+  const int num_partitions = pmesh->DefaultNumPartitions();
+  TaskRegion &region_rkl2_step_init = ptask_coll->AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = region_rkl2_step_init[i];
+    auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+    auto &md_MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
+    auto &md_Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
+    auto &md_Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
+    // Reset flux arrays (not guaranteed to be zero)
+    auto reset_fluxes = tl.AddTask(none, ResetFluxes, mu0.get());
+
+    // Calculate the diffusive fluxes for Y0 (here u0) so that we can store the result
+    // as MY0 and reuse later (it is used in every subsetp).
+    auto hydro_diff_fluxes =
+        tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), mu0.get());
+
+    auto init_MY0 =
+        tl.AddTask(hydro_diff_fluxes, parthenon::Update::FluxDivergence<MeshData<Real>>,
+                   mu0.get(), md_MY0.get());
+
+    // Initialize Y0 and Y1 and the recursion relation needs data from the two
+    // preceeding stages.
+    auto rkl2_step_first = tl.AddTask(init_MY0, RKL2StepFirst, mu0.get(), md_Yjm1.get(),
+                                      md_Yjm2.get(), md_MY0.get(), s_rkl, tau);
+
+    // update ghost cells of Y1 (as MY1 is calculated for each Y_j)
+    // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
+    auto send = tl.AddTask(rkl2_step_first,
+                           parthenon::cell_centered_bvars::SendBoundaryBuffers, md_Yjm1);
+    auto recv =
+        tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, md_Yjm1);
+    auto fill_from_bufs =
+        tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, md_Yjm1);
+  }
+
+  TaskRegion &region_clear_bnd = ptask_coll->AddRegion(blocks.size());
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &tl = region_clear_bnd[i];
+    auto &u1 = blocks[i]->meshblock_data.Get("u1");
+    auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
+                                       u1.get(), BoundaryCommSubset::all);
+  }
+  TaskRegion &region_cons_to_prim = ptask_coll->AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = region_cons_to_prim[i];
+    auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
+    auto fill_derived =
+        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu1.get());
+  }
+
+  // Compute coefficients. Meyer+2012 eq. (16)
+  Real b_j = 1. / 3.;
+  Real b_jm1 = 1. / 3.;
+  Real b_jm2 = 1. / 3.;
+  Real w1 = 4. / (static_cast<Real>(s_rkl) * static_cast<Real>(s_rkl) +
+                  static_cast<Real>(s_rkl) - 2.);
+  Real mu_j, nu_j, j, mu_tilde_j, gamma_tilde_j;
+
+  // RKL loop
+  for (int jj = 2; jj <= s_rkl; jj++) {
+    j = static_cast<Real>(jj);
+    b_j = (j * j + j - 2.0) / (2 * j * (j + 1.0));
+    mu_j = (2.0 * j - 1.0) / j * b_j / b_jm1;
+    nu_j = -(j - 1.0) / j * b_j / b_jm2;
+    mu_tilde_j = mu_j * w1;
+    gamma_tilde_j = -(1.0 - b_jm1) * mu_tilde_j; // -a_jm1*mu_tilde_j
+
+    TaskRegion &region_init_other = ptask_coll->AddRegion(blocks.size());
+    for (int i = 0; i < blocks.size(); i++) {
+      auto &pmb = blocks[i];
+      auto &tl = region_init_other[i];
+      auto &u0 = pmb->meshblock_data.Get();
+      auto &u1 = pmb->meshblock_data.Get("u1");
+      // only need boundaries for Yjm1 (u1 here)
+      auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, u1.get(),
+                                   BoundaryCommSubset::all);
+    }
+
+    TaskRegion &region_rkl2_step_other = ptask_coll->AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = region_rkl2_step_other[i];
+      auto &md_Y0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto &md_MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
+      auto &md_Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
+      auto &md_MYjm1 = pmesh->mesh_data.GetOrAdd("MYjm1", i);
+      auto &md_Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
+
+      // Reset flux arrays (not guaranteed to be zero)
+      auto reset_fluxes = tl.AddTask(none, ResetFluxes, md_Yjm1.get());
+
+      // Calculate the diffusive fluxes for Yjm1 (here u1)
+      auto hydro_diff_fluxes =
+          tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), md_Yjm1.get());
+      // Need to calc/stash flux div first, as Yjm1 is updated in the following task
+      auto calc_MYjm1 =
+          tl.AddTask(hydro_diff_fluxes, parthenon::Update::FluxDivergence<MeshData<Real>>,
+                     md_Yjm1.get(), md_MYjm1.get());
+
+      auto rkl2_step_other = tl.AddTask(
+          calc_MYjm1, RKL2StepOther, md_Y0.get(), md_Yjm1.get(), md_Yjm2.get(),
+          md_MY0.get(), md_MYjm1.get(), mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
+
+      // update ghost cells of Yjm1 (currently storing Yj)
+      // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
+      auto send = tl.AddTask(
+          rkl2_step_other, parthenon::cell_centered_bvars::SendBoundaryBuffers, md_Yjm1);
+      auto recv = tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers,
+                             md_Yjm1);
+      auto fill_from_bufs =
+          tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, md_Yjm1);
+    }
+    TaskRegion &region_clear_bnd_other = ptask_coll->AddRegion(blocks.size());
+    for (int i = 0; i < blocks.size(); i++) {
+      auto &tl = region_clear_bnd_other[i];
+      auto &u1 = blocks[i]->meshblock_data.Get("u1");
+      auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
+                                         u1.get(), BoundaryCommSubset::all);
+    }
+    TaskRegion &region_cons_to_prim_other = ptask_coll->AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = region_cons_to_prim_other[i];
+      auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
+      auto fill_derived =
+          tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu1.get());
+    }
+
+    b_jm2 = b_jm1;
+    b_jm1 = b_j;
+  }
+
+  // copy final result back to u0
+  TaskRegion &region_copy_out = ptask_coll->AddRegion(blocks.size());
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &tl = region_copy_out[i];
+    auto &u0 = blocks[i]->meshblock_data.Get();
+    auto &u1 = blocks[i]->meshblock_data.Get("u1");
+    tl.AddTask(
+        none,
+        [](MeshBlockData<Real> *u0, MeshBlockData<Real> *u1) {
+          u0->Get("cons").data.DeepCopy(u1->Get("cons").data);
+          u0->Get("prim").data.DeepCopy(u1->Get("prim").data);
+          return TaskStatus::complete;
+        },
+        u0.get(), u1.get());
+  }
+}
+
 // See the advection.hpp declaration for a description of how this function gets called.
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
-  const auto &stage_name = integrator->stage_name;
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
 
   TaskID none(0);
@@ -107,8 +407,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   const int num_partitions = pmesh->DefaultNumPartitions();
 
   // Calculate hyperbolic divergence cleaning speed
-  // TODO(pgrete) Calculating mindx is only required after remeshing. Need to find a clean
-  // solution for this one-off global reduction.
+  // TODO(pgrete) Calculating mindx is only required after remeshing. Need to find a
+  // clean solution for this one-off global reduction.
   if (hydro_pkg->Param<bool>("calc_c_h") && (stage == 1)) {
     // need to make sure that there's only one region in order to MPI_reduce to work
     TaskRegion &single_task_region = tc.AddRegion(1);
@@ -123,10 +423,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         hydro_pkg.get());
     // Adding one task for each partition. Not using a (new) single partition containing
     // all blocks here as this (default) split is also used for the following tasks and
-    // thus does not create an overhead (such as creating a new MeshBlockPack that is just
-    // used here). Given that all partitions are in one task list they'll be executed
-    // sequentially. Given that a par_reduce to a host var is blocking it's also save to
-    // store the variable in the Params for now.
+    // thus does not create an overhead (such as creating a new MeshBlockPack that is
+    // just used here). Given that all partitions are in one task list they'll be
+    // executed sequentially. Given that a par_reduce to a host var is blocking it's
+    // also save to store the variable in the Params for now.
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
       auto new_mindx = tl.AddTask(prev_task, CalculateGlobalMinDx, mu0.get());
@@ -218,8 +518,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto calc_flux = tl.AddTask(none, calc_flux_fun, mu0);
 
     // TODO(pgrete) figure out what to do about the sources from the first stage
-    // that are potentially disregarded when the (m)hd fluxes are corrected in the second
-    // stage.
+    // that are potentially disregarded when the (m)hd fluxes are corrected in the
+    // second stage.
     if (hydro_pkg->Param<bool>("first_order_flux_correct")) {
       auto *first_order_flux_correct_fun =
           hydro_pkg->Param<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun");

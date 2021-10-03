@@ -88,4 +88,7 @@ Real EstimateConductionTimestep(MeshData<Real> *md);
 //! Calculate anisotropic thermal conduction
 void ThermalFluxAniso(MeshData<Real> *md);
 
+// Calculate all diffusion fluxes, i.e., update the .flux views in md
+TaskStatus CalcDiffFluxes(StateDescriptor *hydro_pkg, MeshData<Real> *md);
+
 #endif //  HYDRO_DIFFUSION_DIFFUSION_HPP_
