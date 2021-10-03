@@ -437,9 +437,21 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
     } else if (conduction_str != "none") {
       PARTHENON_FAIL(
-          "AthenaPK unknown conduction method. Options are: spitzer, thermal_diff");
+          "AthenaPK unknown conduction method. Options are: none, spitzer, thermal_diff");
     }
     pkg->AddParam<>("conduction", conduction);
+
+    auto diffflux_str = pin->GetOrAddString("diffusion", "flux", "none");
+    auto diffflux = DiffFlux::none;
+    if (diffflux_str == "unsplit") {
+      diffflux = DiffFlux::unsplit;
+    } else if (diffflux_str == "rkl2") {
+      diffflux = DiffFlux::rkl2;
+    } else if (diffflux_str != "none") {
+      PARTHENON_FAIL("AthenaPK unknown method for diffusive fluxes. Options are: none, "
+                     "unsplit, rkl2");
+    }
+    pkg->AddParam<>("diffflux", diffflux);
 
     if (fluid == Fluid::euler) {
       AdiabaticHydroEOS eos(pfloor, dfloor, efloor, gamma);
@@ -911,7 +923,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   }
 
   const auto &conduction = pkg->Param<Conduction>("conduction");
-  if (conduction != Conduction::none) {
+  const auto &diffflux = pkg->Param<DiffFlux>("diffflux");
+  if ((diffflux == DiffFlux::unsplit) && (conduction != Conduction::none)) {
     ThermalFluxAniso(md.get());
   }
 

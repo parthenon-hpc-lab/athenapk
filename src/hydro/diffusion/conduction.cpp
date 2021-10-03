@@ -33,7 +33,7 @@ Real ThermalDiffusivity::Get(const Real pres, const Real rho, const Real gradTma
     // In practice: fac * \rho * c_{s,isoth}^3 * (gradT / gradTmag)
     // where T is calculated based on p/rho in the code.
     // Thus, everything is in code units and no conversion is required.
-    // The \rho above is cancelled as we convert the condution above to a diffusvity here.
+    // The rho above is cancelled as we convert the conduction above to a diffusvity here.
     const Real chi_sat =
         0.34 * std::pow(pres / rho, 3.0 / 2.0) / (gradTmag + TINY_NUMBER);
     return std::min(chi_spitzer, chi_sat);
