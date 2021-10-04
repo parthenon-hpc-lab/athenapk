@@ -16,6 +16,8 @@ using namespace parthenon::package::prelude;
 namespace Hydro {
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin);
+void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin,
+                               const parthenon::SimTime &tm);
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 template <Fluid fluid>

@@ -51,6 +51,30 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   return packages;
 }
 
+// Using this per cycle function to populate various variables in
+// Params that require global reduction *and* need to be set/known when
+// the task list is constructed (versus when the task list is being executed).
+// TODO(next person touching this function): If more/separate feature are required
+// please separate concerns.
+void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, const SimTime &tm) {
+  auto hydro_pkg = pmesh->block_list[0]->packages.Get("Hydro");
+  const auto num_partitions = pmesh->DefaultNumPartitions();
+
+  if ((hydro_pkg->Param<DiffFlux>("diffflux") == DiffFlux::rkl2)) {
+    auto dt_diff = std::numeric_limits<Real>::max();
+    for (auto i = 0; i < num_partitions; i++) {
+      auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+
+      dt_diff = std::min(dt_diff, EstimateConductionTimestep(md.get()));
+    }
+#ifdef MPI_PARALLEL
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &dt_diff, 1, MPI_PARTHENON_REAL,
+                                      MPI_MIN, MPI_COMM_WORLD));
+#endif
+    hydro_pkg->UpdateParam("dt_diff", dt_diff);
+  }
+}
+
 template <Hst hst, int idx = -1>
 Real HydroHst(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
@@ -447,11 +471,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       diffflux = DiffFlux::unsplit;
     } else if (diffflux_str == "rkl2") {
       diffflux = DiffFlux::rkl2;
-      pkg->AddParam<Real>("dt_diff", 0.0); // diffusive timestep constraint
-      pkg->AddParam<int>("s_rkl", 0);      // number of steps in RKL2 super timestep
     } else if (diffflux_str != "none") {
       PARTHENON_FAIL("AthenaPK unknown method for diffusive fluxes. Options are: none, "
                      "unsplit, rkl2");
+    }
+    if (diffflux != DiffFlux::none) {
+      pkg->AddParam<Real>("dt_diff", 0.0); // diffusive timestep constraint
     }
     pkg->AddParam<>("diffflux", diffflux);
 

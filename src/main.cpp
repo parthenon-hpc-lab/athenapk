@@ -41,6 +41,7 @@ int main(int argc, char *argv[]) {
 
   // Redefine defaults
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
+  pman.app_input->PreStepMeshUserWorkInLoop = Hydro::PreStepMeshUserWorkInLoop;
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
   if (problem == "linear_wave") {
     pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
