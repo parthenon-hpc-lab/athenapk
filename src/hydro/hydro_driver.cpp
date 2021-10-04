@@ -165,9 +165,8 @@ TaskStatus RKL2StepFirst(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
 }
 
 TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
-                         MeshData<Real> *md_Yjm2, MeshData<Real> *md_MY0,
-                         MeshData<Real> *md_MYjm1, const Real mu_j, const Real nu_j,
-                         const Real mu_tilde_j, const Real gamma_tilde_j,
+                         MeshData<Real> *md_Yjm2, MeshData<Real> *md_MY0, const Real mu_j,
+                         const Real nu_j, const Real mu_tilde_j, const Real gamma_tilde_j,
                          const Real tau) {
   auto pmb = md_Y0->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -181,7 +180,6 @@ TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
   auto Yjm1 = md_Yjm1->PackVariablesAndFluxes(flags_ind);
   auto Yjm2 = md_Yjm2->PackVariablesAndFluxes(flags_ind);
   auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
-  auto MYjm1 = md_MYjm1->PackVariablesAndFluxes(flags_ind);
 
   const int ndim = pmb->pmy_mesh->ndim;
   // Using separate loops for each dim as the launch overhead should be hidden
@@ -191,9 +189,12 @@ TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
       Y0.GetDim(5) - 1, 0, Y0.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
         // First calc this step
+        const auto &coords = Yjm1.coords(b);
+        const Real MYjm1 =
+            parthenon::Update::FluxDivHelper(v, k, j, i, ndim, coords, Yjm1(b));
         const Real Yj = mu_j * Yjm1(b, v, k, j, i) + nu_j * Yjm2(b, v, k, j, i) +
                         (1.0 - mu_j - nu_j) * Y0(b, v, k, j, i) +
-                        mu_tilde_j * tau * MYjm1(b, v, k, j, i) +
+                        mu_tilde_j * tau * MYjm1 +
                         gamma_tilde_j * tau * MY0(b, v, k, j, i);
         // Then shuffle vars for next step
         Yjm2(b, v, k, j, i) = Yjm1(b, v, k, j, i);
@@ -229,7 +230,6 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     // subset is actually needed. Streamline to allocate only required vars.
     pmb->meshblock_data.Add("MY0", u0);
     pmb->meshblock_data.Add("Yjm2", u0);
-    pmb->meshblock_data.Add("MYjm1", u0);
   }
 
   const int num_partitions = pmesh->DefaultNumPartitions();
@@ -316,7 +316,6 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       auto &md_Y0 = pmesh->mesh_data.GetOrAdd("base", i);
       auto &md_MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
       auto &md_Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
-      auto &md_MYjm1 = pmesh->mesh_data.GetOrAdd("MYjm1", i);
       auto &md_Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
 
       // Reset flux arrays (not guaranteed to be zero)
@@ -325,14 +324,10 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       // Calculate the diffusive fluxes for Yjm1 (here u1)
       auto hydro_diff_fluxes =
           tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), md_Yjm1.get());
-      // Need to calc/stash flux div first, as Yjm1 is updated in the following task
-      auto calc_MYjm1 =
-          tl.AddTask(hydro_diff_fluxes, parthenon::Update::FluxDivergence<MeshData<Real>>,
-                     md_Yjm1.get(), md_MYjm1.get());
 
-      auto rkl2_step_other = tl.AddTask(
-          calc_MYjm1, RKL2StepOther, md_Y0.get(), md_Yjm1.get(), md_Yjm2.get(),
-          md_MY0.get(), md_MYjm1.get(), mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
+      auto rkl2_step_other = tl.AddTask(hydro_diff_fluxes, RKL2StepOther, md_Y0.get(),
+                                        md_Yjm1.get(), md_Yjm2.get(), md_MY0.get(), mu_j,
+                                        nu_j, mu_tilde_j, gamma_tilde_j, tau);
 
       // update ghost cells of Yjm1 (currently storing Yj)
       // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
