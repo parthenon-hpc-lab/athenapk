@@ -435,33 +435,58 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
     auto conduction = Conduction::none;
     auto conduction_str = pin->GetOrAddString("diffusion", "conduction", "none");
-    if (conduction_str == "spitzer") {
-      if (!pkg->AllParams().hasKey("mbar_over_kb")) {
-        PARTHENON_FAIL("Spitzer thermal conduction requires units and gas composition. "
-                       "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
-                       "the input file.");
-      }
-      conduction = Conduction::spitzer;
-
-      Real spitzer_coeff =
-          pin->GetOrAddReal("diffusion", "spitzer_cond_in_erg_by_s_K_cm", 4.6e-7);
-      // Convert to code units. No temp conversion as [T_phys] = [T_code].
-      auto units = pkg->Param<Units>("units");
-      spitzer_coeff *= units.erg() / (units.s() * units.cm());
-
-      auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
-      auto thermal_diff = ThermalDiffusivity(conduction, spitzer_coeff, mbar_over_kb);
-      pkg->AddParam<>("thermal_diff", thermal_diff);
-
-    } else if (conduction_str == "thermal_diff") {
-      conduction = Conduction::thermal_diff;
-      Real thermal_diff_coeff_code = pin->GetReal("diffusion", "thermal_diff_coeff_code");
-      auto thermal_diff = ThermalDiffusivity(conduction, thermal_diff_coeff_code, 0.0);
-      pkg->AddParam<>("thermal_diff", thermal_diff);
-
+    if (conduction_str == "isotropic") {
+      conduction = Conduction::isotropic;
+    } else if (conduction_str == "anisotropic") {
+      conduction = Conduction::anisotropic;
     } else if (conduction_str != "none") {
       PARTHENON_FAIL(
-          "AthenaPK unknown conduction method. Options are: none, spitzer, thermal_diff");
+          "Unknown conduction method. Options are: none, isotropic, anisotropic");
+    }
+    // If conduction is enabled, process supported coefficients
+    if (conduction != Conduction::none) {
+      auto conduction_coeff_str =
+          pin->GetOrAddString("diffusion", "conduction_coeff", "none");
+      auto conduction_coeff = ConductionCoeff::none;
+      if (conduction_coeff_str == "spitzer") {
+        if (!pkg->AllParams().hasKey("mbar_over_kb")) {
+          PARTHENON_FAIL("Spitzer thermal conduction requires units and gas composition. "
+                         "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
+                         "the input file.");
+        }
+        conduction_coeff = ConductionCoeff::spitzer;
+
+        Real spitzer_coeff =
+            pin->GetOrAddReal("diffusion", "spitzer_cond_in_erg_by_s_K_cm", 4.6e-7);
+        // Convert to code units. No temp conversion as [T_phys] = [T_code].
+        auto units = pkg->Param<Units>("units");
+        spitzer_coeff *= units.erg() / (units.s() * units.cm());
+
+        auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
+        auto thermal_diff =
+            ThermalDiffusivity(conduction, conduction_coeff, spitzer_coeff, mbar_over_kb);
+        pkg->AddParam<>("thermal_diff", thermal_diff);
+
+      } else if (conduction_coeff_str == "fixed") {
+        conduction_coeff = ConductionCoeff::fixed;
+        Real thermal_diff_coeff_code =
+            pin->GetReal("diffusion", "thermal_diff_coeff_code");
+        auto thermal_diff = ThermalDiffusivity(conduction, conduction_coeff,
+                                               thermal_diff_coeff_code, 0.0);
+        pkg->AddParam<>("thermal_diff", thermal_diff);
+
+      } else {
+        PARTHENON_FAIL("Thermal conduction is enabled but no coefficient is set. Please "
+                       "set diffusion/conduction_coeff to either 'spitzer' or 'fixed'");
+      }
+
+      if (conduction == Conduction::isotropic &&
+          conduction_coeff != ConductionCoeff::fixed) {
+        PARTHENON_FAIL(
+            "Isotropic thermal conduction is currently only supported with a fixed "
+            "(spatially and temporally) conduction coefficient. Please get in contact if "
+            "you need varying coefficients (e.g., Spitzer) for isotropic conduction.")
+      }
     }
     pkg->AddParam<>("conduction", conduction);
 

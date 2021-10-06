@@ -17,7 +17,9 @@ using namespace parthenon::package::prelude;
 
 TaskStatus CalcDiffFluxes(StateDescriptor *hydro_pkg, MeshData<Real> *md) {
   const auto &conduction = hydro_pkg->Param<Conduction>("conduction");
-  if (conduction != Conduction::none) {
+  if (conduction == Conduction::isotropic) {
+    ThermalFluxIso(md);
+  } else if (conduction == Conduction::anisotropic) {
     ThermalFluxAniso(md);
   }
   return TaskStatus::complete;

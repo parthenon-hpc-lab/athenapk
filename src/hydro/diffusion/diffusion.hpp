@@ -71,20 +71,28 @@ struct ThermalDiffusivity {
  private:
   Real mbar_over_kb_;
   Conduction conduction_;
+  ConductionCoeff conduction_coeff_type_;
   // "free" coefficient/prefactor. Value depends on conduction is set in the constructor.
   Real coeff_;
 
  public:
   KOKKOS_INLINE_FUNCTION
-  ThermalDiffusivity(Conduction conduction, Real coeff, Real mbar_over_kb)
-      : coeff_(coeff), conduction_(conduction), mbar_over_kb_(mbar_over_kb) {}
+  ThermalDiffusivity(Conduction conduction, ConductionCoeff conduction_coeff_type,
+                     Real coeff, Real mbar_over_kb)
+      : conduction_(conduction), conduction_coeff_type_(conduction_coeff_type),
+        coeff_(coeff), mbar_over_kb_(mbar_over_kb) {}
 
   KOKKOS_INLINE_FUNCTION
   Real Get(const Real pres, const Real rho, const Real gradTmag) const;
+
+  KOKKOS_INLINE_FUNCTION
+  Conduction GetType() const { return conduction_; }
 };
 
 Real EstimateConductionTimestep(MeshData<Real> *md);
 
+//! Calculate isotropic thermal conduction
+void ThermalFluxIso(MeshData<Real> *md);
 //! Calculate anisotropic thermal conduction
 void ThermalFluxAniso(MeshData<Real> *md);
 

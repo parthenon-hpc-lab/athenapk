@@ -50,7 +50,7 @@ Note, `ppm` and `wenoz` need at least three ghost zones (`parthenon/mesh/num_gho
 
 #### Diffusive processes
 
-##### Anisotropic thermal conduction (required MHD)
+##### Isotropic (hydro and MHD )and anisotropic thermal conduction (only MHD)
 In the presence of magnetic fields thermal conduction is becoming anisotropic with the flux along
 the local magnetic field direction typically being much stronger than the flux perpendicular to the magnetic field.
 
@@ -68,17 +68,23 @@ Moreover, they are implemented explicitly, i.e., they add a (potentially very re
 Finally, we employ limiters for calculating the temperature gradients following Sharma & Hammett (2007)[^SH07].
 This prevents unphysical conduction against the gradient, which may be introduced because the off-axis gradients are not centered on the interfaces.
 
-To enable conduction, set
+To enable thermal conduction, set
 
 Parameter: `conduction` (string)
 - `none` : No thermal conduction
+- `isotropic` : Isotropic thermal conduction
+- `anisotropic` : Anisotropic thermal conduction
+
+In addition the coefficient (or diffusivity) needs to be set
+
+Parameter: `conduction_coeff` (string)
 - `spitzer` : Anisotropic thermal conduction with a temperature dependent classic Spitzer thermal conductivity
   $`\kappa (T) = c_\kappa T^{5/2} \mathrm{erg/s/K/cm}`$ and
-  $`c_\kappa`$ being constant prefactor (set via `diffusion/spitzer_cond_in_erg_by_s_K_cm` with a default value of $`4.6\times10^{-7}`$). Note, as indicated by the units in the input parameter name, this kind of thermal conductivity requires a full set of units
+  $`c_\kappa`$ being constant prefactor (set via the additional `diffusion/spitzer_cond_in_erg_by_s_K_cm` parameter with a default value of $`4.6\times10^{-7}`$). Note, as indicated by the units in the input parameter name, this kind of thermal conductivity requires a full set of units
   to be defined for the simulation.
-- `thermal_diff` : Contrary to a temperature dependent conductivity, a simple thermal diffusivity can be used instead for which
+- `fixed` : Contrary to a temperature dependent conductivity, a simple thermal diffusivity can be used instead for which
 the conduction flux is $`\mathbf{F} = - \chi \rho \mathbf{\hat b} (\mathbf{\hat b \cdot \nabla \frac{p_\mathrm{th}}{\rho}})`$
-Here, the strength, $`\chi`$, is controlled via the `thermal_diff_coeff_code` parameter in code units.
+Here, the strength, $`\chi`$, is controlled via the additional `thermal_diff_coeff_code` parameter in code units.
 Given the dimensions of $`L^2/T`$ it is referred to a thermal diffusivity rather than thermal conductivity.
 
 [^SH07]:

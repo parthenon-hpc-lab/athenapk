@@ -61,7 +61,8 @@ gamma = 2.0
 
 <diffusion>
 integrator = unsplit
-conduction = thermal_diff
+conduction = anisotropic
+conduction_coeff = fixed
 thermal_diff_coeff_code = 0.01
 
 <parthenon/output0>
