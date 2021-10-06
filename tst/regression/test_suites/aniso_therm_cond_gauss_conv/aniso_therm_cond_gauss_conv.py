@@ -30,16 +30,17 @@ import utils.test_case
 # To prevent littering up imported folders with .pyc files or __pycache_ folder
 sys.dont_write_bytecode = True
 
+int_cfgs = ["unsplit", "rkl2"]
 res_cfgs = [128, 256]
 field_cfgs = ["none", "aligned", "angle", "perp"]
 tlim = 2.0
 
-all_cfgs = list(itertools.product(res_cfgs, field_cfgs))
+all_cfgs = list(itertools.product(res_cfgs, field_cfgs, int_cfgs))
 
 
 def get_outname(all_cfg):
-    res, field_cfg = all_cfg
-    return f"{res}_{field_cfg}"
+    res, field_cfg, int_cfg = all_cfg
+    return f"{res}_{field_cfg}_{int_cfg}"
 
 
 def get_B(field_cfg):
@@ -67,7 +68,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         assert parameters.num_ranks <= 4, "Use <= 4 ranks for diffusion test."
 
-        res, field_cfg = all_cfgs[step - 1]
+        res, field_cfg, int_cfg = all_cfgs[step - 1]
 
         Bx, By = get_B(field_cfg)
 
@@ -97,7 +98,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/time/tlim=%f" % tlim,
             "diffusion/conduction=%s" % conduction,
             "diffusion/thermal_diff_coeff_code=0.25",
-            "diffusion/integrator=unsplit",
+            "diffusion/integrator=%s" % int_cfg,
         ]
 
         return parameters
@@ -125,9 +126,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             )
 
         num_rows = len(res_cfgs)
-        fig, p = plt.subplots(num_rows + 1, 1)
+        num_cols = len(int_cfgs)
+        fig, p = plt.subplots(num_rows + 1, 2, sharey="row", sharex="row")
 
-        l1_err = np.zeros((len(field_cfgs), len(res_cfgs)))
+        l1_err = np.zeros((len(field_cfgs), len(int_cfgs), len(res_cfgs)))
         for step in range(len(all_cfgs)):
             outname = get_outname(all_cfgs[step])
             data_filename = f"{parameters.output_path}/parthenon.{outname}.00001.phdf"
@@ -137,38 +139,49 @@ class TestCase(utils.test_case.TestCaseAbs):
             mask = yy == yy[0]
             temp = prim[:, 4][mask]
             x = xx[mask]
-            res, field_cfg = all_cfgs[step]
+            res, field_cfg, int_cfg = all_cfgs[step]
             row = res_cfgs.index(res)
+            col = int_cfgs.index(int_cfg)
 
             Bx, By = get_B(field_cfg)
             temp_ref = get_ref(x, Bx, field_cfg)
             l1 = np.average(np.abs(temp - temp_ref))
-            l1_err[field_cfgs.index(field_cfg), res_cfgs.index(res)] = l1
-            p[row].plot(x, temp, label=field_cfg + " L$_1$=%.2g" % l1)
+            l1_err[
+                field_cfgs.index(field_cfg),
+                int_cfgs.index(int_cfg),
+                res_cfgs.index(res),
+            ] = l1
+            p[row, col].plot(x, temp, label=field_cfg + " L$_1$=%.2g" % l1)
 
         # Plot convergence
         for i, field_cfg in enumerate(field_cfgs):
-            if field_cfg == "perp":
-                continue
+            for j, int_cfg in enumerate(int_cfgs):
+                if field_cfg == "perp":
+                    continue
 
-            est_conv = np.diff(np.log(l1_err[i, :])) / np.diff(np.log(res_cfgs))
-            p[-1].plot(
-                res_cfgs, l1_err[i, :], label=field_cfg + " conv: %.2f" % est_conv
-            )
-        p[-1].set_xscale("log")
-        p[-1].set_yscale("log")
-        p[-1].legend()
+                est_conv = np.diff(np.log(l1_err[i, j, :])) / np.diff(np.log(res_cfgs))
+                p[-1, j].plot(
+                    res_cfgs,
+                    l1_err[i, j, :],
+                    label=field_cfg + " conv: %.2f" % est_conv,
+                )
+        p[-1, 0].set_xscale("log")
+        p[-1, 0].set_yscale("log")
+        p[-1, 0].legend(fontsize=8)
+        p[-1, 1].legend(fontsize=8)
 
         # Plot reference lines
         x = np.linspace(-6, 6, 400)
         for field_cfg in field_cfgs:
             Bx, By = get_B(field_cfg)
             for i in range(num_rows):
-                y = get_ref(x, Bx, field_cfg)
-                p[i].plot(x, y, "-", lw=0.5, color="black", alpha=0.8)
-                p[i].grid()
-                p[i].legend()
+                for j in range(num_cols):
+                    y = get_ref(x, Bx, field_cfg)
+                    p[i, j].plot(x, y, "-", lw=0.5, color="black", alpha=0.8)
+                    p[i, j].grid()
+                    p[i, j].legend(fontsize=8)
 
+        fig.tight_layout()
         fig.savefig(
             os.path.join(parameters.output_path, "cond.png"), bbox_inches="tight"
         )

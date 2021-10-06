@@ -27,7 +27,7 @@ setup_test_serial("cluster_tabular_cooling" "--driver ${PROJECT_BINARY_DIR}/bin/
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/diffusion.in --num_steps 4" "convergence")
  
   setup_test_serial("aniso_therm_cond_gauss_conv" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/diffusion.in --num_steps 8" "convergence")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/diffusion.in --num_steps 16" "convergence")
 
   setup_test_serial("field_loop" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/field_loop.in --num_steps 9" "convergence")
