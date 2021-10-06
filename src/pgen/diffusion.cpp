@@ -77,7 +77,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           // treat as 1 (also in analysis) to prevent division by 0.
           // Note, this is very constructed and needs to be updated/adjusted for isotropic
           // conduction, other directions, and Bfield configs with |B| != 1
-          Real eff_diff_coeff = Bx == 0.0 ? diff_coeff * 0.5 : diff_coeff * Bx * Bx;
+          Real eff_diff_coeff = Bx == 0.0 ? diff_coeff : diff_coeff * Bx * Bx;
           eint = 1 + amp / std::sqrt(4. * M_PI * eff_diff_coeff * t0) *
                          std::exp(-(std::pow(coords.x1v(i), 2.)) /
                                   (4. * eff_diff_coeff * t0));

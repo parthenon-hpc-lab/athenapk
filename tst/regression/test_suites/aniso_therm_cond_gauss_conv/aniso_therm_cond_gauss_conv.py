@@ -30,8 +30,8 @@ import utils.test_case
 # To prevent littering up imported folders with .pyc files or __pycache_ folder
 sys.dont_write_bytecode = True
 
-res_cfgs = [256, 512]
-field_cfgs = ["aligned", "angle", "perp"]
+res_cfgs = [128, 256]
+field_cfgs = ["none", "aligned", "angle", "perp"]
 tlim = 2.0
 
 all_cfgs = list(itertools.product(res_cfgs, field_cfgs))
@@ -52,6 +52,10 @@ def get_B(field_cfg):
     elif field_cfg == "angle":
         Bx = 1 / np.sqrt(2)
         By = 1 / np.sqrt(2)
+    # isotropic case
+    elif field_cfg == "none":
+        Bx = 0.0
+        By = 0.0
     else:
         raise "Unknown field_cfg: %s" % field_cfg
 
@@ -68,6 +72,11 @@ class TestCase(utils.test_case.TestCaseAbs):
         Bx, By = get_B(field_cfg)
 
         outname = get_outname(all_cfgs[step - 1])
+
+        if field_cfg == "none":
+            conduction = "isotropic"
+        else:
+            conduction = "anisotropic"
 
         parameters.driver_cmd_line_args = [
             "parthenon/mesh/nx1=%d" % res,
@@ -86,8 +95,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/output0/id=%s" % outname,
             "hydro/gamma=2.0",
             "parthenon/time/tlim=%f" % tlim,
+            "diffusion/conduction=%s" % conduction,
             "diffusion/thermal_diff_coeff_code=0.25",
-            "diffusion/integrator=rkl2",
+            "diffusion/integrator=unsplit",
         ]
 
         return parameters
@@ -106,9 +116,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             print("Couldn't find module to read Parthenon hdf5 files.")
             return False
 
-        def get_ref(x, Bx):
-            eff_diff_coeff = 0.25 * 0.5 if Bx == 0.0 else 0.25 * Bx * Bx
-            tlim_ = 0.0 if Bx == 0.0 else tlim
+        def get_ref(x, Bx, field_cfg):
+            eff_diff_coeff = 0.25 if Bx == 0.0 else 0.25 * Bx * Bx
+            tlim_ = 0.0 if field_cfg == "perp" else tlim
             return 1.0 + 1e-6 / (
                 np.sqrt(4 * np.pi * eff_diff_coeff * (0.5 + tlim_))
                 / np.exp(-(x ** 2) / (4.0 * eff_diff_coeff * (0.5 + tlim_)))
@@ -129,13 +139,12 @@ class TestCase(utils.test_case.TestCaseAbs):
             x = xx[mask]
             res, field_cfg = all_cfgs[step]
             row = res_cfgs.index(res)
-            p[row].plot(x, temp, label=field_cfg)
 
             Bx, By = get_B(field_cfg)
-            temp_ref = get_ref(x, Bx)
-            l1_err[field_cfgs.index(field_cfg), res_cfgs.index(res)] = np.average(
-                np.abs(temp - temp_ref)
-            )
+            temp_ref = get_ref(x, Bx, field_cfg)
+            l1 = np.average(np.abs(temp - temp_ref))
+            l1_err[field_cfgs.index(field_cfg), res_cfgs.index(res)] = l1
+            p[row].plot(x, temp, label=field_cfg + " L$_1$=%.2g" % l1)
 
         # Plot convergence
         for i, field_cfg in enumerate(field_cfgs):
@@ -155,8 +164,8 @@ class TestCase(utils.test_case.TestCaseAbs):
         for field_cfg in field_cfgs:
             Bx, By = get_B(field_cfg)
             for i in range(num_rows):
-                y = get_ref(x, Bx)
-                p[i].plot(x, y, "-", color="black", alpha=0.5)
+                y = get_ref(x, Bx, field_cfg)
+                p[i].plot(x, y, "-", lw=0.5, color="black", alpha=0.8)
                 p[i].grid()
                 p[i].legend()
 
