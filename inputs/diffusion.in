@@ -60,7 +60,7 @@ reconstruction = dc
 gamma = 2.0
 
 <diffusion>
-flux = unsplit
+integrator = unsplit
 conduction = thermal_diff
 thermal_diff_coeff_code = 0.01
 

@@ -87,7 +87,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             "hydro/gamma=2.0",
             "parthenon/time/tlim=%f" % tlim,
             "diffusion/thermal_diff_coeff_code=0.25",
-            "diffusion/flux=rkl2",
+            "diffusion/integrator=rkl2",
         ]
 
         return parameters

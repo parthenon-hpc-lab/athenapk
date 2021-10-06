@@ -60,7 +60,7 @@ void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, const SimTime &
   auto hydro_pkg = pmesh->block_list[0]->packages.Get("Hydro");
   const auto num_partitions = pmesh->DefaultNumPartitions();
 
-  if ((hydro_pkg->Param<DiffFlux>("diffflux") == DiffFlux::rkl2)) {
+  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2)) {
     auto dt_diff = std::numeric_limits<Real>::max();
     for (auto i = 0; i < num_partitions; i++) {
       auto &md = pmesh->mesh_data.GetOrAdd("base", i);
@@ -465,20 +465,20 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     pkg->AddParam<>("conduction", conduction);
 
-    auto diffflux_str = pin->GetOrAddString("diffusion", "flux", "none");
-    auto diffflux = DiffFlux::none;
-    if (diffflux_str == "unsplit") {
-      diffflux = DiffFlux::unsplit;
-    } else if (diffflux_str == "rkl2") {
-      diffflux = DiffFlux::rkl2;
-    } else if (diffflux_str != "none") {
-      PARTHENON_FAIL("AthenaPK unknown method for diffusive fluxes. Options are: none, "
-                     "unsplit, rkl2");
+    auto diffint_str = pin->GetOrAddString("diffusion", "integrator", "none");
+    auto diffint = DiffInt::none;
+    if (diffint_str == "unsplit") {
+      diffint = DiffInt::unsplit;
+    } else if (diffint_str == "rkl2") {
+      diffint = DiffInt::rkl2;
+    } else if (diffint_str != "none") {
+      PARTHENON_FAIL("AthenaPK unknown integration method for diffusion processes. "
+                     "Options are: none, unsplit, rkl2");
     }
-    if (diffflux != DiffFlux::none) {
+    if (diffint != DiffInt::none) {
       pkg->AddParam<Real>("dt_diff", 0.0); // diffusive timestep constraint
     }
-    pkg->AddParam<>("diffflux", diffflux);
+    pkg->AddParam<>("diffint", diffint);
 
     if (fluid == Fluid::euler) {
       AdiabaticHydroEOS eos(pfloor, dfloor, efloor, gamma);
@@ -703,7 +703,7 @@ Real EstimateTimestep(MeshData<Real> *md) {
   }
 
   // For RKL2 STS, the diffusive timestep is calculated separately in the driver
-  if ((hydro_pkg->Param<DiffFlux>("diffflux") == DiffFlux::unsplit) &&
+  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) &&
       (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
     min_dt = std::min(min_dt, EstimateConductionTimestep(md));
   }
@@ -951,8 +951,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         });
   }
 
-  const auto &diffflux = pkg->Param<DiffFlux>("diffflux");
-  if (diffflux == DiffFlux::unsplit) {
+  const auto &diffint = pkg->Param<DiffInt>("diffint");
+  if (diffint == DiffInt::unsplit) {
     CalcDiffFluxes(pkg.get(), md.get());
   }
 

@@ -475,8 +475,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
   // First add split sources before the main time integration
   if (stage == 1) {
-    const auto &diffflux = hydro_pkg->Param<DiffFlux>("diffflux");
-    if (diffflux == DiffFlux::rkl2) {
+    const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
+    if (diffint == DiffInt::rkl2) {
       AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
     }
     TaskRegion &strang_init_region = tc.AddRegion(num_partitions);
@@ -621,8 +621,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto fill_derived =
         tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
   }
-  const auto &diffflux = hydro_pkg->Param<DiffFlux>("diffflux");
-  if (diffflux == DiffFlux::rkl2 && stage == integrator->nstages) {
+  const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
+  if (diffint == DiffInt::rkl2 && stage == integrator->nstages) {
     AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
   }
 
