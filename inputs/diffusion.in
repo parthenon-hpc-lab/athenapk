@@ -14,7 +14,8 @@ Bx = 1.0     # Bx for x1 step function (permutated for iprobs in other direction
 By = 0.0     # By for x1 step function (permutated for iprobs in other directions)
 
 #iprob = 10   # Diffusion of Gaussian profile in x1 direction
-sigma = 0.1  # standard deviation of Gaussian for iprob=10
+t0 = 0.5      # Temporal offset for initial Gaussian profile
+amp = 1e-6    # Amplitude of Gaussian profile
 
 iprob = 20   # ring diffusion in x1-x2 plane; 21 for x2-x3 plane; 22 for x3-x1 plane
 

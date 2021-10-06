@@ -115,5 +115,5 @@ cuda-regression:
       - build-cuda/tst/regression/outputs/cluster_hse/analytic_comparison.png
       - build-cuda/tst/regression/outputs/cluster_tabular_cooling/convergence.png
       - build-cuda/tst/regression/outputs/aniso_therm_cond_ring_conv/ring_convergence.png
-      - build-cuda/tst/regression/outputs/aniso_therm_cond_step/cond.png
+      - build-cuda/tst/regression/outputs/aniso_therm_cond_gauss_conv/cond.png
       - build-cuda/tst/regression/outputs/field_loop/field_loop.png

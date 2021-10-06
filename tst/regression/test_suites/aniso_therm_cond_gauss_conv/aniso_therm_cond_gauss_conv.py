@@ -32,7 +32,7 @@ sys.dont_write_bytecode = True
 
 res_cfgs = [50, 100]
 field_cfgs = [ "aligned", "perp", "angle" ]
-tlim = 10.0
+tlim = 1.0
 
 all_cfgs = list(itertools.product(res_cfgs, field_cfgs))
         
@@ -70,16 +70,22 @@ class TestCase(utils.test_case.TestCaseAbs):
         parameters.driver_cmd_line_args = [
             'parthenon/mesh/nx1=%d' % res,
             'parthenon/meshblock/nx1=25',
+            'parthenon/mesh/x1min=-6.0',
+            'parthenon/mesh/x1max=6.0',
             'parthenon/mesh/nx2=%d' % res,
             'parthenon/meshblock/nx2=25',
+            'parthenon/mesh/x2min=-6.0',
+            'parthenon/mesh/x2max=6.0',
             'parthenon/mesh/nx3=1',
             'parthenon/meshblock/nx3=1',
             'problem/diffusion/Bx=%f' % Bx,
             'problem/diffusion/By=%f' % By,
-            'problem/diffusion/iprob=0',
+            'problem/diffusion/iprob=10',
             'parthenon/output0/id=%s' % outname,
             'hydro/gamma=2.0',
-            'parthenon/time/tlim=%f' % tlim
+            'parthenon/time/tlim=%f' % tlim,
+            'diffusion/thermal_diff_coeff_code=0.25',
+            'diffusion/flux=rkl2'
             ]
 
         return parameters
@@ -111,25 +117,19 @@ class TestCase(utils.test_case.TestCaseAbs):
             row = res_cfgs.index(res)
             p[row].plot(x,temp,'x',label=field_cfg)
 
-        def get_ref(x,
-                    u0 = 11.0,        # mean temp
-                    delta_u = 2.0,    # temp difference
-                    chi = 0.01,       # diffusivity coefficient
-                    t = tlim,         # time
-                    b_x = 1.0         # magnetic field
-                ):
-            if b_x == 0:
-                return 10.0 if x < 0.0 else 12.0
-            else:
-                return u0 + delta_u/2*(math.erf((x + 0)/np.sqrt(4*chi*t*b_x**2)) -
-                                       math.erf((x - 1)/np.sqrt(4*chi*t*b_x**2)) -
-                                       math.erf((x + 1)/np.sqrt(4*chi*t*b_x**2)))
-        x = np.linspace(-1,1,200)
+        x = np.linspace(-6,6,400)
         for field_cfg in field_cfgs:
             Bx, By = get_B(field_cfg)
             for i in range(num_rows):
-                y = [get_ref(x_, b_x = Bx) for x_ in x]
+                eff_diff_coeff = 0.25 * 0.5 if Bx == 0.0 else 0.25 * Bx * Bx
+                tlim_ = 0.0 if Bx == 0.0 else tlim
+                y = 1.0 + 1e-6 / (
+                    np.sqrt(4*np.pi*eff_diff_coeff * (0.5 + tlim_)) /
+                    np.exp(-x**2 / (4.0 * eff_diff_coeff* (0.5+tlim_))))
+
                 p[i].plot(x, y, '-', color='black', alpha=0.5)
+                p[i].grid()
+                p[i].legend()
 
 
         fig.savefig(os.path.join(parameters.output_path, "cond.png"),
