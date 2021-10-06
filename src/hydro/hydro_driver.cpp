@@ -128,18 +128,42 @@ TaskStatus ResetFluxes(MeshData<Real> *md) {
   return TaskStatus::complete;
 }
 
-TaskStatus RKL2StepFirst(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
-                         MeshData<Real> *md_Yjm2, MeshData<Real> *md_MY0, const int s_rkl,
-                         const Real tau) {
+TaskStatus RKL2Step(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
+                    MeshData<Real> *md_Yjm2, MeshData<Real> *md_MY0, const int j_int,
+                    const Real s, const Real tau) {
   auto pmb = md_Y0->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-  // Compute coefficients. Meyer+2014 eq. (18)
-  Real mu_tilde_1 = 4. / 3. /
-                    (static_cast<Real>(s_rkl) * static_cast<Real>(s_rkl) +
-                     static_cast<Real>(s_rkl) - 2.);
+  const Real j = static_cast<Real>(j_int);
+  // Compute coefficients. Meyer+2012 eq. (16)
+  const Real w1 = 4. / (s * s + s - 2.0);
+
+  const Real b_j = j_int < 2 ? 1. / 3.
+                             : ((j - 0.) * (j - 0.) + (j - 0.) - 2.) /
+                                   (2 * (j - 0.) * ((j - 0.) + 1.));
+  const Real b_jm1 = j_int < 3 ? 1. / 3.
+                               : ((j - 1.) * (j - 1.) + (j - 1.) - 2.) /
+                                     (2 * (j - 1.) * ((j - 1.) + 1.));
+  const Real b_jm2 = j_int < 4 ? 1. / 3.
+                               : ((j - 2.) * (j - 2.) + (j - 2.) - 2.) /
+                                     (2 * (j - 2.) * ((j - 2.) + 1.));
+  Real mu_j = 0.0;
+  Real nu_j = 0.0;
+  Real mu_tilde_j = 0.0;
+  Real gamma_tilde_j = 0.0;
+
+  if (j_int == 1) {
+    // technically mu_tilde_1, but in the eqn in the kernel it's effecticely
+    // applied to MY0 so we use gamma_tilde_j instead
+    gamma_tilde_j = b_j * w1;
+  } else {
+    mu_j = (2.0 * j - 1.0) / j * b_j / b_jm1;
+    nu_j = -(j - 1.0) / j * b_j / b_jm2;
+    mu_tilde_j = mu_j * w1;
+    gamma_tilde_j = -(1.0 - b_jm1) * mu_tilde_j; // -a_jm1*mu_tilde_j
+  }
 
   // In principle, we'd only need to pack Metadata::WithFluxes here, but
   // choosing to mirror other use in the code so that the packs are already cached.
@@ -150,42 +174,8 @@ TaskStatus RKL2StepFirst(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
   auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
 
   const int ndim = pmb->pmy_mesh->ndim;
-  // Using separate loops for each dim as the launch overhead should be hidden
-  // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "RKL first step", parthenon::DevExecSpace(), 0,
-      Y0.GetDim(5) - 1, 0, Y0.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-        Yjm1(b, v, k, j, i) =
-            Y0(b, v, k, j, i) + mu_tilde_1 * tau * MY0(b, v, k, j, i); // Y_1
-        Yjm2(b, v, k, j, i) = Y0(b, v, k, j, i);                       // Y_0
-      });
-
-  return TaskStatus::complete;
-}
-
-TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
-                         MeshData<Real> *md_Yjm2, MeshData<Real> *md_MY0, const Real mu_j,
-                         const Real nu_j, const Real mu_tilde_j, const Real gamma_tilde_j,
-                         const Real tau) {
-  auto pmb = md_Y0->GetBlockData(0)->GetBlockPointer();
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-
-  // In principle, we'd only need to pack Metadata::WithFluxes here, but
-  // choosing to mirror other use in the code so that the packs are already cached.
-  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
-  auto Y0 = md_Y0->PackVariablesAndFluxes(flags_ind);
-  auto Yjm1 = md_Yjm1->PackVariablesAndFluxes(flags_ind);
-  auto Yjm2 = md_Yjm2->PackVariablesAndFluxes(flags_ind);
-  auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
-
-  const int ndim = pmb->pmy_mesh->ndim;
-  // Using separate loops for each dim as the launch overhead should be hidden
-  // by enough work over the entire pack and it allows to not use any conditionals.
-  parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "RKL other step", parthenon::DevExecSpace(), 0,
+      DEFAULT_LOOP_PATTERN, "RKL step", parthenon::DevExecSpace(), 0,
       Y0.GetDim(5) - 1, 0, Y0.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
         // First calc this step
@@ -234,10 +224,6 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto &pmb = blocks[i];
     auto &tl = region_init[i];
     auto &u0 = pmb->meshblock_data.Get();
-    auto &u1 = pmb->meshblock_data.Get("u1");
-    // only need boundaries for Yjm1 (u1 here)
-    auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, u1.get(),
-                                 BoundaryCommSubset::all);
 
     // Add extra registers. No-op for existing variables so it's safe to call every
     // time.
@@ -245,6 +231,19 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     // subset is actually needed. Streamline to allocate only required vars.
     pmb->meshblock_data.Add("MY0", u0);
     pmb->meshblock_data.Add("Yjm2", u0);
+
+    // Need to inititalze Yjm2 with Y0 for stage j=2.
+    // However, we copy Y0 data to Yjm1 because the first RKL step will copy from Yjm1 to
+    // Yjm2.
+    auto &Yjm1 = pmb->meshblock_data.Get("u1");
+    tl.AddTask(
+        none,
+        [](MeshBlockData<Real> *u0, MeshBlockData<Real> *u1) {
+          // No need for prim here as only cons are used during first RKL step
+          u1->Get("cons").data.DeepCopy(u0->Get("cons").data);
+          return TaskStatus::complete;
+        },
+        u0.get(), Yjm1.get());
   }
 
   const int num_partitions = pmesh->DefaultNumPartitions();
@@ -253,8 +252,6 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto &tl = region_rkl2_step_init[i];
     auto &Y0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
-    auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
-    auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
     // Reset flux arrays (not guaranteed to be zero)
     auto reset_fluxes = tl.AddTask(none, ResetFluxes, Y0.get());
 
@@ -266,62 +263,18 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto init_MY0 =
         tl.AddTask(hydro_diff_fluxes, parthenon::Update::FluxDivergence<MeshData<Real>>,
                    Y0.get(), MY0.get());
-
-    // Initialize Y0 and Y1 and the recursion relation needs data from the two
-    // preceeding stages.
-    auto rkl2_step_first = tl.AddTask(init_MY0, RKL2StepFirst, Y0.get(), Yjm1.get(),
-                                      Yjm2.get(), MY0.get(), s_rkl, tau);
-
-    // update ghost cells of Y1 (as MY1 is calculated for each Y_j)
-    // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
-    auto send = tl.AddTask(rkl2_step_first,
-                           parthenon::cell_centered_bvars::SendBoundaryBuffers, Yjm1);
-    auto recv =
-        tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, Yjm1);
-    auto fill_from_bufs =
-        tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, Yjm1);
   }
-
-  TaskRegion &region_clear_bnd = ptask_coll->AddRegion(blocks.size());
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &tl = region_clear_bnd[i];
-    auto &Yjm1 = blocks[i]->meshblock_data.Get("u1");
-    auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
-                                       Yjm1.get(), BoundaryCommSubset::all);
-  }
-  TaskRegion &region_cons_to_prim = ptask_coll->AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; i++) {
-    auto &tl = region_cons_to_prim[i];
-    auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
-    auto fill_derived =
-        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, Yjm1.get());
-  }
-
-  // Compute coefficients. Meyer+2012 eq. (16)
-  Real b_j = 1. / 3.;
-  Real b_jm1 = 1. / 3.;
-  Real b_jm2 = 1. / 3.;
-  Real w1 = 4. / (static_cast<Real>(s_rkl) * static_cast<Real>(s_rkl) +
-                  static_cast<Real>(s_rkl) - 2.);
-  Real mu_j, nu_j, j, mu_tilde_j, gamma_tilde_j;
 
   // RKL loop
-  for (int jj = 2; jj <= s_rkl; jj++) {
-    j = static_cast<Real>(jj);
-    b_j = (j * j + j - 2.0) / (2 * j * (j + 1.0));
-    mu_j = (2.0 * j - 1.0) / j * b_j / b_jm1;
-    nu_j = -(j - 1.0) / j * b_j / b_jm2;
-    mu_tilde_j = mu_j * w1;
-    gamma_tilde_j = -(1.0 - b_jm1) * mu_tilde_j; // -a_jm1*mu_tilde_j
+  for (int j = 1; j <= s_rkl; j++) {
 
     TaskRegion &region_init_other = ptask_coll->AddRegion(blocks.size());
     for (int i = 0; i < blocks.size(); i++) {
       auto &pmb = blocks[i];
       auto &tl = region_init_other[i];
-      auto &u0 = pmb->meshblock_data.Get();
-      auto &u1 = pmb->meshblock_data.Get("u1");
+      auto &Yjm1 = pmb->meshblock_data.Get("u1");
       // only need boundaries for Yjm1 (u1 here)
-      auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, u1.get(),
+      auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, Yjm1.get(),
                                    BoundaryCommSubset::all);
     }
 
@@ -340,13 +293,13 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       auto hydro_diff_fluxes =
           tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), Yjm1.get());
 
-      auto rkl2_step_other =
-          tl.AddTask(hydro_diff_fluxes, RKL2StepOther, Y0.get(), Yjm1.get(), Yjm2.get(),
-                     MY0.get(), mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
+      auto rkl2_step =
+          tl.AddTask(hydro_diff_fluxes, RKL2Step, Y0.get(), Yjm1.get(), Yjm2.get(),
+                     MY0.get(), j, static_cast<Real>(s_rkl), tau);
 
       // update ghost cells of Yjm1 (currently storing Yj)
       // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
-      auto send = tl.AddTask(rkl2_step_other,
+      auto send = tl.AddTask(rkl2_step,
                              parthenon::cell_centered_bvars::SendBoundaryBuffers, Yjm1);
       auto recv =
           tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, Yjm1);
@@ -367,9 +320,6 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       auto fill_derived =
           tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, Yjm1.get());
     }
-
-    b_jm2 = b_jm1;
-    b_jm1 = b_j;
   }
 
   // copy final result back to u0
