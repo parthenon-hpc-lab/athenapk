@@ -30,9 +30,9 @@ import utils.test_case
 # To prevent littering up imported folders with .pyc files or __pycache_ folder
 sys.dont_write_bytecode = True
 
-res_cfgs = [50, 100]
-field_cfgs = [ "aligned", "perp", "angle" ]
-tlim = 1.0
+res_cfgs = [256, 512]
+field_cfgs = [ "aligned", "angle", "perp" ]
+tlim = 2.0
 
 all_cfgs = list(itertools.product(res_cfgs, field_cfgs))
         
@@ -69,13 +69,13 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         parameters.driver_cmd_line_args = [
             'parthenon/mesh/nx1=%d' % res,
-            'parthenon/meshblock/nx1=25',
+            'parthenon/meshblock/nx1=64',
             'parthenon/mesh/x1min=-6.0',
             'parthenon/mesh/x1max=6.0',
-            'parthenon/mesh/nx2=%d' % res,
-            'parthenon/meshblock/nx2=25',
-            'parthenon/mesh/x2min=-6.0',
-            'parthenon/mesh/x2max=6.0',
+            'parthenon/mesh/nx2=32',
+            'parthenon/meshblock/nx2=32',
+            'parthenon/mesh/x2min=-1.0',
+            'parthenon/mesh/x2max=1.0',
             'parthenon/mesh/nx3=1',
             'parthenon/meshblock/nx3=1',
             'problem/diffusion/Bx=%f' % Bx,
@@ -100,10 +100,17 @@ class TestCase(utils.test_case.TestCaseAbs):
             print("Couldn't find module to read Parthenon hdf5 files.")
             return False
 
-        num_rows = len(res_cfgs)
-        fig, p = plt.subplots(num_rows, 1,
-            sharex=True, sharey=True)
+        def get_ref(x, Bx):
+                eff_diff_coeff = 0.25 * 0.5 if Bx == 0.0 else 0.25 * Bx * Bx
+                tlim_ = 0.0 if Bx == 0.0 else tlim
+                return 1.0 + 1e-6 / (
+                    np.sqrt(4*np.pi*eff_diff_coeff * (0.5 + tlim_)) /
+                    np.exp(-x**2 / (4.0 * eff_diff_coeff* (0.5+tlim_))))
 
+        num_rows = len(res_cfgs)
+        fig, p = plt.subplots(num_rows + 1, 1)
+
+        l1_err = np.zeros((len(field_cfgs), len(res_cfgs)))
         for step in range(len(all_cfgs)):
             outname = get_outname(all_cfgs[step])
             data_filename = f"{parameters.output_path}/parthenon.{outname}.00001.phdf"
@@ -115,18 +122,29 @@ class TestCase(utils.test_case.TestCaseAbs):
             x = xx[mask]
             res, field_cfg = all_cfgs[step]
             row = res_cfgs.index(res)
-            p[row].plot(x,temp,'x',label=field_cfg)
+            p[row].plot(x,temp, label=field_cfg)
 
+            Bx, By = get_B(field_cfg)
+            temp_ref = get_ref(x, Bx)
+            l1_err[field_cfgs.index(field_cfg), res_cfgs.index(res)] = np.average(np.abs(temp - temp_ref))
+
+        # Plot convergence
+        for i, field_cfg in enumerate(field_cfgs):
+            if field_cfg == "perp":
+                continue
+
+            est_conv = np.diff(np.log(l1_err[i,:])) / np.diff(np.log(res_cfgs))
+            p[-1].plot(res_cfgs, l1_err[i, :], label=field_cfg + ' conv: %.2f' % est_conv)
+        p[-1].set_xscale("log")
+        p[-1].set_yscale("log")
+        p[-1].legend()
+
+        # Plot reference lines
         x = np.linspace(-6,6,400)
         for field_cfg in field_cfgs:
             Bx, By = get_B(field_cfg)
             for i in range(num_rows):
-                eff_diff_coeff = 0.25 * 0.5 if Bx == 0.0 else 0.25 * Bx * Bx
-                tlim_ = 0.0 if Bx == 0.0 else tlim
-                y = 1.0 + 1e-6 / (
-                    np.sqrt(4*np.pi*eff_diff_coeff * (0.5 + tlim_)) /
-                    np.exp(-x**2 / (4.0 * eff_diff_coeff* (0.5+tlim_))))
-
+                y = get_ref(x, Bx)
                 p[i].plot(x, y, '-', color='black', alpha=0.5)
                 p[i].grid()
                 p[i].legend()
