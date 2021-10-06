@@ -32,6 +32,7 @@ sys.dont_write_bytecode = True
 
 res_cfgs = [50, 100]
 field_cfgs = [ "aligned", "perp", "angle" ]
+tlim = 10.0
 
 all_cfgs = list(itertools.product(res_cfgs, field_cfgs))
         
@@ -77,7 +78,8 @@ class TestCase(utils.test_case.TestCaseAbs):
             'problem/diffusion/By=%f' % By,
             'problem/diffusion/iprob=0',
             'parthenon/output0/id=%s' % outname,
-            'hydro/gamma=2.0'
+            'hydro/gamma=2.0',
+            'parthenon/time/tlim=%f' % tlim
             ]
 
         return parameters
@@ -113,7 +115,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                     u0 = 11.0,        # mean temp
                     delta_u = 2.0,    # temp difference
                     chi = 0.01,       # diffusivity coefficient
-                    t = 10,           # time
+                    t = tlim,         # time
                     b_x = 1.0         # magnetic field
                 ):
             if b_x == 0:
