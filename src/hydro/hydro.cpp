@@ -56,7 +56,7 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
 // the task list is constructed (versus when the task list is being executed).
 // TODO(next person touching this function): If more/separate feature are required
 // please separate concerns.
-void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, const SimTime &tm) {
+void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
   auto hydro_pkg = pmesh->block_list[0]->packages.Get("Hydro");
   const auto num_partitions = pmesh->DefaultNumPartitions();
 
@@ -72,6 +72,10 @@ void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, const SimTime &
                                       MPI_MIN, MPI_COMM_WORLD));
 #endif
     hydro_pkg->UpdateParam("dt_diff", dt_diff);
+    const auto max_dt_ratio = hydro_pkg->Param<Real>("rkl2_max_dt_ratio");
+    if (max_dt_ratio > 0.0 && tm.dt / dt_diff > max_dt_ratio) {
+      tm.dt = max_dt_ratio * dt_diff;
+    }
   }
 }
 
@@ -496,6 +500,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       diffint = DiffInt::unsplit;
     } else if (diffint_str == "rkl2") {
       diffint = DiffInt::rkl2;
+      auto rkl2_dt_ratio = pin->GetOrAddReal("diffusion", "rkl2_max_dt_ratio", -1.0);
+      pkg->AddParam<>("rkl2_max_dt_ratio", rkl2_dt_ratio);
     } else if (diffint_str != "none") {
       PARTHENON_FAIL("AthenaPK unknown integration method for diffusion processes. "
                      "Options are: none, unsplit, rkl2");
