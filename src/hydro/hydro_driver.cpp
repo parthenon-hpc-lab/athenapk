@@ -222,8 +222,8 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
   if (parthenon::Globals::my_rank == 0) {
     const auto ratio = 2.0 * tau / mindt_diff;
     std::cout << "STS ratio: " << ratio << " Taking " << s_rkl << " steps." << std::endl;
-    if (ratio > 100.0) {
-      std::cout << "WARNING: ratio is > 100. Proceed at own risk." << std::endl;
+    if (ratio > 200.1) {
+      std::cout << "WARNING: ratio is > 200. Proceed at own risk." << std::endl;
     }
   }
 
@@ -248,13 +248,10 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
   }
 
   const int num_partitions = pmesh->DefaultNumPartitions();
-  TaskRegion &region_rkl2_step_init = ptask_coll->AddRegion(num_partitions);
+  TaskRegion &region_calc_fluxes_step_init = ptask_coll->AddRegion(num_partitions);
   for (int i = 0; i < num_partitions; i++) {
-    auto &tl = region_rkl2_step_init[i];
+    auto &tl = region_calc_fluxes_step_init[i];
     auto &Y0 = pmesh->mesh_data.GetOrAdd("base", i);
-    auto &MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
-    auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
-    auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
     // Reset flux arrays (not guaranteed to be zero)
     auto reset_fluxes = tl.AddTask(none, ResetFluxes, Y0.get());
 
@@ -262,10 +259,27 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     // as MY0 and reuse later (it is used in every subsetp).
     auto hydro_diff_fluxes =
         tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), Y0.get());
+  }
 
-    auto init_MY0 =
-        tl.AddTask(hydro_diff_fluxes, parthenon::Update::FluxDivergence<MeshData<Real>>,
-                   Y0.get(), MY0.get());
+  TaskRegion &region_flux_correct_step_init = ptask_coll->AddRegion(blocks.size());
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &tl = region_flux_correct_step_init[i];
+    auto &Y0 = blocks[i]->meshblock_data.Get("base");
+    auto send_flux = tl.AddTask(none, &MeshBlockData<Real>::SendFluxCorrection, Y0.get());
+    auto recv_flux =
+        tl.AddTask(none, &MeshBlockData<Real>::ReceiveFluxCorrection, Y0.get());
+  }
+
+  TaskRegion &region_rkl2_step_init = ptask_coll->AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = region_rkl2_step_init[i];
+    auto &Y0 = pmesh->mesh_data.GetOrAdd("base", i);
+    auto &MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
+    auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
+    auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
+
+    auto init_MY0 = tl.AddTask(none, parthenon::Update::FluxDivergence<MeshData<Real>>,
+                               Y0.get(), MY0.get());
 
     // Initialize Y0 and Y1 and the recursion relation needs data from the two
     // preceeding stages.
@@ -288,6 +302,13 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto &Yjm1 = blocks[i]->meshblock_data.Get("u1");
     auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
                                        Yjm1.get(), BoundaryCommSubset::all);
+    auto prolongBound = none;
+    if (pmesh->multilevel) {
+      prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, Yjm1);
+    }
+
+    // set physical boundaries
+    auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, Yjm1);
   }
   TaskRegion &region_cons_to_prim = ptask_coll->AddRegion(num_partitions);
   for (int i = 0; i < num_partitions; i++) {
@@ -325,6 +346,29 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
                                    BoundaryCommSubset::all);
     }
 
+    TaskRegion &region_calc_fluxes_step_other = ptask_coll->AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = region_calc_fluxes_step_other[i];
+      auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
+
+      // Reset flux arrays (not guaranteed to be zero)
+      auto reset_fluxes = tl.AddTask(none, ResetFluxes, Yjm1.get());
+
+      // Calculate the diffusive fluxes for Yjm1 (here u1)
+      auto hydro_diff_fluxes =
+          tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), Yjm1.get());
+    }
+
+    TaskRegion &region_flux_correct_step_other = ptask_coll->AddRegion(blocks.size());
+    for (int i = 0; i < blocks.size(); i++) {
+      auto &tl = region_flux_correct_step_other[i];
+      auto &Yjm1 = blocks[i]->meshblock_data.Get("u1");
+      auto send_flux =
+          tl.AddTask(none, &MeshBlockData<Real>::SendFluxCorrection, Yjm1.get());
+      auto recv_flux =
+          tl.AddTask(none, &MeshBlockData<Real>::ReceiveFluxCorrection, Yjm1.get());
+    }
+
     TaskRegion &region_rkl2_step_other = ptask_coll->AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = region_rkl2_step_other[i];
@@ -333,16 +377,9 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
       auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
 
-      // Reset flux arrays (not guaranteed to be zero)
-      auto reset_fluxes = tl.AddTask(none, ResetFluxes, Yjm1.get());
-
-      // Calculate the diffusive fluxes for Yjm1 (here u1)
-      auto hydro_diff_fluxes =
-          tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), Yjm1.get());
-
       auto rkl2_step_other =
-          tl.AddTask(hydro_diff_fluxes, RKL2StepOther, Y0.get(), Yjm1.get(), Yjm2.get(),
-                     MY0.get(), mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
+          tl.AddTask(none, RKL2StepOther, Y0.get(), Yjm1.get(), Yjm2.get(), MY0.get(),
+                     mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
 
       // update ghost cells of Yjm1 (currently storing Yj)
       // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
@@ -359,6 +396,13 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       auto &Yjm1 = blocks[i]->meshblock_data.Get("u1");
       auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
                                          Yjm1.get(), BoundaryCommSubset::all);
+      auto prolongBound = none;
+      if (pmesh->multilevel) {
+        prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, Yjm1);
+      }
+
+      // set physical boundaries
+      auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, Yjm1);
     }
     TaskRegion &region_cons_to_prim_other = ptask_coll->AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
