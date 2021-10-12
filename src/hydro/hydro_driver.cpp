@@ -229,93 +229,110 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
 
   TaskID none(0);
 
+  // Store initial u0 in u1 as "base" will continusouly be updated but initial state Y0 is
+  // required for each stage.
+  TaskRegion &region_copy_out = ptask_coll->AddRegion(blocks.size());
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &tl = region_copy_out[i];
+    auto &Y0 = blocks[i]->meshblock_data.Get("u1");
+    auto &base = blocks[i]->meshblock_data.Get();
+    tl.AddTask(
+        none,
+        [](MeshBlockData<Real> *dst, MeshBlockData<Real> *src) {
+          dst->Get("cons").data.DeepCopy(src->Get("cons").data);
+          dst->Get("prim").data.DeepCopy(src->Get("prim").data);
+          return TaskStatus::complete;
+        },
+        Y0.get(), base.get());
+  }
+
   TaskRegion &region_init = ptask_coll->AddRegion(blocks.size());
   for (int i = 0; i < blocks.size(); i++) {
     auto &pmb = blocks[i];
     auto &tl = region_init[i];
-    auto &u0 = pmb->meshblock_data.Get();
-    auto &u1 = pmb->meshblock_data.Get("u1");
-    // only need boundaries for Yjm1 (u1 here)
-    auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, u1.get(),
+    auto &base = pmb->meshblock_data.Get();
+    auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, base.get(),
                                  BoundaryCommSubset::all);
 
     // Add extra registers. No-op for existing variables so it's safe to call every
     // time.
     // TODO(pgrete) this allocates all Variables, i.e., prim and cons vector, but only a
     // subset is actually needed. Streamline to allocate only required vars.
-    pmb->meshblock_data.Add("MY0", u0);
-    pmb->meshblock_data.Add("Yjm2", u0);
+    pmb->meshblock_data.Add("MY0", base);
+    pmb->meshblock_data.Add("Yjm2", base);
   }
 
   const int num_partitions = pmesh->DefaultNumPartitions();
   TaskRegion &region_calc_fluxes_step_init = ptask_coll->AddRegion(num_partitions);
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = region_calc_fluxes_step_init[i];
-    auto &Y0 = pmesh->mesh_data.GetOrAdd("base", i);
+    auto &base = pmesh->mesh_data.GetOrAdd("base", i);
     // Reset flux arrays (not guaranteed to be zero)
-    auto reset_fluxes = tl.AddTask(none, ResetFluxes, Y0.get());
+    auto reset_fluxes = tl.AddTask(none, ResetFluxes, base.get());
 
-    // Calculate the diffusive fluxes for Y0 (here u0) so that we can store the result
-    // as MY0 and reuse later (it is used in every subsetp).
+    // Calculate the diffusive fluxes for Y0 (here still "base" as nothing has been
+    // updated yet) so that we can store the result as MY0 and reuse later
+    // (in every subsetp).
     auto hydro_diff_fluxes =
-        tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), Y0.get());
+        tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), base.get());
   }
 
   TaskRegion &region_flux_correct_step_init = ptask_coll->AddRegion(blocks.size());
   for (int i = 0; i < blocks.size(); i++) {
     auto &tl = region_flux_correct_step_init[i];
-    auto &Y0 = blocks[i]->meshblock_data.Get("base");
-    auto send_flux = tl.AddTask(none, &MeshBlockData<Real>::SendFluxCorrection, Y0.get());
+    auto &base = blocks[i]->meshblock_data.Get("base");
+    auto send_flux =
+        tl.AddTask(none, &MeshBlockData<Real>::SendFluxCorrection, base.get());
     auto recv_flux =
-        tl.AddTask(none, &MeshBlockData<Real>::ReceiveFluxCorrection, Y0.get());
+        tl.AddTask(none, &MeshBlockData<Real>::ReceiveFluxCorrection, base.get());
   }
 
   TaskRegion &region_rkl2_step_init = ptask_coll->AddRegion(num_partitions);
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = region_rkl2_step_init[i];
-    auto &Y0 = pmesh->mesh_data.GetOrAdd("base", i);
+    auto &Y0 = pmesh->mesh_data.GetOrAdd("u1", i);
     auto &MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
-    auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
+    auto &base = pmesh->mesh_data.GetOrAdd("base", i);
     auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
 
     auto init_MY0 = tl.AddTask(none, parthenon::Update::FluxDivergence<MeshData<Real>>,
-                               Y0.get(), MY0.get());
+                               base.get(), MY0.get());
 
-    // Initialize Y0 and Y1 and the recursion relation needs data from the two
-    // preceeding stages.
-    auto rkl2_step_first = tl.AddTask(init_MY0, RKL2StepFirst, Y0.get(), Yjm1.get(),
+    // Initialize Y0 and Y1 and the recursion relation starting with j = 2 needs data from
+    // the two preceeding stages.
+    auto rkl2_step_first = tl.AddTask(init_MY0, RKL2StepFirst, Y0.get(), base.get(),
                                       Yjm2.get(), MY0.get(), s_rkl, tau);
 
-    // update ghost cells of Y1 (as MY1 is calculated for each Y_j)
+    // Update ghost cells of Y1 (as MY1 is calculated for each Y_j)
     // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
     auto send = tl.AddTask(rkl2_step_first,
-                           parthenon::cell_centered_bvars::SendBoundaryBuffers, Yjm1);
+                           parthenon::cell_centered_bvars::SendBoundaryBuffers, base);
     auto recv =
-        tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, Yjm1);
+        tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, base);
     auto fill_from_bufs =
-        tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, Yjm1);
+        tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, base);
   }
 
   TaskRegion &region_clear_bnd = ptask_coll->AddRegion(blocks.size());
   for (int i = 0; i < blocks.size(); i++) {
     auto &tl = region_clear_bnd[i];
-    auto &Yjm1 = blocks[i]->meshblock_data.Get("u1");
+    auto &base = blocks[i]->meshblock_data.Get();
     auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
-                                       Yjm1.get(), BoundaryCommSubset::all);
+                                       base.get(), BoundaryCommSubset::all);
     auto prolongBound = none;
     if (pmesh->multilevel) {
-      prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, Yjm1);
+      prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, base);
     }
 
     // set physical boundaries
-    auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, Yjm1);
+    auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, base);
   }
   TaskRegion &region_cons_to_prim = ptask_coll->AddRegion(num_partitions);
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = region_cons_to_prim[i];
-    auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
+    auto &base = pmesh->mesh_data.GetOrAdd("base", i);
     auto fill_derived =
-        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, Yjm1.get());
+        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, base.get());
   }
 
   // Compute coefficients. Meyer+2012 eq. (16)
@@ -339,97 +356,82 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     for (int i = 0; i < blocks.size(); i++) {
       auto &pmb = blocks[i];
       auto &tl = region_init_other[i];
-      auto &u0 = pmb->meshblock_data.Get();
-      auto &u1 = pmb->meshblock_data.Get("u1");
-      // only need boundaries for Yjm1 (u1 here)
-      auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, u1.get(),
+      auto &base = pmb->meshblock_data.Get();
+      // Only need boundaries for base as it's the only "active" container exchanging
+      // data/fluxes with neighbors. All other containers are passive (i.e., data is only
+      // used but not exchanged).
+      auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, base.get(),
                                    BoundaryCommSubset::all);
     }
 
     TaskRegion &region_calc_fluxes_step_other = ptask_coll->AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = region_calc_fluxes_step_other[i];
-      auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
+      auto &base = pmesh->mesh_data.GetOrAdd("base", i);
 
       // Reset flux arrays (not guaranteed to be zero)
-      auto reset_fluxes = tl.AddTask(none, ResetFluxes, Yjm1.get());
+      auto reset_fluxes = tl.AddTask(none, ResetFluxes, base.get());
 
       // Calculate the diffusive fluxes for Yjm1 (here u1)
       auto hydro_diff_fluxes =
-          tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), Yjm1.get());
+          tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), base.get());
     }
 
     TaskRegion &region_flux_correct_step_other = ptask_coll->AddRegion(blocks.size());
     for (int i = 0; i < blocks.size(); i++) {
       auto &tl = region_flux_correct_step_other[i];
-      auto &Yjm1 = blocks[i]->meshblock_data.Get("u1");
+      auto &base = blocks[i]->meshblock_data.Get();
       auto send_flux =
-          tl.AddTask(none, &MeshBlockData<Real>::SendFluxCorrection, Yjm1.get());
+          tl.AddTask(none, &MeshBlockData<Real>::SendFluxCorrection, base.get());
       auto recv_flux =
-          tl.AddTask(none, &MeshBlockData<Real>::ReceiveFluxCorrection, Yjm1.get());
+          tl.AddTask(none, &MeshBlockData<Real>::ReceiveFluxCorrection, base.get());
     }
 
     TaskRegion &region_rkl2_step_other = ptask_coll->AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = region_rkl2_step_other[i];
-      auto &Y0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto &Y0 = pmesh->mesh_data.GetOrAdd("u1", i);
       auto &MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
-      auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
+      auto &base = pmesh->mesh_data.GetOrAdd("base", i);
       auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
 
       auto rkl2_step_other =
-          tl.AddTask(none, RKL2StepOther, Y0.get(), Yjm1.get(), Yjm2.get(), MY0.get(),
+          tl.AddTask(none, RKL2StepOther, Y0.get(), base.get(), Yjm2.get(), MY0.get(),
                      mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
 
-      // update ghost cells of Yjm1 (currently storing Yj)
+      // update ghost cells of base (currently storing Yj)
       // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
       auto send = tl.AddTask(rkl2_step_other,
-                             parthenon::cell_centered_bvars::SendBoundaryBuffers, Yjm1);
+                             parthenon::cell_centered_bvars::SendBoundaryBuffers, base);
       auto recv =
-          tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, Yjm1);
+          tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, base);
       auto fill_from_bufs =
-          tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, Yjm1);
+          tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, base);
     }
     TaskRegion &region_clear_bnd_other = ptask_coll->AddRegion(blocks.size());
     for (int i = 0; i < blocks.size(); i++) {
       auto &tl = region_clear_bnd_other[i];
-      auto &Yjm1 = blocks[i]->meshblock_data.Get("u1");
+      auto &base = blocks[i]->meshblock_data.Get();
       auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
-                                         Yjm1.get(), BoundaryCommSubset::all);
+                                         base.get(), BoundaryCommSubset::all);
       auto prolongBound = none;
       if (pmesh->multilevel) {
-        prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, Yjm1);
+        prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, base);
       }
 
       // set physical boundaries
-      auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, Yjm1);
+      auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, base);
     }
     TaskRegion &region_cons_to_prim_other = ptask_coll->AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = region_cons_to_prim_other[i];
-      auto &Yjm1 = pmesh->mesh_data.GetOrAdd("u1", i);
+      auto &base = pmesh->mesh_data.GetOrAdd("base", i);
       auto fill_derived =
-          tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, Yjm1.get());
+          tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, base.get());
     }
 
     b_jm2 = b_jm1;
     b_jm1 = b_j;
-  }
-
-  // copy final result back to u0
-  TaskRegion &region_copy_out = ptask_coll->AddRegion(blocks.size());
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &tl = region_copy_out[i];
-    auto &u0 = blocks[i]->meshblock_data.Get();
-    auto &Yjm1 = blocks[i]->meshblock_data.Get("u1");
-    tl.AddTask(
-        none,
-        [](MeshBlockData<Real> *u0, MeshBlockData<Real> *u1) {
-          u0->Get("cons").data.DeepCopy(u1->Get("cons").data);
-          u0->Get("prim").data.DeepCopy(u1->Get("prim").data);
-          return TaskStatus::complete;
-        },
-        u0.get(), Yjm1.get());
   }
 }
 
