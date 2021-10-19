@@ -258,9 +258,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                 R = unyt.unyt_array(R,"code_length")
                 H = unyt.unyt_array(H,"code_length")
 
-                sign_jet = np.piecewise(H,[H <=0, H > 0],[-1,1])
-                inside_jet = np.piecewise(R,[ R <= self.agn_jet_radius,],[1,0]) \
-                            *np.piecewise(H,[ np.abs(H) <= self.agn_jet_height,],[1,0])
+                sign_jet = np.piecewise(H,[H <=0, H > 0],[-1,1]).v
+                inside_jet = (np.piecewise(R,[ R <= self.agn_jet_radius,],[1,0]) \
+                             *np.piecewise(H,[ np.abs(H) <= self.agn_jet_height,],[1,0])).v
 
                 drho = inside_jet*agn_kinetic_fraction*time*jet_density
                 dMx  = inside_jet*agn_kinetic_fraction*time*sign_jet*jet_density*jet_velocity*jet_coords.jet_n[0]
