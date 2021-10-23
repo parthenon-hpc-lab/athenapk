@@ -113,20 +113,13 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // need to make sure that there's only one region in order to MPI_reduce to work
     TaskRegion &single_task_region = tc.AddRegion(1);
     auto &tl = single_task_region[0];
-    // First globally reset c_h
-    auto prev_task = tl.AddTask(
-        none,
-        [](StateDescriptor *hydro_pkg) {
-          hydro_pkg->UpdateParam("mindx", std::numeric_limits<Real>::max());
-          return TaskStatus::complete;
-        },
-        hydro_pkg.get());
     // Adding one task for each partition. Not using a (new) single partition containing
     // all blocks here as this (default) split is also used for the following tasks and
     // thus does not create an overhead (such as creating a new MeshBlockPack that is just
     // used here). Given that all partitions are in one task list they'll be executed
     // sequentially. Given that a par_reduce to a host var is blocking it's also save to
     // store the variable in the Params for now.
+    auto prev_task = none;
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
       auto new_mindx = tl.AddTask(prev_task, CalculateGlobalMinDx, mu0.get());
@@ -297,6 +290,21 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
     // set physical boundaries
     auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, u0);
+  }
+
+  // Single task in single (serial) region to reset global vars used in reductions in the
+  // first stage.
+  if (stage == integrator->nstages && hydro_pkg->Param<bool>("calc_c_h")) {
+    TaskRegion &reset_reduction_vars_region = tc.AddRegion(1);
+    auto &tl = reset_reduction_vars_region[0];
+    tl.AddTask(
+        none,
+        [](StateDescriptor *hydro_pkg) {
+          hydro_pkg->UpdateParam("mindx", std::numeric_limits<Real>::max());
+          hydro_pkg->UpdateParam("dt_hyp", std::numeric_limits<Real>::max());
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
   }
 
   TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);

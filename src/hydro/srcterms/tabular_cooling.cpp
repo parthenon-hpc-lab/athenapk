@@ -568,7 +568,7 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
         const Real cooling_time = (de_dt == 0 ? std::numeric_limits<Real>::infinity()
                                               : fabs(internal_e / de_dt));
 
-        thread_min_cooling_time = std::min(cooling_time, min_cooling_time);
+        thread_min_cooling_time = std::min(cooling_time, thread_min_cooling_time);
       },
       reducer_min);
 
