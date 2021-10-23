@@ -4,6 +4,7 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -242,9 +243,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     auto glmmhd_alpha = pin->GetOrAddReal("hydro", "glmmhd_alpha", 0.1);
     pkg->AddParam<Real>("glmmhd_alpha", glmmhd_alpha);
     calc_c_h = true;
-    pkg->AddParam<Real>("c_h", 0.0);    // hyperbolic divergence cleaning speed
-    pkg->AddParam<Real>("mindx", 0.0);  // global minimum dx (used to calc c_h)
-    pkg->AddParam<Real>("dt_hyp", 0.0); // hyperbolic timestep constraint
+    pkg->AddParam<Real>("c_h", 0.0); // hyperbolic divergence cleaning speed
+    // global minimum dx (used to calc c_h)
+    pkg->AddParam<Real>("mindx", std::numeric_limits<Real>::max());
+    // hyperbolic timestep constraint
+    pkg->AddParam<Real>("dt_hyp", std::numeric_limits<Real>::max());
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
@@ -708,7 +711,10 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   // hyperbolic signal speeds and not by (potentially more restrictive) diffusive
   // processes.
   if constexpr (fluid == Fluid::glmmhd) {
-    hydro_pkg->UpdateParam("dt_hyp", cfl_hyp * min_dt_hyperbolic);
+    auto dt_hyp_pkg = hydro_pkg->Param<Real>("dt_hyp");
+    if (cfl_hyp * min_dt_hyperbolic < dt_hyp_pkg) {
+      hydro_pkg->UpdateParam("dt_hyp", cfl_hyp * min_dt_hyperbolic);
+    }
   }
   return cfl_hyp * min_dt_hyperbolic;
 }
