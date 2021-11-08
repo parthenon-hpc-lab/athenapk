@@ -133,6 +133,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real gamma = pin->GetOrAddReal("hydro", "gamma", 5 / 3);
   Real gm1 = gamma - 1.0;
 
+  Real Bx = pin->GetOrAddReal("problem", "Bx", 0.0);
+  Real By = pin->GetOrAddReal("problem", "By", 0.0);
+
   // get coordinates of center of blast, and convert to Cartesian if necessary
   Real x1_0 = pin->GetOrAddReal("problem", "x1_0", 0.0);
   Real x2_0 = pin->GetOrAddReal("problem", "x2_0", 0.0);
@@ -194,6 +197,14 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IM2, k, j, i) = 0.0;
         u(IM3, k, j, i) = 0.0;
         u(IEN, k, j, i) = pres / gm1;
+        if (Bx != 0.0) {
+          u(IB1, k, j, i) = Bx;
+          u(IEN, k, j, i) += 0.5 * Bx * Bx;
+        }
+        if (By != 0.0) {
+          u(IB2, k, j, i) = By;
+          u(IEN, k, j, i) += 0.5 * By * By;
+        }
       }
     }
   }
