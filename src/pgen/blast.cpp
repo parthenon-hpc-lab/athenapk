@@ -49,11 +49,18 @@ parthenon::ParArrayHost<int> image_data;
 std::vector<Real> image_x, image_y;
 
 void InitUserMeshData(ParameterInput *pin) {
-  std::string input_image = pin->GetOrAddString("problem", "input_image", "none");
-  // read input image if provided
-  use_input_image = input_image != "none";
-  if (use_input_image) {
-    std::cout << "Loading " << input_image;
+  const auto num_images = pin->GetOrAddInteger("hydro", "nscalars", 0);
+  bool is_allocated = false;
+
+  for (auto i_img = 0; i_img < num_images; i_img++) {
+    const auto input_image =
+        pin->GetOrAddString("problem", "input_image_" + std::to_string(i_img), "none");
+    // read input image only if provided
+    if (input_image == "none") {
+      std::cout << "Missing file: " << input_image << std::endl;
+      continue;
+    }
+    std::cout << "Loading " << input_image << std::endl;
     std::ifstream infile(input_image);
     PARTHENON_REQUIRE(infile.good(), "Cannot open image file.");
 
@@ -65,14 +72,17 @@ void InitUserMeshData(ParameterInput *pin) {
     infile >> ncols >> nrows;
     getline(infile, line); // jump past the dimension line
 
-    image_data = ParArrayHost<int>("image_data", ncols, nrows);
+    if (!is_allocated) {
+      image_data = ParArrayHost<int>("image_data", num_images, ncols, nrows);
+      is_allocated = true;
+    }
 
     char c;
     size_t row = 0;
     size_t col = 0;
     while (infile.get(c)) {
       for (int i = 7; i >= 0; i--) {
-        image_data(col, row) = ((c >> i) & 1);
+        image_data(i_img, col, row) = ((c >> i) & 1);
         row++;
         if (row == nrows) {
           col++;
@@ -131,6 +141,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   x0 = x1_0;
   y0 = x2_0;
   z0 = x3_0;
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -153,7 +166,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         Real z = coords.x3v(k);
         Real rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
 
-        if (use_input_image) {
+        // Init passive scalars
+        for (auto n = nhydro; n < nhydro + nscalars; n++) {
           auto x_idx = std::distance(
               image_x.begin(),
               std::upper_bound(image_x.begin(), image_x.end(), coords.x1v(i)));
@@ -161,28 +175,18 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
               image_y.begin(),
               std::upper_bound(image_y.begin(), image_y.end(), coords.x2v(j)));
 
-          if (image_data(y_idx, x_idx) != 0) {
-            den = drat * da;
-            // pres = prat * pa;
-          }
-        } else {
-          if (rad < rout) {
-            if (rad < rin) {
-              den = drat * da;
-            } else { // add smooth ramp in density
-              Real f = (rad - rin) / (rout - rin);
-              Real log_den = (1.0 - f) * std::log(drat * da) + f * std::log(da);
-              den = std::exp(log_den);
-            }
-          }
+          u(n, k, j, i) = image_data(n - nhydro, y_idx, x_idx);
         }
         if (rad < rout) {
           if (rad < rin) {
             pres = prat * pa;
-          } else { // add smooth ramp in pressure
+            den = drat * da;
+          } else { // add smooth ramp
             Real f = (rad - rin) / (rout - rin);
             Real log_pres = (1.0 - f) * std::log(prat * pa) + f * std::log(pa);
             pres = std::exp(log_pres);
+            Real log_den = (1.0 - f) * std::log(drat * da) + f * std::log(da);
+            den = std::exp(log_den);
           }
         }
         u(IDN, k, j, i) = den;

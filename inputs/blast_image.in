@@ -6,21 +6,24 @@
 problem = spherical blast wave
 
 <job>
-problem_id = 2021
-pgen = blast
+problem_id = blast
+
+<refinement>
+type                         = pressure_gradient
+threshold_pressure_gradient  = 0.1
 
 <parthenon/mesh>
 refinement = adaptive
-numlevel = 2
+numlevel = 3
 nghost = 2
 
-nx1 = 256 
+nx1 = 128 
 x1min = -0.5
 x1max = 0.5
 ix1_bc = periodic
 ox1_bc = periodic
 
-nx2 = 256 
+nx2 = 128 
 x2min = -0.5
 x2max = 0.5
 ix2_bc = periodic
@@ -32,9 +35,6 @@ x3max = 0.5
 ix3_bc = periodic
 ox3_bc = periodic
 
-num_threads=1
-num_streams=1
-
 <parthenon/meshblock>
 nx1=16  
 nx2=16  
@@ -43,28 +43,36 @@ nx3=1
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
-tlim = 0.004
+tlim = 0.80
 nlim = 10000
 perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+ncycle_out_mesh = -500
 
 <hydro>
 eos = adiabatic
 riemann = hlle
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
-scratch_level = 1 # 0 is actual scratch (tiny); 1 is HBM
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+nscalars = 3
+#dfloor = 1e-20
+#pfloor = 1e-20
 
 <problem>
-pamb       = 0.001    # ambient pressure
-prat       = 1.6e8 # Pressure ratio initially
-radius     = 0.05    # Radius of the inner sphere
-damb       = 1.0    # ambient density
-drat       = 2.0
-ramp       = 0.0
+pamb       = 0.1      # ambient pressure
+prat       = 1.6e6      # Pressure ratio initially
+radius_outer  = 0.01    # Radius of the outer sphere
+radius_inner  = 0.00000005   # Radius of the inter sphere (with ramp between inner and outer sphere)
+damb       = 1.0        # ambient density
+drat       = 1.0        # density ratio in sphere
 thr        = 0.1
-input_image = 2021.pbm
+input_image_0 = athena.pbm
+input_image_1 = parthenon.pbm
+input_image_2 = gtc.pbm
+x1_0 = -0.4
+x2_0 = -0.4
 
 <parthenon/output0>
 file_type = hdf5
-dt = 0.00005
-variables = cons
+dt = 0.010
+variables = prim
