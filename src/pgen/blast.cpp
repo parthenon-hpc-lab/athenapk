@@ -78,8 +78,8 @@ void InitUserMeshData(ParameterInput *pin) {
     }
 
     char c;
-    size_t row = 0;
-    size_t col = ncols - 1;
+    int row = 0;
+    int col = ncols - 1;
     while (infile.get(c)) {
       for (int i = 7; i >= 0; i--) {
         image_data(i_img, col, row) = ((c >> i) & 1);
