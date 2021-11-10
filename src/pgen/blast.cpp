@@ -79,13 +79,13 @@ void InitUserMeshData(ParameterInput *pin) {
 
     char c;
     size_t row = 0;
-    size_t col = 0;
+    size_t col = ncols - 1;
     while (infile.get(c)) {
       for (int i = 7; i >= 0; i--) {
         image_data(i_img, col, row) = ((c >> i) & 1);
         row++;
         if (row == nrows) {
-          col++;
+          col--;
           row = 0;
         }
       }
@@ -94,7 +94,7 @@ void InitUserMeshData(ParameterInput *pin) {
     infile.close();
 
     // simple sanity check, could be improved in loop above
-    PARTHENON_REQUIRE(col == ncols, "Number of cols read doesn't match expected val.");
+    PARTHENON_REQUIRE(col == -1, "Number of cols read doesn't match expected val.");
     PARTHENON_REQUIRE(row == 0, "Number of rows read doesn't match expected val.");
 
     const auto x1min = pin->GetReal("parthenon/mesh", "x1min");
@@ -177,6 +177,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           auto y_idx = std::distance(
               image_y.begin(),
               std::upper_bound(image_y.begin(), image_y.end(), coords.x2v(j)));
+
+          // adjust upper loops bounds
+          x_idx = x_idx == image_data.GetDim(1) ? x_idx - 1 : x_idx;
+          y_idx = y_idx == image_data.GetDim(2) ? y_idx - 1 : y_idx;
+          PARTHENON_REQUIRE(x_idx < image_data.GetDim(1), "x_idx out of bounds");
+          PARTHENON_REQUIRE(y_idx < image_data.GetDim(2), "y_idx out of bounds");
 
           u(n, k, j, i) = image_data(n - nhydro, y_idx, x_idx);
         }
