@@ -572,7 +572,7 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &eos =
+  const auto &eos_ =
       hydro_pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                                  AdiabaticGLMMHDEOS>::type>("eos");
 
@@ -582,8 +582,7 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
 
   Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
 
-  bool nx2 = prim_pack.GetDim(2) > 1;
-  bool nx3 = prim_pack.GetDim(3) > 1;
+  const auto ndim_ = prim_pack.GetNdim();
   Kokkos::parallel_reduce(
       "EstimateHyperbolicTimestep",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
@@ -593,6 +592,11 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
         const auto &prim = prim_pack(b);
         const auto &coords = prim_pack.coords(b);
+        // Need to reference variables here so that they are properly caught by
+        // nvcc, which cannot determine captured variables only used within constexpr if.
+        const auto &ndim = ndim_;
+        const auto &eos = eos_;
+
         Real w[(NHYDRO)];
         w[IDN] = prim(IDN, k, j, i);
         w[IV1] = prim(IV1, k, j, i);
@@ -608,12 +612,12 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         } else if constexpr (fluid == Fluid::glmmhd) {
           lambda_max_x = eos.FastMagnetosonicSpeed(
               w[IDN], w[IPR], prim(IB1, k, j, i), prim(IB2, k, j, i), prim(IB3, k, j, i));
-          if (nx2) {
+          if (ndim > 1) {
             lambda_max_y =
                 eos.FastMagnetosonicSpeed(w[IDN], w[IPR], prim(IB2, k, j, i),
                                           prim(IB3, k, j, i), prim(IB1, k, j, i));
           }
-          if (nx3) {
+          if (ndim > 2) {
             lambda_max_z =
                 eos.FastMagnetosonicSpeed(w[IDN], w[IPR], prim(IB3, k, j, i),
                                           prim(IB1, k, j, i), prim(IB2, k, j, i));
@@ -623,11 +627,11 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         }
         min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) /
                                   (fabs(w[IV1]) + lambda_max_x));
-        if (nx2) {
+        if (ndim > 1) {
           min_dt = fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) /
                                     (fabs(w[IV2]) + lambda_max_y));
         }
-        if (nx3) {
+        if (ndim > 2) {
           min_dt = fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) /
                                     (fabs(w[IV3]) + lambda_max_z));
         }
