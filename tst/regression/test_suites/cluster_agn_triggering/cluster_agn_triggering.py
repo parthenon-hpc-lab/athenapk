@@ -328,7 +328,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                         accretion_mask(Z,Y,X,final_pres,self.uniform_gas_pres).in_units("code_mass/(code_length*code_time**2)").v,
                     }
 
-            phdf_files = [f"{parameters.output_path}/parthenon.{output_id}.{i:05d}.phdf" for i in range(2)]
+            phdf_files = [f"{parameters.output_path}/parthenon.{output_id}.00000.phdf",f"{parameters.output_path}/parthenon.{output_id}.final.phdf"]
 
             #Use a very loose tolerance, linf relative error
             analytic_status = True

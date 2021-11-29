@@ -298,7 +298,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         adapt_final_internal_es = {} #internal_e for the adaptive tests
 
         for step in range(1,self.n_steps+1):
-            data_filename = f"{parameters.output_path}/parthenon.tabular_cooling_{step}.00001.phdf"
+            data_filename = f"{parameters.output_path}/parthenon.tabular_cooling_{step}.final.phdf"
             
             #Check that gas state matches the initial uniform gas except for the pressure
             final_uniform_gas_status = compare_analytic.compare_analytic(
