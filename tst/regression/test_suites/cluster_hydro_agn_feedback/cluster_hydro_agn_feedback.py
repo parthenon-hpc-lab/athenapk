@@ -258,9 +258,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                 R = unyt.unyt_array(R,"code_length")
                 H = unyt.unyt_array(H,"code_length")
 
-                sign_jet = np.piecewise(H,[H <=0, H > 0],[-1,1]).v
+                sign_jet = np.piecewise(H,[H <=0, H > 0],[-1,1])
                 inside_jet = (np.piecewise(R,[ R <= self.agn_jet_radius,],[1,0]) \
-                             *np.piecewise(H,[ np.abs(H) <= self.agn_jet_height,],[1,0])).v
+                             *np.piecewise(H,[ np.abs(H) <= self.agn_jet_height,],[1,0]))
 
                 drho = inside_jet*agn_kinetic_fraction*time*jet_density
                 dMx  = inside_jet*agn_kinetic_fraction*time*sign_jet*jet_density*jet_velocity*jet_coords.jet_n[0]
@@ -331,7 +331,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                         (self.uniform_gas_energy_density + agn_feedback(Z,Y,X,time)[4]).in_units("code_mass*code_length**-1*code_time**-2").v,
                     }
 
-            phdf_files = [f"{parameters.output_path}/parthenon.{output_id}.{i:05d}.phdf" for i in range(2)]
+            phdf_files = [f"{parameters.output_path}/parthenon.{output_id}.00000.phdf",f"{parameters.output_path}/parthenon.{output_id}.final.phdf"]
 
             def zero_corrected_linf_err(gold,test):
                 non_zero_linf = np.max(np.abs((gold[gold!=0]-test[gold!=0])/gold[gold!=0]),initial=0)
