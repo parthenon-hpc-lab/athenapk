@@ -16,7 +16,7 @@ vflow     = 0.0       # background flow velocity
 ang_2     = 0.0       # rotation of k around x3 axis
 ang_3     = 0.0       # rotation of k around x2 axis
 
-<mesh>
+<parthenon/mesh>
 refinement = none
 nghost = 2
 
@@ -38,12 +38,12 @@ x3max = 0.5
 ix2_bc = periodic
 ox2_bc = periodic
 
-<output1>
+<parthenon/output0>
 file_type = hdf5
 dt = 0.01
-variable   = prim      # variables to be output TODO(pgrete) this is  likely obsolete
+variables   = prim
 
-<time>
+<parthenon/time>
 integrator = rk1
 cfl = 0.4
 tlim = 5.0
