@@ -394,7 +394,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             # densities, and magnetic fields
             ######################################## 
 
-            phdf_filenames = [f"{parameters.output_path}/parthenon.prim.00000.phdf",f"{parameters.output_path}/parthenon.prim.final.phdf"]
+            phdf_filenames = [f"{parameters.output_path}/parthenon.{output_id}.00000.phdf",f"{parameters.output_path}/parthenon.{output_id}.final.phdf"]
 
             #Create a relative L-Inf errpr function, ignore where zero in gold data
             rel_linf_err_func = lambda gold, test: compare_analytic.norm_err_func(
