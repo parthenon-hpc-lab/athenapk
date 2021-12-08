@@ -61,7 +61,8 @@ void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
   auto hydro_pkg = pmesh->block_list[0]->packages.Get("Hydro");
   const auto num_partitions = pmesh->DefaultNumPartitions();
 
-  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2)) {
+  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) &&
+      (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
     auto dt_diff = std::numeric_limits<Real>::max();
     for (auto i = 0; i < num_partitions; i++) {
       auto &md = pmesh->mesh_data.GetOrAdd("base", i);
@@ -485,14 +486,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       } else {
         PARTHENON_FAIL("Thermal conduction is enabled but no coefficient is set. Please "
                        "set diffusion/conduction_coeff to either 'spitzer' or 'fixed'");
-      }
-
-      if (conduction == Conduction::isotropic &&
-          conduction_coeff != ConductionCoeff::fixed) {
-        PARTHENON_FAIL(
-            "Isotropic thermal conduction is currently only supported with a fixed "
-            "(spatially and temporally) conduction coefficient. Please get in contact if "
-            "you need varying coefficients (e.g., Spitzer) for isotropic conduction.")
       }
     }
     pkg->AddParam<>("conduction", conduction);

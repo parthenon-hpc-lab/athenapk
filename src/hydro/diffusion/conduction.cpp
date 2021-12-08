@@ -17,6 +17,7 @@
 // AthenaPK headers
 #include "../../main.hpp"
 #include "diffusion.hpp"
+#include "utils/error_checking.hpp"
 
 using namespace parthenon::package::prelude;
 
@@ -92,7 +93,7 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
         Kokkos::Min<Real>(min_dt_cond));
   } else {
     Kokkos::parallel_reduce(
-        "EstimateConductionTimestep",
+        "EstimateConductionTimestep (general)",
         Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
             DevExecSpace(), {0, kb.s, jb.s, ib.s},
             {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
@@ -174,9 +175,9 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
 }
 
 //---------------------------------------------------------------------------------------
-//! Calculate isotropic thermal conduction
+//! Calculate isotropic thermal conduction with fixed coefficient
 
-void ThermalFluxIso(MeshData<Real> *md) {
+void ThermalFluxIsoFixed(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -191,8 +192,7 @@ void ThermalFluxIso(MeshData<Real> *md) {
   const int ndim = pmb->pmy_mesh->ndim;
 
   const auto &thermal_diff = hydro_pkg->Param<ThermalDiffusivity>("thermal_diff");
-  // Isotropic thermal conduction currently only supports a fixed, uniform coefficient
-  // so it's safe to get it outside the kernel.
+  // Using fixed and uniform coefficient so it's safe to get it outside the kernel.
   const auto thermal_diff_coeff = thermal_diff.Get(0.0, 0.0, 0.0);
 
   parthenon::par_for(
@@ -249,9 +249,10 @@ void ThermalFluxIso(MeshData<Real> *md) {
 }
 
 //---------------------------------------------------------------------------------------
-//! Calculate anisotropic thermal conduction
+//! Calculate thermal conduction, general case, i.e., anisotropic and/or with varying
+//! (incl. saturated) coefficient
 
-void ThermalFluxAniso(MeshData<Real> *md) {
+void ThermalFluxGeneral(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -268,7 +269,7 @@ void ThermalFluxAniso(MeshData<Real> *md) {
   const auto &thermal_diff = hydro_pkg->Param<ThermalDiffusivity>("thermal_diff");
 
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "Thermal conduction X1 fluxes (aniso)",
+      DEFAULT_LOOP_PATTERN, "Thermal conduction X1 fluxes (general)",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e + 1, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = prim_pack.coords(b);
@@ -277,7 +278,6 @@ void ThermalFluxAniso(MeshData<Real> *md) {
 
         // Variables only required in 3D case
         Real dTdz = 0.0;
-        Real Bz = 0.0;
 
         // clang-format off
         /* Monotonized temperature difference dT/dy */
@@ -303,7 +303,6 @@ void ThermalFluxAniso(MeshData<Real> *md) {
                                 prim(IPR, k    , j, i - 1) / prim(IDN, k    , j, i - 1) -
                                 prim(IPR, k - 1, j, i - 1) / prim(IDN, k - 1, j, i - 1)) /
                  coords.Dx(parthenon::X3DIR, k, j, i);
-          Bz = 0.5 * (prim(IB3, k, j, i - 1) + prim(IB3, k, j, i));
         }
         // clang-format on
 
@@ -311,20 +310,30 @@ void ThermalFluxAniso(MeshData<Real> *md) {
         const auto T_im1 = prim(IPR, k, j, i - 1) / prim(IDN, k, j, i - 1);
         const auto dTdx = (T_i - T_im1) / coords.Dx(parthenon::X1DIR, k, j, i);
 
-        // Calc interface values
-        const auto Bx = 0.5 * (prim(IB1, k, j, i - 1) + prim(IB1, k, j, i));
-        const auto By = 0.5 * (prim(IB2, k, j, i - 1) + prim(IB2, k, j, i));
-        auto B02 = SQR(Bx) + SQR(By) + SQR(Bz);
-        B02 = std::max(B02, TINY_NUMBER); /* limit in case B=0 */
-        const auto bDotGradT = Bx * dTdx + By * dTdy + Bz * dTdz;
+        Real flux_grad = 0.0;
+        if (thermal_diff.GetType() == Conduction::anisotropic) {
+          const auto Bx = 0.5 * (prim(IB1, k, j, i - 1) + prim(IB1, k, j, i));
+          const auto By = 0.5 * (prim(IB2, k, j, i - 1) + prim(IB2, k, j, i));
+          const auto Bz =
+              ndim >= 3 ? 0.5 * (prim(IB3, k, j, i - 1) + prim(IB3, k, j, i)) : 0.0;
+          auto B02 = SQR(Bx) + SQR(By) + SQR(Bz);
+          B02 = std::max(B02, TINY_NUMBER); /* limit in case B=0 */
+          const auto bDotGradT = Bx * dTdx + By * dTdy + Bz * dTdz;
+          flux_grad = (Bx * bDotGradT) / B02;
+        } else if (thermal_diff.GetType() == Conduction::isotropic) {
+          flux_grad = dTdx;
+        } else {
+          PARTHENON_FAIL("Unknown thermal diffusion flux.");
+        }
 
+        // Calc interface values
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k, j, i - 1));
         const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
         const auto thermal_diff_f =
             0.5 *
             (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i), gradTmag) +
              thermal_diff.Get(prim(IPR, k, j, i - 1), prim(IDN, k, j, i - 1), gradTmag));
-        cons.flux(X1DIR, IEN, k, j, i) -= thermal_diff_f * denf * (Bx * bDotGradT) / B02;
+        cons.flux(X1DIR, IEN, k, j, i) -= thermal_diff_f * denf * flux_grad;
       });
 
   if (ndim < 2) {
@@ -332,7 +341,7 @@ void ThermalFluxAniso(MeshData<Real> *md) {
   }
   /* Compute heat fluxes in 2-direction  --------------------------------------*/
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "Thermal conduction X2 fluxes (aniso)",
+      DEFAULT_LOOP_PATTERN, "Thermal conduction X2 fluxes (general)",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e + 1,
       ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = prim_pack.coords(b);
@@ -341,7 +350,6 @@ void ThermalFluxAniso(MeshData<Real> *md) {
 
         // Variables only required in 3D case
         Real dTdz = 0.0;
-        Real Bz = 0.0;
 
         // clang-format off
         /* Monotonized temperature difference dT/dx */
@@ -368,7 +376,6 @@ void ThermalFluxAniso(MeshData<Real> *md) {
                                 prim(IPR, k - 1, j - 1, i) / prim(IDN, k - 1, j - 1, i)) /
                  coords.Dx(parthenon::X3DIR, k, j, i);
 
-          Bz = 0.5 * (prim(IB3, k, j - 1, i) + prim(IB3, k, j, i));
         }
         // clang-format on
 
@@ -376,20 +383,30 @@ void ThermalFluxAniso(MeshData<Real> *md) {
         const auto T_jm1 = prim(IPR, k, j - 1, i) / prim(IDN, k, j - 1, i);
         const auto dTdy = (T_j - T_jm1) / coords.Dx(parthenon::X2DIR, k, j, i);
 
-        // Calc interface values
-        const auto Bx = 0.5 * (prim(IB1, k, j - 1, i) + prim(IB1, k, j, i));
-        const auto By = 0.5 * (prim(IB2, k, j - 1, i) + prim(IB2, k, j, i));
-        Real B02 = SQR(Bx) + SQR(By) + SQR(Bz);
-        B02 = std::max(B02, TINY_NUMBER); /* limit in case B=0 */
-        const auto bDotGradT = Bx * dTdx + By * dTdy + Bz * dTdz;
+        Real flux_grad = 0.0;
+        if (thermal_diff.GetType() == Conduction::anisotropic) {
+          const auto Bx = 0.5 * (prim(IB1, k, j - 1, i) + prim(IB1, k, j, i));
+          const auto By = 0.5 * (prim(IB2, k, j - 1, i) + prim(IB2, k, j, i));
+          const auto Bz =
+              ndim >= 3 ? 0.5 * (prim(IB3, k, j - 1, i) + prim(IB3, k, j, i)) : 0.0;
+          Real B02 = SQR(Bx) + SQR(By) + SQR(Bz);
+          B02 = std::max(B02, TINY_NUMBER); /* limit in case B=0 */
+          const auto bDotGradT = Bx * dTdx + By * dTdy + Bz * dTdz;
+          flux_grad = (By * bDotGradT) / B02;
+        } else if (thermal_diff.GetType() == Conduction::isotropic) {
+          flux_grad = dTdy;
+        } else {
+          PARTHENON_FAIL("Unknown thermal diffusion flux.");
+        }
 
+        // Calc interface values
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k, j - 1, i));
         const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
         const auto thermal_diff_f =
             0.5 *
             (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i), gradTmag) +
              thermal_diff.Get(prim(IPR, k, j - 1, i), prim(IDN, k, j - 1, i), gradTmag));
-        cons.flux(X2DIR, IEN, k, j, i) -= thermal_diff_f * denf * (By * bDotGradT) / B02;
+        cons.flux(X2DIR, IEN, k, j, i) -= thermal_diff_f * denf * flux_grad;
       });
   /* Compute heat fluxes in 3-direction, 3D problem ONLY  ---------------------*/
   if (ndim < 3) {
@@ -397,7 +414,7 @@ void ThermalFluxAniso(MeshData<Real> *md) {
   }
 
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "Thermal conduction X3 fluxes (aniso)",
+      DEFAULT_LOOP_PATTERN, "Thermal conduction X3 fluxes (general)",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e,
       ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = prim_pack.coords(b);
@@ -434,12 +451,20 @@ void ThermalFluxAniso(MeshData<Real> *md) {
         const auto T_km1 = prim(IPR, k - 1, j, i) / prim(IDN, k - 1, j, i);
         const auto dTdz = (T_k - T_km1) / coords.Dx(parthenon::X3DIR, k, j, i);
 
-        const auto Bx = 0.5 * (prim(IB1, k - 1, j, i) + prim(IB1, k, j, i));
-        const auto By = 0.5 * (prim(IB2, k - 1, j, i) + prim(IB2, k, j, i));
-        const auto Bz = 0.5 * (prim(IB3, k - 1, j, i) + prim(IB3, k, j, i));
-        Real B02 = SQR(Bx) + SQR(By) + SQR(Bz);
-        B02 = std::max(B02, TINY_NUMBER); /* limit in case B=0 */
-        const auto bDotGradT = Bx * dTdx + By * dTdy + Bz * dTdz;
+        Real flux_grad = 0.0;
+        if (thermal_diff.GetType() == Conduction::anisotropic) {
+          const auto Bx = 0.5 * (prim(IB1, k - 1, j, i) + prim(IB1, k, j, i));
+          const auto By = 0.5 * (prim(IB2, k - 1, j, i) + prim(IB2, k, j, i));
+          const auto Bz = 0.5 * (prim(IB3, k - 1, j, i) + prim(IB3, k, j, i));
+          Real B02 = SQR(Bx) + SQR(By) + SQR(Bz);
+          B02 = std::max(B02, TINY_NUMBER); /* limit in case B=0 */
+          const auto bDotGradT = Bx * dTdx + By * dTdy + Bz * dTdz;
+          flux_grad = (Bz * bDotGradT) / B02;
+        } else if (thermal_diff.GetType() == Conduction::isotropic) {
+          flux_grad = dTdz;
+        } else {
+          PARTHENON_FAIL("Unknown thermal diffusion flux.");
+        }
 
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k - 1, j, i));
         const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
@@ -448,6 +473,6 @@ void ThermalFluxAniso(MeshData<Real> *md) {
             (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i), gradTmag) +
              thermal_diff.Get(prim(IPR, k - 1, j, i), prim(IDN, k - 1, j, i), gradTmag));
 
-        cons.flux(X3DIR, IEN, k, j, i) -= thermal_diff_f * denf * (Bz * bDotGradT) / B02;
+        cons.flux(X3DIR, IEN, k, j, i) -= thermal_diff_f * denf * flux_grad;
       });
 }

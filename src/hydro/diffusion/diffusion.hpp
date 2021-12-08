@@ -94,10 +94,10 @@ struct ThermalDiffusivity {
 
 Real EstimateConductionTimestep(MeshData<Real> *md);
 
-//! Calculate isotropic thermal conduction
-void ThermalFluxIso(MeshData<Real> *md);
-//! Calculate anisotropic thermal conduction
-void ThermalFluxAniso(MeshData<Real> *md);
+//! Calculate isotropic thermal conduction with fixed coefficient
+void ThermalFluxIsoFixed(MeshData<Real> *md);
+//! Calculate thermal conduction (general case incl. anisotropic and saturated)
+void ThermalFluxGeneral(MeshData<Real> *md);
 
 // Calculate all diffusion fluxes, i.e., update the .flux views in md
 TaskStatus CalcDiffFluxes(StateDescriptor *hydro_pkg, MeshData<Real> *md);
