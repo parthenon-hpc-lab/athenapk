@@ -65,14 +65,13 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
   const auto gm1 = hydro_pkg->Param<Real>("AdiabaticIndex");
   const auto &thermal_diff = hydro_pkg->Param<ThermalDiffusivity>("thermal_diff");
 
-  if (thermal_diff.GetType() == Conduction::isotropic) {
-    // Isotropic thermal conduction currently only supports a fixed, uniform coefficient
-    // so it's safe to get it outside the kernel.
+  if (thermal_diff.GetType() == Conduction::isotropic &&
+      thermal_diff.GetCoeffType() == ConductionCoeff::fixed) {
     // TODO(pgrete): once mindx is properly calculated before this loop, we can get rid of
     // it entirely.
     const auto thermal_diff_coeff = thermal_diff.Get(0.0, 0.0, 0.0);
     Kokkos::parallel_reduce(
-        "EstimateConductionTimestep (iso)",
+        "EstimateConductionTimestep (iso fixed)",
         Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
             DevExecSpace(), {0, kb.s, jb.s, ib.s},
             {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
@@ -91,9 +90,9 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
           }
         },
         Kokkos::Min<Real>(min_dt_cond));
-  } else if (thermal_diff.GetType() == Conduction::anisotropic) {
+  } else {
     Kokkos::parallel_reduce(
-        "EstimateConductionTimestep (aniso)",
+        "EstimateConductionTimestep",
         Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
             DevExecSpace(), {0, kb.s, jb.s, ib.s},
             {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
@@ -103,20 +102,18 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
           const auto &prim = prim_pack(b);
           const auto &rho = prim(IDN, k, j, i);
           const auto &p = prim(IPR, k, j, i);
-          const auto &Bx = prim(IB1, k, j, i);
-          const auto &By = prim(IB2, k, j, i);
-          const auto &Bz = prim(IB3, k, j, i);
-          const auto Bmag = sqrt(SQR(Bx) + SQR(By) + SQR(Bz));
 
           const auto dTdx = 0.5 *
                             (prim(IPR, k, j, i + 1) / prim(IDN, k, j, i + 1) -
                              prim(IPR, k, j, i - 1) / prim(IDN, k, j, i - 1)) /
                             coords.dx1v(i);
 
-          const auto dTdy = 0.5 *
-                            (prim(IPR, k, j + 1, i) / prim(IDN, k, j + 1, i) -
-                             prim(IPR, k, j - 1, i) / prim(IDN, k, j - 1, i)) /
-                            coords.dx2v(j);
+          const auto dTdy = ndim >= 2
+                                ? 0.5 *
+                                      (prim(IPR, k, j + 1, i) / prim(IDN, k, j + 1, i) -
+                                       prim(IPR, k, j - 1, i) / prim(IDN, k, j - 1, i)) /
+                                      coords.dx2v(j)
+                                : 0.0;
 
           const auto dTdz = ndim >= 3
                                 ? 0.5 *
@@ -125,14 +122,36 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
                                       coords.dx3v(k)
                                 : 0.0;
           const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
-          auto thermal_diff_coeff = thermal_diff.Get(p, rho, gradTmag);
 
-          const auto denom = Bmag * gradTmag;
-          // if either Bmag or gradTmag are 0, no anisotropic thermal conduction
-          if (denom == 0.0) {
+          // No temperature gradient -> no thermal conduction-> no timestep restriction
+          if (gradTmag == 0.0) {
             return;
           }
-          const auto costheta = fabs(Bx * dTdx + By * dTdy + Bz * dTdz) / denom;
+          auto thermal_diff_coeff = thermal_diff.Get(p, rho, gradTmag);
+
+          if (thermal_diff.GetType() == Conduction::isotropic) {
+            min_dt = fmin(min_dt,
+                          SQR(coords.Dx(parthenon::X1DIR, k, j, i)) / thermal_diff_coeff);
+            if (ndim >= 2) {
+              min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X2DIR, k, j, i)) /
+                                        thermal_diff_coeff);
+            }
+            if (ndim >= 3) {
+              min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X3DIR, k, j, i)) /
+                                        thermal_diff_coeff);
+            }
+            return;
+          }
+          const auto &Bx = prim(IB1, k, j, i);
+          const auto &By = prim(IB2, k, j, i);
+          const auto &Bz = prim(IB3, k, j, i);
+          const auto Bmag = sqrt(SQR(Bx) + SQR(By) + SQR(Bz));
+          // Need to have some local field for anisotropic conduction
+          if (Bmag == 0.0) {
+            return;
+          }
+          const auto costheta =
+              fabs(Bx * dTdx + By * dTdy + Bz * dTdz) / (Bmag * gradTmag);
 
           min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X1DIR, k, j, i)) /
                                     (thermal_diff_coeff * fabs(Bx) / Bmag * costheta +

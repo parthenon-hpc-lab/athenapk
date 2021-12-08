@@ -87,6 +87,9 @@ struct ThermalDiffusivity {
 
   KOKKOS_INLINE_FUNCTION
   Conduction GetType() const { return conduction_; }
+
+  KOKKOS_INLINE_FUNCTION
+  ConductionCoeff GetCoeffType() const { return conduction_coeff_type_; }
 };
 
 Real EstimateConductionTimestep(MeshData<Real> *md);
