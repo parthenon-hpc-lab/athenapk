@@ -17,10 +17,15 @@ using namespace parthenon::package::prelude;
 
 TaskStatus CalcDiffFluxes(StateDescriptor *hydro_pkg, MeshData<Real> *md) {
   const auto &conduction = hydro_pkg->Param<Conduction>("conduction");
-  if (conduction == Conduction::isotropic) {
-    ThermalFluxIso(md);
-  } else if (conduction == Conduction::anisotropic) {
-    ThermalFluxAniso(md);
+  if (conduction != Conduction::none) {
+    const auto &thermal_diff = hydro_pkg->Param<ThermalDiffusivity>("thermal_diff");
+
+    if (conduction == Conduction::isotropic &&
+        thermal_diff.GetCoeffType() == ConductionCoeff::fixed) {
+      ThermalFluxIsoFixed(md);
+    } else {
+      ThermalFluxGeneral(md);
+    }
   }
   return TaskStatus::complete;
 }
