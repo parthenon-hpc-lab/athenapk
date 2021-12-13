@@ -36,7 +36,7 @@ using namespace parthenon;
 template <typename GravitationalField, typename EntropyProfile>
 HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
     HydrostaticEquilibriumSphere(
-        ParameterInput *pin, const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg,
+        ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg,
         GravitationalField gravitational_field, EntropyProfile entropy_profile)
     : gravitational_field_(gravitational_field), entropy_profile_(entropy_profile) {
   Units units(pin);

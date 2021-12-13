@@ -28,7 +28,7 @@ namespace cluster {
 using namespace parthenon;
 
 AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
-                         const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg)
+                         parthenon::StateDescriptor* hydro_pkg)
     : fixed_power_(pin->GetOrAddReal("problem/cluster/agn_feedback", "fixed_power", 0.0)),
       efficiency_(pin->GetOrAddReal("problem/cluster/agn_feedback", "efficiency", 1e-3)),
       thermal_fraction_(

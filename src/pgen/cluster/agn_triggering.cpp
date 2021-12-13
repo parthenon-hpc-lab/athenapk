@@ -51,7 +51,7 @@ AGNTriggeringMode ParseAGNTriggeringMode(const std::string &mode_str) {
 }
 
 AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
-                             const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg,
+                             parthenon::StateDescriptor* hydro_pkg,
                              const std::string &block)
     : gamma_(pin->GetReal("hydro", "gamma")),
       triggering_mode_(

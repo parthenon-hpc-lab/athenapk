@@ -136,7 +136,7 @@ class HydrostaticEquilibriumSphere {
  public:
   HydrostaticEquilibriumSphere(
       parthenon::ParameterInput *pin,
-      const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg,
+      parthenon::StateDescriptor *hydro_pkg,
       GravitationalField gravitational_field, EntropyProfile entropy_profile);
 
   template <typename Coords>
