@@ -108,6 +108,9 @@ class TabularCooling {
   CoolIntegrator integrator_;
 
   // Temperature floor (assumed in Kelvin and only used in cooling function)
+  // This is either the temperature floor used by the hydro method or the
+  // lowest temperature in the cooling table (assuming zero cooling below the
+  // table), whichever temperature is higher
   parthenon::Real T_floor_;
 
   // Maximum number of iterations/subcycles

@@ -204,6 +204,9 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   }
   // Copy host_log_lambdas into device memory
   Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
+
+  //Change T_floor_ to be the max of the hydro temperature floor and the cooling table floor
+  T_floor_ = max(T_floor_,pow(10,log_temp_start_));
 }
 
 void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
@@ -299,6 +302,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           sub_dt = min_sub_dt;
         }
 
+        //subcycles iteration
         unsigned int sub_iter = 0;
         // check for dedt != 0.0 required in case cooling floor it hit during subcycling
         while ((sub_t * (1 + KEpsilon_) < dt) &&
@@ -329,13 +333,21 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
             sub_attempt++;
 
-            if (!dedt_valid) {
+            if (!dedt_valid || internal_e_next_h <= internal_e_floor) {
               if (sub_dt == min_sub_dt) {
-                PARTHENON_FAIL("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
-                               "Minumum sub_dt leads to negative internal energy");
+                if( internal_e_floor < 0 ){
+                  PARTHENON_FAIL("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
+                                 "Minumum sub_dt leads to negative internal energy");
+                }
+                //Set to internal_e_floor
+                internal_e_next_h = internal_e_floor;
+                //Cooling is finished: skip to end of cooling cycle with this subcycle
+                sub_dt = dt - sub_t;
+                reattempt_sub = false;
+              } else {
+                reattempt_sub = true;
+                sub_dt = min_sub_dt;
               }
-              reattempt_sub = true;
-              sub_dt = min_sub_dt;
             } else {
 
               // Compute error
@@ -399,7 +411,13 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           sub_iter++;
         }
 
-        PARTHENON_REQUIRE(internal_e > internal_e_floor, "cooled below floor");
+        //NOTE (forrestglines) It's unclear whether this section of code is necessary
+        //if( internal_e < internal_e_floor ){
+        //  internal_e = internal_e_floor;
+        //}
+
+        //PARTHENON_REQUIRE(internal_e >= internal_energy_floor, "cooled below floor");
+        PARTHENON_REQUIRE(internal_e > 0, "cooled below zero internal energy");
 
         // Remove the cooling from the specific total energy
         cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
