@@ -39,12 +39,10 @@ class AGNFeedback {
   const bool disabled_;
 
   AGNFeedback(parthenon::ParameterInput *pin,
-              parthenon::StateDescriptor* hydro_pkg);
+              parthenon::StateDescriptor *hydro_pkg);
 
-  // parthenon::Real GetPower() const { return fixed_power_; }
-  // void SetPower(const parthenon::Real power) { fixed_power_ = power; }
+  parthenon::Real GetFeedbackPower(parthenon::StateDescriptor *hydro_pkg) const;
 
-  // Apply the feedback from hydrodynamic AGN feedback (kinetic jets and thermal feedback)
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real beta_dt, const parthenon::SimTime &tm) const;
 

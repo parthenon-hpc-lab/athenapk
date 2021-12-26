@@ -45,7 +45,34 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_jet_height", 0.02)),
       disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)) {
 
+  //Add user history output variable for AGN power
+  auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
+  if( ! disabled_){
+    //HACK (forrestglines): The operations should be a
+    //parthenon::UserHistoryOperation::no_reduce, which is as of writing
+    //unimplemented
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::max,
+        [this](MeshData<Real> *md) {
+          auto pmb = md->GetBlockData(0)->GetBlockPointer();
+          auto hydro_pkg = pmb->packages.Get("Hydro");
+          return this->GetFeedbackPower(hydro_pkg.get());
+        }, "agn_feedback_power"));
+  }
+  hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
+
   hydro_pkg->AddParam<>("agn_feedback", *this);
+}
+
+parthenon::Real AGNFeedback::GetFeedbackPower(StateDescriptor *hydro_pkg) const {
+  auto units = hydro_pkg->Param<Units>("units");
+  const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
+
+  const Real accretion_rate = agn_triggering.GetAccretionRate(hydro_pkg);
+  const Real power =
+      fixed_power_ + accretion_rate * efficiency_ * pow(units.speed_of_light(), 2);
+
+  return power;
+
 }
 
 void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
@@ -71,11 +98,8 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto units = hydro_pkg->Param<Units>("units");
-  const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
 
-  const Real accretion_rate = agn_triggering.GetAccretionRate(hydro_pkg.get());
-  const Real power =
-      fixed_power_ + accretion_rate * efficiency_ * pow(units.speed_of_light(), 2);
+  const Real power = GetFeedbackPower(hydro_pkg.get());
   const Real mass_rate =
       efficiency_ == 0 ? 0 : power / (efficiency_ * pow(units.speed_of_light(), 2));
 
