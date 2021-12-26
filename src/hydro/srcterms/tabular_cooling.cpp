@@ -206,7 +206,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
 
   //Change T_floor_ to be the max of the hydro temperature floor and the cooling table floor
-  T_floor_ = max(T_floor_,pow(10,log_temp_start_));
+  T_floor_ = std::max(T_floor_,pow(10,log_temp_start_));
 }
 
 void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
