@@ -266,6 +266,15 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         const Real rho = cons(IDN, k, j, i);
         // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
         // function could be useful.
+        //DEBUGGING(forrestglines) please remove
+        Real total_e = cons(IEN, k, j, i);
+        Real kinetic_e = 0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                SQR(cons(IM3, k, j, i)) / rho);
+        Real magnetic_e = 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                                 SQR(cons(IB3, k, j, i)));
+        Real pres = prim(IPR, k, j, i);
+        //END DEBUGGING
+
         Real internal_e = cons(IEN, k, j, i) -
                           0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
                                  SQR(cons(IM3, k, j, i)) / rho);
@@ -273,6 +282,8 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                                SQR(cons(IB3, k, j, i)));
         }
+
+        //Switch to specific internal energy
         internal_e /= rho;
         const Real internal_e_initial = internal_e;
 
@@ -293,6 +304,14 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // Check if cooling is actually happening, e.g., when T below T_cool_min or if
         // temperature is already below floor.
         const Real dedt_initial = DeDt_wrapper(0.0, internal_e_initial, dedt_valid);
+
+        //DEBUGGING(forrestglines) please remove
+        //Testing if current cooling rate would drop the internal energy below the floor
+        if ( dedt_initial == 0 ) {
+          printf("Zero initial cooling\n");
+        }
+        //END DEBUGGING
+
         if (dedt_initial == 0.0 || internal_e_initial < internal_e_floor) {
           return;
         }

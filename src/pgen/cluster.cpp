@@ -8,8 +8,8 @@
 //
 // Setups up an idealized galaxy cluster with an ACCEPT-like entropy profile in
 // hydrostatic equilbrium with an NFW+BCG+SMBH gravitational profile,
-// optionally with an initial magnetic tower field. Includes tabular cooling,
-// AGN feedback, AGN triggering via cold gas, simple SNIA Feedback(TODO)
+// optionally with an initial magnetic tower field. Includes AGN feedback, AGN
+// triggering via cold gas, simple SNIA Feedback(TODO)
 //========================================================================================
 
 // C headers

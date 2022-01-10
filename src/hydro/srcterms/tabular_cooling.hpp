@@ -147,7 +147,8 @@ class TabularCooling {
       // log_lambda = log_lambdas(0);
       // TODO(forrestglines):Currently, zero cooling is use for temperatures
       // below the table. This behavior could be generalized via templates
-      return 0;
+      //return 0;
+      return log_lambdas(0);//HACK - to get it to cool to floor
     } else if (log_temp > log_temp_final) {
       // Above table
       // Return de/dt
