@@ -263,9 +263,11 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         const Real rho = cons(IDN, k, j, i);
         // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
         // function could be useful.
-        Real internal_e = cons(IEN, k, j, i) -
-                          0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                 SQR(cons(IM3, k, j, i)) / rho);
+        Real internal_e =
+            cons(IEN, k, j, i) - 0.5 *
+                                     (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                      SQR(cons(IM3, k, j, i))) /
+                                     rho;
         if (mhd_enabled) {
           internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                                SQR(cons(IB3, k, j, i)));
@@ -451,9 +453,11 @@ void TabularCooling::MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
         // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
         // function could be useful.
-        Real internal_e = cons(IEN, k, j, i) -
-                          0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                 SQR(cons(IM3, k, j, i)) / rho);
+        Real internal_e =
+            cons(IEN, k, j, i) - 0.5 *
+                                     (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                      SQR(cons(IM3, k, j, i))) /
+                                     rho;
         if (mhd_enabled) {
           internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                                SQR(cons(IB3, k, j, i)));
