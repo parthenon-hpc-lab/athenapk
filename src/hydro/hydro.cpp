@@ -421,6 +421,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
       const auto H_mass_fraction = 1.0 - He_mass_fraction;
       const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+      pkg->AddParam<>("mbar", mu * units.atomic_mass_unit());
       pkg->AddParam<>("mbar_over_kb",
                       mu * units.atomic_mass_unit() / units.k_boltzmann());
     }
@@ -457,7 +458,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
           pin->GetOrAddString("diffusion", "conduction_coeff", "none");
       auto conduction_coeff = ConductionCoeff::none;
       if (conduction_coeff_str == "spitzer") {
-        if (!pkg->AllParams().hasKey("mbar_over_kb")) {
+        if (!pkg->AllParams().hasKey("mbar")) {
           PARTHENON_FAIL("Spitzer thermal conduction requires units and gas composition. "
                          "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
                          "the input file.");
@@ -470,9 +471,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         auto units = pkg->Param<Units>("units");
         spitzer_coeff *= units.erg() / (units.s() * units.cm());
 
-        auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
+        auto mbar = pkg->Param<Real>("mbar");
         auto thermal_diff =
-            ThermalDiffusivity(conduction, conduction_coeff, spitzer_coeff, mbar_over_kb);
+            ThermalDiffusivity(conduction, conduction_coeff, spitzer_coeff, mbar,
+                               units.electron_mass(), units.k_boltzmann());
         pkg->AddParam<>("thermal_diff", thermal_diff);
 
       } else if (conduction_coeff_str == "fixed") {
@@ -480,7 +482,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         Real thermal_diff_coeff_code =
             pin->GetReal("diffusion", "thermal_diff_coeff_code");
         auto thermal_diff = ThermalDiffusivity(conduction, conduction_coeff,
-                                               thermal_diff_coeff_code, 0.0);
+                                               thermal_diff_coeff_code, 0.0, 0.0, 0.0);
         pkg->AddParam<>("thermal_diff", thermal_diff);
 
       } else {

@@ -12,32 +12,36 @@
 //! \brief
 
 // Parthenon headers
+#include <cmath>
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
 #include "../../main.hpp"
+#include "config.hpp"
 #include "diffusion.hpp"
 #include "utils/error_checking.hpp"
 
 using namespace parthenon::package::prelude;
 
+// Calculate the thermal *diffusivity*, \chi, in code units as the energy flux itself
+// is calculated from -\chi \rho \nabla (p/\rho).
+// To match the latter, note that |\nabla T| is expected to be calculated outside
+// using the gradient of p/\rho, i.e., not included the mbar_/kb_ conversion factor.
 KOKKOS_INLINE_FUNCTION
 Real ThermalDiffusivity::Get(const Real pres, const Real rho, const Real gradTmag) const {
   if (conduction_coeff_type_ == ConductionCoeff::fixed) {
     return coeff_;
   } else if (conduction_coeff_type_ == ConductionCoeff::spitzer) {
-    const Real T = mbar_over_kb_ * pres / rho;
-    const Real kappa = coeff_ * std::pow(T, 5. / 2.); // Full spitzer
-    const Real chi_spitzer = kappa * mbar_over_kb_ / rho;
+    const Real T_cgs = mbar_ / kb_ * pres / rho;
+    const Real kappa_spitzer = coeff_ * std::pow(T_cgs, 5. / 2.); // Full spitzer
 
-    // Saturated total flux: fac * \rho * c_{s,isoth}^3
-    // In practice: fac * \rho * c_{s,isoth}^3 * (gradT / gradTmag)
-    // where T is calculated based on p/rho in the code.
-    // Thus, everything is in code units and no conversion is required.
-    // The rho above is cancelled as we convert the conduction above to a diffusvity here.
-    const Real chi_sat =
-        0.34 * std::pow(pres / rho, 3.0 / 2.0) / (gradTmag + TINY_NUMBER);
-    return std::min(chi_spitzer, chi_sat);
+    const Real cs_e = std::sqrt(kb_ * T_cgs / me_); // electron isothermal speed of sound
+    // assuming neutral plasma so n_e = n = \rho / mbar
+    const Real kappa_sat =
+        0.34 * rho / mbar_ * kb_ * T_cgs * cs_e / (gradTmag + TINY_NUMBER);
+
+    // Convert conductivity to diffusivity
+    return std::min(kappa_spitzer, kappa_sat) * mbar_ / kb_ / rho;
 
   } else {
     return 0.0;

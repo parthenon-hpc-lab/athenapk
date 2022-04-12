@@ -69,7 +69,7 @@ KOKKOS_INLINE_FUNCTION Real lim4(const Real A, const Real B, const Real C, const
 
 struct ThermalDiffusivity {
  private:
-  Real mbar_over_kb_;
+  Real mbar_, me_, kb_;
   Conduction conduction_;
   ConductionCoeff conduction_coeff_type_;
   // "free" coefficient/prefactor. Value depends on conduction is set in the constructor.
@@ -78,9 +78,9 @@ struct ThermalDiffusivity {
  public:
   KOKKOS_INLINE_FUNCTION
   ThermalDiffusivity(Conduction conduction, ConductionCoeff conduction_coeff_type,
-                     Real coeff, Real mbar_over_kb)
+                     Real coeff, Real mbar, Real me, Real kb)
       : conduction_(conduction), conduction_coeff_type_(conduction_coeff_type),
-        coeff_(coeff), mbar_over_kb_(mbar_over_kb) {}
+        coeff_(coeff), mbar_(mbar), me_(me), kb_(kb) {}
 
   KOKKOS_INLINE_FUNCTION
   Real Get(const Real pres, const Real rho, const Real gradTmag) const;
