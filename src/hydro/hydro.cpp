@@ -729,14 +729,14 @@ Real EstimateTimestep(MeshData<Real> *md) {
     min_dt = std::min(min_dt, EstimateHyperbolicTimestep<fluid>(md));
   }
 
-  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
 
-  if (enable_cooling == Cooling::tabular) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+  // if (enable_cooling == Cooling::tabular) {
+  //   const TabularCooling &tabular_cooling =
+  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
 
-    min_dt = std::min(min_dt, tabular_cooling.EstimateTimeStep(md));
-  }
+  //   min_dt = std::min(min_dt, tabular_cooling.EstimateTimeStep(md));
+  // }
 
   // For RKL2 STS, the diffusive timestep is calculated separately in the driver
   if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) &&
