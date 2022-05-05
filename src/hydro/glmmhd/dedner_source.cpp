@@ -19,9 +19,9 @@ void DednerSource(MeshData<Real> *md, const Real beta_dt) {
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
 
-  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto c_h = hydro_pkg->Param<Real>("c_h");
@@ -49,7 +49,7 @@ void DednerSource(MeshData<Real> *md, const Real beta_dt) {
         if (extended) {
           auto &cons = cons_pack(b);
           const auto &prim = prim_pack(b);
-          const auto &coords = prim_pack.coords(b);
+          const auto &coords = prim_pack.GetCoords(b);
           const Real divB =
               0.5 * ((prim(IB1, k, j, i + 1) - prim(IB1, k, j, i - 1)) /
                          coords.Dx(X1DIR, k, j, i) +

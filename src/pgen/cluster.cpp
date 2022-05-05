@@ -57,7 +57,7 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real bet
 }
 
 //========================================================================================
-//! \fn void InitUserMeshData(ParameterInput *pin)
+//! \fn void InitUserMeshData(Mesh *mesh, ParameterInput *pin)
 //  \brief Function to initialize problem-specific data in mesh class.  Can also be used
 //  to initialize variables which are global to (and therefore can be passed to) other
 //  functions in this file.  Called in Mesh constructor.
