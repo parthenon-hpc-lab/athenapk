@@ -64,9 +64,9 @@ Real RelDivBHst(MeshData<Real> *md) {
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   const bool three_d = cons_pack.GetNdim() == 3;
 
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   Real sum = 0.0;
   auto B0 = B0_;
@@ -75,7 +75,7 @@ Real RelDivBHst(MeshData<Real> *md) {
       "RelDivBHst", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
         const auto &cons = cons_pack(b);
-        const auto &coords = cons_pack.coords(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
         Real divb =
             (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /

@@ -33,9 +33,9 @@ using parthenon::ParArray4D;
 void AdiabaticHydroEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  auto ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
-  auto jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
-  auto kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
+  auto ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  auto jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  auto kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
   Real gm1 = GetGamma() - 1.0;
   auto density_floor_ = GetDensityFloor();
   auto pressure_floor_ = GetPressureFloor();

@@ -75,9 +75,9 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real) 
     return;
   }
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &eos = hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos");
@@ -88,7 +88,7 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real) 
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         auto &cons = cons_pack(b);
-        const auto &coords = cons_pack.coords(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
         Real x = coords.x1v(i);
         Real y = coords.x2v(j);
