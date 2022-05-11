@@ -44,7 +44,8 @@ Parameter: `reconstruction` (string)
 - `dc` : donor cell/piecewise constant (first order)
 - `plm` : piecewise linear (second order)
 - `ppm` : piecewise parabolic (third order)
-- `wenoz` : WENO-Z (third order)
+- `weno3` : WENO3 (third order)
+- `wenoz` : WENO-Z (third order but more accurate than WENO3)
 
 Note, `ppm` and `wenoz` need at least three ghost zones (`parthenon/mesh/num_ghost`).
 
