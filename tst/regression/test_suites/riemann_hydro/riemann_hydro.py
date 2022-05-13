@@ -73,9 +73,14 @@ class TestCase(utils.test_case.TestCaseAbs):
         x0 = init_cond[6]
         tlim = init_cond[7]
 
+        # ensure that MeshBlock nx1 is <= 128 when using scratch (V100 limit on test system)
+        mb_nx1 = nx1 // parameters.num_ranks
+        while mb_nx1 > 128:
+            mb_nx1 //= 2
+
         parameters.driver_cmd_line_args = [
             f"parthenon/mesh/nx1={nx1}",
-            f"parthenon/meshblock/nx1={nx1 // parameters.num_ranks}",
+            f"parthenon/meshblock/nx1={mb_nx1}",
             f"parthenon/time/integrator={integrator}",
             f"hydro/reconstruction={recon}",
             "parthenon/mesh/nghost=%d"
@@ -90,6 +95,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/sod/pres_r={p_r}",
             f"problem/sod/x_discont={x0}",
             f"parthenon/time/tlim={tlim}",
+            f"parthenon/output0/dt={tlim}",
         ]
 
         return parameters
