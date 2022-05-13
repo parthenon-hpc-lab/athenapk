@@ -26,6 +26,7 @@ using parthenon::ScratchPad2D;
 //  \brief Helper function to reuse common smoothness indicator in cell i for left and
 //  right reconstructed states.
 KOKKOS_INLINE_FUNCTION Real limo3_limiter(const Real theta, const Real eta) {
+  // unlimited 3rd order reconstruction
   const Real q = (2.0 + theta) / 3.0;
 
   // (3.13) in CT09
@@ -66,7 +67,7 @@ void LimO3(const Real &q_im1, const Real &q_i, const Real &q_ip1, Real &ql_ip1,
 
   // (3.5) in CT09
   ql_ip1 = q_i + 0.5 * dqp * limo3_limiter(theta, eta);
-  qr_i = q_i - 0.5 * dqm * limo3_limiter(1.0/theta, eta);
+  qr_i = q_i - 0.5 * dqm * limo3_limiter(1.0 / theta, eta);
 }
 
 //! \fn Reconstruct<Reconstruction::limo3, int DIR>()

@@ -6,13 +6,13 @@
 include(${PROJECT_SOURCE_DIR}/external/parthenon/cmake/TestSetup.cmake)
 
 setup_test_serial("riemann_hydro" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sod.in --num_steps 39" "other")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sod.in --num_steps 33" "other")
 
 setup_test_serial("convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 36" "convergence")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 40" "convergence")
 
 setup_test_serial("mhd_convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 40" "convergence")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 44" "convergence")
 
 setup_test_serial("performance" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 20" "performance")
