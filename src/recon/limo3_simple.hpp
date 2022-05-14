@@ -14,7 +14,7 @@
 // volume methods 2009 Journal of Computational Physics , Vol. 228, No. 11 p. 4118-4145
 // https://doi.org/10.1016/j.jcp.2009.02.020
 
-#include "Kokkos_Macros.hpp"
+#include "../hydro/diffusion/diffusion.hpp"
 #include "config.hpp"
 #include <limits>
 #include <parthenon/parthenon.hpp>
@@ -23,9 +23,16 @@ using parthenon::ScratchPad2D;
 
 //----------------------------------------------------------------------------------------
 //! \fn limo3_limiter()
-//  \brief Helper function to reuse common smoothness indicator in cell i for left and
-//  right reconstructed states.
-KOKKOS_INLINE_FUNCTION Real limo3_limiter(const Real theta, const Real eta) {
+//  \brief Helper function that actually applies the LimO3 limiter
+KOKKOS_INLINE_FUNCTION Real limo3_limiter(const Real dvp, const Real dvm, const Real dx) {
+  constexpr Real r = 0.1; // radius of asymptotic region
+
+  // "a small positive number, which is about the size of the particular machine prec."
+  constexpr Real eps = 1e-12;
+
+  // (2.8) in CT09; local smoothness measure
+  const Real theta = dvm / (dvp + TINY_NUMBER);
+
   // unlimited 3rd order reconstruction
   const Real q = (2.0 + theta) / 3.0;
 
@@ -33,8 +40,9 @@ KOKKOS_INLINE_FUNCTION Real limo3_limiter(const Real theta, const Real eta) {
   const Real phi = std::max(
       0.0, std::min(q, std::max(-0.5 * theta, std::min(2.0 * theta, std::min(q, 1.6)))));
 
-  // "a small positive number, which is about the size of the particular machine prec."
-  constexpr Real eps = 2.0 * std::numeric_limits<Real>::epsilon();
+  // (3.17) in CT09; indicator for asymp. region
+  Real eta = r * dx;
+  eta = (dvm * dvm + dvp * dvp) / (eta * eta);
 
   // (3.22) in CT09
   if (eta <= 1.0 - eps) {
@@ -42,7 +50,7 @@ KOKKOS_INLINE_FUNCTION Real limo3_limiter(const Real theta, const Real eta) {
   } else if (eta >= 1.0 + eps) {
     return phi;
   } else {
-    return 0.5 * (1.0 - (eta - 1.0) / eps) * q + (1.0 + (eta - 1.0) / eps) * phi;
+    return 0.5 * ((1.0 - (eta - 1.0) / eps) * q + (1.0 + (eta - 1.0) / eps) * phi);
   }
 }
 
@@ -53,21 +61,20 @@ KOKKOS_INLINE_FUNCTION Real limo3_limiter(const Real theta, const Real eta) {
 
 KOKKOS_INLINE_FUNCTION
 void LimO3(const Real &q_im1, const Real &q_i, const Real &q_ip1, Real &ql_ip1,
-           Real &qr_i, const Real &dx) {
-
-  constexpr Real r = 1.0; // radius of asymptotic region
+           Real &qr_i, const Real &dx, const bool ensure_positivity) {
 
   const Real dqp = q_ip1 - q_i;
   const Real dqm = q_i - q_im1;
 
-  const Real theta = dqm / (dqp + TINY_NUMBER); // (2.8) in CT09; local smoothness measure
-
-  Real eta = r * dx; // (3.17) in CT09; indicator for asymp. region
-  eta = (dqm * dqm + dqp * dqp) / (eta * eta);
-
   // (3.5) in CT09
-  ql_ip1 = q_i + 0.5 * dqp * limo3_limiter(theta, eta);
-  qr_i = q_i - 0.5 * dqm * limo3_limiter(1.0 / theta, eta);
+  ql_ip1 = q_i + 0.5 * dqp * limo3_limiter(dqp, dqm, dx);
+  qr_i = q_i - 0.5 * dqm * limo3_limiter(dqm, dqp, dx);
+
+  if (ensure_positivity && (ql_ip1 <= 0.0 || qr_i <= 0.0)) {
+    Real dqmm = limiters::minmod(dqp, dqm);
+    ql_ip1 = q_i + 0.5 * dqmm;
+    qr_i = q_i - 0.5 * dqmm;
+  }
 }
 
 //! \fn Reconstruct<Reconstruction::limo3, int DIR>()
@@ -86,20 +93,23 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
             ScratchPad2D<Real> &qr) {
   const auto nvar = q.GetDim(4);
   for (auto n = 0; n < nvar; ++n) {
+    // Note, this may be unsafe as we implicitly assume how this function is called with
+    // respect to the entries in the single state vector containing all components
+    const bool ensure_positivity = (n == IDN || n == IPR);
     parthenon::par_for_inner(member, il, iu, [&](const int i) {
       auto dx = q.GetCoords().Dx(XNDIR, k, j, i);
       if constexpr (XNDIR == parthenon::X1DIR) {
         // ql is ql_ip1 and qr is qr_i
         LimO3(q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1), ql(n, i + 1), qr(n, i),
-              dx);
+              dx, ensure_positivity);
       } else if constexpr (XNDIR == parthenon::X2DIR) {
         // ql is ql_jp1 and qr is qr_j
-        LimO3(q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i), ql(n, i), qr(n, i),
-              dx);
+        LimO3(q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i), ql(n, i), qr(n, i), dx,
+              ensure_positivity);
       } else if constexpr (XNDIR == parthenon::X3DIR) {
         // ql is ql_kp1 and qr is qr_k
-        LimO3(q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i), ql(n, i), qr(n, i),
-              dx);
+        LimO3(q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i), ql(n, i), qr(n, i), dx,
+              ensure_positivity);
       } else {
         PARTHENON_FAIL("Unknow direction for LimO3 reconstruction.")
       }

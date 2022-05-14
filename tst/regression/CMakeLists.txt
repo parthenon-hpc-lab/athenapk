@@ -6,16 +6,16 @@
 include(${PROJECT_SOURCE_DIR}/external/parthenon/cmake/TestSetup.cmake)
 
 setup_test_serial("riemann_hydro" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sod.in --num_steps 33" "other")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sod.in --num_steps 39" "other")
 
 setup_test_serial("convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 40" "convergence")
 
 setup_test_serial("mhd_convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 44" "convergence")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 48" "convergence")
 
 setup_test_serial("performance" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 20" "performance")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 21" "performance")
 
 setup_test_serial("cluster_hse" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hse.in --num_steps 1" "convergence")
