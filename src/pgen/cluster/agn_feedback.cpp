@@ -140,9 +140,10 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   // Note that new mass is injected to create the kinetic power, separate from the
   // existing gas
   const Real kinetic_jet_total_mass = mass_rate * kinetic_fraction_;
-  const Real kinetic_jet_density_rate = kinetic_jet_total_mass * kinetic_scaling_factor;
+  const Real kinetic_jet_density_rate = kinetic_jet_total_mass * kinetic_scaling_factor * beta_dt;
   const Real kinetic_jet_velocity =
       std::sqrt(2. * kinetic_power / kinetic_jet_total_mass);
+  const Real kinetic_jet_momentum_rate = kinetic_jet_density_rate * kinetic_jet_velocity;
 
   const Real kinetic_jet_radius = kinetic_jet_radius_;
   const Real kinetic_jet_height = kinetic_jet_height_;
@@ -171,10 +172,12 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           const Real r2 = x * x + y * y + z * z;
           // Determine if point is in sphere r<=thermal_radius
           if (r2 <= thermal_radius2) {
+            // Add density at constant velocity and temperature
+            //AddDensityToConsAtFixedVelTemp(thermal_density_rate, cons, prim, eos, k, j, i);
             // Apply heating
             cons(IEN, k, j, i) += thermal_feedback;
             // Add density at constant velocity
-            AddDensityToConsAtFixedVel(thermal_density_rate, cons, prim, eos, k, j, i);
+            //AddDensityToConsAtFixedVel(thermal_density_rate, cons, prim, eos, k, j, i);
           }
         }
 
@@ -194,14 +197,14 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
             const int sign_jet = (h > 0) ? 1 : -1; // Above or below jet-disk
 
-            cons(IDN, k, j, i) += kinetic_jet_density_rate * beta_dt; // mass/volume
-            cons(IM1, k, j, i) += kinetic_jet_density_rate * sign_jet * jet_axis_x *
-                                  kinetic_jet_velocity * beta_dt; // velocity*mass/volume
-            cons(IM2, k, j, i) += kinetic_jet_density_rate * sign_jet * jet_axis_y *
-                                  kinetic_jet_velocity * beta_dt; // velocity*mass/volume
-            cons(IM3, k, j, i) += kinetic_jet_density_rate * sign_jet * jet_axis_z *
-                                  kinetic_jet_velocity * beta_dt; // velocity*mass/volume
-            cons(IEN, k, j, i) += kinetic_feedback;               // energy/volume
+            cons(IDN, k, j, i) += kinetic_jet_density_rate; // mass/volume
+            cons(IM1, k, j, i) += kinetic_jet_momentum_rate * sign_jet * jet_axis_x; 
+                                  // velocity*mass/volume
+            cons(IM2, k, j, i) += kinetic_jet_momentum_rate * sign_jet * jet_axis_y;
+                                  // velocity*mass/volume
+            cons(IM3, k, j, i) += kinetic_jet_momentum_rate * sign_jet * jet_axis_z;
+                                  // velocity*mass/volume
+            cons(IEN, k, j, i) += kinetic_feedback; // energy/volume
           }
         }
       });
