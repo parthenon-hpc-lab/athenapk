@@ -55,6 +55,9 @@ class AGNTriggering {
   // Used in timestep estimation
   const parthenon::Real accretion_cfl_;
 
+  // Useful for debugging
+  const bool remove_accreted_mass_;
+
   // Write triggering quantities (accretion rate or Bondi quantities) to file at
   // every timestep.  Intended for testing quantities at every timestep, since
   // this file does not work across restarts, and since these quantities are

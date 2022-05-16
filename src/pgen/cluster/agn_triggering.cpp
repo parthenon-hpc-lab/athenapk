@@ -64,6 +64,7 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
       bondi_n0_(pin->GetOrAddReal(block, "bondi_n0", 0)),
       bondi_beta_(pin->GetOrAddReal(block, "bondi_beta", 0)),
       accretion_cfl_(pin->GetOrAddReal(block, "accretion_cfl", 1e-1)),
+      remove_accreted_mass_(pin->GetOrAddBoolean(block, "removed_accreted_mass", true)),
       write_to_file_(pin->GetOrAddBoolean(block, "write_to_file", false)),
       triggering_filename_(
           pin->GetOrAddString(block, "triggering_filename", "agn_triggering.dat")) {
@@ -189,6 +190,8 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
   const Real cold_temp_thresh = cold_temp_thresh_;
   const Real cold_t_acc = cold_t_acc_;
 
+  const bool remove_accreted_mass = remove_accreted_mass_;
+
   Real md_cold_mass = 0;
 
   parthenon::par_reduce(
@@ -204,21 +207,22 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
         const parthenon::Real r2 =
             pow(coords.x1v(i), 2) + pow(coords.x2v(j), 2) + pow(coords.x3v(k), 2);
         if (r2 < accretion_radius2) {
-          const Real cell_volume = coords.Volume(k, j, i);
-          const Real cell_mass = prim(IDN, k, j, i) * cell_volume;
 
           const Real temp =
               mean_molecular_mass_by_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i);
 
           if (temp <= cold_temp_thresh) {
-            const Real cell_cold_mass = cell_mass;
+            
+            const Real cell_cold_mass = prim(IDN, k, j, i) * coords.Volume(k, j, i);
             team_cold_mass += cell_cold_mass;
 
             const Real cell_delta_rho = -prim(IDN, k, j, i) / cold_t_acc * dt;
-
-            AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos, k, j, i);
-            // Update the Primitives
-            eos.ConsToPrim(cons, prim, k, j, i);
+            
+            if( remove_accreted_mass){
+              AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos, k, j, i);
+              // Update the Primitives
+              eos.ConsToPrim(cons, prim, k, j, i);
+            }
           }
         }
       },
@@ -479,7 +483,7 @@ AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg) {
 
     Real accretion_rate = hydro_pkg->Param<Real>("agn_triggering_cold_mass");
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &accretion_rate, 1,
-                                      MPI_PARTHENON_REAL, MPI_MAX, MPI_COMM_WORLD));
+                                      MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
     hydro_pkg->UpdateParam("agn_triggering_cold_mass", accretion_rate);
     break;
   }
@@ -493,7 +497,7 @@ AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg) {
     };
 
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &triggering_quantities, 4,
-                                      MPI_PARTHENON_REAL, MPI_MAX, MPI_COMM_WORLD));
+                                      MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
 
     hydro_pkg->UpdateParam("agn_triggering_total_mass", triggering_quantities[0]);
     hydro_pkg->UpdateParam("agn_triggering_mass_weighted_density",
@@ -554,26 +558,35 @@ AGNTriggeringFinalizeTriggering(parthenon::MeshData<parthenon::Real> *md,
   }
 
   // Remove accreted gas if using a Bondi-like mode
-  switch (agn_triggering.triggering_mode_) {
-  case AGNTriggeringMode::BOOSTED_BONDI:
-  case AGNTriggeringMode::BOOTH_SCHAYE: {
-    auto fluid = hydro_pkg->Param<Fluid>("fluid");
-    if (fluid == Fluid::euler) {
-      agn_triggering.RemoveBondiAccretedGas(md, tm.dt,
-                                            hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
-    } else if (fluid == Fluid::glmmhd) {
-      agn_triggering.RemoveBondiAccretedGas(md, tm.dt,
-                                            hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
-    } else {
-      PARTHENON_FAIL("AGNTriggeringFinalizeTriggering: Unknown EOS");
+  if ( agn_triggering.remove_accreted_mass_){
+    switch (agn_triggering.triggering_mode_) {
+    case AGNTriggeringMode::BOOSTED_BONDI:
+    case AGNTriggeringMode::BOOTH_SCHAYE: {
+      auto fluid = hydro_pkg->Param<Fluid>("fluid");
+      if (fluid == Fluid::euler) {
+        agn_triggering.RemoveBondiAccretedGas(md, tm.dt,
+                                              hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+      } else if (fluid == Fluid::glmmhd) {
+        agn_triggering.RemoveBondiAccretedGas(md, tm.dt,
+                                              hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+      } else {
+        PARTHENON_FAIL("AGNTriggeringFinalizeTriggering: Unknown EOS");
+      }
+      break;
     }
-    break;
+    case AGNTriggeringMode::COLD_GAS: // Already removed during reduction
+    case AGNTriggeringMode::NONE: {
+      break;
+    }
+    }
   }
-  case AGNTriggeringMode::COLD_GAS: // Already removed during reduction
-  case AGNTriggeringMode::NONE: {
-    break;
+
+  //DEBUGGING (forrestglines)
+  if( agn_triggering.GetAccretionRate(hydro_pkg.get()) > 0){
+    printf("Accreting cold gas!\n");
   }
-  }
+  //END DEBUGGING
+
   return TaskStatus::complete;
 }
 
