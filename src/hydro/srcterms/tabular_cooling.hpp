@@ -119,6 +119,10 @@ class TabularCooling {
   // Cooling CFL
   parthenon::Real cooling_time_cfl_;
 
+  // Minimum timestep that the cooling may limit the simulation timestep
+  // Use nonpositive values to disable
+  parthenon::Real min_cooling_timestep_;
+
   // Tolerances
   parthenon::Real d_log_temp_tol_, d_e_tol_;
 
@@ -148,7 +152,7 @@ class TabularCooling {
       // TODO(forrestglines):Currently, zero cooling is use for temperatures
       // below the table. This behavior could be generalized via templates
       //return 0;
-      return log_lambdas(0);//HACK - to get it to cool to floor
+      log_lambda = log_lambdas(0);//HACK - to get it to cool to floor
     } else if (log_temp > log_temp_final) {
       // Above table
       // Return de/dt
@@ -178,7 +182,8 @@ class TabularCooling {
     }
     // Return de/dt
     const Real lambda = pow(10., log_lambda);
-    return -lambda * n_h2_by_rho;
+    const Real de_dt = -lambda * n_h2_by_rho;
+    return de_dt;
   }
 
  public:

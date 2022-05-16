@@ -59,6 +59,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   }
   max_iter_ = pin->GetOrAddInteger("cooling", "max_iter", 100);
   cooling_time_cfl_ = pin->GetOrAddReal("cooling", "cfl", 0.1);
+  min_cooling_timestep_ = pin->GetOrAddReal("cooling", "min_timestep", -1.0);
   d_log_temp_tol_ = pin->GetOrAddReal("cooling", "d_log_temp_tol", 1e-8);
   d_e_tol_ = pin->GetOrAddReal("cooling", "d_e_tol", 1e-8);
   // negative means disabled
@@ -275,9 +276,11 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         Real pres = prim(IPR, k, j, i);
         //END DEBUGGING
 
-        Real internal_e = cons(IEN, k, j, i) -
-                          0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                 SQR(cons(IM3, k, j, i)) / rho);
+        Real internal_e =
+            cons(IEN, k, j, i) - 0.5 *
+                                     (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                      SQR(cons(IM3, k, j, i))) /
+                                     rho;
         if (mhd_enabled) {
           internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                                SQR(cons(IB3, k, j, i)));
@@ -307,9 +310,12 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
         //DEBUGGING(forrestglines) please remove
         //Testing if current cooling rate would drop the internal energy below the floor
-        if ( dedt_initial == 0 ) {
-          printf("Zero initial cooling\n");
-        }
+        //if ( internal_e_initial + dt*dedt_initial < 0 ) {
+        //  printf("Fast Cooling\n");
+        //}
+        //if ( dedt_initial == 0 ) {
+        //  printf("Zero initial cooling\n");
+        //}
         //END DEBUGGING
 
         if (dedt_initial == 0.0 || internal_e_initial < internal_e_floor) {
@@ -356,7 +362,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
               if (sub_dt == min_sub_dt) {
                 if( internal_e_floor < 0 ){
                   PARTHENON_FAIL("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
-                                 "Minumum sub_dt leads to negative internal energy");
+                                 "Minumum sub_dt leads to negative internal energy, no internal energy floor defined");
                 }
                 //Set to internal_e_floor
                 internal_e_next_h = internal_e_floor;
@@ -488,9 +494,11 @@ void TabularCooling::MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
         // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
         // function could be useful.
-        Real internal_e = cons(IEN, k, j, i) -
-                          0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                 SQR(cons(IM3, k, j, i)) / rho);
+        Real internal_e =
+            cons(IEN, k, j, i) - 0.5 *
+                                     (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                      SQR(cons(IM3, k, j, i))) /
+                                     rho;
         if (mhd_enabled) {
           internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                                SQR(cons(IB3, k, j, i)));
@@ -557,6 +565,12 @@ void TabularCooling::MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 }
 
 Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
+
+  //If the min_cooling_timestep_ is infinity, don't constrain the timestep
+  if( min_cooling_timestep_  == std::numeric_limits<Real>::infinity() ){
+    return min_cooling_timestep_;
+  }
+
   // Grab member variables for compiler
 
   // Everything needed by DeDt
@@ -609,7 +623,11 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
       },
       reducer_min);
 
-  return cooling_time_cfl_ * min_cooling_time;
+  Real estimated_timestep = cooling_time_cfl_ * min_cooling_time;
+  if( estimated_timestep < min_cooling_timestep_){
+    estimated_timestep = min_cooling_timestep_;
+  }
+  return estimated_timestep;
 }
 
 void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
