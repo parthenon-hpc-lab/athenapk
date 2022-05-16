@@ -39,7 +39,7 @@ x3max = 0.5
 ix2_bc = periodic
 ox2_bc = periodic
 
-<partheon/meshblock>
+<parthenon/meshblock>
 nx1 = 64
 nx2 = 1
 nx3 = 1

@@ -70,7 +70,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         errs = []
         for res in res_cfgs:
-            data_filename = f"{parameters.output_path}/parthenon.{res}.00001.phdf"
+            data_filename = f"{parameters.output_path}/parthenon.{res}.final.phdf"
             data_file = phdf.phdf(data_filename)
             prim = data_file.Get("prim")
             T = prim[:,4] # because of gamma = 2.0 and rho = 1 -> p = e = T

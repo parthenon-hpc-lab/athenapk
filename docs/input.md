@@ -21,7 +21,8 @@ Most diffusive Riemann solver. Not recommended for applications.
 In `AthenaPK` only supported in combination with `dc` reconstruction and mainly
 used for first order flux correction.
 - `hlle` : Harten-Lax-van-Leer[^HLL83] with using signal speeds as proposed by Einfeldt[^E91]. Very diffusive for contact discontinuities.
-- `hlld` : (MHD only) Similar to HLLE but captures more _D_iscontiunities and less diffusive, see [^MK05]
+- `hllc` : (HD only) Similar to HLLE but captures the _C_ontact discontinuity and is less diffusive, see [^LLF]
+- `hlld` : (MHD only) Similar to HLLE but captures more _D_iscontinuities and is less diffusive, see [^MK05]
 - `none` : Disable calculation for (M)HD fluxes. Useful, e.g., for testing pure diffusion equations.
 Requires `hydro/reconstruction=dc` (though reconstruction is not used in practice).
 
@@ -44,7 +45,9 @@ Parameter: `reconstruction` (string)
 - `dc` : donor cell/piecewise constant (first order)
 - `plm` : piecewise linear (second order)
 - `ppm` : piecewise parabolic (third order)
-- `wenoz` : WENO-Z (third order)
+- `limo3` : LimO3 (third order)
+- `weno3` : WENO3 (third order)
+- `wenoz` : WENO-Z (third order but more accurate than WENO3)
 
 Note, `ppm` and `wenoz` need at least three ghost zones (`parthenon/mesh/num_ghost`).
 

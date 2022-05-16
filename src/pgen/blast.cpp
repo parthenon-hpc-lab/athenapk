@@ -48,7 +48,7 @@ bool use_input_image = false;
 parthenon::ParArrayHost<int> image_data;
 std::vector<Real> image_x, image_y;
 
-void InitUserMeshData(ParameterInput *pin) {
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   std::string input_image = pin->GetOrAddString("problem", "input_image", "none");
   // read input image if provided
   use_input_image = input_image != "none";

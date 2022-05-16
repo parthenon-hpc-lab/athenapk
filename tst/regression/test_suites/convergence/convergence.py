@@ -34,8 +34,12 @@ method_cfgs = [
     {"integrator" : "rk1", "recon" : "dc"},
     {"integrator" : "rk1", "recon" : "dc", "riemann" : "llf"},
     {"integrator" : "vl2", "recon" : "plm"},
+    {"integrator" : "vl2", "recon" : "weno3"},
     {"integrator" : "rk2", "recon" : "plm"},
+    {"integrator" : "rk2", "recon" : "weno3"},
     {"integrator" : "rk3", "recon" : "ppm"},
+    {"integrator" : "rk3", "recon" : "weno3"},
+    {"integrator" : "rk3", "recon" : "limo3"},
     {"integrator" : "rk3", "recon" : "wenoz"},
 ]
 
@@ -158,9 +162,10 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         plt.plot([32,512], [1e-6,1e-6/(512/32)], '--', label="first order")
         plt.plot([32,512], [2e-7,2e-7/(512/32)**2], '--', label="second order")
+        plt.plot([32,512], [5.6e-8,5.6e-8/(512/32)**3], '--', label="third order")
         plt.plot([32,512], [3.6e-9,3.6e-9/(512/32)**3], '--', label="third order")
 
-        plt.legend()
+        plt.legend(bbox_to_anchor=(1, 1), loc="upper left")
         plt.xscale("log")
         plt.yscale("log")
         plt.ylabel("L1 err")

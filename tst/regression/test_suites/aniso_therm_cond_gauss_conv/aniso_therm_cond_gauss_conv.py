@@ -132,7 +132,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         l1_err = np.zeros((len(field_cfgs), len(int_cfgs), len(res_cfgs)))
         for step in range(len(all_cfgs)):
             outname = get_outname(all_cfgs[step])
-            data_filename = f"{parameters.output_path}/parthenon.{outname}.00001.phdf"
+            data_filename = f"{parameters.output_path}/parthenon.{outname}.final.phdf"
             data_file = phdf.phdf(data_filename)
             prim = data_file.Get("prim")
             zz, yy, xx = data_file.GetVolumeLocations()

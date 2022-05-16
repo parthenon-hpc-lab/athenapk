@@ -53,9 +53,9 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
 
-  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   Real min_dt_cond = std::numeric_limits<Real>::max();
   const auto ndim = prim_pack.GetNdim();
@@ -82,7 +82,7 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
             {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
             {1, 1, 1, ib.e + 1 - ib.s}),
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
-          const auto &coords = prim_pack.coords(b);
+          const auto &coords = prim_pack.GetCoords(b);
           min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X1DIR, k, j, i)) /
                                     (thermal_diff_coeff + TINY_NUMBER));
           if (ndim >= 2) {
@@ -103,7 +103,7 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
             {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
             {1, 1, 1, ib.e + 1 - ib.s}),
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
-          const auto &coords = prim_pack.coords(b);
+          const auto &coords = prim_pack.GetCoords(b);
           const auto &prim = prim_pack(b);
           const auto &rho = prim(IDN, k, j, i);
           const auto &p = prim(IPR, k, j, i);
@@ -203,7 +203,7 @@ void ThermalFluxIsoFixed(MeshData<Real> *md) {
       DEFAULT_LOOP_PATTERN, "Thermal conduction X1 fluxes (iso)",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e + 1, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &coords = prim_pack.coords(b);
+        const auto &coords = prim_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
         const auto T_i = prim(IPR, k, j, i) / prim(IDN, k, j, i);
@@ -221,7 +221,7 @@ void ThermalFluxIsoFixed(MeshData<Real> *md) {
       DEFAULT_LOOP_PATTERN, "Thermal conduction X2 fluxes (iso)",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e + 1,
       ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &coords = prim_pack.coords(b);
+        const auto &coords = prim_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
 
@@ -240,7 +240,7 @@ void ThermalFluxIsoFixed(MeshData<Real> *md) {
       DEFAULT_LOOP_PATTERN, "Thermal conduction X3 fluxes (iso)",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e,
       ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &coords = prim_pack.coords(b);
+        const auto &coords = prim_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
 
@@ -276,7 +276,7 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
       DEFAULT_LOOP_PATTERN, "Thermal conduction X1 fluxes (general)",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e + 1, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &coords = prim_pack.coords(b);
+        const auto &coords = prim_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
 
@@ -348,7 +348,7 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
       DEFAULT_LOOP_PATTERN, "Thermal conduction X2 fluxes (general)",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e + 1,
       ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &coords = prim_pack.coords(b);
+        const auto &coords = prim_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
 
@@ -421,7 +421,7 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
       DEFAULT_LOOP_PATTERN, "Thermal conduction X3 fluxes (general)",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e,
       ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &coords = prim_pack.coords(b);
+        const auto &coords = prim_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
 
