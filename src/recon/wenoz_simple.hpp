@@ -85,6 +85,10 @@ void WENOZ(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_
 //  In X1DIR call over [is-1,ie+1] to get BOTH L/R states over [is,ie]
 //  In X2DIR call over [js-1,je+1] to get BOTH L/R states over [js,je]
 //  In X3DIR call over [ks-1,ke+1] to get BOTH L/R states over [ks,ke]
+//  Note that in the CalculateFlux function ql and qr contain stencils in i-direction that
+//  have been cached for the appropriate k, j (and plus 1) values. Thus, in x1dir ql needs
+//  to be offset by i+1 but for the other direction the offset has been set outside in the
+//  cached stencil.
 template <Reconstruction recon, int XNDIR>
 KOKKOS_INLINE_FUNCTION typename std::enable_if<recon == Reconstruction::wenoz, void>::type
 Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const int il,

@@ -33,13 +33,13 @@ namespace advection {
 using namespace parthenon::driver::prelude;
 
 //========================================================================================
-//! \fn void InitUserMeshData(ParameterInput *pin)
+//! \fn void InitUserMeshData(Mesh *mesh, ParameterInput *pin)
 //  \brief Function to initialize problem-specific data in mesh class.  Can also be used
 //  to initialize variables which are global to (and therefore can be passed to) other
 //  functions in this file.  Called in Mesh constructor.
 //========================================================================================
 
-void InitUserMeshData(ParameterInput *pin) {
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   // TODO make use of offsets and domain sizes. Problem currently assumes cubic box
   // center at (0,0,0).
   const auto x1min = pin->GetReal("parthenon/mesh", "x1min");

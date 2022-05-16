@@ -45,9 +45,9 @@ TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
 
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
 
-  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   Real mindx = std::numeric_limits<Real>::max();
 
@@ -57,7 +57,7 @@ TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
       "CalculateGlobalMinDx", 0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmindx) {
-        const auto &coords = prim_pack.coords(b);
+        const auto &coords = prim_pack.GetCoords(b);
         lmindx = fmin(lmindx, coords.dx1v(k, j, i));
         if (nx2) {
           lmindx = fmin(lmindx, coords.dx2v(k, j, i));
@@ -189,7 +189,7 @@ TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
       Y0.GetDim(5) - 1, 0, Y0.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
         // First calc this step
-        const auto &coords = Yjm1.coords(b);
+        const auto &coords = Yjm1.GetCoords(b);
         const Real MYjm1 =
             parthenon::Update::FluxDivHelper(v, k, j, i, ndim, coords, Yjm1(b));
         const Real Yj = mu_j * Yjm1(b, v, k, j, i) + nu_j * Yjm2(b, v, k, j, i) +

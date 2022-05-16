@@ -45,6 +45,10 @@ perf_cfgs = [
     {"mx" : 256, "mb" : 128, "integrator" : "rk3", "recon" : "wenoz"},
     {"mx" : 256, "mb" : 64 , "integrator" : "rk3", "recon" : "wenoz"},
     {"mx" : 256, "mb" : 128, "integrator" : "vl2", "recon" : "plm", "fluid" : "glmmhd"},
+    {"mx" : 256, "mb" : 128, "integrator" : "vl2", "recon" : "weno3", "fluid" : "glmmhd"},
+    {"mx" : 256, "mb" : 128, "integrator" : "rk2", "recon" : "weno3", "fluid" : "glmmhd"},
+    {"mx" : 256, "mb" : 128, "integrator" : "rk2", "recon" : "limo3", "fluid" : "glmmhd"},
+    {"mx" : 256, "mb" : 128, "integrator" : "rk3", "recon" : "weno3", "fluid" : "glmmhd"},
     {"mx" : 256, "mb" : 128, "integrator" : "rk3", "recon" : "wenoz", "fluid" : "glmmhd"},
 ]
 

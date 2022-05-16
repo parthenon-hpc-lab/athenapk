@@ -34,9 +34,14 @@ method_cfgs = [
     {"integrator" : "rk1", "recon" : "dc"},
     {"integrator" : "rk1", "recon" : "dc", "riemann" : "llf"},
     {"integrator" : "vl2", "recon" : "plm"},
+    {"integrator" : "vl2", "recon" : "weno3"},
     {"integrator" : "rk2", "recon" : "plm"},
     {"integrator" : "rk2", "recon" : "ppm"},
+    {"integrator" : "rk2", "recon" : "weno3"},
+    {"integrator" : "rk2", "recon" : "limo3"},
     {"integrator" : "rk3", "recon" : "ppm"},
+    {"integrator" : "rk3", "recon" : "weno3"},
+    {"integrator" : "rk3", "recon" : "limo3"},
     {"integrator" : "rk3", "recon" : "wenoz"},
 ]
 
@@ -147,10 +152,11 @@ class TestCase(utils.test_case.TestCaseAbs):
         data = np.genfromtxt(os.path.join(parameters.output_path, "linearwave-errors.dat"))
 
         # quick and dirty test
-        if data[27,4] > 6.14e-12:
+        if data[47,4] > 6.14e-12:
+            print("QUICK AND DIRTY TEST FAILED")
             analyze_status = False
 
-        markers = 'ov^<>sp*hXD'
+        markers = 'ov^<>sp*hDXd+|x'
         for i, cfg in enumerate(method_cfgs):
             plt.plot(data[i * n_res:(i + 1) * n_res, 0],
                     data[i * n_res:(i + 1) * n_res, 4],
@@ -162,11 +168,12 @@ class TestCase(utils.test_case.TestCaseAbs):
         plt.plot([32,512], [7e-7,7e-7/(512/32)], '--', label="first order")
         plt.plot([32,512], [1.7e-7,1.7e-7/(512/32)**2], '--', label="second order")
         plt.plot([32,512], [3.7e-8,3.7e-8/(512/32)**2], '--', label="second order")
+        plt.plot([32,512], [5.6e-8,5.6e-8/(512/32)**3], '--', label="third order")
         plt.plot([32,512], [3.6e-9,3.6e-9/(512/32)**3], '--', label="third order")
 
         plt.ylim(1e-12,5e-6)
 
-        plt.legend()
+        plt.legend(bbox_to_anchor=(1, 1), loc="upper left")
         plt.xscale("log")
         plt.yscale("log")
         plt.ylabel("L1 err")
