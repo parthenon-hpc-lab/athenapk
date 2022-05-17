@@ -20,8 +20,8 @@ before_script:
   - export PATH=${OMPI_DIR}/bin:$PATH
   - export LD_LIBRARY_PATH=${OMPI_DIR}/lib:$LD_LIBRARY_PATH
   - export KOKKOS_NUM_DEVICES=1
-  - export CUDA_VISIBLE_DEVICES=0
-# trying to use a less frequently used GPU on the node
+  # Pick GPU with most available memory
+  - export CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=memory.free,index --format=csv,nounits,noheader | sort -nr | head -1 | awk '{ print $NF }')
   - module load anaconda3/2020.02
   # required as functions like "activate" are not available in subshells, see
   # see https://github.com/conda/conda/issues/7980

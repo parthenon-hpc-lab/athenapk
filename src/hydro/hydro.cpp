@@ -20,6 +20,7 @@
 #include "../recon/dc_simple.hpp"
 #include "../recon/plm_simple.hpp"
 #include "../recon/ppm_simple.hpp"
+#include "../recon/weno3_simple.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
 #include "../units.hpp"
@@ -59,9 +60,9 @@ Real HydroHst(MeshData<Real> *md) {
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   const bool three_d = cons_pack.GetNdim() == 3;
 
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   Real sum = 0.0;
 
@@ -77,7 +78,7 @@ Real HydroHst(MeshData<Real> *md) {
           {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
         const auto &cons = cons_pack(b);
-        const auto &coords = cons_pack.coords(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
         if (hst == Hst::idx) {
           lsum += cons(idx, k, j, i) * coords.Volume(k, j, i);
@@ -218,11 +219,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     auto glmmhd_alpha = pin->GetOrAddReal("hydro", "glmmhd_alpha", 0.1);
     pkg->AddParam<Real>("glmmhd_alpha", glmmhd_alpha);
     calc_c_h = true;
-    pkg->AddParam<Real>("c_h", 0.0); // hyperbolic divergence cleaning speed
+    pkg->AddParam<Real>("c_h", 0.0, true); // hyperbolic divergence cleaning speed
     // global minimum dx (used to calc c_h)
-    pkg->AddParam<Real>("mindx", std::numeric_limits<Real>::max());
+    pkg->AddParam<Real>("mindx", std::numeric_limits<Real>::max(), true);
     // hyperbolic timestep constraint
-    pkg->AddParam<Real>("dt_hyp", std::numeric_limits<Real>::max());
+    pkg->AddParam<Real>("dt_hyp", std::numeric_limits<Real>::max(), true);
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
@@ -242,6 +243,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (recon_str == "ppm") {
     recon = Reconstruction::ppm;
     recon_need_nghost = 3;
+  } else if (recon_str == "weno3") {
+    recon = Reconstruction::weno3;
+    recon_need_nghost = 2;
   } else if (recon_str == "wenoz") {
     recon = Reconstruction::wenoz;
     recon_need_nghost = 3;
@@ -296,15 +300,18 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::none>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::none>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>(flux_functions);
   // Add first order recon with LLF fluxes (implemented for testing as tight loop)
   flux_functions[std::make_tuple(Fluid::euler, Reconstruction::dc, RiemannSolver::llf)] =
@@ -335,7 +342,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     hst_vars.emplace_back(HistoryOutputVar(parthenon::UserHistoryOperation::sum,
                                            HydroHst<Hst::divb>, "relDivB"));
   }
-  pkg->AddParam<>(parthenon::hist_param_key, hst_vars);
+  pkg->AddParam<>(parthenon::hist_param_key, hst_vars, true);
 
   // not using GetOrAdd here until there's a reasonable default
   const auto nghost = pin->GetInteger("parthenon/mesh", "nghost");
@@ -575,18 +582,17 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &eos =
+  const auto &eos_ =
       hydro_pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                                  AdiabaticGLMMHDEOS>::type>("eos");
 
-  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
 
-  bool nx2 = prim_pack.GetDim(2) > 1;
-  bool nx3 = prim_pack.GetDim(3) > 1;
+  const auto ndim_ = prim_pack.GetNdim();
   Kokkos::parallel_reduce(
       "EstimateHyperbolicTimestep",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
@@ -595,7 +601,12 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
           {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
         const auto &prim = prim_pack(b);
-        const auto &coords = prim_pack.coords(b);
+        const auto &coords = prim_pack.GetCoords(b);
+        // Need to reference variables here so that they are properly caught by
+        // nvcc, which cannot determine captured variables only used within constexpr if.
+        const auto &ndim = ndim_;
+        const auto &eos = eos_;
+
         Real w[(NHYDRO)];
         w[IDN] = prim(IDN, k, j, i);
         w[IV1] = prim(IV1, k, j, i);
@@ -611,12 +622,12 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         } else if constexpr (fluid == Fluid::glmmhd) {
           lambda_max_x = eos.FastMagnetosonicSpeed(
               w[IDN], w[IPR], prim(IB1, k, j, i), prim(IB2, k, j, i), prim(IB3, k, j, i));
-          if (nx2) {
+          if (ndim > 1) {
             lambda_max_y =
                 eos.FastMagnetosonicSpeed(w[IDN], w[IPR], prim(IB2, k, j, i),
                                           prim(IB3, k, j, i), prim(IB1, k, j, i));
           }
-          if (nx3) {
+          if (ndim > 2) {
             lambda_max_z =
                 eos.FastMagnetosonicSpeed(w[IDN], w[IPR], prim(IB3, k, j, i),
                                           prim(IB1, k, j, i), prim(IB2, k, j, i));
@@ -626,11 +637,11 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         }
         min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) /
                                   (fabs(w[IV1]) + lambda_max_x));
-        if (nx2) {
+        if (ndim > 1) {
           min_dt = fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) /
                                     (fabs(w[IV2]) + lambda_max_y));
         }
-        if (nx3) {
+        if (ndim > 2) {
           min_dt = fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) /
                                     (fabs(w[IV3]) + lambda_max_z));
         }
@@ -788,7 +799,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
       scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
-        const auto &coords = cons_in.coords(b);
+        const auto &coords = cons_in.GetCoords(b);
         const auto &prim = prim_in(b);
         auto &cons = cons_in(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -831,7 +842,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
         scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
-          const auto &coords = cons_in.coords(b);
+          const auto &coords = cons_in.GetCoords(b);
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -880,7 +891,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
         scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
-          const auto &coords = cons_in.coords(b);
+          const auto &coords = cons_in.GetCoords(b);
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -995,7 +1006,7 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
             {1, 1, 1, ib.e + 1 - ib.s}),
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i,
                       std::int64_t &lnum_corrected, std::int64_t &lnum_need_floor) {
-          const auto &coords = u0_cons_pack.coords(b);
+          const auto &coords = u0_cons_pack.GetCoords(b);
           const auto &u0_prim = u0_prim_pack(b);
           auto &u0_cons = u0_cons_pack(b);
 

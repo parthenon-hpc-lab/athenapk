@@ -253,9 +253,9 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   // need to include ghost zones as this source is called prior to the other fluxes when
   // split
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::SubcyclingSplitSrcTerm", DevExecSpace(), 0,
@@ -267,6 +267,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         const Real rho = cons(IDN, k, j, i);
         // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
         // function could be useful.
+        
         //DEBUGGING(forrestglines) please remove
         Real total_e = cons(IEN, k, j, i);
         Real kinetic_e = 0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
@@ -478,9 +479,9 @@ void TabularCooling::MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   // need to include ghost zones as this source is called prior to the other fluxes when
   // split
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::entire);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::MixedIntSrcTerm", DevExecSpace(), 0,
@@ -586,9 +587,9 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  IndexRange ib = prim_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = prim_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = prim_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   Real min_cooling_time = std::numeric_limits<Real>::infinity();
   Kokkos::Min<Real> reducer_min(min_cooling_time);

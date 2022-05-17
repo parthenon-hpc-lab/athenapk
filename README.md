@@ -12,16 +12,20 @@ Neither other versions or nor using preinstalled Parthenon/Kokkos libraries have
 Current features include
 - first, second, and third order (magneto)hydrodynamics with
   - RK1, RK2, RK3, VL2 integrators
-  - piecewise constant (DC), piecewise linear (PLM), piecewise parabolic (PPM), and WENOZ reconstruction
+  - piecewise constant (DC), piecewise linear (PLM), piecewise parabolic (PPM), WENO3, and WENOZ reconstruction
   - HLLE (hydro and MHD) and HLLD (MHD) Riemann solvers
-  - Adiabatic equation of state
+  - adiabatic equation of state
   - MHD based on hyperbolic divergence cleaning following Dedner+ 2002
+  - anisotropic thermal conduction
 - static and adaptive mesh refinement
 - problem generators for
   - a linear wave
   - circularly polarized Alfven wave
   - blast wave
   - Kelvin-Helmholtz instability
+  - field loop advection
+  - Orszag Tang vortex
+  - Cloud-in-wind/cloud crushing
 
 Latest performance results for various methods on a single Nvidia Volta V100 can be found [here](https://gitlab.com/theias/hpc/jmstone/athena-parthenon/athenapk/-/jobs/artifacts/main/file/build-cuda/tst/regression/outputs/performance/performance.png?job=cuda-regression).
 
@@ -72,14 +76,20 @@ The following examples are a few standard cases.
 
 Most simple configuration (only CPU, no MPI, no HDF5)
 
-    # enabling Broadwell architecture (AVX2) instructions
-    cmake -S. -Bbuild-host -DKokkos_ARCH_BDW=ON -DPARTHENON_DISABLE_MPI=ON -DPARTHENON_DISABLE_HDF5=ON ../
+    # configure with enabling Broadwell architecture (AVX2) instructions
+    cmake -S. -Bbuild-host -DKokkos_ARCH_BDW=ON -DPARTHENON_DISABLE_MPI=ON -DPARTHENON_DISABLE_HDF5=ON
+    # now build with
     cd build-host && make
+    # or alternatively
+    cmake --build build-host
 
 An Intel Skylake system (AVX512 instructions) with NVidia Volta V100 GPUs and with MPI and HDF5 enabled (the latter is the default option, so they don't need to be specified)
 
-    cmake -S. -Bbuild-gpu -DKokkos_ARCH_SKX=ON -DKokkos_ENABLE_CUDA=ON -DKokkos_ARCH_VOLTA70=ON ../
+    cmake -S. -Bbuild-gpu -DKokkos_ARCH_SKX=ON -DKokkos_ENABLE_CUDA=ON -DKokkos_ARCH_VOLTA70=ON
+    # now build with
     cd build-gpu && make
+    # or alternatively build with
+    cmake --build build-gpu
 
 #### Run AthenaPK
 
@@ -108,7 +118,7 @@ the `file_type = hdf5` format, see
 In ParaView, select the "XDMF Reader" when prompted.
 
 2. With [yt](https://yt-project.org/) -- though currently through a custom frontend
-that is not yet part of the main yt brach and, thus, has to be installed manually, e.g.,
+that is not yet part of the main yt branch and, thus, has to be installed manually, e.g.,
 as follows:
 ```bash
 cd ~/src # or any other folder of choice

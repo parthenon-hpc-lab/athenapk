@@ -42,9 +42,9 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   // Scale density_to_add to match mass_to_add when integrated over all space
   const Real density_to_add = mass_to_add / (pow(l_mass_scale_, 3) * pow(M_PI, 3. / 2.));
@@ -67,9 +67,9 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   //  constructing the derivative without storing the potential (more
   //  arithmetically intensive, maybe faster)
   ParArray5D<Real> A("magnetic_tower_A", 3, cons_pack.GetDim(5),
-                     cons_pack.cellbounds.ncellsk(IndexDomain::entire),
-                     cons_pack.cellbounds.ncellsj(IndexDomain::entire),
-                     cons_pack.cellbounds.ncellsi(IndexDomain::entire));
+                     md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsk(IndexDomain::entire),
+                     md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsj(IndexDomain::entire),
+                     md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsi(IndexDomain::entire));
   IndexRange a_ib = ib;
   a_ib.s -= 1;
   a_ib.e += 1;
@@ -87,7 +87,7 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
       a_jb.e, a_ib.s, a_ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         // Compute and apply potential
-        const auto &coords = cons_pack.coords(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
         Real a_x_, a_y_, a_z_;
         mt.PotentialInSimCart(coords.x1v(i), coords.x2v(j), coords.x3v(k), a_x_, a_y_,
@@ -105,7 +105,7 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
       ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.coords(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
         // Take the curl of a to compute the magnetic field
         const Real b_x =
@@ -153,9 +153,9 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   const JetCoords jet_coords =
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory").CreateJetCoords(tm.time);
@@ -176,7 +176,7 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
                     ReductionSumArray<Real, 2> &team_mt_power_reduction) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.coords(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
         const Real cell_volume = coords.Volume(k, j, i);
 

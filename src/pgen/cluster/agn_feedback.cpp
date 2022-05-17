@@ -116,9 +116,9 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   // Thermal quantities
   const Real thermal_power = power * thermal_fraction_;
@@ -161,7 +161,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
       ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.coords(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
         const Real x = coords.x1v(i);
         const Real y = coords.x2v(j);

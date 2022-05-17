@@ -58,13 +58,13 @@ void Eigensystem(const Real d, const Real v1, const Real v2, const Real v3, cons
                  Real left_eigenmatrix[(NMHDWAVE)][(NMHDWAVE)]);
 
 //========================================================================================
-//! \fn void Mesh::InitUserMeshData(ParameterInput *pin)
+//! \fn void Mesh::InitUserMeshData(Mesh *mesh, ParameterInput *pin)
 //  \brief Function to initialize problem-specific data in mesh class.  Can also be used
 //  to initialize variables which are global to (and therefore can be passed to) other
 //  functions in this file.  Called in Mesh constructor.
 //========================================================================================
 
-void InitUserMeshData(ParameterInput *pin) {
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   // read global parameters
   wave_flag = pin->GetInteger("problem/linear_wave", "wave_flag");
   amp = pin->GetReal("problem/linear_wave", "amp");

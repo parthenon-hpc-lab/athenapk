@@ -177,9 +177,9 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   const Real accretion_radius2 = pow(accretion_radius_, 2);
 
@@ -202,7 +202,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
                     Real &team_cold_mass) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.coords(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
         const parthenon::Real r2 =
             pow(coords.x1v(i), 2) + pow(coords.x2v(j), 2) + pow(coords.x3v(k), 2);
@@ -245,9 +245,9 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   const Real accretion_radius2 = pow(accretion_radius_, 2);
 
@@ -271,7 +271,7 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
                     ReductionSumArray<Real, 4> &team_triggering_reduction) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.coords(b);
+        const auto &coords = cons_pack.GetCoords(b);
         const parthenon::Real r2 =
             pow(coords.x1v(i), 2) + pow(coords.x2v(j), 2) + pow(coords.x3v(k), 2);
         if (r2 < accretion_radius2) {
@@ -314,9 +314,9 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
   // FIXME(forrestglines) When reductions are called, is `prim` up to date?
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  IndexRange ib = cons_pack.cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = cons_pack.cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = cons_pack.cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   const Real accretion_radius2 = pow(accretion_radius_, 2);
 
@@ -329,7 +329,7 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
       ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.coords(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
         const parthenon::Real r2 =
             pow(coords.x1v(i), 2) + pow(coords.x2v(j), 2) + pow(coords.x3v(k), 2);

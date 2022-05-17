@@ -47,13 +47,13 @@ Real A2(const Real x1, const Real x2, const Real x3);
 Real A3(const Real x1, const Real x2, const Real x3);
 
 //========================================================================================
-//! \fn void Mesh::InitUserMeshData(ParameterInput *pin)
+//! \fn void Mesh::InitUserMeshData(Mesh *mesh, ParameterInput *pin)
 //  \brief Function to initialize problem-specific data in mesh class.  Can also be used
 //  to initialize variables which are global to (and therefore can be passed to) other
 //  functions in this file.  Called in Mesh constructor.
 //========================================================================================
 
-void InitUserMeshData(ParameterInput *pin) {
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   // Initialize magnetic field parameters
   // For wavevector along coordinate axes, set desired values of ang_2/ang_3.
   //    For example, for 1D problem use ang_2 = ang_3 = 0.0

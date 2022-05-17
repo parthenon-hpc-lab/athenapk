@@ -34,6 +34,7 @@ method_cfgs = [
     {"integrator" : "rk1", "recon" : "dc"},
     {"integrator" : "vl2", "recon" : "plm"},
     {"integrator" : "rk3", "recon" : "ppm"},
+    {"integrator" : "rk3", "recon" : "weno3"},
 ]
 
 all_cfgs = list(itertools.product(res_cfgs, method_cfgs))
