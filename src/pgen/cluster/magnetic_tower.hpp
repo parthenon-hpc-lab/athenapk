@@ -138,8 +138,8 @@ class MagneticTower {
         fixed_mass_rate_(pin->GetOrAddReal(block, "fixed_mass_rate", 0)),
         l_mass_scale_(pin->GetOrAddReal(block, "l_mass_scale", 1)) {
     hydro_pkg->AddParam<>("magnetic_tower", *this);
-    hydro_pkg->AddParam<parthenon::Real>("magnetic_tower_linear_contrib", 0.0);
-    hydro_pkg->AddParam<parthenon::Real>("magnetic_tower_quadratic_contrib", 0.0);
+    hydro_pkg->AddParam<parthenon::Real>("magnetic_tower_linear_contrib", 0.0, true);
+    hydro_pkg->AddParam<parthenon::Real>("magnetic_tower_quadratic_contrib", 0.0, true);
   }
 
   // Add initial magnetic field to provided potential with a single meshblock
