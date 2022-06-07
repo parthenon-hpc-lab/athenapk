@@ -36,9 +36,10 @@ Real ThermalDiffusivity::Get(const Real pres, const Real rho, const Real gradTma
     const Real kappa_spitzer = coeff_ * std::pow(T_cgs, 5. / 2.); // Full spitzer
 
     const Real cs_e = std::sqrt(kb_ * T_cgs / me_); // electron isothermal speed of sound
-    // assuming neutral plasma so n_e = n = \rho / mbar
+    // assuming neutral plasma so n_e = 0.5 * n = 0.5 * \rho / mbar
+    // 0.4 * sqrt(2/pi) * 0.5 = 0.16 (prefac from (7) in CM77 times 0.5 from n_e)
     const Real kappa_sat =
-        0.34 * rho / mbar_ * kb_ * T_cgs * cs_e / (gradTmag + TINY_NUMBER);
+        0.16 * rho / mbar_ * kb_ * T_cgs * cs_e / (gradTmag + TINY_NUMBER);
 
     // Convert conductivity to diffusivity
     return std::min(kappa_spitzer, kappa_sat) * mbar_ / kb_ / rho;
