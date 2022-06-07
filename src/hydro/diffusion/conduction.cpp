@@ -309,29 +309,49 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
         const auto T_im1 = prim(IPR, k, j, i - 1) / prim(IDN, k, j, i - 1);
         const auto dTdx = (T_i - T_im1) / coords.Dx(parthenon::X1DIR, k, j, i);
 
-        Real flux_grad = 0.0;
+        const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k, j, i - 1));
+        const auto thermal_diff_f =
+            0.5 * (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i)) +
+                   thermal_diff.Get(prim(IPR, k, j, i - 1), prim(IDN, k, j, i - 1)));
+        const auto gradTmag = std::sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
+
+        // Calculate "classic" fluxes
+        Real flux_classic = 0.0;
+        Real flux_classic_mag = 0.0;
         if (thermal_diff.GetType() == Conduction::anisotropic) {
           const auto Bx = 0.5 * (prim(IB1, k, j, i - 1) + prim(IB1, k, j, i));
           const auto By = 0.5 * (prim(IB2, k, j, i - 1) + prim(IB2, k, j, i));
           const auto Bz =
               ndim >= 3 ? 0.5 * (prim(IB3, k, j, i - 1) + prim(IB3, k, j, i)) : 0.0;
-          auto B02 = SQR(Bx) + SQR(By) + SQR(Bz);
-          B02 = std::max(B02, TINY_NUMBER); /* limit in case B=0 */
-          const auto bDotGradT = Bx * dTdx + By * dTdy + Bz * dTdz;
-          flux_grad = (Bx * bDotGradT) / B02;
+          auto Bmag = std::sqrt(SQR(Bx) + SQR(By) + SQR(Bz));
+          Bmag = std::max(Bmag, TINY_NUMBER); /* limit in case B=0 */
+          const auto bx = Bx / Bmag;          // unit vector component
+          const auto bDotGradT = (Bx * dTdx + By * dTdy + Bz * dTdz) / Bmag;
+          flux_classic = thermal_diff_f * denf * bDotGradT * bx;
+          flux_classic_mag = std::abs(thermal_diff_f * denf * bDotGradT);
         } else if (thermal_diff.GetType() == Conduction::isotropic) {
-          flux_grad = dTdx;
+          flux_classic = thermal_diff_f * denf * dTdx;
+          flux_classic_mag = thermal_diff_f * denf * gradTmag;
         } else {
           PARTHENON_FAIL("Unknown thermal diffusion flux.");
         }
 
-        // Calc interface values
-        const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k, j, i - 1));
-        const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
-        const auto thermal_diff_f =
-            0.5 * (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i)) +
-                   thermal_diff.Get(prim(IPR, k, j, i - 1), prim(IDN, k, j, i - 1)));
-        cons.flux(X1DIR, IEN, k, j, i) -= thermal_diff_f * denf * flux_grad;
+        // Calculate saturated fluxes using upwinding, see (A3) in Mignone+12
+        Real flux_sat;
+        // Use first order limiting for now
+        // TODO(pgrete) This assumes a fixed mu = 0.6. Need update! Also pot. add phi.
+        if (flux_classic > 0.0) {
+          flux_sat = 5.31 * std::sqrt(prim(IPR, k, j, i) / denf) * prim(IPR, k, j, i);
+        } else if (flux_classic < 0.0) {
+          flux_sat =
+              5.31 * std::sqrt(prim(IPR, k, j, i - 1) / denf) * prim(IPR, k, j, i - 1);
+        } else {
+          const auto presf = 0.5 * (prim(IPR, k, j, i) + prim(IPR, k, j, i - 1));
+          flux_sat = 5.31 * std::sqrt(presf / denf) * presf;
+        }
+
+        cons.flux(X1DIR, IEN, k, j, i) -=
+            (flux_sat / (flux_sat + flux_classic_mag)) * flux_classic;
       });
 
   if (ndim < 2) {
