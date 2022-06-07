@@ -5,6 +5,9 @@
 # import Parthenon setup_test_serial and setup_test_parallel
 include(${PROJECT_SOURCE_DIR}/external/parthenon/cmake/TestSetup.cmake)
 
+setup_test_serial("riemann_hydro" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sod.in --num_steps 33" "other")
+
 setup_test_serial("convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 36" "convergence")
 
