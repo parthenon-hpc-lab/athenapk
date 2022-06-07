@@ -25,24 +25,16 @@ using namespace parthenon::package::prelude;
 
 // Calculate the thermal *diffusivity*, \chi, in code units as the energy flux itself
 // is calculated from -\chi \rho \nabla (p/\rho).
-// To match the latter, note that |\nabla T| is expected to be calculated outside
-// using the gradient of p/\rho, i.e., not included the mbar_/kb_ conversion factor.
 KOKKOS_INLINE_FUNCTION
-Real ThermalDiffusivity::Get(const Real pres, const Real rho, const Real gradTmag) const {
+Real ThermalDiffusivity::Get(const Real pres, const Real rho) const {
   if (conduction_coeff_type_ == ConductionCoeff::fixed) {
     return coeff_;
   } else if (conduction_coeff_type_ == ConductionCoeff::spitzer) {
     const Real T_cgs = mbar_ / kb_ * pres / rho;
     const Real kappa_spitzer = coeff_ * std::pow(T_cgs, 5. / 2.); // Full spitzer
 
-    const Real cs_e = std::sqrt(kb_ * T_cgs / me_); // electron isothermal speed of sound
-    // assuming neutral plasma so n_e = 0.5 * n = 0.5 * \rho / mbar
-    // 0.4 * sqrt(2/pi) * 0.5 = 0.16 (prefac from (7) in CM77 times 0.5 from n_e)
-    const Real kappa_sat =
-        0.16 * rho / mbar_ * kb_ * T_cgs * cs_e / (gradTmag + TINY_NUMBER);
-
     // Convert conductivity to diffusivity
-    return std::min(kappa_spitzer, kappa_sat) * mbar_ / kb_ / rho;
+    return kappa_spitzer * mbar_ / kb_ / rho;
 
   } else {
     return 0.0;
@@ -75,7 +67,8 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
       thermal_diff.GetCoeffType() == ConductionCoeff::fixed) {
     // TODO(pgrete): once mindx is properly calculated before this loop, we can get rid of
     // it entirely.
-    const auto thermal_diff_coeff = thermal_diff.Get(0.0, 0.0, 0.0);
+    // Using 0.0 as parameters rho and p as they're not used anyway for a fixed coeff.
+    const auto thermal_diff_coeff = thermal_diff.Get(0.0, 0.0);
     Kokkos::parallel_reduce(
         "EstimateConductionTimestep (iso fixed)",
         Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
@@ -133,7 +126,7 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
           if (gradTmag == 0.0) {
             return;
           }
-          auto thermal_diff_coeff = thermal_diff.Get(p, rho, gradTmag);
+          auto thermal_diff_coeff = thermal_diff.Get(p, rho);
 
           if (thermal_diff.GetType() == Conduction::isotropic) {
             min_dt = fmin(min_dt,
@@ -198,7 +191,8 @@ void ThermalFluxIsoFixed(MeshData<Real> *md) {
 
   const auto &thermal_diff = hydro_pkg->Param<ThermalDiffusivity>("thermal_diff");
   // Using fixed and uniform coefficient so it's safe to get it outside the kernel.
-  const auto thermal_diff_coeff = thermal_diff.Get(0.0, 0.0, 0.0);
+  // Using 0.0 as parameters rho and p as they're not used anyway for a fixed coeff.
+  const auto thermal_diff_coeff = thermal_diff.Get(0.0, 0.0);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Thermal conduction X1 fluxes (iso)",
@@ -335,9 +329,8 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k, j, i - 1));
         const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
         const auto thermal_diff_f =
-            0.5 *
-            (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i), gradTmag) +
-             thermal_diff.Get(prim(IPR, k, j, i - 1), prim(IDN, k, j, i - 1), gradTmag));
+            0.5 * (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i)) +
+                   thermal_diff.Get(prim(IPR, k, j, i - 1), prim(IDN, k, j, i - 1)));
         cons.flux(X1DIR, IEN, k, j, i) -= thermal_diff_f * denf * flux_grad;
       });
 
@@ -408,9 +401,8 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k, j - 1, i));
         const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
         const auto thermal_diff_f =
-            0.5 *
-            (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i), gradTmag) +
-             thermal_diff.Get(prim(IPR, k, j - 1, i), prim(IDN, k, j - 1, i), gradTmag));
+            0.5 * (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i)) +
+                   thermal_diff.Get(prim(IPR, k, j - 1, i), prim(IDN, k, j - 1, i)));
         cons.flux(X2DIR, IEN, k, j, i) -= thermal_diff_f * denf * flux_grad;
       });
   /* Compute heat fluxes in 3-direction, 3D problem ONLY  ---------------------*/
@@ -474,9 +466,8 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k - 1, j, i));
         const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
         const auto thermal_diff_f =
-            0.5 *
-            (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i), gradTmag) +
-             thermal_diff.Get(prim(IPR, k - 1, j, i), prim(IDN, k - 1, j, i), gradTmag));
+            0.5 * (thermal_diff.Get(prim(IPR, k, j, i), prim(IDN, k, j, i)) +
+                   thermal_diff.Get(prim(IPR, k - 1, j, i), prim(IDN, k - 1, j, i)));
 
         cons.flux(X3DIR, IEN, k, j, i) -= thermal_diff_f * denf * flux_grad;
       });
