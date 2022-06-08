@@ -66,7 +66,7 @@ where the full thermal conduction flux $`\mathbf{F}_\mathrm{c}`$ contains both t
 ```math
 \mathbf{F}_\mathrm{classic} = - \kappa \mathbf{\hat b} (\mathbf{\hat b \cdot \nabla T})
 ```
-as well as the saturated flux (as introduced by ^[CM77])
+as well as the saturated flux (as introduced by [^CM77])
 ```math
 \mathbf{F}_\mathrm{sat} = - 5 \phi \rho^{-1/2} p^{3/2} \mathrm{sgn}(\mathbf{\hat b \cdot \nabla T}) \mathbf{\hat b}
 ```
