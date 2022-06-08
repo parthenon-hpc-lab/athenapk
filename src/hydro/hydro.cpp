@@ -443,6 +443,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
       const auto H_mass_fraction = 1.0 - He_mass_fraction;
       const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+      pkg->AddParam<>("mu", mu);
       pkg->AddParam<>("mbar", mu * units.atomic_mass_unit());
       pkg->AddParam<>("mbar_over_kb",
                       mu * units.atomic_mass_unit() / units.k_boltzmann());
@@ -479,6 +480,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       auto conduction_coeff_str =
           pin->GetOrAddString("diffusion", "conduction_coeff", "none");
       auto conduction_coeff = ConductionCoeff::none;
+
+      // Saturated conduction factor to account for "uncertainty", see
+      // Cowie & McKee 77 and a value of 0.3 is typical chosen (though using "weak
+      // evidence", see Balbus & MacKee 1982 and Max, McKee, and Mead 1980).
+      const auto conduction_sat_phi =
+          pin->GetOrAddReal("diffusion", "conduction_sat_phi", 0.3);
+      Real conduction_sat_prefac = 0.0;
+
       if (conduction_coeff_str == "spitzer") {
         if (!pkg->AllParams().hasKey("mbar")) {
           PARTHENON_FAIL("Spitzer thermal conduction requires units and gas composition. "
@@ -493,11 +502,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         auto units = pkg->Param<Units>("units");
         spitzer_coeff *= units.erg() / (units.s() * units.cm());
 
-        auto mbar = pkg->Param<Real>("mbar");
+        const auto mbar = pkg->Param<Real>("mbar");
         auto thermal_diff =
             ThermalDiffusivity(conduction, conduction_coeff, spitzer_coeff, mbar,
                                units.electron_mass(), units.k_boltzmann());
         pkg->AddParam<>("thermal_diff", thermal_diff);
+
+        const auto mu = pkg->Param<Real>("mu");
+        conduction_sat_prefac = 6.86 * std::sqrt(mu) * conduction_sat_phi;
 
       } else if (conduction_coeff_str == "fixed") {
         conduction_coeff = ConductionCoeff::fixed;
@@ -506,11 +518,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         auto thermal_diff = ThermalDiffusivity(conduction, conduction_coeff,
                                                thermal_diff_coeff_code, 0.0, 0.0, 0.0);
         pkg->AddParam<>("thermal_diff", thermal_diff);
+        conduction_sat_prefac = 5.0 * conduction_sat_phi;
 
       } else {
         PARTHENON_FAIL("Thermal conduction is enabled but no coefficient is set. Please "
                        "set diffusion/conduction_coeff to either 'spitzer' or 'fixed'");
       }
+      PARTHENON_REQUIRE(conduction_sat_prefac != 0.0,
+                        "Saturated thermal conduction prefactor uninitialized.");
+      pkg->AddParam<>("conduction_sat_prefac", conduction_sat_prefac);
     }
     pkg->AddParam<>("conduction", conduction);
 

@@ -266,6 +266,7 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
   const int ndim = pmb->pmy_mesh->ndim;
 
   const auto &thermal_diff = hydro_pkg->Param<ThermalDiffusivity>("thermal_diff");
+  const auto &flux_sat_prefac = hydro_pkg->Param<Real>("conduction_sat_prefac");
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Thermal conduction X1 fluxes (general)",
@@ -327,30 +328,34 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
           Bmag = std::max(Bmag, TINY_NUMBER); /* limit in case B=0 */
           const auto bx = Bx / Bmag;          // unit vector component
           const auto bDotGradT = (Bx * dTdx + By * dTdy + Bz * dTdz) / Bmag;
-          flux_classic = thermal_diff_f * denf * bDotGradT * bx;
+          flux_classic = -thermal_diff_f * denf * bDotGradT * bx;
           flux_classic_mag = std::abs(thermal_diff_f * denf * bDotGradT);
         } else if (thermal_diff.GetType() == Conduction::isotropic) {
-          flux_classic = thermal_diff_f * denf * dTdx;
+          flux_classic = -thermal_diff_f * denf * dTdx;
           flux_classic_mag = thermal_diff_f * denf * gradTmag;
         } else {
           PARTHENON_FAIL("Unknown thermal diffusion flux.");
         }
 
-        // Calculate saturated fluxes using upwinding, see (A3) in Mignone+12
+        // Calculate saturated fluxes using upwinding, see (A3) in Mignone+12.
+        // Note that we are not concerned about the sign of flux_sat here. The way it is
+        // calculated it's always positive because we use it in the geometric mean with
+        // the flux_classic_mag below. The correct sign is eventually picked up again from
+        // flux_classic.
         Real flux_sat;
-        // Use first order limiting for now
-        // TODO(pgrete) This assumes a fixed mu = 0.6. Need update! Also pot. add phi.
+        // Use first order limiting for now.
         if (flux_classic > 0.0) {
-          flux_sat = 5.31 * std::sqrt(prim(IPR, k, j, i) / denf) * prim(IPR, k, j, i);
+          flux_sat = flux_sat_prefac * std::sqrt(prim(IPR, k, j, i - 1) / denf) *
+                     prim(IPR, k, j, i - 1);
         } else if (flux_classic < 0.0) {
           flux_sat =
-              5.31 * std::sqrt(prim(IPR, k, j, i - 1) / denf) * prim(IPR, k, j, i - 1);
+              flux_sat_prefac * std::sqrt(prim(IPR, k, j, i) / denf) * prim(IPR, k, j, i);
         } else {
           const auto presf = 0.5 * (prim(IPR, k, j, i) + prim(IPR, k, j, i - 1));
-          flux_sat = 5.31 * std::sqrt(presf / denf) * presf;
+          flux_sat = flux_sat_prefac * std::sqrt(presf / denf) * presf;
         }
 
-        cons.flux(X1DIR, IEN, k, j, i) -=
+        cons.flux(X1DIR, IEN, k, j, i) +=
             (flux_sat / (flux_sat + flux_classic_mag)) * flux_classic;
       });
 
