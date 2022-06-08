@@ -222,8 +222,8 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
   if (parthenon::Globals::my_rank == 0) {
     const auto ratio = 2.0 * tau / mindt_diff;
     std::cout << "STS ratio: " << ratio << " Taking " << s_rkl << " steps." << std::endl;
-    if (ratio > 200.1) {
-      std::cout << "WARNING: ratio is > 200. Proceed at own risk." << std::endl;
+    if (ratio > 400.1) {
+      std::cout << "WARNING: ratio is > 400. Proceed at own risk." << std::endl;
     }
   }
 

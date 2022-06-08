@@ -64,7 +64,7 @@ integrator = unsplit
 conduction = anisotropic
 conduction_coeff = fixed
 thermal_diff_coeff_code = 0.01
-rkl2_max_dt_ratio = 200.0
+rkl2_max_dt_ratio = 400.0
 
 <parthenon/output0>
 file_type = hdf5
