@@ -120,7 +120,7 @@ Default value corresponds to the typical value used in literature and goes back 
 
 [^MMM80]:
     C. E. Max, C. F. McKee, and W. C. Mead, “A model for laser driven ablative implosions,” The Physics of Fluids, vol. 23, Art. no. 8, 1980, doi: https://doi.org/10.1063/1.863183
-  
+
 [^BM82]:
     S. A. Balbus and C. F. McKee, “The evaporation of spherical clouds in a hot gas. III - Suprathermal evaporation,” , vol. 252, pp. 529–552, Jan. 1982, doi: https://doi.org/10.1086/159581
 
