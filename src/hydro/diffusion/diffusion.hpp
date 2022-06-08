@@ -83,7 +83,7 @@ struct ThermalDiffusivity {
         coeff_(coeff), mbar_(mbar), me_(me), kb_(kb) {}
 
   KOKKOS_INLINE_FUNCTION
-  Real Get(const Real pres, const Real rho, const Real gradTmag) const;
+  Real Get(const Real pres, const Real rho) const;
 
   KOKKOS_INLINE_FUNCTION
   Conduction GetType() const { return conduction_; }

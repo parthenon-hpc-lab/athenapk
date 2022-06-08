@@ -60,8 +60,15 @@ the local magnetic field direction typically being much stronger than the flux p
 From a theoretical point of view, thermal conduction is included in the system of MHD equations by an additional
 term in the total energy equation:
 ```math
-\delta_t E + \nabla \cdot (... + \mathbf{F}) \quad \mathrm{with}\\
-\mathbf{F} = - \kappa \mathbf{\hat b} (\mathbf{\hat b \cdot \nabla T})
+\delta_t E + \nabla \cdot (... + \mathbf{F}_\mathrm{c})
+```
+where the full thermal conduction flux $`\mathbf{F}_\mathrm{c}`$ contains both the classic thermal conduction
+```math
+\mathbf{F}_\mathrm{classic} = - \kappa \mathbf{\hat b} (\mathbf{\hat b \cdot \nabla T})
+```
+as well as the saturated flux (as introduced by ^[CM77])
+```math
+\mathbf{F}_\mathrm{sat} = - 5 \phi \rho^{-1/2} p^{3/2} \mathrm{sgn}(\mathbf{\hat b \cdot \nabla T}) \mathbf{\hat b}
 ```
 
 From an implementation point of view, two options implemented and can be configured within a `<diffusion>` block in the input file.
@@ -70,6 +77,12 @@ the integration step (before flux correction in case of AMR, and calculating the
 Moreover, they are implemented explicitly, i.e., they add a (potentially very restrictive) constraint to the timestep due to the scaling with $`\propto \Delta_x^2`$.
 Finally, we employ limiters for calculating the temperature gradients following Sharma & Hammett (2007)[^SH07].
 This prevents unphysical conduction against the gradient, which may be introduced because the off-axis gradients are not centered on the interfaces.
+Similarly, to account for the different nature of classic and saturated fluxes (parabolic and hyperbolic, respectively),
+we follow [^M+12] and use a smooth transition
+```math
+\mathbf{F}_\mathrm{c} = \frac{q}{q + F_\mathrm{classic}} \mathbf{F}_\mathrm{classic} \quad \mathrm{with} \quad q = 5 \phi \rho^{-1/2} p^{3/2}
+```
+and upwinding of the hyperbolic, saturated fluxes.
 
 To enable thermal conduction, set
 
@@ -90,9 +103,26 @@ the conduction flux is $`\mathbf{F} = - \chi \rho \mathbf{\hat b} (\mathbf{\hat 
 Here, the strength, $`\chi`$, is controlled via the additional `thermal_diff_coeff_code` parameter in code units.
 Given the dimensions of $`L^2/T`$ it is referred to a thermal diffusivity rather than thermal conductivity.
 
+Parameter: `conduction_sat_phi` (float)
+- Default value 0.3\
+Factor to account for the uncertainty in the estimated of saturated fluxes, see [^CM77].
+Default value corresponds to the typical value used in literature and goes back to [^MMM80] and [^BM82].
+
+
 [^SH07]:
     P. Sharma and G. W. Hammett, "Preserving monotonicity in anisotropic diffusion," Journal of Computational Physics, vol. 227, no. 1, Art. no. 1, 2007, doi: https://doi.org/10.1016/j.jcp.2007.07.026.
 
+[^M+12]:
+    A. Mignone, C. Zanni, P. Tzeferacos, B. van Straalen, P. Colella, and G. Bodo, “THE PLUTO CODE FOR ADAPTIVE MESH COMPUTATIONS IN ASTROPHYSICAL FLUID DYNAMICS,” The Astrophysical Journal Supplement Series, vol. 198, Art. no. 1, Dec. 2011, doi: https://doi.org/10.1088/0067-0049/198/1/7
+
+[^CM77]:
+    L. Cowie and C. F. McKee, “The evaporation of spherical clouds in a hot gas. I. Classical and saturated mass loss rates.,” , vol. 211, pp. 135–146, Jan. 1977, doi: https://doi.org/10.1086/154911
+
+[^MMM80]:
+    C. E. Max, C. F. McKee, and W. C. Mead, “A model for laser driven ablative implosions,” The Physics of Fluids, vol. 23, Art. no. 8, 1980, doi: https://doi.org/10.1063/1.863183
+
+[^BM82]:
+    S. A. Balbus and C. F. McKee, “The evaporation of spherical clouds in a hot gas. III - Suprathermal evaporation,” , vol. 252, pp. 529–552, Jan. 1982, doi: https://doi.org/10.1086/159581
 
 
 ### Additional MHD options in `<hydro>` block
