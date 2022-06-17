@@ -106,7 +106,7 @@ class JetCoordsFactory {
   }
 
   JetCoords CreateJetCoords(const parthenon::Real time) const {
-    return JetCoords(theta_jet_axis_, phi0_jet_axis_ + time * phi0_jet_axis_);
+    return JetCoords(theta_jet_axis_, phi0_jet_axis_ + time * phi_dot_jet_axis_);
   }
 };
 
