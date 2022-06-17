@@ -206,8 +206,9 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   // Copy host_log_lambdas into device memory
   Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
 
-  //Change T_floor_ to be the max of the hydro temperature floor and the cooling table floor
-  T_floor_ = std::max(T_floor_,pow(10,log_temp_start_));
+  // Change T_floor_ to be the max of the hydro temperature floor and the cooling table
+  // floor
+  T_floor_ = std::max(T_floor_, pow(10, log_temp_start_));
 }
 
 void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
@@ -267,15 +268,15 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         const Real rho = cons(IDN, k, j, i);
         // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
         // function could be useful.
-        
-        //DEBUGGING(forrestglines) please remove
+
+        // DEBUGGING(forrestglines) please remove
         Real total_e = cons(IEN, k, j, i);
         Real kinetic_e = 0.5 * (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
                                 SQR(cons(IM3, k, j, i)) / rho);
         Real magnetic_e = 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                                  SQR(cons(IB3, k, j, i)));
         Real pres = prim(IPR, k, j, i);
-        //END DEBUGGING
+        // END DEBUGGING
 
         Real internal_e =
             cons(IEN, k, j, i) - 0.5 *
@@ -287,7 +288,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
                                SQR(cons(IB3, k, j, i)));
         }
 
-        //Switch to specific internal energy
+        // Switch to specific internal energy
         internal_e /= rho;
         const Real internal_e_initial = internal_e;
 
@@ -309,15 +310,15 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // temperature is already below floor.
         const Real dedt_initial = DeDt_wrapper(0.0, internal_e_initial, dedt_valid);
 
-        //DEBUGGING(forrestglines) please remove
-        //Testing if current cooling rate would drop the internal energy below the floor
-        //if ( internal_e_initial + dt*dedt_initial < 0 ) {
-        //  printf("Fast Cooling\n");
-        //}
-        //if ( dedt_initial == 0 ) {
-        //  printf("Zero initial cooling\n");
-        //}
-        //END DEBUGGING
+        // DEBUGGING(forrestglines) please remove
+        // Testing if current cooling rate would drop the internal energy below the floor
+        // if ( internal_e_initial + dt*dedt_initial < 0 ) {
+        //   printf("Fast Cooling\n");
+        // }
+        // if ( dedt_initial == 0 ) {
+        //   printf("Zero initial cooling\n");
+        // }
+        // END DEBUGGING
 
         if (dedt_initial == 0.0 || internal_e_initial < internal_e_floor) {
           return;
@@ -328,7 +329,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           sub_dt = min_sub_dt;
         }
 
-        //subcycles iteration
+        // subcycles iteration
         unsigned int sub_iter = 0;
         // check for dedt != 0.0 required in case cooling floor it hit during subcycling
         while ((sub_t * (1 + KEpsilon_) < dt) &&
@@ -361,13 +362,15 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
             if (!dedt_valid || internal_e_next_h <= internal_e_floor) {
               if (sub_dt == min_sub_dt) {
-                if( internal_e_floor < 0 ){
-                  PARTHENON_FAIL("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
-                                 "Minumum sub_dt leads to negative internal energy, no internal energy floor defined");
+                if (internal_e_floor < 0) {
+                  PARTHENON_FAIL(
+                      "FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
+                      "Minumum sub_dt leads to negative internal energy, no internal "
+                      "energy floor defined");
                 }
-                //Set to internal_e_floor
+                // Set to internal_e_floor
                 internal_e_next_h = internal_e_floor;
-                //Cooling is finished: skip to end of cooling cycle with this subcycle
+                // Cooling is finished: skip to end of cooling cycle with this subcycle
                 sub_dt = dt - sub_t;
                 reattempt_sub = false;
               } else {
@@ -437,12 +440,12 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           sub_iter++;
         }
 
-        //NOTE (forrestglines) It's unclear whether this section of code is necessary
-        //if( internal_e < internal_e_floor ){
-        //  internal_e = internal_e_floor;
-        //}
+        // NOTE (forrestglines) It's unclear whether this section of code is necessary
+        // if( internal_e < internal_e_floor ){
+        //   internal_e = internal_e_floor;
+        // }
 
-        //PARTHENON_REQUIRE(internal_e >= internal_energy_floor, "cooled below floor");
+        // PARTHENON_REQUIRE(internal_e >= internal_energy_floor, "cooled below floor");
         PARTHENON_REQUIRE(internal_e > 0, "cooled below zero internal energy");
 
         // Remove the cooling from the specific total energy
@@ -567,8 +570,8 @@ void TabularCooling::MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
 Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
 
-  //If the min_cooling_timestep_ is infinity, don't constrain the timestep
-  if( min_cooling_timestep_  == std::numeric_limits<Real>::infinity() ){
+  // If the min_cooling_timestep_ is infinity, don't constrain the timestep
+  if (min_cooling_timestep_ == std::numeric_limits<Real>::infinity()) {
     return min_cooling_timestep_;
   }
 
@@ -625,7 +628,7 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
       reducer_min);
 
   Real estimated_timestep = cooling_time_cfl_ * min_cooling_time;
-  if( estimated_timestep < min_cooling_timestep_){
+  if (estimated_timestep < min_cooling_timestep_) {
     estimated_timestep = min_cooling_timestep_;
   }
   return estimated_timestep;

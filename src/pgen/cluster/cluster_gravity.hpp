@@ -89,8 +89,7 @@ class ClusterGravity {
   }
 
  public:
-  ClusterGravity(parthenon::ParameterInput *pin,
-                 parthenon::StateDescriptor *hydro_pkg) {
+  ClusterGravity(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) {
     Units units(pin);
 
     // Determine which element to include

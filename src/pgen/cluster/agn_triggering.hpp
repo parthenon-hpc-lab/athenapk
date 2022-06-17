@@ -65,8 +65,7 @@ class AGNTriggering {
   const bool write_to_file_;
   const std::string triggering_filename_;
 
-  AGNTriggering(parthenon::ParameterInput *pin,
-                parthenon::StateDescriptor* hydro_pkg,
+  AGNTriggering(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg,
                 const std::string &block = "problem/cluster/agn_triggering");
 
   // Compute Cold gas accretion rate within the accretion radius for cold gas triggering

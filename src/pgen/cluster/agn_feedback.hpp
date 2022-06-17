@@ -38,8 +38,7 @@ class AGNFeedback {
 
   const bool disabled_;
 
-  AGNFeedback(parthenon::ParameterInput *pin,
-              parthenon::StateDescriptor *hydro_pkg);
+  AGNFeedback(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
 
   parthenon::Real GetFeedbackPower(parthenon::StateDescriptor *hydro_pkg) const;
 

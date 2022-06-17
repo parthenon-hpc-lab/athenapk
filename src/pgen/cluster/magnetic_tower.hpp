@@ -128,8 +128,7 @@ class MagneticTower {
   const parthenon::Real fixed_mass_rate_;
   const parthenon::Real l_mass_scale_;
 
-  MagneticTower(parthenon::ParameterInput *pin,
-                parthenon::StateDescriptor *hydro_pkg,
+  MagneticTower(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg,
                 const std::string &block = "problem/cluster/magnetic_tower")
       : alpha_(pin->GetOrAddReal(block, "alpha", 0)),
         l_scale_(pin->GetOrAddReal(block, "l_scale", 0)),

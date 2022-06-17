@@ -82,8 +82,8 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 }
 
 //========================================================================================
-//! \fn void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg)
-//! \brief Init package data from parameter input
+//! \fn void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor
+//! *hydro_pkg) \brief Init package data from parameter input
 //========================================================================================
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) {

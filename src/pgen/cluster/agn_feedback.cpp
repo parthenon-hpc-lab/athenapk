@@ -28,7 +28,7 @@ namespace cluster {
 using namespace parthenon;
 
 AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
-                         parthenon::StateDescriptor* hydro_pkg)
+                         parthenon::StateDescriptor *hydro_pkg)
     : fixed_power_(pin->GetOrAddReal("problem/cluster/agn_feedback", "fixed_power", 0.0)),
       efficiency_(pin->GetOrAddReal("problem/cluster/agn_feedback", "efficiency", 1e-3)),
       thermal_fraction_(
@@ -45,18 +45,20 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_jet_height", 0.02)),
       disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)) {
 
-  //Add user history output variable for AGN power
+  // Add user history output variable for AGN power
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
-  if( ! disabled_){
-    //HACK (forrestglines): The operations should be a
-    //parthenon::UserHistoryOperation::no_reduce, which is as of writing
-    //unimplemented
-    hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::max,
+  if (!disabled_) {
+    // HACK (forrestglines): The operations should be a
+    // parthenon::UserHistoryOperation::no_reduce, which is as of writing
+    // unimplemented
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::max,
         [this](MeshData<Real> *md) {
           auto pmb = md->GetBlockData(0)->GetBlockPointer();
           auto hydro_pkg = pmb->packages.Get("Hydro");
           return this->GetFeedbackPower(hydro_pkg.get());
-        }, "agn_feedback_power"));
+        },
+        "agn_feedback_power"));
   }
   hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
@@ -72,7 +74,6 @@ parthenon::Real AGNFeedback::GetFeedbackPower(StateDescriptor *hydro_pkg) const 
       fixed_power_ + accretion_rate * efficiency_ * pow(units.speed_of_light(), 2);
 
   return power;
-
 }
 
 void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
@@ -140,7 +141,8 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   // Note that new mass is injected to create the kinetic power, separate from the
   // existing gas
   const Real kinetic_jet_total_mass = mass_rate * kinetic_fraction_;
-  const Real kinetic_jet_density_rate = kinetic_jet_total_mass * kinetic_scaling_factor * beta_dt;
+  const Real kinetic_jet_density_rate =
+      kinetic_jet_total_mass * kinetic_scaling_factor * beta_dt;
   const Real kinetic_jet_velocity =
       std::sqrt(2. * kinetic_power / kinetic_jet_total_mass);
   const Real kinetic_jet_momentum_rate = kinetic_jet_density_rate * kinetic_jet_velocity;
@@ -173,11 +175,12 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           // Determine if point is in sphere r<=thermal_radius
           if (r2 <= thermal_radius2) {
             // Add density at constant velocity and temperature
-            //AddDensityToConsAtFixedVelTemp(thermal_density_rate, cons, prim, eos, k, j, i);
+            // AddDensityToConsAtFixedVelTemp(thermal_density_rate, cons, prim, eos, k, j,
+            // i);
             // Apply heating
             cons(IEN, k, j, i) += thermal_feedback;
             // Add density at constant velocity
-            //AddDensityToConsAtFixedVel(thermal_density_rate, cons, prim, eos, k, j, i);
+            // AddDensityToConsAtFixedVel(thermal_density_rate, cons, prim, eos, k, j, i);
           }
         }
 
@@ -198,12 +201,12 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             const int sign_jet = (h > 0) ? 1 : -1; // Above or below jet-disk
 
             cons(IDN, k, j, i) += kinetic_jet_density_rate; // mass/volume
-            cons(IM1, k, j, i) += kinetic_jet_momentum_rate * sign_jet * jet_axis_x; 
-                                  // velocity*mass/volume
+            cons(IM1, k, j, i) += kinetic_jet_momentum_rate * sign_jet * jet_axis_x;
+            // velocity*mass/volume
             cons(IM2, k, j, i) += kinetic_jet_momentum_rate * sign_jet * jet_axis_y;
-                                  // velocity*mass/volume
+            // velocity*mass/volume
             cons(IM3, k, j, i) += kinetic_jet_momentum_rate * sign_jet * jet_axis_z;
-                                  // velocity*mass/volume
+            // velocity*mass/volume
             cons(IEN, k, j, i) += kinetic_feedback; // energy/volume
           }
         }

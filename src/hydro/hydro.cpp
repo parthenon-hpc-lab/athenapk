@@ -104,15 +104,14 @@ Real HydroHst(MeshData<Real> *md) {
           }
 
           Real abs_b = std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
-                        SQR(cons(IB3, k, j, i)));
+                                 SQR(cons(IB3, k, j, i)));
 
-          lsum += ( abs_b != 0 ) ? 
-              0.5 *
-              (std::sqrt(SQR(coords.Dx(X1DIR, k, j, i)) + SQR(coords.Dx(X2DIR, k, j, i)) +
-                         SQR(coords.Dx(X3DIR, k, j, i)))) *
-              std::abs(divb) / abs_b *
-              coords.Volume(k, j, i)
-              : 0 ;//Add zero when abs_b ==0
+          lsum += (abs_b != 0) ? 0.5 *
+                                     (std::sqrt(SQR(coords.Dx(X1DIR, k, j, i)) +
+                                                SQR(coords.Dx(X2DIR, k, j, i)) +
+                                                SQR(coords.Dx(X3DIR, k, j, i)))) *
+                                     std::abs(divb) / abs_b * coords.Volume(k, j, i)
+                               : 0; // Add zero when abs_b ==0
         }
       },
       sum);

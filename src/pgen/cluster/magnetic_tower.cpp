@@ -66,10 +66,11 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   //  2. Compute the potential (12 needed in all) in the same kernel,
   //  constructing the derivative without storing the potential (more
   //  arithmetically intensive, maybe faster)
-  ParArray5D<Real> A("magnetic_tower_A", 3, cons_pack.GetDim(5),
-                     md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsk(IndexDomain::entire),
-                     md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsj(IndexDomain::entire),
-                     md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsi(IndexDomain::entire));
+  ParArray5D<Real> A(
+      "magnetic_tower_A", 3, cons_pack.GetDim(5),
+      md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsk(IndexDomain::entire),
+      md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsj(IndexDomain::entire),
+      md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsi(IndexDomain::entire));
   IndexRange a_ib = ib;
   a_ib.s -= 1;
   a_ib.e += 1;
