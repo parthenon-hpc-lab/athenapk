@@ -73,7 +73,7 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real);
 namespace cluster {
 using namespace parthenon::driver::prelude;
 
-void InitUserMeshData(ParameterInput *pin);
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_dt);
 void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,

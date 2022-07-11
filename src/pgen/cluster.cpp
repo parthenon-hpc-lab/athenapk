@@ -51,6 +51,12 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                     const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
+  const AGNFeedback &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
+  agn_feedback.FeedbackSrcTerm(md, beta_dt, tm);
+
+  const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
+  magnetic_tower.FixedFieldSrcTerm(md, beta_dt, tm);
+
   const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
 
   if (gravity_srcterm) {
@@ -60,11 +66,6 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
     GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
   }
 
-  const AGNFeedback &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
-  agn_feedback.FeedbackSrcTerm(md, beta_dt, tm);
-
-  const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
-  magnetic_tower.FixedFieldSrcTerm(md, beta_dt, tm);
 }
 
 void ClusterFirstOrderSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
@@ -88,97 +89,97 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 }
 
 //========================================================================================
-//! \fn void InitUserMeshData(ParameterInput *pin)
-//  \brief Function to initialize problem-specific data in mesh class.  Can also be used
-//  to initialize variables which are global to (and therefore can be passed to) other
-//  functions in this file.  Called in Mesh constructor.
+//! \fn voidProblemInitPackageData(ParameterInput *pin, StateDescriptor *pkg)
+//  \brief Function to initialize package data specific to galaxy cluster simulations
 //========================================================================================
+//
+void ProblemInitPackageData(ParameterInput *pin, StateDescriptor *pkg) {
+
+  /************************************************************
+   * Read Unit Parameters
+   ************************************************************/
+  // CGS unit per code unit, or code unit in cgs
+  Units units(pin, pkg);
+  pkg->AddParam<>("units", units);
+
+  /************************************************************
+   * Read Uniform Gas
+   ************************************************************/
+
+  const bool init_uniform_gas =
+      pin->GetOrAddBoolean("problem/cluster/uniform_gas", "init_uniform_gas", false);
+  pkg->AddParam<>("init_uniform_gas", init_uniform_gas);
+
+  if (init_uniform_gas) {
+    const Real uniform_gas_rho = pin->GetReal("problem/cluster/uniform_gas", "rho");
+    const Real uniform_gas_ux = pin->GetReal("problem/cluster/uniform_gas", "ux");
+    const Real uniform_gas_uy = pin->GetReal("problem/cluster/uniform_gas", "uy");
+    const Real uniform_gas_uz = pin->GetReal("problem/cluster/uniform_gas", "uz");
+    const Real uniform_gas_pres = pin->GetReal("problem/cluster/uniform_gas", "pres");
+
+    pkg->AddParam<>("uniform_gas_rho", uniform_gas_rho);
+    pkg->AddParam<>("uniform_gas_ux", uniform_gas_ux);
+    pkg->AddParam<>("uniform_gas_uy", uniform_gas_uy);
+    pkg->AddParam<>("uniform_gas_uz", uniform_gas_uz);
+    pkg->AddParam<>("uniform_gas_pres", uniform_gas_pres);
+  }
+
+  /************************************************************
+   * Read Cluster Gravity Parameters
+   ************************************************************/
+
+  // Build cluster_gravity object
+  ClusterGravity cluster_gravity(pin, pkg);
+  // pkg->AddParam<>("cluster_gravity", cluster_gravity);
+
+  // Include gravity as a source term during evolution
+  const bool gravity_srcterm =
+      pin->GetBoolean("problem/cluster/gravity", "gravity_srcterm");
+  pkg->AddParam<>("gravity_srcterm", gravity_srcterm);
+
+  /************************************************************
+   * Read Initial Entropy Profile
+   ************************************************************/
+
+  // Build entropy_profile object
+  ACCEPTEntropyProfile entropy_profile(pin);
+
+  /************************************************************
+   * Build Hydrostatic Equilibrium Sphere
+   ************************************************************/
+
+  HydrostaticEquilibriumSphere hse_sphere(pin, pkg, cluster_gravity,
+                                          entropy_profile);
+
+  /************************************************************
+   * Read Precessing Jet Coordinate system
+   ************************************************************/
+
+  JetCoordsFactory jet_coords_factory(pin, pkg);
+
+  /************************************************************
+   * Read AGN Feedback
+   ************************************************************/
+
+  AGNFeedback agn_feedback(pin, pkg);
+
+  /************************************************************
+   * Read Magnetic Tower
+   ************************************************************/
+
+  // Build Magnetic Tower
+  MagneticTower magnetic_tower(pin, pkg);
+
+  // Determine if magnetic_tower_power_scaling is needed
+  // Is AGN Power and Magnetic fraction non-zero?
+  bool magnetic_tower_power_scaling =
+      (agn_feedback.magnetic_fraction_ != 0 && agn_feedback.GetPower() != 0);
+  pkg->AddParam("magnetic_tower_power_scaling", magnetic_tower_power_scaling);
+
+}
 
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
-  if (pmb->lid == 0) {
-
-    /************************************************************
-     * Read Unit Parameters
-     ************************************************************/
-    // CGS unit per code unit, or code unit in cgs
-    Units units(pin, hydro_pkg);
-    hydro_pkg->AddParam<>("units", units);
-
-    /************************************************************
-     * Read Uniform Gas
-     ************************************************************/
-
-    const bool init_uniform_gas =
-        pin->GetOrAddBoolean("problem/cluster/uniform_gas", "init_uniform_gas", false);
-    hydro_pkg->AddParam<>("init_uniform_gas", init_uniform_gas);
-
-    if (init_uniform_gas) {
-      const Real uniform_gas_rho = pin->GetReal("problem/cluster/uniform_gas", "rho");
-      const Real uniform_gas_ux = pin->GetReal("problem/cluster/uniform_gas", "ux");
-      const Real uniform_gas_uy = pin->GetReal("problem/cluster/uniform_gas", "uy");
-      const Real uniform_gas_uz = pin->GetReal("problem/cluster/uniform_gas", "uz");
-      const Real uniform_gas_pres = pin->GetReal("problem/cluster/uniform_gas", "pres");
-
-      hydro_pkg->AddParam<>("uniform_gas_rho", uniform_gas_rho);
-      hydro_pkg->AddParam<>("uniform_gas_ux", uniform_gas_ux);
-      hydro_pkg->AddParam<>("uniform_gas_uy", uniform_gas_uy);
-      hydro_pkg->AddParam<>("uniform_gas_uz", uniform_gas_uz);
-      hydro_pkg->AddParam<>("uniform_gas_pres", uniform_gas_pres);
-    }
-
-    /************************************************************
-     * Read Cluster Gravity Parameters
-     ************************************************************/
-
-    // Build cluster_gravity object
-    ClusterGravity cluster_gravity(pin, hydro_pkg);
-    // hydro_pkg->AddParam<>("cluster_gravity", cluster_gravity);
-
-    // Include gravity as a source term during evolution
-    const bool gravity_srcterm =
-        pin->GetBoolean("problem/cluster/gravity", "gravity_srcterm");
-    hydro_pkg->AddParam<>("gravity_srcterm", gravity_srcterm);
-
-    /************************************************************
-     * Read Initial Entropy Profile
-     ************************************************************/
-
-    // Build entropy_profile object
-    ACCEPTEntropyProfile entropy_profile(pin);
-
-    /************************************************************
-     * Build Hydrostatic Equilibrium Sphere
-     ************************************************************/
-
-    HydrostaticEquilibriumSphere hse_sphere(pin, hydro_pkg, cluster_gravity,
-                                            entropy_profile);
-
-    /************************************************************
-     * Read Precessing Jet Coordinate system
-     ************************************************************/
-
-    JetCoordsFactory jet_coords_factory(pin, hydro_pkg);
-
-    /************************************************************
-     * Read AGN Feedback
-     ************************************************************/
-
-    AGNFeedback agn_feedback(pin, hydro_pkg);
-
-    /************************************************************
-     * Read Magnetic Tower
-     ************************************************************/
-
-    // Build Magnetic Tower
-    MagneticTower magnetic_tower(pin, hydro_pkg);
-
-    // Determine if magnetic_tower_power_scaling is needed
-    // Is AGN Power and Magnetic fraction non-zero?
-    bool magnetic_tower_power_scaling =
-        (agn_feedback.magnetic_fraction_ != 0 && agn_feedback.GetPower() != 0);
-    hydro_pkg->AddParam("magnetic_tower_power_scaling", magnetic_tower_power_scaling);
-  }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);

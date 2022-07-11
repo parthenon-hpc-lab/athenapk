@@ -37,7 +37,7 @@ class AGNFeedback {
   const parthenon::Real kinetic_jet_radius_, kinetic_jet_height_;
 
   AGNFeedback(parthenon::ParameterInput *pin,
-              const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg);
+              parthenon::StateDescriptor* hydro_pkg);
 
   parthenon::Real GetPower() const { return power_; }
   void SetPower(const parthenon::Real power) { power_ = power; }

@@ -90,7 +90,7 @@ class ClusterGravity {
 
  public:
   ClusterGravity(parthenon::ParameterInput *pin,
-                 const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg) {
+                 parthenon::StateDescriptor* hydro_pkg) {
     Units units(pin);
 
     // Determine which element to include

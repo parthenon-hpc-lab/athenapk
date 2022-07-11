@@ -56,7 +56,7 @@ class Units {
         code_time_cgs_(pin->GetOrAddReal("units", "code_time_cgs", 1)) {}
 
   // Create a Units object and add it to a Package so that it gets outputted
-  Units(parthenon::ParameterInput *pin, std::shared_ptr<parthenon::StateDescriptor> pkg)
+  Units(parthenon::ParameterInput *pin, parthenon::StateDescriptor* pkg)
       : code_length_cgs_(pin->GetOrAddReal("units", "code_length_cgs", 1)),
         code_mass_cgs_(pin->GetOrAddReal("units", "code_mass_cgs", 1)),
         code_time_cgs_(pin->GetOrAddReal("units", "code_time_cgs", 1)) {

@@ -97,7 +97,7 @@ class JetCoordsFactory {
 
  public:
   explicit JetCoordsFactory(parthenon::ParameterInput *pin,
-                            const std::shared_ptr<parthenon::StateDescriptor> &hydro_pkg,
+                            parthenon::StateDescriptor* hydro_pkg,
                             const std::string &block = "problem/cluster/precessing_jet")
       : theta_jet_axis_(pin->GetOrAddReal(block, "jet_theta", 0)),
         phi_dot_jet_axis_(pin->GetOrAddReal(block, "jet_phi_dot", 0)),
