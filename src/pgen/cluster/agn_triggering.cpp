@@ -585,12 +585,6 @@ AGNTriggeringFinalizeTriggering(parthenon::MeshData<parthenon::Real> *md,
     }
   }
 
-  // DEBUGGING (forrestglines)
-  if (agn_triggering.GetAccretionRate(hydro_pkg.get()) > 0) {
-    printf("Accreting cold gas!\n");
-  }
-  // END DEBUGGING
-
   return TaskStatus::complete;
 }
 
