@@ -138,7 +138,7 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
     // unimplemented
     hst_vars.emplace_back(parthenon::HistoryOutputVar(
         parthenon::UserHistoryOperation::max,
-        [this, var_name](MeshData<Real> *md) {
+        [var_name](MeshData<Real> *md) {
           auto pmb = md->GetBlockData(0)->GetBlockPointer();
           auto hydro_pkg = pmb->packages.Get("Hydro");
           return hydro_pkg->Param<Real>(var_name);
@@ -153,10 +153,11 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
     // unimplemented
     hst_vars.emplace_back(parthenon::HistoryOutputVar(
         parthenon::UserHistoryOperation::max,
-        [this](MeshData<Real> *md) {
+        [](MeshData<Real> *md) {
           auto pmb = md->GetBlockData(0)->GetBlockPointer();
           auto hydro_pkg = pmb->packages.Get("Hydro");
-          return this->GetAccretionRate(hydro_pkg.get());
+          const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
+          return agn_triggering.GetAccretionRate(hydro_pkg.get());
         },
         "agn_accretion_rate"));
   }

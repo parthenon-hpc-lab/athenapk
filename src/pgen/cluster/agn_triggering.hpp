@@ -23,7 +23,7 @@
 
 namespace cluster {
 
-enum class AGNTriggeringMode { COLD_GAS, BOOSTED_BONDI, BOOTH_SCHAYE, NONE };
+enum class AGNTriggeringMode { NONE, COLD_GAS, BOOSTED_BONDI, BOOTH_SCHAYE };
 
 AGNTriggeringMode ParseAGNTriggeringMode(const std::string &mode_str);
 
