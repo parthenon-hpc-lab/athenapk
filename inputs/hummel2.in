@@ -1,0 +1,73 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2022, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = 3D MHD linear wave convergence
+
+<job>
+problem_id = linear_wave
+
+<problem/linear_wave>
+compute_error = false # when 'true' outputs L1 error compared to initial data
+wave_flag = 0         # Wave family number (0 - 4 for adiabatic hydro)
+amp       = 1.0e-6    # Wave Amplitude
+vflow     = 0.0       # background flow velocity
+test      = true
+
+<parthenon/mesh>
+refinement = static
+nghost = 4
+
+nx1 = 480 
+x1min = 0.0
+x1max = 3.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 480
+x2min = 0.0
+x2max = 3.0
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 480
+x3min = 0.0
+x3max = 3.0
+ix3_bc = periodic
+ox3_bc = periodic
+
+pack_size = 1
+
+<parthenon/meshblock>
+nx1=48
+nx2=48
+nx3=48
+
+<parthenon/static_refinement0>
+x1min = 1.0    
+x1max = 1.5    
+x2min = 1.0   
+x2max = 1.5    
+x3min = 1.0    
+x3max = 1.5    
+level = 3
+
+
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.3
+tlim = 1.0
+nlim = 20
+perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+ncycle_out_mesh = -500
+
+<hydro>
+fluid = glmmhd
+riemann = hlld
+reconstruction = ppm
+eos = adiabatic
+gamma = 1.666666666666667 # gamma = C_p/C_v
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+nscalars = 4

@@ -58,6 +58,7 @@ set(PARTHENON_ENABLE_INIT_PACKING ON CACHE BOOL "Use pack-in-one also for Mesh::
 # Hummel 2 benchmark settings
 set(PARTHENON_DISABLE_HDF5 ON CACHE BOOL "No IO")
 set(Kokkos_ENABLE_DEPRECATED_CODE OFF CACHE BOOL "Disable deprecated code")
+set(Kokkos_ENABLE_DEPRECATED_CODE_3 OFF CACHE BOOL "Disable deprecated code")
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon/CMakeLists.txt)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon parthenon)
@@ -68,7 +69,7 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(src)
 
-option(AthenaPK_ENABLE_TESTING "Enable AthenaPK test" ON)
+option(AthenaPK_ENABLE_TESTING "Enable AthenaPK test" OFF)
 if (AthenaPK_ENABLE_TESTING)
   include(CTest)
   add_subdirectory(tst/regression)
