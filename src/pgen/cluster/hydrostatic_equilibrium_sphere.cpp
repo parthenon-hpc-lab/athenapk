@@ -285,7 +285,8 @@ template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile
 
 // Instantiate PRhoProfile
 template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-    PRhoProfile<parthenon::ParArray1D<parthenon::Real>>;
+    PRhoProfile<Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
+                             parthenon::DevMemSpace>>;
 #if defined(KOKKOS_ENABLE_CUDA)
 template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
     PRhoProfile<Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>;
@@ -293,16 +294,18 @@ template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile
 
 // Instantiate generate_P_rho_profile
 template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
-    parthenon::ParArray1D<parthenon::Real>>
+    Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper, parthenon::DevMemSpace>>
     HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-        generate_P_rho_profile<parthenon::ParArray1D<parthenon::Real>,
+        generate_P_rho_profile<Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
+                                            parthenon::DevMemSpace>,
                                parthenon::UniformCartesian>(
             parthenon::IndexRange, parthenon::IndexRange, parthenon::IndexRange,
             parthenon::UniformCartesian) const;
 template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
-    parthenon::ParArray1D<parthenon::Real>>
+    Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper, parthenon::DevMemSpace>>
 HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-    generate_P_rho_profile<parthenon::ParArray1D<parthenon::Real>>(
+    generate_P_rho_profile<Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
+                                        parthenon::DevMemSpace>>(
         const parthenon::Real, const parthenon::Real, const unsigned int) const;
 #if defined(KOKKOS_ENABLE_CUDA)
 template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
