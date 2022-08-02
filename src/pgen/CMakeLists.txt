@@ -9,7 +9,6 @@ target_sources(athenaPK PRIVATE
     cluster/hydrostatic_equilibrium_sphere.cpp
     cpaw.cpp
     diffusion.cpp
-    field_loop.cpp
     kh.cpp
     linear_wave.cpp
     linear_wave_mhd.cpp

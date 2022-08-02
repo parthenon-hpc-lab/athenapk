@@ -71,9 +71,6 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = orszag_tang::ProblemGenerator;
   } else if (problem == "diffusion") {
     pman.app_input->ProblemGenerator = diffusion::ProblemGenerator;
-  } else if (problem == "field_loop") {
-    pman.app_input->ProblemGenerator = field_loop::ProblemGenerator;
-    Hydro::ProblemInitPackageData = field_loop::ProblemInitPackageData;
   } else if (problem == "kh") {
     pman.app_input->ProblemGenerator = kh::ProblemGenerator;
   } else if (problem == "rand_blast") {

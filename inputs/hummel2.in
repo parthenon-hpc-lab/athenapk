@@ -46,11 +46,11 @@ nx3=48
 
 <parthenon/static_refinement0>
 x1min = 1.0    
-x1max = 1.5    
+x1max = 1.4    
 x2min = 1.0   
-x2max = 1.5    
+x2max = 1.4    
 x3min = 1.0    
-x3max = 1.5    
+x3max = 1.4    
 level = 3
 
 
@@ -59,7 +59,7 @@ level = 3
 integrator = vl2
 cfl = 0.3
 tlim = 1.0
-nlim = 20
+nlim = 160
 perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 ncycle_out_mesh = -500
 
