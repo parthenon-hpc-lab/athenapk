@@ -177,9 +177,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &pmb = blocks[i];
     auto &tl = async_region_init_int[i];
     auto &u0 = pmb->meshblock_data.Get();
-    auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, u0.get(),
-                                 BoundaryCommSubset::all);
-
     // init u1, see (11) in Athena++ method paper
     if (stage == 1) {
       auto &u1 = pmb->meshblock_data.Get("u1");
@@ -205,6 +202,11 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
+    const auto any = parthenon::BoundaryType::any;
+    tl.AddTask(none, parthenon::cell_centered_bvars::StartReceiveBoundBufs<any>, mu0);
+    tl.AddTask(none,
+               parthenon::cell_centered_bvars::StartReceiveSparseFluxCorrectionBuffers,
+               mu0);
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
@@ -213,34 +215,28 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // TODO(pgrete) figure out what to do about the sources from the first stage
     // that are potentially disregarded when the (m)hd fluxes are corrected in the second
     // stage.
+    TaskID first_order_flux_correct = none;
     if (hydro_pkg->Param<bool>("first_order_flux_correct")) {
       auto *first_order_flux_correct_fun =
           hydro_pkg->Param<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun");
-      auto first_order_flux_correct =
+      first_order_flux_correct =
           tl.AddTask(calc_flux, first_order_flux_correct_fun, mu0.get(), mu1.get(),
                      integrator->gam0[stage - 1], integrator->gam1[stage - 1],
                      integrator->beta[stage - 1] * integrator->dt);
     }
-  }
-  TaskRegion &async_region_2 = tc.AddRegion(num_task_lists_executed_independently);
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &tl = async_region_2[i];
-    auto &u0 = blocks[i]->meshblock_data.Get("base");
-    auto send_flux = tl.AddTask(none, &MeshBlockData<Real>::SendFluxCorrection, u0.get());
-    auto recv_flux =
-        tl.AddTask(none, &MeshBlockData<Real>::ReceiveFluxCorrection, u0.get());
-  }
 
-  TaskRegion &single_tasklist_per_pack_region_2 = tc.AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; i++) {
-    auto &tl = single_tasklist_per_pack_region_2[i];
-
-    auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-    auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
+    auto send_flx = tl.AddTask(
+        first_order_flux_correct,
+        parthenon::cell_centered_bvars::LoadAndSendSparseFluxCorrectionBuffers, mu0);
+    auto recv_flx = tl.AddTask(
+        first_order_flux_correct,
+        parthenon::cell_centered_bvars::ReceiveSparseFluxCorrectionBuffers, mu0);
+    auto set_flx =
+        tl.AddTask(recv_flx, parthenon::cell_centered_bvars::SetFluxCorrections, mu0);
 
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(
-        none, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
+        set_flx, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
         mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
         integrator->beta[stage - 1] * integrator->dt);
 
@@ -269,20 +265,31 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
 
     // update ghost cells
+    const auto local = parthenon::BoundaryType::local;
+    const auto nonlocal = parthenon::BoundaryType::nonlocal;
+
     auto send = tl.AddTask(source_split_first_order,
-                           parthenon::cell_centered_bvars::SendBoundaryBuffers, mu0);
+                           parthenon::cell_centered_bvars::SendBoundBufs<nonlocal>, mu0);
+
+    auto send_local =
+        tl.AddTask(source_split_first_order,
+                   parthenon::cell_centered_bvars::SendBoundBufs<local>, mu0);
+    auto recv_local =
+        tl.AddTask(source_split_first_order,
+                   parthenon::cell_centered_bvars::ReceiveBoundBufs<local>, mu0);
+    auto set_local =
+        tl.AddTask(recv_local, parthenon::cell_centered_bvars::SetBounds<local>, mu0);
+
     auto recv =
-        tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mu0);
-    auto fill_from_bufs =
-        tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, mu0);
+        tl.AddTask(source_split_first_order,
+                   parthenon::cell_centered_bvars::ReceiveBoundBufs<nonlocal>, mu0);
+    auto set = tl.AddTask(recv, parthenon::cell_centered_bvars::SetBounds<nonlocal>, mu0);
   }
 
   TaskRegion &async_region_3 = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {
     auto &tl = async_region_3[i];
     auto &u0 = blocks[i]->meshblock_data.Get("base");
-    auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
-                                       u0.get(), BoundaryCommSubset::all);
     auto prolongBound = none;
     if (pmesh->multilevel) {
       prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, u0);
