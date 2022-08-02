@@ -93,9 +93,9 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real) 
         Real x = coords.x1v(i);
         Real y = coords.x2v(j);
         Real z = coords.x3v(k);
-        Real dist = std::sqrt(SQR(x - blasts.at(blast_i).at(0)) +
-                              SQR(y - blasts.at(blast_i).at(1)) +
-                              SQR(z - blasts.at(blast_i).at(2)));
+        Real dist = 0.0; //std::sqrt(SQR(x - blasts.at(blast_i).at(0)) +
+                         //     SQR(y - blasts.at(blast_i).at(1)) +
+                         //     SQR(z - blasts.at(blast_i).at(2)));
 
         if (dist < 0.005) {
           cons(IEN, k, j, i) = 13649.6 / gm1 +
