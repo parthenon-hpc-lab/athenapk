@@ -1,5 +1,5 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2020-2022, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 <comment>
@@ -17,7 +17,7 @@ test      = true
 
 <parthenon/mesh>
 refinement = none
-nghost = 2
+nghost = 4
 
 nx1 = 64
 x1min = 0.0
@@ -50,10 +50,10 @@ nlim = 100000
 perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 
 <hydro>
-fluid = euler
+fluid = glmmhd
+riemann = hlld
+reconstruction = ppm
 eos = adiabatic
-riemann = hlle
-reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
