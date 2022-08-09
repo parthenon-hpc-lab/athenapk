@@ -62,6 +62,7 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
 
   const auto gm1 = hydro_pkg->Param<Real>("AdiabaticIndex");
   const auto &thermal_diff = hydro_pkg->Param<ThermalDiffusivity>("thermal_diff");
+  const auto &flux_sat_prefac = hydro_pkg->Param<Real>("conduction_sat_prefac");
 
   if (thermal_diff.GetType() == Conduction::isotropic &&
       thermal_diff.GetCoeffType() == ConductionCoeff::fixed) {
@@ -149,6 +150,19 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
           if (Bmag == 0.0) {
             return;
           }
+
+          // In the saturated regime, i.e., when the ratio of classic to saturated fluxes
+          // is large, the equation becomes hyperbolic with the signal speed of the
+          // conduction front being comparable to the sound speed, see [Balsara, Tilley,
+          // and Howk MANRAS 2008]. Therefore, we don't need to contrain the "parabolic"
+          // timestep here (and the hyperbolic one is constrained automatically by the
+          // fluid EstimateTimestep call).
+          auto const flux_sat = flux_sat_prefac * std::sqrt(p / rho) * p;
+          auto const flux_classic = thermal_diff_coeff * rho * gradTmag;
+          if (flux_classic / flux_sat > 100.) {
+            return;
+          }
+
           const auto costheta =
               fabs(Bx * dTdx + By * dTdy + Bz * dTdz) / (Bmag * gradTmag);
 
@@ -339,7 +353,7 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
 
         // Calculate saturated fluxes using upwinding, see (A3) in Mignone+12.
         // Note that we are not concerned about the sign of flux_sat here. The way it is
-        // calculated it's always positive because we use it in the geometric mean with
+        // calculated it's always positive because we use it in the harmonic mean with
         // the flux_classic_mag below. The correct sign is eventually picked up again from
         // flux_classic.
         Real flux_sat;
