@@ -9,7 +9,7 @@ problem = 3D Hydro linear wave convergence
 problem_id = linear_wave
 
 <problem/linear_wave>
-compute_error = true  # when 'true' outputs L1 error compared to initial data
+compute_error = false # when 'true' outputs L1 error compared to initial data
 wave_flag = 0         # Wave family number (0 - 4 for adiabatic hydro)
 amp       = 1.0e-6    # Wave Amplitude
 vflow     = 0.0       # background flow velocity
@@ -37,6 +37,8 @@ x3max = 1.5
 ix3_bc = periodic
 ox3_bc = periodic
 
+pack_size=-1
+
 <parthenon/meshblock>
 nx1=16
 nx2=16
@@ -50,7 +52,7 @@ nlim = 100000
 perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 
 <hydro>
-fluid = euler
+fluid = glmmhd 
 eos = adiabatic
 riemann = hlle
 reconstruction = plm

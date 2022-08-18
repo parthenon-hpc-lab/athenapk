@@ -176,10 +176,10 @@ HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::generate_P_rho
   PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx1v(1), "No equidistant grid in x1dir");
   PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx2v(1), "No equidistant grid in x2dir");
   PARTHENON_REQUIRE(coords.dx3v(0) == coords.dx3v(1), "No equidistant grid in x3dir");
-  PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx2v(1),
-                    "No equidistant grid between x1 and x2 dir");
-  PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx3v(1),
-                    "No equidistant grid between x2 and x3 dir");
+  //PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx2v(1),
+  //                  "No equidistant grid between x1 and x2 dir");
+  //PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx3v(1),
+  //                  "No equidistant grid between x2 and x3 dir");
   const Real dR = std::min(coords.dx1v(0) / R_sampling_, max_dR_);
 
   // Loop through mesh for minimum and maximum radius
@@ -286,7 +286,7 @@ template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile
 // Instantiate PRhoProfile
 template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
     PRhoProfile<parthenon::ParArray1D<parthenon::Real>>;
-#if defined(KOKKOS_ENABLE_CUDA)
+#if defined(KOKKOS_IF_ON_DEVICE)
 template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
     PRhoProfile<Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>;
 #endif
@@ -304,7 +304,7 @@ template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRh
 HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
     generate_P_rho_profile<parthenon::ParArray1D<parthenon::Real>>(
         const parthenon::Real, const parthenon::Real, const unsigned int) const;
-#if defined(KOKKOS_ENABLE_CUDA)
+#if defined(KOKKOS_IF_ON_DEVICE)
 template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
     Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
     HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
