@@ -48,7 +48,11 @@ prep-cuda:
     - gpu
     - springdale7
   script:
+    - module avail
     - module load rh/devtoolset/8 cudatoolkit/11.1
+    - nvidia-smi
+    - nvcc --version
+    - FAILME
     # for rebuilding, the pipeline should be triggered manually with REBUILD_DEP=TRUE
     - if [ $REBUILD_DEP == TRUE ]; then
       rm -rf /home/build/athenapk/cmake-${CMAKE_VER}-linux-x86_64;
