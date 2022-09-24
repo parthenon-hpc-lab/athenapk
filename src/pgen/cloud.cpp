@@ -271,13 +271,10 @@ void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
       KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
         const auto idx = (k - kb.s) * Ni * Nj + (j - jb.s) * Ni + (i - ib.s);
         cons(IDN, k, j, i) = rho_wind_;
-        // cons(IM1, k, j, i) = perturb_ > 0.0 ? mom_wind_ * rand_num(idx, 0) : 0.0;
-        // cons(IM2, k, j, i) =
-        // perturb_ > 0.0 ? mom_wind_ + mom_wind_ * rand_num(idx, 1) : mom_wind_;
-        // cons(IM3, k, j, i) = perturb_ > 0.0 ? mom_wind_ * rand_num(idx, 2) : 0.0;
-        cons(IM1, k, j, i) = 0.0;
-        cons(IM2, k, j, i) = mom_wind_;
-        cons(IM3, k, j, i) = 0.0;
+        cons(IM1, k, j, i) = perturb_ > 0.0 ? mom_wind_ * rand_num(idx, 0) : 0.0;
+        cons(IM2, k, j, i) =
+            perturb > 0.0 ? mom_wind_ + mom_wind_ * rand_num(idx, 1) : mom_wind_;
+        cons(IM3, k, j, i) = perturb_ > 0.0 ? mom_wind_ * rand_num(idx, 2) : 0.0;
         cons(IEN, k, j, i) =
             rhoe_wind_ + 0.5 *
                              (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
@@ -285,17 +282,11 @@ void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
                              rho_wind_;
         if (Bx_ != 0.0) {
           cons(IB1, k, j, i) = Bx_;
-          cons(IB2, k, j, i) = perturb_ > 0.0 ? Bx_ * rand_num(idx, 1) : 0.0;
-          cons(IB3, k, j, i) = perturb_ > 0.0 ? Bx_ * rand_num(idx, 2) : 0.0;
-          cons(IEN, k, j, i) +=
-              0.5 * (Bx_ * Bx_ + SQR(cons(IB2, k, j, i)) + SQR(cons(IB3, k, j, i)));
+          cons(IEN, k, j, i) += 0.5 * Bx_ * Bx_;
         }
         if (By_ != 0.0) {
-          cons(IB1, k, j, i) = perturb_ > 0.0 ? By_ * rand_num(idx, 0) : 0.0;
           cons(IB2, k, j, i) = By_;
-          cons(IB3, k, j, i) = perturb_ > 0.0 ? By_ * rand_num(idx, 2) : 0.0;
-          cons(IEN, k, j, i) +=
-              0.5 * (By_ * By_ + SQR(cons(IB1, k, j, i)) + SQR(cons(IB3, k, j, i)));
+          cons(IEN, k, j, i) += 0.5 * By_ * By_;
         }
       });
 }
