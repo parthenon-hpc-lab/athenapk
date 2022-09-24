@@ -242,7 +242,8 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   const Real min_sub_dt = dt / max_iter;
 
   const Real d_e_tol = d_e_tol_;
-  const Real internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B;
+  const Real internal_e_floor =
+      std::max(T_floor_, std::pow(10.0, log_temp_start)) / mu_m_u_gm1_by_k_B;
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -401,7 +402,10 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           sub_iter++;
         }
 
-        PARTHENON_REQUIRE(internal_e > internal_e_floor, "cooled below floor");
+        PARTHENON_REQUIRE(internal_e > 0.9 * internal_e_floor, "cooled way below floor");
+        if (internal_e < internal_e_floor) {
+          internal_e = internal_e_floor;
+        }
 
         // Remove the cooling from the specific total energy
         cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
