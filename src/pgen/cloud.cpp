@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021-2022, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cloud.cpp
@@ -13,8 +13,6 @@
 #include <cstring>   // strcmp()
 
 // Parthenon headers
-#include "Kokkos_CopyViews.hpp"
-#include "globals.hpp"
 #include "mesh/mesh.hpp"
 #include <iomanip>
 #include <ios>
@@ -26,7 +24,6 @@
 // AthenaPK headers
 #include "../main.hpp"
 #include "../units.hpp"
-#include "parthenon/prelude.hpp"
 
 namespace cloud {
 using namespace parthenon::driver::prelude;
@@ -34,9 +31,6 @@ using namespace parthenon::driver::prelude;
 Real rho_wind, mom_wind, rhoe_wind, r_cloud, rho_cloud;
 Real Bx = 0.0;
 Real By = 0.0;
-Real perturb = 0.0;
-std::mt19937 gen; // Standard mersenne_twister_engine seeded with gid
-std::uniform_real_distribution<Real> ran;
 
 //========================================================================================
 //! \fn void InitUserMeshData(Mesh *mesh, ParameterInput *pin)
@@ -76,11 +70,6 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   const auto T_cloud = pressure / gm1 / rho_cloud * mu_m_u_gm1_by_k_B_;
 
   auto plasma_beta = pin->GetOrAddReal("problem/cloud", "plasma_beta", -1.0);
-  perturb = pin->GetOrAddReal("problem/cloud", "perturb", 0.0);
-  if (perturb > 0.0) {
-    gen = std::mt19937(parthenon::Globals::my_rank);
-    ran = std::uniform_real_distribution<Real>(-perturb, perturb);
-  }
 
   auto mag_field_angle_str =
       pin->GetOrAddString("problem/cloud", "mag_field_angle", "undefined");
@@ -202,14 +191,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         }
 
         u(IDN, k, j, i) = rho;
-        u(IM1, k, j, i) = perturb > 0.0 ? mom * ran(gen) : 0.0;
-        u(IM2, k, j, i) = perturb > 0.0 ? mom + mom * ran(gen) : mom;
-        u(IM3, k, j, i) = perturb > 0.0 ? mom * ran(gen) : 0.0;
+        u(IM2, k, j, i) = mom;
         // Can use rhoe_wind here as simulation is setup in pressure equil.
-        u(IEN, k, j, i) =
-            rhoe_wind +
-            0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
-                rho;
+        u(IEN, k, j, i) = rhoe_wind + 0.5 * mom * mom / rho;
 
         if (mhd_enabled) {
           u(IB1, k, j, i) = Bx;
@@ -241,45 +225,12 @@ void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   const auto rhoe_wind_ = rhoe_wind;
   const auto Bx_ = Bx;
   const auto By_ = By;
-
-  const auto domain = IndexDomain::inner_x2;
-  const auto bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
-  const auto ib = bounds.GetBoundsI(domain);
-  const auto jb = bounds.GetBoundsJ(domain);
-  const auto kb = bounds.GetBoundsK(domain);
-
-  const auto Ni = ib.e - ib.s + 1;
-  const auto Nj = jb.e - jb.s + 1;
-  const auto Nk = kb.e - kb.s + 1;
-
-  const auto num_cells = Ni * Nj * Nk;
-
-  parthenon::ParArray2D<Real> rand_num("inflow rand num", num_cells, 3);
-  auto rand_num_h = Kokkos::create_mirror_view(rand_num);
-
-  for (int j = 0; j < num_cells; j++) {
-    for (int i = 0; i < 3; i++) {
-      rand_num_h(j, i) = ran(gen);
-    }
-  }
-  Kokkos::deep_copy(rand_num, rand_num_h);
-
-  auto perturb_ = perturb;
-
   pmb->par_for_bndry(
-      "InflowWindX2", nb, domain, coarse,
+      "InflowWindX2", nb, IndexDomain::inner_x2, coarse,
       KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
-        const auto idx = (k - kb.s) * Ni * Nj + (j - jb.s) * Ni + (i - ib.s);
         cons(IDN, k, j, i) = rho_wind_;
-        cons(IM1, k, j, i) = perturb_ > 0.0 ? mom_wind_ * rand_num(idx, 0) : 0.0;
-        cons(IM2, k, j, i) =
-            perturb > 0.0 ? mom_wind_ + mom_wind_ * rand_num(idx, 1) : mom_wind_;
-        cons(IM3, k, j, i) = perturb_ > 0.0 ? mom_wind_ * rand_num(idx, 2) : 0.0;
-        cons(IEN, k, j, i) =
-            rhoe_wind_ + 0.5 *
-                             (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                              SQR(cons(IM3, k, j, i))) /
-                             rho_wind_;
+        cons(IM2, k, j, i) = mom_wind_;
+        cons(IEN, k, j, i) = rhoe_wind_ + 0.5 * mom_wind_ * mom_wind_ / rho_wind_;
         if (Bx_ != 0.0) {
           cons(IB1, k, j, i) = Bx_;
           cons(IEN, k, j, i) += 0.5 * Bx_ * Bx_;
