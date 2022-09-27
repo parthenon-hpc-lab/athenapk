@@ -10,7 +10,7 @@ Neither other versions or nor using preinstalled Parthenon/Kokkos libraries have
 Current features include
 - first, second, and third order (magneto)hydrodynamics with
   - RK1, RK2, RK3, VL2 integrators
-  - piecewise constant (DC), piecewise linear (PLM), piecewise parabolic (PPM), WENO3, and WENOZ reconstruction
+  - piecewise constant (DC), piecewise linear (PLM), piecewise parabolic (PPM), WENO3, LimO3, and WENOZ reconstruction
   - HLLE (hydro and MHD), HLLC (hydro), and HLLD (MHD) Riemann solvers
   - adiabatic equation of state
   - MHD based on hyperbolic divergence cleaning following Dedner+ 2002

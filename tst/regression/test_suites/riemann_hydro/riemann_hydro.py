@@ -27,6 +27,8 @@ method_cfgs = [
     {"nx1": 64, "integrator": "vl2", "recon": "plm", "riemann": "hllc"},
     {"nx1": 64, "integrator": "rk3", "recon": "weno3", "riemann": "hlle"},
     {"nx1": 64, "integrator": "rk3", "recon": "weno3", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk3", "recon": "limo3", "riemann": "hlle"},
+    {"nx1": 64, "integrator": "rk3", "recon": "limo3", "riemann": "hllc"},
     {"nx1": 64, "integrator": "rk3", "recon": "ppm", "riemann": "hlle"},
     {"nx1": 64, "integrator": "rk3", "recon": "ppm", "riemann": "hllc"},
     {"nx1": 64, "integrator": "rk3", "recon": "wenoz", "riemann": "hlle"},

@@ -45,6 +45,7 @@ Parameter: `reconstruction` (string)
 - `dc` : donor cell/piecewise constant (first order)
 - `plm` : piecewise linear (second order)
 - `ppm` : piecewise parabolic (third order)
+- `limo3` : LimO3 (third order)
 - `weno3` : WENO3 (third order)
 - `wenoz` : WENO-Z (third order but more accurate than WENO3)
 
