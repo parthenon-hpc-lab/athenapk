@@ -39,6 +39,7 @@ method_cfgs = [
     {"integrator" : "rk2", "recon" : "weno3"},
     {"integrator" : "rk3", "recon" : "ppm"},
     {"integrator" : "rk3", "recon" : "weno3"},
+    {"integrator" : "rk3", "recon" : "limo3"},
     {"integrator" : "rk3", "recon" : "wenoz"},
 ]
 
