@@ -76,9 +76,6 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
       Real rhoa = .5 * (wli[IDN] + wri[IDN]); // average density
       Real ca = .5 * (cl + cr);               // average sound speed
       Real pmid = .5 * (wli[IPR] + wri[IPR] + (wli[IV1] - wri[IV1]) * rhoa * ca);
-      Real umid = .5 * (wli[IV1] + wri[IV1] + (wli[IPR] - wri[IPR]) / (rhoa * ca));
-      Real rhol = wli[IDN] + (wli[IV1] - umid) * rhoa / ca; // mid-left density
-      Real rhor = wri[IDN] + (umid - wri[IV1]) * rhoa / ca; // mid-right density
 
       //--- Step 3.  Compute sound speed in L,R
       Real ql, qr;

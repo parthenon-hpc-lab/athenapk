@@ -39,7 +39,7 @@ namespace rand_blast {
 using namespace parthenon::driver::prelude;
 
 constexpr int num_blast = 30;
-const std::array<std::array<Real, 3>, num_blast> blasts_ = {{
+const Kokkos::Array<std::array<Real, 3>, num_blast> blasts_ = {{
     {7.825E-07, 1.32E-02, 7.56E-02},     {-5.413E-02, -4.672E-02, -7.810E-02},
     {-3.211E-02, 6.793E-02, 9.346E-02},  {-6.165E-02, 5.194E-02, -1.690E-02},
     {5.346E-03, 5.297E-02, 6.711E-02},   {7.698E-04, -6.165E-02, -9.331E-02},
@@ -93,9 +93,8 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real) 
         Real x = coords.x1v(i);
         Real y = coords.x2v(j);
         Real z = coords.x3v(k);
-        Real dist = std::sqrt(SQR(x - blasts.at(blast_i).at(0)) +
-                              SQR(y - blasts.at(blast_i).at(1)) +
-                              SQR(z - blasts.at(blast_i).at(2)));
+        Real dist = std::sqrt(SQR(x - blasts[blast_i][0]) + SQR(y - blasts[blast_i][1]) +
+                              SQR(z - blasts[blast_i][2]));
 
         if (dist < 0.005) {
           cons(IEN, k, j, i) = 13649.6 / gm1 +
