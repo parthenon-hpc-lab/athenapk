@@ -412,7 +412,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         pkg->AllParams().hasKey("units")) {
       auto units = pkg->Param<Units>("units");
       const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-      const auto H_mass_fraction = 1.0 - He_mass_fraction;
       const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
       pkg->AddParam<>("mbar_over_kb",
                       mu * units.atomic_mass_unit() / units.k_boltzmann());
@@ -729,15 +728,12 @@ TaskStatus CalculateFluxesTight(std::shared_ptr<MeshData<Real>> &md) {
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                            AdiabaticGLMMHDEOS>::type>("eos");
 
-  const auto nhydro = pkg->Param<int>("nhydro");
-  const auto nscalars = pkg->Param<int>("nscalars");
-
   // Hyperbolic divergence cleaning speed for GLM MHD
   Real c_h = 0.0;
   if (fluid == Fluid::glmmhd) {
     c_h = pkg->Param<Real>("c_h");
   }
-
+  // TODO(pgrete) fix scalar fluxes, too
   auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
 
   const int ndim = pmb->pmy_mesh->ndim;
@@ -811,7 +807,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
       scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
-        const auto &coords = cons_in.GetCoords(b);
         const auto &prim = prim_in(b);
         auto &cons = cons_in(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -854,7 +849,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
         scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
-          const auto &coords = cons_in.GetCoords(b);
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -903,7 +897,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
         scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
-          const auto &coords = cons_in.GetCoords(b);
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -975,7 +968,6 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
   auto u0_cons_pack = u0_data->PackVariablesAndFluxes(flags_ind);
   auto u1_cons_pack = u1_data->PackVariablesAndFluxes(flags_ind);
   auto pkg = pmb->packages.Get("Hydro");
-  const int nhydro = pkg->Param<int>("nhydro");
 
   const auto &eos =
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,

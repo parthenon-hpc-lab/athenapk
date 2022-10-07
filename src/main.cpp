@@ -97,7 +97,7 @@ int main(int argc, char *argv[]) {
   Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
 
   // This line actually runs the simulation
-  auto driver_status = driver.Execute();
+  driver.Execute();
 
   // call MPI_Finalize and Kokkos::finalize if necessary
   pman.ParthenonFinalize();
