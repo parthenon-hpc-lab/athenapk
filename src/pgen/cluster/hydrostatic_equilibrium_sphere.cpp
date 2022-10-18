@@ -287,7 +287,7 @@ template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile
 template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
     PRhoProfile<Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
                              parthenon::DevMemSpace>>;
-#if defined(KOKKOS_ENABLE_CUDA)
+#if (defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP))
 template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
     PRhoProfile<Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>;
 #endif
@@ -307,7 +307,7 @@ HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
     generate_P_rho_profile<Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
                                         parthenon::DevMemSpace>>(
         const parthenon::Real, const parthenon::Real, const unsigned int) const;
-#if defined(KOKKOS_ENABLE_CUDA)
+#if (defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP))
 template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
     Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
     HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
