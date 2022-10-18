@@ -107,4 +107,15 @@ using namespace parthenon::driver::prelude;
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 } // namespace sod
 
+namespace turbulence {
+using namespace parthenon::driver::prelude;
+
+void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md);
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
+void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt);
+void SetPhases(MeshBlock *pmb, ParameterInput *pin);
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin);
+void Cleanup();
+} // namespace turbulence
+
 #endif // PGEN_PGEN_HPP_
