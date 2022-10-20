@@ -87,6 +87,12 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
+  } else if (problem == "turbulence") {
+    pman.app_input->MeshProblemGenerator = turbulence::ProblemGenerator;
+    Hydro::ProblemInitPackageData = turbulence::ProblemInitPackageData;
+    Hydro::ProblemSourceFirstOrder = turbulence::Driving;
+    pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
+    pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
   }
 
   pman.ParthenonInitPackagesAndMesh();
@@ -99,7 +105,12 @@ int main(int argc, char *argv[]) {
   Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
 
   // This line actually runs the simulation
-  auto driver_status = driver.Execute();
+  driver.Execute();
+
+  // very ugly cleanup...
+  if (problem == "turbulence") {
+    turbulence::Cleanup();
+  }
 
   // call MPI_Finalize and Kokkos::finalize if necessary
   pman.ParthenonFinalize();

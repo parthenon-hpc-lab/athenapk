@@ -4,16 +4,14 @@ AthenaPK: a performance portable version based on [Athena++](https://github.com/
 
 ## Current state of the code
 
-**WARNING** This code is under active development, i.e., the interfaces are not considered stable at this point.
-
 For this reason, it is highly recommended to only use AthenaPK with the Kokkos and Parthenon versions that are provided by the submodules (see [building](#building)) and to build everything (AthenaPK, Parthenon, and Kokkos) together from source.
 Neither other versions or nor using preinstalled Parthenon/Kokkos libraries have been tested.
 
 Current features include
 - first, second, and third order (magneto)hydrodynamics with
   - RK1, RK2, RK3, VL2 integrators
-  - piecewise constant (DC), piecewise linear (PLM), piecewise parabolic (PPM), WENO3, and WENOZ reconstruction
-  - HLLE (hydro and MHD) and HLLD (MHD) Riemann solvers
+  - piecewise constant (DC), piecewise linear (PLM), piecewise parabolic (PPM), WENO3, LimO3, and WENOZ reconstruction
+  - HLLE (hydro and MHD), HLLC (hydro), and HLLD (MHD) Riemann solvers
   - adiabatic equation of state
   - MHD based on hyperbolic divergence cleaning following Dedner+ 2002
   - anisotropic thermal conduction

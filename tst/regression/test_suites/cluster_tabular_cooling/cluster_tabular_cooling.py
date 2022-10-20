@@ -317,11 +317,11 @@ class TestCase(utils.test_case.TestCaseAbs):
             #FIXME: TODO(forrestglines) For now this is hard coded - a component mapping should be done by phdf
             prim_col_dict = {"Density":0,"Velocity1":1,"Velocity2":2,"Velocity3":3,"Pressure":4}
             
-            rho  = unyt.unyt_array(prim[:,prim_col_dict["Density"  ]],"code_mass*code_length**-3")
-            ux   = unyt.unyt_array(prim[:,prim_col_dict["Velocity1"]],"code_length*code_time**-1")
-            uy   = unyt.unyt_array(prim[:,prim_col_dict["Velocity2"]],"code_length*code_time**-1")
-            uz   = unyt.unyt_array(prim[:,prim_col_dict["Velocity3"]],"code_length*code_time**-1")
-            pres = unyt.unyt_array(prim[:,prim_col_dict["Pressure" ]],"code_mass*code_length**-1*code_time**-2")
+            rho  = unyt.unyt_array(prim[prim_col_dict["Density"  ]],"code_mass*code_length**-3")
+            ux   = unyt.unyt_array(prim[prim_col_dict["Velocity1"]],"code_length*code_time**-1")
+            uy   = unyt.unyt_array(prim[prim_col_dict["Velocity2"]],"code_length*code_time**-1")
+            uz   = unyt.unyt_array(prim[prim_col_dict["Velocity3"]],"code_length*code_time**-1")
+            pres = unyt.unyt_array(prim[prim_col_dict["Pressure" ]],"code_mass*code_length**-1*code_time**-2")
 
             #Save the final internal_e
             internal_e =  (pres/(rho*(self.adiabatic_index-1))).mean()

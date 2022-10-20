@@ -105,7 +105,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             data_filename = f"{parameters.output_path}/parthenon.{step}.final.phdf"
             data_file = phdf.phdf(data_filename)
             prim = data_file.Get("prim")
-            T = prim[:,4] # because of gamma = 2.0 and rho = 1 -> p = e = T
+            T = prim[4] # because of gamma = 2.0 and rho = 1 -> p = e = T
             zz, yy,xx = data_file.GetVolumeLocations()
             if step == 1 or step == 2:
                 r = np.sqrt(xx**2 + yy**2)

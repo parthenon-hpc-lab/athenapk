@@ -71,12 +71,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
    * Read tab file with IOWrapper
    ****************************************/
   IOWrapper input;
-  const int io_ret = input.Open(table_filename.c_str(), IOWrapper::FileMode::read);
-  if (io_ret == false) {
-    msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
-        << "Unable to open table_filename:" << table_filename.c_str() << std::endl;
-    PARTHENON_FAIL(msg);
-  }
+  input.Open(table_filename.c_str(), IOWrapper::FileMode::read);
 
   /****************************************
    * Read tab file from IOWrapper into a stringstream tab
@@ -620,22 +615,22 @@ void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
 
   const std::string test_filename = pin->GetString("cooling", "test_filename");
 
-  const Real rho0 = pin->GetReal("cooling", "test_rho0");
-  const Real rho1 = pin->GetReal("cooling", "test_rho1");
-  const Real n_rho = pin->GetInteger("cooling", "test_n_rho");
+  const auto rho0 = pin->GetReal("cooling", "test_rho0");
+  const auto rho1 = pin->GetReal("cooling", "test_rho1");
+  const auto n_rho = pin->GetInteger("cooling", "test_n_rho");
 
-  const Real pres0 = pin->GetReal("cooling", "test_pres0");
-  const Real pres1 = pin->GetReal("cooling", "test_pres1");
-  const Real n_pres = pin->GetInteger("cooling", "test_n_pres");
+  const auto pres0 = pin->GetReal("cooling", "test_pres0");
+  const auto pres1 = pin->GetReal("cooling", "test_pres1");
+  const auto n_pres = pin->GetInteger("cooling", "test_n_pres");
 
   // Grab member variables for compiler
 
   // Everything needed by DeDt
-  const Real mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
-  const Real X_by_m_u = X_by_m_u_;
-  const Real log_temp_start = log_temp_start_;
-  const Real log_temp_final = log_temp_final_;
-  const Real d_log_temp = d_log_temp_;
+  const auto mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
+  const auto X_by_m_u = X_by_m_u_;
+  const auto log_temp_start = log_temp_start_;
+  const auto log_temp_final = log_temp_final_;
+  const auto d_log_temp = d_log_temp_;
   const unsigned int n_temp = n_temp_;
   const auto log_lambdas = log_lambdas_;
 

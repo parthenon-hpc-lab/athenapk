@@ -3,41 +3,33 @@
 // Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
-//! \file hlle.cpp
-//  \brief HLLE Riemann solver for hydrodynamics
-//
-//  Computes 1D fluxes using the Harten-Lax-van Leer (HLL) Riemann solver.  This flux is
-//  very diffusive, especially for contacts, and so it is not recommended for use in
-//  applications.  However, as shown by Einfeldt et al.(1991), it is positively
-//  conservative (cannot return negative densities or pressure), so it is a useful
-//  option when other approximate solvers fail and/or when extra dissipation is needed.
-//
-// REFERENCES:
-// - E.F. Toro, "Riemann Solvers and numerical methods for fluid dynamics", 2nd ed.,
-//   Springer-Verlag, Berlin, (1999) chpt. 10.
-// - Einfeldt et al., "On Godunov-type methods near low densities", JCP, 92, 273 (1991)
-// - A. Harten, P. D. Lax and B. van Leer, "On upstream differencing and Godunov-type
-//   schemes for hyperbolic conservation laws", SIAM Review 25, 35-61 (1983).
+//! \file hllc.cpp
+//! \brief HLLC Riemann solver for hydrodynamics, an extension of the HLLE fluxes to
+//! include the contact wave.  Only works for adiabatic hydrodynamics.
+//!
+//! REFERENCES:
+//! - E.F. Toro, "Riemann Solvers and numerical methods for fluid dynamics", 2nd ed.,
+//!   Springer-Verlag, Berlin, (1999) chpt. 10.
+//! - P. Batten, N. Clarke, C. Lambert, and D. M. Causon, "On the Choice of Wavespeeds
+//!   for the HLLC Riemann Solver", SIAM J. Sci. & Stat. Comp. 18, 6, 1553-1570, (1997).
 
-#ifndef RSOLVERS_HYDRO_HLLE_HPP_
-#define RSOLVERS_HYDRO_HLLE_HPP_
+#ifndef RSOLVERS_HYDRO_HLLC_HPP_
+#define RSOLVERS_HYDRO_HLLC_HPP_
 
 // C++ headers
 #include <algorithm> // max(), min()
 #include <cmath>     // sqrt()
 
-// Athena headers
+// AthenaPK headers
 #include "../../main.hpp"
 #include "rsolvers.hpp"
 
-using parthenon::ParArray4D;
-using parthenon::Real;
-
 //----------------------------------------------------------------------------------------
 //! \fn void Hydro::RiemannSolver
-//  \brief The HLLE Riemann solver for hydrodynamics (adiabatic)
+//! \brief The HLLC Riemann solver for adiabatic hydrodynamics (use HLLE for isothermal)
+
 template <>
-struct Riemann<Fluid::euler, RiemannSolver::hlle> {
+struct Riemann<Fluid::euler, RiemannSolver::hllc> {
   static KOKKOS_INLINE_FUNCTION void
   Solve(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
         const int iu, const int ivx, const ScratchPad2D<Real> &wl,
@@ -45,10 +37,10 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
         const AdiabaticHydroEOS &eos, const Real c_h) {
     int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     int ivz = IV1 + ((ivx - IV1) + 2) % 3;
-    Real gamma;
-    gamma = eos.GetGamma();
+    Real gamma = eos.GetGamma();
     Real gm1 = gamma - 1.0;
     Real igm1 = 1.0 / gm1;
+
     parthenon::par_for_inner(member, il, iu, [&](const int i) {
       Real wli[(NHYDRO)], wri[(NHYDRO)];
       Real fl[(NHYDRO)], fr[(NHYDRO)], flxi[(NHYDRO)];
@@ -66,6 +58,7 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
       wri[IPR] = wr(IPR, i);
 
       //--- Step 2.  Compute middle state estimates with PVRS (Toro 10.5.2)
+
       Real al, ar, el, er;
       Real cl = eos.SoundSpeed(wli);
       Real cr = eos.SoundSpeed(wri);
@@ -78,31 +71,50 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
       Real pmid = .5 * (wli[IPR] + wri[IPR] + (wli[IV1] - wri[IV1]) * rhoa * ca);
 
       //--- Step 3.  Compute sound speed in L,R
+
       Real ql, qr;
       ql = (pmid <= wli[IPR])
                ? 1.0
-               : (1.0 + (gamma + 1) / std::sqrt(2 * gamma) * (pmid / wli[IPR] - 1.0));
+               : std::sqrt(1.0 + (gamma + 1) / (2 * gamma) * (pmid / wli[IPR] - 1.0));
       qr = (pmid <= wri[IPR])
                ? 1.0
-               : (1.0 + (gamma + 1) / std::sqrt(2 * gamma) * (pmid / wri[IPR] - 1.0));
+               : std::sqrt(1.0 + (gamma + 1) / (2 * gamma) * (pmid / wri[IPR] - 1.0));
 
-      //--- Step 4. Compute the max/min wave speeds based on L/R states
+      //--- Step 4.  Compute the max/min wave speeds based on L/R
 
       al = wli[IV1] - cl * ql;
       ar = wri[IV1] + cr * qr;
 
-      Real bp = ar > 0.0 ? ar : 0.0;
-      Real bm = al < 0.0 ? al : 0.0;
+      Real bp = ar > 0.0 ? ar : (TINY_NUMBER);
+      Real bm = al < 0.0 ? al : -(TINY_NUMBER);
 
-      //-- Step 5. Compute L/R fluxes along lines bm/bp: F_L - (S_L)U_L; F_R - (S_R)U_R
-      Real vxl = wli[IV1] - bm;
-      Real vxr = wri[IV1] - bp;
+      //--- Step 5. Compute the contact wave speed and pressure
+
+      Real vxl = wli[IV1] - al;
+      Real vxr = wri[IV1] - ar;
+
+      Real tl = wli[IPR] + vxl * wli[IDN] * wli[IV1];
+      Real tr = wri[IPR] + vxr * wri[IDN] * wri[IV1];
+
+      Real ml = wli[IDN] * vxl;
+      Real mr = -(wri[IDN] * vxr);
+
+      // Determine the contact wave speed...
+      Real am = (tl - tr) / (ml + mr);
+      // ...and the pressure at the contact surface
+      Real cp = (ml * tr + mr * tl) / (ml + mr);
+      cp = cp > 0.0 ? cp : 0.0;
+
+      //--- Step 6. Compute L/R fluxes along the line bm, bp
+
+      vxl = wli[IV1] - bm;
+      vxr = wri[IV1] - bp;
 
       fl[IDN] = wli[IDN] * vxl;
       fr[IDN] = wri[IDN] * vxr;
 
-      fl[IV1] = wli[IDN] * wli[IV1] * vxl;
-      fr[IV1] = wri[IDN] * wri[IV1] * vxr;
+      fl[IV1] = wli[IDN] * wli[IV1] * vxl + wli[IPR];
+      fr[IV1] = wri[IDN] * wri[IV1] * vxr + wri[IPR];
 
       fl[IV2] = wli[IDN] * wli[IV2] * vxl;
       fr[IV2] = wri[IDN] * wri[IV2] * vxr;
@@ -110,20 +122,30 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
       fl[IV3] = wli[IDN] * wli[IV3] * vxl;
       fr[IV3] = wri[IDN] * wri[IV3] * vxr;
 
-      fl[IV1] += wli[IPR];
-      fr[IV1] += wri[IPR];
       fl[IEN] = el * vxl + wli[IPR] * wli[IV1];
       fr[IEN] = er * vxr + wri[IPR] * wri[IV1];
 
-      //--- Step 6. Compute the HLLE flux at interface.
-      Real tmp = 0.0;
-      if (bp != bm) tmp = 0.5 * (bp + bm) / (bp - bm);
+      //--- Step 8. Compute flux weights or scales
 
-      flxi[IDN] = 0.5 * (fl[IDN] + fr[IDN]) + (fl[IDN] - fr[IDN]) * tmp;
-      flxi[IV1] = 0.5 * (fl[IV1] + fr[IV1]) + (fl[IV1] - fr[IV1]) * tmp;
-      flxi[IV2] = 0.5 * (fl[IV2] + fr[IV2]) + (fl[IV2] - fr[IV2]) * tmp;
-      flxi[IV3] = 0.5 * (fl[IV3] + fr[IV3]) + (fl[IV3] - fr[IV3]) * tmp;
-      flxi[IEN] = 0.5 * (fl[IEN] + fr[IEN]) + (fl[IEN] - fr[IEN]) * tmp;
+      Real sl, sr, sm;
+      if (am >= 0.0) {
+        sl = am / (am - bm);
+        sr = 0.0;
+        sm = -bm / (am - bm);
+      } else {
+        sl = 0.0;
+        sr = -am / (bp - am);
+        sm = bp / (bp - am);
+      }
+
+      //--- Step 9. Compute the HLLC flux at interface, including weighted contribution
+      // of the flux along the contact
+
+      flxi[IDN] = sl * fl[IDN] + sr * fr[IDN];
+      flxi[IV1] = sl * fl[IV1] + sr * fr[IV1] + sm * cp;
+      flxi[IV2] = sl * fl[IV2] + sr * fr[IV2];
+      flxi[IV3] = sl * fl[IV3] + sr * fr[IV3];
+      flxi[IEN] = sl * fl[IEN] + sr * fr[IEN] + sm * cp * am;
 
       cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
       cons.flux(ivx, ivx, k, j, i) = flxi[IV1];
@@ -134,4 +156,4 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
   }
 };
 
-#endif // RSOLVERS_HYDRO_HLLE_HPP_
+#endif // RSOLVERS_HYDRO_HLLC_HPP_
