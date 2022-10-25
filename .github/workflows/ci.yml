@@ -1,0 +1,57 @@
+name: CI
+
+on: [push, pull_request]
+
+# Cancel "duplicated" workflows triggered by pushes to internal
+# branches with associated PRs.
+concurrency:
+  group: ${{ github.ref }}-${{ github.head_ref }}-CI
+  cancel-in-progress: true
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: 1
+  CMAKE_BUILD_PARALLEL_LEVEL: 16 # num threads for build
+  OMPI_MCA_mpi_common_cuda_event_max: 1000
+
+jobs:
+  regression:
+    runs-on: [self-hosted, A100]
+    container:
+      image: registry.gitlab.com/pgrete/parthenon/cuda11.3-mpi-hdf5
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'true'
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DKokkos_ARCH_ZEN2=True \
+            -DKokkos_ENABLE_CUDA=True -DKokkos_ARCH_AMPERE80=True \
+            -DCMAKE_CXX_COMPILER=${PWD}/external/Kokkos/bin/nvcc_wrapper \
+            -DPARTHENON_DISABLE_MPI=ON \
+            -DHDF5_ROOT=/usr/local/hdf5/serial
+      - name: Build
+        run: cmake --build build -t athenaPK
+      - name: Test
+        run: |
+          cd build
+          # Pick GPU with most available memory
+          export CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=memory.free,index --format=csv,nounits,noheader | sort -nr | head -1 | awk '{ print $NF }')
+          ctest
+      - uses: actions/upload-artifact@v3
+        with:
+          name: regression-output
+          path: |
+            build/CMakeFiles/CMakeOutput.log
+            build/CMakeFiles/CMakeOutput.log
+            build/tst/regression/outputs/convergence
+            build/tst/regression/outputs/mhd_convergence
+            build/tst/regression/outputs/performance
+            build/tst/regression/outputs/cluster_hse/analytic_comparison.png
+            build/tst/regression/outputs/cluster_tabular_cooling/convergence.png
+            build/tst/regression/outputs/aniso_therm_cond_ring_conv/ring_convergence.png
+            build/tst/regression/outputs/field_loop/field_loop.png
+            build/tst/regression/outputs/riemann_hydro/shock_tube.png
+            build/tst/regression/outputs/turbulence/parthenon.hst
+          retention-days: 3
+
