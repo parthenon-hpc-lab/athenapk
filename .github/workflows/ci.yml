@@ -10,6 +10,7 @@ concurrency:
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
+  CMAKE_GENERATOR: Ninja
   CMAKE_BUILD_PARALLEL_LEVEL: 16 # num threads for build
   OMPI_MCA_mpi_common_cuda_event_max: 1000
 
@@ -17,7 +18,7 @@ jobs:
   regression:
     runs-on: [self-hosted, A100]
     container:
-      image: registry.gitlab.com/pgrete/parthenon/cuda11.3-mpi-hdf5
+      image: registry.gitlab.com/pgrete/parthenon/cuda11.6-mpi-hdf5
       # map to local user id on CI  machine to allow writing to build cache
       options: --user 1001
     steps:
