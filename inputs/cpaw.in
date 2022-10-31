@@ -55,6 +55,7 @@ perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 fluid = glmmhd
 eos = adiabatic
 reconstruction = plm
+riemann = hlld
 gamma = 1.666666666666667 # gamma = C_p/C_v
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
