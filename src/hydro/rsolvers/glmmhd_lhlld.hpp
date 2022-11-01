@@ -1,21 +1,21 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD
-// code. Copyright (c) 2021-2022, Athena-Parthenon Collaboration. All rights
+// code. Copyright (c) 2022, Athena-Parthenon Collaboration. All rights
 // reserved. Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 // Athena++ astrophysical MHD code
 // Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
-//! \file hlld.cpp
-//! \brief HLLD Riemann solver for adiabatic MHD.
+//! \file lhlld.cpp
+//! \brief Low-dissipation HLLD (LHLLD) Riemann solver for adiabatic MHD.
+//!        (Minoshima et al. 2021)
 //!
 //! REFERENCES:
-//! - T. Miyoshi & K. Kusano, "A multi-state HLL approximate Riemann solver for ideal
-//!   MHD", JCP, 208, 315 (2005)
+//! - TODO
 
-#ifndef RSOLVERS_GLMMHD_HLLD_HPP_
-#define RSOLVERS_GLMMHD_HLLD_HPP_
+#ifndef RSOLVERS_GLMMHD_LHLLD_HPP_
+#define RSOLVERS_GLMMHD_LHLLD_HPP_
 
 // C++ headers
 #include <algorithm> // max(), min()
@@ -24,22 +24,99 @@
 // Athena headers
 #include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../main.hpp"
+#include "defs.hpp"
 #include "interface/variable_pack.hpp"
 #include "rsolvers.hpp"
 
 // container to store (density, momentum, total energy, tranverse magnetic field)
 // minimizes changes required to adopt athena4.2 version of this solver
-struct Cons1D {
-  Real d, mx, my, mz, e, by, bz;
-};
+// TODO(pgrete) make sure this doesn not end up in global namespace and reuse
+// struct Cons1D {
+// Real d, mx, my, mz, e, by, bz;
+// };
+
+template <int XNDIR>
+KOKKOS_INLINE_FUNCTION void
+CalculateVelocityDifferences(parthenon::team_mbr_t const &member, const int k,
+                             const int j, const int il, const int iu,
+                             const parthenon::VariablePack<Real> &w,
+                             ScratchPad2D<Real> &ql, ScratchPad2D<Real> &qr) {
+  // dvn and dvt are stored in the last component of the scratch spaces
+  const auto nvar = w.GetDim(4);
+  // TODO(pgrete) implement other than 3D cases
+  // if (pmy_block->pmy_mesh->f3) {
+  parthenon::par_for_inner(member, il, iu, [&](const int i) {
+    if constexpr (XNDIR == parthenon::X1DIR) {
+      ql(nvar, i) = w(IV1, k, j, i) - w(IV1, k, j, i - 1);
+      Real dvl = std::min(w(IV2, k, j + 1, i - 1) - w(IV2, k, j, i - 1),
+                          w(IV2, k, j, i - 1) - w(IV2, k, j - 1, i - 1));
+      Real dvr = std::min(w(IV2, k, j + 1, i) - w(IV2, k, j, i),
+                          w(IV2, k, j, i) - w(IV2, k, j - 1, i));
+      Real dwl = std::min(w(IV3, k + 1, j, i - 1) - w(IV3, k, j, i - 1),
+                          w(IV3, k, j, i - 1) - w(IV3, k - 1, j, i - 1));
+      Real dwr = std::min(w(IV3, k + 1, j, i) - w(IV3, k, j, i),
+                          w(IV3, k, j, i) - w(IV3, k - 1, j, i));
+      qr(nvar, i) = std::min(std::min(dvl, dvr), std::min(dwl, dwr));
+    } else if constexpr (XNDIR == parthenon::X2DIR) {
+      // note: technically, we can reuse dvr/dwr as dvl/dwl in the next j-loop.
+      ql(nvar, i) = w(IV2, k, j, i) - w(IV2, k, j - 1, i);
+      Real dvl = std::min(w(IV3, k + 1, j - 1, i) - w(IV3, k, j - 1, i),
+                          w(IV3, k, j - 1, i) - w(IV3, k - 1, j - 1, i));
+      Real dvr = std::min(w(IV3, k + 1, j, i) - w(IV3, k, j, i),
+                          w(IV3, k, j, i) - w(IV3, k - 1, j, i));
+      Real dwl = std::min(w(IV1, k, j - 1, i + 1) - w(IV1, k, j - 1, i),
+                          w(IV1, k, j - 1, i) - w(IV1, k, j - 1, i - 1));
+      Real dwr = std::min(w(IV1, k, j, i + 1) - w(IV1, k, j, i),
+                          w(IV1, k, j, i) - w(IV1, k, j, i - 1));
+      qr(nvar, i) = std::min(std::min(dvl, dvr), std::min(dwl, dwr));
+    } else { // (ivx == IV3)
+      ql(nvar, i) = w(IV3, k, j, i) - w(IV3, k - 1, j, i);
+      Real dvl = std::min(w(IV1, k - 1, j, i + 1) - w(IV1, k - 1, j, i),
+                          w(IV1, k - 1, j, i) - w(IV1, k - 1, j, i - 1));
+      Real dvr = std::min(w(IV1, k, j, i + 1) - w(IV1, k, j, i),
+                          w(IV1, k, j, i) - w(IV1, k, j, i - 1));
+      Real dwl = std::min(w(IV2, k - 1, j + 1, i) - w(IV2, k - 1, j, i),
+                          w(IV2, k - 1, j, i) - w(IV2, k - 1, j - 1, i));
+      Real dwr = std::min(w(IV2, k, j + 1, i) - w(IV2, k, j, i),
+                          w(IV2, k, j, i) - w(IV2, k, j - 1, i));
+      qr(nvar, i) = std::min(std::min(dvl, dvr), std::min(dwl, dwr));
+    }
+  });
+  // } else if (pmy_block->pmy_mesh->f2) {
+  //   if (ivx == IV1) {
+  //     for (int i = il; i <= iu; ++i) {
+  //       dvn(i) = w(IV1, k, j, i) - w(IV1, k, j, i - 1);
+  //       Real dvl = std::min(w(IV2, k, j + 1, i - 1) - w(IV2, k, j, i - 1),
+  //                           w(IV2, k, j, i - 1) - w(IV2, k, j - 1, i - 1));
+  //       Real dvr = std::min(w(IV2, k, j + 1, i) - w(IV2, k, j, i),
+  //                           w(IV2, k, j, i) - w(IV2, k, j - 1, i));
+  //       dvt(i) = std::min(dvl, dvr);
+  //     }
+  //   } else { // ivx == IV2
+  //     for (int i = il; i <= iu; ++i) {
+  //       dvn(i) = w(IV2, k, j, i) - w(IV2, k, j - 1, i);
+  //       Real dvl = std::min(w(IV1, k, j - 1, i + 1) - w(IV1, k, j - 1, i),
+  //                           w(IV1, k, j - 1, i) - w(IV1, k, j - 1, i - 1));
+  //       Real dvr = std::min(w(IV1, k, j, i + 1) - w(IV1, k, j, i),
+  //                           w(IV1, k, j, i) - w(IV1, k, j, i - 1));
+  //       dvt(i) = std::min(dvl, dvr);
+  //     }
+  //   }
+  // } else {
+  //   for (int i = il; i <= iu; ++i)
+  //     dvn(i) = w(IV1, k, j, i) - w(IV1, k, j, i - 1);
+  // }
+}
 
 template <>
-struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
+struct Riemann<Fluid::glmmhd, RiemannSolver::lhlld> {
   static KOKKOS_INLINE_FUNCTION void
   Solve(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
         const int iu, const int ivx, const ScratchPad2D<Real> &wl,
         const ScratchPad2D<Real> &wr, VariableFluxPack<Real> &cons,
         const AdiabaticGLMMHDEOS &eos, const Real c_h) {
+    // dvn and dvt are stored in the last component of the scratch spaces
+    const auto nvar = cons.GetDim(4);
     constexpr Real SMALL_NUMBER = 1.0e-4;
     const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
@@ -126,7 +203,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       spd[0] = std::min(wli[IV1] - cfl, wri[IV1] - cfr);
       spd[4] = std::max(wli[IV1] + cfl, wri[IV1] + cfr);
 
-      // Real cfmax = std::max(cfl,cfr);
+      Real cfmax = std::max(cfl, cfr);
       // if (wli[IV1] <= wri[IV1]) {
       //   spd[0] = wli[IV1] - cfmax;
       //   spd[4] = wri[IV1] + cfmax;
@@ -160,18 +237,26 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
 
       Real sdl = spd[0] - wli[IV1]; // S_i-u_i (i=L or R)
       Real sdr = spd[4] - wri[IV1];
+      Real sdld = sdl * ul.d;
+      Real sdrd = sdr * ur.d;
 
       // S_M: eqn (38) of Miyoshi & Kusano
       // (KGF): group ptl, ptr terms for floating-point associativity symmetry
-      spd[2] = (sdr * ur.mx - sdl * ul.mx + (ptl - ptr)) / (sdr * ur.d - sdl * ul.d);
+
+      // shock detector
+      Real th1 = std::min(1.0, (cfmax - std::min(wl(nvar, i), 0.0)) /
+                                   (cfmax - std::min(wr(nvar, i), 0.0)));
+      Real th = th1 * th1 * th1 * th1;
+
+      spd[2] = (sdr * ur.mx - sdl * ul.mx + th * (ptl - ptr)) / (sdrd - sdld);
 
       Real sdml = spd[0] - spd[2]; // S_i-S_M (i=L or R)
       Real sdmr = spd[4] - spd[2];
       Real sdml_inv = 1.0 / sdml;
       Real sdmr_inv = 1.0 / sdmr;
       // eqn (43) of Miyoshi & Kusano
-      ulst.d = ul.d * sdl * sdml_inv;
-      urst.d = ur.d * sdr * sdmr_inv;
+      ulst.d = sdld * sdml_inv;
+      urst.d = sdrd * sdmr_inv;
       Real ulst_d_inv = 1.0 / ulst.d;
       Real urst_d_inv = 1.0 / urst.d;
       Real sqrtdl = std::sqrt(ulst.d);
@@ -184,15 +269,16 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       //--- Step 5.  Compute intermediate states
       // eqn (23) explicitly becomes eq (41) of Miyoshi & Kusano
       // TODO(felker): place an assertion that ptstl==ptstr
-      Real ptstl = ptl + ul.d * sdl * (spd[2] - wli[IV1]);
-      Real ptstr = ptr + ur.d * sdr * (spd[2] - wri[IV1]);
-      // Real ptstl = ptl + ul.d*sdl*(sdl-sdml); // these equations had issues when
-      // averaged Real ptstr = ptr + ur.d*sdr*(sdr-sdmr);
-      Real ptst = 0.5 * (ptstr + ptstl); // total pressure (star state)
+      Real clsq = ((pbl + kel) + std::sqrt(SQR(pbl + kel) - 2.0 * kel * bxsq)) / ul.d;
+      Real crsq = ((pbr + ker) + std::sqrt(SQR(pbr + ker) - 2.0 * ker * bxsq)) / ur.d;
+      Real chi = std::min(1.0, std::sqrt(std::max(clsq, crsq)) / cfmax);
+      Real phi = chi * (2.0 - chi);
+      Real ptst = (sdrd * ptl - sdld * ptr + phi * sdrd * sdld * (wri[IV1] - wli[IV1])) /
+                  (sdrd - sdld);
 
       // ul* - eqn (39) of M&K
       ulst.mx = ulst.d * spd[2];
-      if (std::abs(ul.d * sdl * sdml - bxsq) < (SMALL_NUMBER)*ptst) {
+      if (std::abs(sdld * sdml - bxsq) < (SMALL_NUMBER)*ptst) {
         // Degenerate case
         ulst.my = ulst.d * wli[IV2];
         ulst.mz = ulst.d * wli[IV3];
@@ -201,12 +287,12 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
         ulst.bz = ul.bz;
       } else {
         // eqns (44) and (46) of M&K
-        Real tmp = bxi * (sdl - sdml) / (ul.d * sdl * sdml - bxsq);
+        Real tmp = bxi * (sdl - sdml) / (sdld * sdml - bxsq);
         ulst.my = ulst.d * (wli[IV2] - ul.by * tmp);
         ulst.mz = ulst.d * (wli[IV3] - ul.bz * tmp);
 
         // eqns (45) and (47) of M&K
-        tmp = (ul.d * SQR(sdl) - bxsq) / (ul.d * sdl * sdml - bxsq);
+        tmp = (sdld * sdl - bxsq) / (sdld * sdml - bxsq);
         ulst.by = ul.by * tmp;
         ulst.bz = ul.bz * tmp;
       }
@@ -221,7 +307,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
 
       // ur* - eqn (39) of M&K
       urst.mx = urst.d * spd[2];
-      if (std::abs(ur.d * sdr * sdmr - bxsq) < (SMALL_NUMBER)*ptst) {
+      if (std::abs(sdrd * sdmr - bxsq) < (SMALL_NUMBER)*ptst) {
         // Degenerate case
         urst.my = urst.d * wri[IV2];
         urst.mz = urst.d * wri[IV3];
@@ -230,12 +316,12 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
         urst.bz = ur.bz;
       } else {
         // eqns (44) and (46) of M&K
-        Real tmp = bxi * (sdr - sdmr) / (ur.d * sdr * sdmr - bxsq);
+        Real tmp = bxi * (sdr - sdmr) / (sdrd * sdmr - bxsq);
         urst.my = urst.d * (wri[IV2] - ur.by * tmp);
         urst.mz = urst.d * (wri[IV3] - ur.bz * tmp);
 
         // eqns (45) and (47) of M&K
-        tmp = (ur.d * SQR(sdr) - bxsq) / (ur.d * sdr * sdmr - bxsq);
+        tmp = (sdrd * sdr - bxsq) / (sdrd * sdmr - bxsq);
         urst.by = ur.by * tmp;
         urst.bz = ur.bz * tmp;
       }
@@ -393,4 +479,4 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
     });
   }
 };
-#endif // RSOLVERS_GLMMHD_HLLD_HPP_
+#endif // RSOLVERS_GLMMHD_LHLLD_HPP_
