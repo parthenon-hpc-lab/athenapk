@@ -42,6 +42,7 @@ jobs:
           export CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=memory.free,index --format=csv,nounits,noheader | sort -nr | head -1 | awk '{ print $NF }')
           ctest
       - uses: actions/upload-artifact@v3
+        if: ${{ always() }}
         with:
           name: regression-output
           path: |
