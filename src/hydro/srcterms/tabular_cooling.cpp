@@ -215,9 +215,10 @@ void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
 }
 
 template <typename RKStepper>
-void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt,
+void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt_,
                                                const RKStepper rk_stepper) const {
 
+  const auto dt = dt_; // capturing parameters still broken with Cuda 11.6 ...
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
   // Grab member variables for compiler
