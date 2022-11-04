@@ -1,6 +1,6 @@
 # AthenaPK
 
-AthenaPK: a performance portable version based on [Athena++](https://github.com/PrincetonUniversity/athena-public-version),  [Parthenon](https://github.com/lanl/parthenon) and [Kokkos](https://github.com/kokkos/kokkos).
+AthenaPK: a performance portable version based on [Athena++](https://github.com/PrincetonUniversity/athena),  [Parthenon](https://github.com/parthenon-hpc-lab/parthenon) and [Kokkos](https://github.com/kokkos/kokkos).
 
 ## Current state of the code
 
@@ -25,7 +25,7 @@ Current features include
   - Orszag Tang vortex
   - Cloud-in-wind/cloud crushing
 
-Latest performance results for various methods on a single Nvidia Volta V100 can be found [here](https://gitlab.com/theias/hpc/jmstone/athena-parthenon/athenapk/-/jobs/artifacts/main/file/build-cuda/tst/regression/outputs/performance/performance.png?job=cuda-regression).
+Latest performance results for various methods on a single Nvidia Ampere A100 can be found [here](https://github.com/parthenon-hpc-lab/athenapk/actions/workflows/ci.yml).
 
 ## Getting in touch
 
@@ -62,14 +62,14 @@ please either
 
 Obtain all (AthenaPK, Parthenon, and Kokkos) sources
 
-    git clone https://gitlab.com/theias/hpc/jmstone/athena-parthenon/athenapk.git athenaPK
-    cd athenaPK
+    git clone https://github.com/parthenon-hpc-lab/athenapk.git athenapk
+    cd athenapk
 
     # get submodules (mainly Kokkos and Parthenon)
     git submodule init
     git submodule update
 
-Most of the general build instructions and options for Parthenon (see [here](https://github.com/lanl/parthenon/blob/develop/docs/building.md)) also apply to AthenaPK.
+Most of the general build instructions and options for Parthenon (see [here](https://github.com/parthenon-hpc-lab/parthenon/blob/develop/docs/building.md)) also apply to AthenaPK.
 The following examples are a few standard cases.
 
 Most simple configuration (only CPU, no MPI, no HDF5)
@@ -109,7 +109,7 @@ Some example input files are provided in the [inputs](inputs/) folder.
 
 There exit several options to read/process data written by AthenaPK -- specifically in
 the `file_type = hdf5` format, see
-[Parthenon doc](https://github.com/lanl/parthenon/blob/develop/docs/outputs.md):
+[Parthenon doc](https://github.com/parthenon-hpc-lab/parthenon/blob/develop/docs/outputs.md):
 
 1. With [ParaView](https://www.paraview.org/) and
 [VisIt](https://wci.llnl.gov/simulation/computer-codes/visit/).
