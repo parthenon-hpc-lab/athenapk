@@ -54,6 +54,8 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     integrator_ = CoolIntegrator::rk45;
   } else if (integrator_str == "mixed") {
     integrator_ = CoolIntegrator::mixed;
+  } else if (integrator_str == "townsend") {
+    integrator_ = CoolIntegrator::townsend;
   } else {
     integrator_ = CoolIntegrator::undefined;
   }
@@ -129,7 +131,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
 
       // Add to growing list
       log_temps.push_back(log_temp);
-      log_lambdas.push_back(log_lambda);
+      log_lambdas.push_back(log_lambda - std::log10(lambda_units));
 
     } catch (const std::invalid_argument &ia) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
@@ -189,26 +191,82 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   log_temp_start_ = log_temps[0];
   log_temp_final_ = log_temps[n_temp_ - 1];
   d_log_temp_ = d_log_temp;
+  lambda_final_ = std::pow(10.0, log_lambdas[n_temp_ - 1]);
 
-  log_lambdas_ = ParArray1D<Real>("log_lambdas_", n_temp_);
+  if (integrator_ != CoolIntegrator::townsend) {
+    log_lambdas_ = ParArray1D<Real>("log_lambdas_", n_temp_);
 
-  // Read log_lambdas in host_log_lambdas, changing to code units along the way
-  auto host_log_lambdas = Kokkos::create_mirror_view(log_lambdas_);
-  for (unsigned int i = 0; i < n_temp_; i++) {
-    host_log_lambdas(i) = log_lambdas[i] - log10(lambda_units);
+    // Read log_lambdas in host_log_lambdas, changing to code units along the way
+    auto host_log_lambdas = Kokkos::create_mirror_view(log_lambdas_);
+    for (unsigned int i = 0; i < n_temp_; i++) {
+      host_log_lambdas(i) = log_lambdas[i];
+    }
+    // Copy host_log_lambdas into device memory
+    Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
+
+    // Setup Townsend cooling, i.e., precalulcate piecewise powerlaw approx.
+  } else {
+    lambdas_ = ParArray1D<Real>("lambdas_", n_temp_);
+    temps_ = ParArray1D<Real>("temps_", n_temp_);
+
+    // Read log_lambdas in host_lambdas, changing to code units along the way
+    auto host_lambdas = Kokkos::create_mirror_view(lambdas_);
+    auto host_temps = Kokkos::create_mirror_view(temps_);
+    for (unsigned int i = 0; i < n_temp_; i++) {
+      host_lambdas(i) = std::pow(10.0, log_lambdas[i]);
+      host_temps(i) = std::pow(10.0, log_temps[i]);
+    }
+    // Copy host_lambdas into device memory
+    Kokkos::deep_copy(lambdas_, host_lambdas);
+    Kokkos::deep_copy(temps_, host_temps);
+
+    // Coeffs are for intervals, i.e., only n_temp_ - 1 entries
+    const auto n_bins = n_temp_ - 1;
+    townsend_Y_k_ = ParArray1D<Real>("townsend_Y_k_", n_bins);
+    townsend_alpha_k_ = ParArray1D<Real>("townsend_alpha_k_", n_bins);
+
+    // Initialize on host (make *this* recursion simpler)
+    auto host_townsend_Y_k = Kokkos::create_mirror_view(townsend_Y_k_);
+    auto host_townsend_alpha_k = Kokkos::create_mirror_view(townsend_alpha_k_);
+
+    // Initialize piecewise power law indices
+    for (unsigned int i = 0; i < n_bins; i++) {
+      // Could use log_lambdas_ here, but using lambdas_ instead as they've already been
+      // converted to code units.
+      host_townsend_alpha_k(i) =
+          (std::log10(host_lambdas(i + 1)) - std::log10(host_lambdas(i))) /
+          (log_temps[i + 1] - log_temps[i]);
+      PARTHENON_REQUIRE(host_townsend_alpha_k(i) != 1.0,
+                        "Need to implement special case for Townsend piecewise fits.");
+    }
+
+    // Calculate TEF (temporal evolution functions Y_k recursively), (Eq. A6)
+    host_townsend_Y_k(n_bins - 1) = 0.0; // Last Y_N = Y(T_ref) = 0
+
+    for (unsigned int i = n_bins - 2; i >= 0; i--) {
+      const auto alpha_k_m1 = host_townsend_alpha_k(i) - 1.0;
+      const auto step = (host_lambdas(n_bins) / host_lambdas(i)) *
+                        (host_temps(i) / host_temps(n_bins)) *
+                        (std::pow(host_temps(i) / host_temps(i + 1), alpha_k_m1) - 1.0) /
+                        alpha_k_m1;
+
+      host_townsend_Y_k(i) = host_townsend_Y_k(i + 1) - step;
+    }
+
+    Kokkos::deep_copy(townsend_alpha_k_, host_townsend_alpha_k);
+    Kokkos::deep_copy(townsend_Y_k_, host_townsend_Y_k);
   }
-  // Copy host_log_lambdas into device memory
-  Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
 }
 
 void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
-
   if (integrator_ == CoolIntegrator::rk12) {
     SubcyclingFixedIntSrcTerm<RK12Stepper>(md, dt, RK12Stepper());
   } else if (integrator_ == CoolIntegrator::rk45) {
     SubcyclingFixedIntSrcTerm<RK45Stepper>(md, dt, RK45Stepper());
   } else if (integrator_ == CoolIntegrator::mixed) {
     MixedIntSrcTerm(md, dt);
+  } else if (integrator_ == CoolIntegrator::townsend) {
+    TownsendSrcTerm(md, dt);
   } else {
     PARTHENON_FAIL("Unknown cooling integrator.");
   }
@@ -399,7 +457,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
         PARTHENON_REQUIRE(internal_e > internal_e_floor, "cooled below floor");
 
-        // Remove the cooling from the specific total energy
+        // Remove the cooling from the total energy density
         cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
@@ -408,7 +466,8 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 }
 
 void TabularCooling::MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
-                                     const parthenon::Real dt) const {
+                                     const parthenon::Real dt_) const {
+  const auto dt = dt_; // HACK capturing parameters still broken with Cuda 11.6 ...
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
   // Grab member variables for compiler
@@ -516,6 +575,119 @@ void TabularCooling::MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
         prim(IPR, k, j, i) = rho * internal_e * gm1;
+      });
+}
+
+void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
+                                     const parthenon::Real dt_) const {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
+
+  // Grab member variables for compiler
+  const auto dt = dt_; // HACK capturing parameters still broken with Cuda 11.6 ...
+  const auto mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
+  const auto X_by_m_u = X_by_m_u_;
+  const auto log_temp_start = log_temp_start_;
+  const auto log_temp_final = log_temp_final_;
+  const auto d_log_temp = d_log_temp_;
+  const auto n_temp = n_temp_;
+
+  const auto lambdas = lambdas_;
+  const auto temps = temps_;
+  const auto townsend_alpha_k = townsend_alpha_k_;
+  const auto townsend_Y_k = townsend_Y_k_;
+
+  const auto gm1 = gm1_;
+
+  const auto internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B;
+
+  // Grab some necessary variables
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  // need to include ghost zones as this source is called prior to the other fluxes when
+  // split
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
+
+  const auto nbins = townsend_alpha_k.extent_int(0);
+
+  // Get reference values
+  const auto temp_final = std::pow(10.0, log_temp_final_);
+  const auto lambda_final = lambda_final_;
+
+  par_for(
+      DEFAULT_LOOP_PATTERN, "TabularCooling::SubcyclingSplitSrcTerm", DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+        auto &cons = cons_pack(b);
+        auto &prim = prim_pack(b);
+        // Need to use `cons` here as prim may still contain state at t_0;
+        const auto rho = cons(IDN, k, j, i);
+        // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
+        // function could be useful.
+        auto internal_e =
+            cons(IEN, k, j, i) - 0.5 *
+                                     (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                      SQR(cons(IM3, k, j, i))) /
+                                     rho;
+        if (mhd_enabled) {
+          internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                               SQR(cons(IB3, k, j, i)));
+        }
+        internal_e /= rho;
+
+        // If temp is below floor, reset and return
+        if (internal_e <= internal_e_floor) {
+          // Remove the cooling from the total energy density
+          cons(IEN, k, j, i) += rho * (internal_e_floor - internal_e);
+          // Latter technically not required if no other tasks follows before
+          // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
+          prim(IPR, k, j, i) = rho * internal_e_floor * gm1;
+          return;
+        }
+
+        auto temp = mu_m_u_gm1_by_k_B * internal_e;
+        // const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
+
+        // Get the index of the right temperature bin
+        // TODO(?) this could be optimized for using a binary search
+        auto idx = 0;
+        while ((idx < nbins - 1) && (temps(idx + 1) < temp)) {
+          idx += 1;
+        }
+
+        // Compute the Temporal Evolution Function Y(T) (Eq. A5)
+        const auto alpha_k_m1 = townsend_alpha_k(idx) - 1.0;
+        auto tef = townsend_Y_k(idx) +
+                   (lambda_final / lambdas(idx)) * (temps(idx) / temp_final) *
+                       (std::pow(temps(idx) / temp, alpha_k_m1) - 1.0) / alpha_k_m1;
+
+        // Compute the adjusted TEF for new timestep (Eqn. 26)
+        // const_factor = (1.0e-23)*(g-1.0)*mu/(kb*mu_e*mu_h*mh);
+        auto const_factor = 1.0; // TODO(pgrete) FIXME
+        auto tef_adj = tef + rho * lambda_final * const_factor * dt / temp_final;
+
+        // TEF is a strictly decreasing function and new_tef > tef
+        // Check if the new TEF falls into a lower bin
+        // If so, update slopes and coefficients
+        while ((idx > 0) && (tef_adj > townsend_Y_k(idx))) {
+          idx -= 1;
+          t_i = cool_t(idx);
+          tef_i = cool_tef(idx);
+          coef = cool_coef(idx);
+          slope = cool_index(idx);
+        }
+
+        // Compute the Inverse Temporal Evolution Function Y^{-1}(Y) (Eq. A7)
+        auto oms = 1.0 - slope;
+        auto tnew =
+            t_i * std::pow(1 - oms * (coef / coef_n) * (t_n / t_i) * (tef_adj - tef_i),
+                           1 / oms);
+
+        // Return the new temperature if it is still above the temperature floor
+        // return std::max(tnew,tfloor);
+        return tnew;
       });
 }
 
