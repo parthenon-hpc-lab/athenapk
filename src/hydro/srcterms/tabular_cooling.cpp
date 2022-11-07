@@ -245,7 +245,6 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     host_townsend_Y_k(n_bins - 1) = 0.0; // Last Y_N = Y(T_ref) = 0
 
     for (int i = n_bins - 2; i >= 0; i--) {
-      std::cerr << "i is " << i << std::endl;
       const auto alpha_k_m1 = host_townsend_alpha_k(i) - 1.0;
       const auto step = (host_lambdas(n_bins) / host_lambdas(i)) *
                         (host_temps(i) / host_temps(n_bins)) *
@@ -598,6 +597,7 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto gm1 = gm1_;
 
   const auto internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B;
+  const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -646,6 +646,11 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         }
 
         auto temp = mu_m_u_gm1_by_k_B * internal_e;
+        // Temperature is above floor (see conditional above) but below cooling table:
+        // -> no cooling
+        if (temp < temp_cool_floor) {
+          return;
+        }
         const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
 
         // Get the index of the right temperature bin
@@ -673,15 +678,15 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         }
 
         // Compute the Inverse Temporal Evolution Function Y^{-1}(Y) (Eq. A7)
-        const auto tnew =
+        const auto temp_new =
             temps(idx) *
             std::pow(1 - (1.0 - alpha_k(idx)) * (lambdas(idx) / lambda_final) *
                              (temp_final / temps(idx)) * (tef_adj - Y_k(idx)),
                      1.0 / (1.0 - alpha_k(idx)));
-
-        // Set the new temperature if it is still above the temperature floor
-        const auto internal_e_new = tnew / mu_m_u_gm1_by_k_B;
-        PARTHENON_REQUIRE(internal_e_new >= internal_e_floor, "Oops, cooled below floor");
+        // Set new temp (at the lowest to the lower end of the cooling table)
+        const auto internal_e_new = temp_new > temp_cool_floor
+                                        ? temp_new / mu_m_u_gm1_by_k_B
+                                        : temp_cool_floor / mu_m_u_gm1_by_k_B;
         cons(IEN, k, j, i) += rho * (internal_e_new - internal_e);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
