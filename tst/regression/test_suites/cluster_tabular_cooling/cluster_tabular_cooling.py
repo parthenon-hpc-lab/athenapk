@@ -80,11 +80,12 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.integrators_and_max_iters = list(
             itertools.product(self.integrators, self.max_iters)
         )
-        self.n_steps = len(self.integrators_and_max_iters) + len(self.integrators)
+        # plus 1 for Townsend exact integrator
+        self.n_steps = len(self.integrators_and_max_iters) + len(self.integrators) + 1
 
         self.norm_tol = 1e-3
         self.machine_epsilon = 1e-14
-        self.integrator_tol = {"rk12": 1e-4, "rk45": 1e-10}
+        self.integrator_tol = {"rk12": 1e-4, "rk45": 1e-10, "townsend": 1e-14}
         self.integrator_order = {"rk12": 2, "rk45": 5}
 
         self.cooling_cfl_convergence_test = 1e100
@@ -127,7 +128,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             # Use a very high cooling cfl so that cooling time doesn't affect the timestep
             # (Makes the convergence more obvious)
             cooling_cfl = self.cooling_cfl_convergence_test
-        else:
+        elif step < self.n_steps:
             # Test the adaptiveness of the dual-order RK integrators
             adapt_step = step - len(self.integrators_and_max_iters)
             integrator = self.integrators[adapt_step - 1]
@@ -136,6 +137,14 @@ class TestCase(utils.test_case.TestCaseAbs):
             # Use a small but non-zero tolerance
             d_e_tol = self.machine_epsilon
             # Use a reasonable cooling cfl
+            cooling_cfl = self.cooling_cfl_convergence_test
+        else:
+            integrator = "townsend"
+            # Parameter unused (still, Townsend is an exact, single step integrator)
+            max_iter = 1
+            # Use a small but non-zero tolerance (unsuded)
+            d_e_tol = self.machine_epsilon
+            # Use a reasonable cooling cfl (unused)
             cooling_cfl = self.cooling_cfl_convergence_test
 
         # Create the tabular cooling file (in log cgs)
@@ -395,9 +404,12 @@ class TestCase(utils.test_case.TestCaseAbs):
                 conv_final_internal_es[
                     self.integrators_and_max_iters[step - 1]
                 ] = internal_e
-            else:
+            elif step < self.n_steps:
                 adapt_step = step - len(self.integrators_and_max_iters)
                 integrator = self.integrators[adapt_step - 1]
+                adapt_final_internal_es[integrator] = internal_e
+            else:
+                integrator = "townsend"
                 adapt_final_internal_es[integrator] = internal_e
 
         for integrator in self.integrators:
@@ -467,12 +479,16 @@ class TestCase(utils.test_case.TestCaseAbs):
                 label=f"Measured: $n^{{{conv_measured:.1f}}}$",
             )
 
+        for integrator in list(self.integrators) + ["townsend"]:
             # Check that the adaptive approach is within test_epsilon of the best err
             adapt_final_internal_e = adapt_final_internal_es[integrator]
             adapt_err = np.abs(
                 (analytic_final_internal_e - adapt_final_internal_e)
                 / analytic_final_internal_e
             )
+            lbl = "Adapt " if integrator != "townsend" else ""
+            lbl += integrator + "(%.2g)" % (adapt_err)
+            ax.plot(1, adapt_err, "*", label=lbl)
 
             if adapt_err >= self.integrator_tol[integrator]:
                 print(f"ERROR: Adaptive {integrator} error exceeds tolerance")
@@ -485,7 +501,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         ax.set_xlabel("Steps")
         ax.set_ylabel("Final error in $e$")
 
-        ax.legend()
+        ax.legend(ncol=2)
 
         plt.savefig(f"{parameters.output_path}/convergence.png")
 

@@ -14,6 +14,7 @@
 // Parthenon headers
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
+#include <limits>
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
 
@@ -243,7 +244,8 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     // Calculate TEF (temporal evolution functions Y_k recursively), (Eq. A6)
     host_townsend_Y_k(n_bins - 1) = 0.0; // Last Y_N = Y(T_ref) = 0
 
-    for (unsigned int i = n_bins - 2; i >= 0; i--) {
+    for (int i = n_bins - 2; i >= 0; i--) {
+      std::cerr << "i is " << i << std::endl;
       const auto alpha_k_m1 = host_townsend_alpha_k(i) - 1.0;
       const auto step = (host_lambdas(n_bins) / host_lambdas(i)) *
                         (host_temps(i) / host_temps(n_bins)) *
@@ -587,15 +589,11 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto dt = dt_; // HACK capturing parameters still broken with Cuda 11.6 ...
   const auto mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
   const auto X_by_m_u = X_by_m_u_;
-  const auto log_temp_start = log_temp_start_;
-  const auto log_temp_final = log_temp_final_;
-  const auto d_log_temp = d_log_temp_;
-  const auto n_temp = n_temp_;
 
   const auto lambdas = lambdas_;
   const auto temps = temps_;
-  const auto townsend_alpha_k = townsend_alpha_k_;
-  const auto townsend_Y_k = townsend_Y_k_;
+  const auto alpha_k = townsend_alpha_k_;
+  const auto Y_k = townsend_Y_k_;
 
   const auto gm1 = gm1_;
 
@@ -610,7 +608,7 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
-  const auto nbins = townsend_alpha_k.extent_int(0);
+  const auto nbins = alpha_k.extent_int(0);
 
   // Get reference values
   const auto temp_final = std::pow(10.0, log_temp_final_);
@@ -648,7 +646,7 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         }
 
         auto temp = mu_m_u_gm1_by_k_B * internal_e;
-        // const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
+        const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
 
         // Get the index of the right temperature bin
         // TODO(?) this could be optimized for using a binary search
@@ -658,40 +656,48 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         }
 
         // Compute the Temporal Evolution Function Y(T) (Eq. A5)
-        const auto alpha_k_m1 = townsend_alpha_k(idx) - 1.0;
-        auto tef = townsend_Y_k(idx) +
-                   (lambda_final / lambdas(idx)) * (temps(idx) / temp_final) *
-                       (std::pow(temps(idx) / temp, alpha_k_m1) - 1.0) / alpha_k_m1;
+        const auto alpha_k_m1 = alpha_k(idx) - 1.0;
+        const auto tef =
+            Y_k(idx) + (lambda_final / lambdas(idx)) * (temps(idx) / temp_final) *
+                           (std::pow(temps(idx) / temp, alpha_k_m1) - 1.0) / alpha_k_m1;
 
-        // Compute the adjusted TEF for new timestep (Eqn. 26)
-        // const_factor = (1.0e-23)*(g-1.0)*mu/(kb*mu_e*mu_h*mh);
-        auto const_factor = 1.0; // TODO(pgrete) FIXME
-        auto tef_adj = tef + rho * lambda_final * const_factor * dt / temp_final;
+        // Compute the adjusted TEF for new timestep (Eqn. 26) (term in brackets)
+        const auto tef_adj =
+            tef + lambda_final * dt / temp_final * mu_m_u_gm1_by_k_B * n_h2_by_rho;
 
         // TEF is a strictly decreasing function and new_tef > tef
-        // Check if the new TEF falls into a lower bin
+        // Check if the new TEF falls into a lower bin, i.e., find the right bin for A7
         // If so, update slopes and coefficients
-        while ((idx > 0) && (tef_adj > townsend_Y_k(idx))) {
+        while ((idx > 0) && (tef_adj > Y_k(idx))) {
           idx -= 1;
-          t_i = cool_t(idx);
-          tef_i = cool_tef(idx);
-          coef = cool_coef(idx);
-          slope = cool_index(idx);
         }
 
         // Compute the Inverse Temporal Evolution Function Y^{-1}(Y) (Eq. A7)
-        auto oms = 1.0 - slope;
-        auto tnew =
-            t_i * std::pow(1 - oms * (coef / coef_n) * (t_n / t_i) * (tef_adj - tef_i),
-                           1 / oms);
+        const auto tnew =
+            temps(idx) *
+            std::pow(1 - (1.0 - alpha_k(idx)) * (lambdas(idx) / lambda_final) *
+                             (temp_final / temps(idx)) * (tef_adj - Y_k(idx)),
+                     1.0 / (1.0 - alpha_k(idx)));
 
-        // Return the new temperature if it is still above the temperature floor
-        // return std::max(tnew,tfloor);
-        return tnew;
+        // Set the new temperature if it is still above the temperature floor
+        const auto internal_e_new = tnew / mu_m_u_gm1_by_k_B;
+        PARTHENON_REQUIRE(internal_e_new >= internal_e_floor, "Oops, cooled below floor");
+        cons(IEN, k, j, i) += rho * (internal_e_new - internal_e);
+        // Latter technically not required if no other tasks follows before
+        // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
+        prim(IPR, k, j, i) = rho * internal_e_new * gm1;
       });
 }
 
 Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
+  // No need to restrict dt for townsend cooling
+  // TODO(pgrete) make this optional so that the cfl_cool is detached
+  // from the cooling mechanism, because it may still be desireable to
+  // not let different physical processes evolve on vastly different
+  // timescales.
+  if (integrator_ == CoolIntegrator::townsend) {
+    return std::numeric_limits<Real>::max();
+  }
   // Grab member variables for compiler
 
   // Everything needed by DeDt
