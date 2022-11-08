@@ -98,6 +98,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             mb_nx1 //= 2
 
         parameters.driver_cmd_line_args = [
+            "job/problem_id=linear_wave_mhd",
             "parthenon/mesh/nx1=%d" % (2 * res),
             "parthenon/meshblock/nx1=%d" % mb_nx1,
             "parthenon/mesh/nx2=%d" % res,
@@ -164,7 +165,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         )
 
         # quick and dirty test
-        if data[47, 4] > 6.14e-12:
+        if data[47, 4] > 4.05e-10:
             print("QUICK AND DIRTY TEST FAILED")
             analyze_status = False
 
@@ -182,21 +183,18 @@ class TestCase(utils.test_case.TestCaseAbs):
                 ),
             )
 
-        plt.plot([32, 512], [7e-7, 7e-7 / (512 / 32)], "--", label="first order")
+        plt.plot([32, 256], [1.1e-6, 1.1e-6 / (256 / 32)], "--", label="first order")
         plt.plot(
-            [32, 512], [1.7e-7, 1.7e-7 / (512 / 32) ** 2], "--", label="second order"
+            [32, 256], [1.7e-7, 1.7e-7 / (256 / 32) ** 2], "--", label="second order"
         )
         plt.plot(
-            [32, 512], [3.7e-8, 3.7e-8 / (512 / 32) ** 2], "--", label="second order"
+            [32, 256], [3.1e-8, 3.1e-8 / (256 / 32) ** 2], "--", label="second order"
         )
         plt.plot(
-            [32, 512], [5.6e-8, 5.6e-8 / (512 / 32) ** 3], "--", label="third order"
-        )
-        plt.plot(
-            [32, 512], [3.6e-9, 3.6e-9 / (512 / 32) ** 3], "--", label="third order"
+            [32, 256], [8.3e-8, 8.3e-8 / (256 / 32) ** 3], "--", label="third order"
         )
 
-        plt.ylim(1e-12, 5e-6)
+        plt.ylim(3e-10, 2e-6)
 
         plt.legend(bbox_to_anchor=(1, 1), loc="upper left")
         plt.xscale("log")
