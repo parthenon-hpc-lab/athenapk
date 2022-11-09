@@ -56,8 +56,8 @@ struct ProlongateCellMinModMultiD {
     Real dx1fm, dx1fp, dx1m, dx1p;
     GetGridSpacings<1>(coords, coarse_coords, cib, ib, i, &fi, &dx1m, &dx1p, &dx1fm,
                        &dx1fp);
-    const Real gx1c = GradMinMod(fc, coarse(l, m, n, k, j, i - 1),
-                                 coarse(l, m, n, k, j, i + 1), dx1m, dx1p);
+    Real gx1c = GradMinMod(fc, coarse(l, m, n, k, j, i - 1), coarse(l, m, n, k, j, i + 1),
+                           dx1m, dx1p);
 
     int fj = jb.s; // overwritten as needed
     Real dx2fm = 0;
@@ -81,6 +81,44 @@ struct ProlongateCellMinModMultiD {
       gx3c = GradMinMod(fc, coarse(l, m, n, k - 1, j, i), coarse(l, m, n, k + 1, j, i),
                         dx3m, dx3p);
     }
+
+    // Max. expected total difference. (dx#fm/p are positive by construction)
+    Real dqmax = std::abs(gx1c) * std::max(dx1fm, dx1p);
+    int jlim = 0;
+    int klim = 0;
+    if constexpr (DIM > 1) {
+      dqmax += std::abs(gx2c) * std::max(dx2fm, dx2fp);
+      jlim = 1;
+    }
+    if constexpr (DIM > 2) {
+      dqmax += std::abs(gx3c) * std::max(dx3fm, dx3fp);
+      klim = 1;
+    }
+    // Min/max values of all coarse cells used here
+    Real qmin = fc;
+    Real qmax = fc;
+    for (int koff = -klim; koff <= klim; koff++) {
+      for (int joff = -jlim; joff <= jlim; joff++) {
+        for (int ioff = -1; ioff <= 1; ioff++) {
+          qmin = std::min(qmin, coarse(l, m, n, k + koff, j + joff, i + ioff));
+          qmax = std::max(qmax, coarse(l, m, n, k + koff, j + joff, i + ioff));
+        }
+      }
+    }
+
+    // Scaling factor to limit all slopes simultaneously
+    Real alpha = 1.0;
+    if (dqmax * alpha > (qmax - fc)) {
+      alpha = (qmax - fc) / dqmax;
+    }
+    if (dqmax * alpha > (fc - qmin)) {
+      alpha = (fc - qmin) / dqmax;
+    }
+
+    // Ensure no new extrema are introduced in multi-D
+    gx1c *= alpha;
+    gx2c *= alpha;
+    gx3c *= alpha;
 
     // KGF: add the off-centered quantities first to preserve FP symmetry
     // JMM: Extraneous quantities are zero
