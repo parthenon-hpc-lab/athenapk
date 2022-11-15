@@ -16,9 +16,9 @@ Notes:
 
 # update te follow three wavenumber to generate modes for the
 # athinput.fmturb parameter file
-k_peak = 2    # peak of the forcing spectrum
-k_high = 3    # high wavenumber cutoff
-k_low = 1     # low wavenumber cutoff
+k_peak = 2  # peak of the forcing spectrum
+k_high = 3  # high wavenumber cutoff
+k_low = 1  # low wavenumber cutoff
 num_vec = 30  # number of wave vectors to randomly select. Choose None to select all.
 
 
@@ -34,7 +34,7 @@ for i in range(k_high):
             if k_mag > k_high or k_mag < k_low:
                 continue
             # this is the spectral shape of the implemented forcing function
-            if (k_mag/k_peak)**2.*(2.-(k_mag/k_peak)**2.) < 0:
+            if (k_mag / k_peak) ** 2.0 * (2.0 - (k_mag / k_peak) ** 2.0) < 0:
                 continue
             all_vec.append((i, j, k))
 
