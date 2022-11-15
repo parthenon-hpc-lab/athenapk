@@ -57,8 +57,14 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
   // int& j, const int& i) \brief Fills an array of primitives given an array of
   // conserveds, potentially updating the conserved with floors
   template <typename View4D>
-  KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &k,
-                                         const int &j, const int &i) const {
+    KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro, const int &nscalars, const int &k,
+        const int &j, const int &i) const {
+    auto gam = GetGamma();
+    auto gm1 = gam - 1.0;
+    auto density_floor_ = GetDensityFloor();
+    auto pressure_floor_ = GetPressureFloor();
+    auto e_floor_ = GetInternalEFloor();
+
     Real &u_d = cons(IDN, k, j, i);
     Real &u_m1 = cons(IM1, k, j, i);
     Real &u_m2 = cons(IM2, k, j, i);
@@ -79,6 +85,11 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
     Real &w_Bz = prim(IB3, k, j, i);
     Real &w_psi = prim(IPS, k, j, i);
 
+    // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
+    // and the code will fail if a negative density is encountered.
+    PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
+        "Got negative density. Consider enabling first-order flux "
+        "correction or setting a reasonble density floor.");
     // apply density floor, without changing momentum or energy
     u_d = (u_d > density_floor_) ? u_d : density_floor_;
     w_d = u_d;
@@ -95,53 +106,30 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
 
     Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
     Real e_B = 0.5 * (SQR(u_b1) + SQR(u_b2) + SQR(u_b3));
-    Real gm1 = gamma_ - 1.0;
     w_p = gm1 * (u_e - e_k - e_B);
 
-    // apply pressure floor, correct total energy
-    u_e = (w_p > pressure_floor_) ? u_e : ((pressure_floor_ / gm1) + e_k + e_B);
-    w_p = (w_p > pressure_floor_) ? w_p : pressure_floor_;
-  }
+    // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
+    // and the code will fail if a negative pressure is encountered.
+    PARTHENON_REQUIRE(
+        w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
+        "Got negative pressure. Consider enabling first-order flux "
+        "correction or setting a reasonble pressure or temperature floor.");
+    // Temperature floor (if present) takes precedence over pressure floor
+    if (e_floor_ > 0.0) {
+      // apply temperature floor, correct total energy
+      const Real eff_pressure_floor = gm1 * u_d * e_floor_;
+      u_e = (w_p > eff_pressure_floor) ? u_e : ((u_d * e_floor_) + e_k + e_B);
+      w_p = (w_p > eff_pressure_floor) ? w_p : eff_pressure_floor;
+    } else {
+      // apply pressure floor, correct total energy
+      u_e = (w_p > pressure_floor_) ? u_e : ((pressure_floor_ / gm1) + e_k + e_B);
+      w_p = (w_p > pressure_floor_) ? w_p : pressure_floor_;
+    }
 
-  //----------------------------------------------------------------------------------------
-  // \!fn Real EquationOfState::PrimToCons(View4D prim, View4D cons, const int& k, const
-  // int& j, const int& i) \brief Fills an array of conserveds given an array of
-  // primitives,
-  template <typename View4D>
-  KOKKOS_INLINE_FUNCTION void PrimToCons(View4D prim, View4D cons, const int &k,
-                                         const int &j, const int &i) const {
-    Real &u_d = cons(IDN, k, j, i);
-    Real &u_m1 = cons(IM1, k, j, i);
-    Real &u_m2 = cons(IM2, k, j, i);
-    Real &u_m3 = cons(IM3, k, j, i);
-    Real &u_e = cons(IEN, k, j, i);
-    Real &u_b1 = cons(IB1, k, j, i);
-    Real &u_b2 = cons(IB2, k, j, i);
-    Real &u_b3 = cons(IB3, k, j, i);
-    Real &u_psi = cons(IPS, k, j, i);
-
-    const Real &w_d = prim(IDN, k, j, i);
-    const Real &w_vx = prim(IV1, k, j, i);
-    const Real &w_vy = prim(IV2, k, j, i);
-    const Real &w_vz = prim(IV3, k, j, i);
-    const Real &w_p = prim(IPR, k, j, i);
-    const Real &w_Bx = prim(IB1, k, j, i);
-    const Real &w_By = prim(IB2, k, j, i);
-    const Real &w_Bz = prim(IB3, k, j, i);
-    const Real &w_psi = prim(IPS, k, j, i);
-
-    const Real igm1 = 1 / (gamma_ - 1.0);
-    u_d = w_d;
-    u_m1 = w_vx * w_d;
-    u_m2 = w_vy * w_d;
-    u_m3 = w_vz * w_d;
-    u_e = w_p * igm1 + 0.5 * w_d * (SQR(w_vx) + SQR(w_vy) + SQR(w_vz)) +
-          0.5 * (SQR(w_Bx) + SQR(w_By) + SQR(w_Bz));
-
-    u_b1 = w_Bx;
-    u_b2 = w_By;
-    u_b3 = w_Bz;
-    u_psi = w_psi;
+    // Convert passive scalars
+    for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+      prim(n, k, j, i) = cons(n, k, j, i) * di;
+    }
   }
 
  private:

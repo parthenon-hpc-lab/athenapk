@@ -184,6 +184,8 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   const Real accretion_radius2 = pow(accretion_radius_, 2);
 
@@ -225,7 +227,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
             if (remove_accreted_mass) {
               AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos, k, j, i);
               // Update the Primitives
-              eos.ConsToPrim(cons, prim, k, j, i);
+              eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             }
           }
         }
@@ -321,6 +323,8 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   const Real accretion_radius2 = pow(accretion_radius_, 2);
 
@@ -347,7 +351,7 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
 
           AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos, k, j, i);
           // Update the Primitives
-          eos.ConsToPrim(cons, prim, k, j, i);
+          eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
         }
       });
 }

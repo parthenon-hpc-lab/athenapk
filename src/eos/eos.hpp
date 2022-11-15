@@ -46,7 +46,7 @@ class EquationOfState {
   KOKKOS_INLINE_FUNCTION
   Real GetInternalEFloor() const { return internal_e_floor_; }
 
- protected:
+ private:
   Real pressure_floor_, density_floor_, internal_e_floor_;
 };
 
