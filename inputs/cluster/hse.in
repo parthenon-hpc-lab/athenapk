@@ -90,14 +90,14 @@ include_smbh_g = True
 
 #NFW parameters
 c_nfw = 6.0
-m_nfw_200 = 10.000000000000002
+m_nfw_200 = 10.0
 
 #BCG parameters
-m_bcg_s = 0.0010000000000000002
+m_bcg_s = 0.001
 r_bcg_s = 0.004
 
 #SMBH parameters
-m_smbh = 1.0000000000000002e-06
+m_smbh = 1.0e-06
 
 #Smooth gravity at origin, for numerical reasons
 g_smoothing_radius = 1e-6

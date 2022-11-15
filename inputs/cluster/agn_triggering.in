@@ -83,7 +83,7 @@ code_time_cgs = 3.15576e+16             # 1 Gyr in s
 
 <problem/cluster/gravity>
 #Define SMBH for Bondi accretion
-m_smbh = 1.0000000000000002e-06
+m_smbh = 1.0e-06
 
 #Disable gravity as a source term
 gravity_srcterm = false
