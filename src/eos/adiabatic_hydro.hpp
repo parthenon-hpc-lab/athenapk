@@ -47,8 +47,9 @@ class AdiabaticHydroEOS : public EquationOfState {
   // int& j, const int& i) \brief Fills an array of primitives given an array of
   // conserveds, potentially updating the conserved with floors
   template <typename View4D>
-  KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro, const int &nscalars, const int &k,
-                                         const int &j, const int &i) const {
+  KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro,
+                                         const int &nscalars, const int &k, const int &j,
+                                         const int &i) const {
     Real gm1 = GetGamma() - 1.0;
     auto density_floor_ = GetDensityFloor();
     auto pressure_floor_ = GetPressureFloor();
@@ -69,8 +70,8 @@ class AdiabaticHydroEOS : public EquationOfState {
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
     PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
-        "Got negative density. Consider enabling first-order flux "
-        "correction or setting a reasonble density floor.");
+                      "Got negative density. Consider enabling first-order flux "
+                      "correction or setting a reasonble density floor.");
     // apply density floor, without changing momentum or energy
     u_d = (u_d > density_floor_) ? u_d : density_floor_;
     w_d = u_d;
@@ -85,10 +86,9 @@ class AdiabaticHydroEOS : public EquationOfState {
 
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.
-    PARTHENON_REQUIRE(
-        w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
-        "Got negative pressure. Consider enabling first-order flux "
-        "correction or setting a reasonble pressure or temperature floor.");
+    PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
+                      "Got negative pressure. Consider enabling first-order flux "
+                      "correction or setting a reasonble pressure or temperature floor.");
 
     // Temperature floor (if present) takes precedence over pressure floor
     if (e_floor_ > 0.0) {
