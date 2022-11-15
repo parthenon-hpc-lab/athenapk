@@ -126,7 +126,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  TaskRegion &async_region_1 = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {
     auto &pmb = blocks[i];
     // Using "base" as u0, which already exists (and returned by using plain Get())
@@ -220,7 +219,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
               hydro_pkg->Param<Real>("magnetic_tower_linear_contrib"),
               hydro_pkg->Param<Real>("magnetic_tower_quadratic_contrib")};
           PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, magnetic_tower_contribs, 2,
-                                            MPI_PARTHENON_REAL, MPI_MAX, MPI_COMM_WORLD));
+                                            MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
           hydro_pkg->UpdateParam("magnetic_tower_linear_contrib",
                                  magnetic_tower_contribs[0]);
           hydro_pkg->UpdateParam("magnetic_tower_quadratic_contrib",
