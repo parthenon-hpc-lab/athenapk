@@ -173,7 +173,11 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
       PARTHENON_FAIL(msg);
     }
 
-    if (fabs(d_log_temp_i - d_log_temp) / d_log_temp > d_log_temp_tol_) {
+    // Technically, this check is not related do "not Townsend" cooling but to the Dedt()
+    // lookup function that is used in the subcycling method and in order to restrict `dt`
+    // by a cooling cfl.
+    if ((integrator_ != CoolIntegrator::townsend) &&
+        (fabs(d_log_temp_i - d_log_temp) / d_log_temp > d_log_temp_tol_)) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "d_log_temp in table is uneven at i=" << i << " log_temp=" << log_temps[i]
           << " d_log_temp= " << d_log_temp << " d_log_temp_i= " << d_log_temp_i
@@ -615,7 +619,7 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto lambda_final = lambda_final_;
 
   par_for(
-      DEFAULT_LOOP_PATTERN, "TabularCooling::SubcyclingSplitSrcTerm", DevExecSpace(), 0,
+      DEFAULT_LOOP_PATTERN, "TabularCooling::TownsendSrcTerm", DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         auto &cons = cons_pack(b);
