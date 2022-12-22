@@ -84,18 +84,26 @@ struct RK45Stepper {
   }
 };
 
-enum class CoolIntegrator { undefined, rk12, rk45, mixed };
+enum class CoolIntegrator { undefined, rk12, rk45, mixed, townsend };
 
 class TabularCooling {
  private:
   // Defines uniformly spaced log temperature range of the table
   unsigned int n_temp_;
-  parthenon::Real log_temp_start_, log_temp_final_, d_log_temp_;
+  parthenon::Real log_temp_start_, log_temp_final_, d_log_temp_, lambda_final_;
 
   // Table of log cooling rates
   // TODO(forrestglines): Make log_lambdas_ explicitly a texture cache array, use CUDA to
   // interpolate directly
+  // Log versions are used in subcyling cooling where cooling rates are interpolated
+  // Non-log versions are used for Townsend cooling
   parthenon::ParArray1D<parthenon::Real> log_lambdas_;
+  parthenon::ParArray1D<parthenon::Real> lambdas_;
+  parthenon::ParArray1D<parthenon::Real> temps_;
+  // Townsend cooling temporal evolution function
+  parthenon::ParArray1D<parthenon::Real> townsend_Y_k_;
+  // Townsend cooling power law indices
+  parthenon::ParArray1D<parthenon::Real> townsend_alpha_k_;
 
   // Some constants
   // mean_molecular_mass*atomic_mass_unit*(adiabatic_index-1)/k_B
@@ -184,6 +192,9 @@ class TabularCooling {
   // Mixed integration scheme, i.e., try RK12 first and if error is too large
   // switch to RK45 with adaptive timestepping
   void MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
+                       const parthenon::Real dt) const;
+  // Townsend 2009 exact integration scheme
+  void TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real dt) const;
 
   // (Adaptive) subcyling using a fixed integration scheme
