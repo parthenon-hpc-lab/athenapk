@@ -15,6 +15,7 @@ Current features include
   - adiabatic equation of state
   - MHD based on hyperbolic divergence cleaning following Dedner+ 2002
   - anisotropic thermal conduction
+  - optically thin cooling based on tabulated cooling tables with either Townsend 2009 exact integration or operator-split subcycling
 - static and adaptive mesh refinement
 - problem generators for
   - a linear wave
