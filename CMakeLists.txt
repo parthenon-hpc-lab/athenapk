@@ -1,5 +1,5 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2020-2023, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the 3-Clause License (the "LICENSE");
 
 cmake_minimum_required(VERSION 3.13)
@@ -20,7 +20,6 @@ project(athenaPK LANGUAGES CXX)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX17_STANDARD_COMPILE_OPTION "-std=c++17")
 
 # make paths in target_source() absolute
 # used for sources in src/pgen folder
@@ -53,8 +52,7 @@ set(Kokkos_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/Kokkos)
 set(PARTHENON_ENABLE_TESTING OFF CACHE BOOL "Disable Parthenon testing.")
 set(PARTHENON_DISABLE_OPENMP ON CACHE BOOL "Disable OpenMP")
 set(PARTHENON_DISABLE_EXAMPLES ON CACHE BOOL "Don't build Parthenon examples.")
-set(PARTHENON_ENABLE_CPP17 ON CACHE BOOL "Use CPP17")
-set(PARTHENON_ENABLE_INIT_PACKING ON CACHE BOOL "Use pack-in-one also for Mesh::Init")
+set(PARTHENON_DISABLE_SPARSE ON CACHE BOOL "Disable sparse (not used in AthenaPK yet)")
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon/CMakeLists.txt)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon parthenon)

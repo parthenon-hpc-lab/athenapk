@@ -100,8 +100,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
         Real rho = rho0;
-        Real rsq = coords.x1v(i) * coords.x1v(i) + coords.x2v(j) * coords.x2v(j) +
-                   coords.x3v(k) * coords.x3v(k);
+        Real rsq = coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
+                   coords.Xc<3>(k) * coords.Xc<3>(k);
         if (rsq < rho_radius * rho_radius) {
           rho += rho0 * rho_ratio * std::exp(-rsq / 2 / sigmasq);
         }

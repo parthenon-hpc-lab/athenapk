@@ -148,18 +148,18 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       for (int i = ib.s; i <= ib.e; i++) {
         Real den = da;
         Real pres = pa;
-        Real x = coords.x1v(i);
-        Real y = coords.x2v(j);
-        Real z = coords.x3v(k);
+        Real x = coords.Xc<1>(i);
+        Real y = coords.Xc<2>(j);
+        Real z = coords.Xc<3>(k);
         Real rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
 
         if (use_input_image) {
           auto x_idx = std::distance(
               image_x.begin(),
-              std::upper_bound(image_x.begin(), image_x.end(), coords.x1v(i)));
+              std::upper_bound(image_x.begin(), image_x.end(), coords.Xc<1>(i)));
           auto y_idx = std::distance(
               image_y.begin(),
-              std::upper_bound(image_y.begin(), image_y.end(), coords.x2v(j)));
+              std::upper_bound(image_y.begin(), image_y.end(), coords.Xc<2>(j)));
 
           if (image_data(y_idx, x_idx) != 0) {
             den = drat * da;

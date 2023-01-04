@@ -90,9 +90,9 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real) 
         auto &cons = cons_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
 
-        Real x = coords.x1v(i);
-        Real y = coords.x2v(j);
-        Real z = coords.x3v(k);
+        Real x = coords.Xc<1>(i);
+        Real y = coords.Xc<2>(j);
+        Real z = coords.Xc<3>(k);
         Real dist = std::sqrt(SQR(x - blasts[blast_i][0]) + SQR(y - blasts[blast_i][1]) +
                               SQR(z - blasts[blast_i][2]));
 

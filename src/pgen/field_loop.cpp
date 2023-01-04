@@ -78,18 +78,16 @@ Real RelDivBHst(MeshData<Real> *md) {
         const auto &coords = cons_pack.GetCoords(b);
 
         Real divb =
-            (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /
-                coords.Dx(X1DIR, k, j, i) +
-            (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) / coords.Dx(X2DIR, k, j, i);
+            (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) / coords.Dxc<1>(k, j, i) +
+            (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
         if (three_d) {
-          divb += (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
-                  coords.Dx(X3DIR, k, j, i);
+          divb +=
+              (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) / coords.Dxc<3>(k, j, i);
         }
-        lsum +=
-            0.5 *
-            (std::sqrt(SQR(coords.Dx(X1DIR, k, j, i)) + SQR(coords.Dx(X2DIR, k, j, i)) +
-                       SQR(coords.Dx(X3DIR, k, j, i)))) *
-            std::abs(divb) / B0 * coords.Volume(k, j, i);
+        lsum += 0.5 *
+                (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) + SQR(coords.Dxc<2>(k, j, i)) +
+                           SQR(coords.Dxc<3>(k, j, i)))) *
+                std::abs(divb) / B0 * coords.CellVolume(k, j, i);
       },
       sum);
 
@@ -187,9 +185,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         if (iprob == 1) {
           ax(k, j, i) = 0.0;
           ay(k, j, i) = 0.0;
-          if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j))) < rad * rad) {
+          if ((SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j))) < rad * rad) {
             az(k, j, i) =
-                amp * (rad - std::sqrt(SQR(coords.x1v(i)) + SQR(coords.x2v(j))));
+                amp * (rad - std::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j))));
           } else {
             az(k, j, i) = 0.0;
           }
@@ -197,9 +195,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
         // (iprob=2): field loop in x2-x3 plane (cylinder in 3D)
         if (iprob == 2) {
-          if ((SQR(coords.x2v(j)) + SQR(coords.x3v(k))) < rad * rad) {
+          if ((SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k))) < rad * rad) {
             ax(k, j, i) =
-                amp * (rad - std::sqrt(SQR(coords.x2v(j)) + SQR(coords.x3v(k))));
+                amp * (rad - std::sqrt(SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k))));
           } else {
             ax(k, j, i) = 0.0;
           }
@@ -209,9 +207,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
         // (iprob=3): field loop in x3-x1 plane (cylinder in 3D)
         if (iprob == 3) {
-          if ((SQR(coords.x1v(i)) + SQR(coords.x3v(k))) < rad * rad) {
+          if ((SQR(coords.Xc<1>(i)) + SQR(coords.Xc<3>(k))) < rad * rad) {
             ay(k, j, i) =
-                amp * (rad - std::sqrt(SQR(coords.x1v(i)) + SQR(coords.x3v(k))));
+                amp * (rad - std::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<3>(k))));
           } else {
             ay(k, j, i) = 0.0;
           }
@@ -231,8 +229,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         //    x3  = x*std::sin(ang_2) + z*std::cos(ang_2)
 
         if (iprob == 4) {
-          Real x = coords.x1v(i) * cos_a2 + coords.x3v(k) * sin_a2;
-          Real y = coords.x2v(j);
+          Real x = coords.Xc<1>(i) * cos_a2 + coords.Xc<3>(k) * sin_a2;
+          Real y = coords.Xc<2>(j);
           // shift x back to the domain -0.5*lambda <= x <= 0.5*lambda
           while (x > 0.5 * lambda)
             x -= lambda;
@@ -245,8 +243,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           }
           ay(k, j, i) = 0.0;
 
-          x = coords.x1v(i) * cos_a2 + coords.x3v(k) * sin_a2;
-          y = coords.x2v(j);
+          x = coords.Xc<1>(i) * cos_a2 + coords.Xc<3>(k) * sin_a2;
+          y = coords.Xc<2>(j);
           // shift x back to the domain -0.5*lambda <= x <= 0.5*lambda
           while (x > 0.5 * lambda)
             x -= lambda;
@@ -262,17 +260,19 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         // (iprob=5): spherical field loop in rotated plane
         if (iprob == 5) {
           ax(k, j, i) = 0.0;
-          if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j)) + SQR(coords.x3v(k))) <
+          if ((SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k))) <
               rad * rad) {
-            ay(k, j, i) = amp * (rad - std::sqrt(SQR(coords.x1v(i)) + SQR(coords.x2v(j)) +
-                                                 SQR(coords.x3v(k))));
+            ay(k, j, i) =
+                amp * (rad - std::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) +
+                                       SQR(coords.Xc<3>(k))));
           } else {
             ay(k, j, i) = 0.0;
           }
-          if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j)) + SQR(coords.x3v(k))) <
+          if ((SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k))) <
               rad * rad) {
-            az(k, j, i) = amp * (rad - std::sqrt(SQR(coords.x1v(i)) + SQR(coords.x2v(j)) +
-                                                 SQR(coords.x3v(k))));
+            az(k, j, i) =
+                amp * (rad - std::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) +
+                                       SQR(coords.Xc<3>(k))));
           } else {
             az(k, j, i) = 0.0;
           }
@@ -292,22 +292,23 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
         u(IDN, k, j, i) = 1.0;
-        if ((SQR(coords.x1v(i)) + SQR(coords.x2v(j)) + SQR(coords.x3v(k))) < rad * rad) {
+        if ((SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k))) <
+            rad * rad) {
           u(IDN, k, j, i) = drat;
         }
         u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * x1size;
         u(IM2, k, j, i) = u(IDN, k, j, i) * vflow * x2size;
         u(IM3, k, j, i) = u(IDN, k, j, i) * vflow * x3size;
         Real aydz =
-            two_d ? 0.0 : (ay(k + 1, j, i) - ay(k - 1, j, i)) / coords.dx3v(k) / 2.0;
+            two_d ? 0.0 : (ay(k + 1, j, i) - ay(k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
         Real axdz =
-            two_d ? 0.0 : (ax(k + 1, j, i) - ax(k - 1, j, i)) / coords.dx3v(k) / 2.0;
+            two_d ? 0.0 : (ax(k + 1, j, i) - ax(k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
         u(IB1, k, j, i) =
-            (az(k, j + 1, i) - az(k, j - 1, i)) / coords.dx2v(j) / 2.0 - aydz;
+            (az(k, j + 1, i) - az(k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 - aydz;
         u(IB2, k, j, i) =
-            axdz - (az(k, j, i + 1) - az(k, j, i - 1)) / coords.dx1v(i) / 2.0;
-        u(IB3, k, j, i) = (ay(k, j, i + 1) - ay(k, j, i - 1)) / coords.dx1v(i) / 2.0 -
-                          (ax(k, j + 1, i) - ax(k, j - 1, i)) / coords.dx2v(j) / 2.0;
+            axdz - (az(k, j, i + 1) - az(k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
+        u(IB3, k, j, i) = (ay(k, j, i + 1) - ay(k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+                          (ax(k, j + 1, i) - ax(k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
 
         u(IEN, k, j, i) =
             1.0 / gm1 +
