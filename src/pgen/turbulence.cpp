@@ -82,7 +82,7 @@ Real TurbulenceHst(MeshData<Real> *md) {
         const auto e_kin = 0.5 * prim(IDN, k, j, i) * vel2;
 
         if (hst_quan == HstQuan::Ms) { // Ms
-          lsum += std::sqrt(vel2) / c_s * coords.Volume(k, j, i);
+          lsum += std::sqrt(vel2) / c_s * coords.CellVolume(k, j, i);
         }
 
         if (fluid == Fluid::glmmhd) {
@@ -93,9 +93,9 @@ Real TurbulenceHst(MeshData<Real> *md) {
           const auto e_mag = 0.5 * B2;
 
           if (hst_quan == HstQuan::Ma) { // Ma
-            lsum += std::sqrt(e_kin / e_mag) * coords.Volume(k, j, i);
+            lsum += std::sqrt(e_kin / e_mag) * coords.CellVolume(k, j, i);
           } else if (hst_quan == HstQuan::pb) { // plasma beta
-            lsum += prim(IPR, k, j, i) / e_mag * coords.Volume(k, j, i);
+            lsum += prim(IPR, k, j, i) / e_mag * coords.CellVolume(k, j, i);
           }
         }
       },
@@ -391,9 +391,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
             const auto &coords = cons.GetCoords(b);
 
-            if ((SQR(coords.x1v(i) - x0) + SQR(coords.x2v(j) - y0)) < rad * rad) {
-              a(b, 2, k, j, i) =
-                  (rad - std::sqrt(SQR(coords.x1v(i) - x0) + SQR(coords.x2v(j) - y0)));
+            if ((SQR(coords.Xc<1>(i) - x0) + SQR(coords.Xc<2>(j) - y0)) < rad * rad) {
+              a(b, 2, k, j, i) = (rad - std::sqrt(SQR(coords.Xc<1>(i) - x0) +
+                                                  SQR(coords.Xc<2>(j) - y0)));
             }
           });
     }
@@ -411,7 +411,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IB1, k, j, i) = b0;
           }
           if (b_config == 1) { // no net flux with uniform fieldi
-            if (coords.x3v(k) < x3min + Lz / 2.0) {
+            if (coords.Xc<3>(k) < x3min + Lz / 2.0) {
               u(IB1, k, j, i) = b0;
             } else {
               u(IB1, k, j, i) = -b0;
@@ -420,21 +420,21 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           if (b_config == 2) { // no net flux with sin(z) shape
             // sqrt(0.5) is used so that resulting e_mag is approx b_0^2/2 similar to
             // other b_configs
-            u(IB1, k, j, i) = b0 / std::sqrt(0.5) * std::sin(kz * coords.x3v(k));
+            u(IB1, k, j, i) = b0 / std::sqrt(0.5) * std::sin(kz * coords.Xc<3>(k));
           }
 
           u(IB1, k, j, i) +=
-              (a(b, 2, k, j + 1, i) - a(b, 2, k, j - 1, i)) / coords.dx2v(j) / 2.0 -
-              (a(b, 1, k + 1, j, i) - a(b, 1, k - 1, j, i)) / coords.dx3v(k) / 2.0;
+              (a(b, 2, k, j + 1, i) - a(b, 2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+              (a(b, 1, k + 1, j, i) - a(b, 1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
           u(IB2, k, j, i) =
-              (a(b, 0, k + 1, j, i) - a(b, 0, k - 1, j, i)) / coords.dx3v(k) / 2.0 -
-              (a(b, 2, k, j, i + 1) - a(b, 2, k, j, i - 1)) / coords.dx1v(i) / 2.0;
+              (a(b, 0, k + 1, j, i) - a(b, 0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+              (a(b, 2, k, j, i + 1) - a(b, 2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
           u(IB3, k, j, i) =
-              (a(b, 1, k, j, i + 1) - a(b, 1, k, j, i - 1)) / coords.dx1v(i) / 2.0 -
-              (a(b, 0, k, j + 1, i) - a(b, 0, k, j - 1, i)) / coords.dx2v(j) / 2.0;
+              (a(b, 1, k, j, i + 1) - a(b, 1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+              (a(b, 0, k, j + 1, i) - a(b, 0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
           lsum += 0.5 *
                   (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i))) *
-                  coords.Volume(k, j, i);
+                  coords.CellVolume(k, j, i);
         },
         mag_en_sum);
 
@@ -651,10 +651,10 @@ void Perturb(MeshData<Real> *md, const Real dt) {
                     Real &lim1_sum, Real &lim2_sum, Real &lim3_sum) {
         const auto &coords = cons_pack.GetCoords(b);
         auto den = cons_pack(b, IDN, k, j, i);
-        lmass_sum += den * coords.Volume(k, j, i);
-        lim1_sum += den * acc_pack(b, 0, k, j, i) * coords.Volume(k, j, i);
-        lim2_sum += den * acc_pack(b, 1, k, j, i) * coords.Volume(k, j, i);
-        lim3_sum += den * acc_pack(b, 2, k, j, i) * coords.Volume(k, j, i);
+        lmass_sum += den * coords.CellVolume(k, j, i);
+        lim1_sum += den * acc_pack(b, 0, k, j, i) * coords.CellVolume(k, j, i);
+        lim2_sum += den * acc_pack(b, 1, k, j, i) * coords.CellVolume(k, j, i);
+        lim3_sum += den * acc_pack(b, 2, k, j, i) * coords.CellVolume(k, j, i);
       },
       sums[0], sums[1], sums[2], sums[3]);
 
@@ -671,7 +671,7 @@ void Perturb(MeshData<Real> *md, const Real dt) {
                     Real &lampl_sum) {
         const auto &coords = acc_pack.GetCoords(b);
         acc_pack(b, n, k, j, i) -= sums[n + 1] / sums[0];
-        lampl_sum += SQR(acc_pack(b, n, k, j, i)) * coords.Volume(k, j, i);
+        lampl_sum += SQR(acc_pack(b, n, k, j, i)) * coords.CellVolume(k, j, i);
       },
       sums[0]);
 
