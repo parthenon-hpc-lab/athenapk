@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file hydrostatic_equilbirum_sphere.cpp
@@ -125,10 +125,10 @@ std::ostream &PRhoProfile<GravitationalField, EntropyProfile>::write_to_ostream(
  *HydrostaticEquilibriumSphere::generate_P_rho_profile(x,y,z)
  ************************************************************/
 template <typename GravitationalField, typename EntropyProfile>
-template <typename Coords>
 PRhoProfile<GravitationalField, EntropyProfile>
 HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
-    IndexRange ib, IndexRange jb, IndexRange kb, Coords coords) const {
+    IndexRange ib, IndexRange jb, IndexRange kb,
+    parthenon::UniformCartesian coords) const {
 
   /************************************************************
    * Define R mesh to integrate pressure along
@@ -138,13 +138,13 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
 
   // Determine spacing of grid (WARNING assumes equispaced grid in x,y,z)
   // FIXME(forrestglines) There's some floating point comparison issues with these tests
-  // PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx1v(1), "No equidistant grid in x1dir");
-  // PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx2v(1), "No equidistant grid in x2dir");
-  // PARTHENON_REQUIRE(coords.dx3v(0) == coords.dx3v(1), "No equidistant grid in x3dir");
-  // PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx2v(1), "No equidistant grid between x1
-  // and x2 dir"); PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx3v(1), "No equidistant
-  // grid between x2 and x3 dir");
-  const Real dr = std::min(coords.dx1v(0) / r_sampling_, max_dr_);
+  // PARTHENON_REQUIRE(coords.Dxc<1>(0) == coords.Dxc<1>(1), "No equidistant grid in
+  // x1dir"); PARTHENON_REQUIRE(coords.Dxc<2>(0) == coords.Dxc<2>(1), "No equidistant grid
+  // in x2dir"); PARTHENON_REQUIRE(coords.Dxc<3>(0) == coords.Dxc<3>(1), "No equidistant
+  // grid in x3dir"); PARTHENON_REQUIRE(coords.Dxc<1>(0) == coords.Dxc<2>(1), "No
+  // equidistant grid between x1 and x2 dir"); PARTHENON_REQUIRE(coords.Dxc<2>(0) ==
+  // coords.Dxc<3>(1), "No equidistant grid between x2 and x3 dir");
+  const Real dr = std::min(coords.Dxc<1>(0) / r_sampling_, max_dr_);
 
   // Loop through mesh for minimum and maximum radius
   // Make sure to include R_fix_
@@ -155,8 +155,8 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
       for (int i = ib.s; i <= ib.e; i++) {
 
         const Real r =
-            sqrt(coords.x1v(i) * coords.x1v(i) + coords.x2v(j) * coords.x2v(j) +
-                 coords.x3v(k) * coords.x3v(k));
+            sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
+                 coords.Xc<3>(k) * coords.Xc<3>(k));
         r_start = std::min(r, r_start);
         r_end = std::max(r, r_end);
       }
@@ -253,12 +253,5 @@ template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile
 
 // Instantiate PRhoProfile
 template class PRhoProfile<ClusterGravity, ACCEPTEntropyProfile>;
-
-// Instantiate generate_P_rho_profile
-template PRhoProfile<ClusterGravity, ACCEPTEntropyProfile>
-    HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-        generate_P_rho_profile<parthenon::UniformCartesian>(
-            parthenon::IndexRange, parthenon::IndexRange, parthenon::IndexRange,
-            parthenon::UniformCartesian) const;
 
 } // namespace cluster

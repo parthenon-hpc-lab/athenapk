@@ -97,7 +97,7 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
     // respect to the entries in the single state vector containing all components
     const bool ensure_positivity = (n == IDN || n == IPR);
     parthenon::par_for_inner(member, il, iu, [&](const int i) {
-      auto dx = q.GetCoords().Dx(XNDIR, k, j, i);
+      auto dx = q.GetCoords().Dxc<XNDIR>(k, j, i);
       if constexpr (XNDIR == parthenon::X1DIR) {
         // ql is ql_ip1 and qr is qr_i
         LimO3(q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1), ql(n, i + 1), qr(n, i),

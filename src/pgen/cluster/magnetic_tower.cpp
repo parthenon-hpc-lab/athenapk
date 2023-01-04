@@ -20,7 +20,6 @@
 #include "../../main.hpp"
 #include "../../reduction_utils.hpp"
 #include "../../units.hpp"
-#include "Kokkos_HostSpace.hpp"
 #include "cluster_utils.hpp"
 #include "magnetic_tower.hpp"
 
@@ -91,8 +90,8 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
         const auto &coords = cons_pack.GetCoords(b);
 
         Real a_x_, a_y_, a_z_;
-        mt.PotentialInSimCart(coords.x1v(i), coords.x2v(j), coords.x3v(k), a_x_, a_y_,
-                              a_z_);
+        mt.PotentialInSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k), a_x_,
+                              a_y_, a_z_);
 
         A(0, b, k, j, i) = a_x_;
         A(1, b, k, j, i) = a_y_;
@@ -110,14 +109,14 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
 
         // Take the curl of a to compute the magnetic field
         const Real b_x =
-            (A(2, b, k, j + 1, i) - A(2, b, k, j - 1, i)) / coords.dx2v(j) / 2.0 -
-            (A(1, b, k + 1, j, i) - A(1, b, k - 1, j, i)) / coords.dx3v(k) / 2.0;
+            (A(2, b, k, j + 1, i) - A(2, b, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+            (A(1, b, k + 1, j, i) - A(1, b, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
         const Real b_y =
-            (A(0, b, k + 1, j, i) - A(0, b, k - 1, j, i)) / coords.dx3v(k) / 2.0 -
-            (A(2, b, k, j, i + 1) - A(2, b, k, j, i - 1)) / coords.dx1v(i) / 2.0;
+            (A(0, b, k + 1, j, i) - A(0, b, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+            (A(2, b, k, j, i + 1) - A(2, b, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
         const Real b_z =
-            (A(1, b, k, j, i + 1) - A(1, b, k, j, i - 1)) / coords.dx1v(i) / 2.0 -
-            (A(0, b, k, j + 1, i) - A(0, b, k, j - 1, i)) / coords.dx2v(j) / 2.0;
+            (A(1, b, k, j, i + 1) - A(1, b, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+            (A(0, b, k, j + 1, i) - A(0, b, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
 
         // Add the magnetic field to the conserved variables
         cons(IB1, k, j, i) += b_x;
@@ -132,7 +131,7 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
 
         // Add density
         const Real cell_delta_rho =
-            mt.DensityFromSimCart(coords.x1v(i), coords.x1v(i), coords.x1v(i));
+            mt.DensityFromSimCart(coords.Xc<1>(i), coords.Xc<1>(i), coords.Xc<1>(i));
         AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos, k, j, i);
       });
 }
@@ -179,11 +178,12 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
 
-        const Real cell_volume = coords.Volume(k, j, i);
+        const Real cell_volume = coords.CellVolume(k, j, i);
 
         // Compute the magnetic field at cell centers directly
         Real b_x, b_y, b_z;
-        mt.FieldInSimCart(coords.x1v(i), coords.x2v(j), coords.x3v(k), b_x, b_y, b_z);
+        mt.FieldInSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k), b_x, b_y,
+                          b_z);
 
         // increases B**2 by 2*B0*Bnew + dt**2*Bnew**2)
         team_mt_power_reduction.data[0] +=
@@ -221,7 +221,8 @@ void MagneticTower::AddInitialFieldToPotential(parthenon::MeshBlock *pmb,
       KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
         // Compute and apply potential
         Real a_x, a_y, a_z;
-        mt.PotentialInSimCart(coords.x1v(i), coords.x2v(j), coords.x3v(k), a_x, a_y, a_z);
+        mt.PotentialInSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k), a_x, a_y,
+                              a_z);
         A(0, k, j, i) += a_x;
         A(1, k, j, i) += a_y;
         A(2, k, j, i) += a_z;

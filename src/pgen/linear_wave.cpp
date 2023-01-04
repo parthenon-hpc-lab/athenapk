@@ -201,8 +201,9 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     for (int k = kb.s; k <= kb.e; k++) {
       for (int j = jb.s; j <= jb.e; j++) {
         for (int i = ib.s; i <= ib.e; i++) {
-          Real x = cos_a2 * (pmb->coords.x1v(i) * cos_a3 + pmb->coords.x2v(j) * sin_a3) +
-                   pmb->coords.x3v(k) * sin_a2;
+          Real x =
+              cos_a2 * (pmb->coords.Xc<1>(i) * cos_a3 + pmb->coords.Xc<2>(j) * sin_a3) +
+              pmb->coords.Xc<3>(k) * sin_a2;
           Real sn = std::sin(k_par * x);
 
           Real d1 = d0 + amp * sn * rem[0][wave_flag];
@@ -236,7 +237,7 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
           Real m2 = cons_(IM2, k, j, i);
           Real m3 = cons_(IM3, k, j, i);
           // Weight l1 error by cell volume
-          Real vol = pmb->coords.Volume(k, j, i);
+          Real vol = pmb->coords.CellVolume(k, j, i);
 
           l1_err[IDN] += std::abs(d1 - u(IDN, k, j, i)) * vol;
           max_err[IDN] =
@@ -353,8 +354,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
-        Real x = cos_a2 * (coords.x1v(i) * cos_a3 + coords.x2v(j) * sin_a3) +
-                 coords.x3v(k) * sin_a2;
+        Real x = cos_a2 * (coords.Xc<1>(i) * cos_a3 + coords.Xc<2>(j) * sin_a3) +
+                 coords.Xc<3>(k) * sin_a2;
         Real sn = std::sin(k_par * x);
         u(IDN, k, j, i) = d0 + amp * sn * rem[0][wave_flag];
         Real mx = d0 * vflow + amp * sn * rem[1][wave_flag];

@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file hydrostatic_equilbirum_sphere
@@ -139,10 +139,10 @@ class HydrostaticEquilibriumSphere {
                                GravitationalField gravitational_field,
                                EntropyProfile entropy_profile);
 
-  template <typename Coords>
   PRhoProfile<GravitationalField, EntropyProfile>
   generate_P_rho_profile(parthenon::IndexRange ib, parthenon::IndexRange jb,
-                         parthenon::IndexRange kb, Coords coords) const;
+                         parthenon::IndexRange kb,
+                         parthenon::UniformCartesian coords) const;
 
   PRhoProfile<GravitationalField, EntropyProfile>
   generate_P_rho_profile(const parthenon::Real r_start, const parthenon::Real r_end,

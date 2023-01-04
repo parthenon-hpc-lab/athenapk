@@ -41,12 +41,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       "ProblemGenerator: Orszag-Tang", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int k, const int j, const int i) {
         u(IDN, k, j, i) = d0;
-        u(IM1, k, j, i) = d0 * v0 * std::sin(2.0 * M_PI * coords.x2v(j));
-        u(IM2, k, j, i) = -d0 * v0 * std::sin(2.0 * M_PI * coords.x1v(i));
+        u(IM1, k, j, i) = d0 * v0 * std::sin(2.0 * M_PI * coords.Xc<2>(j));
+        u(IM2, k, j, i) = -d0 * v0 * std::sin(2.0 * M_PI * coords.Xc<1>(i));
         u(IM3, k, j, i) = 0.0;
 
-        u(IB1, k, j, i) = -B0 * std::sin(2.0 * M_PI * coords.x2v(j));
-        u(IB2, k, j, i) = B0 * std::sin(4.0 * M_PI * coords.x1v(i));
+        u(IB1, k, j, i) = -B0 * std::sin(2.0 * M_PI * coords.Xc<2>(j));
+        u(IB2, k, j, i) = B0 * std::sin(4.0 * M_PI * coords.Xc<1>(i));
         u(IB3, k, j, i) = 0.0;
 
         u(IEN, k, j, i) =

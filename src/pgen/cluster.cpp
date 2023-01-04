@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cluster.cpp
@@ -227,8 +227,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
             ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
                 "hydrostatic_equilibirum_sphere");
 
-    const auto P_rho_profile =
-        he_sphere.generate_P_rho_profile<parthenon::UniformCartesian>(ib, jb, kb, coords);
+    const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
 
     // initialize conserved variables
     parthenon::par_for(
@@ -237,8 +236,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
           // Calculate radius
           const Real r =
-              sqrt(coords.x1v(i) * coords.x1v(i) + coords.x2v(j) * coords.x2v(j) +
-                   coords.x3v(k) * coords.x3v(k));
+              sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
+                   coords.Xc<3>(k) * coords.Xc<3>(k));
 
           // Get pressure and density from generated profile
           const Real P_r = P_rho_profile.P_from_r(r);
@@ -286,14 +285,14 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
           u(IB1, k, j, i) =
-              (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.dx2v(j) / 2.0 -
-              (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.dx3v(k) / 2.0;
+              (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+              (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
           u(IB2, k, j, i) =
-              (A(0, k + 1, j, i) - A(0, k - 1, j, i)) / coords.dx3v(k) / 2.0 -
-              (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.dx1v(i) / 2.0;
+              (A(0, k + 1, j, i) - A(0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+              (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
           u(IB3, k, j, i) =
-              (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.dx1v(i) / 2.0 -
-              (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.dx2v(j) / 2.0;
+              (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+              (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
 
           u(IEN, k, j, i) +=
               0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
