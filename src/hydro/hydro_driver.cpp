@@ -12,7 +12,7 @@
 
 // Parthenon headers
 #include "bvals/cc/bvals_cc_in_one.hpp"
-#include "mesh/refinement_cc_in_one.hpp"
+#include "mesh/refinement_in_one.hpp"
 #include "refinement/refinement.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
@@ -275,8 +275,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         tl.AddTask(none, parthenon::cell_centered_bvars::ReceiveBoundBufs<any>, mu0);
     auto set = tl.AddTask(recv, parthenon::cell_centered_bvars::SetBounds<any>, mu0);
     if (pmesh->multilevel) {
-      tl.AddTask(set, parthenon::cell_centered_refinement::RestrictPhysicalBounds,
-                 mu0.get());
+      tl.AddTask(set, parthenon::cell_centered_bvars::RestrictGhostHalos, mu0, false);
     }
   }
 

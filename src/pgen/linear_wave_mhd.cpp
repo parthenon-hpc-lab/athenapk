@@ -157,6 +157,8 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 
   Eigensystem(d0, u0, v0, w0, h0, bx0, by0, bz0, xfact, yfact, ev, rem, lem);
 
+  std::cout << "rem=" << rem[0][wave_flag] << std::endl;
+
   // TODO(pgrete) see how to get access to the SimTime object outside the driver
   // if (pin->GetOrAddBoolean("problem/linear_wave", "test", false) && ncycle == 0) {
   if (pin->GetOrAddBoolean("problem/linear_wave", "test", false)) {
@@ -366,9 +368,6 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
 //========================================================================================
 
 void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   // Initialize the magnetic fields.  Note wavevector, eigenvectors, and other variables
   // are set in InitUserMeshData
 
@@ -392,9 +391,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto &coords = pmb->coords;
 
   // Initialize components of the vector potential
-  for (int k = kb.s - 1; k <= kb.e + 1; k++) {
-    for (int j = jb.s - 1; j <= jb.e + 1; j++) {
-      for (int i = ib.s - 1; i <= ib.e + 1; i++) {
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+  for (int k = kb.s; k <= kb.e; k++) {
+    for (int j = jb.s; j <= jb.e; j++) {
+      for (int i = ib.s; i <= ib.e; i++) {
         a1(k, j, i) = A1(coords.x1v(i), coords.x2v(j), coords.x3v(k));
         a2(k, j, i) = A2(coords.x1v(i), coords.x2v(j), coords.x3v(k));
         a3(k, j, i) = A3(coords.x1v(i), coords.x2v(j), coords.x3v(k));
@@ -407,6 +409,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto &u_dev = rc->Get("cons").data;
   // initializing on host
   auto u = u_dev.GetHostMirrorAndCopy();
+  ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  const bool three_d = pmb->cellbounds.ncellsk(IndexDomain::entire) > 1;
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
@@ -422,10 +429,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IM2, k, j, i) = mx * cos_a2 * sin_a3 + my * cos_a3 - mz * sin_a2 * sin_a3;
         u(IM3, k, j, i) = mx * sin_a2 + mz * cos_a2;
 
-        u(IB1, k, j, i) = (a3(k, j + 1, i) - a3(k, j - 1, i)) / coords.dx2v(j) / 2.0 -
-                          (a2(k + 1, j, i) - a2(k - 1, j, i)) / coords.dx3v(k) / 2.0;
-        u(IB2, k, j, i) = (a1(k + 1, j, i) - a1(k - 1, j, i)) / coords.dx3v(k) / 2.0 -
-                          (a3(k, j, i + 1) - a3(k, j, i - 1)) / coords.dx1v(i) / 2.0;
+        u(IB1, k, j, i) = (a3(k, j + 1, i) - a3(k, j - 1, i)) / coords.dx2v(j) / 2.0;
+        u(IB1, k, j, i) -=
+            three_d ? (a2(k + 1, j, i) - a2(k - 1, j, i)) / coords.dx3v(k) / 2.0 : 0.0;
+        u(IB2, k, j, i) = -(a3(k, j, i + 1) - a3(k, j, i - 1)) / coords.dx1v(i) / 2.0;
+        u(IB2, k, j, i) +=
+            three_d ? (a1(k + 1, j, i) - a1(k - 1, j, i)) / coords.dx3v(k) / 2.0 : 0.0;
         u(IB3, k, j, i) = (a2(k, j, i + 1) - a2(k, j, i - 1)) / coords.dx1v(i) / 2.0 -
                           (a1(k, j + 1, i) - a1(k, j - 1, i)) / coords.dx2v(j) / 2.0;
 

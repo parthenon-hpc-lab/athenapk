@@ -30,6 +30,7 @@
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "outputs/outputs.hpp"
+#include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
@@ -541,6 +542,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   Metadata m(
       {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
       std::vector<int>({nhydro + nscalars}), cons_labels);
+  m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
+                          parthenon::refinement_ops::RestrictCellAverage>();
   pkg->AddField("cons", m);
 
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro + nscalars}),
