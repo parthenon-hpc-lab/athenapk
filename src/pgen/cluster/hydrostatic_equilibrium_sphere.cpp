@@ -160,11 +160,11 @@ HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::PRhoProfile<
  * HydrostaticEquilibriumSphere::generate_P_rho_profile(x,y,z)
  ************************************************************/
 template <typename EntropyProfile, typename GravitationalField>
-template <typename View1D, typename Coords>
+template <typename View1D>
 typename HydrostaticEquilibriumSphere<EntropyProfile,
                                       GravitationalField>::template PRhoProfile<View1D>
 HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::generate_P_rho_profile(
-    IndexRange ib, IndexRange jb, IndexRange kb, Coords coords) const {
+    IndexRange ib, IndexRange jb, IndexRange kb, parthenon::UniformCartesian coords) const {
 
   /************************************************************
    * Define R mesh to integrate pressure along
@@ -173,14 +173,14 @@ HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::generate_P_rho
    ************************************************************/
 
   // Determine spacing of grid (WARNING assumes equispaced grid in x,y,z)
-  PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx1v(1), "No equidistant grid in x1dir");
-  PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx2v(1), "No equidistant grid in x2dir");
-  PARTHENON_REQUIRE(coords.dx3v(0) == coords.dx3v(1), "No equidistant grid in x3dir");
-  PARTHENON_REQUIRE(coords.dx1v(0) == coords.dx2v(1),
+  PARTHENON_REQUIRE(coords.Dxc<1>(0) == coords.Dxc<1>(1), "No equidistant grid in x1dir");
+  PARTHENON_REQUIRE(coords.Dxc<2>(0) == coords.Dxc<2>(1), "No equidistant grid in x2dir");
+  PARTHENON_REQUIRE(coords.Dxc<3>(0) == coords.Dxc<3>(1), "No equidistant grid in x3dir");
+  PARTHENON_REQUIRE(coords.Dxc<1>(0) == coords.Dxc<2>(1),
                     "No equidistant grid between x1 and x2 dir");
-  PARTHENON_REQUIRE(coords.dx2v(0) == coords.dx3v(1),
+  PARTHENON_REQUIRE(coords.Dxc<2>(0) == coords.Dxc<3>(1),
                     "No equidistant grid between x2 and x3 dir");
-  const Real dR = std::min(coords.dx1v(0) / R_sampling_, max_dR_);
+  const Real dR = std::min(coords.Dxc<1>(0) / R_sampling_, max_dR_);
 
   // Loop through mesh for minimum and maximum radius
   // Make sure to include R_fix_
@@ -191,8 +191,8 @@ HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::generate_P_rho
       for (int i = ib.s; i <= ib.e; i++) {
 
         const Real r =
-            sqrt(coords.x1v(i) * coords.x1v(i) + coords.x2v(j) * coords.x2v(j) +
-                 coords.x3v(k) * coords.x3v(k));
+            sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
+                 coords.Xc<3>(k) * coords.Xc<3>(k));
         R_start = std::min(r, R_start);
         R_end = std::max(r, R_end);
       }
@@ -297,8 +297,7 @@ template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRh
     Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper, parthenon::DevMemSpace>>
     HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
         generate_P_rho_profile<Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
-                                            parthenon::DevMemSpace>,
-                               parthenon::UniformCartesian>(
+                                            parthenon::DevMemSpace>>(
             parthenon::IndexRange, parthenon::IndexRange, parthenon::IndexRange,
             parthenon::UniformCartesian) const;
 template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
@@ -312,10 +311,10 @@ template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRh
     Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
     HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
         generate_P_rho_profile<
-            Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>,
-            parthenon::UniformCartesian>(parthenon::IndexRange, parthenon::IndexRange,
-                                         parthenon::IndexRange,
-                                         parthenon::UniformCartesian) const;
+            Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>(
+                parthenon::IndexRange, parthenon::IndexRange,
+                parthenon::IndexRange,
+                parthenon::UniformCartesian) const;
 template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
     Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
 HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::

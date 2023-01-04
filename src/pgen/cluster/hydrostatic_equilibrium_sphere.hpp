@@ -153,10 +153,10 @@ class HydrostaticEquilibriumSphere {
     std::ostream &write_to_ostream(std::ostream &os) const;
   };
 
-  template <typename View1D, typename Coords>
+  template <typename View1D>
   PRhoProfile<View1D>
   generate_P_rho_profile(parthenon::IndexRange ib, parthenon::IndexRange jb,
-                         parthenon::IndexRange kb, Coords coords) const;
+                         parthenon::IndexRange kb, parthenon::UniformCartesian coords) const;
 
   template <typename View1D>
   PRhoProfile<View1D> generate_P_rho_profile(const parthenon::Real R_start,

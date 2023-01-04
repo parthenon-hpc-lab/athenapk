@@ -38,7 +38,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   pmb->par_for(
       "Init sod", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int k, const int j, const int i) {
-        if (coords.x1v(i) < x_discont) {
+        if (coords.Xc<1>(i) < x_discont) {
           cons(IDN, k, j, i) = rho_l;
           cons(IM1, k, j, i) = rho_l * u_l;
           cons(IEN, k, j, i) = 0.5 * rho_l * u_l * u_l + pres_l / (gamma - 1.0);

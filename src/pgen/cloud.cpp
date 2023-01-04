@@ -173,9 +173,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
-        const Real x = coords.x1v(i);
-        const Real y = coords.x2v(j);
-        const Real z = coords.x3v(k);
+        const Real x = coords.Xc<1>(i);
+        const Real y = coords.Xc<2>(j);
+        const Real z = coords.Xc<3>(k);
         const Real rad = std::sqrt(SQR(x) + SQR(y) + SQR(z));
 
         Real rho = rho_wind + 0.5 * (rho_cloud - rho_wind) *

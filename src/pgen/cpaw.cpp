@@ -139,8 +139,8 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     for (int k = kb.s; k <= kb.e; k++) {
       for (int j = jb.s; j <= jb.e; j++) {
         for (int i = ib.s; i <= ib.e; i++) {
-          Real x = cos_a2 * (pmb->coords.x1v(i) * cos_a3 + pmb->coords.x2v(j) * sin_a3) +
-                   pmb->coords.x3v(k) * sin_a2;
+          Real x = cos_a2 * (pmb->coords.Xc<1>(i) * cos_a3 + pmb->coords.Xc<2>(j) * sin_a3) +
+                   pmb->coords.Xc<3>(k) * sin_a2;
           Real sn = std::sin(k_par * x);
           Real cs = fac * std::cos(k_par * x);
 
@@ -252,9 +252,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   for (int k = kb.s - 1; k <= kb.e + 1; k++) {
     for (int j = jb.s - 1; j <= jb.e + 1; j++) {
       for (int i = ib.s - 1; i <= ib.e + 1; i++) {
-        a1(k, j, i) = A1(coords.x1v(i), coords.x2v(j), coords.x3v(k));
-        a2(k, j, i) = A2(coords.x1v(i), coords.x2v(j), coords.x3v(k));
-        a3(k, j, i) = A3(coords.x1v(i), coords.x2v(j), coords.x3v(k));
+        a1(k, j, i) = A1(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
+        a2(k, j, i) = A2(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
+        a3(k, j, i) = A3(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
       }
     }
   }
@@ -268,8 +268,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
-        Real x = cos_a2 * (coords.x1v(i) * cos_a3 + coords.x2v(j) * sin_a3) +
-                 coords.x3v(k) * sin_a2;
+        Real x = cos_a2 * (coords.Xc<1>(i) * cos_a3 + coords.Xc<2>(j) * sin_a3) +
+                 coords.Xc<3>(k) * sin_a2;
         Real sn = std::sin(k_par * x);
         Real cs = fac * std::cos(k_par * x);
 
@@ -283,12 +283,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IM2, k, j, i) = mx * cos_a2 * sin_a3 + my * cos_a3 - mz * sin_a2 * sin_a3;
         u(IM3, k, j, i) = mx * sin_a2 + mz * cos_a2;
 
-        u(IB1, k, j, i) = (a3(k, j + 1, i) - a3(k, j - 1, i)) / coords.dx2v(j) / 2.0 -
-                          (a2(k + 1, j, i) - a2(k - 1, j, i)) / coords.dx3v(k) / 2.0;
-        u(IB2, k, j, i) = (a1(k + 1, j, i) - a1(k - 1, j, i)) / coords.dx3v(k) / 2.0 -
-                          (a3(k, j, i + 1) - a3(k, j, i - 1)) / coords.dx1v(i) / 2.0;
-        u(IB3, k, j, i) = (a2(k, j, i + 1) - a2(k, j, i - 1)) / coords.dx1v(i) / 2.0 -
-                          (a1(k, j + 1, i) - a1(k, j - 1, i)) / coords.dx2v(j) / 2.0;
+        u(IB1, k, j, i) = (a3(k, j + 1, i) - a3(k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+                          (a2(k + 1, j, i) - a2(k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
+        u(IB2, k, j, i) = (a1(k + 1, j, i) - a1(k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+                          (a3(k, j, i + 1) - a3(k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
+        u(IB3, k, j, i) = (a2(k, j, i + 1) - a2(k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+                          (a1(k, j + 1, i) - a1(k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
 
         u(IEN, k, j, i) =
             pres / gm1 +

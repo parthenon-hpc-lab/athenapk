@@ -168,8 +168,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
     const auto P_rho_profile = he_sphere.generate_P_rho_profile<
         Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
-                     parthenon::HostMemSpace>,
-        parthenon::UniformCartesian>(ib, jb, kb, coords);
+                     parthenon::HostMemSpace>>(ib, jb, kb, coords);
 
     // initialize conserved variables
     for (int k = kb.s; k <= kb.e; k++) {
@@ -178,8 +177,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
           // Calculate radius
           const Real r =
-              sqrt(coords.x1v(i) * coords.x1v(i) + coords.x2v(j) * coords.x2v(j) +
-                   coords.x3v(k) * coords.x3v(k));
+              sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
+                   coords.Xc<3>(k) * coords.Xc<3>(k));
 
           // Get pressure and density from generated profile
           const Real P_r = P_rho_profile.P_from_r(r);

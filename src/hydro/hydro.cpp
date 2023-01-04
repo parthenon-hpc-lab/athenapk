@@ -82,35 +82,35 @@ Real HydroHst(MeshData<Real> *md) {
         const auto &coords = cons_pack.GetCoords(b);
 
         if (hst == Hst::idx) {
-          lsum += cons(idx, k, j, i) * coords.Volume(k, j, i);
+          lsum += cons(idx, k, j, i) * coords.CellVolume(k, j, i);
         } else if (hst == Hst::ekin) {
           lsum += 0.5 / cons(IDN, k, j, i) *
                   (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
                    SQR(cons(IM3, k, j, i))) *
-                  coords.Volume(k, j, i);
+                  coords.CellVolume(k, j, i);
         } else if (hst == Hst::emag) {
           lsum += 0.5 *
                   (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                    SQR(cons(IB3, k, j, i))) *
-                  coords.Volume(k, j, i);
+                  coords.CellVolume(k, j, i);
           // relative divergence of B error, i.e., L * |div(B)| / |B|
         } else if (hst == Hst::divb) {
           Real divb = (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /
-                          coords.Dx(X1DIR, k, j, i) +
+                          coords.CellWidthFA(X1DIR, k, j, i) +
                       (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) /
-                          coords.Dx(X2DIR, k, j, i);
+                          coords.CellWidthFA(X2DIR, k, j, i);
           if (three_d) {
             divb += (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
-                    coords.Dx(X3DIR, k, j, i);
+                    coords.CellWidthFA(X3DIR, k, j, i);
           }
           lsum +=
               0.5 *
-              (std::sqrt(SQR(coords.Dx(X1DIR, k, j, i)) + SQR(coords.Dx(X2DIR, k, j, i)) +
-                         SQR(coords.Dx(X3DIR, k, j, i)))) *
+              (std::sqrt(SQR(coords.CellWidthFA(X1DIR, k, j, i)) + SQR(coords.CellWidthFA(X2DIR, k, j, i)) +
+                         SQR(coords.CellWidthFA(X3DIR, k, j, i)))) *
               std::abs(divb) /
               std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                         SQR(cons(IB3, k, j, i))) *
-              coords.Volume(k, j, i);
+              coords.CellVolume(k, j, i);
         }
       },
       sum);
@@ -646,14 +646,14 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         } else {
           PARTHENON_FAIL("Unknown fluid in EstimateTimestep");
         }
-        min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) /
+        min_dt = fmin(min_dt, coords.CellWidthFA(parthenon::X1DIR, k, j, i) /
                                   (fabs(w[IV1]) + lambda_max_x));
         if (ndim > 1) {
-          min_dt = fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) /
+          min_dt = fmin(min_dt, coords.CellWidthFA(parthenon::X2DIR, k, j, i) /
                                     (fabs(w[IV2]) + lambda_max_y));
         }
         if (ndim > 2) {
-          min_dt = fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) /
+          min_dt = fmin(min_dt, coords.CellWidthFA(parthenon::X3DIR, k, j, i) /
                                     (fabs(w[IV3]) + lambda_max_z));
         }
       },
