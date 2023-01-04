@@ -110,15 +110,15 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
         const auto costheta = fabs(Bx * dTdx + By * dTdy + Bz * dTdz) / denom;
 
         min_dt = fmin(
-            min_dt, SQR(coords.CellWidthFA(parthenon::X1DIR, k, j, i)) /
+            min_dt, SQR(coords.Dxc<1>(k, j, i)) /
                         (thermal_diff_coeff * fabs(Bx) / Bmag * costheta + TINY_NUMBER));
         if (ndim >= 2) {
-          min_dt = fmin(min_dt, SQR(coords.CellWidthFA(parthenon::X2DIR, k, j, i)) /
+          min_dt = fmin(min_dt, SQR(coords.Dxc<2>(k, j, i)) /
                                     (thermal_diff_coeff * fabs(By) / Bmag * costheta +
                                      TINY_NUMBER));
         }
         if (ndim >= 3) {
-          min_dt = fmin(min_dt, SQR(coords.CellWidthFA(parthenon::X3DIR, k, j, i)) /
+          min_dt = fmin(min_dt, SQR(coords.Dxc<3>(k, j, i)) /
                                     (thermal_diff_coeff * fabs(Bz) / Bmag * costheta +
                                      TINY_NUMBER));
         }
@@ -170,7 +170,7 @@ void ThermalFluxAniso(MeshData<Real> *md) {
                            prim(IPR, k, j    , i - 1) / prim(IDN, k, j    , i - 1),
                            prim(IPR, k, j    , i - 1) / prim(IDN, k, j    , i - 1) -
                            prim(IPR, k, j - 1, i - 1) / prim(IDN, k, j - 1, i - 1)) /
-            coords.CellWidthFA(parthenon::X2DIR, k, j, i);
+            coords.Dxc<2>(k, j, i);
 
         if (ndim >= 3) {
           /* Monotonized temperature difference dT/dz, 3D problem ONLY */
@@ -182,14 +182,14 @@ void ThermalFluxAniso(MeshData<Real> *md) {
                                 prim(IPR, k    , j, i - 1) / prim(IDN, k    , j, i - 1),
                                 prim(IPR, k    , j, i - 1) / prim(IDN, k    , j, i - 1) -
                                 prim(IPR, k - 1, j, i - 1) / prim(IDN, k - 1, j, i - 1)) /
-                 coords.CellWidthFA(parthenon::X3DIR, k, j, i);
+                 coords.Dxc<3>(k, j, i);
           Bz = 0.5 * (prim(IB3, k, j, i - 1) + prim(IB3, k, j, i));
         }
         // clang-format on
 
         const auto T_i = prim(IPR, k, j, i) / prim(IDN, k, j, i);
         const auto T_im1 = prim(IPR, k, j, i - 1) / prim(IDN, k, j, i - 1);
-        const auto dTdx = (T_i - T_im1) / coords.CellWidthFA(parthenon::X1DIR, k, j, i);
+        const auto dTdx = (T_i - T_im1) / coords.Dxc<1>(k, j, i);
 
         // Calc interface values
         const auto Bx = 0.5 * (prim(IB1, k, j, i - 1) + prim(IB1, k, j, i));
@@ -231,7 +231,7 @@ void ThermalFluxAniso(MeshData<Real> *md) {
                            prim(IPR, k, j - 1, i    ) / prim(IDN, k, j - 1, i    ),
                            prim(IPR, k, j - 1, i    ) / prim(IDN, k, j - 1, i    ) -
                            prim(IPR, k, j - 1, i - 1) / prim(IDN, k, j - 1, i - 1)) /
-            coords.CellWidthFA(parthenon::X1DIR, k, j, i);
+            coords.Dxc<1>(k, j, i);
 
         if (ndim >= 3) {
           /* Monotonized temperature difference dT/dz, 3D problem ONLY */
@@ -243,7 +243,7 @@ void ThermalFluxAniso(MeshData<Real> *md) {
                                 prim(IPR, k    , j - 1, i) / prim(IDN, k    , j - 1, i),
                                 prim(IPR, k    , j - 1, i) / prim(IDN, k    , j - 1, i) -
                                 prim(IPR, k - 1, j - 1, i) / prim(IDN, k - 1, j - 1, i)) /
-                 coords.CellWidthFA(parthenon::X3DIR, k, j, i);
+                 coords.Dxc<3>(k, j, i);
 
           Bz = 0.5 * (prim(IB3, k, j - 1, i) + prim(IB3, k, j, i));
         }
@@ -251,7 +251,7 @@ void ThermalFluxAniso(MeshData<Real> *md) {
 
         const auto T_j = prim(IPR, k, j, i) / prim(IDN, k, j, i);
         const auto T_jm1 = prim(IPR, k, j - 1, i) / prim(IDN, k, j - 1, i);
-        const auto dTdy = (T_j - T_jm1) / coords.CellWidthFA(parthenon::X2DIR, k, j, i);
+        const auto dTdy = (T_j - T_jm1) / coords.Dxc<2>(k, j, i);
 
         // Calc interface values
         const auto Bx = 0.5 * (prim(IB1, k, j - 1, i) + prim(IB1, k, j, i));
@@ -292,7 +292,7 @@ void ThermalFluxAniso(MeshData<Real> *md) {
                            prim(IPR, k - 1, j, i    ) / prim(IDN, k - 1, j, i    ),
                            prim(IPR, k - 1, j, i    ) / prim(IDN, k - 1, j, i    ) -
                            prim(IPR, k - 1, j, i - 1) / prim(IDN, k - 1, j, i - 1)) /
-            coords.CellWidthFA(parthenon::X1DIR, k, j, i);
+            coords.Dxc<1>(k, j, i);
 
         /* Monotonized temperature difference dT/dy */
         const auto dTdy =
@@ -304,12 +304,12 @@ void ThermalFluxAniso(MeshData<Real> *md) {
                            prim(IPR, k - 1, j    , i) / prim(IDN, k - 1, j    , i),
                            prim(IPR, k - 1, j    , i) / prim(IDN, k - 1, j    , i) -
                            prim(IPR, k - 1, j - 1, i) / prim(IDN, k - 1, j - 1, i)) /
-            coords.CellWidthFA(parthenon::X2DIR, k, j, i);
+            coords.Dxc<2>(k, j, i);
         // clang-format on
 
         const auto T_k = prim(IPR, k, j, i) / prim(IDN, k, j, i);
         const auto T_km1 = prim(IPR, k - 1, j, i) / prim(IDN, k - 1, j, i);
-        const auto dTdz = (T_k - T_km1) / coords.CellWidthFA(parthenon::X3DIR, k, j, i);
+        const auto dTdz = (T_k - T_km1) / coords.Dxc<3>(k, j, i);
 
         const auto Bx = 0.5 * (prim(IB1, k - 1, j, i) + prim(IB1, k, j, i));
         const auto By = 0.5 * (prim(IB2, k - 1, j, i) + prim(IB2, k, j, i));

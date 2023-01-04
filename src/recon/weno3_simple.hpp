@@ -79,7 +79,7 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
   const auto nvar = q.GetDim(4);
   for (auto n = 0; n < nvar; ++n) {
     parthenon::par_for_inner(member, il, iu, [&](const int i) {
-      auto dx2 = q.GetCoords().CellWidthFA(XNDIR, k, j, i);
+      auto dx2 = q.GetCoords().Dxc<XNDIR>(k, j, i);
       dx2 = dx2 * dx2;
       if constexpr (XNDIR == parthenon::X1DIR) {
         // ql is ql_ip1 and qr is qr_i

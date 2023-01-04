@@ -79,16 +79,16 @@ Real RelDivBHst(MeshData<Real> *md) {
 
         Real divb =
             (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /
-                coords.CellWidthFA(X1DIR, k, j, i) +
-            (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) / coords.CellWidthFA(X2DIR, k, j, i);
+                coords.Dxc<1>(k, j, i) +
+            (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
         if (three_d) {
           divb += (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
-                  coords.CellWidthFA(X3DIR, k, j, i);
+                  coords.Dxc<3>(k, j, i);
         }
         lsum +=
             0.5 *
-            (std::sqrt(SQR(coords.CellWidthFA(X1DIR, k, j, i)) + SQR(coords.CellWidthFA(X2DIR, k, j, i)) +
-                       SQR(coords.CellWidthFA(X3DIR, k, j, i)))) *
+            (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) + SQR(coords.Dxc<2>(k, j, i)) +
+                       SQR(coords.Dxc<3>(k, j, i)))) *
             std::abs(divb) / B0 * coords.CellVolume(k, j, i);
       },
       sum);

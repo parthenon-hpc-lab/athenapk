@@ -11,8 +11,8 @@
 #include <vector>
 
 // Parthenon headers
-#include "bvals/cc/bvals_cc_in_one.hpp"
 #include "amr_criteria/refinement_package.hpp"
+#include "bvals/cc/bvals_cc_in_one.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
@@ -197,9 +197,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
-    const auto any = parthenon::BoundaryType::any;
-    //REMOVEME
-    //tl.AddTask(none, parthenon::cell_centered_bvars::StartReceiveBoundBufs<any>, mu0);
     tl.AddTask(none, parthenon::cell_centered_bvars::StartReceiveFluxCorrections, mu0);
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
@@ -258,35 +255,13 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(source_split_strang_final, AddSplitSourcesFirstOrder, mu0.get(), tm);
     }
 
-    // update ghost cells
+    // Update ghost cells (local and non local)
     // TODO(someone) experiment with split (local/nonlocal) comms with respect to
     // performance for various tests (static, amr, block sizes) and then decide on the
-    // best impl. Go with single call for now.
-    //auto send = tl.AddTask(source_split_first_order,
-    //                       parthenon::cell_centered_bvars::SendBoundBufs<any>, mu0);
-    //REMOVEME
-
-		// Update ghost cells (local and non local)
-		parthenon::cell_centered_bvars::AddBoundaryExchangeTasks(update, tl, mu0,
-																														 pmesh->multilevel);
+    // best impl. Go with default call (split local/nonlocal) for now.
+    parthenon::cell_centered_bvars::AddBoundaryExchangeTasks(source_split_first_order, tl,
+                                                             mu0, pmesh->multilevel);
   }
-
-  //REMOVEME
-  //TaskRegion &recv_set_region = tc.AddRegion(num_partitions);
-  //for (int i = 0; i < num_partitions; i++) {
-  //  auto &tl = recv_set_region[i];
-  //  auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-
-  //  const auto any = parthenon::BoundaryType::any;
-  //  auto recv =
-  //      tl.AddTask(none, parthenon::cell_centered_bvars::ReceiveBoundBufs<any>, mu0);
-  //  auto set = tl.AddTask(recv, parthenon::cell_centered_bvars::SetBounds<any>, mu0);
-  //  if (pmesh->multilevel) {
-  //    tl.AddTask(set, parthenon::cell_centered_refinement::RestrictPhysicalBounds,
-  //               mu0.get());
-  //  }
-  //}
-
 
   TaskRegion &async_region_3 = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {

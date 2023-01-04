@@ -96,17 +96,17 @@ Real HydroHst(MeshData<Real> *md) {
           // relative divergence of B error, i.e., L * |div(B)| / |B|
         } else if (hst == Hst::divb) {
           Real divb = (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /
-                          coords.CellWidthFA(X1DIR, k, j, i) +
+                          coords.Dxc<1>(k, j, i) +
                       (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) /
-                          coords.CellWidthFA(X2DIR, k, j, i);
+                          coords.Dxc<2>(k, j, i);
           if (three_d) {
             divb += (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
-                    coords.CellWidthFA(X3DIR, k, j, i);
+                    coords.Dxc<3>(k, j, i);
           }
           lsum +=
               0.5 *
-              (std::sqrt(SQR(coords.CellWidthFA(X1DIR, k, j, i)) + SQR(coords.CellWidthFA(X2DIR, k, j, i)) +
-                         SQR(coords.CellWidthFA(X3DIR, k, j, i)))) *
+              (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) + SQR(coords.Dxc<2>(k, j, i)) +
+                         SQR(coords.Dxc<3>(k, j, i)))) *
               std::abs(divb) /
               std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                         SQR(cons(IB3, k, j, i))) *
@@ -646,14 +646,14 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         } else {
           PARTHENON_FAIL("Unknown fluid in EstimateTimestep");
         }
-        min_dt = fmin(min_dt, coords.CellWidthFA(parthenon::X1DIR, k, j, i) /
+        min_dt = fmin(min_dt, coords.Dxc<1>(k, j, i) /
                                   (fabs(w[IV1]) + lambda_max_x));
         if (ndim > 1) {
-          min_dt = fmin(min_dt, coords.CellWidthFA(parthenon::X2DIR, k, j, i) /
+          min_dt = fmin(min_dt, coords.Dxc<2>(k, j, i) /
                                     (fabs(w[IV2]) + lambda_max_y));
         }
         if (ndim > 2) {
-          min_dt = fmin(min_dt, coords.CellWidthFA(parthenon::X3DIR, k, j, i) /
+          min_dt = fmin(min_dt, coords.Dxc<3>(k, j, i) /
                                     (fabs(w[IV3]) + lambda_max_z));
         }
       },
