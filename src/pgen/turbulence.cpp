@@ -392,8 +392,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             const auto &coords = cons.GetCoords(b);
 
             if ((SQR(coords.Xc<1>(i) - x0) + SQR(coords.Xc<2>(j) - y0)) < rad * rad) {
-              a(b, 2, k, j, i) =
-                  (rad - std::sqrt(SQR(coords.Xc<1>(i) - x0) + SQR(coords.Xc<2>(j) - y0)));
+              a(b, 2, k, j, i) = (rad - std::sqrt(SQR(coords.Xc<1>(i) - x0) +
+                                                  SQR(coords.Xc<2>(j) - y0)));
             }
           });
     }

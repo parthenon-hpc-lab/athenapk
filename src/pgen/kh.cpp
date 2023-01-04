@@ -222,9 +222,10 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
           // translated x1= x - 1/2 relative to Lecoanet (2015) shifts sine function by pi
           // (half-period) and introduces U_z sign change:
-          Real v2 = -amp * ave_sine *
-                    (std::exp(-(SQR(coords.Xc<2>(j) - z1)) / (sigma * sigma)) +
-                     std::exp(-(SQR(coords.Xc<2>(j) - z2)) / (sigma * sigma))); // 8c), mod.
+          Real v2 =
+              -amp * ave_sine *
+              (std::exp(-(SQR(coords.Xc<2>(j) - z1)) / (sigma * sigma)) +
+               std::exp(-(SQR(coords.Xc<2>(j) - z2)) / (sigma * sigma))); // 8c), mod.
           u(IM2, k, j, i) = v2 * dens;
 
           u(IM3, k, j, i) = 0.0;

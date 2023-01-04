@@ -78,18 +78,16 @@ Real RelDivBHst(MeshData<Real> *md) {
         const auto &coords = cons_pack.GetCoords(b);
 
         Real divb =
-            (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /
-                coords.Dxc<1>(k, j, i) +
+            (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) / coords.Dxc<1>(k, j, i) +
             (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
         if (three_d) {
-          divb += (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
-                  coords.Dxc<3>(k, j, i);
+          divb +=
+              (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) / coords.Dxc<3>(k, j, i);
         }
-        lsum +=
-            0.5 *
-            (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) + SQR(coords.Dxc<2>(k, j, i)) +
-                       SQR(coords.Dxc<3>(k, j, i)))) *
-            std::abs(divb) / B0 * coords.CellVolume(k, j, i);
+        lsum += 0.5 *
+                (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) + SQR(coords.Dxc<2>(k, j, i)) +
+                           SQR(coords.Dxc<3>(k, j, i)))) *
+                std::abs(divb) / B0 * coords.CellVolume(k, j, i);
       },
       sum);
 
@@ -264,15 +262,17 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           ax(k, j, i) = 0.0;
           if ((SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k))) <
               rad * rad) {
-            ay(k, j, i) = amp * (rad - std::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) +
-                                                 SQR(coords.Xc<3>(k))));
+            ay(k, j, i) =
+                amp * (rad - std::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) +
+                                       SQR(coords.Xc<3>(k))));
           } else {
             ay(k, j, i) = 0.0;
           }
           if ((SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k))) <
               rad * rad) {
-            az(k, j, i) = amp * (rad - std::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) +
-                                                 SQR(coords.Xc<3>(k))));
+            az(k, j, i) =
+                amp * (rad - std::sqrt(SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) +
+                                       SQR(coords.Xc<3>(k))));
           } else {
             az(k, j, i) = 0.0;
           }
@@ -292,7 +292,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
         u(IDN, k, j, i) = 1.0;
-        if ((SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k))) < rad * rad) {
+        if ((SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k))) <
+            rad * rad) {
           u(IDN, k, j, i) = drat;
         }
         u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * x1size;

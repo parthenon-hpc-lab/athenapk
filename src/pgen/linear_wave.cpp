@@ -201,8 +201,9 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     for (int k = kb.s; k <= kb.e; k++) {
       for (int j = jb.s; j <= jb.e; j++) {
         for (int i = ib.s; i <= ib.e; i++) {
-          Real x = cos_a2 * (pmb->coords.Xc<1>(i) * cos_a3 + pmb->coords.Xc<2>(j) * sin_a3) +
-                   pmb->coords.Xc<3>(k) * sin_a2;
+          Real x =
+              cos_a2 * (pmb->coords.Xc<1>(i) * cos_a3 + pmb->coords.Xc<2>(j) * sin_a3) +
+              pmb->coords.Xc<3>(k) * sin_a2;
           Real sn = std::sin(k_par * x);
 
           Real d1 = d0 + amp * sn * rem[0][wave_flag];

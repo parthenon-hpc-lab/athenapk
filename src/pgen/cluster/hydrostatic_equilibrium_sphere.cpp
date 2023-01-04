@@ -164,7 +164,8 @@ template <typename View1D>
 typename HydrostaticEquilibriumSphere<EntropyProfile,
                                       GravitationalField>::template PRhoProfile<View1D>
 HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::generate_P_rho_profile(
-    IndexRange ib, IndexRange jb, IndexRange kb, parthenon::UniformCartesian coords) const {
+    IndexRange ib, IndexRange jb, IndexRange kb,
+    parthenon::UniformCartesian coords) const {
 
   /************************************************************
    * Define R mesh to integrate pressure along
@@ -312,9 +313,8 @@ template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRh
     HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
         generate_P_rho_profile<
             Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>(
-                parthenon::IndexRange, parthenon::IndexRange,
-                parthenon::IndexRange,
-                parthenon::UniformCartesian) const;
+            parthenon::IndexRange, parthenon::IndexRange, parthenon::IndexRange,
+            parthenon::UniformCartesian) const;
 template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
     Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
 HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::

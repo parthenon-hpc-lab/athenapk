@@ -154,9 +154,10 @@ class HydrostaticEquilibriumSphere {
   };
 
   template <typename View1D>
-  PRhoProfile<View1D>
-  generate_P_rho_profile(parthenon::IndexRange ib, parthenon::IndexRange jb,
-                         parthenon::IndexRange kb, parthenon::UniformCartesian coords) const;
+  PRhoProfile<View1D> generate_P_rho_profile(parthenon::IndexRange ib,
+                                             parthenon::IndexRange jb,
+                                             parthenon::IndexRange kb,
+                                             parthenon::UniformCartesian coords) const;
 
   template <typename View1D>
   PRhoProfile<View1D> generate_P_rho_profile(const parthenon::Real R_start,
