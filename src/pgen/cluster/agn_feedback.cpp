@@ -165,9 +165,9 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
 
-        const Real x = coords.x1v(i);
-        const Real y = coords.x2v(j);
-        const Real z = coords.x3v(k);
+        const Real x = coords.Xc<1>(i);
+        const Real y = coords.Xc<2>(j);
+        const Real z = coords.Xc<3>(k);
 
         // Thermal Feedback
         if (thermal_power > 0) {

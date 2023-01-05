@@ -22,8 +22,6 @@
 #include "../../main.hpp"
 #include "../../reduction_utils.hpp"
 #include "../../units.hpp"
-#include "Kokkos_HostSpace.hpp"
-#include "Kokkos_View.hpp"
 #include "agn_feedback.hpp"
 #include "agn_triggering.hpp"
 #include "cluster_utils.hpp"
@@ -211,7 +209,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
         const auto &coords = cons_pack.GetCoords(b);
 
         const parthenon::Real r2 =
-            pow(coords.x1v(i), 2) + pow(coords.x2v(j), 2) + pow(coords.x3v(k), 2);
+            pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
         if (r2 < accretion_radius2) {
 
           const Real temp =
@@ -219,7 +217,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
 
           if (temp <= cold_temp_thresh) {
 
-            const Real cell_cold_mass = prim(IDN, k, j, i) * coords.Volume(k, j, i);
+            const Real cell_cold_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
             team_cold_mass += cell_cold_mass;
 
             const Real cell_delta_rho = -prim(IDN, k, j, i) / cold_t_acc * dt;
@@ -279,9 +277,9 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
         const parthenon::Real r2 =
-            pow(coords.x1v(i), 2) + pow(coords.x2v(j), 2) + pow(coords.x3v(k), 2);
+            pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
         if (r2 < accretion_radius2) {
-          const Real cell_mass = prim(IDN, k, j, i) * coords.Volume(k, j, i);
+          const Real cell_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
 
           const Real cell_mass_weighted_density = cell_mass * prim(IDN, k, j, i);
           const Real cell_mass_weighted_velocity =
@@ -340,9 +338,9 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
         const auto &coords = cons_pack.GetCoords(b);
 
         const parthenon::Real r2 =
-            pow(coords.x1v(i), 2) + pow(coords.x2v(j), 2) + pow(coords.x3v(k), 2);
+            pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
         if (r2 < accretion_radius2) {
-          const Real cell_volume = coords.Volume(k, j, i);
+          const Real cell_volume = coords.CellVolume(k, j, i);
 
           const Real cell_accretion_rate =
               prim(IDN, k, j, i) / total_mass * accretion_rate;

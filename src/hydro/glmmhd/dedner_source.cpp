@@ -52,23 +52,23 @@ void DednerSource(MeshData<Real> *md, const Real beta_dt) {
           const auto &coords = prim_pack.GetCoords(b);
           const Real divB =
               0.5 * ((prim(IB1, k, j, i + 1) - prim(IB1, k, j, i - 1)) /
-                         coords.Dx(X1DIR, k, j, i) +
+                         coords.Dxc<1>(k, j, i) +
                      (prim(IB2, k, j + 1, i) - prim(IB2, k, j - 1, i)) /
-                         coords.Dx(X2DIR, k, j, i) +
+                         coords.Dxc<2>(k, j, i) +
                      (prim(IB3, k + k_offset, j, i) - prim(IB3, k - k_offset, j, i)) /
-                         coords.Dx(X3DIR, k, j, i));
+                         coords.Dxc<3>(k, j, i));
           cons(IM1, k, j, i) -= beta_dt * divB * prim(IB1, k, j, i);
           cons(IM2, k, j, i) -= beta_dt * divB * prim(IB2, k, j, i);
           cons(IM3, k, j, i) -= beta_dt * divB * prim(IB3, k, j, i);
           cons(IEN, k, j, i) -=
               0.5 * beta_dt *
               (prim(IB1, k, j, i) * (prim(IPS, k, j, i + 1) - prim(IPS, k, j, i - 1)) /
-                   coords.Dx(X1DIR, k, j, i) +
+                   coords.Dxc<1>(k, j, i) +
                prim(IB2, k, j, i) * (prim(IPS, k, j + 1, i) - prim(IPS, k, j - 1, i)) /
-                   coords.Dx(X2DIR, k, j, i) +
+                   coords.Dxc<2>(k, j, i) +
                prim(IB3, k, j, i) *
                    (prim(IPS, k + k_offset, j, i) - prim(IPS, k - k_offset, j, i)) /
-                   coords.Dx(X3DIR, k, j, i));
+                   coords.Dxc<3>(k, j, i));
         }
         cons_pack(b, IPS, k, j, i) *= coeff;
       });
