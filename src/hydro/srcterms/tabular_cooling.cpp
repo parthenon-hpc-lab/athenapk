@@ -10,11 +10,12 @@
 
 // C++ headers
 #include <fstream>
+#include <limits>
+#include <cmath>
 
 // Parthenon headers
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
-#include <limits>
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
 
@@ -718,8 +719,11 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
   if (integrator_ == CoolIntegrator::townsend) {
     return std::numeric_limits<Real>::max();
   }
-  // Grab member variables for compiler
-  return std::numeric_limits<Real>::infinity(); //HACK
+
+
+  if( cooling_time_cfl_ <= 0.0 || isnan(cooling_time_cfl_) || isinf(cooling_time_cfl_) ){
+    return std::numeric_limits<Real>::infinity();
+  }
 
   // Everything needed by DeDt
   const Real mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
