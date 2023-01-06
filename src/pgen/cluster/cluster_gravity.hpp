@@ -126,7 +126,7 @@ class ClusterGravity {
     r_nfw_s_ = calc_R_nfw_s(rho_crit, M_nfw_200, c_nfw);
     GMC_nfw_ = calc_GMC_nfw(units.gravitational_constant(), M_nfw_200, c_nfw);
 
-    // Initialize the NFW Profile
+    // Initialize the BCG Profile
     alpha_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "alpha_bcg_s", 0.1);
     beta_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "beta_bcg_s", 1.43);
     const parthenon::Real M_bcg_s =

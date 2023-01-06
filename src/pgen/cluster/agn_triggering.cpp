@@ -345,7 +345,7 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
           const Real cell_accretion_rate =
               prim(IDN, k, j, i) / total_mass * accretion_rate;
 
-          const Real cell_delta_rho = -cell_accretion_rate * dt;
+          const Real cell_delta_rho = -cell_accretion_rate/cell_volume * dt;
 
           AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos, k, j, i);
           // Update the Primitives

@@ -45,6 +45,12 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_jet_height", 0.02)),
       disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)) {
 
+  //Normalize the thermal, kinetic, and magnetic fractions to sum to 1.0
+  const Real total_frac = thermal_fraction_ + kinetic_fraction_ + magnetic_fraction_;
+  thermal_fraction_ = thermal_fraction_/total_frac;
+  kinetic_fraction_ = kinetic_fraction_/total_frac;
+  magnetic_fraction_ = magnetic_fraction_/total_frac;
+
   // Add user history output variable for AGN power
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
   if (!disabled_) {
@@ -175,9 +181,8 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           // Determine if point is in sphere r<=thermal_radius
           if (r2 <= thermal_radius2) {
             // Add density at constant velocity and temperature
-            // AddDensityToConsAtFixedVelTemp(thermal_density_rate, cons, prim, eos, k, j,
-            // i);
-            // Apply heating
+            AddDensityToConsAtFixedVelTemp(thermal_density_rate, cons, prim, eos, k, j,i);
+            // Then apply heating
             cons(IEN, k, j, i) += thermal_feedback;
             // Add density at constant velocity
             // AddDensityToConsAtFixedVel(thermal_density_rate, cons, prim, eos, k, j, i);

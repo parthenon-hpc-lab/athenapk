@@ -25,7 +25,7 @@ namespace cluster {
 class AGNFeedback {
  public:
   const parthenon::Real fixed_power_;
-  const parthenon::Real thermal_fraction_, kinetic_fraction_, magnetic_fraction_;
+  parthenon::Real thermal_fraction_, kinetic_fraction_, magnetic_fraction_;
 
   // Efficiency converting mass to energy
   const parthenon::Real efficiency_;
