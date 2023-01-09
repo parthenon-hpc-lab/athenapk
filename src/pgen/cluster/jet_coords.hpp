@@ -1,8 +1,8 @@
 #ifndef CLUSTER_JET_COORDS_HPP_
 #define CLUSTER_JET_COORDS_HPP_
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file jet_coords.hpp

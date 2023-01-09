@@ -1,12 +1,12 @@
+#ifndef CLUSTER_CLUSTER_GRAVITY_HPP_
+#define CLUSTER_CLUSTER_GRAVITY_HPP_
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cluster_gravity.hpp
 //  \brief Class for defining gravitational acceleration for a cluster+bcg+smbh
-#ifndef CLUSTER_CLUSTER_GRAVITY_HPP_
-#define CLUSTER_CLUSTER_GRAVITY_HPP_
 
 // Parthenon headers
 #include <parameter_input.hpp>

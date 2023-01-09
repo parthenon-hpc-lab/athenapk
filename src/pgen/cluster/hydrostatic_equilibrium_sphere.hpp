@@ -1,3 +1,5 @@
+#ifndef CLUSTER_HYDROSTATIC_EQUILIBRIUM_SPHERE_HPP_
+#define CLUSTER_HYDROSTATIC_EQUILIBRIUM_SPHERE_HPP_
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
 // Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
@@ -5,9 +7,6 @@
 //========================================================================================
 //! \file hydrostatic_equilbirum_sphere
 //  \brief Class for initializing a sphere in hydrostatic equiblibrium
-
-#ifndef CLUSTER_HYDROSTATIC_EQUILIBRIUM_SPHERE_HPP_
-#define CLUSTER_HYDROSTATIC_EQUILIBRIUM_SPHERE_HPP_
 
 // Parthenon headers
 #include <mesh/domain.hpp>

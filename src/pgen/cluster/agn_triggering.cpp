@@ -1,10 +1,10 @@
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
-//! \file magnetic_tower.hpp
-//  \brief Class for defining magnetic tower
+//! \file agn_triggering.cpp
+//  \brief  Class for computing AGN triggering from Bondi-like and cold gas accretion
 
 // Parthenon headers
 #include <cmath>

@@ -1,12 +1,12 @@
-#ifndef CLUSTER_CLUSTER_UTILS_HPP_
-#define CLUSTER_CLUSTER_UTILS_HPP_
 //========================================================================================
-// Athena++ astrophysical MHD code
-// Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
-// Licensed under the 3-clause BSD License, see LICENSE file for details
-//========================================================================================
+//// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+///// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
+///// Licensed under the 3-clause BSD License, see LICENSE file for details
+/////========================================================================================
 //! \file cluster_utils.hpp
 //  \brief Utilities for galaxy cluster functions
+#ifndef CLUSTER_CLUSTER_UTILS_HPP_
+#define CLUSTER_CLUSTER_UTILS_HPP_
 
 // parthenon headers
 #include <basic_types.hpp>
