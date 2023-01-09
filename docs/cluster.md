@@ -173,7 +173,11 @@ different triggering prescriptions. The accreted mass is removed from the gas
 around the AGN, with details depending on each prescription explained below,
 and is used as input for AGN feedback power.
 
-The triggering prescriptions currently implemented are "boosted Bondi accretion," "Bondi-Schaye accretion," and "cold gas." These modes can be chosen via
+The triggering prescriptions currently implemented are "boosted Bondi
+accretion" ([Bondi 1952](doi.org/10.1093/mnras/112.2.195), [Meece
+2017](doi.org/10.3847/1538-4357/aa6fb1)), "Bondi-Schaye accretion" ([Bondi and
+Schaye 2009](doi.org/10.1111/j.1365-2966.2009.15043.x)),  and "cold gas"
+([Meece 2017](doi.org/10.3847/1538-4357/aa6fb1)). These modes can be chosen via
 ```
 <problem/cluster/agn_triggering>
 triggering_mode = COLD_GAS # or NONE, BOOSTED_BONDI, BONDI_SCHAYE
@@ -199,9 +203,7 @@ m_smbh = 1.0e-06 # in code_mass
 accretion_radius = 0.001 # in code_length
 bondi_alpha= 100.0 # unitless
 ```
-
 With BONDI_SCHAYE accretion, the `alpha` used for BOOSTED_BONDI accretion is modified to depend on the number density following:
-
 $$
 \alpha =
  \begin{cases}
@@ -302,8 +304,9 @@ azimuthal angle (`jet_phi0`), and an rate of azimuthal precession
 (`jet_phi_dot`).
 
 Kinetic jet energy is injected at a flat power density within the cynlinder of
-injection as purely kinetic energy. The injected mass will match the
-proportioned kinetic feedback, e.g.
+injection as purely kinetic energy, following [Meece
+2017](doi.org/10.1086/501499). The injected mass will match the proportioned
+kinetic feedback, e.g.
 ```
 kinetic_injected_mass = mdot * normalized_kinetic_fraction;
 ```
@@ -318,7 +321,8 @@ c\sqrt{ 2 \epsilon }
 $$
 where $\epsilon$ is the `efficiency` parameter described earlier in this section.
 
-Magnetic feedback is injected following  (CITEME) where the injected magnetic field follows 
+Magnetic feedback is injected following  ([Hui 2006](doi.org/10.1086/501499))
+where the injected magnetic field follows 
 $$
 \begin{align}
 \mathcal{B}_r      &=\mathcal{B}_0 2 \frac{h r}{\ell^2} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
