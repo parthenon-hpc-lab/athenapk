@@ -56,8 +56,22 @@ m_nfw_200 = 10.0 # in code_mass
 ```
 which adds a gravitational acceleration defined by
 
-(EQUATIONME)
-
+$$
+g_{\text{NFW}}(r) = 
+  \frac{G}{r^2} \frac{M_{NFW}  \left [ \ln{\left(1 + \frac{r}{R_{NFW}} \right )} - \frac{r}{r+R_{NFW}} \right ]}{ \ln{\left(1 + c_{NFW}\right)} - \frac{ c_{NFW}}{1 + c_{NFW}} }.
+$$
+The scale radius $R_{NFW}$ for the NFW profile is computed from
+$$
+R_{NFW} = \left ( \frac{M_{NFW}}{ 4 \pi \rho_{NFW} \left [ \ln{\left ( 1 + c_{NFW} \right )} - c_{NFW}/\left(1 + c_{NFW} \right ) \right ] }\right )^{1/3}
+$$
+where the scale density $\rho_{NFW}$ is computed from 
+$$
+\rho_{NFW} = \frac{200}{3} \rho_{crit} \frac{c_{NFW}^3}{\ln{\left ( 1 + c_{NFW} \right )} - c_{NFW}/\left(1 + c_{NFW} \right )}.
+$$
+The critical density $\rho_{crit}$ is computed from
+$$
+    \frac{3 H_0^2}{8 \pi G}.
+$$
 
 Parameter for both a HERNQUIST and MATHEWS BCG are:
 ```
@@ -68,13 +82,15 @@ r_bcg_s = 0.004 # in code_length
 ```
 where a HERNQUIST profile adds a gravitational acceleration defined by
 
-(EQUATIONME)
+$$
+ g_{BCG}(r) = G \frac{ M_{BCG} }{R^2} \frac{1}{\left( 1 + \frac{r}{R}\right)^2}
+$$
 
 and a MATHEWS profile adds a gravitational acceleration defined by
 
 (EQUATIONME)
 
-Gravitational acceleration from the SMBH is defined solely by its mass
+Gravitational acceleration from the SMBH is inserted as a point source defined solely by its mass
 ```
 <problem/cluster/gravity>
 m_smbh = 1.0e-06 # in code_mass
@@ -88,7 +104,9 @@ g_smoothing_radius = 0.0 # in code_length
 which works as a minimum r when the gravitational potential is applied. It
 effectively modifies the gravitation acceleration to work as
 
-(EQUATIONME)
+$$
+\tilde{g} (r) = g( max( r, r_{smooth}))
+$$
 
 By default, the gravitational profile used to create the initial conditions is
 also used as an accelerating source term during evolution. This source term can
@@ -102,9 +120,13 @@ gravity_srcterm = False
 ## Entropy Profile
 
 The `cluster` problem generator initializes a galaxy-cluster-like system with an entropy profile following the ACCEPT profile
-
-(EQUATIONME, DEFINE ENTROPY K)
-
+$$
+ K(r) = K_{0} + K_{100} \left ( r/ 100 \text{ kpc} \right )^{\alpha_K}
+ $$
+where we are using the entropy $K$ is defined as 
+$$
+ K \equiv \frac{ k_bT}{n_e^{2/3} }
+ $$
 This profile is determined by these parameters
 ```
 <problem/cluster/entropy_profile>
@@ -153,11 +175,14 @@ where `triggering_mode=NONE` will disable AGN triggering.
 
 With BOOSTED_BONDI accretion, the mass rate of accretion follows
 
-(EQUATIONME)
+$$
+\dot{M} = \alpha \frac { 2 \pi G^2 M^2_{SMBH} \hat {\rho} } {
+\left ( \hat{v}^2 + \hat{c}_s^2 \right ) ^{3/2} }
+$$
 
-where `rho`, `v`, and `cs` are respectively the mass weighted density,
+where $\hat{rho}$, $\hat{v}$, and $\hat{c}_s$ are respectively the mass weighted density,
 velocity, and sound speed within the accretion region. The mass of the SMBH,
-the radius of the sphere of accretion around the AGN, and the `alpha` parameter
+the radius of the sphere of accretion around the AGN, and the $alpha$ parameter
 can be set with
 ```
 <problem/cluster/gravity>
@@ -170,7 +195,13 @@ bondi_alpha= 100.0 # unitless
 
 With BONDI_SCHAYE accretion, the `alpha` used for BOOSTED_BONDI accretion is modified to depend on the number density following:
 
-(EQUATIONME)
+$$
+\alpha =
+ \begin{cases}
+1 & n \leq n_0 \\\\
+ ( n/n_0 ) ^\beta & n > n_0\\\\
+\end{cases}
+$$
 
 where `n` is the mass weighted mean density within the accretion region and the parameter `n_0` and `beta` can be set with
 ```
@@ -271,27 +302,48 @@ kinetic_injected_mass = mdot * normalized_kinetic_fraction;
 ```
 and the injected momentum will total the injected kinetic feedback energy. Gas
 energy desnity will remain unchanged. As a result, the injected mass density  rate will be
-
-(EQUATIONME)
-
+$$
+\dot{\rho} = \frac{\dot{M} f_{kinetic}}{2 \pi  h_{jet} r_{jet}^2}
+$$
 and the velocity of the injected gas will be 
-
-(EQUATIONME).
+$$
+c\sqrt{ 2 \epsilon }
+$$
+where $\epsilon$ is the `efficiency` parameter described earlier in this section.
 
 Magnetic feedback is injected following  (CITEME) where the injected magnetic field follows 
-
-(EQUATIONME).
-
-The parameters `alpha` and `l` 
+$$
+\begin{align}
+\mathcal{B}_r      &=\mathcal{B}_0 2 \frac{h r}{\ell^2} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
+\mathcal{B}_\theta &=\mathcal{B}_0 \alpha \frac{r}{\ell} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right ) } \\\\
+\mathcal{B}_h      &=\mathcal{B}_0 2 \left( 1 - \frac{r^2}{\ell^2} \right ) \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
+\end{align}
+$$
+which has  the corresponding vector potential field
+$$
+\begin{align}
+\mathcal{A}_r &= 0 \\\\
+\mathcal{A}_{\theta} &= \mathcal{B}_0 \ell \frac{r}{\ell} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
+\mathcal{A}_h &= \mathcal{B}_0 \ell \frac{\alpha}{2}\exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )}
+\end{align}
+$$
+The parameters $\alpha$ and $\ell$ can be changed with
 ```
 <problem/cluster/magnetic_tower>
 alpha = 20
 l_scale = 0.001
 ```
+When injected as a fraction of 
 
 Mass is also injected along with the magnetic field following
-
-(EQUATIONME)
+$$
+\dot{\rho} = \dot{\rho}_B * \exp{ \frac{ -r^2 + -h^2}{\ell^2} }
+$$
+where $\dot{\rho}_B$ is set to
+$$
+\dot{\rho}_B = \frac{3 \pi}{2} \frac{\dot{M} f_{magnetic}}{\ell^3}
+$$
+so that the total mass injected matches the accreted mass propotioned to magnetic feedback.
 
 ```
 <problem/cluster/magnetic_tower>
