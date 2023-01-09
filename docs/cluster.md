@@ -60,7 +60,9 @@ which adds a gravitational acceleration defined by
 
 $$
 g_{\text{NFW}}(r) = 
-  \frac{G}{r^2} \frac{M_{NFW}  \left [ \ln{\left(1 + \frac{r}{R_{NFW}} \right )} - \frac{r}{r+R_{NFW}} \right ]}{ \ln{\left(1 + c_{NFW}\right)} - \frac{ c_{NFW}}{1 + c_{NFW}} }.
+  \frac{G}{r^2}
+  \frac{M_{NFW}  \left [ \ln{\left(1 + \frac{r}{R_{NFW}} \right )} - \frac{r}{r+R_{NFW}} \right ]}
+        { \ln{\left(1 + c_{NFW}\right)} - \frac{ c_{NFW}}{1 + c_{NFW}} }
 $$
 The scale radius $R_{NFW}$ for the NFW profile is computed from
 $$
@@ -83,17 +85,21 @@ m_bcg_s = 0.001 # in code_mass
 r_bcg_s = 0.004 # in code_length
 ```
 where a HERNQUIST profile adds a gravitational acceleration defined by
+
 $$
  g_{BCG}(r) = G \frac{ M_{BCG} }{R_{BCG}^2} \frac{1}{\left( 1 + \frac{r}{R_{BCG}}\right)^2}
 $$
+
 and a MATHEWS profile adds a gravitational acceleration defined by
+
 $$
 g_{BCG}(r) = \frac{1}{R_{BCG}^2} 
-\left \{
-\left [ \frac{\left ( r/R_{BCG}\right )^{ 0.5975}} {3.206 \times 10^{-7}} \right )^s_{BCG} }+
-\left [ \frac{\left ( r/R_{BCG}\right )^{ 1.849 }} {1.861 \times 10^{-6}} \right )^s_{BCG} }
-\right \}^{-1/s_{BCG}}
+\left (
+\left [ \frac{\left ( r/R_{BCG}\right )^{ 0.5975}} {3.206 \times 10^{-7}} \right ]^{s_{BCG}} +
+\left [ \frac{\left ( r/R_{BCG}\right )^{ 1.849 }} {1.861 \times 10^{-6}} \right ]^{s_{BCG}}
+\right )^{-1/s_{BCG}}
 $$
+
 where $s_{BCG} = 0.9$ 
 
 Gravitational acceleration from the SMBH is inserted as a point source defined solely by its mass
@@ -126,13 +132,17 @@ gravity_srcterm = False
 ## Entropy Profile
 
 The `cluster` problem generator initializes a galaxy-cluster-like system with an entropy profile following the ACCEPT profile
+
 $$
  K(r) = K_{0} + K_{100} \left ( r/ 100 \text{ kpc} \right )^{\alpha_K}
  $$
+ 
 where we are using the entropy $K$ is defined as 
+
 $$
  K \equiv \frac{ k_bT}{n_e^{2/3} }
  $$
+ 
 This profile is determined by these parameters
 ```
 <problem/cluster/entropy_profile>
@@ -204,6 +214,7 @@ accretion_radius = 0.001 # in code_length
 bondi_alpha= 100.0 # unitless
 ```
 With BONDI_SCHAYE accretion, the `alpha` used for BOOSTED_BONDI accretion is modified to depend on the number density following:
+
 $$
 \alpha =
  \begin{cases}
@@ -312,17 +323,22 @@ kinetic_injected_mass = mdot * normalized_kinetic_fraction;
 ```
 and the injected momentum will total the injected kinetic feedback energy. Gas
 energy desnity will remain unchanged. As a result, the injected mass density  rate will be
+
 $$
 \dot{\rho} = \frac{\dot{M} f_{kinetic}}{2 \pi  h_{jet} r_{jet}^2}
 $$
+
 and the velocity of the injected gas will be 
+
 $$
 c\sqrt{ 2 \epsilon }
 $$
+
 where $\epsilon$ is the `efficiency` parameter described earlier in this section.
 
 Magnetic feedback is injected following  ([Hui 2006](doi.org/10.1086/501499))
 where the injected magnetic field follows 
+
 $$
 \begin{align}
 \mathcal{B}_r      &=\mathcal{B}_0 2 \frac{h r}{\ell^2} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
@@ -330,7 +346,9 @@ $$
 \mathcal{B}_h      &=\mathcal{B}_0 2 \left( 1 - \frac{r^2}{\ell^2} \right ) \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
 \end{align}
 $$
+
 which has  the corresponding vector potential field
+
 $$
 \begin{align}
 \mathcal{A}_r &= 0 \\\\
@@ -338,6 +356,7 @@ $$
 \mathcal{A}_h &= \mathcal{B}_0 \ell \frac{\alpha}{2}\exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )}
 \end{align}
 $$
+
 The parameters $\alpha$ and $\ell$ can be changed with
 ```
 <problem/cluster/magnetic_tower>
@@ -347,13 +366,17 @@ l_scale = 0.001
 When injected as a fraction of 
 
 Mass is also injected along with the magnetic field following
+
 $$
 \dot{\rho} = \dot{\rho}_B * \exp{ \frac{ -r^2 + -h^2}{\ell^2} }
 $$
+
 where $\dot{\rho}_B$ is set to
+
 $$
 \dot{\rho}_B = \frac{3 \pi}{2} \frac{\dot{M} f_{magnetic}}{\ell^3}
 $$
+
 so that the total mass injected matches the accreted mass propotioned to magnetic feedback.
 
 ```
