@@ -43,10 +43,12 @@ include_nfw_g = True
 which_bcg_g = HERNQUIST #or NONE or MATHEWS
 include_smbh_g = True
 ```
-Where `include_nfw_g` for the NFW dark-matter halo (CITEME) is boolean;
-`which_bcg_g` for the BCG can be `NONE` for no BCG, `HERNQUIST` for  Hernquist
-profile (CITEME), or `MATHEWS` for a Mathews (CITEME) profile, and
-`include_smbh_g` for the SMBH is boolean.
+Where `include_nfw_g` for the NFW dark-matter halo ([Navarro
+1997](doi.org/10.1086/304888)) is boolean; `which_bcg_g` for the BCG can be
+`NONE` for no BCG, `HERNQUIST` for  Hernquist profile ([Hernquist
+1990](doi.org/10.1086/168845)), or `MATHEWS` for a Mathews ([Mathews
+2006](doi.org/10.1086/499119)) profile, and `include_smbh_g` for the SMBH is
+boolean.
 
 Parameters for the NFW profile are
 ```
@@ -73,7 +75,7 @@ $$
     \frac{3 H_0^2}{8 \pi G}.
 $$
 
-Parameter for both a HERNQUIST and MATHEWS BCG are:
+Parameters for both the HERNQUIST and MATHEWS BCG are controlled via:
 ```
 <problem/cluster/gravity>
 
@@ -81,17 +83,16 @@ m_bcg_s = 0.001 # in code_mass
 r_bcg_s = 0.004 # in code_length
 ```
 where a HERNQUIST profile adds a gravitational acceleration defined by
-
 $$
  g_{BCG}(r) = G \frac{ M_{BCG} }{R_{BCG}^2} \frac{1}{\left( 1 + \frac{r}{R_{BCG}}\right)^2}
 $$
 and a MATHEWS profile adds a gravitational acceleration defined by
 $$
 g_{BCG}(r) = \frac{1}{R_{BCG}^2} 
-\left [
-\left ( r/R_{BCG}\right )^{  0.5975 /  3.206 \times 10^{-7}  s_{BCG} }
-+ \left ( r/R_{BCG}\right )^{  0.5975 /  3.206 \times 10^{-7}  s_{BCG} }
-\right ]^{-1/s_{BCG}}
+\left \{
+\left [ \frac{\left ( r/R_{BCG}\right )^{ 0.5975}} {3.206 \times 10^{-7}} \right )^s_{BCG} }+
+\left [ \frac{\left ( r/R_{BCG}\right )^{ 1.849 }} {1.861 \times 10^{-6}} \right )^s_{BCG} }
+\right \}^{-1/s_{BCG}}
 $$
 where $s_{BCG} = 0.9$ 
 
@@ -152,10 +153,11 @@ radius.  This radius and density is set by the parameters
 r_fix = 2.0 # in code_length
 rho_fix = 0.01477557589278723 # in code_mass/code_length**3
 ```
-
-(FIXME) `r_sampling` and `max_dr` determine details about how the profile for
-the initial hydrodynamic equilbrium is integrated. They can potentially be
-removed.
+The parameters `r_sampling` and `max_dr` determine details about how the
+profile for the initial hydrodynamic equilbrium is integrated. (FIXME -- these
+parameters are esoteric and can potentially be removed. They were added at
+somepoint to ensure that the HSE profile is integrated over a domain that
+includes the current meshblock and the r_fix radius)
 ```
 <problem/cluster/hydrostatic_equilibrium>
 r_fix = 2.0 # in code_length

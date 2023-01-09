@@ -166,8 +166,8 @@ class ClusterGravity {
     case BCG::MATHEWS: {
       const parthenon::Real s_bcg = 0.9;
       g_r += GMC_bcg_ * // Note: *cm**3*s**-2 //To make units work
-             pow(pow(r / r_bcg_s_, 0.5975 / 3.206e-7 * s_bcg) +
-                     pow(pow(r / r_bcg_s_, 1.849 / 1.861e-6), s_bcg),
+             pow( pow( pow(r/r_bcg_s_, 0.5975) / 3.206e-7,s_bcg) +
+                  pow( pow(r/r_bcg_s_, 1.849 ) / 1.861e-6,s_bcg),
                  -1 / s_bcg);
     } break;
     case BCG::HERNQUIST:
