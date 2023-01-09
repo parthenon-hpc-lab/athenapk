@@ -83,12 +83,17 @@ r_bcg_s = 0.004 # in code_length
 where a HERNQUIST profile adds a gravitational acceleration defined by
 
 $$
- g_{BCG}(r) = G \frac{ M_{BCG} }{R^2} \frac{1}{\left( 1 + \frac{r}{R}\right)^2}
+ g_{BCG}(r) = G \frac{ M_{BCG} }{R_{BCG}^2} \frac{1}{\left( 1 + \frac{r}{R_{BCG}}\right)^2}
 $$
-
 and a MATHEWS profile adds a gravitational acceleration defined by
-
-(EQUATIONME)
+$$
+g_{BCG}(r) = \frac{1}{R_{BCG}^2} 
+\left [
+\left ( r/R_{BCG}\right )^{  0.5975 /  3.206 \times 10^{-7}  s_{BCG} }
++ \left ( r/R_{BCG}\right )^{  0.5975 /  3.206 \times 10^{-7}  s_{BCG} }
+\right ]^{-1/s_{BCG}}
+$$
+where $s_{BCG} = 0.9$ 
 
 Gravitational acceleration from the SMBH is inserted as a point source defined solely by its mass
 ```
