@@ -181,7 +181,9 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           // Determine if point is in sphere r<=thermal_radius
           if (r2 <= thermal_radius2) {
             // Add density at constant velocity and temperature
-            AddDensityToConsAtFixedVelTemp(thermal_density_rate, cons, prim, eos, k, j,i);
+            // HACK Disabling injection of mass with thermal feedback since it
+            // leads to small timesteps
+            //AddDensityToConsAtFixedVelTemp(thermal_density_rate, cons, prim, eos, k, j,i);
             // Then apply heating
             cons(IEN, k, j, i) += thermal_feedback;
             // Add density at constant velocity
