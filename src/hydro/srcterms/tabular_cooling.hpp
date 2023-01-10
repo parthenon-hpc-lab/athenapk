@@ -116,6 +116,9 @@ class TabularCooling {
   CoolIntegrator integrator_;
 
   // Temperature floor (assumed in Kelvin and only used in cooling function)
+  // This is either the temperature floor used by the hydro method or the
+  // lowest temperature in the cooling table (assuming zero cooling below the
+  // table), whichever temperature is higher
   parthenon::Real T_floor_;
 
   // Maximum number of iterations/subcycles
@@ -123,6 +126,10 @@ class TabularCooling {
 
   // Cooling CFL
   parthenon::Real cooling_time_cfl_;
+
+  // Minimum timestep that the cooling may limit the simulation timestep
+  // Use nonpositive values to disable
+  parthenon::Real min_cooling_timestep_;
 
   // Tolerances
   parthenon::Real d_log_temp_tol_, d_e_tol_;
@@ -150,14 +157,16 @@ class TabularCooling {
     if (log_temp < log_temp_start) {
       // Below table - return 0 or first entry?
       // log_lambda = log_lambdas(0);
-      // TODO(forrestglines):Currently, no cooling is implemented above the
-      // table. This behavior could be generalized via templates
-      return 0;
+      // TODO(forrestglines):Currently, zero cooling is use for temperatures
+      // below the table. This behavior could be generalized via templates
+      // return 0;
+      log_lambda = log_lambdas(0); // HACK - to get it to cool to floor
     } else if (log_temp > log_temp_final) {
       // Above table
       // Return de/dt
-      // TODO(forrestglines):Currently free-free cooling is implemented above the
-      // table. This behavior could be generalized via templates
+      // TODO(forrestglines):Currently free-free cooling is used for
+      // temperatures above the table. This behavior could be generalized via
+      // templates
       log_lambda = 0.5 * log_temp - 0.5 * log_temp_final + log_lambdas(n_temp - 1);
     } else {
       // Inside table
@@ -181,7 +190,8 @@ class TabularCooling {
     }
     // Return de/dt
     const Real lambda = pow(10., log_lambda);
-    return -lambda * n_h2_by_rho;
+    const Real de_dt = -lambda * n_h2_by_rho;
+    return de_dt;
   }
 
  public:

@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file gravitational_field.hpp
@@ -53,13 +53,10 @@ void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
         // Apply g_r as a source term
         const Real den = prim(IDN, k, j, i);
-        const Real src =
-            (r == 0) ? 0
-                     : beta_dt * den * g_r / r; // FIXME watch out for previous /r errors
+        const Real src = (r == 0) ? 0 : beta_dt * den * g_r / r;
         cons(IM1, k, j, i) -= src * coords.Xc<1>(i);
         cons(IM2, k, j, i) -= src * coords.Xc<2>(j);
         cons(IM3, k, j, i) -= src * coords.Xc<3>(k);
-        // FIXME Double check this
         cons(IEN, k, j, i) -= src * (coords.Xc<1>(i) * prim(IV1, k, j, i) +
                                      coords.Xc<2>(j) * prim(IV2, k, j, i) +
                                      coords.Xc<3>(k) * prim(IV3, k, j, i));

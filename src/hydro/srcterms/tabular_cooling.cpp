@@ -10,11 +10,12 @@
 
 // C++ headers
 #include <fstream>
+#include <limits>
+#include <cmath>
 
 // Parthenon headers
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
-#include <limits>
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
 
@@ -392,11 +393,18 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
             if (!dedt_valid) {
               if (sub_dt == min_sub_dt) {
-                PARTHENON_FAIL("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
-                               "Minumum sub_dt leads to negative internal energy");
+                //PARTHENON_FAIL("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
+                //               "Minumum sub_dt leads to negative internal energy");
+                
+                //HACK
+                //Even the minimum subcycle dt would lead to negative internal energy -- so just cool to the floor
+                sub_dt = (dt - sub_t);
+                internal_e_next_h = internal_e_floor;
+                reattempt_sub = false;
+              } else {
+                reattempt_sub = true;
+                sub_dt = min_sub_dt;
               }
-              reattempt_sub = true;
-              sub_dt = min_sub_dt;
             } else {
 
               // Compute error
@@ -460,7 +468,11 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           sub_iter++;
         }
 
-        PARTHENON_REQUIRE(internal_e > internal_e_floor, "cooled below floor");
+        //PARTHENON_REQUIRE(internal_e > internal_e_floor, "cooled below floor");
+        //HACK
+        if(internal_e < internal_e_floor){
+          internal_e = internal_e_floor;
+        }
 
         // Remove the cooling from the total energy density
         cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
@@ -707,7 +719,11 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
   if (integrator_ == CoolIntegrator::townsend) {
     return std::numeric_limits<Real>::max();
   }
-  // Grab member variables for compiler
+
+
+  if( cooling_time_cfl_ <= 0.0 || isnan(cooling_time_cfl_) || isinf(cooling_time_cfl_) ){
+    return std::numeric_limits<Real>::infinity();
+  }
 
   // Everything needed by DeDt
   const Real mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
