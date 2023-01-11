@@ -26,6 +26,7 @@ class AGNFeedback {
  public:
   const parthenon::Real fixed_power_;
   parthenon::Real thermal_fraction_, kinetic_fraction_, magnetic_fraction_;
+  parthenon::Real thermal_mass_fraction_, kinetic_mass_fraction_, magnetic_mass_fraction_;
 
   // Efficiency converting mass to energy
   const parthenon::Real efficiency_;
@@ -41,6 +42,7 @@ class AGNFeedback {
   AGNFeedback(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
 
   parthenon::Real GetFeedbackPower(parthenon::StateDescriptor *hydro_pkg) const;
+  parthenon::Real GetFeedbackMassRate(parthenon::StateDescriptor *hydro_pkg) const;
 
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real beta_dt, const parthenon::SimTime &tm) const;

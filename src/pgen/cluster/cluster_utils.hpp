@@ -24,7 +24,7 @@ KOKKOS_INLINE_FUNCTION void
 AddDensityToConsAtFixedVel(const parthenon::Real density, View4D &cons,
                            const View4D &prim, const AdiabaticHydroEOS &eos, const int &k,
                            const int &j, const int &i) {
-  // Add density such that velocity and temperature (propto pressure/density) is fixed
+  // Add density such that velocity is fixed
   cons(IDN, k, j, i) += density;
   cons(IM1, k, j, i) += density * prim(IV1, k, j, i);
   cons(IM2, k, j, i) += density * prim(IV2, k, j, i);
@@ -39,7 +39,7 @@ KOKKOS_INLINE_FUNCTION void
 AddDensityToConsAtFixedVel(const parthenon::Real density, View4D &cons,
                            const View4D &prim, const AdiabaticGLMMHDEOS &eos,
                            const int &k, const int &j, const int &i) {
-  // Add density such that velocity and temperature (propto pressure/density) is fixed
+  // Add density such that velocity and temperature is fixed
   cons(IDN, k, j, i) += density;
   cons(IM1, k, j, i) += density * prim(IV1, k, j, i);
   cons(IM2, k, j, i) += density * prim(IV2, k, j, i);

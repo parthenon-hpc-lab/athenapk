@@ -6,6 +6,8 @@
 //! \file agn_feedback.cpp
 //  \brief  Class for injecting AGN feedback via thermal dump, kinetic jet, and magnetic tower
 
+#include <cmath>
+
 // Parthenon headers
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
@@ -37,6 +39,12 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_fraction", 0.0)),
       magnetic_fraction_(
           pin->GetOrAddReal("problem/cluster/agn_feedback", "magnetic_fraction", 0.0)),
+      thermal_mass_fraction_(
+          pin->GetOrAddReal("problem/cluster/agn_feedback", "thermal_mass_fraction", NAN)),
+      kinetic_mass_fraction_(
+          pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_mass_fraction", NAN)),
+      magnetic_mass_fraction_(
+          pin->GetOrAddReal("problem/cluster/agn_feedback", "magnetic_mass_fraction", NAN)),
       thermal_radius_(
           pin->GetOrAddReal("problem/cluster/agn_feedback", "thermal_radius", 0.01)),
       kinetic_jet_radius_(
@@ -45,11 +53,31 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_jet_height", 0.02)),
       disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)) {
 
+  //If any mass_fractions aren't set, set to energy fraction
+  if(std::isnan(thermal_mass_fraction_)) thermal_mass_fraction_ = thermal_fraction_; 
+  if(std::isnan(magnetic_mass_fraction_)) magnetic_mass_fraction_ = magnetic_fraction_; 
+  if(std::isnan(kinetic_mass_fraction_)) kinetic_mass_fraction_ = kinetic_fraction_; 
+
   //Normalize the thermal, kinetic, and magnetic fractions to sum to 1.0
   const Real total_frac = thermal_fraction_ + kinetic_fraction_ + magnetic_fraction_;
-  thermal_fraction_ = thermal_fraction_/total_frac;
-  kinetic_fraction_ = kinetic_fraction_/total_frac;
-  magnetic_fraction_ = magnetic_fraction_/total_frac;
+  if( total_frac > 0){
+    thermal_fraction_ = thermal_fraction_/total_frac;
+    kinetic_fraction_ = kinetic_fraction_/total_frac;
+    magnetic_fraction_ = magnetic_fraction_/total_frac;
+  }
+
+  //Normalize the thermal, kinetic, and magnetic mass fractions to sum to 1.0
+  const Real total_mass_frac = thermal_mass_fraction_ + kinetic_mass_fraction_ + magnetic_mass_fraction_;
+  if( total_mass_frac > 0){
+    thermal_mass_fraction_ = thermal_mass_fraction_/total_mass_frac;
+    kinetic_mass_fraction_ = kinetic_mass_fraction_/total_mass_frac;
+    magnetic_mass_fraction_ = magnetic_mass_fraction_/total_mass_frac;
+  }
+
+  PARTHENON_REQUIRE( thermal_fraction_ >= 0 && kinetic_fraction_ >= 0 && magnetic_fraction_ >= 0,
+    "AGN feedback energy fractions must be non-negative.");
+  PARTHENON_REQUIRE( thermal_mass_fraction_ >= 0 && kinetic_mass_fraction_ >= 0 && magnetic_mass_fraction_ >= 0,
+    "AGN feedback mass fractions must be non-negative.");
 
   // Add user history output variable for AGN power
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
@@ -81,6 +109,19 @@ parthenon::Real AGNFeedback::GetFeedbackPower(StateDescriptor *hydro_pkg) const 
 
   return power;
 }
+parthenon::Real AGNFeedback::GetFeedbackMassRate(StateDescriptor *hydro_pkg) const {
+  auto units = hydro_pkg->Param<Units>("units");
+  const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
+
+  const Real accretion_rate = agn_triggering.GetAccretionRate(hydro_pkg);
+
+  //Return a mass_rate equal to the accretion_rate minus energy-mass conversion
+  //to feedback energy. We could divert mass to increase the SMBH/leave out
+  //from mass injection
+  const Real mass_rate = accretion_rate*( 1 - efficiency_);
+
+  return mass_rate;
+}
 
 void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                                   const parthenon::Real beta_dt,
@@ -107,8 +148,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   auto units = hydro_pkg->Param<Units>("units");
 
   const Real power = GetFeedbackPower(hydro_pkg.get());
-  const Real mass_rate =
-      efficiency_ == 0 ? 0 : power / (efficiency_ * pow(units.speed_of_light(), 2));
+  const Real mass_rate = GetFeedbackMassRate(hydro_pkg.get());
 
   if (power == 0 || disabled_) {
     // No AGN feedback, return
@@ -127,34 +167,38 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
+  ////////////////////////////////////////////////////////////////////////////////
   // Thermal quantities
-  const Real thermal_power = power * thermal_fraction_;
-  const Real thermal_scaling_factor = 1 / (4. / 3. * M_PI * pow(thermal_radius_, 3));
-  const Real thermal_feedback =
-      thermal_power * thermal_scaling_factor * beta_dt; // energy/volume
-  const Real thermal_density_rate =
-      mass_rate * thermal_scaling_factor * thermal_fraction_;
+  ////////////////////////////////////////////////////////////////////////////////
   const Real thermal_radius2 = thermal_radius_ * thermal_radius_;
+  const Real thermal_scaling_factor = 1 / (4. / 3. * M_PI * pow(thermal_radius_, 3));
 
+  //Amount of energy/volume to dump in each cell
+  const Real thermal_feedback = thermal_fraction_* power * thermal_scaling_factor * beta_dt;
+  //Amount of density to dump in each cell
+  const Real thermal_density = thermal_mass_fraction_ * mass_rate *  thermal_scaling_factor * beta_dt;
+
+  ////////////////////////////////////////////////////////////////////////////////
   // Kinetic Jet Quantities
-  const Real kinetic_power = power * kinetic_fraction_;
+  ////////////////////////////////////////////////////////////////////////////////
   const Real kinetic_scaling_factor =
       1 / (2 * kinetic_jet_height_ * M_PI * pow(kinetic_jet_radius_, 2));
-  // Matches 1/2.*jet_density*jet_velocity*jet_velocity*beta_dt;
-  const Real kinetic_feedback =
-      kinetic_power * kinetic_scaling_factor * beta_dt; // energy/volume
-
-  // Note that new mass is injected to create the kinetic power, separate from the
-  // existing gas
-  const Real kinetic_jet_total_mass = mass_rate * kinetic_fraction_;
-  const Real kinetic_jet_density_rate =
-      kinetic_jet_total_mass * kinetic_scaling_factor * beta_dt;
-  const Real kinetic_jet_velocity =
-      std::sqrt(2. * kinetic_power / kinetic_jet_total_mass);
-  const Real kinetic_jet_momentum_rate = kinetic_jet_density_rate * kinetic_jet_velocity;
 
   const Real kinetic_jet_radius = kinetic_jet_radius_;
   const Real kinetic_jet_height = kinetic_jet_height_;
+
+  // Matches 1/2.*jet_density*jet_velocity*jet_velocity*beta_dt;
+  const Real kinetic_feedback = kinetic_fraction_ * power * kinetic_scaling_factor * beta_dt; // energy/volume
+
+  //Amount of density to dump in each cell
+  const Real kinetic_density = kinetic_mass_fraction_ * mass_rate * kinetic_scaling_factor * beta_dt;
+
+  //Velocity of added gas
+  const Real kinetic_velocity = std::sqrt(2. * kinetic_fraction_ * power / ( kinetic_fraction_ * mass_rate) );
+
+  //Amount of momentum density ( density * velocity) to dump in each cell
+  const Real kinetic_momentum = kinetic_density * kinetic_velocity;
+  ////////////////////////////////////////////////////////////////////////////////
 
   const parthenon::Real time = tm.time;
 
@@ -176,23 +220,21 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         const Real z = coords.Xc<3>(k);
 
         // Thermal Feedback
-        if (thermal_power > 0) {
+        if (thermal_feedback > 0 || thermal_density > 0) {
           const Real r2 = x * x + y * y + z * z;
           // Determine if point is in sphere r<=thermal_radius
           if (r2 <= thermal_radius2) {
-            // Add density at constant velocity and temperature
-            // HACK Disabling injection of mass with thermal feedback since it
-            // leads to small timesteps
-            //AddDensityToConsAtFixedVelTemp(thermal_density_rate, cons, prim, eos, k, j,i);
             // Then apply heating
-            cons(IEN, k, j, i) += thermal_feedback;
+            if( thermal_feedback > 0)
+              cons(IEN, k, j, i) += thermal_feedback;
             // Add density at constant velocity
-            // AddDensityToConsAtFixedVel(thermal_density_rate, cons, prim, eos, k, j, i);
+            if( thermal_density > 0)
+              AddDensityToConsAtFixedVel(thermal_density, cons, prim, eos, k, j,i);
           }
         }
 
         // Kinetic Jet Feedback
-        if (kinetic_power > 0) {
+        if (kinetic_feedback > 0 || kinetic_density > 0) {
           // Get position in jet cylindrical coords
           Real r, cos_theta, sin_theta, h;
           jet_coords.SimCartToJetCylCoords(x, y, z, r, cos_theta, sin_theta, h);
@@ -207,13 +249,11 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
             const int sign_jet = (h > 0) ? 1 : -1; // Above or below jet-disk
 
-            cons(IDN, k, j, i) += kinetic_jet_density_rate; // mass/volume
-            cons(IM1, k, j, i) += kinetic_jet_momentum_rate * sign_jet * jet_axis_x;
+            cons(IDN, k, j, i) += kinetic_density; // mass/volume
             // velocity*mass/volume
-            cons(IM2, k, j, i) += kinetic_jet_momentum_rate * sign_jet * jet_axis_y;
-            // velocity*mass/volume
-            cons(IM3, k, j, i) += kinetic_jet_momentum_rate * sign_jet * jet_axis_z;
-            // velocity*mass/volume
+            cons(IM1, k, j, i) += kinetic_momentum * sign_jet * jet_axis_x;
+            cons(IM2, k, j, i) += kinetic_momentum * sign_jet * jet_axis_y;
+            cons(IM3, k, j, i) += kinetic_momentum * sign_jet * jet_axis_z;
             cons(IEN, k, j, i) += kinetic_feedback; // energy/volume
           }
         }
