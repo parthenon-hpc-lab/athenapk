@@ -698,13 +698,13 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
       });
 }
 
-Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
+Real TabularCooling::EstimateTimeStep(MeshData<Real> *md, bool force_return_tcool) const {
   // No need to restrict dt for townsend cooling
   // TODO(pgrete) make this optional so that the cfl_cool is detached
   // from the cooling mechanism, because it may still be desireable to
   // not let different physical processes evolve on vastly different
   // timescales.
-  if (integrator_ == CoolIntegrator::townsend) {
+  if (integrator_ == CoolIntegrator::townsend && !force_return_tcool) {
     return std::numeric_limits<Real>::max();
   }
   // Grab member variables for compiler
@@ -759,7 +759,11 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
       },
       reducer_min);
 
-  return cooling_time_cfl_ * min_cooling_time;
+  if (force_return_tcool) {
+    return min_cooling_time;
+  } else {
+    return cooling_time_cfl_ * min_cooling_time;
+  }
 }
 
 void TabularCooling::TestCoolingTable(ParameterInput *pin) const {

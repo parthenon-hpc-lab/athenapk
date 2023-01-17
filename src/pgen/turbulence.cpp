@@ -14,6 +14,7 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "globals.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/mesh.hpp"
 #include <iomanip>
@@ -25,6 +26,7 @@
 #include <string>
 
 // AthenaPK headers
+#include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
 #include "../units.hpp"
 
@@ -471,6 +473,22 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
         }
       });
+
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+  if (enable_cooling == Cooling::tabular) {
+    const auto &tabular_cooling =
+        hydro_pkg->Param<cooling::TabularCooling>("tabular_cooling");
+
+    auto min_cooling_time = tabular_cooling.EstimateTimeStep(md, true);
+#ifdef MPI_PARALLEL
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &min_cooling_time, 1,
+                                      MPI_PARTHENON_REAL, MPI_MIN, MPI_COMM_WORLD));
+#endif // MPI_PARALLEL
+    if (parthenon::Globals::my_rank == 0) {
+      std::cout << "Initial mininum cooling time: " << min_cooling_time
+                << " [code_units]\n";
+    }
+  }
 }
 
 //----------------------------------------------------------------------------------------

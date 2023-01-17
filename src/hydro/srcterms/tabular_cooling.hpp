@@ -203,7 +203,8 @@ class TabularCooling {
                                  const parthenon::Real dt,
                                  const RKStepper rk_stepper) const;
 
-  parthenon::Real EstimateTimeStep(parthenon::MeshData<parthenon::Real> *md) const;
+  parthenon::Real EstimateTimeStep(parthenon::MeshData<parthenon::Real> *md,
+                                   bool force_return_tcool = false) const;
 
   void TestCoolingTable(parthenon::ParameterInput *pin) const;
 };
