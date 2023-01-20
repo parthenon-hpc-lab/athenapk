@@ -60,6 +60,8 @@ else()
   find_package(parthenon REQUIRED)
 endif()
 
+find_package(Boost 1.74.0)
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(src)
 

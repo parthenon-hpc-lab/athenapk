@@ -83,6 +83,9 @@ int main(int argc, char *argv[]) {
   } else if (problem == "cluster") {
     pman.app_input->ProblemGenerator = cluster::ProblemGenerator;
     Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;
+  } else if (problem == "precipitator") {
+    pman.app_input->ProblemGenerator = precipitator::ProblemGenerator;
+    Hydro::ProblemSourceFirstOrder = precipitator::GravitySrcTerm;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {

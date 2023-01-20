@@ -93,6 +93,14 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real);
 } // namespace rand_blast
 
+namespace precipitator {
+using namespace parthenon::driver::prelude;
+
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
+} // namespace cluster
+
 namespace cluster {
 using namespace parthenon::driver::prelude;
 
