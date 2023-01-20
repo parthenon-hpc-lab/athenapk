@@ -32,9 +32,10 @@
 #include <vector>
 
 // AthenaPK headers
+#include "../eos/adiabatic_hydro.hpp"
 #include "../hydro/hydro.hpp"
-#include "../units.hpp"
 #include "../main.hpp"
+#include "../units.hpp"
 
 namespace precipitator {
 using namespace parthenon::driver::prelude;
@@ -93,7 +94,38 @@ class PrecipitatorProfile {
   std::unique_ptr<boost::math::interpolators::pchip<std::vector<double>>> spline_P_;
 };
 
-void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {}
+void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
+  const Real T0_cgs = 1.0e6;  // K
+  const Real mu_cgs = 0.6 * 1.6733e-24; // g
+  const Real kboltz_cgs = 1.380658e-16; // erg/K
+
+  const Real prefac_cgs = kboltz_cgs * T0_cgs / mu_cgs;
+  const Real h_smooth = 10.0e3;
+
+  // convert prefactor to code units
+
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
+  const Real gm1 = (gam - 1.0);
+
+  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "GravSource", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        auto &cons = cons_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
+        const Real z = std::abs(coords.Xc<3>(k));
+        const Real g_z = prefac * SQR(std::tanh(z / h_smooth)) * (1. / z);
+
+        // add energy source term
+        cons(IEN, k, j, i) += 0;
+      });
+}
 
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
