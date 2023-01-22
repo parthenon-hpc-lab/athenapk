@@ -95,23 +95,22 @@ class PrecipitatorProfile {
 };
 
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
-  const Real T0_cgs = 1.0e6;  // K
-  const Real mu_cgs = 0.6 * 1.6733e-24; // g
-  const Real kboltz_cgs = 1.380658e-16; // erg/K
-
-  const Real prefac_cgs = kboltz_cgs * T0_cgs / mu_cgs;
-  const Real h_smooth = 10.0e3;
-
-  // convert prefactor to code units
-
+  // add gravitational source term to hydro equations
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
-  const Real gm1 = (gam - 1.0);
+  auto units = hydro_pkg->Param<Units>("units");
+
+  // TODO(ben): read T0, h_smooth, mu from parameter file
+  const Real T0 = 1.e6;                           // K
+  const Real h_smooth = 10. * units.kpc();        // smoothing scale
+  const Real mu = 0.6 * units.atomic_mass_unit(); // mean molecular weight
+  const Real prefac = units.k_boltzmann() * T0 / mu;
 
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
+  const Real gm1 = (gam - 1.0);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "GravSource", parthenon::DevExecSpace(), 0,
@@ -120,10 +119,24 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         auto &cons = cons_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
         const Real z = std::abs(coords.Xc<3>(k));
-        const Real g_z = prefac * SQR(std::tanh(z / h_smooth)) * (1. / z);
+        const Real g_z = prefac * SQR(std::tanh(z / h_smooth)) / z;
 
-        // add energy source term
-        cons(IEN, k, j, i) += 0;
+        // compute kinetic energy
+        const Real rho = cons(IDN, k, j, i);
+        Real p1 = cons(IM1, k, j, i);
+        Real p2 = cons(IM2, k, j, i);
+        Real p3 = cons(IM3, k, j, i);
+        const Real ke0 = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
+
+        // compute momentum update
+        p3 += dt * rho * g_z;
+
+        // compute energy update
+        const Real ke1 = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
+        const Real dE = ke1 - ke0;
+
+        cons(IM3, k, j, i) = p3;
+        cons(IEN, k, j, i) += dE;
       });
 }
 
