@@ -118,8 +118,8 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         auto &cons = cons_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
-        const Real z = std::abs(coords.Xc<3>(k));
-        const Real g_z = prefac * SQR(std::tanh(z / h_smooth)) / z;
+        const Real z = coords.Xc<3>(k);
+        const Real g_z = -prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z;
 
         // compute kinetic energy
         const Real rho = cons(IDN, k, j, i);
