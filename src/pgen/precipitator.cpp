@@ -24,6 +24,7 @@
 
 // Boost headers
 #include <boost/math/interpolators/pchip.hpp>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
 
 // Parthenon headers
 #include "mesh/mesh.hpp"
@@ -114,6 +115,16 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
   const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
+  auto gz_pointwise = [=](double z) {
+    return -prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z;
+  };
+  auto &coords = cons_pack.GetCoords(0);
+  Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
+  Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
+  Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
+
+  using namespace boost::math::quadrature;
+
   // N.B.: we have to read from cons, but update *both* cons and prim vars
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "GravSource", parthenon::DevExecSpace(), 0,
@@ -123,7 +134,9 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
-        const Real g_z = -prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z;
+        const Real zL = z - 0.5 * dx3;
+        const Real zR = z + 0.5 * dx3;
+        const Real g_z = gauss_kronrod<double, 15>::integrate(gz_pointwise, zL, zR) / dx3;
 
         // compute kinetic energy
         const Real rho = cons(IDN, k, j, i);
@@ -139,9 +152,9 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         const Real ke1 = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
         const Real dE = ke1 - ke0;
 
-        cons(IM3, k, j, i) = p3;  // update z-momentum
-        cons(IEN, k, j, i) += dE; // update total energy
-        prim(IV3, j, k, i) = p3 / rho;  // update z-velocity
+        cons(IM3, k, j, i) = p3;       // update z-momentum
+        cons(IEN, k, j, i) += dE;      // update total energy
+        prim(IV3, j, k, i) = p3 / rho; // update z-velocity
       });
 }
 
@@ -157,6 +170,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto &u_dev = rc->Get("cons").data;
   auto &coords = pmb->coords;
 
+  Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
+  Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
+  Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
+
   // Initialize the conserved variables
   auto u = u_dev.GetHostMirrorAndCopy();
 
@@ -171,21 +188,31 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const PrecipitatorProfile P_rho_profile(filename);
   const Units units(pin);
 
+  using namespace boost::math::quadrature;
+  auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
+  auto f_P = [&](double z) { return P_rho_profile.P(z); };
+
   // initialize conserved variables
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
         // Calculate height
         const Real z = std::abs(coords.Xc<3>(k));
-        const Real z_cgs = z * units.code_length_cgs();
+        const Real zL = z - 0.5 * dx3;
+        const Real zR = z + 0.5 * dx3;
+        const Real zL_cgs = zL * units.code_length_cgs();
+        const Real zR_cgs = zR * units.code_length_cgs();
+        const Real dz_cgs = zR_cgs - zL_cgs;
 
-        // Get pressure and density from generated profile
-        const Real P_cgs = P_rho_profile.P(z_cgs);
-        const Real rho_cgs = P_rho_profile.rho(z_cgs);
+        // Get density and pressure from generated profile
+        const Real rho_cgs =
+            gauss_kronrod<double, 15>::integrate(f_rho, zL_cgs, zR_cgs) / dz_cgs;
+        const Real P_cgs =
+            gauss_kronrod<double, 15>::integrate(f_P, zL_cgs, zR_cgs) / dz_cgs;
 
         // Convert to code units
-        const Real P = P_cgs / units.code_pressure_cgs();
         const Real rho = rho_cgs / units.code_density_cgs();
+        const Real P = P_cgs / units.code_pressure_cgs();
 
         // Fill conserved states, 0 initial velocity
         u(IDN, k, j, i) = rho;
