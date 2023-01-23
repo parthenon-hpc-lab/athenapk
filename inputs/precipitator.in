@@ -67,3 +67,13 @@ profile_filename = ./inputs/tabulated_hse.txt
 code_length_cgs = 3.086e21      # kpc
 code_mass_cgs = 1.98841586e+33  # Msun
 code_time_cgs = 3.15576e+13     # Myr
+
+<cooling>
+enable_cooling = tabular           # turn on with "tabular"
+integrator = townsend
+cfl = 1.0
+
+table_filename = ./inputs/precipitator.cooling
+log_temp_col = 0
+log_lambda_col = 1
+lambda_units_cgs = 1
