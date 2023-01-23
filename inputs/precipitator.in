@@ -69,7 +69,7 @@ code_mass_cgs = 1.98841586e+33  # Msun
 code_time_cgs = 3.15576e+13     # Myr
 
 <cooling>
-enable_cooling = tabular           # turn on with "tabular"
+enable_cooling = none           # turn on with "tabular"
 integrator = townsend
 cfl = 1.0
 
