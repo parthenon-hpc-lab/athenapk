@@ -95,7 +95,8 @@ class PrecipitatorProfile {
 };
 
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
-  // add gravitational source term to hydro equations
+  // add gravitational source term using Strang splitting
+
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto units = hydro_pkg->Param<Units>("units");
 
@@ -106,17 +107,20 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
   const Real prefac = units.k_boltzmann() * T0 / mu;
 
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
   const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
+  // N.B.: we have to read from cons, but update *both* cons and prim vars
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "GravSource", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         auto &cons = cons_pack(b);
+        auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
         const Real g_z = -prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z;
@@ -135,8 +139,9 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         const Real ke1 = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
         const Real dE = ke1 - ke0;
 
-        cons(IM3, k, j, i) = p3;
-        cons(IEN, k, j, i) += dE;
+        cons(IM3, k, j, i) = p3;  // update z-momentum
+        cons(IEN, k, j, i) += dE; // update total energy
+        prim(IV3, j, k, i) = p3 / rho;  // update z-velocity
       });
 }
 
