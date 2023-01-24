@@ -18,7 +18,7 @@ id         = prim      # Name to append to output
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 250.0       # time limit
+tlim       = 60.0       # time limit
 integrator  = vl2       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
@@ -39,9 +39,9 @@ x2max      = 50.0       # maximum value of X2
 ix2_bc     = periodic   # inner-X2 boundary flag
 ox2_bc     = periodic   # outer-X2 boundary flag
 
-nx3        = 128       # Number of zones in X3-direction
-x3min      = -50.       # minimum value of X3
-x3max      = 50.       # maximum value of X3
+nx3        = 256       # Number of zones in X3-direction
+x3min      = -100.       # minimum value of X3
+x3max      = 100.       # maximum value of X3
 ix3_bc     = reflecting   # inner-X3 boundary flag
 ox3_bc     = reflecting   # outer-X3 boundary flag
 
