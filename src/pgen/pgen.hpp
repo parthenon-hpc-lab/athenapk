@@ -99,6 +99,8 @@ using namespace parthenon::driver::prelude;
 void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
+void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
+void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
 } // namespace cluster
 
 namespace cluster {

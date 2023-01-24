@@ -12,13 +12,13 @@ dt         = 1.0      # time increment between outputs
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = prim      # Variables to be output
-dt         = 10.0     # Time increment between outputs
+dt         = 100.0     # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 60.0       # time limit
+tlim       = 960.0       # time limit
 integrator  = vl2       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
@@ -42,8 +42,8 @@ ox2_bc     = periodic   # outer-X2 boundary flag
 nx3        = 256       # Number of zones in X3-direction
 x3min      = -100.       # minimum value of X3
 x3max      = 100.       # maximum value of X3
-ix3_bc     = reflecting   # inner-X3 boundary flag
-ox3_bc     = reflecting   # outer-X3 boundary flag
+ix3_bc     = user   # inner-X3 boundary flag
+ox3_bc     = user   # outer-X3 boundary flag
 
 
 <parthenon/meshblock>

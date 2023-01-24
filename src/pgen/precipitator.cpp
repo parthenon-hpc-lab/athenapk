@@ -46,6 +46,11 @@ class PrecipitatorProfile {
  public:
   PrecipitatorProfile(std::string const &filename) { readProfile(filename); }
 
+  PrecipitatorProfile(PrecipitatorProfile const &rhs) {
+    spline_rho_ = rhs.spline_rho_;
+    spline_P_ = rhs.spline_P_;
+  }
+
   inline void readProfile(std::string const &filename) {
     // read in tabulated profile from text file 'filename'
     std::ifstream fstream(filename, std::ios::in);
@@ -72,9 +77,9 @@ class PrecipitatorProfile {
     }
 
     spline_rho_ =
-        std::make_unique<boost::math::interpolators::pchip<std::vector<double>>>(
+        std::make_shared<boost::math::interpolators::pchip<std::vector<double>>>(
             std::move(z_rho_), std::move(rho_));
-    spline_P_ = std::make_unique<boost::math::interpolators::pchip<std::vector<double>>>(
+    spline_P_ = std::make_shared<boost::math::interpolators::pchip<std::vector<double>>>(
         std::move(z_P_), std::move(P_));
   }
 
@@ -91,8 +96,8 @@ class PrecipitatorProfile {
  private:
   // use monotonic cubic Hermite polynomial interpolation
   // (https://doi.org/10.1137/0717021)
-  std::unique_ptr<boost::math::interpolators::pchip<std::vector<double>>> spline_rho_;
-  std::unique_ptr<boost::math::interpolators::pchip<std::vector<double>>> spline_P_;
+  std::shared_ptr<boost::math::interpolators::pchip<std::vector<double>>> spline_rho_;
+  std::shared_ptr<boost::math::interpolators::pchip<std::vector<double>>> spline_P_;
 };
 
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
@@ -158,8 +163,134 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
       });
 }
 
+void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
+  std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
+  auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
+  const auto nb = IndexRange{0, 0};
+
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  auto &coords = pmb->coords;
+  Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
+  Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
+  Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
+
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  auto units = hydro_pkg->Param<Units>("units");
+  const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
+  const Real gm1 = (gam - 1.0);
+
+  const auto &P_rho_profile =
+      hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
+  auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
+  auto f_P = [&](double z) { return P_rho_profile.P(z); };
+
+  using namespace boost::math::quadrature;
+  pmb->par_for_bndry(
+      "HydrostaticInnerX3", nb, IndexDomain::inner_x3, coarse,
+      KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
+        const Real z = std::abs(coords.Xc<3>(k));
+        const Real zL = z - 0.5 * dx3;
+        const Real zR = z + 0.5 * dx3;
+        const Real zL_cgs = zL * units.code_length_cgs();
+        const Real zR_cgs = zR * units.code_length_cgs();
+        const Real dz_cgs = zR_cgs - zL_cgs;
+
+        // Get density and pressure from generated profile
+        const Real rho_cgs =
+            gauss_kronrod<double, 15>::integrate(f_rho, zL_cgs, zR_cgs) / dz_cgs;
+        const Real P_cgs =
+            gauss_kronrod<double, 15>::integrate(f_P, zL_cgs, zR_cgs) / dz_cgs;
+
+        // Convert to code units
+        const Real rho = rho_cgs / units.code_density_cgs();
+        const Real P = P_cgs / units.code_pressure_cgs();
+
+        // Get interior cell values
+        const Real rho_interior = cons(IDN, kb.s, j, i);
+        const Real vx_interior = cons(IM1, kb.s, j, i) / rho_interior;
+        const Real vy_interior = cons(IM2, kb.s, j, i) / rho_interior;
+        const Real vz_interior = cons(IM3, kb.s, j, i) / rho_interior;
+        const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) + SQR(vz_interior);
+
+        cons(IDN, k, j, i) = rho;
+        cons(IM1, k, j, k) = rho * vx_interior;
+        cons(IM2, k, j, i) = rho * vy_interior;
+        cons(IM3, k, j, i) = rho * vz_interior;
+        cons(IEN, k, j, i) = P / gm1 + 0.5 * rho * vsq_interior;
+      });
+}
+
+void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
+  std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
+  auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
+  const auto nb = IndexRange{0, 0};
+
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  auto &coords = pmb->coords;
+  Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
+  Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
+  Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
+
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  auto units = hydro_pkg->Param<Units>("units");
+  const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
+  const Real gm1 = (gam - 1.0);
+
+  const auto &P_rho_profile =
+      hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
+  auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
+  auto f_P = [&](double z) { return P_rho_profile.P(z); };
+
+  using namespace boost::math::quadrature;
+  pmb->par_for_bndry(
+      "HydrostaticOuterX3", nb, IndexDomain::outer_x3, coarse,
+      KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
+        const Real z = std::abs(coords.Xc<3>(k));
+        const Real zL = z - 0.5 * dx3;
+        const Real zR = z + 0.5 * dx3;
+        const Real zL_cgs = zL * units.code_length_cgs();
+        const Real zR_cgs = zR * units.code_length_cgs();
+        const Real dz_cgs = zR_cgs - zL_cgs;
+
+        // Get density and pressure from generated profile
+        const Real rho_cgs =
+            gauss_kronrod<double, 15>::integrate(f_rho, zL_cgs, zR_cgs) / dz_cgs;
+        const Real P_cgs =
+            gauss_kronrod<double, 15>::integrate(f_P, zL_cgs, zR_cgs) / dz_cgs;
+
+        // Convert to code units
+        const Real rho = rho_cgs / units.code_density_cgs();
+        const Real P = P_cgs / units.code_pressure_cgs();
+
+        // Get interior cell values
+        const Real rho_interior = cons(IDN, kb.e, j, i);
+        const Real vx_interior = cons(IM1, kb.e, j, i) / rho_interior;
+        const Real vy_interior = cons(IM2, kb.e, j, i) / rho_interior;
+        const Real vz_interior = cons(IM3, kb.e, j, i) / rho_interior;
+        const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) + SQR(vz_interior);
+
+        cons(IDN, k, j, i) = rho;
+        cons(IM1, k, j, k) = rho * vx_interior;
+        cons(IM2, k, j, i) = rho * vy_interior;
+        cons(IM3, k, j, i) = rho * vz_interior;
+        cons(IEN, k, j, i) = P / gm1 + 0.5 * rho * vsq_interior;
+      });
+}
+
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
+  if (pmb->lid == 0) {
+    /************************************************************
+     * Initialize a HydrostaticEquilibriumSphere
+     ************************************************************/
+    const auto &filename = pin->GetString("hydro", "profile_filename");
+    const PrecipitatorProfile P_rho_profile(filename);
+    hydro_pkg->AddParam<>("precipitator_profile", P_rho_profile);
+  }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -181,12 +312,9 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real gam = pin->GetReal("hydro", "gamma");
   const Real gm1 = (gam - 1.0);
 
-  /************************************************************
-   * Initialize a HydrostaticEquilibriumSphere
-   ************************************************************/
-  const auto &filename = pin->GetString("hydro", "profile_filename");
-  const PrecipitatorProfile P_rho_profile(filename);
   const Units units(pin);
+  const auto &P_rho_profile =
+      hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
 
   using namespace boost::math::quadrature;
   auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
