@@ -24,7 +24,6 @@
 
 // Boost headers
 #include <boost/math/interpolators/pchip.hpp>
-#include <boost/math/quadrature/gauss_kronrod.hpp>
 
 // Parthenon headers
 #include "mesh/mesh.hpp"
@@ -128,8 +127,6 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
   Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
   Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
 
-  using namespace boost::math::quadrature;
-
   // N.B.: we have to read from cons, but update *both* cons and prim vars
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "GravSource", parthenon::DevExecSpace(), 0,
@@ -139,9 +136,7 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
-        const Real zL = z - 0.5 * dx3;
-        const Real zR = z + 0.5 * dx3;
-        const Real g_z = gauss_kronrod<double, 15>::integrate(gz_pointwise, zL, zR) / dx3;
+        const Real g_z = gz_pointwise(z);
 
         // compute kinetic energy
         const Real rho = cons(IDN, k, j, i);
@@ -186,22 +181,14 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
   auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
   auto f_P = [&](double z) { return P_rho_profile.P(z); };
 
-  using namespace boost::math::quadrature;
   pmb->par_for_bndry(
       "HydrostaticInnerX3", nb, IndexDomain::inner_x3, coarse,
       KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
-        const Real z = std::abs(coords.Xc<3>(k));
-        const Real zL = z - 0.5 * dx3;
-        const Real zR = z + 0.5 * dx3;
-        const Real zL_cgs = zL * units.code_length_cgs();
-        const Real zR_cgs = zR * units.code_length_cgs();
-        const Real dz_cgs = zR_cgs - zL_cgs;
+        const Real z = std::abs(coords.Xc<3>(k)) * units.code_length_cgs();
 
         // Get density and pressure from generated profile
-        const Real rho_cgs =
-            gauss_kronrod<double, 15>::integrate(f_rho, zL_cgs, zR_cgs) / dz_cgs;
-        const Real P_cgs =
-            gauss_kronrod<double, 15>::integrate(f_P, zL_cgs, zR_cgs) / dz_cgs;
+        const Real rho_cgs = f_rho(z);
+        const Real P_cgs = f_P(z);
 
         // Convert to code units
         const Real rho = rho_cgs / units.code_density_cgs();
@@ -245,22 +232,14 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
   auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
   auto f_P = [&](double z) { return P_rho_profile.P(z); };
 
-  using namespace boost::math::quadrature;
   pmb->par_for_bndry(
       "HydrostaticOuterX3", nb, IndexDomain::outer_x3, coarse,
       KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
-        const Real z = std::abs(coords.Xc<3>(k));
-        const Real zL = z - 0.5 * dx3;
-        const Real zR = z + 0.5 * dx3;
-        const Real zL_cgs = zL * units.code_length_cgs();
-        const Real zR_cgs = zR * units.code_length_cgs();
-        const Real dz_cgs = zR_cgs - zL_cgs;
+        const Real z = std::abs(coords.Xc<3>(k)) * units.code_length_cgs();
 
         // Get density and pressure from generated profile
-        const Real rho_cgs =
-            gauss_kronrod<double, 15>::integrate(f_rho, zL_cgs, zR_cgs) / dz_cgs;
-        const Real P_cgs =
-            gauss_kronrod<double, 15>::integrate(f_P, zL_cgs, zR_cgs) / dz_cgs;
+        const Real rho_cgs = f_rho(z);
+        const Real P_cgs = f_P(z);
 
         // Convert to code units
         const Real rho = rho_cgs / units.code_density_cgs();
@@ -316,7 +295,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const auto &P_rho_profile =
       hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
 
-  using namespace boost::math::quadrature;
   auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
   auto f_P = [&](double z) { return P_rho_profile.P(z); };
 
@@ -325,18 +303,11 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
         // Calculate height
-        const Real z = std::abs(coords.Xc<3>(k));
-        const Real zL = z - 0.5 * dx3;
-        const Real zR = z + 0.5 * dx3;
-        const Real zL_cgs = zL * units.code_length_cgs();
-        const Real zR_cgs = zR * units.code_length_cgs();
-        const Real dz_cgs = zR_cgs - zL_cgs;
+        const Real z = std::abs(coords.Xc<3>(k)) * units.code_length_cgs();
 
         // Get density and pressure from generated profile
-        const Real rho_cgs =
-            gauss_kronrod<double, 15>::integrate(f_rho, zL_cgs, zR_cgs) / dz_cgs;
-        const Real P_cgs =
-            gauss_kronrod<double, 15>::integrate(f_P, zL_cgs, zR_cgs) / dz_cgs;
+        const Real rho_cgs = f_rho(z);
+        const Real P_cgs = f_P(z);
 
         // Convert to code units
         const Real rho = rho_cgs / units.code_density_cgs();
