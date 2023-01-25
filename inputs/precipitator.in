@@ -12,13 +12,13 @@ dt         = 1.0      # time increment between outputs
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = prim      # Variables to be output
-dt         = 100.0     # Time increment between outputs
+dt         = 10.0     # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 960.0       # time limit
+tlim       = 100.0       # time limit
 integrator  = vl2       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
@@ -27,19 +27,19 @@ perf_cycle_offset  = 10 # interval for stdout summary info
 refinement  = static
 nghost = 4
 
-nx1        = 128       # Number of zones in X1-direction
+nx1        = 64       # Number of zones in X1-direction
 x1min      = -50.       # minimum value of X1
 x1max      = 50.0       # maximum value of X1
 ix1_bc     = periodic   # inner-X1 boundary flag
 ox1_bc     = periodic   # outer-X1 boundary flag
 
-nx2        = 128       # Number of zones in X2-direction
+nx2        = 64       # Number of zones in X2-direction
 x2min      = -50.0       # minimum value of X2
 x2max      = 50.0       # maximum value of X2
 ix2_bc     = periodic   # inner-X2 boundary flag
 ox2_bc     = periodic   # outer-X2 boundary flag
 
-nx3        = 256       # Number of zones in X3-direction
+nx3        = 128       # Number of zones in X3-direction
 x3min      = -100.       # minimum value of X3
 x3max      = 100.       # maximum value of X3
 ix3_bc     = user   # inner-X3 boundary flag
@@ -47,9 +47,9 @@ ox3_bc     = user   # outer-X3 boundary flag
 
 
 <parthenon/meshblock>
-nx1        = 64        # Number of zones in X1-direction
-nx2        = 64        # Number of zones in X2-direction
-nx3        = 64        # Number of zones in X3-direction
+nx1        = 32        # Number of zones in X1-direction
+nx2        = 32        # Number of zones in X2-direction
+nx3        = 32        # Number of zones in X3-direction
 
 <hydro>
 gamma = 1.6666666666666667 # gamma = C_p/C_v
