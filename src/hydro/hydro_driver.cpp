@@ -151,7 +151,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   }
 
   // Calculate 1D profile of cooling rate
-  // TODO(ben): actually compute the cooling rate, rather than using some dummy data
   if (stage == 1) {
     auto pkg = blocks[0]->packages.Get("Hydro");
 
@@ -159,6 +158,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     AllReduce<parthenon::HostArray1D<Real>> *pview_reduce =
         pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("view_reduce");
 
+    // TODO(ben): actually compute the cooling rate, rather than using some dummy data
     for (int i = 0; i < pview_reduce->val.size(); i++) {
       pview_reduce->val(i) = 0;
     }
