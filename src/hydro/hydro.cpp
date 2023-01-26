@@ -198,13 +198,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // global reduction on a vector
   parthenon::AllReduce<parthenon::HostArray1D<Real>> view_reduce;
   view_reduce.val = parthenon::HostArray1D<Real>("Reduce me", 10);
-  // First initialize to some values
-  for (int i = 0; i < view_reduce.val.size(); i++) {
-    view_reduce.val(i) = 0;
-  }
-  for (int i = 0; i < view_reduce.val.size(); i++) {
-    view_reduce.val(i) += i;
-  }
   pkg->AddParam("view_reduce", view_reduce, true);
 
 

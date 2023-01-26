@@ -155,6 +155,17 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   if (stage == 1) {
     auto pkg = blocks[0]->packages.Get("Hydro");
 
+    // initialize values
+    AllReduce<parthenon::HostArray1D<Real>> *pview_reduce =
+        pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("view_reduce");
+
+    for (int i = 0; i < pview_reduce->val.size(); i++) {
+      pview_reduce->val(i) = 0;
+    }
+    for (int i = 0; i < pview_reduce->val.size(); i++) {
+      pview_reduce->val(i) += i;
+    }
+
     // create task region
     int reg_dep_id;
     TaskRegion &solver_region = tc.AddRegion(num_partitions);
@@ -163,10 +174,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       reg_dep_id = 0;
       TaskList &tl = solver_region[i];
 
-      AllReduce<parthenon::HostArray1D<Real>> *pview_reduce =
-          pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("view_reduce");
-
-      // The views are filled in the package
+      // NOTE: this is an *in-place* reduction! view_reduce is _modified_ in-place.
       TaskID start_view_reduce =
           (i == 0
                ? tl.AddTask(none, &AllReduce<parthenon::HostArray1D<Real>>::StartReduce,
@@ -181,7 +189,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       reg_dep_id++;
 
       // Print results
-      // FIXME(ben): gives the right answer on the first timestep, but wrong on the rest??
       auto report_view =
           (i == 0 && parthenon::Globals::my_rank == 0
                ? tl.AddTask(
