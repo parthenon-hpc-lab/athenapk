@@ -150,6 +150,65 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         hydro_pkg.get());
   }
 
+  // Calculate 1D profile of cooling rate
+  if (stage == 1) {
+    auto pkg = blocks[0]->packages.Get("Hydro");
+
+    // create task region
+    int reg_dep_id;
+    TaskRegion &solver_region = tc.AddRegion(num_partitions);
+
+    for (int i = 0; i < num_partitions; i++) {
+      reg_dep_id = 0;
+      TaskList &tl = solver_region[i];
+
+      AllReduce<parthenon::HostArray1D<Real>> *pview_reduce =
+          pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("view_reduce");
+
+      // The views are filled in the package
+      TaskID start_view_reduce =
+          (i == 0
+               ? tl.AddTask(none, &AllReduce<parthenon::HostArray1D<Real>>::StartReduce,
+                            pview_reduce, MPI_SUM)
+               : none);
+
+      // Test the reduction until it completes
+      TaskID finish_view_reduce =
+          tl.AddTask(start_view_reduce,
+                     &AllReduce<parthenon::HostArray1D<Real>>::CheckReduce, pview_reduce);
+      solver_region.AddRegionalDependencies(reg_dep_id, i, finish_view_reduce);
+      reg_dep_id++;
+
+      // Print results
+      // FIXME(ben): gives the right answer on the first timestep, but wrong on the rest??
+      auto report_view =
+          (i == 0 && parthenon::Globals::my_rank == 0
+               ? tl.AddTask(
+                     finish_view_reduce,
+                     [num_partitions](parthenon::HostArray1D<Real> *view) {
+                       auto &v = *view;
+
+                       std::cout << "View reduction: ";
+                       for (int n = 0; n < v.size(); n++) {
+                         std::cout << v(n) << " ";
+                       }
+                       std::cout << std::endl;
+
+                       std::cout << "Should be:     ";
+                       for (int n = 0; n < v.size(); n++) {
+                         std::cout << static_cast<Real>(n * num_partitions *
+                                                        parthenon::Globals::nranks)
+                                   << " ";
+                       }
+                       std::cout << "\n\n";
+
+                       return TaskStatus::complete;
+                     },
+                     &(pview_reduce->val))
+               : none);
+    }
+  }
+
   // First add split sources before the main time integration
   if (stage == 1) {
     TaskRegion &strang_init_region = tc.AddRegion(num_partitions);
