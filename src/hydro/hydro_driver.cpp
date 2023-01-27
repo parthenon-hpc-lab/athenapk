@@ -4,15 +4,19 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <_types/_uint64_t.h>
 #include <limits>
 #include <memory>
 #include <string>
+#include <sys/types.h>
 #include <utility>
 #include <vector>
 
 // Parthenon headers
+#include "Kokkos_Macros.hpp"
 #include "amr_criteria/refinement_package.hpp"
 #include "bvals/cc/bvals_cc_in_one.hpp"
+#include "kokkos_abstraction.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
@@ -70,6 +74,56 @@ TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
   if (mindx < mindx_pkg) {
     hydro_pkg->UpdateParam("mindx", mindx);
   }
+
+  return TaskStatus::complete;
+}
+
+KOKKOS_FORCEINLINE_FUNCTION auto computeCoolingRate(Real rho, Real P) -> Real {
+  // return instantaneous cooling rate for gas with density 'rho' and pressure 'P'
+  // TODO(ben): implement this
+  return 1;
+}
+
+// Calculate the 1D cooling rate profile in histogram bins
+TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto pkg = pmb->packages.Get("Hydro");
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  AllReduce<parthenon::HostArray1D<Real>> *profile_reduce =
+      pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("profile_reduce");
+  AllReduce<parthenon::HostArray1D<uint64_t>> *cellCount_reduce =
+      pkg->MutableParam<AllReduce<parthenon::HostArray1D<uint64_t>>>("cellCount_reduce");
+
+  // TODO(ben): find where this is stored in AthenaPK...
+  const Real z0 = -100.;
+  const Real z1 = 100.; // upper bound of z coordinate
+
+  const uint64_t size = profile_reduce->val.size();
+  const uint64_t max_idx = size - 1;
+  const Real dz_hist = (z1 - z0) / size;
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "AxisAlignedProfile", parthenon::DevExecSpace(), 0,
+      prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        auto &prim = prim_pack(b);
+        const auto &coords = prim_pack.GetCoords(b);
+        const Real z = coords.Xc<3>(k);
+        const Real rho = prim(IDN, k, j, i);
+        const Real P = prim(IPR, k, j, i);
+        const Real Edot = computeCoolingRate(rho, P);
+
+        int idx = static_cast<int>((z - z0) / dz_hist);
+        idx = (idx > max_idx) ? max_idx : idx;
+        idx = (idx < 0) ? 0 : idx;
+        Kokkos::atomic_add(&profile_reduce->val(idx), Edot);
+        Kokkos::atomic_increment(&cellCount_reduce->val(idx));
+      });
 
   return TaskStatus::complete;
 }
@@ -156,14 +210,14 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
     // initialize values
     AllReduce<parthenon::HostArray1D<Real>> *pview_reduce =
-        pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("view_reduce");
+        pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("profile_reduce");
+    AllReduce<parthenon::HostArray1D<uint64_t>> *cellCount_reduce =
+        pkg->MutableParam<AllReduce<parthenon::HostArray1D<uint64_t>>>(
+            "cellCount_reduce");
 
-    // TODO(ben): actually compute the cooling rate, rather than using some dummy data
     for (int i = 0; i < pview_reduce->val.size(); i++) {
       pview_reduce->val(i) = 0;
-    }
-    for (int i = 0; i < pview_reduce->val.size(); i++) {
-      pview_reduce->val(i) += i;
+      cellCount_reduce->val(i) = 0;
     }
 
     // create task region
@@ -174,12 +228,16 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       reg_dep_id = 0;
       TaskList &tl = solver_region[i];
 
+      // compute sum over local blocks
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      TaskID local_sum = (i == 0 ? tl.AddTask(none, CalculateCoolingRateProfile, mu0.get()) : none);
+
       // NOTE: this is an *in-place* reduction! view_reduce is _modified_ in-place.
       TaskID start_view_reduce =
-          (i == 0
-               ? tl.AddTask(none, &AllReduce<parthenon::HostArray1D<Real>>::StartReduce,
-                            pview_reduce, MPI_SUM)
-               : none);
+          (i == 0 ? tl.AddTask(local_sum,
+                               &AllReduce<parthenon::HostArray1D<Real>>::StartReduce,
+                               pview_reduce, MPI_SUM)
+                  : none);
 
       // Test the reduction until it completes
       TaskID finish_view_reduce =
@@ -189,31 +247,20 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       reg_dep_id++;
 
       // Print results
-      auto report_view =
-          (i == 0 && parthenon::Globals::my_rank == 0
-               ? tl.AddTask(
-                     finish_view_reduce,
-                     [num_partitions](parthenon::HostArray1D<Real> *view) {
-                       auto &v = *view;
-
-                       std::cout << "View reduction: ";
-                       for (int n = 0; n < v.size(); n++) {
-                         std::cout << v(n) << " ";
-                       }
-                       std::cout << std::endl;
-
-                       std::cout << "Should be:     ";
-                       for (int n = 0; n < v.size(); n++) {
-                         std::cout << static_cast<Real>(n * num_partitions *
-                                                        parthenon::Globals::nranks)
-                                   << " ";
-                       }
-                       std::cout << "\n\n";
-
-                       return TaskStatus::complete;
-                     },
-                     &(pview_reduce->val))
-               : none);
+      auto report_view = (i == 0 && parthenon::Globals::my_rank == 0
+                              ? tl.AddTask(
+                                    finish_view_reduce,
+                                    [num_partitions](parthenon::HostArray1D<Real> *view) {
+                                      auto &v = *view;
+                                      std::cout << "View reduction: ";
+                                      for (int n = 0; n < v.size(); n++) {
+                                        std::cout << v(n) << " ";
+                                      }
+                                      std::cout << std::endl;
+                                      return TaskStatus::complete;
+                                    },
+                                    &(pview_reduce->val))
+                              : none);
     }
   }
 

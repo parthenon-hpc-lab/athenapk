@@ -29,10 +29,12 @@
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
+#include "kokkos_abstraction.hpp"
 #include "outputs/outputs.hpp"
 #include "rsolvers/rsolvers.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
+#include "utils/reductions.hpp"
 
 using namespace parthenon::package::prelude;
 
@@ -197,8 +199,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   // global reduction on a vector
   parthenon::AllReduce<parthenon::HostArray1D<Real>> view_reduce;
-  view_reduce.val = parthenon::HostArray1D<Real>("Reduce me", 10);
-  pkg->AddParam("view_reduce", view_reduce, true);
+  parthenon::AllReduce<parthenon::HostArray1D<uint64_t>> count_reduce;
+  const int numHist = 8;
+  view_reduce.val = parthenon::HostArray1D<Real>("Reduce me", numHist);
+  count_reduce.val = parthenon::HostArray1D<uint64_t>("Reduce me, too", numHist);
+  pkg->AddParam("profile_reduce", view_reduce, true);
+  pkg->AddParam("cellCount_reduce", count_reduce, true);
 
 
   if (fluid_str == "euler") {

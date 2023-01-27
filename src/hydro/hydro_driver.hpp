@@ -27,6 +27,9 @@ class HydroDriver : public MultiStageDriver {
   auto MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskCollection;
 };
 
+TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md);
+KOKKOS_FORCEINLINE_FUNCTION auto computeCoolingRate(Real rho, Real P) -> Real;
+
 } // namespace Hydro
 
 #endif // HYDRO_HYDRO_DRIVER_HPP_
