@@ -101,6 +101,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
 void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
 void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
+void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime const &tm);
 } // namespace cluster
 
 namespace cluster {

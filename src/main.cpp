@@ -90,6 +90,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x3] =
         precipitator::HydrostaticOuterX3;
     Hydro::ProblemSourceFirstOrder = precipitator::GravitySrcTerm;
+    pman.app_input->PostStepMeshUserWorkInLoop = precipitator::PostStepMeshUserWorkInLoop;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {
