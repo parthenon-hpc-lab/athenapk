@@ -10,6 +10,7 @@ using namespace conduit;
 
 // reference:
 // https://llnl-conduit.readthedocs.io/en/latest/blueprint_mesh.html#complete-uniform-example
+//
 void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
   // Ascent needs the MPI communicator we are using
   Ascent a;
@@ -17,6 +18,7 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
   ascent_opts["mpi_comm"] = MPI_Comm_c2f(MPI_COMM_WORLD);
   a.open(ascent_opts);
 
+  // create root node for the whole mesh
   Node root;
 
   for (auto &thisMeshBlock : par_mesh->block_list) {
@@ -74,9 +76,7 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
     }
 
     // add the topology
-    // this case is simple b/c it's implicitly derived from the coordinate set
     mesh["topologies/topo/type"] = "uniform";
-    // reference the coordinate set by name
     mesh["topologies/topo/coordset"] = "coords";
 
     // indicate ghost zones with ascent_ghosts set to 1
@@ -100,28 +100,18 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
     }
 
     // for each variable:
-
-    // add a simple element-associated field
-    mesh["fields/my_var_name/association"] = "element";
-    // reference the topology this field is defined on by name
-    mesh["fields/my_var_name/topology"] = "topo";
-
-    // set the field values
+    mesh["fields/density/association"] = "element";
+    mesh["fields/density/topology"] = "topo";
     int nvar = 0;
-    mesh["fields/my_var_name/values"].set_external(&vars(nvar, 0, 0, 0), ncells);
+    mesh["fields/density/values"].set_external(&vars(nvar, 0, 0, 0), ncells);
   }
 
   // make sure we conform:
   Node verify_info;
   if (!blueprint::mesh::verify(root, verify_info)) {
-    std::cout << "Verify failed!" << std::endl;
+    std::cout << "blueprint::mesh::verify failed!" << std::endl;
     verify_info.print();
   }
-
-  // save our mesh to a file that can be read by VisIt
-  // this will create the file: complete_uniform_mesh_example.root
-  // which includes the mesh blueprint index and the mesh data
-  // conduit::relay::io::blueprint::save_mesh(root, "complete_mesh", "json");
   a.publish(root);
 
   // setup actions
@@ -132,7 +122,7 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
   // declare a scene (s1) with one plot (p1)
   Node &scenes = add_act["scenes"];
   scenes["s1/plots/p1/type"] = "pseudocolor";
-  scenes["s1/plots/p1/field"] = "my_var_name";
+  scenes["s1/plots/p1/field"] = "density";
 
   // Set the output file name (ascent will add ".png")
   scenes["s1/image_prefix"] = "ascent_render";
