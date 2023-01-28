@@ -32,6 +32,7 @@ compile_commands.json
 *.phdf.xdmf
 *.dat
 *.hst
+*.png
 
 # jupyter notebook temp files
 .ipynb_checkpoints
