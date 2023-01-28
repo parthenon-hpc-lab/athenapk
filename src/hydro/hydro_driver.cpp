@@ -99,13 +99,12 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   AllReduce<parthenon::HostArray1D<uint64_t>> *cellCount_reduce =
       pkg->MutableParam<AllReduce<parthenon::HostArray1D<uint64_t>>>("cellCount_reduce");
 
-  // TODO(ben): find where this is stored in AthenaPK...
-  const Real z0 = -100.;
-  const Real z1 = 100.; // upper bound of z coordinate
-
+  auto pm = md->GetParentPointer();
+  const Real x3min = pm->mesh_size.x3min;
+  const Real Lz = pm->mesh_size.x3max - pm->mesh_size.x3min;
   const uint64_t size = profile_reduce->val.size();
   const uint64_t max_idx = size - 1;
-  const Real dz_hist = (z1 - z0) / size;
+  const Real dz_hist = Lz / size;
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "AxisAlignedProfile", parthenon::DevExecSpace(), 0,
@@ -118,7 +117,7 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
         const Real P = prim(IPR, k, j, i);
         const Real Edot = computeCoolingRate(rho, P);
 
-        int idx = static_cast<int>((z - z0) / dz_hist);
+        int idx = static_cast<int>((z - x3min) / dz_hist);
         idx = (idx > max_idx) ? max_idx : idx;
         idx = (idx < 0) ? 0 : idx;
         Kokkos::atomic_add(&profile_reduce->val(idx), Edot);
