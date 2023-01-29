@@ -20,11 +20,11 @@
       plots: 
         p1: 
           type: "pseudocolor"
-          field: "prim_4"
+          field: "Velocity3"
           pipeline: "pl1"
       renders:
         r1:
-          image_prefix: "pressure%05d"
+          image_prefix: "vz%05d"
           annotations: "true"
           camera:
             look_at: [0.0, 0.0, 0.0]

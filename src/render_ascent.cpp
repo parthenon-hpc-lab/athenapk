@@ -1,7 +1,9 @@
 #include "render_ascent.hpp"
 #include "defs.hpp"
 #include "interface/metadata.hpp"
+#include "interface/variable.hpp"
 #include "mesh/domain.hpp"
+#include <memory>
 #include <string>
 
 using namespace parthenon::package::prelude;
@@ -103,8 +105,18 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
     const auto &vars = mbd->PackVariables(std::vector<std::string>{"prim"});
     const int nvars = vars.GetDim(4);
 
+    auto &var_vec = mbd->GetCellVariableVector();
+    std::shared_ptr<parthenon::CellVariable<Real>> prim_vars;
+    for ( auto &var_block : var_vec ) {
+      if (var_block->label() == "prim") {
+        prim_vars = var_block;
+      }
+    }
+    auto &labels = prim_vars->metadata().getComponentLabels();
+    assert(nvars == labels.size());
+
     for (int ivar = 0; ivar < nvars; ++ivar) {
-      const std::string varname = "prim_" + std::to_string(ivar);
+      const std::string varname = labels.at(ivar);
       mesh["fields/" + varname + "/association"] = "element";
       mesh["fields/" + varname + "/topology"] = "topo";
       mesh["fields/" + varname + "/values"].set_external(&vars(ivar, 0, 0, 0), ncells);
@@ -127,7 +139,7 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
   // declare a scene (s1) with one plot (p1)
   Node &scenes = add_act["scenes"];
   scenes["s1/plots/p1/type"] = "pseudocolor";
-  scenes["s1/plots/p1/field"] = "prim_0";
+  scenes["s1/plots/p1/field"] = "Density";
 
   // Set the output file name (ascent will add ".png")
   scenes["s1/image_prefix"] = "ascent_render";
