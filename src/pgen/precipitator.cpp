@@ -35,8 +35,9 @@
 #include "../eos/adiabatic_hydro.hpp"
 #include "../hydro/hydro.hpp"
 #include "../main.hpp"
-#include "../units.hpp"
 #include "../render_ascent.hpp"
+#include "../units.hpp"
+#include "outputs/outputs.hpp"
 
 namespace precipitator {
 using namespace parthenon::driver::prelude;
@@ -328,14 +329,17 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   u_dev.DeepCopy(u);
 }
 
-void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime const &tm) {
+void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin,
+                                parthenon::SimTime const &tm) {
   // call Ascent every ascent_interval timesteps
   const int ascent_interval = 10;
   if (!(tm.ncycle % ascent_interval == 0)) {
     return;
   }
-
-  std::cout << "\nRendering ascent (step = " << tm.ncycle << ")..." << std::endl;
+  
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "\nRendering ascent (step = " << tm.ncycle << ")..." << std::endl;
+  }
   render_ascent(mesh, pin, tm);
 }
 

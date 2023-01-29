@@ -107,7 +107,7 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
 
     auto &var_vec = mbd->GetCellVariableVector();
     std::shared_ptr<parthenon::CellVariable<Real>> prim_vars;
-    for ( auto &var_block : var_vec ) {
+    for (auto &var_block : var_vec) {
       if (var_block->label() == "prim") {
         prim_vars = var_block;
       }
@@ -126,7 +126,9 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
   // make sure we conform:
   Node verify_info;
   if (!blueprint::mesh::verify(root, verify_info)) {
-    std::cout << "blueprint::mesh::verify failed!" << std::endl;
+    if (parthenon::Globals::my_rank == 0) {
+      std::cout << "blueprint::mesh::verify failed!" << std::endl;
+    }
     verify_info.print();
   }
   a.publish(root);
