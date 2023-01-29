@@ -1,6 +1,8 @@
 #include "render_ascent.hpp"
 #include "defs.hpp"
+#include "interface/metadata.hpp"
 #include "mesh/domain.hpp"
+#include <string>
 
 using namespace parthenon::package::prelude;
 using namespace parthenon;
@@ -50,9 +52,6 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
     Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
     std::array<Real, 3> corner = coords.GetXmin();
 
-    auto &mbd = thisMeshBlock->meshblock_data.Get();
-    auto &vars = mbd->PackVariables();
-
     // create the coordinate set
     mesh["coordsets/coords/type"] = "uniform";
 
@@ -99,11 +98,17 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
       }
     }
 
-    // for each variable:
-    mesh["fields/density/association"] = "element";
-    mesh["fields/density/topology"] = "topo";
-    int nvar = 0;
-    mesh["fields/density/values"].set_external(&vars(nvar, 0, 0, 0), ncells);
+    // create a field for each primitive variable
+    auto &mbd = thisMeshBlock->meshblock_data.Get();
+    const auto &vars = mbd->PackVariables(std::vector<std::string>{"prim"});
+    const int nvars = vars.GetDim(4);
+
+    for (int ivar = 0; ivar < nvars; ++ivar) {
+      const std::string varname = "prim_" + std::to_string(ivar);
+      mesh["fields/" + varname + "/association"] = "element";
+      mesh["fields/" + varname + "/topology"] = "topo";
+      mesh["fields/" + varname + "/values"].set_external(&vars(ivar, 0, 0, 0), ncells);
+    }
   }
 
   // make sure we conform:
@@ -122,7 +127,7 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
   // declare a scene (s1) with one plot (p1)
   Node &scenes = add_act["scenes"];
   scenes["s1/plots/p1/type"] = "pseudocolor";
-  scenes["s1/plots/p1/field"] = "density";
+  scenes["s1/plots/p1/field"] = "prim_0";
 
   // Set the output file name (ascent will add ".png")
   scenes["s1/image_prefix"] = "ascent_render";
