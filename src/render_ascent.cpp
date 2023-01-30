@@ -100,26 +100,21 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
       }
     }
 
-    // create a field for each primitive variable
+
+    // create a field for each component of each variable pack
     auto &mbd = thisMeshBlock->meshblock_data.Get();
-    const auto &vars = mbd->PackVariables(std::vector<std::string>{"prim"});
-    const int nvars = vars.GetDim(4);
 
-    auto &var_vec = mbd->GetCellVariableVector();
-    std::shared_ptr<parthenon::CellVariable<Real>> prim_vars;
-    for (auto &var_block : var_vec) {
-      if (var_block->label() == "prim") {
-        prim_vars = var_block;
+    for (auto &vars : mbd->GetCellVariableVector()) {
+      const std::string packname = vars->label();
+      auto const &labels = vars->metadata().getComponentLabels();
+      auto const &data = vars->data;
+      
+      for (int icomp = 0; icomp < labels.size(); ++icomp) {
+        const std::string varname = packname + ":" + labels.at(icomp);
+        mesh["fields/" + varname + "/association"] = "element";
+        mesh["fields/" + varname + "/topology"] = "topo";
+        mesh["fields/" + varname + "/values"].set_external(&data(icomp, 0, 0, 0), ncells);
       }
-    }
-    auto &labels = prim_vars->metadata().getComponentLabels();
-    assert(nvars == labels.size());
-
-    for (int ivar = 0; ivar < nvars; ++ivar) {
-      const std::string varname = labels.at(ivar);
-      mesh["fields/" + varname + "/association"] = "element";
-      mesh["fields/" + varname + "/topology"] = "topo";
-      mesh["fields/" + varname + "/values"].set_external(&vars(ivar, 0, 0, 0), ncells);
     }
   }
 

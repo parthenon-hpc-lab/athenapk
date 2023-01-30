@@ -20,7 +20,7 @@
       plots: 
         p1: 
           type: "pseudocolor"
-          field: "Velocity3"
+          field: "prim:Velocity3"
           pipeline: "pl1"
       renders:
         r1:
