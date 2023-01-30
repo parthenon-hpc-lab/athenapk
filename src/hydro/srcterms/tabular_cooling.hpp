@@ -25,6 +25,7 @@
 
 // AthenaPK headers
 #include "../../main.hpp"
+#include "Kokkos_Macros.hpp"
 
 #ifdef MPI_PARALLEL
 #include <mpi.h>
@@ -186,6 +187,13 @@ class TabularCooling {
 
  public:
   TabularCooling(parthenon::ParameterInput *pin);
+
+  KOKKOS_FORCEINLINE_FUNCTION parthenon::Real
+  edot(const parthenon::Real rho, const parthenon::Real e, bool &valid) const {
+    const parthenon::Real n_h2_by_rho = rho * X_by_m_u_ * X_by_m_u_;
+    return DeDt(e, mu_m_u_gm1_by_k_B_, n_h2_by_rho, log_temp_start_, log_temp_final_,
+                d_log_temp_, n_temp_, log_lambdas_, valid);
+  };
 
   void SrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt) const;
 

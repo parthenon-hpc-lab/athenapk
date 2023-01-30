@@ -198,19 +198,18 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   d_log_temp_ = d_log_temp;
   lambda_final_ = std::pow(10.0, log_lambdas[n_temp_ - 1]);
 
-  if (integrator_ != CoolIntegrator::townsend) {
-    log_lambdas_ = ParArray1D<Real>("log_lambdas_", n_temp_);
+  log_lambdas_ = ParArray1D<Real>("log_lambdas_", n_temp_);
 
-    // Read log_lambdas in host_log_lambdas, changing to code units along the way
-    auto host_log_lambdas = Kokkos::create_mirror_view(log_lambdas_);
-    for (unsigned int i = 0; i < n_temp_; i++) {
-      host_log_lambdas(i) = log_lambdas[i];
-    }
-    // Copy host_log_lambdas into device memory
-    Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
+  // Read log_lambdas in host_log_lambdas, changing to code units along the way
+  auto host_log_lambdas = Kokkos::create_mirror_view(log_lambdas_);
+  for (unsigned int i = 0; i < n_temp_; i++) {
+    host_log_lambdas(i) = log_lambdas[i];
+  }
+  // Copy host_log_lambdas into device memory
+  Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
 
-    // Setup Townsend cooling, i.e., precalulcate piecewise powerlaw approx.
-  } else {
+  // Setup Townsend cooling, i.e., precalulcate piecewise powerlaw approx.
+  if (integrator_ == CoolIntegrator::townsend) {
     lambdas_ = ParArray1D<Real>("lambdas_", n_temp_);
     temps_ = ParArray1D<Real>("temps_", n_temp_);
 

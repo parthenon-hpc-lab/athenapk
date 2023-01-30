@@ -24,6 +24,7 @@
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
+#include "srcterms/tabular_cooling.hpp"
 
 using namespace parthenon::driver::prelude;
 
@@ -78,21 +79,21 @@ TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
   return TaskStatus::complete;
 }
 
-KOKKOS_FORCEINLINE_FUNCTION auto computeCoolingRate(Real rho, Real P) -> Real {
-  // return instantaneous cooling rate for gas with density 'rho' and pressure 'P'
-  // TODO(ben): implement this
-  return 1;
-}
-
 // Calculate the 1D cooling rate profile in histogram bins
 TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  // TODO(ben): need to ensure this has been initialized first
+  const cooling::TabularCooling &tabular_cooling =
+      pkg->Param<cooling::TabularCooling>("tabular_cooling");
+
+  const Real gam = pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
+  const Real gm1 = (gam - 1.0);
 
   AllReduce<parthenon::HostArray1D<Real>> *profile_reduce =
       pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("profile_reduce");
@@ -117,19 +118,24 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
         const Real dVol = dx1 * dx2 * dx3;
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
-        const Real Edot = computeCoolingRate(rho, P);
 
-        int idx = static_cast<int>((z - x3min) / dz_hist);
-        idx = (idx > max_idx) ? max_idx : idx;
-        idx = (idx < 0) ? 0 : idx;
-        Kokkos::atomic_add(&profile_reduce->val(idx), Edot * dVol);
+        bool is_valid = true;
+        const Real eint = P / (rho * gm1);
+        const Real Edot = rho * tabular_cooling.edot(rho, eint, is_valid);
+
+        if (is_valid) {
+          int idx = static_cast<int>((z - x3min) / dz_hist);
+          idx = (idx > max_idx) ? max_idx : idx;
+          idx = (idx < 0) ? 0 : idx;
+          Kokkos::atomic_add(&profile_reduce->val(idx), Edot * dVol);
+        }
       });
 
   // normalize result
   const Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
   const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
   const Real histVolume = Lx * Ly * dz_hist;
-  
+
   for (int i = 0; i < profile_reduce->val.size(); i++) {
     profile_reduce->val(i) /= histVolume;
   }
