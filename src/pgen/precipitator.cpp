@@ -336,10 +336,7 @@ void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin,
   if (!(tm.ncycle % ascent_interval == 0)) {
     return;
   }
-  
-  if (parthenon::Globals::my_rank == 0) {
-    std::cout << "\nRendering ascent (step = " << tm.ncycle << ")..." << std::endl;
-  }
+
   render_ascent(mesh, pin, tm);
 }
 

@@ -100,7 +100,6 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
       }
     }
 
-
     // create a field for each component of each variable pack
     auto &mbd = thisMeshBlock->meshblock_data.Get();
 
@@ -108,7 +107,7 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
       const std::string packname = vars->label();
       auto const &labels = vars->metadata().getComponentLabels();
       auto const &data = vars->data;
-      
+
       for (int icomp = 0; icomp < labels.size(); ++icomp) {
         const std::string varname = packname + ":" + labels.at(icomp);
         mesh["fields/" + varname + "/association"] = "element";
