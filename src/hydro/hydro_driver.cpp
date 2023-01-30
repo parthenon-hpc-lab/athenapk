@@ -96,14 +96,12 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
 
   AllReduce<parthenon::HostArray1D<Real>> *profile_reduce =
       pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("profile_reduce");
-  AllReduce<parthenon::HostArray1D<uint64_t>> *cellCount_reduce =
-      pkg->MutableParam<AllReduce<parthenon::HostArray1D<uint64_t>>>("cellCount_reduce");
 
   auto pm = md->GetParentPointer();
   const Real x3min = pm->mesh_size.x3min;
   const Real Lz = pm->mesh_size.x3max - pm->mesh_size.x3min;
-  const uint64_t size = profile_reduce->val.size();
-  const uint64_t max_idx = size - 1;
+  const int size = profile_reduce->val.size(); // assume it will fit into an int
+  const int max_idx = size - 1;
   const Real dz_hist = Lz / size;
 
   parthenon::par_for(
@@ -113,6 +111,10 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
         auto &prim = prim_pack(b);
         const auto &coords = prim_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
+        const Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
+        const Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
+        const Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
+        const Real dVol = dx1 * dx2 * dx3;
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
         const Real Edot = computeCoolingRate(rho, P);
@@ -120,9 +122,17 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
         int idx = static_cast<int>((z - x3min) / dz_hist);
         idx = (idx > max_idx) ? max_idx : idx;
         idx = (idx < 0) ? 0 : idx;
-        Kokkos::atomic_add(&profile_reduce->val(idx), Edot);
-        Kokkos::atomic_increment(&cellCount_reduce->val(idx));
+        Kokkos::atomic_add(&profile_reduce->val(idx), Edot * dVol);
       });
+
+  // normalize result
+  const Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
+  const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
+  const Real histVolume = Lx * Ly * dz_hist;
+  
+  for (int i = 0; i < profile_reduce->val.size(); i++) {
+    profile_reduce->val(i) /= histVolume;
+  }
 
   return TaskStatus::complete;
 }
@@ -210,13 +220,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // initialize values
     AllReduce<parthenon::HostArray1D<Real>> *pview_reduce =
         pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("profile_reduce");
-    AllReduce<parthenon::HostArray1D<uint64_t>> *cellCount_reduce =
-        pkg->MutableParam<AllReduce<parthenon::HostArray1D<uint64_t>>>(
-            "cellCount_reduce");
 
     for (int i = 0; i < pview_reduce->val.size(); i++) {
       pview_reduce->val(i) = 0;
-      cellCount_reduce->val(i) = 0;
     }
 
     // create task region
@@ -229,7 +235,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
       // compute sum over local blocks
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      TaskID local_sum = (i == 0 ? tl.AddTask(none, CalculateCoolingRateProfile, mu0.get()) : none);
+      TaskID local_sum =
+          (i == 0 ? tl.AddTask(none, CalculateCoolingRateProfile, mu0.get()) : none);
 
       // NOTE: this is an *in-place* reduction! view_reduce is _modified_ in-place.
       TaskID start_view_reduce =
@@ -255,7 +262,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
                                       for (int n = 0; n < v.size(); n++) {
                                         std::cout << v(n) << " ";
                                       }
-                                      std::cout << std::endl;
+                                      std::cout << "\n\n";
                                       return TaskStatus::complete;
                                     },
                                     &(pview_reduce->val))

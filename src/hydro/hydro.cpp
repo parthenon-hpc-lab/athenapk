@@ -197,14 +197,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   bool calc_c_h = false; // calculate hyperbolic divergence cleaning speed
   int nhydro = -1;
 
-  // global reduction on a vector
-  parthenon::AllReduce<parthenon::HostArray1D<Real>> view_reduce;
-  parthenon::AllReduce<parthenon::HostArray1D<uint64_t>> count_reduce;
+  // global reduction of a vector
+  parthenon::AllReduce<parthenon::HostArray1D<Real>> profile_reduce;
   const int numHist = 8;
-  view_reduce.val = parthenon::HostArray1D<Real>("Reduce me", numHist);
-  count_reduce.val = parthenon::HostArray1D<uint64_t>("Reduce me, too", numHist);
-  pkg->AddParam("profile_reduce", view_reduce, true);
-  pkg->AddParam("cellCount_reduce", count_reduce, true);
+  profile_reduce.val = parthenon::HostArray1D<Real>("Reduce me", numHist);
+  pkg->AddParam("profile_reduce", profile_reduce, true);
 
 
   if (fluid_str == "euler") {
