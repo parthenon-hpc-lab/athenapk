@@ -68,7 +68,7 @@ code_mass_cgs = 1.98841586e+33  # Msun
 code_time_cgs = 3.15576e+13     # Myr
 
 <cooling>
-enable_cooling = tabular
+enable_cooling = none   # tabular
 integrator = townsend
 cfl = 1.0
 
@@ -78,7 +78,7 @@ log_lambda_col = 1
 lambda_units_cgs = 1
 
 <precipitator>
-enable_heating = magic
+enable_heating = none   # magic
 numHist = 64
 kx = 4
 velocity_amplitude_kms = 10.

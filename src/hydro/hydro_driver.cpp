@@ -15,6 +15,7 @@
 // Parthenon headers
 #include "Kokkos_Macros.hpp"
 #include "amr_criteria/refinement_package.hpp"
+#include "basic_types.hpp"
 #include "bvals/cc/bvals_cc_in_one.hpp"
 #include "kokkos_abstraction.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
@@ -83,6 +84,13 @@ TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
 TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
+
+  // check whether cooling is enabled
+  const auto cooling_type = pkg->Param<Cooling>("enable_cooling");
+  if (cooling_type == Cooling::none) {
+    return TaskStatus::complete;
+  }
+
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
