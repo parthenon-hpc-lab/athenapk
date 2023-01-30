@@ -85,12 +85,12 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;
   } else if (problem == "precipitator") {
     pman.app_input->ProblemGenerator = precipitator::ProblemGenerator;
+    pman.app_input->PostStepMeshUserWorkInLoop = precipitator::PostStepMeshUserWorkInLoop;
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x3] =
         precipitator::HydrostaticInnerX3;
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x3] =
         precipitator::HydrostaticOuterX3;
-    Hydro::ProblemSourceFirstOrder = precipitator::GravitySrcTerm;
-    pman.app_input->PostStepMeshUserWorkInLoop = precipitator::PostStepMeshUserWorkInLoop;
+    Hydro::ProblemSourceFirstOrder = precipitator::AddSrcTerms;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {

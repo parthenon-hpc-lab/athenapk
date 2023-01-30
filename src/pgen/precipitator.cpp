@@ -38,6 +38,7 @@
 #include "../render_ascent.hpp"
 #include "../units.hpp"
 #include "outputs/outputs.hpp"
+#include "pgen.hpp"
 
 namespace precipitator {
 using namespace parthenon::driver::prelude;
@@ -101,9 +102,20 @@ class PrecipitatorProfile {
   std::shared_ptr<boost::math::interpolators::pchip<std::vector<double>>> spline_P_;
 };
 
-void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
-  // add gravitational source term using Strang splitting
+void AddSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) {
+  // add source terms via operator splitting
 
+  // gravity
+  GravitySrcTerm(md, t, dt);
+
+  // 'magic' heating
+  auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  if (pkg->Param<std::string>("enable_heating") == "magic") {
+    MagicHeatingSrcTerm(md, t, dt);
+  }
+}
+void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
+  // add gravitational source term using operator splitting
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto units = hydro_pkg->Param<Units>("units");
 
@@ -157,6 +169,53 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         cons(IM3, k, j, i) = p3;       // update z-momentum
         cons(IEN, k, j, i) += dE;      // update total energy
         prim(IV3, j, k, i) = p3 / rho; // update z-velocity
+      });
+}
+
+void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
+  // add 'magic' heating source term using operator splitting
+  auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  auto units = pkg->Param<Units>("units");
+  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  // vertical dE/dt profile
+  parthenon::HostArray1D<Real> profile_reduce =
+      pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("profile_reduce")->val;
+  parthenon::HostArray1D<Real> profile_reduce_zbins =
+      pkg->Param<parthenon::HostArray1D<Real>>("profile_reduce_zbins");
+
+  std::vector<Real> profile(profile_reduce.size() + 2);
+  std::vector<Real> zbins(profile_reduce_zbins.size() + 2);
+  profile.at(0) = profile_reduce(0);
+  profile.at(profile.size() - 1) = profile_reduce(profile_reduce.size() - 1);
+  zbins.at(0) = md->GetParentPointer()->mesh_size.x3min;
+  zbins.at(zbins.size() - 1) = md->GetParentPointer()->mesh_size.x3max;
+
+  for (int i = 1; i < (profile.size() - 1); ++i) {
+    profile.at(i) = profile_reduce(i - 1);
+    zbins.at(i) = profile_reduce_zbins(i - 1);
+  }
+
+  // compute interpolant
+  boost::math::interpolators::pchip<std::vector<Real>> interpProfile(std::move(zbins),
+                                                                     std::move(profile));
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "HeatSource", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        auto &cons = cons_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
+        const Real z = coords.Xc<3>(k);
+        // interpolate dE(z)/dt profile at z
+        const Real dE_dt_interp = interpProfile(z);
+        // compute heating source term
+        const Real dE = dt * std::abs(dE_dt_interp);
+        // update total energy
+        cons(IEN, k, j, i) += dE;
       });
 }
 
@@ -266,11 +325,15 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   if (pmb->lid == 0) {
     /************************************************************
-     * Initialize a HydrostaticEquilibriumSphere
+     * Initialize the hydrostatic profile
      ************************************************************/
     const auto &filename = pin->GetString("hydro", "profile_filename");
     const PrecipitatorProfile P_rho_profile(filename);
     hydro_pkg->AddParam<>("precipitator_profile", P_rho_profile);
+
+    const auto enable_heating_str =
+        pin->GetOrAddString("precipitator", "enable_heating", "none");
+    hydro_pkg->AddParam<>("enable_heating", enable_heating_str);
   }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -285,6 +348,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
   Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
   Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
+  const Real x1min = pin->GetReal("parthenon/mesh", "x1min");
+  const Real x1max = pin->GetReal("parthenon/mesh", "x1max");
 
   // Initialize the conserved variables
   auto u = u_dev.GetHostMirrorAndCopy();
@@ -300,6 +365,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
   auto f_P = [&](double z) { return P_rho_profile.P(z); };
 
+  // read perturbation parameters
+  const Real kx = static_cast<Real>(pin->GetInteger("precipitator", "kx"));
+  const Real vz_amp_cgs = 1.0e5 * pin->GetReal("precipitator", "velocity_amplitude_kms");
+
   // initialize conserved variables
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
@@ -311,16 +380,20 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         const Real rho_cgs = f_rho(z);
         const Real P_cgs = f_P(z);
 
+        const Real x = coords.Xc<1>(i) / (x1max - x1min);
+        const Real vz_cgs = vz_amp_cgs * std::sin(2.0 * M_PI * kx * x);
+
         // Convert to code units
         const Real rho = rho_cgs / units.code_density_cgs();
         const Real P = P_cgs / units.code_pressure_cgs();
+        const Real vz = vz_cgs / (units.code_length_cgs() / units.code_time_cgs());
 
-        // Fill conserved states, 0 initial velocity
+        // Fill conserved states
         u(IDN, k, j, i) = rho;
         u(IM1, k, j, i) = 0.0;
         u(IM2, k, j, i) = 0.0;
-        u(IM3, k, j, i) = 0.0;
-        u(IEN, k, j, i) = P / gm1;
+        u(IM3, k, j, i) = rho * vz;
+        u(IEN, k, j, i) = P / gm1 + 0.5 * rho * SQR(vz);
       }
     }
   }
@@ -332,7 +405,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin,
                                 parthenon::SimTime const &tm) {
   // call Ascent every ascent_interval timesteps
-  const int ascent_interval = 10;
+  const int ascent_interval = pin->GetInteger("precipitator", "ascent_interval");
   if (!(tm.ncycle % ascent_interval == 0)) {
     return;
   }

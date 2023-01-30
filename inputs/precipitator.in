@@ -18,7 +18,7 @@ id         = prim      # Name to append to output
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 100.0      # time limit
+tlim       = 1000.0      # time limit
 integrator  = vl2       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
@@ -77,3 +77,10 @@ table_filename = ./inputs/precipitator.cooling
 log_temp_col = 0
 log_lambda_col = 1
 lambda_units_cgs = 1
+
+<precipitator>
+enable_heating = magic
+numHist = 64
+kx = 4
+velocity_amplitude_kms = 10.
+ascent_interval = 20

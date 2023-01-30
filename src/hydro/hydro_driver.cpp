@@ -88,7 +88,6 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-  // TODO(ben): need to ensure this has been initialized first
   const cooling::TabularCooling &tabular_cooling =
       pkg->Param<cooling::TabularCooling>("tabular_cooling");
 
@@ -223,10 +222,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   if (stage == 1) {
     auto pkg = blocks[0]->packages.Get("Hydro");
 
-    // initialize values
     AllReduce<parthenon::HostArray1D<Real>> *pview_reduce =
         pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("profile_reduce");
 
+    // initialize values to zero
     for (int i = 0; i < pview_reduce->val.size(); i++) {
       pview_reduce->val(i) = 0;
     }
@@ -239,12 +238,12 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       reg_dep_id = 0;
       TaskList &tl = solver_region[i];
 
-      // compute sum over local blocks
+      // compute rank-local reduction
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
       TaskID local_sum =
           (i == 0 ? tl.AddTask(none, CalculateCoolingRateProfile, mu0.get()) : none);
 
-      // NOTE: this is an *in-place* reduction! view_reduce is _modified_ in-place.
+      // NOTE: this is an *in-place* reduction!
       TaskID start_view_reduce =
           (i == 0 ? tl.AddTask(local_sum,
                                &AllReduce<parthenon::HostArray1D<Real>>::StartReduce,
@@ -257,22 +256,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
                      &AllReduce<parthenon::HostArray1D<Real>>::CheckReduce, pview_reduce);
       solver_region.AddRegionalDependencies(reg_dep_id, i, finish_view_reduce);
       reg_dep_id++;
-
-      // Print results
-      auto report_view = (i == 0 && parthenon::Globals::my_rank == 0
-                              ? tl.AddTask(
-                                    finish_view_reduce,
-                                    [num_partitions](parthenon::HostArray1D<Real> *view) {
-                                      auto &v = *view;
-                                      std::cout << "View reduction: ";
-                                      for (int n = 0; n < v.size(); n++) {
-                                        std::cout << v(n) << " ";
-                                      }
-                                      std::cout << "\n\n";
-                                      return TaskStatus::complete;
-                                    },
-                                    &(pview_reduce->val))
-                              : none);
     }
   }
 
