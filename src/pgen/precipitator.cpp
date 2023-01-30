@@ -26,6 +26,7 @@
 #include <boost/math/interpolators/pchip.hpp>
 
 // Parthenon headers
+#include "config.hpp"
 #include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
@@ -368,20 +369,23 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   // read perturbation parameters
   const Real kx = static_cast<Real>(pin->GetInteger("precipitator", "kx"));
   const Real vz_amp_cgs = 1.0e5 * pin->GetReal("precipitator", "velocity_amplitude_kms");
+  const Real z_s = 10. * units.kpc(); // smoothing scale
 
   // initialize conserved variables
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
         // Calculate height
-        const Real z = std::abs(coords.Xc<3>(k)) * units.code_length_cgs();
+        const Real z = coords.Xc<3>(k);
+        const Real abs_z_cgs = std::abs(z) * units.code_length_cgs();
 
         // Get density and pressure from generated profile
-        const Real rho_cgs = f_rho(z);
-        const Real P_cgs = f_P(z);
+        const Real rho_cgs = f_rho(abs_z_cgs);
+        const Real P_cgs = f_P(abs_z_cgs);
 
         const Real x = coords.Xc<1>(i) / (x1max - x1min);
-        const Real vz_cgs = vz_amp_cgs * std::sin(2.0 * M_PI * kx * x);
+        Real vz_cgs = vz_amp_cgs * SIGN(z) * std::tanh(std::abs(z) / z_s) *
+                      std::sin(2.0 * M_PI * kx * x);
 
         // Convert to code units
         const Real rho = rho_cgs / units.code_density_cgs();

@@ -1,4 +1,3 @@
-
 <comment>
 problem   = Precipitator box
 
@@ -12,14 +11,14 @@ dt         = 1.0       # time increment between outputs
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = prim      # Variables to be output
-dt         = -1        # Time increment between outputs
+dt         = 1000.0        # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 1000.0      # time limit
-integrator  = vl2       # time integration algorithm
+tlim       = 5000.0      # time limit
+integrator  = rk2       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
 
@@ -56,7 +55,7 @@ gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
 riemann = hllc
 reconstruction = ppm
-first_order_flux_correct = true
+first_order_flux_correct = false
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
@@ -83,4 +82,4 @@ enable_heating = magic
 numHist = 64
 kx = 4
 velocity_amplitude_kms = 10.
-ascent_interval = 20
+ascent_interval = 25
