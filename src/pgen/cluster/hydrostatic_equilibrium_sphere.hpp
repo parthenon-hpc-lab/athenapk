@@ -61,7 +61,7 @@ class HydrostaticEquilibriumSphere {
   KOKKOS_INLINE_FUNCTION parthenon::Real P_from_rho_K(const parthenon::Real rho,
                                                       const parthenon::Real k) const {
     const parthenon::Real p =
-        k * pow(mu_ / mu_e_, 2. / 3.) * pow(rho / (mu_ * atomic_mass_unit_), 5. / 3.);
+        k * pow(rho/atomic_mass_unit_, 5. / 3.) /( mu_ * pow(mu_e_, 2. / 3.) );
     return p;
   }
 
@@ -70,7 +70,7 @@ class HydrostaticEquilibriumSphere {
   KOKKOS_INLINE_FUNCTION parthenon::Real rho_from_P_K(const parthenon::Real p,
                                                       const parthenon::Real k) const {
     const parthenon::Real rho =
-        pow(p / k, 3. / 5.) * mu_ * atomic_mass_unit_ / pow(mu_ / mu_e_, 2. / 5);
+        pow(mu_ * p / k, 3. / 5.) * atomic_mass_unit_ * pow( mu_e_, 2. / 5);
     return rho;
   }
 

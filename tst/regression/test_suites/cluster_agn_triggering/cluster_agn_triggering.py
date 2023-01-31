@@ -83,7 +83,6 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.uniform_gas_temp = (
             self.mu * self.m_u / self.k_b * self.uniform_gas_pres / self.uniform_gas_rho
         )
-        print("Uniform gas temperature: ", self.uniform_gas_temp.in_units("K") * 1.01)
 
         # SMBH parameters (for Bondi-like accretion)
         self.M_smbh = unyt.unyt_quantity(1e8, "Msun")

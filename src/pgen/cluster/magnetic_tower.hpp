@@ -148,13 +148,13 @@ class MagneticTower {
                                   const View4D &A) const;
 
   // Add the fixed_field_rate  (and associated magnetic energy) to the
-  // conserved variables for all meshblocks with a MeshData
+  // conserved variables for all meshblocks within a MeshData
   void FixedFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                          const parthenon::Real beta_dt,
                          const parthenon::SimTime &tm) const;
 
   // Add the specified magnetic power  (and associated magnetic field) to the
-  // conserved variables for all meshblocks with a MeshData
+  // conserved variables for all meshblocks within a MeshData
   void PowerSrcTerm(const parthenon::Real power, const parthenon::Real mass_rate,
                     parthenon::MeshData<parthenon::Real> *md,
                     const parthenon::Real beta_dt, const parthenon::SimTime &tm) const;

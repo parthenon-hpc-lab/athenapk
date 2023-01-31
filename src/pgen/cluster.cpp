@@ -218,6 +218,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           u(IEN, k, j, i) = E;
         });
 
+  //end if(init_uniform_gas)
   } else {
     /************************************************************
      * Initialize a HydrostaticEquilibriumSphere
