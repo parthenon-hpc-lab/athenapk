@@ -248,13 +248,17 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
       jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int, const int, const int j, const int i) {
         for (int k = kb.e; k >= kb.s; --k) {
-          const Real z_0 = coords.Xc<3>(k);
-          const Real z_1 = coords.Xc<3>(k + 1);
+          const Real z_0 = coords.Xf<3>(k);
+          const Real z_1 = coords.Xf<3>(k + 1);
+          const Real g_0 = gz_pointwise(z_0);
+          const Real g_1 = gz_pointwise(z_1);
           const Real dz = z_1 - z_0;
           const Real rho_1 = cons(IDN, k + 1, j, i);
 
-          const Real g = gz_pointwise(0.5 * (z_1 + z_0));
-          const Real rho_0 = rho_1 * ((prefac - 0.5 * g * dz) / (prefac + 0.5 * g * dz));
+          // first-order HSE
+          const Real rho_0 = rho_1 * ((prefac - 0.5 * g_1 * dz) / (prefac + 0.5 * g_0 * dz));
+
+          // recompute pressure assuming constant temperature
           const Real P_0 = prefac * rho_0;
 
           cons(IDN, k, j, i) = rho_0;
@@ -299,20 +303,24 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
       jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int, const int, const int j, const int i) {
         for (int k = kb.s; k <= kb.e; ++k) {
-          const Real z_0 = coords.Xc<3>(k);
-          const Real z_1 = coords.Xc<3>(k - 1);
-          const Real dz = z_0 - z_1;
-          const Real rho_1 = cons(IDN, k - 1, j, i);
+          const Real z_0 = coords.Xf<3>(k);
+          const Real z_1 = coords.Xf<3>(k + 1);
+          const Real g_0 = gz_pointwise(z_0);
+          const Real g_1 = gz_pointwise(z_1);
+          const Real dz = z_1 - z_0;
+          const Real rho_0 = cons(IDN, k - 1, j, i);
 
-          const Real g = gz_pointwise(0.5 * (z_1 + z_0));
-          const Real rho_0 = rho_1 * ((prefac + 0.5 * g * dz) / (prefac - 0.5 * g * dz));
-          const Real P_0 = prefac * rho_0;
+          // first-order HSE
+          const Real rho_1 = rho_0 * ((prefac + 0.5 * g_0 * dz) / (prefac - 0.5 * g_1 * dz));
 
-          cons(IDN, k, j, i) = rho_0;
+          // recompute pressure assuming constant temperature
+          const Real P_1 = prefac * rho_1;
+
+          cons(IDN, k, j, i) = rho_1;
           cons(IM1, k, j, i) = 0;
           cons(IM2, k, j, i) = 0;
           cons(IM3, k, j, i) = 0;
-          cons(IEN, k, j, i) = P_0 / gm1;
+          cons(IEN, k, j, i) = P_1 / gm1;
         }
       });
 }
