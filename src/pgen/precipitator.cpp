@@ -27,6 +27,8 @@
 
 // Parthenon headers
 #include "config.hpp"
+#include "globals.hpp"
+#include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
@@ -217,51 +219,50 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
   std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
   auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
   const auto nb = IndexRange{0, 0};
-
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   auto &coords = pmb->coords;
-  Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
-  Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
-  Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
   auto units = hydro_pkg->Param<Units>("units");
   const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
-  const auto &P_rho_profile =
-      hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
-  auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
-  auto f_P = [&](double z) { return P_rho_profile.P(z); };
+  // TODO(ben): read T0, h_smooth, mu from parameter file
+  const Real T0 = 1.e6;                           // K
+  const Real h_smooth = 10. * units.kpc();        // smoothing scale
+  const Real mu = 0.6 * units.atomic_mass_unit(); // mean molecular weight
+  const Real prefac = units.k_boltzmann() * T0 / mu;
+  auto gz_pointwise = [=](double z) {
+    return (z != 0) ? (-prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z) : 0;
+  };
 
-  pmb->par_for_bndry(
-      "HydrostaticInnerX3", nb, IndexDomain::inner_x3, coarse,
-      KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
-        const Real z = std::abs(coords.Xc<3>(k)) * units.code_length_cgs();
+  auto bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
+  auto domain = IndexDomain::inner_x3;
+  auto ib = bounds.GetBoundsI(domain);
+  auto jb = bounds.GetBoundsJ(domain);
+  auto kb = bounds.GetBoundsK(domain);
+  // std::cout << "[inner_x3] kb.s = " << kb.s << std::endl;
+  // std::cout << "[inner_x3] kb.e = " << kb.e << std::endl;
 
-        // Get density and pressure from generated profile
-        const Real rho_cgs = f_rho(z);
-        const Real P_cgs = f_P(z);
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "HydrostaticInnerX3", parthenon::DevExecSpace(), 0, 0, 0, 0,
+      jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int, const int, const int j, const int i) {
+        for (int k = kb.e; k >= kb.s; --k) {
+          const Real z_0 = coords.Xc<3>(k);
+          const Real z_1 = coords.Xc<3>(k + 1);
+          const Real dz = z_1 - z_0;
+          const Real rho_1 = cons(IDN, k + 1, j, i);
 
-        // Convert to code units
-        const Real rho = rho_cgs / units.code_density_cgs();
-        const Real P = P_cgs / units.code_pressure_cgs();
+          const Real g = gz_pointwise(0.5 * (z_1 + z_0));
+          const Real rho_0 = rho_1 * ((prefac - 0.5 * g * dz) / (prefac + 0.5 * g * dz));
+          const Real P_0 = prefac * rho_0;
 
-        // Get interior cell values
-        const Real rho_interior = cons(IDN, kb.s, j, i);
-        const Real vx_interior = cons(IM1, kb.s, j, i) / rho_interior;
-        const Real vy_interior = cons(IM2, kb.s, j, i) / rho_interior;
-        const Real vz_interior = cons(IM3, kb.s, j, i) / rho_interior;
-        // const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) +
-        // SQR(vz_interior);
-
-        cons(IDN, k, j, i) = rho;
-        cons(IM1, k, j, k) = 0;
-        cons(IM2, k, j, i) = 0;
-        cons(IM3, k, j, i) = 0;
-        cons(IEN, k, j, i) = P / gm1; //+ 0.5 * rho * vsq_interior;
+          cons(IDN, k, j, i) = rho_0;
+          cons(IM1, k, j, i) = 0;
+          cons(IM2, k, j, i) = 0;
+          cons(IM3, k, j, i) = 0;
+          cons(IEN, k, j, i) = P_0 / gm1;
+        }
       });
 }
 
@@ -269,51 +270,50 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
   std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
   auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
   const auto nb = IndexRange{0, 0};
-
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   auto &coords = pmb->coords;
-  Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
-  Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
-  Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
   auto units = hydro_pkg->Param<Units>("units");
   const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
-  const auto &P_rho_profile =
-      hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
-  auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
-  auto f_P = [&](double z) { return P_rho_profile.P(z); };
+  // TODO(ben): read T0, h_smooth, mu from parameter file
+  const Real T0 = 1.e6;                           // K
+  const Real h_smooth = 10. * units.kpc();        // smoothing scale
+  const Real mu = 0.6 * units.atomic_mass_unit(); // mean molecular weight
+  const Real prefac = units.k_boltzmann() * T0 / mu;
+  auto gz_pointwise = [=](double z) {
+    return (z != 0) ? (-prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z) : 0;
+  };
 
-  pmb->par_for_bndry(
-      "HydrostaticOuterX3", nb, IndexDomain::outer_x3, coarse,
-      KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
-        const Real z = std::abs(coords.Xc<3>(k)) * units.code_length_cgs();
+  auto bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
+  auto domain = IndexDomain::outer_x3;
+  auto ib = bounds.GetBoundsI(domain);
+  auto jb = bounds.GetBoundsJ(domain);
+  auto kb = bounds.GetBoundsK(domain);
+  // std::cout << "[outer_x3] kb.s = " << kb.s << std::endl;
+  // std::cout << "[outer_x3] kb.e = " << kb.e << std::endl;
 
-        // Get density and pressure from generated profile
-        const Real rho_cgs = f_rho(z);
-        const Real P_cgs = f_P(z);
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "HydrostaticOuterX3", parthenon::DevExecSpace(), 0, 0, 0, 0,
+      jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int, const int, const int j, const int i) {
+        for (int k = kb.s; k <= kb.e; ++k) {
+          const Real z_0 = coords.Xc<3>(k);
+          const Real z_1 = coords.Xc<3>(k - 1);
+          const Real dz = z_0 - z_1;
+          const Real rho_1 = cons(IDN, k - 1, j, i);
 
-        // Convert to code units
-        const Real rho = rho_cgs / units.code_density_cgs();
-        const Real P = P_cgs / units.code_pressure_cgs();
+          const Real g = gz_pointwise(0.5 * (z_1 + z_0));
+          const Real rho_0 = rho_1 * ((prefac + 0.5 * g * dz) / (prefac - 0.5 * g * dz));
+          const Real P_0 = prefac * rho_0;
 
-        // Get interior cell values
-        const Real rho_interior = cons(IDN, kb.e, j, i);
-        const Real vx_interior = cons(IM1, kb.e, j, i) / rho_interior;
-        const Real vy_interior = cons(IM2, kb.e, j, i) / rho_interior;
-        const Real vz_interior = cons(IM3, kb.e, j, i) / rho_interior;
-        // const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) +
-        // SQR(vz_interior);
-
-        cons(IDN, k, j, i) = rho;
-        cons(IM1, k, j, k) = 0;
-        cons(IM2, k, j, i) = 0;
-        cons(IM3, k, j, i) = 0;
-        cons(IEN, k, j, i) = P / gm1; // + 0.5 * rho * vsq_interior;
+          cons(IDN, k, j, i) = rho_0;
+          cons(IM1, k, j, i) = 0;
+          cons(IM2, k, j, i) = 0;
+          cons(IM3, k, j, i) = 0;
+          cons(IEN, k, j, i) = P_0 / gm1;
+        }
       });
 }
 

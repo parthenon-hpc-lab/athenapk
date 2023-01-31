@@ -81,5 +81,5 @@ lambda_units_cgs = 1
 enable_heating = none   # magic
 numHist = 64
 kx = 2
-velocity_amplitude_kms = 10.
+velocity_amplitude_kms = 0.
 ascent_interval = 20
