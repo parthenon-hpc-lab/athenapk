@@ -261,11 +261,18 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
           // recompute pressure assuming constant temperature
           const Real P_0 = prefac * rho_0;
 
+          // get interior velocity
+          const Real rho_int = cons(IDN, kb.e + 1, j, i);
+          const Real vx = cons(IM1, kb.e + 1, j, i) / rho_int;
+          const Real vy = cons(IM2, kb.e + 1, j, i) / rho_int;
+          const Real vz = cons(IM3, kb.e + 1, j, i) / rho_int;
+          const Real vsq = SQR(vx) + SQR(vy) + SQR(vz);
+
           cons(IDN, k, j, i) = rho_0;
-          cons(IM1, k, j, i) = 0;
-          cons(IM2, k, j, i) = 0;
-          cons(IM3, k, j, i) = 0;
-          cons(IEN, k, j, i) = P_0 / gm1;
+          cons(IM1, k, j, i) = vx;
+          cons(IM2, k, j, i) = vy;
+          cons(IM3, k, j, i) = vz;
+          cons(IEN, k, j, i) = P_0 / gm1 + 0.5 * rho_0 * vsq;
         }
       });
 }
@@ -316,11 +323,18 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
           // recompute pressure assuming constant temperature
           const Real P_1 = prefac * rho_1;
 
+          // get interior velocity
+          const Real rho_int = cons(IDN, kb.s - 1, j, i);
+          const Real vx = cons(IM1, kb.s - 1, j, i) / rho_int;
+          const Real vy = cons(IM2, kb.s - 1, j, i) / rho_int;
+          const Real vz = cons(IM3, kb.s - 1, j, i) / rho_int;
+          const Real vsq = SQR(vx) + SQR(vy) + SQR(vz);
+
           cons(IDN, k, j, i) = rho_1;
-          cons(IM1, k, j, i) = 0;
-          cons(IM2, k, j, i) = 0;
-          cons(IM3, k, j, i) = 0;
-          cons(IEN, k, j, i) = P_1 / gm1;
+          cons(IM1, k, j, i) = vx;
+          cons(IM2, k, j, i) = vy;
+          cons(IM3, k, j, i) = vz;
+          cons(IEN, k, j, i) = P_1 / gm1 + 0.5 * rho_1 * vsq;
         }
       });
 }
@@ -372,7 +386,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   // read perturbation parameters
   const Real kx = static_cast<Real>(pin->GetInteger("precipitator", "kx"));
   const Real vz_amp_cgs = 1.0e5 * pin->GetReal("precipitator", "velocity_amplitude_kms");
-  const Real z_s = 30. * units.kpc(); // smoothing scale
+  const Real z_s = 10. * units.kpc(); // smoothing scale
 
   // initialize conserved variables
   for (int k = kb.s; k <= kb.e; k++) {
