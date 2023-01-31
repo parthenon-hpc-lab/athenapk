@@ -116,7 +116,7 @@ void AddSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) 
   }
 }
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
-  // add gravitational source term using operator splitting
+  // add gravitational source term directly to the rhs
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto units = hydro_pkg->Param<Units>("units");
 
@@ -135,14 +135,13 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
   const Real gm1 = (gam - 1.0);
 
   auto gz_pointwise = [=](double z) {
-    return -prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z;
+    return (z != 0) ? (-prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z) : 0;
   };
   auto &coords = cons_pack.GetCoords(0);
   Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
   Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
   Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
 
-  // N.B.: we have to read from cons, but update *both* cons and prim vars
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "GravSource", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -153,23 +152,17 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         const Real z = coords.Xc<3>(k);
         const Real g_z = gz_pointwise(z);
 
-        // compute kinetic energy
-        const Real rho = cons(IDN, k, j, i);
-        Real p1 = cons(IM1, k, j, i);
-        Real p2 = cons(IM2, k, j, i);
-        Real p3 = cons(IM3, k, j, i);
-        const Real ke0 = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
-
         // compute momentum update
-        p3 += dt * rho * g_z;
+        Real p3 = cons(IM3, k, j, i);
+        const Real rhoprim = prim(IDN, k, j, i);
+        p3 += dt * rhoprim * g_z;
 
         // compute energy update
-        const Real ke1 = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
-        const Real dE = ke1 - ke0;
+        const Real vzprim = prim(IV3, k, j, i);
+        const Real dE = dt * rhoprim * g_z * vzprim;
 
-        cons(IM3, k, j, i) = p3;       // update z-momentum
-        cons(IEN, k, j, i) += dE;      // update total energy
-        prim(IV3, j, k, i) = p3 / rho; // update z-velocity
+        cons(IM3, k, j, i) = p3;  // update z-momentum
+        cons(IEN, k, j, i) += dE; // update total energy
       });
 }
 
@@ -261,7 +254,8 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
         const Real vx_interior = cons(IM1, kb.s, j, i) / rho_interior;
         const Real vy_interior = cons(IM2, kb.s, j, i) / rho_interior;
         const Real vz_interior = cons(IM3, kb.s, j, i) / rho_interior;
-        //const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) + SQR(vz_interior);
+        // const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) +
+        // SQR(vz_interior);
 
         cons(IDN, k, j, i) = rho;
         cons(IM1, k, j, k) = 0;
@@ -312,7 +306,8 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
         const Real vx_interior = cons(IM1, kb.e, j, i) / rho_interior;
         const Real vy_interior = cons(IM2, kb.e, j, i) / rho_interior;
         const Real vz_interior = cons(IM3, kb.e, j, i) / rho_interior;
-        //const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) + SQR(vz_interior);
+        // const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) +
+        // SQR(vz_interior);
 
         cons(IDN, k, j, i) = rho;
         cons(IM1, k, j, k) = 0;

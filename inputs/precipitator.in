@@ -18,7 +18,7 @@ id         = prim      # Name to append to output
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
 tlim       = 5000.0      # time limit
-integrator  = rk2       # time integration algorithm
+integrator  = rk3       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
 
@@ -80,6 +80,6 @@ lambda_units_cgs = 1
 <precipitator>
 enable_heating = none   # magic
 numHist = 64
-kx = 4
+kx = 2
 velocity_amplitude_kms = 10.
-ascent_interval = 25
+ascent_interval = 20
