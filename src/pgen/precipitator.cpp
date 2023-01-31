@@ -261,13 +261,13 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
         const Real vx_interior = cons(IM1, kb.s, j, i) / rho_interior;
         const Real vy_interior = cons(IM2, kb.s, j, i) / rho_interior;
         const Real vz_interior = cons(IM3, kb.s, j, i) / rho_interior;
-        const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) + SQR(vz_interior);
+        //const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) + SQR(vz_interior);
 
         cons(IDN, k, j, i) = rho;
-        cons(IM1, k, j, k) = rho * vx_interior;
-        cons(IM2, k, j, i) = rho * vy_interior;
-        cons(IM3, k, j, i) = rho * vz_interior;
-        cons(IEN, k, j, i) = P / gm1 + 0.5 * rho * vsq_interior;
+        cons(IM1, k, j, k) = 0;
+        cons(IM2, k, j, i) = 0;
+        cons(IM3, k, j, i) = 0;
+        cons(IEN, k, j, i) = P / gm1; //+ 0.5 * rho * vsq_interior;
       });
 }
 
@@ -312,13 +312,13 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
         const Real vx_interior = cons(IM1, kb.e, j, i) / rho_interior;
         const Real vy_interior = cons(IM2, kb.e, j, i) / rho_interior;
         const Real vz_interior = cons(IM3, kb.e, j, i) / rho_interior;
-        const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) + SQR(vz_interior);
+        //const Real vsq_interior = SQR(vx_interior) + SQR(vy_interior) + SQR(vz_interior);
 
         cons(IDN, k, j, i) = rho;
-        cons(IM1, k, j, k) = rho * vx_interior;
-        cons(IM2, k, j, i) = rho * vy_interior;
-        cons(IM3, k, j, i) = rho * vz_interior;
-        cons(IEN, k, j, i) = P / gm1 + 0.5 * rho * vsq_interior;
+        cons(IM1, k, j, k) = 0;
+        cons(IM2, k, j, i) = 0;
+        cons(IM3, k, j, i) = 0;
+        cons(IEN, k, j, i) = P / gm1; // + 0.5 * rho * vsq_interior;
       });
 }
 
@@ -369,7 +369,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   // read perturbation parameters
   const Real kx = static_cast<Real>(pin->GetInteger("precipitator", "kx"));
   const Real vz_amp_cgs = 1.0e5 * pin->GetReal("precipitator", "velocity_amplitude_kms");
-  const Real z_s = 10. * units.kpc(); // smoothing scale
+  const Real z_s = 30. * units.kpc(); // smoothing scale
 
   // initialize conserved variables
   for (int k = kb.s; k <= kb.e; k++) {
@@ -384,7 +384,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         const Real P_cgs = f_P(abs_z_cgs);
 
         const Real x = coords.Xc<1>(i) / (x1max - x1min);
-        Real vz_cgs = vz_amp_cgs * SIGN(z) * std::tanh(std::abs(z) / z_s) *
+        Real vz_cgs = vz_amp_cgs * SQR(std::tanh(std::abs(z) / z_s)) *
                       std::sin(2.0 * M_PI * kx * x);
 
         // Convert to code units
