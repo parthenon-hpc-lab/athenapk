@@ -81,5 +81,5 @@ lambda_units_cgs = 1
 enable_heating = magic   # magic
 numHist = 64
 kx = 2
-perturb_drho_over_rho = 0.20
+perturb_drho_over_rho = 0.10
 ascent_interval = 20
