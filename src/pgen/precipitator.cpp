@@ -256,7 +256,8 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
           const Real rho_1 = cons(IDN, k + 1, j, i);
 
           // first-order HSE
-          const Real rho_0 = rho_1 * ((prefac - 0.5 * g_1 * dz) / (prefac + 0.5 * g_0 * dz));
+          const Real rho_0 =
+              rho_1 * ((prefac - 0.5 * g_1 * dz) / (prefac + 0.5 * g_0 * dz));
 
           // recompute pressure assuming constant temperature
           const Real P_0 = prefac * rho_0;
@@ -318,7 +319,8 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
           const Real rho_0 = cons(IDN, k - 1, j, i);
 
           // first-order HSE
-          const Real rho_1 = rho_0 * ((prefac + 0.5 * g_0 * dz) / (prefac - 0.5 * g_1 * dz));
+          const Real rho_1 =
+              rho_0 * ((prefac + 0.5 * g_0 * dz) / (prefac - 0.5 * g_1 * dz));
 
           // recompute pressure assuming constant temperature
           const Real P_1 = prefac * rho_1;
@@ -385,7 +387,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
   // read perturbation parameters
   const Real kx = static_cast<Real>(pin->GetInteger("precipitator", "kx"));
-  const Real vz_amp_cgs = 1.0e5 * pin->GetReal("precipitator", "velocity_amplitude_kms");
+  const Real amp = pin->GetReal("precipitator", "perturb_drho_over_rho");
   const Real z_s = 10. * units.kpc(); // smoothing scale
 
   // initialize conserved variables
@@ -400,21 +402,21 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         const Real rho_cgs = f_rho(abs_z_cgs);
         const Real P_cgs = f_P(abs_z_cgs);
 
+        // Generate isobaric perturbations
         const Real x = coords.Xc<1>(i) / (x1max - x1min);
-        Real vz_cgs = vz_amp_cgs * SQR(std::tanh(std::abs(z) / z_s)) *
-                      std::sin(2.0 * M_PI * kx * x);
+        const Real drho_over_rho =
+            amp * SQR(std::tanh(std::abs(z) / z_s)) * std::sin(2.0 * M_PI * kx * x);
 
         // Convert to code units
         const Real rho = rho_cgs / units.code_density_cgs();
         const Real P = P_cgs / units.code_pressure_cgs();
-        const Real vz = vz_cgs / (units.code_length_cgs() / units.code_time_cgs());
 
         // Fill conserved states
-        u(IDN, k, j, i) = rho;
+        u(IDN, k, j, i) = rho * (1. + drho_over_rho);
         u(IM1, k, j, i) = 0.0;
         u(IM2, k, j, i) = 0.0;
-        u(IM3, k, j, i) = rho * vz;
-        u(IEN, k, j, i) = P / gm1 + 0.5 * rho * SQR(vz);
+        u(IM3, k, j, i) = 0.0;
+        u(IEN, k, j, i) = P / gm1;
       }
     }
   }
