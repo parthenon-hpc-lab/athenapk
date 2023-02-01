@@ -286,6 +286,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     riemann = RiemannSolver::hlle;
   } else if (riemann_str == "hllc") {
     riemann = RiemannSolver::hllc;
+  } else if (riemann_str == "lhllc") {
+    riemann = RiemannSolver::lhllc;
   } else if (riemann_str == "hlld") {
     riemann = RiemannSolver::hlld;
   } else if (riemann_str == "none") {
@@ -330,6 +332,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::limo3, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::limo3, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::lhllc>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::none>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
@@ -801,6 +809,11 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
   auto num_scratch_vars = nhydro + nscalars;
 
+  // add for dvt and dvn, adding 1 is enough as we have 2+ scratch pencils
+  if constexpr (rsolver == RiemannSolver::lhllc) {
+    num_scratch_vars += 1;
+  }
+
   // Hyperbolic divergence cleaning speed for GLM MHD
   Real c_h = 0.0;
   if (fluid == Fluid::glmmhd) {
@@ -832,6 +845,13 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
+
+        if constexpr (rsolver == RiemannSolver::lhllc) {
+          CalculateVelocityDifferences<X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl,
+                                              wr);
+          // Sync all threads in the team so that scratch memory is consistent
+          member.team_barrier();
+        }
 
         riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         member.team_barrier();
@@ -877,6 +897,12 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
+
+            if constexpr (rsolver == RiemannSolver::lhllc) {
+              CalculateVelocityDifferences<X2DIR>(member, k, j, il, iu, prim, wl, wr);
+              // Sync all threads in the team so that scratch memory is consistent
+              member.team_barrier();
+            }
 
             if (j > jb.s - 1) {
               riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
@@ -925,6 +951,12 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
+
+            if constexpr (rsolver == RiemannSolver::lhllc) {
+              CalculateVelocityDifferences<X3DIR>(member, k, j, il, iu, prim, wl, wr);
+              // Sync all threads in the team so that scratch memory is consistent
+              member.team_barrier();
+            }
 
             if (k > kb.s - 1) {
               riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
