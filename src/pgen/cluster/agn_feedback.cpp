@@ -166,6 +166,8 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   ////////////////////////////////////////////////////////////////////////////////
   // Thermal quantities
@@ -257,6 +259,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             cons(IEN, k, j, i) += kinetic_feedback; // energy/volume
           }
         }
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
       });
 
   // Apply magnetic tower feedback
