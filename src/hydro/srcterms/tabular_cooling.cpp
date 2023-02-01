@@ -587,6 +587,8 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
 
+  // TODO(ben): disable cooling in the midplane for the precipitator
+
   // Grab member variables for compiler
   const auto dt = dt_; // HACK capturing parameters still broken with Cuda 11.6 ...
   const auto mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
@@ -616,6 +618,9 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   // Get reference values
   const auto temp_final = std::pow(10.0, log_temp_final_);
   const auto lambda_final = lambda_final_;
+
+  auto units = hydro_pkg->Param<Units>("units");
+  const Real h_smooth = 20. * units.kpc();
 
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::TownsendSrcTerm", DevExecSpace(), 0,
@@ -690,10 +695,16 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         const auto internal_e_new = temp_new > temp_cool_floor
                                         ? temp_new / mu_m_u_gm1_by_k_B
                                         : temp_cool_floor / mu_m_u_gm1_by_k_B;
-        cons(IEN, k, j, i) += rho * (internal_e_new - internal_e);
+        // artificially limit temperature change in precipitator midplane
+        const auto &coords = cons_pack.GetCoords(b);
+        const Real z = coords.Xc<3>(k);
+        const Real damp = SQR(std::tanh(std::abs(z) / h_smooth));
+        const auto internal_e_damped = damp * (internal_e_new - internal_e) + internal_e;
+
+        cons(IEN, k, j, i) += rho * (internal_e_damped - internal_e);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
-        prim(IPR, k, j, i) = rho * internal_e_new * gm1;
+        prim(IPR, k, j, i) = rho * internal_e_damped * gm1;
       });
 }
 

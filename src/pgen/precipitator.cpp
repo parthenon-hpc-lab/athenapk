@@ -25,6 +25,9 @@
 // Boost headers
 #include <boost/math/interpolators/pchip.hpp>
 
+// Kokkos headers
+#include <Kokkos_Random.hpp>
+
 // Parthenon headers
 #include "config.hpp"
 #include "globals.hpp"
@@ -199,6 +202,9 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   boost::math::interpolators::pchip<std::vector<Real>> interpProfile(std::move(zbins),
                                                                      std::move(profile));
 
+  // TODO(ben): disable heating in the midplane
+  const Real h_smooth = 20. * units.kpc();
+
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HeatSource", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -206,12 +212,16 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
         auto &cons = cons_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
+
         // interpolate dE(z)/dt profile at z
         const Real dE_dt_interp = interpProfile(z);
         // compute heating source term
         const Real dE = dt * std::abs(dE_dt_interp);
+
+        // disable heating in precipitator midplane
+        const Real damp = SQR(std::tanh(std::abs(z) / h_smooth));
         // update total energy
-        cons(IEN, k, j, i) += dE;
+        cons(IEN, k, j, i) += damp * dE;
       });
 }
 
@@ -240,8 +250,6 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
   auto ib = bounds.GetBoundsI(domain);
   auto jb = bounds.GetBoundsJ(domain);
   auto kb = bounds.GetBoundsK(domain);
-  // std::cout << "[inner_x3] kb.s = " << kb.s << std::endl;
-  // std::cout << "[inner_x3] kb.e = " << kb.e << std::endl;
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HydrostaticInnerX3", parthenon::DevExecSpace(), 0, 0, 0, 0,
@@ -303,8 +311,6 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
   auto ib = bounds.GetBoundsI(domain);
   auto jb = bounds.GetBoundsJ(domain);
   auto kb = bounds.GetBoundsK(domain);
-  // std::cout << "[outer_x3] kb.s = " << kb.s << std::endl;
-  // std::cout << "[outer_x3] kb.e = " << kb.e << std::endl;
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HydrostaticOuterX3", parthenon::DevExecSpace(), 0, 0, 0, 0,
@@ -387,8 +393,11 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
   // read perturbation parameters
   const Real kx = static_cast<Real>(pin->GetInteger("precipitator", "kx"));
-  const Real amp = pin->GetReal("precipitator", "perturb_drho_over_rho");
+  const Real amp = pin->GetReal("precipitator", "perturb_sin_drho_over_rho");
+  const Real amp_rand = pin->GetReal("precipitator", "perturb_random_drho_over_rho");
   const Real z_s = 10. * units.kpc(); // smoothing scale
+
+  Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
 
   // initialize conserved variables
   for (int k = kb.s; k <= kb.e; k++) {
@@ -404,8 +413,11 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
         // Generate isobaric perturbations
         const Real x = coords.Xc<1>(i) / (x1max - x1min);
-        const Real drho_over_rho =
+        Real drho_over_rho =
             amp * SQR(std::tanh(std::abs(z) / z_s)) * std::sin(2.0 * M_PI * kx * x);
+        auto generator = random_pool.get_state();
+        drho_over_rho += generator.drand(-amp_rand, amp_rand);
+        random_pool.free_state(generator);
 
         // Convert to code units
         const Real rho = rho_cgs / units.code_density_cgs();
