@@ -40,14 +40,13 @@ The toggles to include different components are as follows:
 ```
 <problem/cluster/gravity>
 include_nfw_g = True
-which_bcg_g = HERNQUIST #or NONE or MATHEWS
+which_bcg_g = HERNQUIST #or NONE
 include_smbh_g = True
 ```
 Where `include_nfw_g` for the NFW dark-matter halo ([Navarro
 1997](doi.org/10.1086/304888)) is boolean; `which_bcg_g` for the BCG can be
 `NONE` for no BCG, `HERNQUIST` for  Hernquist profile ([Hernquist
-1990](doi.org/10.1086/168845)), or `MATHEWS` for a Mathews ([Mathews
-2006](doi.org/10.1086/499119)) profile, and `include_smbh_g` for the SMBH is
+1990](doi.org/10.1086/168845)), and `include_smbh_g` for the SMBH is
 boolean.
 
 Parameters for the NFW profile are
@@ -77,7 +76,7 @@ $$
     \frac{3 H_0^2}{8 \pi G}.
 $$
 
-Parameters for both the HERNQUIST and MATHEWS BCG are controlled via:
+Parameters for the HERNQUIST BCG are controlled via:
 ```
 <problem/cluster/gravity>
 
@@ -89,18 +88,6 @@ where a HERNQUIST profile adds a gravitational acceleration defined by
 $$
  g_{BCG}(r) = G \frac{ M_{BCG} }{R_{BCG}^2} \frac{1}{\left( 1 + \frac{r}{R_{BCG}}\right)^2}
 $$
-
-and a MATHEWS profile adds a gravitational acceleration defined by
-
-$$
-g_{BCG}(r) = \frac{1}{R_{BCG}^2} 
-\left (
-\left [ \frac{\left ( r/R_{BCG}\right )^{ 0.5975}} {3.206 \times 10^{-7}} \right ]^{s_{BCG}} +
-\left [ \frac{\left ( r/R_{BCG}\right )^{ 1.849 }} {1.861 \times 10^{-6}} \right ]^{s_{BCG}}
-\right )^{-1/s_{BCG}}
-$$
-
-where $s_{BCG} = 0.9$ 
 
 Gravitational acceleration from the SMBH is inserted as a point source defined solely by its mass
 ```

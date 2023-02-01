@@ -17,8 +17,7 @@
 namespace cluster {
 
 // Types of BCG's
-enum class BCG { NONE, MATHEWS, HERNQUIST };
-// Mathews BCG: Mathews 2006 DOI: 10.1086/499119
+enum class BCG { NONE, HERNQUIST };
 // Hernquiest BCG: Hernquist 1990 DOI:10.1086/168845
 
 /************************************************************
@@ -34,19 +33,21 @@ class ClusterGravity {
 
   // NFW Parameters
   parthenon::Real r_nfw_s_;
-  parthenon::Real
-      GMC_nfw_; // G , Mass, and Constants rolled into one, to minimize footprint
+  // G , Mass, and Constants rolled into one
+  parthenon::Real g_const_nfw_;
+  parthenon::Real rho_const_nfw_;
 
   // BCG Parameters
   parthenon::Real alpha_bcg_s_;
   parthenon::Real beta_bcg_s_;
   parthenon::Real r_bcg_s_;
-  parthenon::Real
-      GMC_bcg_; // G , Mass, and Constants rolled into one, to minimize footprint
+  // G , Mass, and Constants rolled into one
+  parthenon::Real g_const_bcg_;
+  parthenon::Real rho_const_bcg_;
 
   // SMBH Parameters
-  parthenon::Real
-      GMC_smbh_; // G , Mass, and Constants rolled into one, to minimize footprint
+  // G , Mass, and Constants rolled into one
+  parthenon::Real g_const_smbh_;
 
   // Radius underwhich to truncate
   parthenon::Real smoothing_r_;
@@ -62,12 +63,17 @@ class ClusterGravity {
             1. / 3.);
     return R_nfw_s;
   }
-  static parthenon::Real calc_GMC_nfw(const parthenon::Real gravitational_constant,
+  static parthenon::Real calc_g_const_nfw(const parthenon::Real gravitational_constant,
                                       const parthenon::Real m_nfw_200,
                                       const parthenon::Real c_nfw) {
     return gravitational_constant * m_nfw_200 / (log(1 + c_nfw) - c_nfw / (1 + c_nfw));
   }
-  static parthenon::Real calc_GMC_bcg(const parthenon::Real gravitational_constant,
+  static parthenon::Real calc_rho_const_nfw(const parthenon::Real gravitational_constant,
+                                      const parthenon::Real m_nfw_200,
+                                      const parthenon::Real c_nfw) {
+    return m_nfw_200 / (4*M_PI*(log(1 + c_nfw) - c_nfw / (1 + c_nfw)));
+  }
+  static parthenon::Real calc_g_const_bcg(const parthenon::Real gravitational_constant,
                                       BCG which_bcg_g, const parthenon::Real m_bcg_s,
                                       const parthenon::Real r_bcg_s,
                                       const parthenon::Real alpha_bcg_s,
@@ -75,21 +81,37 @@ class ClusterGravity {
     switch (which_bcg_g) {
     case BCG::NONE:
       return 0;
-    case BCG::MATHEWS:
-      return 1 / (r_bcg_s * r_bcg_s);
     case BCG::HERNQUIST:
       return gravitational_constant * m_bcg_s / (r_bcg_s * r_bcg_s);
     }
     return NAN;
   }
+  static parthenon::Real calc_rho_const_bcg(const parthenon::Real gravitational_constant,
+                                      BCG which_bcg_g, const parthenon::Real m_bcg_s,
+                                      const parthenon::Real r_bcg_s,
+                                      const parthenon::Real alpha_bcg_s,
+                                      const parthenon::Real beta_bcg_s) {
+    switch (which_bcg_g) {
+    case BCG::NONE:
+      return 0;
+    case BCG::HERNQUIST:
+      return m_bcg_s * r_bcg_s/ (2*M_PI);
+    }
+    return NAN;
+  }
   static KOKKOS_INLINE_FUNCTION parthenon::Real
-  calc_GMC_smbh(const parthenon::Real gravitational_constant,
+  calc_g_const_smbh(const parthenon::Real gravitational_constant,
                 const parthenon::Real m_smbh) {
     return gravitational_constant * m_smbh;
   }
 
  public:
-  ClusterGravity(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) {
+  //ClusterGravity(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg)
+  //is called from cluster.cpp to add the ClusterGravity object to hydro_pkg
+  //
+  //ClusterGravity(parthenon::ParameterInput *pin) is used in SNIAFeedback to
+  //calculate the BCG density profile 
+  ClusterGravity(parthenon::ParameterInput *pin) {
     Units units(pin);
 
     // Determine which element to include
@@ -99,8 +121,6 @@ class ClusterGravity {
         pin->GetOrAddString("problem/cluster/gravity", "which_bcg_g", "NONE");
     if (which_bcg_g_str == "NONE") {
       which_bcg_g_ = BCG::NONE;
-    } else if (which_bcg_g_str == "MATHEWS") {
-      which_bcg_g_ = BCG::MATHEWS;
     } else if (which_bcg_g_str == "HERNQUIST") {
       which_bcg_g_ = BCG::HERNQUIST;
     } else {
@@ -124,7 +144,7 @@ class ClusterGravity {
     const parthenon::Real c_nfw =
         pin->GetOrAddReal("problem/cluster/gravity", "c_nfw", 6.81);
     r_nfw_s_ = calc_R_nfw_s(rho_crit, M_nfw_200, c_nfw);
-    GMC_nfw_ = calc_GMC_nfw(units.gravitational_constant(), M_nfw_200, c_nfw);
+    g_const_nfw_ = calc_g_const_nfw(units.gravitational_constant(), M_nfw_200, c_nfw);
 
     // Initialize the BCG Profile
     alpha_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "alpha_bcg_s", 0.1);
@@ -132,16 +152,19 @@ class ClusterGravity {
     const parthenon::Real M_bcg_s =
         pin->GetOrAddReal("problem/cluster/gravity", "m_bcg_s", 7.5e10 * units.msun());
     r_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "r_bcg_s", 4 * units.kpc());
-    GMC_bcg_ = calc_GMC_bcg(units.gravitational_constant(), which_bcg_g_, M_bcg_s,
+    g_const_bcg_ = calc_g_const_bcg(units.gravitational_constant(), which_bcg_g_, M_bcg_s,
                             r_bcg_s_, alpha_bcg_s_, beta_bcg_s_);
 
     const parthenon::Real m_smbh =
         pin->GetOrAddReal("problem/cluster/gravity", "m_smbh", 3.4e8 * units.msun());
-    GMC_smbh_ = calc_GMC_smbh(units.gravitational_constant(), m_smbh),
+    g_const_smbh_ = calc_g_const_smbh(units.gravitational_constant(), m_smbh),
 
     smoothing_r_ =
         pin->GetOrAddReal("problem/cluster/gravity", "g_smoothing_radius", 0.0);
 
+  }
+
+  ClusterGravity(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) : ClusterGravity(pin) {
     hydro_pkg->AddParam<>("cluster_gravity", *this);
   }
 
@@ -156,32 +179,55 @@ class ClusterGravity {
 
     // Add NFW gravity
     if (include_nfw_g_) {
-      g_r += GMC_nfw_ * (log(1 + r / r_nfw_s_) - r / (r + r_nfw_s_)) / r2;
+      g_r += g_const_nfw_ * (log(1 + r / r_nfw_s_) - r / (r + r_nfw_s_)) / r2;
     }
 
     // Add BCG gravity
     switch (which_bcg_g_) {
     case BCG::NONE:
       break;
-    case BCG::MATHEWS: {
-      const parthenon::Real s_bcg = 0.9;
-      g_r += GMC_bcg_ * // Note: *cm**3*s**-2 //To make units work
-             pow( pow( pow(r/r_bcg_s_, 0.5975) / 3.206e-7,s_bcg) +
-                  pow( pow(r/r_bcg_s_, 1.849 ) / 1.861e-6,s_bcg),
-                 -1 / s_bcg);
-    } break;
     case BCG::HERNQUIST:
-      g_r += GMC_bcg_ / ((1 + r / r_bcg_s_) * (1 + r / r_bcg_s_));
+      g_r += g_const_bcg_ / ((1 + r / r_bcg_s_) * (1 + r / r_bcg_s_));
       break;
     }
 
     // Add SMBH, point mass gravity
     if (include_smbh_g_) {
-      g_r += GMC_smbh_ / r2;
+      g_r += g_const_smbh_ / r2;
     }
 
     return g_r;
   }
+  // Inline functions to compute density
+  KOKKOS_INLINE_FUNCTION parthenon::Real rho_from_r(const parthenon::Real r_in) const
+      __attribute__((always_inline)) {
+
+    const parthenon::Real r = std::max(r_in, smoothing_r_);
+
+    parthenon::Real rho = 0;
+
+    // Add NFW gravity
+    if (include_nfw_g_) {
+      rho += rho_const_nfw_ / ( r * pow(r + r_nfw_s_,2));
+    }
+
+    // Add BCG gravity
+    switch (which_bcg_g_) {
+    case BCG::NONE:
+      break;
+    case BCG::HERNQUIST:
+      rho += rho_const_bcg_ / ( r * pow(r + r_bcg_s_, 3));
+      break;
+    }
+
+    // SMBH, point mass gravity -- density is not defined. Throw an error
+    if (include_smbh_g_ && r <= smoothing_r_) {
+      Kokkos::abort("ClusterGravity::SMBH density is not defined"); 
+    }
+
+    return rho;
+  }
+
 };
 
 } // namespace cluster
