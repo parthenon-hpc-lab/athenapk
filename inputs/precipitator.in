@@ -80,7 +80,15 @@ lambda_units_cgs = 1
 <precipitator>
 enable_heating = magic   # magic
 numHist = 64
-kx = 6
+bg_temperature = 1.0e6
+h_smooth_kpc = 10.
+h_smooth_heatcool_kpc = 20.
+dimensionless_mmw = 0.6
+
 perturb_sin_drho_over_rho = 0.025
 perturb_random_drho_over_rho = 0.01
+perturb_kx = 6
+perturb_ky = 7
+perturb_kz = 8
+
 ascent_interval = 20

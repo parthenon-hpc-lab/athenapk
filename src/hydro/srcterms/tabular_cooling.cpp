@@ -620,7 +620,9 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto lambda_final = lambda_final_;
 
   auto units = hydro_pkg->Param<Units>("units");
-  const Real h_smooth = 20. * units.kpc();
+
+  // get 'smoothing' height for heating/cooling
+  const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
 
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::TownsendSrcTerm", DevExecSpace(), 0,

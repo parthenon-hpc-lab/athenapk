@@ -98,7 +98,8 @@ using namespace parthenon::driver::prelude;
 
 void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
-void AddSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt);
+void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt);
+void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt);
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
 void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
 void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);

@@ -108,11 +108,15 @@ class PrecipitatorProfile {
   std::shared_ptr<boost::math::interpolators::pchip<std::vector<double>>> spline_P_;
 };
 
-void AddSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) {
-  // add source terms via operator splitting
+void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) {
+  // add source terms unsplit within the RK integrator
 
   // gravity
   GravitySrcTerm(md, t, dt);
+}
+
+void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) {
+  // add source terms with first-order operator splitting
 
   // 'magic' heating
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
@@ -120,16 +124,23 @@ void AddSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) 
     MagicHeatingSrcTerm(md, t, dt);
   }
 }
+
+KOKKOS_FORCEINLINE_FUNCTION auto gz_pointwise(const Real z, const Real h_smooth,
+                                              const Real kT_over_mu) -> Real {
+  return (z != 0) ? (-kT_over_mu * SQR(std::tanh(std::abs(z) / h_smooth)) / z) : 0;
+}
+
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
   // add gravitational source term directly to the rhs
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto units = hydro_pkg->Param<Units>("units");
 
-  // TODO(ben): read T0, h_smooth, mu from parameter file
-  const Real T0 = 1.e6;                           // K
-  const Real h_smooth = 10. * units.kpc();        // smoothing scale
-  const Real mu = 0.6 * units.atomic_mass_unit(); // mean molecular weight
-  const Real prefac = units.k_boltzmann() * T0 / mu;
+  const Real T0 = hydro_pkg->Param<Real>("bg_temperature"); // K
+  const Real h_smooth =
+      hydro_pkg->Param<Real>("h_smooth"); // smoothing scale (code units)
+  const Real mu =
+      hydro_pkg->Param<Real>("mean_mol_weight"); // mean molecular weight (code units)
+  const Real kT_over_mu = units.k_boltzmann() * T0 / mu;
 
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -139,9 +150,6 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
   const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
-  auto gz_pointwise = [=](double z) {
-    return (z != 0) ? (-prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z) : 0;
-  };
   auto &coords = cons_pack.GetCoords(0);
   Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
   Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
@@ -155,7 +163,7 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
-        const Real g_z = gz_pointwise(z);
+        const Real g_z = gz_pointwise(z, h_smooth, kT_over_mu);
 
         // compute momentum update
         Real p3 = cons(IM3, k, j, i);
@@ -202,8 +210,8 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   boost::math::interpolators::pchip<std::vector<Real>> interpProfile(std::move(zbins),
                                                                      std::move(profile));
 
-  // TODO(ben): disable heating in the midplane
-  const Real h_smooth = 20. * units.kpc();
+  // get 'smoothing' height for heating/cooling
+  const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HeatSource", parthenon::DevExecSpace(), 0,
@@ -220,6 +228,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
 
         // disable heating in precipitator midplane
         const Real damp = SQR(std::tanh(std::abs(z) / h_smooth));
+
         // update total energy
         cons(IEN, k, j, i) += damp * dE;
       });
@@ -236,14 +245,12 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
   const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
-  // TODO(ben): read T0, h_smooth, mu from parameter file
-  const Real T0 = 1.e6;                           // K
-  const Real h_smooth = 10. * units.kpc();        // smoothing scale
-  const Real mu = 0.6 * units.atomic_mass_unit(); // mean molecular weight
-  const Real prefac = units.k_boltzmann() * T0 / mu;
-  auto gz_pointwise = [=](double z) {
-    return (z != 0) ? (-prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z) : 0;
-  };
+  const Real T0 = hydro_pkg->Param<Real>("bg_temperature"); // K
+  const Real h_smooth =
+      hydro_pkg->Param<Real>("h_smooth"); // smoothing scale (code units)
+  const Real mu =
+      hydro_pkg->Param<Real>("mean_mol_weight"); // mean molecular weight (code units)
+  const Real kT_over_mu = units.k_boltzmann() * T0 / mu;
 
   auto bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
   auto domain = IndexDomain::inner_x3;
@@ -258,17 +265,17 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
         for (int k = kb.e; k >= kb.s; --k) {
           const Real z_0 = coords.Xf<3>(k);
           const Real z_1 = coords.Xf<3>(k + 1);
-          const Real g_0 = gz_pointwise(z_0);
-          const Real g_1 = gz_pointwise(z_1);
+          const Real g_0 = gz_pointwise(z_0, h_smooth, kT_over_mu);
+          const Real g_1 = gz_pointwise(z_1, h_smooth, kT_over_mu);
           const Real dz = z_1 - z_0;
           const Real rho_1 = cons(IDN, k + 1, j, i);
 
           // first-order HSE
           const Real rho_0 =
-              rho_1 * ((prefac - 0.5 * g_1 * dz) / (prefac + 0.5 * g_0 * dz));
+              rho_1 * ((kT_over_mu - 0.5 * g_1 * dz) / (kT_over_mu + 0.5 * g_0 * dz));
 
           // recompute pressure assuming constant temperature
-          const Real P_0 = prefac * rho_0;
+          const Real P_0 = kT_over_mu * rho_0;
 
           // get interior velocity
           const Real rho_int = cons(IDN, kb.e + 1, j, i);
@@ -297,14 +304,12 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
   const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
-  // TODO(ben): read T0, h_smooth, mu from parameter file
-  const Real T0 = 1.e6;                           // K
-  const Real h_smooth = 10. * units.kpc();        // smoothing scale
-  const Real mu = 0.6 * units.atomic_mass_unit(); // mean molecular weight
-  const Real prefac = units.k_boltzmann() * T0 / mu;
-  auto gz_pointwise = [=](double z) {
-    return (z != 0) ? (-prefac * SQR(std::tanh(std::abs(z) / h_smooth)) / z) : 0;
-  };
+  const Real T0 = hydro_pkg->Param<Real>("bg_temperature"); // K
+  const Real h_smooth =
+      hydro_pkg->Param<Real>("h_smooth"); // smoothing scale (code units)
+  const Real mu =
+      hydro_pkg->Param<Real>("mean_mol_weight"); // mean molecular weight (code units)
+  const Real kT_over_mu = units.k_boltzmann() * T0 / mu;
 
   auto bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
   auto domain = IndexDomain::outer_x3;
@@ -319,17 +324,17 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
         for (int k = kb.s; k <= kb.e; ++k) {
           const Real z_0 = coords.Xf<3>(k);
           const Real z_1 = coords.Xf<3>(k + 1);
-          const Real g_0 = gz_pointwise(z_0);
-          const Real g_1 = gz_pointwise(z_1);
+          const Real g_0 = gz_pointwise(z_0, h_smooth, kT_over_mu);
+          const Real g_1 = gz_pointwise(z_1, h_smooth, kT_over_mu);
           const Real dz = z_1 - z_0;
           const Real rho_0 = cons(IDN, k - 1, j, i);
 
           // first-order HSE
           const Real rho_1 =
-              rho_0 * ((prefac + 0.5 * g_0 * dz) / (prefac - 0.5 * g_1 * dz));
+              rho_0 * ((kT_over_mu + 0.5 * g_0 * dz) / (kT_over_mu - 0.5 * g_1 * dz));
 
           // recompute pressure assuming constant temperature
-          const Real P_1 = prefac * rho_1;
+          const Real P_1 = kT_over_mu * rho_1;
 
           // get interior velocity
           const Real rho_int = cons(IDN, kb.s - 1, j, i);
@@ -349,6 +354,8 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
 
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
+  const Units units(pin);
+
   if (pmb->lid == 0) {
     /************************************************************
      * Initialize the hydrostatic profile
@@ -360,6 +367,32 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     const auto enable_heating_str =
         pin->GetOrAddString("precipitator", "enable_heating", "none");
     hydro_pkg->AddParam<>("enable_heating", enable_heating_str);
+
+    // read temperature, smoothing heights
+    const Real T0 = pin->GetReal("precipitator", "bg_temperature"); // K
+    const Real h_smooth = pin->GetReal("precipitator", "h_smooth_kpc") * units.kpc();
+    const Real h_smooth_heatcool =
+        pin->GetReal("precipitator", "h_smooth_heatcool_kpc") * units.kpc();
+    const Real mu =
+        pin->GetReal("precipitator", "dimensionless_mmw") * units.atomic_mass_unit();
+    hydro_pkg->AddParam<Real>("bg_temperature", T0); // K
+    hydro_pkg->AddParam<Real>("h_smooth", h_smooth); // smoothing scale (code units)
+    hydro_pkg->AddParam<Real>("h_smooth_heatcool",
+                              h_smooth_heatcool); // smoothing scale (code units)
+    hydro_pkg->AddParam<Real>("mean_mol_weight",
+                              mu); // mean molecular weight (code units)
+
+    // read perturbation parameters
+    const int kx = pin->GetInteger("precipitator", "perturb_kx");
+    const int ky = pin->GetInteger("precipitator", "perturb_ky");
+    const int kz = pin->GetInteger("precipitator", "perturb_kz");
+    const Real amp = pin->GetReal("precipitator", "perturb_sin_drho_over_rho");
+    const Real amp_rand = pin->GetReal("precipitator", "perturb_random_drho_over_rho");
+    hydro_pkg->AddParam<int>("perturb_kx", kx);
+    hydro_pkg->AddParam<int>("perturb_ky", ky);
+    hydro_pkg->AddParam<int>("perturb_kz", kz);
+    hydro_pkg->AddParam<Real>("perturb_amplitude", amp);
+    hydro_pkg->AddParam<Real>("perturb_amplitude_rand", amp_rand);
   }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -380,7 +413,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real x2max = pin->GetReal("parthenon/mesh", "x2max");
   const Real x3min = pin->GetReal("parthenon/mesh", "x3min");
   const Real x3max = pin->GetReal("parthenon/mesh", "x3max");
-  const Real halfLz = 0.5 * (x3max - x3min);
 
   // Initialize the conserved variables
   auto u = u_dev.GetHostMirrorAndCopy();
@@ -389,18 +421,20 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real gam = pin->GetReal("hydro", "gamma");
   const Real gm1 = (gam - 1.0);
 
-  const Units units(pin);
+  // Get HSE profile and parameters
   const auto &P_rho_profile =
       hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
-
-  auto f_rho = [&](double z) { return P_rho_profile.rho(z); };
-  auto f_P = [&](double z) { return P_rho_profile.P(z); };
-
-  // read perturbation parameters
-  const Real kx = static_cast<Real>(pin->GetInteger("precipitator", "kx"));
-  const Real amp = pin->GetReal("precipitator", "perturb_sin_drho_over_rho");
-  const Real amp_rand = pin->GetReal("precipitator", "perturb_random_drho_over_rho");
-  const Real z_s = 10. * units.kpc(); // smoothing scale
+  const Real h_smooth = hydro_pkg->Param<Real>("h_smooth");
+  const int kx = hydro_pkg->Param<int>("perturb_kx");
+  const int ky = hydro_pkg->Param<int>("perturb_ky");
+  const int kz = hydro_pkg->Param<int>("perturb_kz");
+  const Real amp = hydro_pkg->Param<Real>("perturb_amplitude");
+  const Real amp_rand = hydro_pkg->Param<Real>("perturb_amplitude_rand");
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "Perturbing mode (kx, ky, kz) = " << kx << ", " << ky << ", " << kz
+              << " with fractional perturbations = " << amp
+              << " with smoothing height = " << h_smooth << std::endl;
+  }
 
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
 
@@ -409,18 +443,21 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
         // Calculate height
-        const Real z = coords.Xc<3>(k);
-        const Real abs_z_cgs = std::abs(z) * units.code_length_cgs();
+        const Real abs_height = std::abs(coords.Xc<3>(k));
+        const Real abs_height_cgs = abs_height * units.code_length_cgs();
 
         // Get density and pressure from generated profile
-        const Real rho_cgs = f_rho(abs_z_cgs);
-        const Real P_cgs = f_P(abs_z_cgs);
+        const Real rho_cgs = P_rho_profile.rho(abs_height_cgs);
+        const Real P_cgs = P_rho_profile.P(abs_height_cgs);
 
         // Generate isobaric perturbations
         const Real x = coords.Xc<1>(i) / (x1max - x1min);
         const Real y = coords.Xc<2>(j) / (x2max - x2min);
-        Real drho_over_rho = amp * SQR(std::tanh(std::abs(z) / z_s)) *
-                             std::sin(2. * M_PI * (kx * x + 4. * (z / halfLz) + 7. * y));
+        const Real z = coords.Xc<3>(k) / (x3max - x3min);
+        const Real arg = kx * x + ky * y + kz * z;
+        Real drho_over_rho =
+            amp * SQR(std::tanh(abs_height / h_smooth)) * std::sin(2. * M_PI * arg);
+
         auto generator = random_pool.get_state();
         drho_over_rho += generator.drand(-amp_rand, amp_rand);
         random_pool.free_state(generator);
