@@ -2,6 +2,23 @@
   action: "add_pipelines"
   pipelines: 
     pl1:
+      f1:
+        type: "log10"
+        params: 
+          field: "prim:Density"
+          output_name: "log_Density"
+      f2:
+        type: "slice"
+        params: 
+          point: 
+            x: 0.0
+            y: 0.0
+            z: 0.0
+          normal: 
+            x: 0.0
+            y: 1.0
+            z: 0.0
+    pl2:
       f2:
         type: "slice"
         params: 
@@ -20,8 +37,10 @@
       plots: 
         p1: 
           type: "pseudocolor"
-          field: "prim:Density"
+          field: "log_Density"
           pipeline: "pl1"
+          color_table: 
+            name: "Viridis"
       renders:
         r1:
           image_prefix: "dens%05d"
@@ -35,7 +54,7 @@
         p1: 
           type: "pseudocolor"
           field: "prim:Velocity3"
-          pipeline: "pl1"
+          pipeline: "pl2"
       renders:
         r1:
           image_prefix: "vel_z%05d"
