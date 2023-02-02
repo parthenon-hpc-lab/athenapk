@@ -30,6 +30,8 @@ compile_commands.json
 # HDF5/Output Files
 *.phdf
 *.phdf.xdmf
+*.rhdf
+*.rdhf.xdmf
 *.dat
 *.hst
 *.png

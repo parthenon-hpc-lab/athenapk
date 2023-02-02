@@ -14,6 +14,11 @@ variables  = prim      # Variables to be output
 dt         = 1000.0        # Time increment between outputs
 id         = prim      # Name to append to output
 
+<parthenon/output3>
+file_type  = rst        # Binary data dump
+dt         = 1000.0        # time increment between outputs
+id         = restart
+
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
@@ -62,6 +67,9 @@ scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 He_mass_fraction = 0.25
 profile_filename = ./inputs/tabulated_hse.txt
 
+dfloor = 1000.  # Msun kpc^{-3}
+Tfloor = 1.0e5  # K
+
 <units>
 code_length_cgs = 3.086e21      # kpc
 code_mass_cgs = 1.98841586e+33  # Msun
@@ -70,7 +78,7 @@ code_time_cgs = 3.15576e+13     # Myr
 <cooling>
 enable_cooling = tabular   # tabular
 integrator = townsend
-cfl = 1.0
+cfl = 0.1
 
 table_filename = ./inputs/precipitator.cooling
 log_temp_col = 0
