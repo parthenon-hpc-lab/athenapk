@@ -376,6 +376,9 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
   const Real x1min = pin->GetReal("parthenon/mesh", "x1min");
   const Real x1max = pin->GetReal("parthenon/mesh", "x1max");
+  const Real x3min = pin->GetReal("parthenon/mesh", "x3min");
+  const Real x3max = pin->GetReal("parthenon/mesh", "x3max");
+  const Real halfLz = 0.5 * (x3max - x3min);
 
   // Initialize the conserved variables
   auto u = u_dev.GetHostMirrorAndCopy();
@@ -413,8 +416,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
         // Generate isobaric perturbations
         const Real x = coords.Xc<1>(i) / (x1max - x1min);
-        Real drho_over_rho =
-            amp * SQR(std::tanh(std::abs(z) / z_s)) * std::sin(2.0 * M_PI * kx * x);
+        Real drho_over_rho = amp * SQR(std::tanh(std::abs(z) / z_s)) *
+                             std::sin(2. * M_PI * (kx * x + 4. * (z / halfLz)));
         auto generator = random_pool.get_state();
         drho_over_rho += generator.drand(-amp_rand, amp_rand);
         random_pool.free_state(generator);
