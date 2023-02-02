@@ -393,6 +393,12 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     hydro_pkg->AddParam<int>("perturb_kz", kz);
     hydro_pkg->AddParam<Real>("perturb_amplitude", amp);
     hydro_pkg->AddParam<Real>("perturb_amplitude_rand", amp_rand);
+
+    if (parthenon::Globals::my_rank == 0) {
+      std::cout << "Perturbing mode (kx, ky, kz) = " << kx << ", " << ky << ", " << kz
+                << "\n\t with fractional perturbations = " << amp
+                << "\t and smoothing height = " << h_smooth << std::endl;
+    }
   }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -430,11 +436,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const int kz = hydro_pkg->Param<int>("perturb_kz");
   const Real amp = hydro_pkg->Param<Real>("perturb_amplitude");
   const Real amp_rand = hydro_pkg->Param<Real>("perturb_amplitude_rand");
-  if (parthenon::Globals::my_rank == 0) {
-    std::cout << "Perturbing mode (kx, ky, kz) = " << kx << ", " << ky << ", " << kz
-              << " with fractional perturbations = " << amp
-              << " with smoothing height = " << h_smooth << std::endl;
-  }
 
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
 
