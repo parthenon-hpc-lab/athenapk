@@ -49,17 +49,17 @@
             look_at: [0.0, 0.0, 0.0]
             position: [0.0, -200.0, 0.0]
             up: [0.0, 0.0, 1.0]
-    s2: 
-      plots: 
-        p1: 
-          type: "pseudocolor"
-          field: "prim:Velocity3"
-          pipeline: "pl2"
-      renders:
-        r1:
-          image_prefix: "vel_z%05d"
-          annotations: "true"
-          camera:
-            look_at: [0.0, 0.0, 0.0]
-            position: [0.0, -200.0, 0.0]
-            up: [0.0, 0.0, 1.0]
+    # s2: 
+    #   plots: 
+    #     p1: 
+    #       type: "pseudocolor"
+    #       field: "prim:Velocity3"
+    #       pipeline: "pl2"
+    #   renders:
+    #     r1:
+    #       image_prefix: "vel_z%05d"
+    #       annotations: "true"
+    #       camera:
+    #         look_at: [0.0, 0.0, 0.0]
+    #         position: [0.0, -200.0, 0.0]
+    #         up: [0.0, 0.0, 1.0]

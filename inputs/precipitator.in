@@ -76,8 +76,6 @@ code_time_cgs = 3.15576e+13     # Myr
 <cooling>
 enable_cooling = tabular   # tabular
 integrator = townsend
-cfl = 0.1
-
 table_filename = ./inputs/precipitator.cooling
 log_temp_col = 0
 log_lambda_col = 1
@@ -93,10 +91,11 @@ h_smooth_kpc = 10.
 h_smooth_heatcool_kpc = 20.
 dimensionless_mmw = 0.6
 
-perturb_sin_drho_over_rho = 0.025
-perturb_random_drho_over_rho = 0.01
-perturb_kx = 6
-perturb_ky = 7
-perturb_kz = 8
+perturb_sin_drho_over_rho = 0.1     # 0.025
+perturb_random_drho_over_rho = 0    # 0.01
+perturb_kx = 16
+perturb_ky = 16
+perturb_kz = 32
+perturb_exponent = 1    # P(k) ~ k^{-2}
 
 ascent_interval = 20
