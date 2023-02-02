@@ -360,7 +360,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     /************************************************************
      * Initialize the hydrostatic profile
      ************************************************************/
-    const auto &filename = pin->GetString("hydro", "profile_filename");
+    const auto &filename = pin->GetString("precipitator", "hse_profile_filename");
     const PrecipitatorProfile P_rho_profile(filename);
     hydro_pkg->AddParam<>("precipitator_profile", P_rho_profile);
 
@@ -397,7 +397,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     if (parthenon::Globals::my_rank == 0) {
       std::cout << "Perturbing mode (kx, ky, kz) = " << kx << ", " << ky << ", " << kz
                 << "\n\t with fractional perturbations = " << amp
-                << "\t and smoothing height = " << h_smooth << std::endl;
+                << "\n\t and smoothing height = " << h_smooth << std::endl;
     }
   }
 

@@ -65,8 +65,6 @@ use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 He_mass_fraction = 0.25
-profile_filename = ./inputs/tabulated_hse.txt
-
 dfloor = 1000.  # Msun kpc^{-3}
 Tfloor = 1.0e5  # K
 
@@ -86,6 +84,8 @@ log_lambda_col = 1
 lambda_units_cgs = 1
 
 <precipitator>
+hse_profile_filename = ./inputs/tabulated_hse.txt
+
 enable_heating = magic   # magic
 numHist = 64
 bg_temperature = 1.0e6
