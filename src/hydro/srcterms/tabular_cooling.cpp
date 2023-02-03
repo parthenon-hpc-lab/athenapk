@@ -311,6 +311,9 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
+  // get 'smoothing' height for heating/cooling
+  const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
+
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::SubcyclingSplitSrcTerm", DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -459,13 +462,19 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           sub_iter++;
         }
 
-        PARTHENON_REQUIRE(internal_e > internal_e_floor, "cooled below floor");
+        PARTHENON_REQUIRE(internal_e > 0.9 * internal_e_floor, "cooled below floor");
+
+        // artificially limit temperature change in precipitator midplane
+        const auto &coords = cons_pack.GetCoords(b);
+        const Real z = coords.Xc<3>(k);
+        const Real damp = SQR(std::tanh(std::abs(z) / h_smooth));
+        const auto internal_e_damped = damp * (internal_e - internal_e_initial) + internal_e;
 
         // Remove the cooling from the total energy density
-        cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
+        cons(IEN, k, j, i) += damp * rho * (internal_e - internal_e_initial);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
-        prim(IPR, k, j, i) = rho * internal_e * gm1;
+        prim(IPR, k, j, i) = rho * internal_e_damped * gm1;
       });
 }
 
@@ -586,8 +595,6 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                                      const parthenon::Real dt_) const {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
-
-  // TODO(ben): disable cooling in the midplane for the precipitator
 
   // Grab member variables for compiler
   const auto dt = dt_; // HACK capturing parameters still broken with Cuda 11.6 ...
