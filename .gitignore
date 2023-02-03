@@ -31,7 +31,7 @@ compile_commands.json
 *.phdf
 *.phdf.xdmf
 *.rhdf
-*.rdhf.xdmf
+*.rhdf.xdmf
 *.dat
 *.hst
 *.png
