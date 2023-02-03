@@ -22,9 +22,6 @@
 #include <stdexcept> // runtime_error
 #include <string>    // c_str()
 
-// Boost headers
-#include <boost/math/interpolators/pchip.hpp>
-
 // Kokkos headers
 #include <Kokkos_Random.hpp>
 
@@ -40,6 +37,7 @@
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../hydro/hydro.hpp"
+#include "../interp.hpp"
 #include "../main.hpp"
 #include "../render_ascent.hpp"
 #include "../units.hpp"
@@ -52,60 +50,69 @@ using namespace parthenon::package::prelude;
 
 class PrecipitatorProfile {
  public:
-  PrecipitatorProfile(std::string const &filename) { readProfile(filename); }
+  PrecipitatorProfile(std::string const &filename)
+      : z_(get_z(filename)), rho_(get_rho(filename)), P_(get_P(filename)),
+        spline_rho_(z_, rho_), spline_P_(z_, P_) {}
+  PrecipitatorProfile(PrecipitatorProfile const &rhs)
+      : spline_P_(rhs.spline_P_), spline_rho_(rhs.spline_rho_) {}
 
-  PrecipitatorProfile(PrecipitatorProfile const &rhs) {
-    spline_rho_ = rhs.spline_rho_;
-    spline_P_ = rhs.spline_P_;
-  }
-
-  inline void readProfile(std::string const &filename) {
+  inline auto readProfile(std::string const &filename)
+      -> std::tuple<std::vector<Real>, std::vector<Real>, std::vector<Real>> {
     // read in tabulated profile from text file 'filename'
     std::ifstream fstream(filename, std::ios::in);
     assert(fstream.is_open());
     std::string header;
     std::getline(fstream, header);
 
-    std::vector<Real> z_rho_{};
+    std::vector<Real> z_{};
     std::vector<Real> rho_{};
-    std::vector<Real> z_P_{};
     std::vector<Real> P_{};
 
     for (std::string line; std::getline(fstream, line);) {
       std::istringstream iss(line);
-      std::vector<double> values;
+      std::vector<Real> values;
 
-      for (double value = NAN; iss >> value;) {
+      for (Real value = NAN; iss >> value;) {
         values.push_back(value);
       }
-      z_rho_.push_back(values.at(0));
+      z_.push_back(values.at(0));
       rho_.push_back(values.at(1));
-      z_P_.push_back(values.at(0));
       P_.push_back(values.at(2));
     }
-
-    spline_rho_ =
-        std::make_shared<boost::math::interpolators::pchip<std::vector<double>>>(
-            std::move(z_rho_), std::move(rho_));
-    spline_P_ = std::make_shared<boost::math::interpolators::pchip<std::vector<double>>>(
-        std::move(z_P_), std::move(P_));
+    return std::make_tuple(z_, rho_, P_);
   }
 
-  inline Real rho(Real z) const {
+  inline std::vector<Real> get_z(std::string const &filename) {
+    auto [z, rho, P] = readProfile(filename);
+    return z;
+  }
+
+  inline std::vector<Real> get_rho(std::string const &filename) {
+    auto [z, rho, P] = readProfile(filename);
+    return rho;
+  }
+
+  inline std::vector<Real> get_P(std::string const &filename) {
+    auto [z, rho, P] = readProfile(filename);
+    return P;
+  }
+
+  KOKKOS_FORCEINLINE_FUNCTION Real rho(Real z) const {
     // interpolate density from tabulated profile
-    return (*spline_rho_)(z);
+    return spline_rho_(z);
   }
 
-  inline Real P(Real z) const {
+  KOKKOS_FORCEINLINE_FUNCTION Real P(Real z) const {
     // interpolate pressure from tabulated profile
-    return (*spline_P_)(z);
+    return spline_P_(z);
   }
 
  private:
-  // use monotonic cubic Hermite polynomial interpolation
-  // (https://doi.org/10.1137/0717021)
-  std::shared_ptr<boost::math::interpolators::pchip<std::vector<double>>> spline_rho_;
-  std::shared_ptr<boost::math::interpolators::pchip<std::vector<double>>> spline_P_;
+  std::vector<Real> z_{};
+  std::vector<Real> rho_{};
+  std::vector<Real> P_{};
+  MonotoneInterpolator<std::vector<double>> spline_rho_;
+  MonotoneInterpolator<std::vector<double>> spline_P_;
 };
 
 void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) {
@@ -207,8 +214,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   }
 
   // compute interpolant
-  boost::math::interpolators::pchip<std::vector<Real>> interpProfile(std::move(zbins),
-                                                                     std::move(profile));
+  MonotoneInterpolator<std::vector<Real>> interpProfile(zbins, profile);
 
   // get 'smoothing' height for heating/cooling
   const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");

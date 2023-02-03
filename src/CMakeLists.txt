@@ -23,7 +23,6 @@ add_executable(
 add_subdirectory(pgen)
 
 target_link_libraries(athenaPK PRIVATE parthenon)
-target_link_libraries(athenaPK PRIVATE Boost::boost)
 target_link_libraries(athenaPK PUBLIC ascent::ascent_mpi)
 if(CMAKE_CUDA_COMPILER)
   set_property(TARGET athenaPK PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)

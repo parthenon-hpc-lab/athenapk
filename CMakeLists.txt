@@ -60,7 +60,6 @@ else()
   find_package(parthenon REQUIRED)
 endif()
 
-find_package(Boost 1.74.0)
 find_package(MPI REQUIRED)
 find_package(Ascent REQUIRED NO_DEFAULT_PATH)
 
