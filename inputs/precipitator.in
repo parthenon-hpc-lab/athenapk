@@ -91,7 +91,7 @@ h_smooth_kpc = 10.
 h_smooth_heatcool_kpc = 20.
 dimensionless_mmw = 0.6
 
-perturb_sin_drho_over_rho = 0.1     # 0.025
+perturb_sin_drho_over_rho = 0.025
 perturb_random_drho_over_rho = 0    # 0.01
 perturb_kx = 16
 perturb_ky = 16
