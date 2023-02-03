@@ -49,7 +49,7 @@ MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
   f_vec_ = f_vec;
   d_vec_ = VectorContainer(x_vec_.size());
 
-  auto dright = [=](int i) {
+  auto dright = [=](int i) { // \Delta_i
     return (f_vec_[i + 1] - f_vec_[i]) / (x_vec_[i + 1] - x_vec_[i]);
   };
   auto dleft = [=](int i) {
@@ -67,13 +67,24 @@ MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
     d_vec_[i] = 0.5 * (dleft(i) + dright(i));
   }
 
-  // adjust to satisfy monotonicity constraints
-  // ...
+  // adjust slopes to satisfy monotonicity constraints
+  for (int i = 0; i < (x_vec.size() - 1); ++i) {
+    const Real delta_i = dright(i);
+    const Real alpha_i = d_vec_[i] / delta_i;
+    const Real beta_i = d_vec_[i + 1] / delta_i;
+    const Real tau_i = 3. / std::sqrt(alpha_i * alpha_i + beta_i * beta_i);
+    if (tau_i < 1.) { // modify slopes
+      const Real alpha_i_star = tau_i * alpha_i;
+      const Real beta_i_star = tau_i * beta_i;
+      d_vec_[i] = alpha_i_star * delta_i;
+      d_vec_[i + 1] = beta_i_star * delta_i;
+    }
+  }
 }
 
 template <class T>
-KOKKOS_FORCEINLINE_FUNCTION
-auto MonotoneInterpolator<T>::operator()(Real x) const -> Real {
+KOKKOS_FORCEINLINE_FUNCTION auto MonotoneInterpolator<T>::operator()(Real x) const
+    -> Real {
   // to avoid branchy code, do a linear search for the segment I_i
   // where x_{i} <= x < x_{i+1}.
   int i = 0;
