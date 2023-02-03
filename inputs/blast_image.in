@@ -6,23 +6,22 @@
 problem = spherical blast wave
 
 <job>
-problem_id = 2021
-pgen = blast
+problem_id = blast
 
 <parthenon/mesh>
 refinement = adaptive
-numlevel = 2
+numlevel = 3
 nghost = 2
 
-nx1 = 256 
-x1min = -0.5
-x1max = 0.5
+nx1 = 128 
+x1min = -1.0
+x1max = 1.0
 ix1_bc = periodic
 ox1_bc = periodic
 
-nx2 = 256 
-x2min = -0.5
-x2max = 0.5
+nx2 = 192
+x2min = -1.50
+x2max = 1.50
 ix2_bc = periodic
 ox2_bc = periodic
 
@@ -32,9 +31,6 @@ x3max = 0.5
 ix3_bc = periodic
 ox3_bc = periodic
 
-num_threads=1
-num_streams=1
-
 <parthenon/meshblock>
 nx1=16  
 nx2=16  
@@ -43,28 +39,51 @@ nx3=1
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
-tlim = 0.004
+tlim = 1.0
 nlim = 10000
-perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+perf_cycle_offset = 2     # number of inital cycles not to be included in perf calc
+ncycle_out_mesh = -500    # output mesh structure every 500 cycles and on every change (<0)
 
 <hydro>
 eos = adiabatic
-riemann = hlle
+riemann = hllc
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
-scratch_level = 1 # 0 is actual scratch (tiny); 1 is HBM
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+dfloor = 0.001    # density floor; should not be required enabled for testing
+pfloor = 0.0001   # pressure floor; should not be required enabled for testing
 
-<problem>
-pamb       = 0.001    # ambient pressure
-prat       = 1.6e8 # Pressure ratio initially
-radius     = 0.05    # Radius of the inner sphere
-damb       = 1.0    # ambient density
-drat       = 2.0
-ramp       = 0.0
-thr        = 0.1
-input_image = 2021.pbm
+# Refinement based on methods implemented in AthenaPK
+#<refinement>
+#type                         = pressure_gradient
+#threshold_pressure_gradient  = 0.1
+
+# Refinement based on methods implemented in Parthenon
+# Note the different block name!
+<parthenon/refinement0>
+method       = derivative_order_2 # normalized, second deriv, see https://github.com/parthenon-hpc-lab/parthenon/blob/develop/docs/amr.md#predefined-criteria
+field        = cons
+vector_i     = 0                  # first vector component of cons vector, i.e., density
+refine_tol   = 0.15
+derefine_tol = 0.05
+
+<problem/blast>
+#radius_inner     = 0.1     # Radius of the inner sphere (default radius_inner = radius_outer)
+radius_outer     = 0.1     # Radius of the outer sphere (a smooth ramp will be used between inner and outer sphere)
+pressure_ambient = 0.1     # Ambient pressure
+pressure_ratio   = 100.    # Pressure ratio in central region to ambient medium initially
+density_ambient  = 1.0     # Ambient density
+density_ratio    = 2.0     # Density ratio in central region to ambient medium initially
+#input_image = none         # for "none" the initial density will also be a spherical over/underdensity (defined by density_ratio) within given radii
+input_image = parthenon_athena.pbm # use your custom file in pbm format, will be mapped to initial over/underdensity
+
+# location of initial over/under dense/pressurized region
+x1_0 = 0.0
+x2_0 = 0.0
+x3_0 = 0.0
 
 <parthenon/output0>
 file_type = hdf5
-dt = 0.00005
-variables = cons
+dt = 0.05
+variables = prim
+use_final_label = false
