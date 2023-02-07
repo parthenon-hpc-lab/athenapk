@@ -133,8 +133,8 @@ $$
 This profile is determined by these parameters
 ```
 <problem/cluster/entropy_profile>
-k_0 = 8.851337676479303e-121 # in FIXME
-k_100 = 1.3277006514718954e-119 # in FIXME
+k_0 = 8.851337676479303e-121 # in code_length**4*code_mass/code_time**2
+k_100 = 1.3277006514718954e-119 # in code_length**4*code_mass/code_time**2
 r_k = 0.1 # in code_length
 alpha_k = 1.1 # unitless
 ```
@@ -381,3 +381,18 @@ fixed_field_rate = 1.0
 fixed_mass_rate = 1.0
 ```
 
+## SNIA Feedback
+
+Following [Prasad 2020](doi.org/10.1093/mnras/112.2.195), AthenaPK can inject
+mass and energy from type Ia supernovae following the mass profile of the BCG.
+This SNIA feedback can be configured with
+```
+<problem/cluster/snia_feedback>
+power_per_bcg_mass = 0.0015780504379367209 # in units code_length**2/code_time**3
+mass_rate_per_bcg_mass = 0.00315576 # in units 1/code_time
+disabled = False
+```
+where `power_per_bcg_mass` and `mass_rate_per_bcg_mass` is the power and mass
+per time respectively injected per BCG mass at a given radius. This SNIA
+feedback is otherwise fixed in time, spherically symmetric, and dependant on
+the BCG specified in `<problem/cluster/gravity>`.
