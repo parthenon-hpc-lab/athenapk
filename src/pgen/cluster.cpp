@@ -42,6 +42,7 @@
 #include "cluster/entropy_profiles.hpp"
 #include "cluster/hydrostatic_equilibrium_sphere.hpp"
 #include "cluster/magnetic_tower.hpp"
+#include "cluster/snia_feedback.hpp"
 
 namespace cluster {
 using namespace parthenon::driver::prelude;
@@ -65,6 +66,9 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
   magnetic_tower.FixedFieldSrcTerm(md, beta_dt, tm);
+
+  const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
+  snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
 }
 
 Real ClusterEstimateTimestep(MeshData<Real> *md) {
@@ -168,6 +172,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
        (agn_feedback.fixed_power_ != 0 ||
         agn_triggering.triggering_mode_ != AGNTriggeringMode::NONE));
   hydro_pkg->AddParam("magnetic_tower_power_scaling", magnetic_tower_power_scaling);
+
+  /************************************************************
+   * Read SNIA Feedback
+   ************************************************************/
+
+  SNIAFeedback snia_feedback(pin, hydro_pkg);
 }
 
 //========================================================================================

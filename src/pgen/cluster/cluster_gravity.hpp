@@ -228,6 +228,9 @@ class ClusterGravity {
     return rho;
   }
 
+  //SNIAFeedback needs to be a friend to disable the SMBH and NFW
+  friend class SNIAFeedback;
+
 };
 
 } // namespace cluster
