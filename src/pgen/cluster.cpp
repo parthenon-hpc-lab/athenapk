@@ -115,6 +115,24 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   }
 
   /************************************************************
+   * Read Uniform Magnetic Field
+   ************************************************************/
+
+  const bool init_uniform_b_field =
+      pin->GetOrAddBoolean("problem/cluster/uniform_b_field", "init_uniform_b_field", false);
+  hydro_pkg->AddParam<>("init_uniform_b_field", init_uniform_b_field);
+
+  if (init_uniform_b_field) {
+    const Real uniform_b_field_bx = pin->GetReal("problem/cluster/uniform_b_field", "bx");
+    const Real uniform_b_field_by = pin->GetReal("problem/cluster/uniform_b_field", "by");
+    const Real uniform_b_field_bz = pin->GetReal("problem/cluster/uniform_b_field", "bz");
+
+    hydro_pkg->AddParam<>("uniform_b_field_bx", uniform_b_field_bx);
+    hydro_pkg->AddParam<>("uniform_b_field_by", uniform_b_field_by);
+    hydro_pkg->AddParam<>("uniform_b_field_bz", uniform_b_field_bz);
+  }
+
+  /************************************************************
    * Read Cluster Gravity Parameters
    ************************************************************/
 
@@ -308,6 +326,35 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           u(IEN, k, j, i) +=
               0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
         });
+
+
+    /************************************************************
+     * Add uniform magnetic field to the conserved variables
+     ************************************************************/
+    const auto &init_uniform_b_field = hydro_pkg->Param<bool>("init_uniform_b_field");
+    if (init_uniform_b_field) {
+      const Real bx = hydro_pkg->Param<Real>("uniform_b_field_bx");
+      const Real by = hydro_pkg->Param<Real>("uniform_b_field_by");
+      const Real bz = hydro_pkg->Param<Real>("uniform_b_field_bz");
+      parthenon::par_for(
+          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyUniformBField",
+          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+            const Real bx_i = u(IB1, k, j, i);
+            const Real by_i = u(IB2, k, j, i);
+            const Real bz_i = u(IB3, k, j, i);
+
+            u(IB1, k, j, i) += bx;
+            u(IB2, k, j, i) += by;
+            u(IB3, k, j, i) += bz;
+
+            //Old magnetic energy is b_i^2, new Magnetic energy should be 0.5*(b_i + b)^2,
+            //add b_i*b + 0.5b^2  to old energy to accomplish that
+            u(IEN, k, j, i) += bx_i*bx + by_i*by + bz_i*bz+
+                0.5 * (SQR(bx) + SQR(by) + SQR(bz));
+          });
+    //end if(init_uniform_b_field)
+    }
 
   } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
 }
