@@ -51,6 +51,26 @@ Parameter: `reconstruction` (string)
 
 Note, `ppm` and `wenoz` need at least three ghost zones (`parthenon/mesh/num_ghost`).
 
+#### Optically thin cooling
+
+Optically thin cooling is enabled through the `cooling` block in the input file.
+A possible block might look like:
+
+```
+<cooling>
+enable_cooling = tabular           # To disable, set to `none`
+table_filename = schure.cooling    # Path to the cooling table (in a text file)
+log_temp_col = 0                   # Column in the file that contains the log10 temperatures
+log_lambda_col = 1                 # Column in the file that contains the cooling rates
+lambda_units_cgs = 1               # Conversion factor of the cooling rate relative to CGS units
+
+integrator = townsend              # Other possible options are `rk12` and `rk45` for error bound subcycling
+#max_iter = 100                    # Max number of iteration for subcycling. Unsued for Townsend integrator
+cfl = 0.1                          # Restrict global timestep to `cfl*e / dedt`, i.e., some fraction of change per cycle in the specific internal energy (i.e., temperature)
+d_log_temp_tol = 1e-8              # Tolerance in cooling table between subsequent entries. Both subcycling integrators and cfl restriction rely on a table lookup that assumes equally spaced (in log space) temperature values.
+#d_e_tol = 1e-8                    # Tolerance for the relative error in the change of internal energy for the error bound subcyling integrators (rk12 and rk45). Unused for Townsend integrator.
+```
+
 #### Diffusive processes
 
 ##### Anisotropic thermal conduction (required MHD)

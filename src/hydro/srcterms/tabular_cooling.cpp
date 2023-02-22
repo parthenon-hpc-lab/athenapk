@@ -118,8 +118,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     std::vector<std::string> line_data{std::istream_iterator<std::string>{iss},
                                        std::istream_iterator<std::string>{}};
     // Check size
-    if (line_data.size() == 0 ||
-        line_data.size() <= std::max(log_temp_col, log_lambda_col)) {
+    if (line_data.empty() || line_data.size() <= std::max(log_temp_col, log_lambda_col)) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "Index " << std::max(log_temp_col, log_lambda_col) << " out of range on \""
           << line << "\"" << std::endl;
@@ -173,10 +172,10 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
       PARTHENON_FAIL(msg);
     }
 
-    // Technically, this check is not related do "not Townsend" cooling but to the Dedt()
-    // lookup function that is used in the subcycling method and in order to restrict `dt`
-    // by a cooling cfl.
-    if ((integrator_ != CoolIntegrator::townsend) &&
+    // The Dedt() function currently relies on an equally spaced cooling table for faster
+    // lookup (direct indexing). It is used in the subcycling method and in order to
+    // restrict `dt` by a cooling cfl.
+    if (((integrator_ != CoolIntegrator::townsend) || (cooling_time_cfl_ > 0.0)) &&
         (fabs(d_log_temp_i - d_log_temp) / d_log_temp > d_log_temp_tol_)) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "d_log_temp in table is uneven at i=" << i << " log_temp=" << log_temps[i]
@@ -198,7 +197,8 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   d_log_temp_ = d_log_temp;
   lambda_final_ = std::pow(10.0, log_lambdas[n_temp_ - 1]);
 
-  if (integrator_ != CoolIntegrator::townsend) {
+  // Setup log_lambdas_ used in Dedt()
+  if ((integrator_ != CoolIntegrator::townsend) || (cooling_time_cfl_ > 0.0)) {
     log_lambdas_ = ParArray1D<Real>("log_lambdas_", n_temp_);
 
     // Read log_lambdas in host_log_lambdas, changing to code units along the way
@@ -208,9 +208,9 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     }
     // Copy host_log_lambdas into device memory
     Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
-
-    // Setup Townsend cooling, i.e., precalulcate piecewise powerlaw approx.
-  } else {
+  }
+  // Setup Townsend cooling, i.e., precalulcate piecewise powerlaw approx.
+  if (integrator_ == CoolIntegrator::townsend) {
     lambdas_ = ParArray1D<Real>("lambdas_", n_temp_);
     temps_ = ParArray1D<Real>("temps_", n_temp_);
 
@@ -699,12 +699,7 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 }
 
 Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
-  // No need to restrict dt for townsend cooling
-  // TODO(pgrete) make this optional so that the cfl_cool is detached
-  // from the cooling mechanism, because it may still be desireable to
-  // not let different physical processes evolve on vastly different
-  // timescales.
-  if (integrator_ == CoolIntegrator::townsend) {
+  if (cooling_time_cfl_ <= 0.0) {
     return std::numeric_limits<Real>::max();
   }
   // Grab member variables for compiler
