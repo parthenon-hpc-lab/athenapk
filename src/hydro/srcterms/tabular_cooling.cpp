@@ -601,6 +601,7 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
   const auto log_lambdas = log_lambdas_;
 
   const Real gm1 = gm1_;
+  const auto internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B;
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -633,9 +634,11 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
                  log_temp_final, d_log_temp, n_temp, log_lambdas, dedt_valid);
 
         // Compute cooling time
-        // If de_dt is zero, using infinite cooling time
-        const Real cooling_time = (de_dt == 0 ? std::numeric_limits<Real>::infinity()
-                                              : fabs(internal_e / de_dt));
+        // If de_dt is zero (temperature is smaller than lower end of cooling table) or
+        // current temp is below floor, use infinite cooling time
+        const Real cooling_time = ((de_dt == 0) || (internal_e < internal_e_floor))
+                                      ? std::numeric_limits<Real>::infinity()
+                                      : fabs(internal_e / de_dt);
 
         thread_min_cooling_time = std::min(cooling_time, thread_min_cooling_time);
       },
