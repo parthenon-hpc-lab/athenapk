@@ -498,14 +498,11 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
   // initialize conserved variables
   auto &rc = pmb->meshblock_data.Get();
-  auto &u_dev = rc->Get("cons").data;
+  auto &u = rc->Get("cons").data;
   auto &coords = pmb->coords;
   Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
   Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
   Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
-
-  // Initialize the conserved variables
-  auto u = u_dev.GetHostMirrorAndCopy();
 
   // Get Adiabatic Index
   const Real gam = pin->GetReal("hydro", "gamma");
@@ -547,10 +544,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         drho(k, j, i) = t_drho;
       });
 
-  // initialize conserved variables
-  for (int k = kb.s; k <= kb.e; k++) {
-    for (int j = jb.s; j <= jb.e; j++) {
-      for (int i = ib.s; i <= ib.e; i++) {
+  // Initialize conserved variables on device
+  pmb->par_for(
+      "InitialConditions", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
         // Calculate height
         const Real abs_height = std::abs(coords.Xc<3>(k));
         const Real abs_height_cgs = abs_height * units.code_length_cgs();
@@ -577,12 +574,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         u(IM2, k, j, i) = 0.0;
         u(IM3, k, j, i) = 0.0;
         u(IEN, k, j, i) = P / gm1;
-      }
-    }
-  }
-
-  // copy initialized cons to device
-  u_dev.DeepCopy(u);
+  });
 }
 
 void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin,
