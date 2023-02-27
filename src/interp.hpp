@@ -26,7 +26,7 @@ class MonotoneInterpolator {
   MonotoneInterpolator(MonotoneInterpolator const &rhs);
 
   KOKKOS_FORCEINLINE_FUNCTION auto operator()(Real x) const -> Real;
-  friend std::ostream &operator<<(std::ostream &os, const MonotoneInterpolator &m);
+  friend std::ostream &operator<<(std::ostream &os, const MonotoneInterpolator<VectorContainer> &m);
 
  private:
   // data here
@@ -47,7 +47,7 @@ MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
   // NOTE: we assume T.size >= 3
   x_vec_ = x_vec;
   f_vec_ = f_vec;
-  d_vec_ = VectorContainer(x_vec_.size());
+  d_vec_ = VectorContainer("d", x_vec_.size());
 
   auto dright = [=](int i) { // \Delta_i
     return (f_vec_[i + 1] - f_vec_[i]) / (x_vec_[i + 1] - x_vec_[i]);
@@ -89,16 +89,16 @@ KOKKOS_FORCEINLINE_FUNCTION auto MonotoneInterpolator<T>::operator()(Real x) con
   // where x_{i} <= x < x_{i+1}.
   int i = 0;
   for (; i < (x_vec_.size() - 1); ++i) {
-    if ((x >= x_vec_.at(i)) && (x < x_vec_.at(i + 1))) {
+    if ((x >= x_vec_[i]) && (x < x_vec_[i + 1])) {
       break;
     }
   }
-  const Real x_i = x_vec_.at(i);
-  const Real x_i1 = x_vec_.at(i + 1);
-  const Real f_i = f_vec_.at(i);
-  const Real f_i1 = f_vec_.at(i + 1);
-  const Real d_i = d_vec_.at(i);
-  const Real d_i1 = d_vec_.at(i + 1);
+  const Real x_i = x_vec_[i];
+  const Real x_i1 = x_vec_[i + 1];
+  const Real f_i = f_vec_[i];
+  const Real f_i1 = f_vec_[i + 1];
+  const Real d_i = d_vec_[i];
+  const Real d_i1 = d_vec_[i + 1];
 
   // then construct the interpolant p(x)
   auto phi = [](Real t) { return 3.0 * (t * t) - 2.0 * (t * t * t); };
@@ -120,7 +120,7 @@ KOKKOS_FORCEINLINE_FUNCTION auto MonotoneInterpolator<T>::operator()(Real x) con
 
 template <class T>
 std::ostream &operator<<(std::ostream &os, const MonotoneInterpolator<T> &m) {
-  // print MonotoneInterpolator
+  // TODO(bwibking): print MonotoneInterpolator
 }
 
 #endif // INTERP_HPP_
