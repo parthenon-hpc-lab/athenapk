@@ -26,7 +26,7 @@ class MonotoneInterpolator {
   MonotoneInterpolator(MonotoneInterpolator const &rhs);
 
   KOKKOS_FORCEINLINE_FUNCTION auto operator()(Real x) const -> Real;
-  friend std::ostream &operator<<(std::ostream &os, const MonotoneInterpolator<VectorContainer> &m);
+  //friend std::ostream &operator<<(std::ostream &os, const MonotoneInterpolator<VectorContainer> &m);
 
  private:
   // data here
@@ -116,11 +116,6 @@ KOKKOS_FORCEINLINE_FUNCTION auto MonotoneInterpolator<T>::operator()(Real x) con
 
   // evaluate the interpolant
   return p(x);
-}
-
-template <class T>
-std::ostream &operator<<(std::ostream &os, const MonotoneInterpolator<T> &m) {
-  // TODO(bwibking): print MonotoneInterpolator
 }
 
 #endif // INTERP_HPP_
