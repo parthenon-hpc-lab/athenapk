@@ -109,12 +109,12 @@ class PrecipitatorProfile {
     return P;
   }
 
-  KOKKOS_FORCEINLINE_FUNCTION Real rho(Real z) const {
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real rho(Real z) const {
     // interpolate density from tabulated profile
     return spline_rho_(z);
   }
 
-  KOKKOS_FORCEINLINE_FUNCTION Real P(Real z) const {
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real P(Real z) const {
     // interpolate pressure from tabulated profile
     return spline_P_(z);
   }
@@ -545,12 +545,16 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       });
 
   // Initialize conserved variables on device
+  const Real code_length_cgs = units.code_length_cgs();
+  const Real code_density_cgs = units.code_density_cgs();
+  const Real code_pressure_cgs = units.code_pressure_cgs();
+
   pmb->par_for(
       "InitialConditions", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int k, const int j, const int i) {
         // Calculate height
         const Real abs_height = std::abs(coords.Xc<3>(k));
-        const Real abs_height_cgs = abs_height * units.code_length_cgs();
+        const Real abs_height_cgs = abs_height * code_length_cgs;
 
         // Get density and pressure from generated profile
         const Real rho_cgs = P_rho_profile.rho(abs_height_cgs);
@@ -565,8 +569,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         random_pool.free_state(generator);
 
         // Convert to code units
-        const Real rho = rho_cgs / units.code_density_cgs();
-        const Real P = P_cgs / units.code_pressure_cgs();
+        const Real rho = rho_cgs / code_density_cgs;
+        const Real P = P_cgs / code_pressure_cgs;
 
         // Fill conserved states
         u(IDN, k, j, i) = rho * (1. + drho_over_rho);

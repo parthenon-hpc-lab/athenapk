@@ -25,7 +25,7 @@ class MonotoneInterpolator {
   MonotoneInterpolator(VectorContainer const &x, VectorContainer const &y);
   MonotoneInterpolator(MonotoneInterpolator const &rhs);
 
-  KOKKOS_FORCEINLINE_FUNCTION auto operator()(Real x) const -> Real;
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto operator()(Real x) const -> Real;
   //friend std::ostream &operator<<(std::ostream &os, const MonotoneInterpolator<VectorContainer> &m);
 
  private:
@@ -83,7 +83,7 @@ MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
 }
 
 template <class T>
-KOKKOS_FORCEINLINE_FUNCTION auto MonotoneInterpolator<T>::operator()(Real x) const
+KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto MonotoneInterpolator<T>::operator()(Real x) const
     -> Real {
   // to avoid branchy code, do a linear search for the segment I_i
   // where x_{i} <= x < x_{i+1}.
