@@ -4,7 +4,6 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
-#include <_types/_uint64_t.h>
 #include <limits>
 #include <memory>
 #include <string>
