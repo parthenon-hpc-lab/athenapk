@@ -21,24 +21,14 @@ template <class VectorContainer>
 class MonotoneInterpolator {
  public:
   using Real = typename VectorContainer::value_type;
-
   MonotoneInterpolator(VectorContainer const &x, VectorContainer const &y);
-  MonotoneInterpolator(MonotoneInterpolator const &rhs);
-
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto operator()(Real x) const -> Real;
-  //friend std::ostream &operator<<(std::ostream &os, const MonotoneInterpolator<VectorContainer> &m);
 
  private:
-  // data here
   VectorContainer x_vec_{};
   VectorContainer f_vec_{};
   VectorContainer d_vec_{};
 };
-
-template <class VectorContainer>
-MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
-    MonotoneInterpolator<VectorContainer> const &rhs)
-    : x_vec_(rhs.x_vec_), f_vec_(rhs.f_vec_), d_vec_(rhs.d_vec_) {}
 
 template <class VectorContainer>
 MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(

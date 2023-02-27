@@ -255,7 +255,6 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
 void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
   auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
-  const auto nb = IndexRange{0, 0};
   auto &coords = pmb->coords;
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
@@ -314,7 +313,6 @@ void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
 void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
   auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
-  const auto nb = IndexRange{0, 0};
   auto &coords = pmb->coords;
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
