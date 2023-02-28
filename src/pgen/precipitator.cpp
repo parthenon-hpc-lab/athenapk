@@ -499,8 +499,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   // initialize conserved variables
   auto &rc = pmb->meshblock_data.Get();
   auto &u_dev = rc->Get("cons").data;
-  auto u = u_dev.GetHostMirrorAndCopy();
-  u_dev.DeepCopy(u);
+  //auto u = u_dev.GetHostMirrorAndCopy();
+  //u_dev.DeepCopy(u);
 
   auto &coords = pmb->coords;
   Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
