@@ -498,7 +498,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
   // initialize conserved variables
   auto &rc = pmb->meshblock_data.Get();
-  auto &u = rc->Get("cons").data;
+  auto u = rc->Get("cons").data.GetDeviceMirror();
   auto &coords = pmb->coords;
   Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
   Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
