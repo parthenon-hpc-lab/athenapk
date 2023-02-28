@@ -157,13 +157,8 @@ struct Riemann<Fluid::euler, RiemannSolver::lhllc> {
 
       // shock detector (Minoshima & Miyoshi)
       Real cmax = std::max(cl, cr);
-      Real th1 = std::min(1.0, (cmax - std::min(wl(nvar, i), 0.0)) /
-                                   (cmax - std::min(wr(nvar, i), 0.0)));
-      Real th = th1 * th1 * th1 * th1; // this 4th power is empirical (see Minoshima+)
 
       // Determine the contact wave speed...
-      //Real am = (mr * wri[IV1] - ml * wli[IV1] - th * (wri[IPR] - wli[IPR])) / (mr - ml);
-      // [old method]
       Real am = (tl - tr) / (ml + mr);
 
       // ...and the pressure at the contact surface (Minoshima & Miyoshi)
