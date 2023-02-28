@@ -54,11 +54,13 @@ class PrecipitatorProfile {
   PrecipitatorProfile(std::string const &filename)
       : z_(get_z(filename)), rho_(get_rho(filename)), P_(get_P(filename)),
         spline_rho_(z_, rho_), spline_P_(z_, P_) {}
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION
   PrecipitatorProfile(PrecipitatorProfile const &rhs)
       : spline_P_(rhs.spline_P_), spline_rho_(rhs.spline_rho_) {}
 
   inline auto readProfile(std::string const &filename)
-      -> std::tuple<parthenon::HostArray1D<Real>, parthenon::HostArray1D<Real>, parthenon::HostArray1D<Real>> {
+      -> std::tuple<parthenon::HostArray1D<Real>, parthenon::HostArray1D<Real>,
+                    parthenon::HostArray1D<Real>> {
     // read in tabulated profile from text file 'filename'
     std::ifstream fstream(filename, std::ios::in);
     assert(fstream.is_open());
@@ -576,7 +578,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         u(IM2, k, j, i) = 0.0;
         u(IM3, k, j, i) = 0.0;
         u(IEN, k, j, i) = P / gm1;
-  });
+      });
 }
 
 void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin,
