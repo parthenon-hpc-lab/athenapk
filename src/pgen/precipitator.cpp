@@ -498,7 +498,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
   // initialize conserved variables
   auto &rc = pmb->meshblock_data.Get();
-  auto u = rc->Get("cons").data.GetDeviceMirror();
+  auto &u_dev = rc->Get("cons").data;
+  auto u = u_dev.GetHostMirrorAndCopy();
+  u_dev.DeepCopy(u);
+
   auto &coords = pmb->coords;
   Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
   Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
@@ -573,11 +576,11 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         const Real P = P_cgs / code_pressure_cgs;
 
         // Fill conserved states
-        u(IDN, k, j, i) = rho * (1. + drho_over_rho);
-        u(IM1, k, j, i) = 0.0;
-        u(IM2, k, j, i) = 0.0;
-        u(IM3, k, j, i) = 0.0;
-        u(IEN, k, j, i) = P / gm1;
+        u_dev(IDN, k, j, i) = rho * (1. + drho_over_rho);
+        u_dev(IM1, k, j, i) = 0.0;
+        u_dev(IM2, k, j, i) = 0.0;
+        u_dev(IM3, k, j, i) = 0.0;
+        u_dev(IEN, k, j, i) = P / gm1;
       });
 }
 
