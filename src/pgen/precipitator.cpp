@@ -566,12 +566,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         // Convert to code units
         const Real rho = rho_cgs / code_density_cgs;
         const Real P = P_cgs / code_pressure_cgs;
-      });
-      
-  pmb->par_for(
-      "InitialConditions", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int k, const int j, const int i) {
-        const Real abs_height = std::abs(coords.Xc<3>(k));
 
         // Add isobaric perturbations
         Real drho_over_rho = drho(k - kb.s, j - jb.s, i - ib.s).real() *
@@ -579,17 +573,13 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         auto generator = random_pool.get_state();
         drho_over_rho += generator.drand(-amp_rand, amp_rand);
         random_pool.free_state(generator);
-      });
 
-  pmb->par_for(
-      "InitialConditions", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int k, const int j, const int i) {
         // Fill conserved states
-        u_dev(IDN, k, j, i) = 1.0; //rho * (1. + drho_over_rho);
+        u_dev(IDN, k, j, i) = rho * (1. + drho_over_rho);
         u_dev(IM1, k, j, i) = 0.0;
         u_dev(IM2, k, j, i) = 0.0;
         u_dev(IM3, k, j, i) = 0.0;
-        u_dev(IEN, k, j, i) = 1.0; //P / gm1;
+        u_dev(IEN, k, j, i) = P / gm1;
       });
 }
 
