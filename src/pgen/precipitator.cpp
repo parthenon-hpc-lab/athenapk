@@ -59,8 +59,8 @@ class PrecipitatorProfile {
       : spline_P_(rhs.spline_P_), spline_rho_(rhs.spline_rho_) {}
 
   inline auto readProfile(std::string const &filename)
-      -> std::tuple<parthenon::HostArray1D<Real>, parthenon::HostArray1D<Real>,
-                    parthenon::HostArray1D<Real>> {
+      -> std::tuple<parthenon::BufArray1D<Real>, parthenon::BufArray1D<Real>,
+                    parthenon::BufArray1D<Real>> {
     // read in tabulated profile from text file 'filename'
     std::ifstream fstream(filename, std::ios::in);
     assert(fstream.is_open());
@@ -83,10 +83,10 @@ class PrecipitatorProfile {
       P_vec.push_back(values.at(2));
     }
 
-    // copy to a parthenon::HostArray1D<Real>
-    parthenon::HostArray1D<Real> z_("z", z_vec.size());
-    parthenon::HostArray1D<Real> rho_("rho", rho_vec.size());
-    parthenon::HostArray1D<Real> P_("P", P_vec.size());
+    // copy to a parthenon::BufArray1D<Real>
+    parthenon::BufArray1D<Real> z_("z", z_vec.size());
+    parthenon::BufArray1D<Real> rho_("rho", rho_vec.size());
+    parthenon::BufArray1D<Real> P_("P", P_vec.size());
     for (int i = 0; i < z_vec.size(); ++i) {
       z_(i) = z_vec.at(i);
       rho_(i) = rho_vec.at(i);
@@ -96,17 +96,17 @@ class PrecipitatorProfile {
     return std::make_tuple(z_, rho_, P_);
   }
 
-  inline parthenon::HostArray1D<Real> get_z(std::string const &filename) {
+  inline parthenon::BufArray1D<Real> get_z(std::string const &filename) {
     auto [z, rho, P] = readProfile(filename);
     return z;
   }
 
-  inline parthenon::HostArray1D<Real> get_rho(std::string const &filename) {
+  inline parthenon::BufArray1D<Real> get_rho(std::string const &filename) {
     auto [z, rho, P] = readProfile(filename);
     return rho;
   }
 
-  inline parthenon::HostArray1D<Real> get_P(std::string const &filename) {
+  inline parthenon::BufArray1D<Real> get_P(std::string const &filename) {
     auto [z, rho, P] = readProfile(filename);
     return P;
   }
@@ -122,11 +122,11 @@ class PrecipitatorProfile {
   }
 
  private:
-  parthenon::HostArray1D<Real> z_{};
-  parthenon::HostArray1D<Real> rho_{};
-  parthenon::HostArray1D<Real> P_{};
-  MonotoneInterpolator<parthenon::HostArray1D<Real>> spline_rho_;
-  MonotoneInterpolator<parthenon::HostArray1D<Real>> spline_P_;
+  parthenon::BufArray1D<Real> z_{};
+  parthenon::BufArray1D<Real> rho_{};
+  parthenon::BufArray1D<Real> P_{};
+  MonotoneInterpolator<parthenon::BufArray1D<Real>> spline_rho_;
+  MonotoneInterpolator<parthenon::BufArray1D<Real>> spline_P_;
 };
 
 void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) {
@@ -210,13 +210,13 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   // vertical dE/dt profile
-  parthenon::HostArray1D<Real> profile_reduce =
-      pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("profile_reduce")->val;
-  parthenon::HostArray1D<Real> profile_reduce_zbins =
-      pkg->Param<parthenon::HostArray1D<Real>>("profile_reduce_zbins");
+  parthenon::BufArray1D<Real> profile_reduce =
+      pkg->MutableParam<AllReduce<parthenon::BufArray1D<Real>>>("profile_reduce")->val;
+  parthenon::BufArray1D<Real> profile_reduce_zbins =
+      pkg->Param<parthenon::BufArray1D<Real>>("profile_reduce_zbins");
 
-  parthenon::HostArray1D<Real> profile("profile", profile_reduce.size() + 2);
-  parthenon::HostArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
+  parthenon::BufArray1D<Real> profile("profile", profile_reduce.size() + 2);
+  parthenon::BufArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
   profile(0) = profile_reduce(0);
   profile(profile.size() - 1) = profile_reduce(profile_reduce.size() - 1);
   zbins(0) = md->GetParentPointer()->mesh_size.x3min;
@@ -228,7 +228,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   }
 
   // compute interpolant
-  MonotoneInterpolator<parthenon::HostArray1D<Real>> interpProfile(zbins, profile);
+  MonotoneInterpolator<parthenon::BufArray1D<Real>> interpProfile(zbins, profile);
 
   // get 'smoothing' height for heating/cooling
   const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");

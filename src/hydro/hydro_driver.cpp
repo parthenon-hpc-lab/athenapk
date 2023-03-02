@@ -101,8 +101,8 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   const Real gam = pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
-  AllReduce<parthenon::HostArray1D<Real>> *profile_reduce =
-      pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("profile_reduce");
+  AllReduce<parthenon::BufArray1D<Real>> *profile_reduce =
+      pkg->MutableParam<AllReduce<parthenon::BufArray1D<Real>>>("profile_reduce");
 
   auto pm = md->GetParentPointer();
   const Real x3min = pm->mesh_size.x3min;
@@ -229,8 +229,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   if (stage == 1) {
     auto pkg = blocks[0]->packages.Get("Hydro");
 
-    AllReduce<parthenon::HostArray1D<Real>> *pview_reduce =
-        pkg->MutableParam<AllReduce<parthenon::HostArray1D<Real>>>("profile_reduce");
+    AllReduce<parthenon::BufArray1D<Real>> *pview_reduce =
+        pkg->MutableParam<AllReduce<parthenon::BufArray1D<Real>>>("profile_reduce");
 
     // initialize values to zero
     for (int i = 0; i < pview_reduce->val.size(); i++) {
@@ -253,14 +253,14 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       // NOTE: this is an *in-place* reduction!
       TaskID start_view_reduce =
           (i == 0 ? tl.AddTask(local_sum,
-                               &AllReduce<parthenon::HostArray1D<Real>>::StartReduce,
+                               &AllReduce<parthenon::BufArray1D<Real>>::StartReduce,
                                pview_reduce, MPI_SUM)
                   : none);
 
       // Test the reduction until it completes
       TaskID finish_view_reduce =
           tl.AddTask(start_view_reduce,
-                     &AllReduce<parthenon::HostArray1D<Real>>::CheckReduce, pview_reduce);
+                     &AllReduce<parthenon::BufArray1D<Real>>::CheckReduce, pview_reduce);
       solver_region.AddRegionalDependencies(reg_dep_id, i, finish_view_reduce);
       reg_dep_id++;
     }
