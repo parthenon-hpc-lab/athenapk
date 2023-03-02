@@ -202,11 +202,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   if (parthenon::Globals::my_rank == 0) {
     std::cout << "Using numHist = " << numHist << std::endl;
   }
-  parthenon::AllReduce<parthenon::BufArray1D<Real>> profile_reduce;
-  profile_reduce.val = parthenon::BufArray1D<Real>("Reduce me", numHist);
+  parthenon::AllReduce<PinnedArray1D<Real>> profile_reduce;
+  profile_reduce.val = PinnedArray1D<Real>("Reduce me", numHist);
   pkg->AddParam("profile_reduce", profile_reduce, true);
 
-  parthenon::BufArray1D<Real> profile_reduce_zbins("Bin centers", numHist);
+  PinnedArray1D<Real> profile_reduce_zbins("Bin centers", numHist);
   const Real x3min = pin->GetReal("parthenon/mesh", "x3min");
   const Real x3max = pin->GetReal("parthenon/mesh", "x3max");
   const Real dz_hist = (x3max - x3min) / numHist;
