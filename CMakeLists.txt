@@ -60,8 +60,8 @@ else()
   find_package(parthenon REQUIRED)
 endif()
 
-find_package(MPI REQUIRED)
-find_package(Ascent REQUIRED NO_DEFAULT_PATH)
+#find_package(MPI REQUIRED)
+#find_package(Ascent REQUIRED NO_DEFAULT_PATH)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(src)

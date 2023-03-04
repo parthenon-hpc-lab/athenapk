@@ -1,3 +1,4 @@
+#ifdef ASCENT_ENABLE
 #include "render_ascent.hpp"
 #include "defs.hpp"
 #include "interface/metadata.hpp"
@@ -146,3 +147,5 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
   // close ascent
   a.close();
 }
+
+#endif // ASCENT_ENABLE

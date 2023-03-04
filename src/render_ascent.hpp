@@ -8,6 +8,7 @@
 #include "interface/variable_pack.hpp"
 #include "utils/error_checking.hpp"
 
+#ifdef ASCENT_ENABLE
 #include "ascent.hpp"
 #include "conduit_blueprint.hpp"
 #include "conduit_relay_io.hpp"
@@ -15,5 +16,6 @@
 
 void render_ascent(parthenon::Mesh *mesh, parthenon::ParameterInput *pin,
                    parthenon::SimTime const &tm);
+#endif // ASCENT_ENABLE
 
 #endif // RENDER_ASCENT_HPP_
