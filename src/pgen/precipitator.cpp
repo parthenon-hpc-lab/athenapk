@@ -591,7 +591,9 @@ void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin,
     return;
   }
 
+#ifdef ASCENT_ENABLE
   render_ascent(mesh, pin, tm);
+#endif
 }
 
 } // namespace precipitator
