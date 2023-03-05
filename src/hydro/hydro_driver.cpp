@@ -110,6 +110,7 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   const int size = profile_reduce->val.size(); // assume it will fit into an int
   const int max_idx = size - 1;
   const Real dz_hist = Lz / size;
+  auto &profile = profile_reduce->val;
 
   std::cout << "Computing profile on device...\n";
   parthenon::par_for(
@@ -134,7 +135,7 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
           int idx = static_cast<int>((z - x3min) / dz_hist);
           idx = (idx > max_idx) ? max_idx : idx;
           idx = (idx < 0) ? 0 : idx;
-          Kokkos::atomic_add(&profile_reduce->val(idx), Edot * dVol);
+          Kokkos::atomic_add(&profile(idx), Edot * dVol);
         }
       });
 
