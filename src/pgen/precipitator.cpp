@@ -171,11 +171,6 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
   const Real gam = hydro_pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
-  auto &coords = cons_pack.GetCoords(0);
-  Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
-  Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
-  Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
-
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "GravSource", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
