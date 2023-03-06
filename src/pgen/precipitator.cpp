@@ -40,7 +40,6 @@
 #include "../hydro/hydro.hpp"
 #include "../interp.hpp"
 #include "../main.hpp"
-#include "../render_ascent.hpp"
 #include "../units.hpp"
 #include "outputs/outputs.hpp"
 #include "pgen.hpp"
@@ -576,19 +575,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         u_dev(IM3, k, j, i) = 0.0;
         u_dev(IEN, k, j, i) = P / gm1;
       });
-}
-
-void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin,
-                                parthenon::SimTime const &tm) {
-  // call Ascent every ascent_interval timesteps
-  const int ascent_interval = pin->GetInteger("precipitator", "ascent_interval");
-  if (!(tm.ncycle % ascent_interval == 0)) {
-    return;
-  }
-
-#ifdef ASCENT_ENABLE
-  render_ascent(mesh, pin, tm);
-#endif
 }
 
 } // namespace precipitator

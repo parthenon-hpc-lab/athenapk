@@ -53,19 +53,12 @@ set(PARTHENON_ENABLE_TESTING OFF CACHE BOOL "Disable Parthenon testing.")
 set(PARTHENON_DISABLE_OPENMP ON CACHE BOOL "Disable OpenMP")
 set(PARTHENON_DISABLE_EXAMPLES ON CACHE BOOL "Don't build Parthenon examples.")
 set(PARTHENON_DISABLE_SPARSE ON CACHE BOOL "Disable sparse (not used in AthenaPK yet)")
+set(PARTHENON_ENABLE_ASCENT ON CACHE BOOL "Enable Ascent support")
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon/CMakeLists.txt)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon parthenon)
 else()
   find_package(parthenon REQUIRED)
-endif()
-
-option(ASCENT_ENABLE "Enable Ascent integration" ON)
-if(ASCENT_ENABLE)
-  find_package(MPI REQUIRED)
-  find_package(Ascent REQUIRED NO_DEFAULT_PATH)
-  # define preprocessor macro
-  add_definitions(-DASCENT_ENABLE)
 endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

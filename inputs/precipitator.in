@@ -19,6 +19,11 @@ file_type  = rst        # Binary data dump
 dt         = 1000.0        # time increment between outputs
 id         = restart
 
+<parthenon/output4>
+file_type    = ascent
+dt           = 10.0
+actions_file = inputs/precipitator_ascent_actions.yaml
+
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
