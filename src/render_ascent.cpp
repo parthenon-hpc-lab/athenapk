@@ -116,6 +116,9 @@ void render_ascent(Mesh *par_mesh, ParameterInput *pin, SimTime const &tm) {
         auto const data = Kokkos::subview(var->data, 0, 0, icomp, Kokkos::ALL(),
                                           Kokkos::ALL(), Kokkos::ALL());
         const std::string varname = packname + ":" + labels.at(icomp);
+        if (parthenon::Globals::my_rank == 0) {
+          std::cout << "Adding field " << varname << std::endl;
+        }
         mesh["fields/" + varname + "/association"] = "element";
         mesh["fields/" + varname + "/topology"] = "topo";
         mesh["fields/" + varname + "/values"].set_external(data.data(), ncells);
