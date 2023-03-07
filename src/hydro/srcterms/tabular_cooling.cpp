@@ -311,9 +311,6 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
-  // get 'smoothing' height for heating/cooling
-  const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
-
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::SubcyclingSplitSrcTerm", DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -462,19 +459,13 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           sub_iter++;
         }
 
-        PARTHENON_REQUIRE(internal_e > 0.9 * internal_e_floor, "cooled below floor");
-
-        // artificially limit temperature change in precipitator midplane
-        const auto &coords = cons_pack.GetCoords(b);
-        const Real z = coords.Xc<3>(k);
-        const Real damp = SQR(std::tanh(std::abs(z) / h_smooth));
-        const auto internal_e_damped = damp * (internal_e - internal_e_initial) + internal_e;
+        PARTHENON_REQUIRE(internal_e > internal_e_floor, "cooled below floor");
 
         // Remove the cooling from the total energy density
-        cons(IEN, k, j, i) += damp * rho * (internal_e - internal_e_initial);
+        cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
-        prim(IPR, k, j, i) = rho * internal_e_damped * gm1;
+        prim(IPR, k, j, i) = rho * internal_e * gm1;
       });
 }
 
@@ -626,11 +617,6 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto temp_final = std::pow(10.0, log_temp_final_);
   const auto lambda_final = lambda_final_;
 
-  auto units = hydro_pkg->Param<Units>("units");
-
-  // get 'smoothing' height for heating/cooling
-  const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
-
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::TownsendSrcTerm", DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -704,16 +690,10 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         const auto internal_e_new = temp_new > temp_cool_floor
                                         ? temp_new / mu_m_u_gm1_by_k_B
                                         : temp_cool_floor / mu_m_u_gm1_by_k_B;
-        // artificially limit temperature change in precipitator midplane
-        const auto &coords = cons_pack.GetCoords(b);
-        const Real z = coords.Xc<3>(k);
-        const Real damp = SQR(std::tanh(std::abs(z) / h_smooth));
-        const auto internal_e_damped = damp * (internal_e_new - internal_e) + internal_e;
-
-        cons(IEN, k, j, i) += rho * (internal_e_damped - internal_e);
+        cons(IEN, k, j, i) += rho * (internal_e_new - internal_e);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
-        prim(IPR, k, j, i) = rho * internal_e_damped * gm1;
+        prim(IPR, k, j, i) = rho * internal_e_new * gm1;
       });
 }
 
