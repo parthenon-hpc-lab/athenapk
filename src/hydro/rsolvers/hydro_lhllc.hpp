@@ -24,56 +24,6 @@
 #include "../../main.hpp"
 #include "rsolvers.hpp"
 
-template <int XNDIR>
-KOKKOS_INLINE_FUNCTION void
-CalculateVelocityDifferences(parthenon::team_mbr_t const &member, const int k,
-                             const int j, const int il, const int iu,
-                             const parthenon::VariablePack<Real> &w,
-                             ScratchPad2D<Real> &ql, ScratchPad2D<Real> &qr) {
-  // dvn and dvt are stored in the last component of the scratch spaces
-  const auto nvar = w.GetDim(4);
-
-  // TODO(pgrete) implement other than 3D cases
-  // if (pmy_block->pmy_mesh->f3) {
-  parthenon::par_for_inner(member, il, iu, [&](const int i) {
-    if constexpr (XNDIR == parthenon::X1DIR) {
-      ql(nvar, i) = w(IV1, k, j, i) - w(IV1, k, j, i - 1);
-      Real dvl = std::min(w(IV2, k, j + 1, i - 1) - w(IV2, k, j, i - 1),
-                          w(IV2, k, j, i - 1) - w(IV2, k, j - 1, i - 1));
-      Real dvr = std::min(w(IV2, k, j + 1, i) - w(IV2, k, j, i),
-                          w(IV2, k, j, i) - w(IV2, k, j - 1, i));
-      Real dwl = std::min(w(IV3, k + 1, j, i - 1) - w(IV3, k, j, i - 1),
-                          w(IV3, k, j, i - 1) - w(IV3, k - 1, j, i - 1));
-      Real dwr = std::min(w(IV3, k + 1, j, i) - w(IV3, k, j, i),
-                          w(IV3, k, j, i) - w(IV3, k - 1, j, i));
-      qr(nvar, i) = std::min(std::min(dvl, dvr), std::min(dwl, dwr));
-    } else if constexpr (XNDIR == parthenon::X2DIR) {
-      // note: technically, we can reuse dvr/dwr as dvl/dwl in the next j-loop.
-      ql(nvar, i) = w(IV2, k, j, i) - w(IV2, k, j - 1, i);
-      Real dvl = std::min(w(IV3, k + 1, j - 1, i) - w(IV3, k, j - 1, i),
-                          w(IV3, k, j - 1, i) - w(IV3, k - 1, j - 1, i));
-      Real dvr = std::min(w(IV3, k + 1, j, i) - w(IV3, k, j, i),
-                          w(IV3, k, j, i) - w(IV3, k - 1, j, i));
-      Real dwl = std::min(w(IV1, k, j - 1, i + 1) - w(IV1, k, j - 1, i),
-                          w(IV1, k, j - 1, i) - w(IV1, k, j - 1, i - 1));
-      Real dwr = std::min(w(IV1, k, j, i + 1) - w(IV1, k, j, i),
-                          w(IV1, k, j, i) - w(IV1, k, j, i - 1));
-      qr(nvar, i) = std::min(std::min(dvl, dvr), std::min(dwl, dwr));
-    } else { // (ivx == IV3)
-      ql(nvar, i) = w(IV3, k, j, i) - w(IV3, k - 1, j, i);
-      Real dvl = std::min(w(IV1, k - 1, j, i + 1) - w(IV1, k - 1, j, i),
-                          w(IV1, k - 1, j, i) - w(IV1, k - 1, j, i - 1));
-      Real dvr = std::min(w(IV1, k, j, i + 1) - w(IV1, k, j, i),
-                          w(IV1, k, j, i) - w(IV1, k, j, i - 1));
-      Real dwl = std::min(w(IV2, k - 1, j + 1, i) - w(IV2, k - 1, j, i),
-                          w(IV2, k - 1, j, i) - w(IV2, k - 1, j - 1, i));
-      Real dwr = std::min(w(IV2, k, j + 1, i) - w(IV2, k, j, i),
-                          w(IV2, k, j, i) - w(IV2, k, j - 1, i));
-      qr(nvar, i) = std::min(std::min(dvl, dvr), std::min(dwl, dwr));
-    }
-  });
-}
-
 //----------------------------------------------------------------------------------------
 //! \fn void Hydro::RiemannSolver
 //! \brief The HLLC Riemann solver for adiabatic hydrodynamics (use HLLE for isothermal)
