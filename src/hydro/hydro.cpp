@@ -286,8 +286,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     riemann = RiemannSolver::hlle;
   } else if (riemann_str == "hllc") {
     riemann = RiemannSolver::hllc;
-  } else if (riemann_str == "lhllc") {
-    riemann = RiemannSolver::lhllc;
   } else if (riemann_str == "hlld") {
     riemann = RiemannSolver::hlld;
   } else if (riemann_str == "none") {
