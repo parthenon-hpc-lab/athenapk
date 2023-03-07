@@ -30,11 +30,7 @@ compile_commands.json
 # HDF5/Output Files
 *.phdf
 *.phdf.xdmf
-*.rhdf
-*.rhdf.xdmf
 *.dat
-*.hst
-*.png
 
 # jupyter notebook temp files
 .ipynb_checkpoints
