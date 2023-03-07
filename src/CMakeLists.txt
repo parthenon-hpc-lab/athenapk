@@ -22,8 +22,3 @@ add_executable(
 add_subdirectory(pgen)
 
 target_link_libraries(athenaPK PRIVATE parthenon)
-
-if(CMAKE_CUDA_COMPILER)
-  # this is needed for Ascent to work with CUDA
-  set_property(TARGET athenaPK PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
-endif()
