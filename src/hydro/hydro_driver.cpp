@@ -11,8 +11,6 @@
 #include <utility>
 #include <vector>
 
-// MPI headers
-#include "mpi.h"  // for MPI_SUM
 // Parthenon headers
 #include "Kokkos_Macros.hpp"
 #include "amr_criteria/refinement_package.hpp"
