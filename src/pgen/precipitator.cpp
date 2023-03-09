@@ -563,11 +563,12 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
         // Add isobaric perturbations
         Real drho_over_rho = drho(k - kb.s, j - jb.s, i - ib.s).real() *
-                             SQR(std::tanh(abs_height / h_smooth));
+                             SQR(tanh(abs_height / h_smooth));
+#if 0
         auto generator = random_pool.get_state();
         drho_over_rho += generator.drand(-amp_rand, amp_rand);
         random_pool.free_state(generator);
-
+#endif
         // Fill conserved states
         u_dev(IDN, k, j, i) = rho * (1. + drho_over_rho);
         u_dev(IM1, k, j, i) = 0.0;
