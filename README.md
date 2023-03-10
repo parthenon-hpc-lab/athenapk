@@ -110,7 +110,7 @@ Some example input files are provided in the [inputs](inputs/) folder.
 
 There exit several options to read/process data written by AthenaPK -- specifically in
 the `file_type = hdf5` format, see
-[Parthenon doc](https://github.com/parthenon-hpc-lab/parthenon/blob/develop/docs/outputs.md):
+[Parthenon doc](https://github.com/parthenon-hpc-lab/parthenon/blob/stable/docs/outputs.md):
 
 1. With [ParaView](https://www.paraview.org/) and
 [VisIt](https://wci.llnl.gov/simulation/computer-codes/visit/).
