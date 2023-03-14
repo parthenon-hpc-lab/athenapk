@@ -1,0 +1,112 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = Cloud in wind
+
+<job>
+problem_id = cloud
+
+<parthenon/mesh>
+refinement = adaptive
+numlevel = 4
+nghost = 4
+
+nx1 = 48
+x1min = -750
+x1max = 750
+ix1_bc = outflow
+ox1_bc = outflow
+
+nx2 = 80
+x2min = -400
+x2max = 2100
+ix2_bc = user
+ox2_bc = outflow
+
+nx3 = 48
+x3min = -750
+x3max = 750
+ix3_bc = outflow
+ox3_bc = outflow
+
+pack_size = -1      # number of MeshBlock per MeshBlockPack
+
+<parthenon/meshblock>
+nx1=16
+nx2=16
+nx3=16
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.20
+tlim = 2.0
+nlim = 100000
+ncycle_out_mesh = -500  # print mesh structure every 500 cyles and on refinement
+
+<hydro>
+fluid = euler
+eos = adiabatic
+riemann = hlle
+reconstruction = ppm
+gamma = 1.666666666666667 # gamma = C_p/C_v
+first_order_flux_correct = true 
+glmmhd_source = dedner_extended
+nscalars = 1
+
+#dfloor = -1.0                            # unused, in [code units]
+#pfloor = -1.0                            # unused, in [code units]
+Tfloor = 8000                             # in K
+He_mass_fraction = 0.24
+
+<cooling>
+enable_cooling = tabular                     # turn on with "tabular"
+table_filename = schure.cooling
+log_temp_col = 0
+log_lambda_col = 1
+lambda_units_cgs = 1
+
+integrator = rk12  
+max_iter = 100
+cfl = 0.10  
+d_log_temp_tol = 1e-8
+d_e_tol = 1e-5
+
+
+<units>
+#Units parameters
+code_length_cgs = 3.085677580962325e+18  # 1 pc
+code_mass_cgs = 1.98841586e+33           # 1 M_sun
+code_time_cgs = 3.15576e+13              # 1 Myr
+
+
+<refinement>
+type                         = maxdensity
+maxdensity_refine_above      = 1e-4        # in code units
+maxdensity_deref_below       = 5e-5        # in code units
+
+<problem/cloud>
+r0_cgs = 3.085677580962325e+20          # 100 pc
+rho_cloud_cgs = 1e-24                   # g/cm^3
+rho_wind_cgs = 1e-27                    # g/cm^3
+T_wind_cgs  = 1e7                       # K
+v_wind_cgs = 1.7e8                      # 1700 km/s
+rescale_code_time_to_tcc = true         # if set, all dt and time above will be rescaled in units of t_cc
+plasma_beta = -1.0                      # ratio of thermal to magnetic pressure for MHD runs
+mag_field_angle = transverse            # B field direction relative to inflow for MHD run
+
+
+<parthenon/output0>
+file_type = hdf5
+dt = 0.1
+variables = prim
+id = prim
+single_precision_output = true
+hdf5_compression_level = 5
+
+<parthenon/output2>
+file_type = rst
+dt = 0.5
+id = restart
+hdf5_compression_level = 8

@@ -9,6 +9,7 @@
 #define HYDRO_SRCTERMS_TABULAR_COOLING_HPP_
 
 // C++ headers
+#include <cstdio>
 #include <fstream>   // stringstream
 #include <iterator>  // istream_iterator
 #include <sstream>   // stringstream
@@ -190,6 +191,7 @@ class TabularCooling {
   KOKKOS_FORCEINLINE_FUNCTION parthenon::Real
   edot(const parthenon::Real rho, const parthenon::Real e, bool &valid) const {
     const parthenon::Real n_h2_by_rho = rho * X_by_m_u_ * X_by_m_u_;
+    printf("mu_m_u_gm1_by_k_B_ = %e\n", mu_m_u_gm1_by_k_B_); // print in scientific notation
     return DeDt(e, mu_m_u_gm1_by_k_B_, n_h2_by_rho, log_temp_start_, log_temp_final_,
                 d_log_temp_, n_temp_, log_lambdas_, valid);
   };
