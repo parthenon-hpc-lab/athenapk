@@ -43,6 +43,7 @@ class EquationOfState {
   KOKKOS_INLINE_FUNCTION
   Real GetDensityFloor() const { return density_floor_; }
 
+  // returns *specific* internal energy
   KOKKOS_INLINE_FUNCTION
   Real GetInternalEFloor() const { return internal_e_floor_; }
 
