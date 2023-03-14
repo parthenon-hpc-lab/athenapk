@@ -24,6 +24,7 @@
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
 #include "srcterms/tabular_cooling.hpp"
+#include "utils/error_checking.hpp"
 
 using namespace parthenon::driver::prelude;
 
@@ -89,6 +90,9 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
     return TaskStatus::complete;
   }
 
+  // N.B.: this function only works for uniform Cartesian coordinates
+  // TODO(benwibking): check coordinates
+
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -118,10 +122,7 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
         auto &prim = prim_pack(b);
         const auto &coords = prim_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
-        const Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
-        const Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
-        const Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
-        const Real dVol = dx1 * dx2 * dx3;
+        const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
 
