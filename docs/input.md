@@ -198,7 +198,6 @@ d_log_temp_tol = 1e-8              # Tolerance in cooling table between subseque
 ```
 
 *Note* several special cases for handling the lower end of the cooling table/low temperatures:
-- cooling is turned off once the temperature reaches the lower end of the cooling table
-- the explicit, global temperature floor `<hydro/Tfloor>` takes precedence over the lower end of the cooling table
-- in the cooling function only the temperature floor `<hydro/Tfloor>` (will be used
-(not the pressure floor, if present).
+- Cooling is turned off once the temperature reaches the lower end of the cooling table. Within the cooling function, gas does not cool past the cooling table.
+- If the global temperature floor `<hydro/Tfloor>` is higher than the lower end of the cooling table, then the global temperature floor takes precedence.
+- The pressure floor if present is not considered in the cooling function, only the temperature floor `<hydro/Tfloor>`

@@ -297,7 +297,13 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   const Real min_sub_dt = dt / max_iter;
 
   const Real d_e_tol = d_e_tol_;
-  const Real internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B; // specific internal en.
+
+  //Determine the cooling floor, whichever is higher of the cooling table floor
+  //or fluid solver floor
+  const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
+  const Real temp_floor =  (T_floor_ > temp_cool_floor) T_floor ? temp_cool_floor;
+
+  const Real internal_e_floor = temp_floor / mu_m_u_gm1_by_k_B; // specific internal en.
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -347,7 +353,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // Check if cooling is actually happening, e.g., when T below T_cool_min or if
         // temperature is already below floor.
         const Real dedt_initial = DeDt_wrapper(0.0, internal_e_initial, dedt_valid);
-        if (dedt_initial == 0.0 || internal_e_initial < internal_e_floor) {
+        if (dedt_initial == 0.0 || internal_e_initial <= internal_e_floor) {
           return;
         }
 
@@ -468,7 +474,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
         prim(IPR, k, j, i) = rho * internal_e * gm1;
       });
-}
+a
 
 void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                                      const parthenon::Real dt_) const {
@@ -601,7 +607,13 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
   const auto log_lambdas = log_lambdas_;
 
   const Real gm1 = gm1_;
-  const auto internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B;
+
+  //Determine the cooling floor, whichever is higher of the cooling table floor
+  //or fluid solver floor
+  const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
+  const Real temp_floor =  (T_floor_ > temp_cool_floor) T_floor ? temp_cool_floor;
+
+  const Real internal_e_floor = temp_floor / mu_m_u_gm1_by_k_B; // specific internal en.
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
