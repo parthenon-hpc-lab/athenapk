@@ -25,7 +25,6 @@
 
 // AthenaPK headers
 #include "../../main.hpp"
-#include "Kokkos_Macros.hpp"
 
 #ifdef MPI_PARALLEL
 #include <mpi.h>
