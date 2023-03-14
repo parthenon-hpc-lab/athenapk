@@ -133,6 +133,24 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   }
 
   /************************************************************
+   * Read Uniform Magnetic Field
+   ************************************************************/
+
+  const bool init_dipole_b_field =
+      pin->GetOrAddBoolean("problem/cluster/dipole_b_field", "init_dipole_b_field", false);
+  hydro_pkg->AddParam<>("init_dipole_b_field", init_dipole_b_field);
+
+  if (init_dipole_b_field) {
+    const Real dipole_b_field_mx = pin->GetReal("problem/cluster/dipole_b_field", "mx");
+    const Real dipole_b_field_my = pin->GetReal("problem/cluster/dipole_b_field", "my");
+    const Real dipole_b_field_mz = pin->GetReal("problem/cluster/dipole_b_field", "mz");
+
+    hydro_pkg->AddParam<>("dipole_b_field_mx", dipole_b_field_mx);
+    hydro_pkg->AddParam<>("dipole_b_field_my", dipole_b_field_my);
+    hydro_pkg->AddParam<>("dipole_b_field_mz", dipole_b_field_mz);
+  }
+
+  /************************************************************
    * Read Cluster Gravity Parameters
    ************************************************************/
 
@@ -305,6 +323,35 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
 
     magnetic_tower.AddInitialFieldToPotential(pmb, a_kb, a_jb, a_ib, A);
+
+    /************************************************************
+     * Add dipole magnetic field to the magnetic potential
+     ************************************************************/
+    const auto &init_dipole_b_field = hydro_pkg->Param<bool>("init_dipole_b_field");
+    if (init_dipole_b_field) {
+      const Real mx = hydro_pkg->Param<Real>("dipole_b_field_mx");
+      const Real my = hydro_pkg->Param<Real>("dipole_b_field_my");
+      const Real mz = hydro_pkg->Param<Real>("dipole_b_field_mz");
+      parthenon::par_for(
+          DEFAULT_LOOP_PATTERN, "MagneticTower::AddInitialFieldToPotential",
+          parthenon::DevExecSpace(), a_kb.s, a_kb.e, a_jb.s, a_jb.e, a_ib.s, a_ib.e,
+          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+            // Compute and apply potential
+            const Real x = coords.Xc<1>(i);
+            const Real y = coords.Xc<2>(j);
+            const Real z = coords.Xc<3>(k);
+
+            const Real r3 = pow( SQR(x) + SQR(y) + SQR(z),3./2);
+            
+            const Real m_cross_r_x = my*z - mz*y;
+            const Real m_cross_r_y = mz*x - mx*z;
+            const Real m_cross_r_z = mx*y - mx*y;
+
+            A(0, k, j, i) += m_cross_r_x/(4*M_PI*r3);
+            A(1, k, j, i) += m_cross_r_y/(4*M_PI*r3);
+            A(2, k, j, i) += m_cross_r_z/(4*M_PI*r3);
+          });
+    }
 
     /************************************************************
      * Apply the potential to the conserved variables
