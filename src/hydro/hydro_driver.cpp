@@ -12,7 +12,6 @@
 #include <vector>
 
 // Parthenon headers
-#include "Kokkos_Macros.hpp"
 #include "amr_criteria/refinement_package.hpp"
 #include "basic_types.hpp"
 #include "bvals/cc/bvals_cc_in_one.hpp"
