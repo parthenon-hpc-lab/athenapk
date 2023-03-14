@@ -301,7 +301,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   //Determine the cooling floor, whichever is higher of the cooling table floor
   //or fluid solver floor
   const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
-  const Real temp_floor =  (T_floor_ > temp_cool_floor) T_floor ? temp_cool_floor;
+  const Real temp_floor =  (T_floor_ > temp_cool_floor)? T_floor_ : temp_cool_floor;
 
   const Real internal_e_floor = temp_floor / mu_m_u_gm1_by_k_B; // specific internal en.
 
@@ -474,7 +474,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
         prim(IPR, k, j, i) = rho * internal_e * gm1;
       });
-a
+}
 
 void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                                      const parthenon::Real dt_) const {
@@ -611,7 +611,7 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
   //Determine the cooling floor, whichever is higher of the cooling table floor
   //or fluid solver floor
   const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
-  const Real temp_floor =  (T_floor_ > temp_cool_floor) T_floor ? temp_cool_floor;
+  const Real temp_floor =  (T_floor_ > temp_cool_floor)? T_floor_ : temp_cool_floor;
 
   const Real internal_e_floor = temp_floor / mu_m_u_gm1_by_k_B; // specific internal en.
 
