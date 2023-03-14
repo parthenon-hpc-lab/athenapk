@@ -198,19 +198,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   int nhydro = -1;
 
   // global reduction of a vector
-  const int numHist = pin->GetOrAddInteger("precipitator", "numHist", 8);
+  const int numHistogramBins = pin->GetOrAddInteger("precipitator", "numHistogramBins", 8);
   if (parthenon::Globals::my_rank == 0) {
-    std::cout << "Using numHist = " << numHist << std::endl;
+    std::cout << "Using numHistogramBins = " << numHistogramBins << std::endl;
   }
   parthenon::AllReduce<PinnedArray1D<Real>> profile_reduce;
-  profile_reduce.val = PinnedArray1D<Real>("Reduce me", numHist);
+  profile_reduce.val = PinnedArray1D<Real>("Reduce me", numHistogramBins);
   pkg->AddParam("profile_reduce", profile_reduce, true);
 
-  PinnedArray1D<Real> profile_reduce_zbins("Bin centers", numHist);
+  PinnedArray1D<Real> profile_reduce_zbins("Bin centers", numHistogramBins);
   const Real x3min = pin->GetReal("parthenon/mesh", "x3min");
   const Real x3max = pin->GetReal("parthenon/mesh", "x3max");
-  const Real dz_hist = (x3max - x3min) / numHist;
-  for (int i = 0; i < numHist; ++i) {
+  const Real dz_hist = (x3max - x3min) / numHistogramBins;
+  for (int i = 0; i < numHistogramBins; ++i) {
     profile_reduce_zbins(i) = dz_hist * (Real(i) + 0.5) + x3min;
   }
   pkg->AddParam("profile_reduce_zbins", profile_reduce_zbins, false);
