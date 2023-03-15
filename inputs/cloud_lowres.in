@@ -61,7 +61,7 @@ Tfloor = 8000                             # in K
 He_mass_fraction = 0.24
 
 <cooling>
-enable_cooling = tabular                     # turn on with "tabular"
+enable_cooling = none                     # turn on with "tabular"
 table_filename = schure.cooling
 log_temp_col = 0
 log_lambda_col = 1
