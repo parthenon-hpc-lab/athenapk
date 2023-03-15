@@ -240,31 +240,39 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
 
     // create task region
-    int reg_dep_id;
-    TaskRegion &solver_region = tc.AddRegion(num_partitions);
+    int reg_dep_id = 0;
+    TaskRegion &reduction_region = tc.AddRegion(num_partitions);
 
     for (int i = 0; i < num_partitions; i++) {
-      reg_dep_id = 0;
-      TaskList &tl = solver_region[i];
+      TaskList &tl = reduction_region[i];
 
       // compute rank-local reduction
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      TaskID local_sum =
-          (i == 0 ? tl.AddTask(none, CalculateCoolingRateProfile, mu0.get()) : none);
+      TaskID local_sum = tl.AddTask(none, CalculateCoolingRateProfile, mu0.get());
+
+      // Add task `local_sum` from task list number `i` to the TaskRegion dependency with
+      // id `reg_dep_id`. This will ensure that all `local_sum` will be done before any
+      // task with a dependency on `local_sum` can execute.
+      // Note that we do not update `reg_dep_id` as it's the only dependency in this
+      // region.
+      reduction_region.AddRegionalDependencies(reg_dep_id, i, local_sum);
 
       // NOTE: this is an *in-place* reduction!
+      // This task is only added in one task list of this region as it'll reduce the
+      // single value previously updated by all task lists in this region.
       TaskID start_view_reduce =
-          (i == 0 ? tl.AddTask(local_sum,
-                               &AllReduce<PinnedArray1D<Real>>::StartReduce,
+          (i == 0 ? tl.AddTask(local_sum, &AllReduce<PinnedArray1D<Real>>::StartReduce,
                                pview_reduce, MPI_SUM)
                   : none);
 
       // Test the reduction until it completes
-      TaskID finish_view_reduce =
-          tl.AddTask(start_view_reduce,
-                     &AllReduce<PinnedArray1D<Real>>::CheckReduce, pview_reduce);
-      solver_region.AddRegionalDependencies(reg_dep_id, i, finish_view_reduce);
-      reg_dep_id++;
+      // No need to differentiate between different lists (`i`) here because for the lists
+      // with `i != 0` the depdency will be `none` from the global reduction task above.
+      TaskID finish_view_reduce = tl.AddTask(
+          start_view_reduce, &AllReduce<PinnedArray1D<Real>>::CheckReduce, pview_reduce);
+
+      // No need for further RegionalDependencies here as the TaskRegion ends, which is
+      // already an implicit synchronization point in the tasking infrastructure.
     }
   }
 
