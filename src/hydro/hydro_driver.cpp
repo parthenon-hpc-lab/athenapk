@@ -81,7 +81,6 @@ TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
 
 // Calculate the 1D cooling rate profile in histogram bins
 TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
-#if 0
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
 
@@ -147,7 +146,6 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   for (int i = 0; i < profile_reduce->val.size(); i++) {
     profile_reduce->val(i) /= histVolume;
   }
-#endif
   return TaskStatus::complete;
 }
 
