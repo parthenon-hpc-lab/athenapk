@@ -12,7 +12,6 @@
 #include <vector>
 
 // Parthenon headers
-#include "Kokkos_Macros.hpp"
 #include "amr_criteria/refinement_package.hpp"
 #include "basic_types.hpp"
 #include "bvals/cc/bvals_cc_in_one.hpp"
@@ -25,6 +24,7 @@
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
 #include "srcterms/tabular_cooling.hpp"
+#include "utils/error_checking.hpp"
 
 using namespace parthenon::driver::prelude;
 
@@ -90,6 +90,9 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
     return TaskStatus::complete;
   }
 
+  // N.B.: this function only works for uniform Cartesian coordinates
+  // TODO(benwibking): check coordinates
+
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -119,10 +122,7 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
         auto &prim = prim_pack(b);
         const auto &coords = prim_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
-        const Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
-        const Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
-        const Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
-        const Real dVol = dx1 * dx2 * dx3;
+        const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
 
@@ -146,7 +146,6 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   for (int i = 0; i < profile_reduce->val.size(); i++) {
     profile_reduce->val(i) /= histVolume;
   }
-
   return TaskStatus::complete;
 }
 
@@ -239,31 +238,39 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
 
     // create task region
-    int reg_dep_id;
-    TaskRegion &solver_region = tc.AddRegion(num_partitions);
+    int reg_dep_id = 0;
+    TaskRegion &reduction_region = tc.AddRegion(num_partitions);
 
     for (int i = 0; i < num_partitions; i++) {
-      reg_dep_id = 0;
-      TaskList &tl = solver_region[i];
+      TaskList &tl = reduction_region[i];
 
       // compute rank-local reduction
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      TaskID local_sum =
-          (i == 0 ? tl.AddTask(none, CalculateCoolingRateProfile, mu0.get()) : none);
+      TaskID local_sum = tl.AddTask(none, CalculateCoolingRateProfile, mu0.get());
+
+      // Add task `local_sum` from task list number `i` to the TaskRegion dependency with
+      // id `reg_dep_id`. This will ensure that all `local_sum` will be done before any
+      // task with a dependency on `local_sum` can execute.
+      // Note that we do not update `reg_dep_id` as it's the only dependency in this
+      // region.
+      reduction_region.AddRegionalDependencies(reg_dep_id, i, local_sum);
 
       // NOTE: this is an *in-place* reduction!
+      // This task is only added in one task list of this region as it'll reduce the
+      // single value previously updated by all task lists in this region.
       TaskID start_view_reduce =
-          (i == 0 ? tl.AddTask(local_sum,
-                               &AllReduce<PinnedArray1D<Real>>::StartReduce,
+          (i == 0 ? tl.AddTask(local_sum, &AllReduce<PinnedArray1D<Real>>::StartReduce,
                                pview_reduce, MPI_SUM)
                   : none);
 
       // Test the reduction until it completes
-      TaskID finish_view_reduce =
-          tl.AddTask(start_view_reduce,
-                     &AllReduce<PinnedArray1D<Real>>::CheckReduce, pview_reduce);
-      solver_region.AddRegionalDependencies(reg_dep_id, i, finish_view_reduce);
-      reg_dep_id++;
+      // No need to differentiate between different lists (`i`) here because for the lists
+      // with `i != 0` the depdency will be `none` from the global reduction task above.
+      TaskID finish_view_reduce = tl.AddTask(
+          start_view_reduce, &AllReduce<PinnedArray1D<Real>>::CheckReduce, pview_reduce);
+
+      // No need for further RegionalDependencies here as the TaskRegion ends, which is
+      // already an implicit synchronization point in the tasking infrastructure.
     }
   }
 
