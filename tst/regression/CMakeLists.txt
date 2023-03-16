@@ -1,6 +1,14 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2020-2022, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2020-2023, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the 3-Clause License (the "LICENSE");
+
+# Any external modules that are required by python can be added to REQUIRED_PYTHON_MODULES
+# list variable, before including TestSetup.cmake.
+list(APPEND REQUIRED_PYTHON_MODULES numpy unyt matplotlib h5py scipy)
+message(STATUS
+  "Checking for Python modules (${REQUIRED_PYTHON_MODULES}) required for regression tests.\n"
+  "   Check can be disabled by setting PARTHENON_ENABLE_PYTHON_MODULE_CHECK=OFF but then\n"
+  "   tests are not guaranteed to work anymore.")
 
 # import Parthenon setup_test_serial and setup_test_parallel
 include(${PROJECT_SOURCE_DIR}/external/parthenon/cmake/TestSetup.cmake)

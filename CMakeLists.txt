@@ -49,6 +49,9 @@ include(cmake/Format.cmake)
 
 set(Kokkos_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/Kokkos)
 
+option(AthenaPK_ENABLE_TESTING "Enable AthenaPK test" ON)
+set(PARTHENON_ENABLE_PYTHON_MODULE_CHECK ${AthenaPK_ENABLE_TESTING} CACHE BOOL "Check if local python version contains all modules required for running tests.")
+
 set(PARTHENON_ENABLE_TESTING OFF CACHE BOOL "Disable Parthenon testing.")
 set(PARTHENON_DISABLE_OPENMP ON CACHE BOOL "Disable OpenMP")
 set(PARTHENON_DISABLE_EXAMPLES ON CACHE BOOL "Don't build Parthenon examples.")
@@ -63,7 +66,6 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(src)
 
-option(AthenaPK_ENABLE_TESTING "Enable AthenaPK test" ON)
 if (AthenaPK_ENABLE_TESTING)
   include(CTest)
   add_subdirectory(tst/regression)
