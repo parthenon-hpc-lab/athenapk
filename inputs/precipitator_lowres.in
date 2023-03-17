@@ -1,0 +1,106 @@
+<comment>
+problem   = Precipitator box
+
+<job>
+problem_id = precipitator   # problem ID: basename of output filenames
+
+<parthenon/output1>
+file_type  = hst       # History data dump
+dt         = 1.0       # time increment between outputs
+
+<parthenon/output2>
+file_type  = hdf5      # HDF5 data dump
+variables  = prim      # Variables to be output
+dt         = 1000.0        # Time increment between outputs
+id         = prim      # Name to append to output
+
+<parthenon/output3>
+file_type  = rst        # Binary data dump
+dt         = 1000.0        # time increment between outputs
+id         = restart
+
+<parthenon/output4>
+file_type    = ascent
+dt           = 10.0
+actions_file = inputs/precipitator_ascent_actions.yaml
+
+<parthenon/time>
+cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1         # cycle limit
+tlim       = 10000.0      # time limit
+integrator  = rk3       # time integration algorithm
+perf_cycle_offset  = 10 # interval for stdout summary info
+
+
+<parthenon/mesh>
+refinement  = static
+nghost = 4
+
+nx1        = 64       # Number of zones in X1-direction
+x1min      = -50.       # minimum value of X1
+x1max      = 50.0       # maximum value of X1
+ix1_bc     = periodic   # inner-X1 boundary flag
+ox1_bc     = periodic   # outer-X1 boundary flag
+
+nx2        = 64       # Number of zones in X2-direction
+x2min      = -50.0       # minimum value of X2
+x2max      = 50.0       # maximum value of X2
+ix2_bc     = periodic   # inner-X2 boundary flag
+ox2_bc     = periodic   # outer-X2 boundary flag
+
+nx3        = 128       # Number of zones in X3-direction
+x3min      = -100.       # minimum value of X3
+x3max      = 100.       # maximum value of X3
+ix3_bc     = user   # inner-X3 boundary flag
+ox3_bc     = user   # outer-X3 boundary flag
+
+
+<parthenon/meshblock>
+nx1        = 32        # Number of zones in X1-direction
+nx2        = 32        # Number of zones in X2-direction
+nx3        = 32        # Number of zones in X3-direction
+
+<hydro>
+gamma = 1.6666666666666667 # gamma = C_p/C_v
+eos = adiabatic
+riemann = lhllc
+reconstruction = ppm
+first_order_flux_correct = false
+use_scratch = false
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+He_mass_fraction = 0.25
+dfloor = 1000.  # Msun kpc^{-3}
+Tfloor = 1.0e5  # K
+
+<units>
+code_length_cgs = 3.086e21      # kpc
+code_mass_cgs = 1.98841586e+33  # Msun
+code_time_cgs = 3.15576e+13     # Myr
+
+<cooling>
+enable_cooling = tabular    # tabular
+integrator = townsend       # (townsend, rk12)
+cfl = 0.1                   # N.B.: does not work for Townsend integrator
+table_filename = ./inputs/precipitator.cooling
+log_temp_col = 0
+log_lambda_col = 1
+lambda_units_cgs = 1
+
+<precipitator>
+hse_profile_filename = ./inputs/tabulated_hse.txt
+
+enable_heating = magic   # magic
+numHist = 64
+bg_temperature = 1.0e6
+h_smooth_kpc = 10.
+h_smooth_heatcool_kpc = 20.
+dimensionless_mmw = 0.6
+
+perturb_sin_drho_over_rho = 0.025
+perturb_random_drho_over_rho = 0    # 0.01
+perturb_kx = 16
+perturb_ky = 16
+perturb_kz = 32
+perturb_exponent = 1    # P(k) ~ k^{-2}
+
