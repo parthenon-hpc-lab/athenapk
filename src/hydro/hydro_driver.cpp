@@ -248,6 +248,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
       TaskID local_sum = tl.AddTask(none, CalculateCoolingRateProfile, mu0.get());
 
+#ifdef MPI_PARALLEL
       // Add task `local_sum` from task list number `i` to the TaskRegion dependency with
       // id `reg_dep_id`. This will ensure that all `local_sum` will be done before any
       // task with a dependency on `local_sum` can execute.
@@ -271,6 +272,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
       // No need for further RegionalDependencies here as the TaskRegion ends, which is
       // already an implicit synchronization point in the tasking infrastructure.
+#endif
     }
   }
 
