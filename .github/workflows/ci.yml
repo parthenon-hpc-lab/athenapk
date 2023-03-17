@@ -11,14 +11,18 @@ concurrency:
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CMAKE_GENERATOR: Ninja
-  CMAKE_BUILD_PARALLEL_LEVEL: 16 # num threads for build
+  CMAKE_BUILD_PARALLEL_LEVEL: 8 # num threads for build
+  MACHINE_CFG: external/parthenon/cmake/machinecfg/CI.cmake
   OMPI_MCA_mpi_common_cuda_event_max: 1000
 
 jobs:
   regression:
+    strategy:
+      matrix:
+        parallel: ['serial', 'mpi']
     runs-on: [self-hosted, A100]
     container:
-      image: registry.gitlab.com/pgrete/parthenon/cuda11.6-mpi-hdf5
+      image: ghcr.io/parthenon-hpc-lab/cuda11.6-mpi-hdf5-ascent
       # map to local user id on CI  machine to allow writing to build cache
       options: --user 1001
     steps:
@@ -27,12 +31,7 @@ jobs:
           submodules: 'true'
       - name: Configure
         run: |
-          cmake -B build \
-            -DKokkos_ARCH_ZEN2=True \
-            -DKokkos_ENABLE_CUDA=True -DKokkos_ARCH_AMPERE80=True \
-            -DCMAKE_CXX_COMPILER=${PWD}/external/Kokkos/bin/nvcc_wrapper \
-            -DPARTHENON_DISABLE_MPI=ON \
-            -DHDF5_ROOT=/usr/local/hdf5/serial
+          cmake -B build -DMACHINE_VARIANT=cuda-${{ matrix.parallel }}
       - name: Build
         run: cmake --build build -t athenaPK
       - name: Test
@@ -40,7 +39,7 @@ jobs:
           cd build
           # Pick GPU with most available memory
           export CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=memory.free,index --format=csv,nounits,noheader | sort -nr | head -1 | awk '{ print $NF }')
-          ctest
+          ctest -L ${{ matrix.parallel }}
       - uses: actions/upload-artifact@v3
         if: ${{ always() }}
         with:

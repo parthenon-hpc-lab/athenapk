@@ -56,12 +56,12 @@ type                         = pressure_gradient
 threshold_pressure_gradient  = 0.1
 
 <problem>
-pamb       = 0.001      # ambient pressure
-prat       = 1.6e8      # Pressure ratio initially
-radius_outer  = 0.03125 # Radius of the outer sphere
-radius_inner  = 0.03125 # Radius of the inter sphere (with ramp between inner and outer sphere)
-damb       = 1.0        # ambient density
-drat       = 1.0        # density ratio in sphere
+pressure_ambient  = 0.001   # ambient pressure
+pressure_ratio    = 1.6e8   # Pressure ratio initially
+radius_outer      = 0.03125 # Radius of the outer sphere
+radius_inner      = 0.0     # Radius of the inter sphere (with ramp between inner and outer sphere)
+density_ambient   = 1.0     # ambient density
+density_ratio     = 1.0     # density ratio in sphere
 
 <parthenon/output0>
 file_type = hdf5
