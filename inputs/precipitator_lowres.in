@@ -25,7 +25,7 @@ dt           = 10.0
 actions_file = inputs/precipitator_ascent_actions.yaml
 
 <parthenon/time>
-cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
+cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
 tlim       = 10000.0      # time limit
 integrator  = rk3       # time integration algorithm
@@ -81,7 +81,6 @@ code_time_cgs = 3.15576e+13     # Myr
 <cooling>
 enable_cooling = tabular    # tabular
 integrator = townsend       # (townsend, rk12)
-cfl = 0.1                   # N.B.: does not work for Townsend integrator
 table_filename = ./inputs/precipitator.cooling
 log_temp_col = 0
 log_lambda_col = 1
