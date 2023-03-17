@@ -47,30 +47,12 @@ endif()
 
 include(cmake/Format.cmake)
 
-# Kokkos itself will actually be discovered by the Parthenon package.
-# Just need to set a hint to use the AthenaPK submodule and not the Parthenon one.
 set(Kokkos_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/Kokkos)
-
-# The MPI package found (and it's variables) by the Parthenon package are not available
-# in the parent scope here so we need to look for MPI here as it is used in the CMake
-# logic for setting up tests.
-set(NUM_MPI_PROC_TESTING "4" CACHE STRING "Number of mpi processors to use when running tests with MPI")
-if (NOT PARTHENON_DISABLE_MPI)
-  find_package(MPI COMPONENTS CXX)
-  if (NOT MPI_FOUND)
-    message(FATAL_ERROR "MPI is required but couldn't be found. "
-    "If you want to build Parthenon without MPI, please rerun CMake with -DPARTHENON_DISABLE_MPI=ON")
-  endif()
-endif()
-
-option(AthenaPK_ENABLE_TESTING "Enable AthenaPK test" ON)
-set(PARTHENON_ENABLE_PYTHON_MODULE_CHECK ${AthenaPK_ENABLE_TESTING} CACHE BOOL "Check if local python version contains all modules required for running tests.")
 
 set(PARTHENON_ENABLE_TESTING OFF CACHE BOOL "Disable Parthenon testing.")
 set(PARTHENON_DISABLE_OPENMP ON CACHE BOOL "Disable OpenMP")
 set(PARTHENON_DISABLE_EXAMPLES ON CACHE BOOL "Don't build Parthenon examples.")
 set(PARTHENON_DISABLE_SPARSE ON CACHE BOOL "Disable sparse (not used in AthenaPK yet)")
-set(PARTHENON_ENABLE_ASCENT ON CACHE BOOL "Enable Ascent support")
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon/CMakeLists.txt)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon parthenon)
@@ -81,6 +63,7 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(src)
 
+option(AthenaPK_ENABLE_TESTING "Enable AthenaPK test" ON)
 if (AthenaPK_ENABLE_TESTING)
   include(CTest)
   add_subdirectory(tst/regression)
