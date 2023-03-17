@@ -109,11 +109,13 @@ int main(int argc, char *argv[]) {
     std::cout << "Starting up hydro driver" << std::endl;
   }
 
-  Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
+  // This needs to be scoped so that the driver object is destructed before Finalize
+  {
+    Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
 
-  // This line actually runs the simulation
-  driver.Execute();
-
+    // This line actually runs the simulation
+    driver.Execute();
+  }
   // very ugly cleanup...
   if (problem == "turbulence") {
     turbulence::Cleanup();
