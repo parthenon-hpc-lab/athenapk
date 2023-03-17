@@ -104,16 +104,20 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
             w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
             "Got negative pressure. Consider enabling first-order flux "
             "correction or setting a reasonble pressure or temperature floor.");
-        // Temperature floor (if present) takes precedence over pressure floor
-        if (e_floor_ > 0.0) {
-          // apply temperature floor, correct total energy
-          const Real eff_pressure_floor = gm1 * u_d * e_floor_;
-          u_e = (w_p > eff_pressure_floor) ? u_e : ((u_d * e_floor_) + e_k + e_B);
-          w_p = (w_p > eff_pressure_floor) ? w_p : eff_pressure_floor;
-        } else {
+
+        // Pressure floor (if present) takes precedence over temperature floor
+        if ((pressure_floor_ > 0.0) && (w_p < pressure_floor_)) {
           // apply pressure floor, correct total energy
-          u_e = (w_p > pressure_floor_) ? u_e : ((pressure_floor_ / gm1) + e_k + e_B);
-          w_p = (w_p > pressure_floor_) ? w_p : pressure_floor_;
+          u_e = (pressure_floor_ / gm1) + e_k + e_B;
+          w_p = pressure_floor_;
+        }
+
+        // temperature (internal energy) based pressure floor
+        const Real eff_pressure_floor = gm1 * u_d * e_floor_;
+        if (w_p < eff_pressure_floor) {
+          // apply temperature floor, correct total energy
+          u_e = (u_d * e_floor_) + e_k + e_B;
+          w_p = eff_pressure_floor;
         }
 
         // Convert passive scalars

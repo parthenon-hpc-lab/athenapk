@@ -84,7 +84,7 @@ struct RK45Stepper {
   }
 };
 
-enum class CoolIntegrator { undefined, rk12, rk45, mixed, townsend };
+enum class CoolIntegrator { undefined, rk12, rk45, townsend };
 
 class TabularCooling {
  private:
@@ -115,7 +115,7 @@ class TabularCooling {
 
   CoolIntegrator integrator_;
 
-  // Temperature floor (assumed in Kelvin and only used in cooling function)
+  // Temperature floor of the fluid solver (assumed in Kelvin)
   parthenon::Real T_floor_;
 
   // Maximum number of iterations/subcycles
@@ -196,10 +196,6 @@ class TabularCooling {
 
   void SrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt) const;
 
-  // Mixed integration scheme, i.e., try RK12 first and if error is too large
-  // switch to RK45 with adaptive timestepping
-  void MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
-                       const parthenon::Real dt) const;
   // Townsend 2009 exact integration scheme
   void TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real dt) const;
