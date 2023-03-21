@@ -204,21 +204,25 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   // vertical dE/dt profile
-  PinnedArray1D<Real> profile_reduce =
-      pkg->MutableParam<AllReduce<PinnedArray1D<Real>>>("profile_reduce")->val;
-  PinnedArray1D<Real> profile_reduce_zbins =
-      pkg->Param<PinnedArray1D<Real>>("profile_reduce_zbins");
+  parthenon::ParArray1D<Real> profile_reduce =
+      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce")->val;
+  parthenon::ParArray1D<Real> profile_reduce_zbins =
+      pkg->Param<parthenon::ParArray1D<Real>>("profile_reduce_zbins");
+  
+  auto profile_reduce_h = profile_reduce.GetHostMirrorAndCopy();
+  auto profile_reduce_zbins_h = profile_reduce_zbins.GetHostMirrorAndCopy();
 
   PinnedArray1D<Real> profile("profile", profile_reduce.size() + 2);
   PinnedArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
-  profile(0) = profile_reduce(0);
-  profile(profile.size() - 1) = profile_reduce(profile_reduce.size() - 1);
+
+  profile(0) = profile_reduce_h(0);
+  profile(profile.size() - 1) = profile_reduce_h(profile_reduce.size() - 1);
   zbins(0) = md->GetParentPointer()->mesh_size.x3min;
   zbins(zbins.size() - 1) = md->GetParentPointer()->mesh_size.x3max;
 
   for (int i = 1; i < (profile.size() - 1); ++i) {
-    profile(i) = profile_reduce(i - 1);
-    zbins(i) = profile_reduce_zbins(i - 1);
+    profile(i) = profile_reduce_h(i - 1);
+    zbins(i) = profile_reduce_zbins_h(i - 1);
   }
 
   // compute interpolant
