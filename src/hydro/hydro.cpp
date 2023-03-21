@@ -202,17 +202,20 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   if (parthenon::Globals::my_rank == 0) {
     std::cout << "Using numHistogramBins = " << numHistogramBins << std::endl;
   }
-  parthenon::AllReduce<PinnedArray1D<Real>> profile_reduce;
-  profile_reduce.val = PinnedArray1D<Real>("Reduce me", numHistogramBins);
+  parthenon::AllReduce<parthenon::ParArray1D<Real>> profile_reduce;
+  profile_reduce.val = parthenon::ParArray1D<Real>("Reduce me", numHistogramBins);
   pkg->AddParam("profile_reduce", profile_reduce, true);
 
-  PinnedArray1D<Real> profile_reduce_zbins("Bin centers", numHistogramBins);
+  parthenon::ParArray1D<Real> profile_reduce_zbins("Bin centers", numHistogramBins);
+  auto profile_zbins_host = profile_reduce_zbins.GetHostMirror();
   const Real x3min = pin->GetReal("parthenon/mesh", "x3min");
   const Real x3max = pin->GetReal("parthenon/mesh", "x3max");
   const Real dz_hist = (x3max - x3min) / numHistogramBins;
   for (int i = 0; i < numHistogramBins; ++i) {
-    profile_reduce_zbins(i) = dz_hist * (Real(i) + 0.5) + x3min;
+    profile_zbins_host(i) = dz_hist * (Real(i) + 0.5) + x3min;
   }
+  profile_reduce_zbins.DeepCopy(profile_zbins_host);
+
   pkg->AddParam("profile_reduce_zbins", profile_reduce_zbins, false);
 
   if (fluid_str == "euler") {
