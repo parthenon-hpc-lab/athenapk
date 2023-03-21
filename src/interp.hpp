@@ -43,37 +43,43 @@ MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
   f_vec_ = f_vec;
   d_vec_ = VectorContainer("d", x_vec_.size());
 
+  auto x_vec_h = x_vec_.GetHostMirrorAndCopy();
+  auto f_vec_h = f_vec_.GetHostMirrorAndCopy();
+  auto d_vec_h = d_vec_.GetHostMirrorAndCopy();
+
   auto dright = [=](int i) { // \Delta_i
-    return (f_vec_[i + 1] - f_vec_[i]) / (x_vec_[i + 1] - x_vec_[i]);
+    return (f_vec_h[i + 1] - f_vec_h[i]) / (x_vec_h[i + 1] - x_vec_h[i]);
   };
   auto dleft = [=](int i) {
-    return (f_vec_[i] - f_vec_[i - 1]) / (x_vec_[i] - x_vec[i - 1]);
+    return (f_vec_h[i] - f_vec_h[i - 1]) / (x_vec_h[i] - x_vec_h[i - 1]);
   };
 
   // compute starting value
-  d_vec_[0] = dright(0);
+  d_vec_h[0] = dright(0);
 
   // compute ending value
-  d_vec_[x_vec_.size() - 1] = dleft(x_vec_.size() - 1);
+  d_vec_h[x_vec_.size() - 1] = dleft(x_vec_.size() - 1);
 
   // compute intermediate values
   for (int i = 1; i < (x_vec.size() - 1); ++i) {
-    d_vec_[i] = 0.5 * (dleft(i) + dright(i));
+    d_vec_h[i] = 0.5 * (dleft(i) + dright(i));
   }
 
   // adjust slopes to satisfy monotonicity constraints
   for (int i = 0; i < (x_vec.size() - 1); ++i) {
     const Real delta_i = dright(i);
-    const Real alpha_i = d_vec_[i] / delta_i;
-    const Real beta_i = d_vec_[i + 1] / delta_i;
+    const Real alpha_i = d_vec_h[i] / delta_i;
+    const Real beta_i = d_vec_h[i + 1] / delta_i;
     const Real tau_i = 3. / std::sqrt(alpha_i * alpha_i + beta_i * beta_i);
     if (tau_i < 1.) { // modify slopes
       const Real alpha_i_star = tau_i * alpha_i;
       const Real beta_i_star = tau_i * beta_i;
-      d_vec_[i] = alpha_i_star * delta_i;
-      d_vec_[i + 1] = beta_i_star * delta_i;
+      d_vec_h[i] = alpha_i_star * delta_i;
+      d_vec_h[i + 1] = beta_i_star * delta_i;
     }
   }
+  // copy to device
+  d_vec_.DeepCopy(d_vec_h);
 }
 
 template <class T>
