@@ -63,7 +63,7 @@ nx3        = 32        # Number of zones in X3-direction
 <hydro>
 gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
-riemann = hllc
+riemann = lhllc
 reconstruction = ppm
 first_order_flux_correct = false
 use_scratch = false
