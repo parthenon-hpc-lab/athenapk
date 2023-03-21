@@ -1,19 +1,4 @@
 - 
-  action: "add_pipelines"
-  pipelines: 
-    pl1:
-      f2:
-        type: "slice"
-        params: 
-          point: 
-            x: 0.0
-            y: 0.0
-            z: 0.0
-          normal: 
-            x: 0.0
-            y: 1.0
-            z: 0.0
-- 
   action: "add_scenes"
   scenes: 
     s1: 
@@ -21,7 +6,6 @@
         p1: 
           type: "pseudocolor"
           field: "Density"
-          pipeline: "pl1"
           color_table: 
             name: "Viridis"
       renders:
@@ -30,5 +14,5 @@
           annotations: "true"
           camera:
             look_at: [0.0, 0.0, 0.0]
-            position: [0.0, -200.0, 0.0]
+            position: [0.0, -0.25, 0.0]
             up: [0.0, 0.0, 1.0]

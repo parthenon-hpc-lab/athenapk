@@ -69,4 +69,5 @@ dt = 0.0003
 <parthenon/output3>
 file_type    = ascent
 dt           = 0.003
-actions_file = inputs/precipitator_ascent_broken.yaml
+actions_file = inputs/ascent_broken_on_gpu.yaml
+
