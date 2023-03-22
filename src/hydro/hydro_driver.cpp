@@ -16,6 +16,7 @@
 #include "basic_types.hpp"
 #include "bvals/cc/bvals_cc_in_one.hpp"
 #include "kokkos_abstraction.hpp"
+#include "parthenon_array_generic.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
@@ -228,11 +229,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
     AllReduce<PinnedArray1D<Real>> *pview_reduce =
         pkg->MutableParam<AllReduce<PinnedArray1D<Real>>>("profile_reduce");
-
+    
     // initialize values to zero
-    for (int i = 0; i < pview_reduce->val.size(); i++) {
-      pview_reduce->val(i) = 0;
-    }
+    Kokkos::deep_copy(pview_reduce->val, 0.0);
 
     // create task region
     int reg_dep_id = 0;
