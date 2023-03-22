@@ -106,8 +106,8 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   const Real gam = pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
-  AllReduce<PinnedArray1D<Real>> *profile_reduce =
-      pkg->MutableParam<AllReduce<PinnedArray1D<Real>>>("profile_reduce");
+  AllReduce<parthenon::ParArray1D<Real>> *profile_reduce =
+      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
 
   auto pm = md->GetParentPointer();
   const Real x3min = pm->mesh_size.x3min;
@@ -228,8 +228,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   if (stage == 1) {
     auto pkg = blocks[0]->packages.Get("Hydro");
 
-    AllReduce<PinnedArray1D<Real>> *pview_reduce =
-        pkg->MutableParam<AllReduce<PinnedArray1D<Real>>>("profile_reduce");
+    AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
+        pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
 
     // initialize values to zero
     Kokkos::deep_copy(pview_reduce->val, 0.0);
@@ -258,8 +258,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           (i == 0 ? tl.AddTask(
                         local_sum,
                         [](std::shared_ptr<StateDescriptor> &pkg) {
-                          PinnedArray1D<Real> &profile =
-                              pkg->MutableParam<AllReduce<PinnedArray1D<Real>>>(
+                          parthenon::ParArray1D<Real> &profile =
+                              pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>(
                                      "profile_reduce")
                                   ->val;
 

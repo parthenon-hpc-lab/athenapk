@@ -204,10 +204,10 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   // vertical dE/dt profile
-  PinnedArray1D<Real> profile_reduce =
-      pkg->MutableParam<AllReduce<PinnedArray1D<Real>>>("profile_reduce")->val;
-  PinnedArray1D<Real> profile_reduce_zbins =
-      pkg->Param<PinnedArray1D<Real>>("profile_reduce_zbins");
+  parthenon::ParArray1D<Real> profile_reduce =
+      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce")->val;
+  parthenon::ParArray1D<Real> profile_reduce_zbins =
+      pkg->Param<parthenon::ParArray1D<Real>>("profile_reduce_zbins");
 
   PinnedArray1D<Real> profile("profile", profile_reduce.size() + 2);
   PinnedArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
