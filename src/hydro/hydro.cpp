@@ -198,24 +198,21 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   int nhydro = -1;
 
   // global reduction of a vector
-  const int numHistogramBins = pin->GetOrAddInteger("precipitator", "numHistogramBins", 8);
+  const int numHist = pin->GetOrAddInteger("precipitator", "numHist", 8);
   if (parthenon::Globals::my_rank == 0) {
-    std::cout << "Using numHistogramBins = " << numHistogramBins << std::endl;
+    std::cout << "Using numHist = " << numHist << std::endl;
   }
-  parthenon::AllReduce<parthenon::ParArray1D<Real>> profile_reduce;
-  profile_reduce.val = parthenon::ParArray1D<Real>("Reduce me", numHistogramBins);
+  parthenon::AllReduce<PinnedArray1D<Real>> profile_reduce;
+  profile_reduce.val = PinnedArray1D<Real>("Reduce me", numHist);
   pkg->AddParam("profile_reduce", profile_reduce, true);
 
-  parthenon::ParArray1D<Real> profile_reduce_zbins("Bin centers", numHistogramBins);
-  auto profile_zbins_host = profile_reduce_zbins.GetHostMirror();
+  PinnedArray1D<Real> profile_reduce_zbins("Bin centers", numHist);
   const Real x3min = pin->GetReal("parthenon/mesh", "x3min");
   const Real x3max = pin->GetReal("parthenon/mesh", "x3max");
-  const Real dz_hist = (x3max - x3min) / numHistogramBins;
-  for (int i = 0; i < numHistogramBins; ++i) {
-    profile_zbins_host(i) = dz_hist * (Real(i) + 0.5) + x3min;
+  const Real dz_hist = (x3max - x3min) / numHist;
+  for (int i = 0; i < numHist; ++i) {
+    profile_reduce_zbins(i) = dz_hist * (Real(i) + 0.5) + x3min;
   }
-  profile_reduce_zbins.DeepCopy(profile_zbins_host);
-
   pkg->AddParam("profile_reduce_zbins", profile_reduce_zbins, false);
 
   if (fluid_str == "euler") {
@@ -289,6 +286,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     riemann = RiemannSolver::hlle;
   } else if (riemann_str == "hllc") {
     riemann = RiemannSolver::hllc;
+  } else if (riemann_str == "lhllc") {
+    riemann = RiemannSolver::lhllc;
   } else if (riemann_str == "hlld") {
     riemann = RiemannSolver::hlld;
   } else if (riemann_str == "none") {
@@ -333,6 +332,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::limo3, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::limo3, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::lhllc>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::none>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);

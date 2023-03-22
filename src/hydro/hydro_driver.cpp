@@ -104,8 +104,8 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   const Real gam = pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
-  AllReduce<parthenon::ParArray1D<Real>> *profile_reduce =
-      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
+  AllReduce<PinnedArray1D<Real>> *profile_reduce =
+      pkg->MutableParam<AllReduce<PinnedArray1D<Real>>>("profile_reduce");
 
   auto pm = md->GetParentPointer();
   const Real x3min = pm->mesh_size.x3min;
@@ -114,11 +114,6 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   const int max_idx = size - 1;
   const Real dz_hist = Lz / size;
   auto &profile = profile_reduce->val;
-
-  // normalization factor
-  const Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
-  const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
-  const Real histVolume = Lx * Ly * dz_hist;
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "AxisAlignedProfile", parthenon::DevExecSpace(), 0,
@@ -139,10 +134,18 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
           int idx = static_cast<int>((z - x3min) / dz_hist);
           idx = (idx > max_idx) ? max_idx : idx;
           idx = (idx < 0) ? 0 : idx;
-          Kokkos::atomic_add(&profile(idx), Edot * dVol / histVolume);
+          Kokkos::atomic_add(&profile(idx), Edot * dVol);
         }
       });
 
+  // normalize result
+  const Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
+  const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
+  const Real histVolume = Lx * Ly * dz_hist;
+
+  for (int i = 0; i < profile_reduce->val.size(); i++) {
+    profile_reduce->val(i) /= histVolume;
+  }
   return TaskStatus::complete;
 }
 
@@ -226,11 +229,13 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   if (stage == 1) {
     auto pkg = blocks[0]->packages.Get("Hydro");
 
-    AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
-        pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
+    AllReduce<PinnedArray1D<Real>> *pview_reduce =
+        pkg->MutableParam<AllReduce<PinnedArray1D<Real>>>("profile_reduce");
 
     // initialize values to zero
-    Kokkos::deep_copy(pview_reduce->val, 0.0);
+    for (int i = 0; i < pview_reduce->val.size(); i++) {
+      pview_reduce->val(i) = 0;
+    }
 
     // create task region
     int reg_dep_id = 0;
@@ -255,17 +260,15 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       // This task is only added in one task list of this region as it'll reduce the
       // single value previously updated by all task lists in this region.
       TaskID start_view_reduce =
-          (i == 0 ? tl.AddTask(local_sum,
-                               &AllReduce<parthenon::ParArray1D<Real>>::StartReduce,
+          (i == 0 ? tl.AddTask(local_sum, &AllReduce<PinnedArray1D<Real>>::StartReduce,
                                pview_reduce, MPI_SUM)
                   : none);
 
       // Test the reduction until it completes
       // No need to differentiate between different lists (`i`) here because for the lists
       // with `i != 0` the depdency will be `none` from the global reduction task above.
-      TaskID finish_view_reduce =
-          tl.AddTask(start_view_reduce,
-                     &AllReduce<parthenon::ParArray1D<Real>>::CheckReduce, pview_reduce);
+      TaskID finish_view_reduce = tl.AddTask(
+          start_view_reduce, &AllReduce<PinnedArray1D<Real>>::CheckReduce, pview_reduce);
 
       // No need for further RegionalDependencies here as the TaskRegion ends, which is
       // already an implicit synchronization point in the tasking infrastructure.
