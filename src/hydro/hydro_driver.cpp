@@ -15,6 +15,7 @@
 #include "amr_criteria/refinement_package.hpp"
 #include "basic_types.hpp"
 #include "bvals/cc/bvals_cc_in_one.hpp"
+#include "interface/state_descriptor.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
@@ -229,7 +230,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
     AllReduce<PinnedArray1D<Real>> *pview_reduce =
         pkg->MutableParam<AllReduce<PinnedArray1D<Real>>>("profile_reduce");
-    
+
     // initialize values to zero
     Kokkos::deep_copy(pview_reduce->val, 0.0);
 
@@ -252,22 +253,23 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       // region.
       reduction_region.AddRegionalDependencies(reg_dep_id, i, local_sum);
 
-      // NOTE: this is an *in-place* reduction!
-      // This task is only added in one task list of this region as it'll reduce the
-      // single value previously updated by all task lists in this region.
-      TaskID start_view_reduce =
-          (i == 0 ? tl.AddTask(local_sum, &AllReduce<PinnedArray1D<Real>>::StartReduce,
-                               pview_reduce, MPI_SUM)
+      // Perform blocking MPI_Allreduce on the host to sum up the local reductions.
+      TaskID blocking_reduce =
+          (i == 0 ? tl.AddTask(
+                        local_sum,
+                        [](std::shared_ptr<StateDescriptor> &pkg) {
+                          PinnedArray1D<Real> &profile =
+                              pkg->MutableParam<AllReduce<PinnedArray1D<Real>>>(
+                                     "profile_reduce")
+                                  ->val;
+
+                          PARTHENON_MPI_CHECK(
+                              MPI_Allreduce(MPI_IN_PLACE, profile.data(), profile.size(),
+                                            MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
+                          return TaskStatus::complete;
+                        },
+                        pkg)
                   : none);
-
-      // Test the reduction until it completes
-      // No need to differentiate between different lists (`i`) here because for the lists
-      // with `i != 0` the depdency will be `none` from the global reduction task above.
-      TaskID finish_view_reduce = tl.AddTask(
-          start_view_reduce, &AllReduce<PinnedArray1D<Real>>::CheckReduce, pview_reduce);
-
-      // No need for further RegionalDependencies here as the TaskRegion ends, which is
-      // already an implicit synchronization point in the tasking infrastructure.
 #endif
     }
   }
