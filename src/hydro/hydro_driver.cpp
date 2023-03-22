@@ -115,6 +115,11 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   const Real dz_hist = Lz / size;
   auto &profile = profile_reduce->val;
 
+  // normalize result
+  const Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
+  const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
+  const Real histVolume = Lx * Ly * dz_hist;
+
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "AxisAlignedProfile", parthenon::DevExecSpace(), 0,
       prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -134,18 +139,10 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
           int idx = static_cast<int>((z - x3min) / dz_hist);
           idx = (idx > max_idx) ? max_idx : idx;
           idx = (idx < 0) ? 0 : idx;
-          Kokkos::atomic_add(&profile(idx), Edot * dVol);
+          Kokkos::atomic_add(&profile(idx), Edot * dVol / histVolume);
         }
       });
 
-  // normalize result
-  const Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
-  const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
-  const Real histVolume = Lx * Ly * dz_hist;
-
-  for (int i = 0; i < profile_reduce->val.size(); i++) {
-    profile_reduce->val(i) /= histVolume;
-  }
   return TaskStatus::complete;
 }
 
