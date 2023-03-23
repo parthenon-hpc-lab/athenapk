@@ -7,29 +7,6 @@
         params: 
           field: "Density"
           output_name: "log_Density"
-      f2:
-        type: "slice"
-        params: 
-          point: 
-            x: 0.0
-            y: -1.0e-5
-            z: 0.0
-          normal: 
-            x: 0.0
-            y: 1.0
-            z: 0.0
-    pl2:
-      f2:
-        type: "slice"
-        params: 
-          point: 
-            x: 0.0
-            y: -1.0e-5
-            z: 0.0
-          normal: 
-            x: 0.0
-            y: 1.0
-            z: 0.0
 - 
   action: "add_scenes"
   scenes: 
@@ -54,7 +31,6 @@
         p1: 
           type: "pseudocolor"
           field: "Velocity3"
-          pipeline: "pl2"
       renders:
         r1:
           image_prefix: "vel_z%05d"
@@ -63,3 +39,4 @@
             look_at: [0.0, 0.0, 0.0]
             position: [0.0, -200.0, 0.0]
             up: [0.0, 0.0, 1.0]
+
