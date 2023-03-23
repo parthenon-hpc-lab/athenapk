@@ -44,6 +44,7 @@
 #include "outputs/outputs.hpp"
 #include "pgen.hpp"
 
+typedef Kokkos::complex<Real> Complex;
 namespace precipitator {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
@@ -58,8 +59,7 @@ class PrecipitatorProfile {
       : spline_P_(rhs.spline_P_), spline_rho_(rhs.spline_rho_) {}
 
   inline auto readProfile(std::string const &filename)
-      -> std::tuple<PinnedArray1D<Real>, PinnedArray1D<Real>,
-                    PinnedArray1D<Real>> {
+      -> std::tuple<PinnedArray1D<Real>, PinnedArray1D<Real>, PinnedArray1D<Real>> {
     // read in tabulated profile from text file 'filename'
     std::ifstream fstream(filename, std::ios::in);
     assert(fstream.is_open());
@@ -208,7 +208,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
       pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce")->val;
   parthenon::ParArray1D<Real> profile_reduce_zbins_dev =
       pkg->Param<parthenon::ParArray1D<Real>>("profile_reduce_zbins");
-  
+
   // get profile from device
   auto profile_reduce = profile_reduce_dev.GetHostMirrorAndCopy();
   auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
@@ -368,11 +368,138 @@ void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
       });
 }
 
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "Starting ProblemInitPackageData...\n";
+  }
+
+  auto &hydro_pkg = pkg;
+  const Units units(pin);
+  Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
+
+  const Real x1min = pin->GetReal("parthenon/mesh", "x1min");
+  const Real x1max = pin->GetReal("parthenon/mesh", "x1max");
+  const Real x2min = pin->GetReal("parthenon/mesh", "x2min");
+  const Real x2max = pin->GetReal("parthenon/mesh", "x2max");
+  const Real x3min = pin->GetReal("parthenon/mesh", "x3min");
+  const Real x3max = pin->GetReal("parthenon/mesh", "x3max");
+  const Real L = std::min({x1max - x1min, x2max - x2min, x3max - x3min});
+
+  /************************************************************
+   * Initialize the hydrostatic profile
+   ************************************************************/
+  const auto &filename = pin->GetString("precipitator", "hse_profile_filename");
+  const PrecipitatorProfile P_rho_profile(filename);
+  hydro_pkg->AddParam<>("precipitator_profile", P_rho_profile);
+
+  const auto enable_heating_str =
+      pin->GetOrAddString("precipitator", "enable_heating", "none");
+  hydro_pkg->AddParam<>("enable_heating", enable_heating_str);
+
+  // read temperature, smoothing heights
+  const Real T0 = pin->GetReal("precipitator", "bg_temperature"); // K
+  const Real h_smooth = pin->GetReal("precipitator", "h_smooth_kpc") * units.kpc();
+  const Real h_smooth_heatcool =
+      pin->GetReal("precipitator", "h_smooth_heatcool_kpc") * units.kpc();
+  const Real mu =
+      pin->GetReal("precipitator", "dimensionless_mmw") * units.atomic_mass_unit();
+  hydro_pkg->AddParam<Real>("bg_temperature", T0); // K
+  hydro_pkg->AddParam<Real>("h_smooth", h_smooth); // smoothing scale (code units)
+  hydro_pkg->AddParam<Real>("h_smooth_heatcool",
+                            h_smooth_heatcool); // smoothing scale (code units)
+  hydro_pkg->AddParam<Real>("mean_mol_weight",
+                            mu); // mean molecular weight (code units)
+
+  // read perturbation parameters
+  const int kx_max = pin->GetInteger("precipitator", "perturb_kx");
+  const int ky_max = pin->GetInteger("precipitator", "perturb_ky");
+  const int kz_max = pin->GetInteger("precipitator", "perturb_kz");
+  const int expo = pin->GetInteger("precipitator", "perturb_exponent");
+  const Real amp = pin->GetReal("precipitator", "perturb_sin_drho_over_rho");
+  const Real amp_rand = pin->GetReal("precipitator", "perturb_random_drho_over_rho");
+  hydro_pkg->AddParam<int>("perturb_kx", kx_max);
+  hydro_pkg->AddParam<int>("perturb_ky", ky_max);
+  hydro_pkg->AddParam<int>("perturb_kz", kz_max);
+  hydro_pkg->AddParam<int>("perturb_exponent", expo);
+  hydro_pkg->AddParam<Real>("perturb_amplitude", amp);
+  hydro_pkg->AddParam<Real>("perturb_amplitude_rand", amp_rand);
+
+  parthenon::ParArray3D<Complex> drho_hat;
+  const int Nkz = 2 * kz_max + 1;
+  const int Nky = 2 * ky_max + 1;
+  const int Nkx = 2 * kx_max + 1;
+  drho_hat = parthenon::ParArray3D<Complex>("drho_hat", Nkz, Nky, Nkx);
+
+  // normalize perturbations
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "\tGenerating perturbations...\n";
+  }
+
+  // generate Gaussian random (scalar) field in Fourier space
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "GenerateModes", parthenon::DevExecSpace(), 0, 0, -kz_max,
+      kz_max, -ky_max, ky_max, -kx_max, kx_max,
+      KOKKOS_LAMBDA(const int, const int kz, const int ky, const int kx) {
+        if (kx != 0 || ky != 0 || kz != 0) {
+          // normalize power spectrum
+          const Real kmag = std::sqrt(kx * kx + ky * ky + kz * kz);
+          const Real dkx = 2. * M_PI / L;
+          const Real norm_fac = pow(kmag * dkx, (expo + 2.0) / 2.0);
+          // generate uniform random numbers on [0, 1]
+          auto prng = random_pool.get_state();
+          const Real U = prng.drand(0., 1.);
+          const Real V = prng.drand(0., 1.);
+          random_pool.free_state(prng);
+          // use Box-Muller transform to get Gaussian samples
+          const Real R = std::sqrt(-2. * std::log(U));
+          const Real X = R * std::cos(2. * M_PI * V);
+          const Real Y = R * std::sin(2. * M_PI * V);
+          // save result
+          drho_hat(kz + kz_max, ky + ky_max, kx + kx_max) =
+              Complex(X / norm_fac, Y / norm_fac);
+        } else {
+          drho_hat(kz + kz_max, ky + ky_max, kx + kx_max) = Complex(0., 0.);
+        }
+      });
+
+  // ensure reality
+  // ...
+
+  // normalize perturbations
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "\tNormalizing perturbations...\n";
+  }
+
+  Real rms_sq = 0;
+  parthenon::par_reduce(
+      parthenon::loop_pattern_mdrange_tag, "ProfileReduction", parthenon::DevExecSpace(),
+      0, 0, 0, Nkz - 1, 0, Nky - 1, 0, Nkx - 1,
+      KOKKOS_LAMBDA(const int, const int kz, const int ky, const int kx, Real &lrms_sq) {
+        const Complex z = drho_hat(kz, ky, kx);
+        const Real norm_sq = SQR(z.real()) + SQR(z.imag());
+        lrms_sq += norm_sq;
+      },
+      rms_sq);
+
+  const Real norm = amp / std::sqrt(rms_sq);
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "GenerateModes", parthenon::DevExecSpace(), 0, 0, 0, Nkz - 1,
+      0, Nky - 1, 0, Nkx - 1,
+      KOKKOS_LAMBDA(const int, const int kz, const int ky, const int kx) {
+        drho_hat(kz, ky, kx) *= norm;
+      });
+
+  // save modes in hydro_pkg
+  hydro_pkg->AddParam("drho_hat", drho_hat);
+
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "End of ProblemInitPackageData.\n\n";
+  }
+}
+
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const Units units(pin);
-  Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
-  typedef Kokkos::complex<Real> Complex;
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -386,120 +513,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real x2max = pin->GetReal("parthenon/mesh", "x2max");
   const Real x3min = pin->GetReal("parthenon/mesh", "x3min");
   const Real x3max = pin->GetReal("parthenon/mesh", "x3max");
-  const Real L = std::min({x1max - x1min, x2max - x2min, x3max - x3min});
-
-  if (pmb->lid == 0) {
-    /************************************************************
-     * Initialize the hydrostatic profile
-     ************************************************************/
-    const auto &filename = pin->GetString("precipitator", "hse_profile_filename");
-    const PrecipitatorProfile P_rho_profile(filename);
-    hydro_pkg->AddParam<>("precipitator_profile", P_rho_profile);
-
-    const auto enable_heating_str =
-        pin->GetOrAddString("precipitator", "enable_heating", "none");
-    hydro_pkg->AddParam<>("enable_heating", enable_heating_str);
-
-    // read temperature, smoothing heights
-    const Real T0 = pin->GetReal("precipitator", "bg_temperature"); // K
-    const Real h_smooth = pin->GetReal("precipitator", "h_smooth_kpc") * units.kpc();
-    const Real h_smooth_heatcool =
-        pin->GetReal("precipitator", "h_smooth_heatcool_kpc") * units.kpc();
-    const Real mu =
-        pin->GetReal("precipitator", "dimensionless_mmw") * units.atomic_mass_unit();
-    hydro_pkg->AddParam<Real>("bg_temperature", T0); // K
-    hydro_pkg->AddParam<Real>("h_smooth", h_smooth); // smoothing scale (code units)
-    hydro_pkg->AddParam<Real>("h_smooth_heatcool",
-                              h_smooth_heatcool); // smoothing scale (code units)
-    hydro_pkg->AddParam<Real>("mean_mol_weight",
-                              mu); // mean molecular weight (code units)
-
-    // read perturbation parameters
-    const int kx_max = pin->GetInteger("precipitator", "perturb_kx");
-    const int ky_max = pin->GetInteger("precipitator", "perturb_ky");
-    const int kz_max = pin->GetInteger("precipitator", "perturb_kz");
-    const int expo = pin->GetInteger("precipitator", "perturb_exponent");
-    const Real amp = pin->GetReal("precipitator", "perturb_sin_drho_over_rho");
-    const Real amp_rand = pin->GetReal("precipitator", "perturb_random_drho_over_rho");
-    hydro_pkg->AddParam<int>("perturb_kx", kx_max);
-    hydro_pkg->AddParam<int>("perturb_ky", ky_max);
-    hydro_pkg->AddParam<int>("perturb_kz", kz_max);
-    hydro_pkg->AddParam<int>("perturb_exponent", expo);
-    hydro_pkg->AddParam<Real>("perturb_amplitude", amp);
-    hydro_pkg->AddParam<Real>("perturb_amplitude_rand", amp_rand);
-
-    parthenon::ParArray3D<Complex> drho_hat;
-    const int Nkz = 2 * kz_max + 1;
-    const int Nky = 2 * ky_max + 1;
-    const int Nkx = 2 * kx_max + 1;
-    drho_hat = parthenon::ParArray3D<Complex>("drho_hat", Nkz, Nky, Nkx);
-
-    // normalize perturbations
-    if (parthenon::Globals::my_rank == 0) {
-      std::cout << "Generating perturbations...\n";
-    }
-
-    // generate Gaussian random (scalar) field in Fourier space
-    pmb->par_for(
-        "GenerateModes", -kz_max, kz_max, -ky_max, ky_max, -kx_max, kx_max,
-        KOKKOS_LAMBDA(const int kz, const int ky, const int kx) {
-          if (kx != 0 || ky != 0 || kz != 0) {
-            // normalize power spectrum
-            const Real kmag = std::sqrt(kx * kx + ky * ky + kz * kz);
-            const Real dkx = 2. * M_PI / L;
-            const Real norm_fac = pow(kmag * dkx, (expo + 2.0) / 2.0);
-            // generate uniform random numbers on [0, 1]
-            auto prng = random_pool.get_state();
-            const Real U = prng.drand(0., 1.);
-            const Real V = prng.drand(0., 1.);
-            random_pool.free_state(prng);
-            // use Box-Muller transform to get Gaussian samples
-            const Real R = std::sqrt(-2. * std::log(U));
-            const Real X = R * std::cos(2. * M_PI * V);
-            const Real Y = R * std::sin(2. * M_PI * V);
-            // save result
-            drho_hat(kz + kz_max, ky + ky_max, kx + kx_max) =
-                Complex(X / norm_fac, Y / norm_fac);
-          } else {
-            drho_hat(kz + kz_max, ky + ky_max, kx + kx_max) = Complex(0., 0.);
-          }
-        });
-
-    // ensure reality
-    // ...
-
-    // normalize perturbations
-    if (parthenon::Globals::my_rank == 0) {
-      std::cout << "Normalizing perturbations...\n";
-    }
-
-    Real rms_sq = 0;
-    pmb->par_reduce(
-        "ComputeRmsModes", 0, Nkz - 1, 0, Nky - 1, 0, Nkx - 1,
-        KOKKOS_LAMBDA(const int kz, const int ky, const int kx, Real &lrms_sq) {
-          const Complex z = drho_hat(kz, ky, kx);
-          const Real norm_sq = SQR(z.real()) + SQR(z.imag());
-          lrms_sq += norm_sq;
-        },
-        rms_sq);
-
-    const Real norm = amp / std::sqrt(rms_sq);
-    pmb->par_for(
-        "RescaleModes", 0, Nkz - 1, 0, Nky - 1, 0, Nkx - 1,
-        KOKKOS_LAMBDA(const int kz, const int ky, const int kx) {
-          drho_hat(kz, ky, kx) *= norm;
-        });
-
-    // save modes in hydro_pkg
-    hydro_pkg->AddParam("drho_hat", drho_hat);
-  }
 
   // initialize conserved variables
   auto &rc = pmb->meshblock_data.Get();
   auto &u_dev = rc->Get("cons").data;
-  //auto u = u_dev.GetHostMirrorAndCopy();
-  //u_dev.DeepCopy(u);
-
   auto &coords = pmb->coords;
   Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
   Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
@@ -524,9 +541,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto &drho_hat = hydro_pkg->Param<parthenon::ParArray3D<Complex>>("drho_hat");
   auto drho = parthenon::ParArray3D<Complex>("drho", nx3, nx2, nx1);
 
-  pmb->par_for(
-      "InvFourierTransform", 0, nx3 - 1, 0, nx2 - 1, 0, nx1 - 1,
-      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "InvFourierTransform", parthenon::DevExecSpace(), 0, 0, 0,
+      nx3 - 1, 0, nx2 - 1, 0, nx1 - 1,
+      KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         Complex t_drho = Complex(0, 0);
         // sum over Fourier modes
         for (int kz = -kz_max; kz <= kz_max; ++kz) {
@@ -550,9 +568,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real code_density_cgs = units.code_density_cgs();
   const Real code_pressure_cgs = units.code_pressure_cgs();
 
-  pmb->par_for(
-      "InitialConditions", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "SetInitialConditions", parthenon::DevExecSpace(), 0, 0, kb.s,
+      kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         // Calculate height
         const Real abs_height = std::abs(coords.Xc<3>(k));
         const Real abs_height_cgs = abs_height * code_length_cgs;
@@ -566,13 +585,9 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         const Real P = P_cgs / code_pressure_cgs;
 
         // Add isobaric perturbations
-        Real drho_over_rho = drho(k - kb.s, j - jb.s, i - ib.s).real() *
-                             SQR(tanh(abs_height / h_smooth));
-#if 0
-        auto generator = random_pool.get_state();
-        drho_over_rho += generator.drand(-amp_rand, amp_rand);
-        random_pool.free_state(generator);
-#endif
+        Real drho_over_rho =
+            drho(k - kb.s, j - jb.s, i - ib.s).real() * SQR(tanh(abs_height / h_smooth));
+
         // Fill conserved states
         u_dev(IDN, k, j, i) = rho * (1. + drho_over_rho);
         u_dev(IM1, k, j, i) = 0.0;

@@ -96,7 +96,7 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real);
 namespace precipitator {
 using namespace parthenon::driver::prelude;
 
-void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt);
 void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt);
@@ -104,8 +104,7 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
 void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
 void HydrostaticInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
 void HydrostaticOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
-void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime const &tm);
-} // namespace cluster
+} // namespace precipitator
 
 namespace cluster {
 using namespace parthenon::driver::prelude;

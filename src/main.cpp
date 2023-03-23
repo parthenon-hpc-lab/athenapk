@@ -84,8 +84,8 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = cluster::ProblemGenerator;
     Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;
   } else if (problem == "precipitator") {
+    Hydro::ProblemInitPackageData = precipitator::ProblemInitPackageData;
     pman.app_input->ProblemGenerator = precipitator::ProblemGenerator;
-    //pman.app_input->PostStepMeshUserWorkInLoop = precipitator::PostStepMeshUserWorkInLoop;
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x3] =
         precipitator::HydrostaticInnerX3;
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x3] =
