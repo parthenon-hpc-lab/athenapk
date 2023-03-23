@@ -24,7 +24,7 @@
           annotations: "true"
           camera:
             look_at: [0.0, 0.0, 0.0]
-            position: [0.0, -200.0, 0.0]
+            position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
     s2: 
       plots: 
@@ -37,6 +37,6 @@
           annotations: "true"
           camera:
             look_at: [0.0, 0.0, 0.0]
-            position: [0.0, -200.0, 0.0]
+            position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
 
