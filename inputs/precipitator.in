@@ -11,7 +11,7 @@ dt         = 1.0       # time increment between outputs
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = prim      # Variables to be output
-dt         = 100.0        # Time increment between outputs
+dt         = 250.0        # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/output3>
