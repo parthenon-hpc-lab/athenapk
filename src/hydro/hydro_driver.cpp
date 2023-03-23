@@ -22,6 +22,7 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../reduction_utils.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
@@ -115,24 +116,29 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   const int size = profile_reduce->val.size(); // assume it will fit into an int
   const int max_idx = size - 1;
   const Real dz_hist = Lz / size;
-  auto &profile = profile_reduce->val;
+  auto &profile_dev = profile_reduce->val;
 
   // normalize result
   const Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
   const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
   const Real histVolume = Lx * Ly * dz_hist;
 
-  parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "AxisAlignedProfile", parthenon::DevExecSpace(), 0,
-      prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+  PARTHENON_REQUIRE(REDUCTION_ARRAY_SIZE == profile_dev.size(),
+                    "REDUCTION_ARRAY_SIZE != profile_dev.size()");
+  ReductionSumArray<Real, REDUCTION_ARRAY_SIZE> profile_sum;
+  Kokkos::Sum<ReductionSumArray<Real, REDUCTION_ARRAY_SIZE>> reducer_sum(profile_sum);
+
+  parthenon::par_reduce(
+      parthenon::loop_pattern_mdrange_tag, "ProfileReduction", parthenon::DevExecSpace(),
+      0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
+                    ReductionSumArray<Real, REDUCTION_ARRAY_SIZE> &sum) {
         auto &prim = prim_pack(b);
         const auto &coords = prim_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
         const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
-
         bool is_valid = true;
         const Real eint = P / (rho * gm1);
         const Real Edot = rho * tabular_cooling.edot(rho, eint, is_valid);
@@ -141,9 +147,18 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
           int idx = static_cast<int>((z - x3min) / dz_hist);
           idx = (idx > max_idx) ? max_idx : idx;
           idx = (idx < 0) ? 0 : idx;
-          Kokkos::atomic_add(&profile(idx), Edot * dVol / histVolume);
+          // Kokkos::atomic_add(&profile(idx), Edot * dVol / histVolume);
+          sum.data[idx] += Edot * dVol / histVolume;
         }
-      });
+      },
+      reducer_sum);
+
+  // copy profile_sum to profile
+  auto profile = profile_dev.GetHostMirrorAndCopy();
+  for (int i = 0; i < size; i++) {
+    profile(i) += profile_sum.data[i];
+  }
+  profile_dev.DeepCopy(profile);
 
   return TaskStatus::complete;
 }
