@@ -56,9 +56,9 @@ ox3_bc     = user   # outer-X3 boundary flag
 
 
 <parthenon/meshblock>
-nx1        = 128        # Number of zones in X1-direction
-nx2        = 128        # Number of zones in X2-direction
-nx3        = 128        # Number of zones in X3-direction
+nx1        = 64        # Number of zones in X1-direction
+nx2        = 64        # Number of zones in X2-direction
+nx3        = 64        # Number of zones in X3-direction
 
 <hydro>
 gamma = 1.6666666666666667 # gamma = C_p/C_v
