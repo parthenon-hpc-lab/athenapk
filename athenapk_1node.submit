@@ -4,7 +4,7 @@
 #SBATCH --account=cvz-delta-gpu
 #SBATCH --mem=0
 #SBATCH --exclusive
-#SBATCH --time=0:30:00
+#SBATCH --time=1:00:00
 #SBATCH --constraint="scratch"
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
