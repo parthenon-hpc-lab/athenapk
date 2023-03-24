@@ -119,7 +119,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   if (iprob == 3) {
     // Read/set problem parameters
-    Real amp = pin->GetReal("problem", "amp");
+    Real amp = pin->GetReal("problem/kh", "amp");
     Real a = 0.01;
     Real sigma = 0.1;
     for (int k = kb.s; k <= kb.e; k++) {
