@@ -64,6 +64,10 @@ int main(int argc, char *argv[]) {
     pman.app_input->InitUserMeshData = blast::InitUserMeshData;
     pman.app_input->ProblemGenerator = blast::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = blast::UserWorkAfterLoop;
+  } else if (problem == "SN") {
+    Hydro::ProblemInitPackageData = SN::ProblemInitPackageData;
+    pman.app_input->ProblemGenerator = SN::ProblemGenerator;
+    Hydro::ProblemSourceFirstOrder = SN::Outflow;
   } else if (problem == "advection") {
     pman.app_input->InitUserMeshData = advection::InitUserMeshData;
     pman.app_input->ProblemGenerator = advection::ProblemGenerator;

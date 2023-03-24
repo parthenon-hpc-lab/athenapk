@@ -54,6 +54,15 @@ void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
                        parthenon::SimTime &tm);
 } // namespace blast
 
+namespace SN {
+using namespace parthenon::driver::prelude;
+
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt);
+
+} // namespace blast
+
 namespace advection {
 using namespace parthenon::driver::prelude;
 

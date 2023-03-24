@@ -1,0 +1,102 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = spherical blast wave
+
+<job>
+problem_id = SN
+
+<parthenon/mesh>
+refinement = none #adaptive
+numlevel = 3
+nghost = 2
+
+nx1 = 128
+x1min = -0.5
+x1max = 0.5
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 128
+x2min = -0.5
+x2max = 0.5
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 1
+x3min = -0.5
+x3max = 0.5
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1=16  
+nx2=16  
+nx3=1 
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.3
+tlim = 0.001
+nlim = 10000
+perf_cycle_offset = 2     # number of inital cycles not to be included in perf calc
+ncycle_out_mesh = -500    # output mesh structure every 500 cycles and on every change (<0)
+
+<hydro>
+eos = adiabatic
+riemann = hllc
+reconstruction = plm
+gamma = 1.666666666666667 # gamma = C_p/C_v
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+dfloor = 0.001    # density floor; should not be required enabled for testing
+pfloor = 0.0001   # pressure floor; should not be required enabled for testing
+
+<units>
+#Units parameters
+code_length_cgs = 3.085677580962325e+18  # 1 pc
+code_mass_cgs = 1.98841586e+33           # 1 M_sun
+code_time_cgs = 3.15576e+13              # 1 Myr
+
+
+# Refinement based on methods implemented in AthenaPK
+#<refinement>
+#type                         = pressure_gradient
+#threshold_pressure_gradient  = 0.1
+
+# Refinement based on methods implemented in Parthenon
+# Note the different block name!
+<parthenon/refinement0>
+method       = derivative_order_2 # normalized, second deriv, see https://github.com/parthenon-hpc-lab/parthenon/blob/develop/docs/amr.md#predefined-criteria
+field        = cons
+vector_i     = 0                  # first vector component of cons vector, i.e., density
+refine_tol   = 0.15
+derefine_tol = 0.05
+
+<problem/blast>
+
+temperature_ambient = 4e6                   # K
+pressure_ratio   = 1. #100. 
+density_ambient  = 1e-27                    # 1 cm^-3
+density_ratio    = 1.0                      # Density ratio in central region to ambient medium initially
+radius_star      = 3.085677580962325e+16    # 0.01 pc
+outflow_density  = 1e-26                    # 10 cm^-3
+outflow_velocity = 1.6e9                    # 16000 km/s
+inner_perturbation = 3.085677580962325e+17  # 0.1 pc
+outer_perturbation = 3.385677580962325e+17  # 0.11 pc
+density_perturbation = 1e-23                # 10000 cm^-3
+shell_velocity = 1.1e8                      # 1100 km/s
+input_image = none         # for "none" the initial density will also be a spherical over/underdensity (defined by density_ratio) within given radii
+#input_image = parthenon_athena.pbm # use your custom file in pbm format, will be mapped to initial over/underdensity
+
+# location of initial over/under dense/pressurized region
+x1_0 = 0.0
+x2_0 = 0.0
+x3_0 = 0.0
+
+<parthenon/output0>
+file_type = hdf5
+dt = 0.00005
+variables = prim
+use_final_label = false
