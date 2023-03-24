@@ -372,8 +372,17 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   if (parthenon::Globals::my_rank == 0) {
     std::cout << "Starting ProblemInitPackageData...\n";
   }
-
   auto &hydro_pkg = pkg;
+
+  /// add derived fields
+
+  // add \delta \rho / \bar \rho field
+  auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("drho_over_rho", m);
+  // add \delta P / \bar \P field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("dP_over_P", m);
+
   const Units units(pin);
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
 
@@ -594,6 +603,48 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         u_dev(IM2, k, j, i) = 0.0;
         u_dev(IM3, k, j, i) = 0.0;
         u_dev(IEN, k, j, i) = P / gm1;
+      });
+}
+
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
+  auto &data = pmb->meshblock_data.Get();
+  auto const &prim = data->Get("prim").data;
+  auto &drho = data->Get("drho_over_rho").data;
+  auto &dP = data->Get("dP_over_P").data;
+
+  // fill derived vars (including ghost cells)
+  auto &coords = pmb->coords;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+
+  const Units units(pin);
+  const Real code_length_cgs = units.code_length_cgs();
+  const Real code_density_cgs = units.code_density_cgs();
+  const Real code_pressure_cgs = units.code_pressure_cgs();
+
+  // Get HSE profile and parameters
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto &P_rho_profile =
+      hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
+
+  pmb->par_for(
+      "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+        // Calculate height
+        const Real abs_height = std::abs(coords.Xc<3>(k));
+        const Real abs_height_cgs = abs_height * code_length_cgs;
+
+        // Get density and pressure from generated profile
+        const Real rho_cgs = P_rho_profile.rho(abs_height_cgs);
+        const Real P_cgs = P_rho_profile.P(abs_height_cgs);
+
+        // Convert to code units
+        const Real rho_bg = rho_cgs / code_density_cgs;
+        const Real P_bg = P_cgs / code_pressure_cgs;
+
+        drho(0, k, j, i) = (prim(IDN, k, j, i) - rho_bg) / rho_bg;
+        dP(0, k, j, i) = (prim(IPR, k, j, i) - P_bg) / P_bg;
       });
 }
 
