@@ -63,7 +63,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real gm1 = gamma - 1.0;
   const Real shvel = pin->GetReal("problem/blast", "shell_velocity") / (units.code_length_cgs() / units.code_time_cgs());
 
-  const auto mu_m_u_gm1_by_k_B_ = 0.6 * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
+  const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
+  const auto H_mass_fraction = 1.0 - He_mass_fraction;
+  const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+  const auto mu_m_u_gm1_by_k_B_ = mu * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
   const Real rhoe = ta * da / mu_m_u_gm1_by_k_B_;
   const Real pa = gm1 * rhoe;
 
@@ -115,8 +118,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   Units units(pin);
 
-  const Real ta = hydro_pkg->Param<Real>("temperature_ambient");
   const Real da = hydro_pkg->Param<Real>("density_ambient");
+  const Real pa = hydro_pkg->Param<Real>("density_ambient");
   Real prat = hydro_pkg->Param<Real>("pressure_ratio");
   Real drat = hydro_pkg->Param<Real>("density_ratio");
   const Real gamma = hydro_pkg->Param<Real>("gamma");
@@ -127,8 +130,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real routp = hydro_pkg->Param<Real>("outer_perturbation");
   const Real denp = hydro_pkg->Param<Real>("density_perturbation");
 
-  const auto mu_m_u_gm1_by_k_B_ = 0.6 * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
-  const Real rhoe = ta * da / mu_m_u_gm1_by_k_B_;
   // get coordinates of center of blast, and convert to Cartesian if necessary
   Real x0 = pin->GetOrAddReal("problem/blast", "x1_0", 0.0);
   Real y0 = pin->GetOrAddReal("problem/blast", "x2_0", 0.0);
@@ -170,7 +171,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IM1, k, j, i) = mx;
         u(IM2, k, j, i) = my;
         u(IM3, k, j, i) = 0.0;
-        u(IEN, k, j, i) = rhoe + 0.5 * (mx * mx + my * my) / den;
+        u(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
       }
     }
   }

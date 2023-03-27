@@ -50,6 +50,7 @@ riemann = hllc
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+He_mass_fraction = 0.24
 dfloor = 0.001    # density floor; should not be required enabled for testing
 pfloor = 0.0001   # pressure floor; should not be required enabled for testing
 
