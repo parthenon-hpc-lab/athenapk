@@ -57,14 +57,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   const Real ta = pin->GetReal("problem/blast", "temperature_ambient");
   const Real da = pin->GetReal("problem/blast", "density_ambient") / units.code_density_cgs();
-  Real prat = pin->GetReal("problem/blast", "pressure_ratio");
-  Real drat = pin->GetOrAddReal("problem/blast", "density_ratio", 1.0);
   const Real gamma = pin->GetOrAddReal("hydro", "gamma", 5. / 3);
   const Real gm1 = gamma - 1.0;
   const Real shvel = pin->GetReal("problem/blast", "shell_velocity") / (units.code_length_cgs() / units.code_time_cgs());
 
   const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-  const auto H_mass_fraction = 1.0 - He_mass_fraction;
   const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
   const auto mu_m_u_gm1_by_k_B_ = mu * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
   const Real rhoe = ta * da / mu_m_u_gm1_by_k_B_;
@@ -73,8 +70,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("temperature_ambient", ta);
   pkg->AddParam<>("pressure_ambient", pa);
   pkg->AddParam<>("density_ambient", da);
-  pkg->AddParam<>("pressure_ratio", prat);
-  pkg->AddParam<>("density_ratio", drat);
   pkg->AddParam<>("gamma", gamma);
   pkg->AddParam<>("shell_velocity", shvel);
 
@@ -120,8 +115,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   const Real da = hydro_pkg->Param<Real>("density_ambient");
   const Real pa = hydro_pkg->Param<Real>("density_ambient");
-  Real prat = hydro_pkg->Param<Real>("pressure_ratio");
-  Real drat = hydro_pkg->Param<Real>("density_ratio");
   const Real gamma = hydro_pkg->Param<Real>("gamma");
   const Real gm1 = gamma - 1.0;
   const Real sh_vel = hydro_pkg->Param<Real>("shell_velocity");

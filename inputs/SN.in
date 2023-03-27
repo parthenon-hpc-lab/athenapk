@@ -78,9 +78,7 @@ derefine_tol = 0.05
 <problem/blast>
 
 temperature_ambient = 4e6                   # K
-pressure_ratio   = 1. #100. 
 density_ambient  = 1e-27                    # 1 cm^-3
-density_ratio    = 1.0                      # Density ratio in central region to ambient medium initially
 radius_star      = 3.085677580962325e+16    # 0.01 pc
 outflow_density  = 1e-26                    # 10 cm^-3
 outflow_velocity = 1.6e9                    # 16000 km/s
