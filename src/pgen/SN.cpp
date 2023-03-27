@@ -23,6 +23,7 @@
 #include <cstdio>  // fopen(), fprintf(), freopen()
 #include <cstring> // strcmp()
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <sstream>
 #include <stdexcept>
@@ -114,7 +115,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Units units(pin);
 
   const Real da = hydro_pkg->Param<Real>("density_ambient");
-  const Real pa = hydro_pkg->Param<Real>("density_ambient");
+  const Real pa = hydro_pkg->Param<Real>("pressure_ambient");
   const Real gamma = hydro_pkg->Param<Real>("gamma");
   const Real gm1 = gamma - 1.0;
   const Real sh_vel = hydro_pkg->Param<Real>("shell_velocity");
