@@ -126,7 +126,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         self.norm_tol = 1e-3
 
-        self.steps = 4
+        self.steps = 6
         self.step_params_list = list(
             itertools.product(
                 ("thermal_only", "kinetic_only", "combined"), (True, False)
