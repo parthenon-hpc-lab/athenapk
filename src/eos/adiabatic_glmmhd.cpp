@@ -49,6 +49,7 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
+        // auto &nu = entropy_pack(b);
 
         return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
       });
