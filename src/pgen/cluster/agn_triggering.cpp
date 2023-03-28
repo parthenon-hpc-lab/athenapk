@@ -99,68 +99,16 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
   }
   }
 
-  // Set up writing the triggering to file, used for debugging. Note that this is
-  // written every timestep, which is more frequently than history outputs. It
-  // is also not reduced across ranks and so is only valid without MPI
+  // Set up writing the triggering to file, used for debugging and regression
+  // testing. Note that this is written every timestep, which is more
+  // frequently than history outputs. It is also not reduced across ranks and
+  // so is only valid without MPI
   if (write_to_file_ && parthenon::Globals::my_rank == 0) {
     // Clear the triggering_file
     std::ofstream triggering_file;
     triggering_file.open(triggering_filename_, std::ofstream::out | std::ofstream::trunc);
     triggering_file.close();
   }
-
-  // Set up UserHistoryOutput (Are all these triggering variables necessary?
-  // They might be for post-mortem debugging)
-  auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
-  std::vector<std::string> history_var_names;
-  switch (triggering_mode_) {
-  case AGNTriggeringMode::COLD_GAS: {
-    history_var_names.push_back("agn_triggering_cold_mass");
-    break;
-  }
-  case AGNTriggeringMode::BOOSTED_BONDI:
-  case AGNTriggeringMode::BOOTH_SCHAYE: {
-    history_var_names.push_back("agn_triggering_total_mass");
-    history_var_names.push_back("agn_triggering_mass_weighted_density");
-    history_var_names.push_back("agn_triggering_mass_weighted_velocity");
-    history_var_names.push_back("agn_triggering_mass_weighted_cs");
-    break;
-  }
-  case AGNTriggeringMode::NONE: {
-    break;
-  }
-  }
-
-  for (auto var_name : history_var_names) {
-    // HACK (forrestglines): The operations should be a
-    // parthenon::UserHistoryOperation::no_reduce, which is as of writing
-    // unimplemented
-    hst_vars.emplace_back(parthenon::HistoryOutputVar(
-        parthenon::UserHistoryOperation::max,
-        [var_name](MeshData<Real> *md) {
-          auto pmb = md->GetBlockData(0)->GetBlockPointer();
-          auto hydro_pkg = pmb->packages.Get("Hydro");
-          return hydro_pkg->Param<Real>(var_name);
-        },
-        var_name));
-  }
-
-  // Add accretion rate too
-  if (triggering_mode_ != AGNTriggeringMode::NONE) {
-    // HACK (forrestglines): The operations should be a
-    // parthenon::UserHistoryOperation::no_reduce, which is as of writing
-    // unimplemented
-    hst_vars.emplace_back(parthenon::HistoryOutputVar(
-        parthenon::UserHistoryOperation::max,
-        [](MeshData<Real> *md) {
-          auto pmb = md->GetBlockData(0)->GetBlockPointer();
-          auto hydro_pkg = pmb->packages.Get("Hydro");
-          const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
-          return agn_triggering.GetAccretionRate(hydro_pkg.get());
-        },
-        "agn_accretion_rate"));
-  }
-  hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
   hydro_pkg->AddParam<AGNTriggering>("agn_triggering", *this);
 }
@@ -224,7 +172,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
             const Real cell_delta_rho = -prim(IDN, k, j, i) / cold_t_acc * dt;
 
             if (remove_accreted_mass) {
-              AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos, k, j, i);
+              AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), k, j, i);
               // Update the Primitives
               eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             }
@@ -344,7 +292,7 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
 
           const Real cell_delta_rho = -prim(IDN, k, j, i) / total_mass * accretion_rate * dt;
 
-          AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos, k, j, i);
+          AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), k, j, i);
 
           // Update the Primitives
           eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
