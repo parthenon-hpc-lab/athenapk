@@ -118,8 +118,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    * Read Uniform Magnetic Field
    ************************************************************/
 
-  const bool init_uniform_b_field =
-      pin->GetOrAddBoolean("problem/cluster/uniform_b_field", "init_uniform_b_field", false);
+  const bool init_uniform_b_field = pin->GetOrAddBoolean(
+      "problem/cluster/uniform_b_field", "init_uniform_b_field", false);
   hydro_pkg->AddParam<>("init_uniform_b_field", init_uniform_b_field);
 
   if (init_uniform_b_field) {
@@ -136,8 +136,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    * Read Uniform Magnetic Field
    ************************************************************/
 
-  const bool init_dipole_b_field =
-      pin->GetOrAddBoolean("problem/cluster/dipole_b_field", "init_dipole_b_field", false);
+  const bool init_dipole_b_field = pin->GetOrAddBoolean("problem/cluster/dipole_b_field",
+                                                        "init_dipole_b_field", false);
   hydro_pkg->AddParam<>("init_dipole_b_field", init_dipole_b_field);
 
   if (init_dipole_b_field) {
@@ -264,7 +264,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           u(IEN, k, j, i) = E;
         });
 
-  //end if(init_uniform_gas)
+    // end if(init_uniform_gas)
   } else {
     /************************************************************
      * Initialize a HydrostaticEquilibriumSphere
@@ -341,15 +341,15 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
             const Real y = coords.Xc<2>(j);
             const Real z = coords.Xc<3>(k);
 
-            const Real r3 = pow( SQR(x) + SQR(y) + SQR(z),3./2);
-            
-            const Real m_cross_r_x = my*z - mz*y;
-            const Real m_cross_r_y = mz*x - mx*z;
-            const Real m_cross_r_z = mx*y - mx*y;
+            const Real r3 = pow(SQR(x) + SQR(y) + SQR(z), 3. / 2);
 
-            A(0, k, j, i) += m_cross_r_x/(4*M_PI*r3);
-            A(1, k, j, i) += m_cross_r_y/(4*M_PI*r3);
-            A(2, k, j, i) += m_cross_r_z/(4*M_PI*r3);
+            const Real m_cross_r_x = my * z - mz * y;
+            const Real m_cross_r_y = mz * x - mx * z;
+            const Real m_cross_r_z = mx * y - mx * y;
+
+            A(0, k, j, i) += m_cross_r_x / (4 * M_PI * r3);
+            A(1, k, j, i) += m_cross_r_y / (4 * M_PI * r3);
+            A(2, k, j, i) += m_cross_r_z / (4 * M_PI * r3);
           });
     }
 
@@ -374,7 +374,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
               0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
         });
 
-
     /************************************************************
      * Add uniform magnetic field to the conserved variables
      ************************************************************/
@@ -395,12 +394,12 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
             u(IB2, k, j, i) += by;
             u(IB3, k, j, i) += bz;
 
-            //Old magnetic energy is b_i^2, new Magnetic energy should be 0.5*(b_i + b)^2,
-            //add b_i*b + 0.5b^2  to old energy to accomplish that
-            u(IEN, k, j, i) += bx_i*bx + by_i*by + bz_i*bz+
-                0.5 * (SQR(bx) + SQR(by) + SQR(bz));
+            // Old magnetic energy is b_i^2, new Magnetic energy should be 0.5*(b_i +
+            // b)^2, add b_i*b + 0.5b^2  to old energy to accomplish that
+            u(IEN, k, j, i) +=
+                bx_i * bx + by_i * by + bz_i * bz + 0.5 * (SQR(bx) + SQR(by) + SQR(bz));
           });
-    //end if(init_uniform_b_field)
+      // end if(init_uniform_b_field)
     }
 
   } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)

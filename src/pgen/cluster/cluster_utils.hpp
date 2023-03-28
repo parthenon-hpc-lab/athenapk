@@ -22,8 +22,7 @@ namespace cluster {
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION void
 AddDensityToConsAtFixedVel(const parthenon::Real density, View4D &cons,
-                           const View4D &prim, const int &k,
-                           const int &j, const int &i) {
+                           const View4D &prim, const int &k, const int &j, const int &i) {
   // Add density such that velocity is fixed
   cons(IDN, k, j, i) += density;
   cons(IM1, k, j, i) += density * prim(IV1, k, j, i);

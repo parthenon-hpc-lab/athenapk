@@ -137,15 +137,21 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
    ************************************************************/
 
   // Determine spacing of grid (WARNING assumes equispaced grid in x,y,z)
-  PARTHENON_REQUIRE( std::abs(coords.Dxc<1>(0) - coords.Dxc<1>(1) ) < 10*std::numeric_limits<Real>::epsilon(), "No equidistant grid in x1dir");
-  PARTHENON_REQUIRE( std::abs(coords.Dxc<2>(0) - coords.Dxc<2>(1) ) < 10*std::numeric_limits<Real>::epsilon(), "No equidistant grid in x2dir");
-  PARTHENON_REQUIRE( std::abs(coords.Dxc<3>(0) - coords.Dxc<3>(1) ) < 10*std::numeric_limits<Real>::epsilon(), "No equidistant grid in x3dir");
-  //Resolution of profile on this meshbock -- use 1/r_sampling_ of resolution
-  //or 1/r_sampling_ of r_k, whichever is smaller
-  const Real dr = std::min(
-      std::min(coords.Dxc<1>(0),std::min(coords.Dxc<2>(0),coords.Dxc<3>(0)))/r_sampling_,
-      entropy_profile_.r_k_/r_sampling_);
-
+  PARTHENON_REQUIRE(std::abs(coords.Dxc<1>(0) - coords.Dxc<1>(1)) <
+                        10 * std::numeric_limits<Real>::epsilon(),
+                    "No equidistant grid in x1dir");
+  PARTHENON_REQUIRE(std::abs(coords.Dxc<2>(0) - coords.Dxc<2>(1)) <
+                        10 * std::numeric_limits<Real>::epsilon(),
+                    "No equidistant grid in x2dir");
+  PARTHENON_REQUIRE(std::abs(coords.Dxc<3>(0) - coords.Dxc<3>(1)) <
+                        10 * std::numeric_limits<Real>::epsilon(),
+                    "No equidistant grid in x3dir");
+  // Resolution of profile on this meshbock -- use 1/r_sampling_ of resolution
+  // or 1/r_sampling_ of r_k, whichever is smaller
+  const Real dr =
+      std::min(std::min(coords.Dxc<1>(0), std::min(coords.Dxc<2>(0), coords.Dxc<3>(0))) /
+                   r_sampling_,
+               entropy_profile_.r_k_ / r_sampling_);
 
   // Loop through mesh for minimum and maximum radius
   // Make sure to include R_fix_

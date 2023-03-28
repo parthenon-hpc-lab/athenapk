@@ -6,7 +6,8 @@
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file agn_feedback.hpp
-//  \brief  Class for injecting AGN feedback via thermal dump, kinetic jet, and magnetic tower
+//  \brief  Class for injecting AGN feedback via thermal dump, kinetic jet, and magnetic
+//  tower
 
 // parthenon headers
 #include <basic_types.hpp>

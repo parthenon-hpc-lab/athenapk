@@ -24,12 +24,11 @@ namespace cluster {
  ************************************************************/
 class SNIAFeedback {
  public:
-
-  //Power and Mass to inject per mass in the BCG
-  parthenon::Real power_per_bcg_mass_; //energy/(mass*time)
+  // Power and Mass to inject per mass in the BCG
+  parthenon::Real power_per_bcg_mass_;     // energy/(mass*time)
   parthenon::Real mass_rate_per_bcg_mass_; // 1/(time)
 
-  //ClusterGravity object to calculate BCG density
+  // ClusterGravity object to calculate BCG density
   ClusterGravity bcg_gravity_;
 
   const bool disabled_;
