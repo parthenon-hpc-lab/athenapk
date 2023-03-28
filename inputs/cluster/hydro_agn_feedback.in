@@ -111,3 +111,6 @@ thermal_radius = 0.0125
 
 kinetic_jet_radius = 0.01
 kinetic_jet_height = 0.02
+
+<problem/cluster/snia_feedback>
+disabled               = True

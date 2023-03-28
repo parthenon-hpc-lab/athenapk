@@ -113,3 +113,6 @@ initial_field = 0.12431560000204142
 fixed_field_rate = 12.431560000204144
 fixed_mass_rate = 1.7658562333594375e-05
 l_mass_scale = 0.005
+
+<problem/cluster/snia_feedback>
+disabled               = True

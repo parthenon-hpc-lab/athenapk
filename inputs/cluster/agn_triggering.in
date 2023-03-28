@@ -111,3 +111,5 @@ triggering_filename= agn_triggering.dat
 #Don't do any feedback with the triggering
 disabled = true
 
+<problem/cluster/snia_feedback>
+disabled               = True

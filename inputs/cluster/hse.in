@@ -122,3 +122,6 @@ rho_fix = 0.01477557589278723
 r_sampling = 4.0
 
 test_he_sphere = true
+
+<problem/cluster/snia_feedback>
+disabled               = True

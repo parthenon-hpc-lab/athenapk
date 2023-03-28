@@ -94,3 +94,6 @@ ux = 0
 uy = 0
 uz = 0
 pres = 1.5454368403867562
+
+<problem/cluster/snia_feedback>
+disabled               = True
