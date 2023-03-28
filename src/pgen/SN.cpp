@@ -28,6 +28,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <random>
 
 // Parthenon headers
 #include "basic_types.hpp"
@@ -141,6 +142,13 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto u = u_dev.GetHostMirrorAndCopy();
   ///////auto &u = pmb->meshblock_data.Get()->Get("cons").data;
   // setup uniform ambient medium with spherical over-pressured region
+
+  std::random_device rand_dev;
+  std::mt19937 generator(rand_dev());
+  std::uniform_real_distribution<double> distribution(1.0 / denp /10, 1.0 / da /100);
+
+  double number ;
+
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
@@ -156,7 +164,10 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
         if (rad < routp) {
           if (rad > rinp) {
-            den = denp * (fabs(sin(fringe * ang))) + da;
+            number = distribution(generator);
+
+            //den = denp * (fabs(sin(fringe * ang))) + da;
+            den = 1 / number;
             mx = sh_vel * den * x / rad;
             my = sh_vel * den * y / rad;
           }
