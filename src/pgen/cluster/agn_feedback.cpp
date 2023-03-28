@@ -247,7 +247,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             jet_coords.JetCylToSimCartVector(cos_theta, sin_theta, 0, 0, 1, jet_axis_x,
                                              jet_axis_y, jet_axis_z);
 
-            const int sign_jet = (h > 0) ? 1 : -1; // Above or below jet-disk
+            const Real sign_jet = (h > 0) ? 1 : -1; // Above or below jet-disk
 
             cons(IDN, k, j, i) += kinetic_density; // mass/volume
             // velocity*mass/volume
