@@ -382,6 +382,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add \delta P / \bar \P field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("dP_over_P", m);
+  // add \delta K / \bar K field
+    m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("dK_over_K", m);
 
   const Units units(pin);
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
@@ -611,6 +614,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto const &prim = data->Get("prim").data;
   auto &drho = data->Get("drho_over_rho").data;
   auto &dP = data->Get("dP_over_P").data;
+  auto &dK = data->Get("dK_over_K").data;
 
   // fill derived vars (including ghost cells)
   auto &coords = pmb->coords;
@@ -622,6 +626,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   const Real code_length_cgs = units.code_length_cgs();
   const Real code_density_cgs = units.code_density_cgs();
   const Real code_pressure_cgs = units.code_pressure_cgs();
+  const Real gam = pin->GetReal("hydro", "gamma");
 
   // Get HSE profile and parameters
   auto hydro_pkg = pmb->packages.Get("Hydro");
@@ -642,9 +647,15 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         // Convert to code units
         const Real rho_bg = rho_cgs / code_density_cgs;
         const Real P_bg = P_cgs / code_pressure_cgs;
+        const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
-        drho(0, k, j, i) = (prim(IDN, k, j, i) - rho_bg) / rho_bg;
-        dP(0, k, j, i) = (prim(IPR, k, j, i) - P_bg) / P_bg;
+        const Real rho = prim(IDN, k, j, i);
+        const Real P = prim(IPR, k, j, i);
+        const Real K = P / std::pow(rho, gam);
+
+        drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
+        dP(0, k, j, i) = (P - P_bg) / P_bg;
+        dK(0, k, j, i) = (K - K_bg) / K_bg;
       });
 }
 

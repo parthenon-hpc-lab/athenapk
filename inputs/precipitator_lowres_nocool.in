@@ -10,7 +10,7 @@ dt         = 10.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
-variables  = prim, drho_over_rho, dP_over_P      # Variables to be output
+variables  = prim, drho_over_rho, dP_over_P, dK_over_K      # Variables to be output
 dt         = 1000.0        # Time increment between outputs
 id         = prim      # Name to append to output
 

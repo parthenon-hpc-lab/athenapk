@@ -31,6 +31,21 @@
             look_at: [0.0, 0.0, 0.0]
             position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
+    s3:
+      plots: 
+        p1: 
+          type: "pseudocolor"
+          field: "dK_over_K"
+          min_value: -2.0
+          max_value: 2.0
+      renders:
+        r1:
+          image_prefix: "dK%05d"
+          annotations: "true"
+          camera:
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
+            up: [0.0, 0.0, 1.0]
 -
   action: "add_queries"
   queries:
@@ -42,10 +57,10 @@
       params:
         expression: "min(field('drho_over_rho'))"
         name: "min_drho"
-    q3:
-      params:
-        expression: "pow(avg(field('drho_over_rho') * field('drho_over_rho')), 0.5)"
-        name: "rms_drho"
+#    q3:
+#      params:
+#        expression: "pow(avg(field('drho_over_rho') * field('drho_over_rho')), 0.5)"
+#        name: "rms_drho"
     q4:
       params:
         expression: "histogram(field('drho_over_rho'), min_val=-1.0, max_val=1.0, num_bins=128)"
@@ -58,13 +73,29 @@
       params:
         expression: "min(field('dP_over_P'))"
         name: "min_dP"
-    q7:
-      params:
-        expression: "pow(avg(field('dP_over_P') * field('dP_over_P')), 0.5)"
-        name: "rms_dP"
+#    q7:
+#      params:
+#        expression: "pow(avg(field('dP_over_P') * field('dP_over_P')), 0.5)"
+#        name: "rms_dP"
     q8:
       params:
         expression: "histogram(field('dP_over_P'), min_val=-1.0, max_val=1.0, num_bins=128)"
-        name: "histogram_dP"
+        name: "histogram_dK"
+    q9:
+      params:
+        expression: "max(field('dK_over_K'))"
+        name: "max_dK"
+    q10:
+      params:
+        expression: "min(field('dK_over_K'))"
+        name: "min_dK"
+#    q11:
+#      params:
+#        expression: "pow(avg(field('dK_over_K') * field('dK_over_K')), 0.5)"
+#        name: "rms_dK"
+    q12:
+      params:
+        expression: "histogram(field('dK_over_K'), min_val=-2.0, max_val=2.0, num_bins=128)"
+        name: "histogram_dK"
 -
   action: "save_session"
