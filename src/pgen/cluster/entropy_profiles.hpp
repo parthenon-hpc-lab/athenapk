@@ -17,11 +17,11 @@
 namespace cluster {
 
 class ACCEPTEntropyProfile {
- private:
+
+ public:
   // Entropy Profile
   parthenon::Real k_0_, k_100_, r_k_, alpha_k_;
 
- public:
   ACCEPTEntropyProfile(parthenon::ParameterInput *pin) {
     Units units(pin);
 
