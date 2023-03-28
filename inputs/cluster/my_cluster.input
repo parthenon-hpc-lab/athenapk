@@ -75,7 +75,6 @@ gamma = 5./3. # gamma = C_p/C_v
 eos = adiabatic
 riemann = hlld
 reconstruction = plm
-use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 Tfloor = 10000.0
 

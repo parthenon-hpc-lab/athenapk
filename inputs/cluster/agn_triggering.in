@@ -67,7 +67,6 @@ eos = adiabatic
 riemann = none
 reconstruction = dc
 calc_dt_hyp = true
-use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 He_mass_fraction = 0.25
