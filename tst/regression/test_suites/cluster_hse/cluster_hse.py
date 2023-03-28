@@ -139,8 +139,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/cluster/entropy_profile/alpha_k={self.alpha_K}",
             f"problem/cluster/hydrostatic_equilibrium/r_fix={self.R_fix.in_units('code_length').v}",
             f"problem/cluster/hydrostatic_equilibrium/rho_fix={self.rho_fix.in_units('code_mass/code_length**3').v}",
-            f"problem/cluster/hydrostatic_equilibrium/r_sampling={self.R_sampling}",
-            f"problem/cluster/hydrostatic_equilibrium/max_dr={self.max_dR}",
+            f"problem/cluster/hydrostatic_equilibrium/r_sampling={self.R_sampling}"
         ]
 
         return parameters

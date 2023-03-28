@@ -12,6 +12,7 @@
 
 // C++ headers
 #include <fstream>
+#include <limits>
 
 // Parthenon headers
 #include <coordinates/uniform_cartesian.hpp>
@@ -60,7 +61,6 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
 
   r_sampling_ =
       pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "r_sampling", 4.0);
-  max_dr_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "max_dr", 1e-3);
 
   // Test out the HSE sphere if requested
   const bool test_he_sphere = pin->GetOrAddBoolean(
@@ -68,10 +68,10 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
   if (test_he_sphere) {
     const Real test_he_sphere_r_start =
         pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium",
-                          "test_he_sphere_r_start_kpc", 1e-3 * units.kpc());
+                          "test_he_sphere_r_start", 1e-3 * units.kpc());
     const Real test_he_sphere_r_end =
         pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium",
-                          "test_he_sphere_r_end_kpc", 4000 * units.kpc());
+                          "test_he_sphere_r_end", 4000 * units.kpc());
     const int test_he_sphere_n_r = pin->GetOrAddInteger(
         "problem/cluster/hydrostatic_equilibrium", "test_he_sphere_n_r", 4000);
     if (Globals::my_rank == 0) {
@@ -138,13 +138,15 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
 
   // Determine spacing of grid (WARNING assumes equispaced grid in x,y,z)
   // FIXME(forrestglines) There's some floating point comparison issues with these tests
-  // PARTHENON_REQUIRE(coords.Dxc<1>(0) == coords.Dxc<1>(1), "No equidistant grid in
-  // x1dir"); PARTHENON_REQUIRE(coords.Dxc<2>(0) == coords.Dxc<2>(1), "No equidistant grid
-  // in x2dir"); PARTHENON_REQUIRE(coords.Dxc<3>(0) == coords.Dxc<3>(1), "No equidistant
-  // grid in x3dir"); PARTHENON_REQUIRE(coords.Dxc<1>(0) == coords.Dxc<2>(1), "No
-  // equidistant grid between x1 and x2 dir"); PARTHENON_REQUIRE(coords.Dxc<2>(0) ==
-  // coords.Dxc<3>(1), "No equidistant grid between x2 and x3 dir");
-  const Real dr = std::min(coords.Dxc<1>(0) / r_sampling_, max_dr_);
+  PARTHENON_REQUIRE( std::abs(coords.Dxc<1>(0) - coords.Dxc<1>(1) ) < 10*std::numeric_limits<Real>::epsilon(), "No equidistant grid in x1dir");
+  PARTHENON_REQUIRE( std::abs(coords.Dxc<2>(0) - coords.Dxc<2>(1) ) < 10*std::numeric_limits<Real>::epsilon(), "No equidistant grid in x2dir");
+  PARTHENON_REQUIRE( std::abs(coords.Dxc<3>(0) - coords.Dxc<3>(1) ) < 10*std::numeric_limits<Real>::epsilon(), "No equidistant grid in x3dir");
+  //Resolution of profile on this meshbock -- use 1/r_sampling_ of resolution
+  //or 1/r_sampling_ of r_k, whichever is smaller
+  const Real dr = std::min(
+      std::min(coords.Dxc<1>(0),std::min(coords.Dxc<2>(0),coords.Dxc<3>(0)))/r_sampling_,
+      entropy_profile_.r_k_/r_sampling_);
+
 
   // Loop through mesh for minimum and maximum radius
   // Make sure to include R_fix_

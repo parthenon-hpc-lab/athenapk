@@ -121,6 +121,5 @@ rho_fix = 0.01477557589278723
 
 #Building the radii at which to sample initial rho,P
 r_sampling = 4.0
-max_dr = 0.001
 
 test_he_sphere = true

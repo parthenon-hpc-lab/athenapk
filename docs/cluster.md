@@ -150,17 +150,17 @@ radius.  This radius and density is set by the parameters
 r_fix = 2.0 # in code_length
 rho_fix = 0.01477557589278723 # in code_mass/code_length**3
 ```
-The parameters `r_sampling` and `max_dr` determine details about how the
-profile for the initial hydrodynamic equilbrium is integrated. (FIXME -- these
-parameters are esoteric and can potentially be removed. They were added at
-somepoint to ensure that the HSE profile is integrated over a domain that
-includes the current meshblock and the r_fix radius)
+In each meshblock the equations for hydrostatic equilbirium and the entropy
+profile are integrated to obtain density and pressure profiles inward and
+outward from `r_fix` as needed to cover the meshblock. The parameter
+`r_sampling` controls the resolution of the profiles created, where higher
+values give higher resolution.
 ```
 <problem/cluster/hydrostatic_equilibrium>
-r_fix = 2.0 # in code_length
 r_sampling = 4.0
-max_dr = 0.001
 ```
+Specifically, the resolution of the 1D profile for each meshblock is either
+`min(dx,dy,dz)/r_sampling` or `r_k/r_sampling`, whichever is smaller.
 
 ## AGN Triggering
 
@@ -190,7 +190,7 @@ $$
 
 where $\hat{rho}$, $\hat{v}$, and $\hat{c}_s$ are respectively the mass weighted density,
 velocity, and sound speed within the accretion region. The mass of the SMBH,
-the radius of the sphere of accretion around the AGN, and the $alpha$ parameter
+the radius of the sphere of accretion around the AGN, and the $\alpha$ parameter
 can be set with
 ```
 <problem/cluster/gravity>
@@ -200,7 +200,7 @@ m_smbh = 1.0e-06 # in code_mass
 accretion_radius = 0.001 # in code_length
 bondi_alpha= 100.0 # unitless
 ```
-With BONDI_SCHAYE accretion, the `alpha` used for BOOSTED_BONDI accretion is modified to depend on the number density following:
+With BONDI_SCHAYE accretion, the `$\alpha$` used for BOOSTED_BONDI accretion is modified to depend on the number density following:
 
 $$
 \alpha =

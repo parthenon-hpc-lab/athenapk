@@ -46,8 +46,8 @@ class HydrostaticEquilibriumSphere {
   // Molecular weights
   parthenon::Real mu_, mu_e_;
 
-  // R mesh sampling parameters
-  parthenon::Real r_sampling_, max_dr_;
+  // R mesh sampling parameter
+  parthenon::Real r_sampling_;
 
   /************************************************************
    * Functions to build the cluster model
