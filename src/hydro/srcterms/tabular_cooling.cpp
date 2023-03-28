@@ -395,8 +395,9 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
             if (!dedt_valid) {
               if (sub_dt == min_sub_dt) {
-                // Cooling is so fast that even the minimum subcycle dt would lead to negative internal
-                // energy -- so just cool to the floor of the cooling table
+                // Cooling is so fast that even the minimum subcycle dt would lead to
+                // negative internal energy -- so just cool to the floor of the cooling
+                // table
                 sub_dt = (dt - sub_t);
                 internal_e_next_h = internal_e_floor;
                 reattempt_sub = false;
