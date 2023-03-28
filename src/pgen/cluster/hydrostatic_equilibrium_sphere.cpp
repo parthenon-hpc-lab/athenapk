@@ -137,7 +137,6 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
    ************************************************************/
 
   // Determine spacing of grid (WARNING assumes equispaced grid in x,y,z)
-  // FIXME(forrestglines) There's some floating point comparison issues with these tests
   PARTHENON_REQUIRE( std::abs(coords.Dxc<1>(0) - coords.Dxc<1>(1) ) < 10*std::numeric_limits<Real>::epsilon(), "No equidistant grid in x1dir");
   PARTHENON_REQUIRE( std::abs(coords.Dxc<2>(0) - coords.Dxc<2>(1) ) < 10*std::numeric_limits<Real>::epsilon(), "No equidistant grid in x2dir");
   PARTHENON_REQUIRE( std::abs(coords.Dxc<3>(0) - coords.Dxc<3>(1) ) < 10*std::numeric_limits<Real>::epsilon(), "No equidistant grid in x3dir");
