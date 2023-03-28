@@ -155,10 +155,8 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
     return;
   }
 
-  if (magnetic_fraction_ == 0 && thermal_fraction_ == 0 && kinetic_fraction_ == 0) {
-    PARTHENON_FAIL("AGNFeedback::FeedbackSrcTerm Magnetic, Thermal, and Kinetic "
-                   "fractions are all zero");
-  }
+  PARTHENON_REQUIRE( magnetic_fraction_ != 0 || thermal_fraction_ != 0 || kinetic_fraction_ != 0,
+      "AGNFeedback::FeedbackSrcTerm Magnetic, Thermal, and Kinetic fractions are all zero");
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -231,7 +229,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
               cons(IEN, k, j, i) += thermal_feedback;
             // Add density at constant velocity
             if( thermal_density > 0)
-              AddDensityToConsAtFixedVel(thermal_density, cons, prim, eos, k, j,i);
+              AddDensityToConsAtFixedVel(thermal_density, cons, prim, k, j,i);
           }
         }
 
