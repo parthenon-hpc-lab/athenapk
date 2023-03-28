@@ -145,9 +145,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   std::random_device rand_dev;
   std::mt19937 generator(rand_dev());
-  std::uniform_real_distribution<double> distribution(1.0 / denp /10, 1.0 / da /100);
+  std::uniform_real_distribution<double> distribution(1.0 / denp /10, 1.0 / da );
 
-  double number ;
+  double number;
 
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
@@ -157,7 +157,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         Real y = coords.Xc<2>(j);
         Real z = coords.Xc<3>(k);
         Real ang = atan(y/fabs(x)) ;
-        Real fringe = 7;
+        //Real fringe = 7;
         Real rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
         Real mx = 0.0;
         Real my = 0.0;
@@ -165,7 +165,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         if (rad < routp) {
           if (rad > rinp) {
             number = distribution(generator);
-
             //den = denp * (fabs(sin(fringe * ang))) + da;
             den = 1 / number;
             mx = sh_vel * den * x / rad;

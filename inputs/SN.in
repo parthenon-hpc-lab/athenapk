@@ -9,17 +9,17 @@ problem = spherical blast wave
 problem_id = SN
 
 <parthenon/mesh>
-refinement = none #adaptive
+refinement = adaptive
 numlevel = 3
 nghost = 2
 
-nx1 = 128
+nx1 = 256
 x1min = -0.5
 x1max = 0.5
 ix1_bc = periodic
 ox1_bc = periodic
 
-nx2 = 128
+nx2 = 256
 x2min = -0.5
 x2max = 0.5
 ix2_bc = periodic
@@ -83,7 +83,7 @@ radius_star      = 3.085677580962325e+16    # 0.01 pc
 outflow_density  = 1e-26                    # 10 cm^-3
 outflow_velocity = 1.6e9                    # 16000 km/s
 inner_perturbation = 3.085677580962325e+17  # 0.1 pc
-outer_perturbation = 10.385677580962325e+17  # 0.11 pc
+outer_perturbation = 3.385677580962325e+17  # 0.11 pc
 density_perturbation = 1e-23                # 10000 cm^-3
 shell_velocity = 1.1e8                      # 1100 km/s
 input_image = none         # for "none" the initial density will also be a spherical over/underdensity (defined by density_ratio) within given radii
