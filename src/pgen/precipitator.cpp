@@ -428,13 +428,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const int kz_max = pin->GetInteger("precipitator", "perturb_kz");
   const int expo = pin->GetInteger("precipitator", "perturb_exponent");
   const Real amp = pin->GetReal("precipitator", "perturb_sin_drho_over_rho");
-  const Real amp_rand = pin->GetReal("precipitator", "perturb_random_drho_over_rho");
+
   hydro_pkg->AddParam<int>("perturb_kx", kx_max);
   hydro_pkg->AddParam<int>("perturb_ky", ky_max);
   hydro_pkg->AddParam<int>("perturb_kz", kz_max);
   hydro_pkg->AddParam<int>("perturb_exponent", expo);
   hydro_pkg->AddParam<Real>("perturb_amplitude", amp);
-  hydro_pkg->AddParam<Real>("perturb_amplitude_rand", amp_rand);
 
   parthenon::ParArray3D<Complex> drho_hat;
   const int Nkz = 2 * kz_max + 1;
@@ -547,7 +546,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const int kx_max = hydro_pkg->Param<int>("perturb_kx");
   const int ky_max = hydro_pkg->Param<int>("perturb_ky");
   const int kz_max = hydro_pkg->Param<int>("perturb_kz");
-  const Real amp_rand = hydro_pkg->Param<Real>("perturb_amplitude_rand");
 
   // Compute inverse Fourier transform
   auto &drho_hat = hydro_pkg->Param<parthenon::ParArray3D<Complex>>("drho_hat");

@@ -36,19 +36,19 @@ perf_cycle_offset  = 10 # interval for stdout summary info
 refinement  = static
 nghost = 4
 
-nx1        = 64       # Number of zones in X1-direction
+nx1        = 256       # Number of zones in X1-direction
 x1min      = -50.       # minimum value of X1
 x1max      = 50.0       # maximum value of X1
 ix1_bc     = periodic   # inner-X1 boundary flag
 ox1_bc     = periodic   # outer-X1 boundary flag
 
-nx2        = 64       # Number of zones in X2-direction
+nx2        = 256       # Number of zones in X2-direction
 x2min      = -50.0       # minimum value of X2
 x2max      = 50.0       # maximum value of X2
 ix2_bc     = periodic   # inner-X2 boundary flag
 ox2_bc     = periodic   # outer-X2 boundary flag
 
-nx3        = 128       # Number of zones in X3-direction
+nx3        = 512       # Number of zones in X3-direction
 x3min      = -100.       # minimum value of X3
 x3max      = 100.       # maximum value of X3
 ix3_bc     = user   # inner-X3 boundary flag
@@ -56,9 +56,9 @@ ox3_bc     = user   # outer-X3 boundary flag
 
 
 <parthenon/meshblock>
-nx1        = 32        # Number of zones in X1-direction
-nx2        = 32        # Number of zones in X2-direction
-nx3        = 32        # Number of zones in X3-direction
+nx1        = 64        # Number of zones in X1-direction
+nx2        = 64        # Number of zones in X2-direction
+nx3        = 64        # Number of zones in X3-direction
 
 <hydro>
 gamma = 1.6666666666666667 # gamma = C_p/C_v
@@ -79,7 +79,7 @@ code_mass_cgs = 1.98841586e+33  # Msun
 code_time_cgs = 3.15576e+13     # Myr
 
 <cooling>
-enable_cooling = tabular    # tabular
+enable_cooling = none    # tabular
 integrator = townsend       # (townsend, rk12)
 table_filename = ./inputs/precipitator.cooling
 log_temp_col = 0
@@ -89,7 +89,7 @@ lambda_units_cgs = 1
 <precipitator>
 hse_profile_filename = ./inputs/tabulated_hse.txt
 
-enable_heating = magic   # magic
+enable_heating = none   # magic
 numHist = 64
 bg_temperature = 1.0e6
 h_smooth_kpc = 10.
@@ -101,3 +101,4 @@ perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32
 perturb_exponent = 1    # P(k) ~ k^{-2}
+
