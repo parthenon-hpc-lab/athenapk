@@ -143,7 +143,6 @@ rho_fix = 0.01477557589278723
 
 #Building the radii at which to sample initial rho,P
 r_sampling = 4.0
-max_dr     = 0.001
 
 <problem/cluster/agn_triggering>
 #Which triggering mode (BOOSTED_BONDI, BOOTH_SCHAYE, COLD_GAS, NONE)
