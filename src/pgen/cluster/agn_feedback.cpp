@@ -123,7 +123,9 @@ parthenon::Real AGNFeedback::GetFeedbackMassRate(StateDescriptor *hydro_pkg) con
   // Return a mass_rate equal to the accretion_rate minus energy-mass conversion
   // to feedback energy. We could divert mass to increase the SMBH/leave out
   // from mass injection
-  const Real mass_rate = accretion_rate * (1 - efficiency_);
+  //
+  // Also add fixed_power/(efficiency_*c**2) when fixed_power is enabled
+  const Real mass_rate = accretion_rate * (1 - efficiency_) + fixed_power_/(efficiency_*pow(units.speed_of_light(),2));
 
   return mass_rate;
 }

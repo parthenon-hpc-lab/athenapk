@@ -119,10 +119,10 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # Feedback parameters
         self.fixed_power = unyt.unyt_quantity(1e44, "erg/s")
-        self.agn_thermal_radius = unyt.unyt_quantity(0.5, "kpc")
+        self.agn_thermal_radius = unyt.unyt_quantity(100, "kpc")
         self.efficiency = 1.0e-3
-        self.agn_jet_radius = unyt.unyt_quantity(0.25, "kpc")
-        self.agn_jet_height = unyt.unyt_quantity(1, "kpc")
+        self.agn_jet_radius = unyt.unyt_quantity(50, "kpc")
+        self.agn_jet_height = unyt.unyt_quantity(150, "kpc")
 
         self.norm_tol = 1e-3
 
