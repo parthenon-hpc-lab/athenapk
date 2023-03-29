@@ -6,7 +6,7 @@ problem_id = precipitator   # problem ID: basename of output filenames
 
 <parthenon/output1>
 file_type  = hst       # History data dump
-dt         = 10.0       # time increment between outputs
+dt         = 100.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
@@ -21,7 +21,7 @@ id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 100.0
+dt           = 200.0
 actions_file = inputs/precipitator_ascent_actions.yaml
 
 <parthenon/time>
@@ -80,7 +80,7 @@ code_time_cgs = 3.15576e+13     # Myr
 
 <cooling>
 enable_cooling = tabular    # tabular
-integrator = townsend       # (townsend, rk12)
+integrator = rk12           # (townsend, rk12)
 table_filename = ./inputs/precipitator.cooling
 log_temp_col = 0
 log_lambda_col = 1
@@ -96,7 +96,7 @@ h_smooth_kpc = 10.
 h_smooth_heatcool_kpc = 20.
 dimensionless_mmw = 0.6
 
-perturb_sin_drho_over_rho = 0.01
+perturb_sin_drho_over_rho = 0.10
 perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32

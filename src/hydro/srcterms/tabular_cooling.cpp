@@ -342,9 +342,14 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
         bool dedt_valid = true;
 
+        // artificially limit temperature change in precipitator midplane
+        const auto &coords = cons_pack.GetCoords(b);
+        const Real z = coords.Xc<3>(k);
+        const Real taper_fac = SQR(std::tanh(std::abs(z) / h_smooth));
+
         // Wrap DeDt into a functor for the RKStepper
         auto DeDt_wrapper = [&](const Real t, const Real e, bool &valid) {
-          return DeDt(e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
+          return taper_fac * DeDt(e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
                       d_log_temp, n_temp, log_lambdas, valid);
         };
 
@@ -470,17 +475,11 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // the lower end pushed the temperature below the lower end (and the floor).
         internal_e = (internal_e > internal_e_floor) ? internal_e : internal_e_floor;
 
-        // artificially limit temperature change in precipitator midplane
-        const auto &coords = cons_pack.GetCoords(b);
-        const Real z = coords.Xc<3>(k);
-        const Real damp = SQR(std::tanh(std::abs(z) / h_smooth));
-        const auto internal_e_damped = damp * (internal_e - internal_e_initial) + internal_e;
-
         // Remove the cooling from the total energy density
-        cons(IEN, k, j, i) += damp * rho * (internal_e - internal_e_initial);
+        cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
-        prim(IPR, k, j, i) = rho * internal_e_damped * gm1;
+        prim(IPR, k, j, i) = rho * internal_e * gm1;
       });
 }
 
@@ -597,16 +596,11 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         const auto internal_e_new = temp_new > temp_cool_floor
                                         ? temp_new / mu_m_u_gm1_by_k_B
                                         : temp_cool_floor / mu_m_u_gm1_by_k_B;
-        // artificially limit temperature change in precipitator midplane
-        const auto &coords = cons_pack.GetCoords(b);
-        const Real z = coords.Xc<3>(k);
-        const Real damp = SQR(std::tanh(std::abs(z) / h_smooth));
-        const auto internal_e_damped = damp * (internal_e_new - internal_e) + internal_e;
 
-        cons(IEN, k, j, i) += rho * (internal_e_damped - internal_e);
+        cons(IEN, k, j, i) += rho * (internal_e_new - internal_e);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
-        prim(IPR, k, j, i) = rho * internal_e_damped * gm1;
+        prim(IPR, k, j, i) = rho * internal_e_new * gm1;
       });
 }
 
