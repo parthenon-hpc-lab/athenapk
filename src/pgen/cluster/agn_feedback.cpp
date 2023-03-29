@@ -94,7 +94,8 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
         [this](MeshData<Real> *md) {
           auto pmb = md->GetBlockData(0)->GetBlockPointer();
           auto hydro_pkg = pmb->packages.Get("Hydro");
-          return this->GetFeedbackPower(hydro_pkg.get());
+          const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
+          return agn_feedback.GetFeedbackPower(hydro_pkg.get());
         },
         "agn_feedback_power"));
   }
