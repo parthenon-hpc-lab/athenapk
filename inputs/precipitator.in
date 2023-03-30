@@ -11,17 +11,17 @@ dt         = 10.0       # time increment between outputs
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = prim, drho_over_rho, dP_over_P, dK_over_K      # Variables to be output
-dt         = 1000.0        # Time increment between outputs
+dt         = 200.0        # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/output3>
 file_type  = rst        # Binary data dump
-dt         = 5000.0        # time increment between outputs
+dt         = 1000.0        # time increment between outputs
 id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 100.0
+dt           = 20.0
 actions_file = inputs/precipitator_ascent_actions.yaml
 
 <parthenon/time>
@@ -65,7 +65,7 @@ gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
 riemann = lhllc
 reconstruction = ppm
-first_order_flux_correct = false
+first_order_flux_correct = true
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
@@ -80,14 +80,14 @@ code_time_cgs = 3.15576e+13     # Myr
 
 <cooling>
 enable_cooling = tabular    # tabular
-integrator = townsend       # (townsend, rk12)
+integrator = rk12           # (townsend, rk12)
 table_filename = ./inputs/precipitator.cooling
 log_temp_col = 0
 log_lambda_col = 1
 lambda_units_cgs = 1
 
 <precipitator>
-hse_profile_filename = ./inputs/tabulated_hse.txt
+hse_profile_filename = ./inputs/tabulated_hse_tc_tff_0.125.txt
 
 enable_heating = magic   # magic
 numHist = 64
@@ -96,7 +96,7 @@ h_smooth_kpc = 10.
 h_smooth_heatcool_kpc = 20.
 dimensionless_mmw = 0.6
 
-perturb_sin_drho_over_rho = 0.01
+perturb_sin_drho_over_rho = 0.10
 perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32
