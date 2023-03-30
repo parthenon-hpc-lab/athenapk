@@ -53,7 +53,7 @@ setup_test_serial("cluster_magnetic_tower" "--driver ${PROJECT_BINARY_DIR}/bin/a
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/magnetic_tower.in --num_steps 4" "convergence")
 
 setup_test_serial("cluster_hydro_agn_feedback" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hydro_agn_feedback.in --num_steps 6" "convergence")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hydro_agn_feedback.in --num_steps 5" "convergence")
 
 setup_test_serial("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/agn_triggering.in --num_steps 3" "convergence")

@@ -37,7 +37,7 @@ class PrecessedJetCoords:
         # Axis of the jet
         self.jet_n = np.array(
             (
-                np.cos(self.theta) * np.sin(self.phi),
+                np.sin(self.theta) * np.cos(self.phi),
                 np.sin(self.theta) * np.sin(self.phi),
                 np.cos(self.phi),
             )
@@ -111,10 +111,10 @@ class TestCase(utils.test_case.TestCaseAbs):
         ) + self.uniform_gas_pres / (self.adiabatic_index - 1.0)
 
         # The precessing jet
-        self.jet_phi = 0.2
-        self.jet_theta_dot = 0
-        self.jet_theta0 = 1
-        self.precessed_jet_coords = PrecessedJetCoords(self.jet_theta0, self.jet_phi)
+        self.jet_phi0 = 1.2
+        self.jet_phi_dot = 0
+        self.jet_theta = 0.4
+        self.precessed_jet_coords = PrecessedJetCoords(self.jet_theta, self.jet_phi0)
         self.zjet_coords = ZJetCoords()
 
         # Feedback parameters
@@ -126,12 +126,14 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         self.norm_tol = 1e-3
 
-        self.steps = 6
+        self.steps = 5
         self.step_params_list = list(
             itertools.product(
                 ("thermal_only", "kinetic_only", "combined"), (True, False)
-            )
-        )
+            ) )
+        # Remove ("thermal_only",True) since it is redudant, jet precession is
+        # irrelevant with only thermal feedback
+        self.step_params_list.remove(("thermal_only",True))
 
     def Prepare(self, parameters, step):
         """
@@ -187,9 +189,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/cluster/uniform_gas/uy={self.uniform_gas_uy.in_units('code_length*code_time**-1').v}",
             f"problem/cluster/uniform_gas/uz={self.uniform_gas_uz.in_units('code_length*code_time**-1').v}",
             f"problem/cluster/uniform_gas/pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
-            f"problem/cluster/precessing_jet/jet_phi={self.jet_phi if precessed_jet else 0}",
-            f"problem/cluster/precessing_jet/jet_theta_dot={self.jet_theta_dot if precessed_jet else 0}",
-            f"problem/cluster/precessing_jet/jet_theta0={self.jet_theta0 if precessed_jet else 0}",
+            f"problem/cluster/precessing_jet/jet_phi0={self.jet_phi0 if precessed_jet else 0}",
+            f"problem/cluster/precessing_jet/jet_phi_dot={self.jet_phi_dot if precessed_jet else 0}",
+            f"problem/cluster/precessing_jet/jet_theta={self.jet_theta if precessed_jet else 0}",
             f"problem/cluster/agn_feedback/fixed_power={self.fixed_power.in_units('code_mass*code_length**2/code_time**3').v}",
             f"problem/cluster/agn_feedback/efficiency={self.efficiency}",
             f"problem/cluster/agn_feedback/thermal_fraction={agn_thermal_fraction}",
@@ -447,8 +449,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                     np.abs((gold[gold == 0] - test[gold == 0])), initial=0
                 )
 
-                return np.max((non_zero_linf, zero_linf))
 
+                return np.max((non_zero_linf, zero_linf))
+       
             # Use a very loose tolerance, linf relative error
             initial_analytic_status, final_analytic_status = [
                 compare_analytic.compare_analytic(
