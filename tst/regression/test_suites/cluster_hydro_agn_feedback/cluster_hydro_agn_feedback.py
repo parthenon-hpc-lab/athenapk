@@ -62,7 +62,7 @@ class ZJetCoords:
         Convert from cartesian coordinates to jet coordinates
         """
 
-        pos_rho = np.linalg.norm(pos_cart[:2],axis=0)
+        pos_rho = np.linalg.norm(pos_cart[:2], axis=0)
         pos_h = pos_cart[2]
 
         return pos_rho, pos_h
@@ -130,10 +130,11 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.step_params_list = list(
             itertools.product(
                 ("thermal_only", "kinetic_only", "combined"), (True, False)
-            ) )
+            )
+        )
         # Remove ("thermal_only",True) since it is redudant, jet precession is
         # irrelevant with only thermal feedback
-        self.step_params_list.remove(("thermal_only",True))
+        self.step_params_list.remove(("thermal_only", True))
 
     def Prepare(self, parameters, step):
         """
@@ -270,7 +271,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 R = unyt.unyt_array(R, "code_length")
                 H = unyt.unyt_array(H, "code_length")
 
-                #sign_jet = np.piecewise(H, [H <= 0, H > 0], [1, -1]).v #Backwards jet REMOVEME
+                # sign_jet = np.piecewise(H, [H <= 0, H > 0], [1, -1]).v #Backwards jet REMOVEME
                 sign_jet = np.piecewise(H, [H <= 0, H > 0], [-1, 1]).v
                 inside_jet = (
                     np.piecewise(
@@ -314,13 +315,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                     * jet_velocity
                     * jet_coords.jet_n[2]
                 )
-                dE = (
-                    inside_jet
-                    * time
-                    * 0.5
-                    * jet_density
-                    * jet_velocity**2
-                )
+                dE = inside_jet * time * 0.5 * jet_density * jet_velocity**2
 
                 return drho, dMx, dMy, dMz, dE
 
@@ -446,11 +441,10 @@ class TestCase(utils.test_case.TestCaseAbs):
                     np.abs((gold[gold == 0] - test[gold == 0])), initial=0
                 )
 
-
                 return np.max((non_zero_linf, zero_linf))
-       
+
             # Use a very loose tolerance, linf relative error
-            #initial_analytic_status, final_analytic_status = [
+            # initial_analytic_status, final_analytic_status = [
             #    compare_analytic.compare_analytic(
             #        phdf_file,
             #        analytic_components,
@@ -460,19 +454,19 @@ class TestCase(utils.test_case.TestCaseAbs):
             #    for analytic_components, phdf_file in zip(
             #        (initial_analytic_components, final_analytic_components), phdf_files
             #    )
-            #]
+            # ]
             initial_analytic_status = compare_analytic.compare_analytic(
-                    phdf_files[0],
-                    initial_analytic_components,
-                    err_func=zero_corrected_linf_err,
-                    tol=1e-6,
-                )
+                phdf_files[0],
+                initial_analytic_components,
+                err_func=zero_corrected_linf_err,
+                tol=1e-6,
+            )
             final_analytic_status = compare_analytic.compare_analytic(
-                    phdf_files[1],
-                    final_analytic_components,
-                    err_func=zero_corrected_linf_err,
-                    tol=1e-3,
-                )
+                phdf_files[1],
+                final_analytic_components,
+                err_func=zero_corrected_linf_err,
+                tol=1e-3,
+            )
 
             print("  Initial analytic status", initial_analytic_status)
             print("  Final analytic status", final_analytic_status)

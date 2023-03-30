@@ -44,11 +44,17 @@ class PrecessedJetCoords:
         y_sim = pos_sim[1]
         z_sim = pos_sim[2]
 
-        x_jet = x_sim*np.cos(self.phi_jet)*np.cos(self.theta_jet) + \
-                y_sim*np.sin(self.phi_jet)*np.cos(self.theta_jet) - \
-                z_sim*np.sin(self.theta_jet)
-        y_jet = -x_sim*np.sin(self.phi_jet) + y_sim*np.cos(self.phi_jet)
-        z_jet = x_sim*np.sin(self.theta_jet)*np.cos(self.phi_jet) + y_sim*np.sin(self.phi_jet)*np.sin(self.theta_jet) + z_sim*np.cos(self.theta_jet);
+        x_jet = (
+            x_sim * np.cos(self.phi_jet) * np.cos(self.theta_jet)
+            + y_sim * np.sin(self.phi_jet) * np.cos(self.theta_jet)
+            - z_sim * np.sin(self.theta_jet)
+        )
+        y_jet = -x_sim * np.sin(self.phi_jet) + y_sim * np.cos(self.phi_jet)
+        z_jet = (
+            x_sim * np.sin(self.theta_jet) * np.cos(self.phi_jet)
+            + y_sim * np.sin(self.phi_jet) * np.sin(self.theta_jet)
+            + z_sim * np.cos(self.theta_jet)
+        )
 
         r_jet = np.sqrt(x_jet**2 + y_jet**2)
         theta_jet = np.arctan2(y_jet, x_jet)
@@ -63,15 +69,23 @@ class PrecessedJetCoords:
 
         r_pos, theta_pos, h_pos = self.cart_to_jet_coords(pos_sim)
 
-        v_x_jet =  vec_jet[0]*np.cos(theta_pos) - vec_jet[1]*np.sin(theta_pos)
-        v_y_jet =  vec_jet[0]*np.sin(theta_pos) + vec_jet[1]*np.cos(theta_pos)
-        v_z_jet =  vec_jet[2]
+        v_x_jet = vec_jet[0] * np.cos(theta_pos) - vec_jet[1] * np.sin(theta_pos)
+        v_y_jet = vec_jet[0] * np.sin(theta_pos) + vec_jet[1] * np.cos(theta_pos)
+        v_z_jet = vec_jet[2]
 
-        v_x_sim = v_x_jet*np.cos(self.phi_jet)*np.cos(self.theta_jet) - v_y_jet*np.sin(self.phi_jet) + v_z_jet*np.sin(self.theta_jet)*np.cos(self.phi_jet);
-        v_y_sim = v_x_jet*np.sin(self.phi_jet)*np.cos(self.theta_jet) + v_y_jet*np.cos(self.phi_jet) + v_z_jet*np.sin(self.phi_jet)*np.sin(self.theta_jet);
-        v_z_sim = -v_x_jet*np.sin(self.theta_jet) + v_z_jet*np.cos(self.theta_jet); 
+        v_x_sim = (
+            v_x_jet * np.cos(self.phi_jet) * np.cos(self.theta_jet)
+            - v_y_jet * np.sin(self.phi_jet)
+            + v_z_jet * np.sin(self.theta_jet) * np.cos(self.phi_jet)
+        )
+        v_y_sim = (
+            v_x_jet * np.sin(self.phi_jet) * np.cos(self.theta_jet)
+            + v_y_jet * np.cos(self.phi_jet)
+            + v_z_jet * np.sin(self.phi_jet) * np.sin(self.theta_jet)
+        )
+        v_z_sim = -v_x_jet * np.sin(self.theta_jet) + v_z_jet * np.cos(self.theta_jet)
 
-        return (v_x_sim,v_y_sim,v_z_sim)
+        return (v_x_sim, v_y_sim, v_z_sim)
 
 
 class ZJetCoords:

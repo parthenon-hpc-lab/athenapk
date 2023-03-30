@@ -44,9 +44,13 @@ class JetCoords {
                         parthenon::Real &h_jet) const __attribute__((always_inline)) {
 
     // Position in jet-cartesian coordinates
-		const parthenon::Real x_jet = x_sim*cos_phi_jet_axis_*cos_theta_jet_axis_ + y_sim*sin_phi_jet_axis_*cos_theta_jet_axis_ - z_sim*sin_theta_jet_axis_;
-		const parthenon::Real y_jet = -x_sim*sin_phi_jet_axis_ + y_sim*cos_phi_jet_axis_;
-		const parthenon::Real z_jet = x_sim*sin_theta_jet_axis_*cos_phi_jet_axis_ + y_sim*sin_phi_jet_axis_*sin_theta_jet_axis_ + z_sim*cos_theta_jet_axis_; 
+    const parthenon::Real x_jet = x_sim * cos_phi_jet_axis_ * cos_theta_jet_axis_ +
+                                  y_sim * sin_phi_jet_axis_ * cos_theta_jet_axis_ -
+                                  z_sim * sin_theta_jet_axis_;
+    const parthenon::Real y_jet = -x_sim * sin_phi_jet_axis_ + y_sim * cos_phi_jet_axis_;
+    const parthenon::Real z_jet = x_sim * sin_theta_jet_axis_ * cos_phi_jet_axis_ +
+                                  y_sim * sin_phi_jet_axis_ * sin_theta_jet_axis_ +
+                                  z_sim * cos_theta_jet_axis_;
 
     // Position in jet-cylindrical coordinates
     r_jet = sqrt(pow(fabs(x_jet), 2) + pow(fabs(y_jet), 2));
@@ -67,9 +71,13 @@ class JetCoords {
     const parthenon::Real v_z_jet = v_h_jet;
 
     // Multiply v_jet by the DCM matrix to take Jet cartesian to Simulation Cartesian
-		v_x_sim = v_x_jet*cos_phi_jet_axis_*cos_theta_jet_axis_ - v_y_jet*sin_phi_jet_axis_ + v_z_jet*sin_theta_jet_axis_*cos_phi_jet_axis_;
-		v_y_sim = v_x_jet*sin_phi_jet_axis_*cos_theta_jet_axis_ + v_y_jet*cos_phi_jet_axis_ + v_z_jet*sin_phi_jet_axis_*sin_theta_jet_axis_;
-		v_z_sim = -v_x_jet*sin_theta_jet_axis_ + v_z_jet*cos_theta_jet_axis_;
+    v_x_sim = v_x_jet * cos_phi_jet_axis_ * cos_theta_jet_axis_ -
+              v_y_jet * sin_phi_jet_axis_ +
+              v_z_jet * sin_theta_jet_axis_ * cos_phi_jet_axis_;
+    v_y_sim = v_x_jet * sin_phi_jet_axis_ * cos_theta_jet_axis_ +
+              v_y_jet * cos_phi_jet_axis_ +
+              v_z_jet * sin_phi_jet_axis_ * sin_theta_jet_axis_;
+    v_z_sim = -v_x_jet * sin_theta_jet_axis_ + v_z_jet * cos_theta_jet_axis_;
   }
 };
 /************************************************************
