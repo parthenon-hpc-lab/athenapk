@@ -39,7 +39,7 @@ class PrecessedJetCoords:
             (
                 np.sin(self.theta) * np.cos(self.phi),
                 np.sin(self.theta) * np.sin(self.phi),
-                np.cos(self.phi),
+                np.cos(self.theta),
             )
         )
 
@@ -62,7 +62,7 @@ class ZJetCoords:
         Convert from cartesian coordinates to jet coordinates
         """
 
-        pos_rho = np.linalg.norm(pos_cart[:2])
+        pos_rho = np.linalg.norm(pos_cart[:2],axis=0)
         pos_h = pos_cart[2]
 
         return pos_rho, pos_h
@@ -270,6 +270,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 R = unyt.unyt_array(R, "code_length")
                 H = unyt.unyt_array(H, "code_length")
 
+                #sign_jet = np.piecewise(H, [H <= 0, H > 0], [1, -1]).v #Backwards jet REMOVEME
                 sign_jet = np.piecewise(H, [H <= 0, H > 0], [-1, 1]).v
                 inside_jet = (
                     np.piecewise(
@@ -288,10 +289,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                     )
                 ).v
 
-                drho = inside_jet * agn_kinetic_fraction * time * jet_density
+                drho = inside_jet * time * jet_density
                 dMx = (
                     inside_jet
-                    * agn_kinetic_fraction
                     * time
                     * sign_jet
                     * jet_density
@@ -300,7 +300,6 @@ class TestCase(utils.test_case.TestCaseAbs):
                 )
                 dMy = (
                     inside_jet
-                    * agn_kinetic_fraction
                     * time
                     * sign_jet
                     * jet_density
@@ -309,7 +308,6 @@ class TestCase(utils.test_case.TestCaseAbs):
                 )
                 dMz = (
                     inside_jet
-                    * agn_kinetic_fraction
                     * time
                     * sign_jet
                     * jet_density
@@ -318,7 +316,6 @@ class TestCase(utils.test_case.TestCaseAbs):
                 )
                 dE = (
                     inside_jet
-                    * agn_kinetic_fraction
                     * time
                     * 0.5
                     * jet_density
@@ -367,8 +364,8 @@ class TestCase(utils.test_case.TestCaseAbs):
 
                 drho = drho_k + drho_t
                 dMx = dMx_k
-                dMy = dMx_k
-                dMz = dMx_k
+                dMy = dMy_k
+                dMz = dMz_k
                 dE = dE_k + dE_t
 
                 return drho, dMx, dMy, dMz, dE
@@ -419,12 +416,12 @@ class TestCase(utils.test_case.TestCaseAbs):
                 .in_units("code_mass*code_length**-2*code_time**-1")
                 .v,
                 "MomentumDensity2": lambda Z, Y, X, time: (
-                    self.uniform_gas_Mx + agn_feedback(Z, Y, X, time)[2]
+                    self.uniform_gas_My + agn_feedback(Z, Y, X, time)[2]
                 )
                 .in_units("code_mass*code_length**-2*code_time**-1")
                 .v,
                 "MomentumDensity3": lambda Z, Y, X, time: (
-                    self.uniform_gas_Mx + agn_feedback(Z, Y, X, time)[3]
+                    self.uniform_gas_Mz + agn_feedback(Z, Y, X, time)[3]
                 )
                 .in_units("code_mass*code_length**-2*code_time**-1")
                 .v,
@@ -453,17 +450,29 @@ class TestCase(utils.test_case.TestCaseAbs):
                 return np.max((non_zero_linf, zero_linf))
        
             # Use a very loose tolerance, linf relative error
-            initial_analytic_status, final_analytic_status = [
-                compare_analytic.compare_analytic(
-                    phdf_file,
-                    analytic_components,
+            #initial_analytic_status, final_analytic_status = [
+            #    compare_analytic.compare_analytic(
+            #        phdf_file,
+            #        analytic_components,
+            #        err_func=zero_corrected_linf_err,
+            #        tol=1e-3,
+            #    )
+            #    for analytic_components, phdf_file in zip(
+            #        (initial_analytic_components, final_analytic_components), phdf_files
+            #    )
+            #]
+            initial_analytic_status = compare_analytic.compare_analytic(
+                    phdf_files[0],
+                    initial_analytic_components,
+                    err_func=zero_corrected_linf_err,
+                    tol=1e-6,
+                )
+            final_analytic_status = compare_analytic.compare_analytic(
+                    phdf_files[1],
+                    final_analytic_components,
                     err_func=zero_corrected_linf_err,
                     tol=1e-3,
                 )
-                for analytic_components, phdf_file in zip(
-                    (initial_analytic_components, final_analytic_components), phdf_files
-                )
-            ]
 
             print("  Initial analytic status", initial_analytic_status)
             print("  Final analytic status", final_analytic_status)

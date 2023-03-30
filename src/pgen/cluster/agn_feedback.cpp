@@ -209,7 +209,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   // Velocity of added gas
   const Real kinetic_velocity =
-      std::sqrt(2. * kinetic_fraction_ * power / (kinetic_fraction_ * mass_rate));
+      std::sqrt(2. * kinetic_fraction_ * power / (kinetic_mass_fraction_ * mass_rate));
 
   // Amount of momentum density ( density * velocity) to dump in each cell
   const Real kinetic_momentum = kinetic_density * kinetic_velocity;
