@@ -414,10 +414,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   auto first_order_flux_correct =
       pin->GetOrAddBoolean("hydro", "first_order_flux_correct", false);
+#if 0
   if (first_order_flux_correct && integrator != Integrator::vl2) {
     PARTHENON_FAIL("Please use 'vl2' integrator with first order flux correction. Other "
                    "integrators have not been tested.")
   }
+#endif
   pkg->AddParam<>("first_order_flux_correct", first_order_flux_correct);
   if (first_order_flux_correct) {
     if (fluid == Fluid::euler) {

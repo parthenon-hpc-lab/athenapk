@@ -65,7 +65,7 @@ gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
 riemann = lhllc
 reconstruction = ppm
-first_order_flux_correct = false
+first_order_flux_correct = true
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
@@ -87,7 +87,7 @@ log_lambda_col = 1
 lambda_units_cgs = 1
 
 <precipitator>
-hse_profile_filename = ./inputs/tabulated_hse.txt
+hse_profile_filename = ./inputs/tabulated_hse_tc_tff_0.125.txt
 
 enable_heating = magic   # magic
 numHist = 64

@@ -63,27 +63,27 @@
         name: "histogram_dK"
     bin_density:
       params:
-        expression: "binning('drho_over_rho','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=20)])"
+        expression: "binning('drho_over_rho','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
         name: drho_profile
     bin_pressure:
       params:
-        expression: "binning('dP_over_P','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=20)])"
+        expression: "binning('dP_over_P','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
         name: dP_profile
     bin_entropy:
       params:
-        expression: "binning('dK_over_K','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=20)])"
+        expression: "binning('dK_over_K','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
         name: dK_profile
     bin_rms_density:
       params:
-        expression: "binning('drho_over_rho','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=20)])"
+        expression: "binning('drho_over_rho','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
         name: drho_rms_profile
     bin_rms_pressure:
       params:
-        expression: "binning('dP_over_P','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=20)])"
+        expression: "binning('dP_over_P','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
         name: dP_rms_profile
     bin_rms_entropy:
       params:
-        expression: "binning('dK_over_K','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=20)])"
+        expression: "binning('dK_over_K','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
         name: dK_rms_profile
 -
   action: "save_session"
