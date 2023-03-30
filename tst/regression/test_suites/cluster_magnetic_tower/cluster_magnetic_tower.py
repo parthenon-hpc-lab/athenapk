@@ -44,82 +44,34 @@ class PrecessedJetCoords:
         y_sim = pos_sim[1]
         z_sim = pos_sim[2]
 
-        x_jet = (
-            x_sim * np.cos(self.phi_jet) * np.cos(self.theta_jet)
-            + y_sim * np.sin(self.phi_jet)
-            - z_sim * np.sin(self.theta_jet) * np.cos(self.phi_jet)
-        )
-        y_jet = (
-            -x_sim * np.sin(self.phi_jet) * np.cos(self.theta_jet)
-            + y_sim * np.cos(self.phi_jet)
-            + z_sim * np.sin(self.phi_jet) * np.sin(self.theta_jet)
-        )
-        z_jet = x_sim * np.sin(self.theta_jet) + z_sim * np.cos(self.theta_jet)
+        x_jet = x_sim*np.cos(self.phi_jet)*np.cos(self.theta_jet) + \
+                y_sim*np.sin(self.phi_jet)*np.cos(self.theta_jet) - \
+                z_sim*np.sin(self.theta_jet)
+        y_jet = -x_sim*np.sin(self.phi_jet) + y_sim*np.cos(self.phi_jet)
+        z_jet = x_sim*np.sin(self.theta_jet)*np.cos(self.phi_jet) + y_sim*np.sin(self.phi_jet)*np.sin(self.theta_jet) + z_sim*np.cos(self.theta_jet);
 
         r_jet = np.sqrt(x_jet**2 + y_jet**2)
         theta_jet = np.arctan2(y_jet, x_jet)
         h_jet = z_jet
+
         return (r_jet, theta_jet, h_jet)
 
     def jet_to_cart_vec(self, pos_sim, vec_jet):
+        """
+        Convert vector in jet cylindrical coordinates to simulation cartesian coordinates
+        """
 
         r_pos, theta_pos, h_pos = self.cart_to_jet_coords(pos_sim)
 
-        # Convert jet-cylindrical vec_jet into jet-cartesian
-        R = np.array(
-            (
-                (np.cos(theta_pos), -np.sin(theta_pos), np.zeros_like(theta_pos)),
-                (np.sin(theta_pos), np.cos(theta_pos), np.zeros_like(theta_pos)),
-                (
-                    np.zeros_like(theta_pos),
-                    np.zeros_like(theta_pos),
-                    np.ones_like(theta_pos),
-                ),
-            )
-        ).reshape((3, 3, *(theta_pos.shape)))
-        # vec_jet_cart = np.einsum("ij,jxyz",R,vec_jet)
-        vec_jet_cart = unyt.unyt_array(
-            (
-                R[0, 0] * vec_jet[0] + R[0, 1] * vec_jet[1] + R[0, 2] * vec_jet[2],
-                R[1, 0] * vec_jet[0] + R[1, 1] * vec_jet[1] + R[1, 2] * vec_jet[2],
-                R[2, 0] * vec_jet[0] + R[2, 1] * vec_jet[1] + R[2, 2] * vec_jet[2],
-            ),
-            vec_jet.units,
-        )
+        v_x_jet =  vec_jet[0]*np.cos(theta_pos) - vec_jet[1]*np.sin(theta_pos)
+        v_y_jet =  vec_jet[0]*np.sin(theta_pos) + vec_jet[1]*np.cos(theta_pos)
+        v_z_jet =  vec_jet[2]
 
-        R = np.array(
-            (
-                (
-                    np.cos(self.phi_jet) * np.cos(self.theta_jet),
-                    -np.sin(self.phi_jet) * np.cos(self.theta_jet),
-                    np.sin(self.theta_jet),
-                ),
-                (np.sin(self.phi_jet), np.cos(self.phi_jet), 0),
-                (
-                    -np.sin(self.theta_jet) * np.cos(self.phi_jet),
-                    np.sin(self.phi_jet) * np.sin(self.theta_jet),
-                    np.cos(self.theta_jet),
-                ),
-            )
-        )
+        v_x_sim = v_x_jet*np.cos(self.phi_jet)*np.cos(self.theta_jet) - v_y_jet*np.sin(self.phi_jet) + v_z_jet*np.sin(self.theta_jet)*np.cos(self.phi_jet);
+        v_y_sim = v_x_jet*np.sin(self.phi_jet)*np.cos(self.theta_jet) + v_y_jet*np.cos(self.phi_jet) + v_z_jet*np.sin(self.phi_jet)*np.sin(self.theta_jet);
+        v_z_sim = -v_x_jet*np.sin(self.theta_jet) + v_z_jet*np.cos(self.theta_jet); 
 
-        # vec_cart = np.matmul(R,vec_jet_cart)
-        vec_cart = unyt.unyt_array(
-            (
-                R[0, 0] * vec_jet_cart[0]
-                + R[0, 1] * vec_jet_cart[1]
-                + R[0, 2] * vec_jet_cart[2],
-                R[1, 0] * vec_jet_cart[0]
-                + R[1, 1] * vec_jet_cart[1]
-                + R[1, 2] * vec_jet_cart[2],
-                R[2, 0] * vec_jet_cart[0]
-                + R[2, 1] * vec_jet_cart[1]
-                + R[2, 2] * vec_jet_cart[2],
-            ),
-            vec_jet_cart.units,
-        )
-
-        return vec_cart
+        return (v_x_sim,v_y_sim,v_z_sim)
 
 
 class ZJetCoords:
