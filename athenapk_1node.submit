@@ -1,0 +1,33 @@
+#!/bin/bash --login
+#SBATCH --job-name="athenapk"
+#SBATCH --partition=gpuA100x4
+#SBATCH --account=cvz-delta-gpu
+#SBATCH --mem=0
+#SBATCH --exclusive
+#SBATCH --time=0:30:00
+#SBATCH --constraint="scratch"
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=4
+#SBATCH --cpus-per-task=16
+#SBATCH --gpus-per-task=1
+#SBATCH --gpu-bind=none
+
+ulimit -c unlimited
+export CUDA_ENABLE_COREDUMP_ON_EXCEPTION=1
+
+module purge
+module load gcc/11.2.0
+module load cuda/11.7.0
+module load openmpi/4.1.4
+
+
+EXE="./build-gpu/bin/athenaPK"
+INPUTS="-i inputs/blast_3d_amr.in"
+
+## run
+srun bash -c "
+    export CUDA_VISIBLE_DEVICES=\$((3-SLURM_LOCALID));
+    ${EXE} ${INPUTS}"
+
+
+

@@ -1,0 +1,13 @@
+-
+  action: "add_queries"
+  queries:
+    bin_pressure:
+      params:
+        expression: "binning('Density','avg', [axis('x',[-0.5,0.5]), axis('y', [-0.5,0.5]), axis('z', num_bins=64)])"
+        name: avg_density_profile
+    bin_rms_pressure:
+      params:
+        expression: "binning('Density','max', [axis('x',[-0.5,0.5]), axis('y', [-0.5,0.5]), axis('z', num_bins=64)])"
+        name: max_density_profile
+-
+  action: "save_session"

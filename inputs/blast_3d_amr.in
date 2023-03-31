@@ -55,7 +55,7 @@ scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 type                         = pressure_gradient
 threshold_pressure_gradient  = 0.1
 
-<problem>
+<problem/blast>
 pressure_ambient  = 0.001   # ambient pressure
 pressure_ratio    = 1.6e8   # Pressure ratio initially
 radius_outer      = 0.03125 # Radius of the outer sphere
@@ -67,3 +67,8 @@ density_ratio     = 1.0     # density ratio in sphere
 file_type = hdf5
 dt = 0.01
 variables = cons
+
+<parthenon/output1>
+file_type = ascent
+dt = 0.01
+actions_file = inputs/ascent_data_binning.yaml
