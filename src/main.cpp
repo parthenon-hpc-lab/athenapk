@@ -11,7 +11,7 @@
 // AthenaPK headers
 #include "hydro/hydro.hpp"
 #include "hydro/hydro_driver.hpp"
-//#include "main.hpp"
+#include "main.hpp"
 
 #include "pgen/pgen.hpp"
 // Initialize defaults for package specific callback functions
@@ -101,7 +101,6 @@ int main(int argc, char *argv[]) {
     msg << "Problem ID '" << problem << "' is not implemented yet.";
     PARTHENON_THROW(msg);
   }
-
 
   pman.ParthenonInitPackagesAndMesh();
 
