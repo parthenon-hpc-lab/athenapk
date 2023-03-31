@@ -47,11 +47,10 @@
 using namespace parthenon::package::prelude;
 
 namespace SN {
+std::mt19937 rng;
+std::uniform_real_distribution<> dist_ang(0., 360.0);
+std::uniform_real_distribution<> dist_rad(0., 1.0);
 
-//========================================================================================
-//! \fn void ProblemGenerator(MeshBlock &pmb, ParameterInput *pin)
-//  \brief Spherical blast wave test problem generator
-//========================================================================================
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
 
@@ -62,11 +61,15 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real gamma = pin->GetOrAddReal("hydro", "gamma", 5. / 3);
   const Real gm1 = gamma - 1.0;
   const Real shvel = pin->GetReal("problem/blast", "shell_velocity") / (units.code_length_cgs() / units.code_time_cgs());
+  const Real mach = pin->GetOrAddReal("problem/blast", "mach",1.);
 
-  const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-  const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-  const auto mu_m_u_gm1_by_k_B_ = mu * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
-  const Real rhoe = ta * da / mu_m_u_gm1_by_k_B_;
+  const auto Y_outflow = pin->GetReal("hydro", "He_mass_fraction_outflow");
+  const auto Y_shell = pin->GetReal("hydro", "He_mass_fraction_shell");
+  const auto Y_medium = pin->GetReal("hydro", "He_mass_fraction_medium");
+  //const auto mu = 1 / (Y_shell * 3. / 4. + (1 - Y_shell) * 2);
+  const auto mu_medium = 1 / (Y_medium * 3. / 4. + (1 - Y_medium) / 2.);
+  const auto mu_m_u_gm1_by_k_B_medium = mu_medium * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
+  const Real rhoe = ta * da / mu_m_u_gm1_by_k_B_medium;
   const Real pa = gm1 * rhoe;
 
   pkg->AddParam<>("temperature_ambient", ta);
@@ -74,6 +77,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("density_ambient", da);
   pkg->AddParam<>("gamma", gamma);
   pkg->AddParam<>("shell_velocity", shvel);
+  pkg->AddParam<>("He_mass_fraction_outflow", Y_outflow);
+  pkg->AddParam<>("He_mass_fraction_shell", Y_shell);
+
 
   Real rstar = pin->GetOrAddReal("problem/blast", "radius_star", 0.0) / units.code_length_cgs();
   Real dout = pin->GetOrAddReal("problem/blast", "outflow_density", 0.0) / units.code_density_cgs();;
@@ -90,6 +96,14 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("inner_perturbation", rinp);
   pkg->AddParam<>("outer_perturbation", routp);
   pkg->AddParam<>("density_perturbation", denp);
+
+  auto steepness = pin->GetOrAddReal("problem/blast", "cloud_steepness", 10);
+  auto clumps = pin->GetOrAddReal("problem/blast", "clumps", 10);
+  Real r_clump = pin->GetOrAddReal("problem/blast", "clump_size", 0.0) / units.code_length_cgs();
+
+  pkg->AddParam<>("steepness", steepness);
+  pkg->AddParam<>("clumps", clumps);
+  pkg->AddParam<>("r_clump", r_clump);
 
   std::stringstream msg;
   msg << std::setprecision(2);
@@ -108,9 +122,38 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   msg << "#### Derived parameters" << std::endl;
   msg << "## Ambient pressure : " << pa << std::endl;
 
+  uint32_t rseed =
+      pin->GetOrAddInteger("problem/blast", "rseed", -1); // seed for random number.
+  pkg->AddParam<>("problem/blast", rseed);
+
+  if (pin->DoesParameterExist("problem/blast", "state_rng")) {
+    std::cout << "ciao \n";
+    {
+      std::istringstream iss(pin->GetString("problem/blast", "state_rng"));
+      iss >> rng;
+    }
+    {
+      std::istringstream iss(pin->GetString("problem/blast", "state_dist_ang"));
+      iss >> dist_ang;
+    }
+    {
+      std::istringstream iss(pin->GetString("problem/blast", "state_dist_rad"));
+      iss >> dist_rad;
+    }
+  } else {
+    rng.seed(rseed);
+  }
+
 }
 
-void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {  
+//========================================================================================
+//! \fn void ProblemGenerator(MeshBlock &pmb, ParameterInput *pin)
+//  \brief Spherical blast wave test problem generator
+//========================================================================================
+
+
+//void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
+void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
   Units units(pin);
@@ -120,6 +163,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   const Real gamma = hydro_pkg->Param<Real>("gamma");
   const Real gm1 = gamma - 1.0;
   const Real sh_vel = hydro_pkg->Param<Real>("shell_velocity");
+  const Real Y_shell = hydro_pkg->Param<Real>("He_mass_fraction_shell");
 
   Real rinp = hydro_pkg->Param<Real>("inner_perturbation");
   Real routp = hydro_pkg->Param<Real>("outer_perturbation");
@@ -143,32 +187,88 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   ///////auto &u = pmb->meshblock_data.Get()->Get("cons").data;
   // setup uniform ambient medium with spherical over-pressured region
 
-  std::random_device rand_dev;
-  std::mt19937 generator(rand_dev());
-  std::uniform_real_distribution<double> distribution(1.0 / denp /10, 1.0 / da );
+  //std::random_device rand_dev;
+  //std::mt19937 generator(rand_dev());
+  //std::uniform_real_distribution<double> distribution(1.0 / denp /10, 1.0 / da );
+
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
+  auto steepness = hydro_pkg->Param<Real>("steepness");
+  int clumps = hydro_pkg->Param<Real>("clumps");
+  const Real r_clump = hydro_pkg->Param<Real>("r_clump");
 
   double number;
+
+  /*
+  for (int ka = kb.s; ka <= kb.e; ka++) {
+    for (int ja = jb.s; ja <= jb.e; ja++) {
+      for (int ia = ib.s; ia <= ib.e; ia++) {
+        Real x = coords.Xc<1>(ia);
+        Real y = coords.Xc<2>(ja);
+        Real z = coords.Xc<3>(ka);
+        Real rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
+        u(IDN, ka, ja, ia) = da;
+        u(IM1, ka, ja, ia) = 0.0;
+        u(IM2, ka, ja, ia) = 0.0;
+        u(IM3, ka, ja, ia) = 0.0;
+        u(IEN, ka, ja, ia) = pa/gm1;
+        if (rad < routp) {
+          if (rad > rinp) {
+            cl += 1;
+          }
+        }
+      }
+    }
+  }
+  */
+
+  Real pos[2][clumps];
+  Real x1[clumps];
+  Real x2[clumps];
+  for (int i = 0; i <= clumps; i++) {
+    pos[0][i] = dist_ang(rng);
+    pos[1][i] = dist_rad(rng);
+    x1[i] = (rinp + pos[1][i] * (routp - rinp)) * cos(pos[0][i]);
+    x2[i] = (rinp + pos[1][i] * (routp - rinp)) * sin(pos[0][i]); 
+  }
+  //std::cout << x1[2] << '\n';
 
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
-        Real den = da;
         Real x = coords.Xc<1>(i);
         Real y = coords.Xc<2>(j);
         Real z = coords.Xc<3>(k);
-        Real ang = atan(y/fabs(x)) ;
-        //Real fringe = 7;
         Real rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
+        Real den = da;
         Real mx = 0.0;
         Real my = 0.0;
+        Real distan[clumps];
+        Real smooth[clumps];
+
+        for (int ind = 0; ind <= clumps; ind++) {
+          distan[ind] = std::sqrt(SQR(x - x1[ind]) + SQR(y - x2[ind]));
+          smooth[ind] = da + 0.5 * (denp - da) * (1.0 - std::tanh(steepness * (distan[ind] / r_clump - 1.0)));         
+        }
 
         if (rad < routp) {
           if (rad > rinp) {
-            number = distribution(generator);
-            //den = denp * (fabs(sin(fringe * ang))) + da;
-            den = 1 / number;
-            mx = sh_vel * den * x / rad;
-            my = sh_vel * den * y / rad;
+            //Real dist = std::sqrt(SQR(x_temp - x) + SQR(y_temp - y));
+            den = *std::max_element(smooth, smooth + clumps);
+            if (den > 1.1 * da){
+              mx = den * sh_vel * x / rad;
+              my = den * sh_vel * y / rad;
+            }   
+            
+            //number = distribution(generator);
+              //den = denp * (fabs(sin(fringe * ang))) + da;
+            //den = 1 / number;
+            
+            //u(IDN, k, j, i) = den;
+            //u(IM1, k, j, i) = mx;
+            //u(IM2, k, j, i) = my;
+            //u(IM3, k, j, i) = 0.0;
+            //u(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
           }
         }
         u(IDN, k, j, i) = den;
@@ -176,9 +276,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IM2, k, j, i) = my;
         u(IM3, k, j, i) = 0.0;
         u(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
+        
       }
     }
   }
+
   // copy initialized vars to device
   u_dev.DeepCopy(u);
 }
@@ -196,6 +298,7 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
   const Real gamma = hydro_pkg->Param<Real>("gamma");
   Real gm1 = gamma - 1.0;
   const Real vout = hydro_pkg->Param<Real>("outflow_velocity");
+  const Real Y_shell = hydro_pkg->Param<Real>("He_mass_fraction_shell");
 
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -223,4 +326,26 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
         }
       });
 }
-} // namespace blast
+
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+
+  // store state of random number gen
+  {
+    std::ostringstream oss;
+    oss << rng;
+    pin->SetString("problem/blast", "state_rng", oss.str());
+  }
+  // store state of distribution
+  {
+    std::ostringstream oss;
+    oss << dist_ang;
+    pin->SetString("problem/blast", "state_dist_ang", oss.str());
+  }
+  {
+    std::ostringstream oss;
+    oss << dist_rad;
+    pin->SetString("problem/blast", "state_dist_rad", oss.str());
+  }
+}
+} // namespace SN

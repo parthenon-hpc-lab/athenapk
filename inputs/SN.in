@@ -9,30 +9,30 @@ problem = spherical blast wave
 problem_id = SN
 
 <parthenon/mesh>
-refinement = adaptive
+refinement = none #adaptive
 numlevel = 3
 nghost = 2
 
-nx1 = 256
+nx1 = 512
 x1min = -0.5
 x1max = 0.5
-ix1_bc = periodic
-ox1_bc = periodic
+ix1_bc = outflow
+ox1_bc = outflow
 
-nx2 = 256
+nx2 = 512
 x2min = -0.5
 x2max = 0.5
-ix2_bc = periodic
-ox2_bc = periodic
+ix2_bc = outflow
+ox2_bc = outflow
 
 nx3 = 1
 x3min = -0.5
 x3max = 0.5
-ix3_bc = periodic
-ox3_bc = periodic
+ix3_bc = outflow
+ox3_bc = outflow
 
 <parthenon/meshblock>
-nx1=16  
+nx1=16
 nx2=16  
 nx3=1 
 
@@ -50,8 +50,11 @@ riemann = hllc
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
-He_mass_fraction = 0.24
-#dfloor = 0.001    # density floor; should not be required enabled for testing
+He_mass_fraction_outflow = 0.1
+He_mass_fraction_shell = 0.24
+He_mass_fraction_medium = 0.4
+nscalars = 1
+#dfloor = 0.000001    # density floor; should not be required enabled for testing
 pfloor = 0.0001   # pressure floor; should not be required enabled for testing
 
 <units>
@@ -78,16 +81,21 @@ derefine_tol = 0.05
 <problem/blast>
 
 temperature_ambient = 4e6                   # K
+mach_number = 0.6
 density_ambient  = 1e-27                    # 1 cm^-3
 radius_star      = 3.085677580962325e+16    # 0.01 pc
 outflow_density  = 1e-26                    # 10 cm^-3
 outflow_velocity = 1.6e9                    # 16000 km/s
 inner_perturbation = 3.085677580962325e+17  # 0.1 pc
-outer_perturbation = 3.385677580962325e+17  # 0.11 pc
+outer_perturbation = 5.385677580962325e+17  # 0.12 pc
 density_perturbation = 1e-23                # 10000 cm^-3
 shell_velocity = 1.1e8                      # 1100 km/s
-input_image = none         # for "none" the initial density will also be a spherical over/underdensity (defined by density_ratio) within given radii
-#input_image = parthenon_athena.pbm # use your custom file in pbm format, will be mapped to initial over/underdensity
+rseed = 3
+
+input_image = none      
+cloud_steepness = 5
+clumps = 10
+clump_size = 1.085677580962325e+16 #0.01 pc
 
 # location of initial over/under dense/pressurized region
 x1_0 = 0.0
