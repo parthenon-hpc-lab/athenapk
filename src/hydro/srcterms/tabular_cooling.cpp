@@ -345,7 +345,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // artificially limit temperature change in precipitator midplane
         const auto &coords = cons_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
-        const Real taper_fac = SQR(std::tanh(std::abs(z) / h_smooth));
+        const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
 
         // Wrap DeDt into a functor for the RKStepper
         auto DeDt_wrapper = [&](const Real t, const Real e, bool &valid) {

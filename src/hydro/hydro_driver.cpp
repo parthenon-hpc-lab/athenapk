@@ -128,6 +128,9 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
   ReductionSumArray<Real, REDUCTION_ARRAY_SIZE> profile_sum;
   Kokkos::Sum<ReductionSumArray<Real, REDUCTION_ARRAY_SIZE>> reducer_sum(profile_sum);
 
+  // get 'smoothing' height for heating/cooling
+  const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
+
   parthenon::par_reduce(
       parthenon::loop_pattern_mdrange_tag, "ProfileReduction", parthenon::DevExecSpace(),
       0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -141,7 +144,10 @@ TaskStatus CalculateCoolingRateProfile(MeshData<Real> *md) {
         const Real P = prim(IPR, k, j, i);
         bool is_valid = true;
         const Real eint = P / (rho * gm1);
-        const Real Edot = rho * tabular_cooling.edot(rho, eint, is_valid);
+
+        // artificially limit temperature change in precipitator midplane
+        const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
+        const Real Edot = taper_fac * rho * tabular_cooling.edot(rho, eint, is_valid);
 
         if (is_valid) {
           int idx = static_cast<int>((z - x3min) / dz_hist);

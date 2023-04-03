@@ -38,6 +38,7 @@
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../hydro/hydro.hpp"
+#include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../interp.hpp"
 #include "../main.hpp"
 #include "../units.hpp"
@@ -228,9 +229,6 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   // compute interpolant
   MonotoneInterpolator<PinnedArray1D<Real>> interpProfile(zbins, profile);
 
-  // get 'smoothing' height for heating/cooling
-  const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
-
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HeatSource", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -242,13 +240,10 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
         // interpolate dE(z)/dt profile at z
         const Real dE_dt_interp = interpProfile(z);
         // compute heating source term
-        const Real dE = dt * std::abs(dE_dt_interp);
-
-        // disable heating in precipitator midplane
-        const Real damp = SQR(std::tanh(std::abs(z) / h_smooth));
+        const Real dE = -dt * dE_dt_interp;
 
         // update total energy
-        cons(IEN, k, j, i) += damp * dE;
+        cons(IEN, k, j, i) += dE;
       });
 }
 
@@ -383,8 +378,14 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("dP_over_P", m);
   // add \delta K / \bar K field
-    m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("dK_over_K", m);
+  // add \delta Edot / \bar Edot field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("dEdot_over_Edot", m);
+  // add \bar Edot field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("mean_Edot", m);
 
   const Units units(pin);
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
@@ -613,6 +614,8 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto &drho = data->Get("drho_over_rho").data;
   auto &dP = data->Get("dP_over_P").data;
   auto &dK = data->Get("dK_over_K").data;
+  auto &dEdot = data->Get("dEdot_over_Edot").data;
+  auto &meanEdot = data->Get("mean_Edot").data;
 
   // fill derived vars (including ghost cells)
   auto &coords = pmb->coords;
@@ -625,35 +628,78 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   const Real code_density_cgs = units.code_density_cgs();
   const Real code_pressure_cgs = units.code_pressure_cgs();
   const Real gam = pin->GetReal("hydro", "gamma");
+  const Real gm1 = (gam - 1.0);
 
   // Get HSE profile and parameters
-  auto hydro_pkg = pmb->packages.Get("Hydro");
-  const auto &P_rho_profile =
-      hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
+  auto pkg = pmb->packages.Get("Hydro");
+  PrecipitatorProfile const &P_rho_profile =
+      pkg->Param<PrecipitatorProfile>("precipitator_profile");
+
+  // vertical dE/dt profile
+  parthenon::ParArray1D<Real> profile_reduce_dev =
+      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce")->val;
+  parthenon::ParArray1D<Real> profile_reduce_zbins_dev =
+      pkg->Param<parthenon::ParArray1D<Real>>("profile_reduce_zbins");
+
+  // get profile from device
+  auto profile_reduce = profile_reduce_dev.GetHostMirrorAndCopy();
+  auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
+
+  PinnedArray1D<Real> profile("profile", profile_reduce.size() + 2);
+  PinnedArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
+  profile(0) = profile_reduce(0);
+  profile(profile.size() - 1) = profile_reduce(profile_reduce.size() - 1);
+  zbins(0) = pmb->pmy_mesh->mesh_size.x3min;
+  zbins(zbins.size() - 1) = pmb->pmy_mesh->mesh_size.x3max;
+
+  for (int i = 1; i < (profile.size() - 1); ++i) {
+    profile(i) = profile_reduce(i - 1);
+    zbins(i) = profile_reduce_zbins(i - 1);
+  }
+
+  // compute interpolant
+  MonotoneInterpolator<PinnedArray1D<Real>> interpProfile(zbins, profile);
+
+  // get cooling function
+  const cooling::TabularCooling &tabular_cooling =
+      pkg->Param<cooling::TabularCooling>("tabular_cooling");
+
+  // get 'smoothing' height for heating/cooling
+  const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
 
   pmb->par_for(
       "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int k, const int j, const int i) {
-        // Calculate height
+        // compute background profile
         const Real abs_height = std::abs(coords.Xc<3>(k));
         const Real abs_height_cgs = abs_height * code_length_cgs;
-
-        // Get density and pressure from generated profile
         const Real rho_cgs = P_rho_profile.rho(abs_height_cgs);
         const Real P_cgs = P_rho_profile.P(abs_height_cgs);
-
-        // Convert to code units
         const Real rho_bg = rho_cgs / code_density_cgs;
         const Real P_bg = P_cgs / code_pressure_cgs;
         const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
+        // get local density, pressure, entropy
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
         const Real K = P / std::pow(rho, gam);
 
+        // compute instantaneous cooling rate
+        const Real z = coords.Xc<3>(k);
+        const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
+        bool is_valid = true;
+        const Real eint = P / (rho * gm1);
+
+        // artificially limit temperature change in precipitator midplane
+        const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
+        const Real Edot = taper_fac * rho * tabular_cooling.edot(rho, eint, is_valid);
+        const Real mean_Edot = interpProfile(z);
+
         drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
         dP(0, k, j, i) = (P - P_bg) / P_bg;
         dK(0, k, j, i) = (K - K_bg) / K_bg;
+        dEdot(0, k, j, i) = (Edot - mean_Edot) / mean_Edot;
+        meanEdot(0, k, j, i) = mean_Edot;
       });
 }
 
