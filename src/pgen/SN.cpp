@@ -36,6 +36,7 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 #include <vector>
+#include "kokkos_abstraction.hpp"
 
 // AthenaPK headers
 #include "../main.hpp"
@@ -44,13 +45,23 @@
 #include "utils/error_checking.hpp"
 #include "../units.hpp"
 
-using namespace parthenon::package::prelude;
+//using namespace parthenon::package::prelude;
 
 namespace SN {
+using namespace parthenon::package::prelude;
+
+typedef Kokkos::complex<Real> Complex;
+using parthenon::DevMemSpace;
+using parthenon::ParArray2D;
+
+//Kokkos::View<Real ***, Kokkos::LayoutRight, DevMemSpace> position_;
+//Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::HostMemSpace> position_host;
+
+
 std::mt19937 rng;
 std::uniform_real_distribution<> dist_ang(0., 360.0);
 std::uniform_real_distribution<> dist_rad(0., 1.0);
-
+ParArray2D<Real> position_;
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
 
@@ -67,13 +78,13 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const auto Y_shell = pin->GetReal("hydro", "He_mass_fraction_shell");
   const auto Y_medium = pin->GetReal("hydro", "He_mass_fraction_medium");
   //const auto mu = 1 / (Y_shell * 3. / 4. + (1 - Y_shell) * 2);
-  const auto mu_medium = 1 / (Y_medium * 3. / 4. + (1 - Y_medium) / 2.);
-  const auto mu_m_u_gm1_by_k_B_medium = mu_medium * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
-  const Real rhoe = ta * da / mu_m_u_gm1_by_k_B_medium;
-  const Real pa = gm1 * rhoe;
+  //const auto mu_medium = 1 / (Y_medium * 3. / 4. + (1 - Y_medium) / 2.);
+  //const auto mu_m_u_gm1_by_k_B_medium = mu_medium * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
+  //const Real rhoe = ta * da / mu_m_u_gm1_by_k_B_medium;
+  //const Real pa = gm1 * rhoe;
 
   pkg->AddParam<>("temperature_ambient", ta);
-  pkg->AddParam<>("pressure_ambient", pa);
+  //pkg->AddParam<>("pressure_ambient", pa);
   pkg->AddParam<>("density_ambient", da);
   pkg->AddParam<>("gamma", gamma);
   pkg->AddParam<>("shell_velocity", shvel);
@@ -97,13 +108,28 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("outer_perturbation", routp);
   pkg->AddParam<>("density_perturbation", denp);
 
-  auto steepness = pin->GetOrAddReal("problem/blast", "cloud_steepness", 10);
-  auto clumps = pin->GetOrAddReal("problem/blast", "clumps", 10);
+  Real steepness = pin->GetOrAddReal("problem/blast", "cloud_steepness", 10);
+  int clumps = pin->GetOrAddReal("problem/blast", "clumps", 10);
   Real r_clump = pin->GetOrAddReal("problem/blast", "clump_size", 0.0) / units.code_length_cgs();
+
 
   pkg->AddParam<>("steepness", steepness);
   pkg->AddParam<>("clumps", clumps);
   pkg->AddParam<>("r_clump", r_clump);
+
+  const Real pa = denp / gamma * SQR(vout - shvel) / SQR(mach);
+  pkg->AddParam<>("pressure_ambient", pa);
+
+/*
+  position_ = ParArray2D<Real>("position",2, clumps);
+  auto position_host = Kokkos::create_mirror_view(position_);
+
+  for (int i = 0; i <= clumps; i++) {
+    position_host(i,0) = dist_ang(rng);
+    position_host(i,1) = dist_rad(rng);
+  }
+  Kokkos::deep_copy(position_, position_host);
+  */
 
   std::stringstream msg;
   msg << std::setprecision(2);
@@ -144,6 +170,14 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
     rng.seed(rseed);
   }
 
+  position_ = ParArray2D<Real>("position",clumps, 2);
+  auto position_host = Kokkos::create_mirror_view(position_);
+
+  for (int i = 0; i < clumps; i++) {
+    position_host(i,0) = dist_ang(rng);
+    position_host(i,1) = dist_rad(rng);
+  }
+  Kokkos::deep_copy(position_, position_host);
 }
 
 //========================================================================================
@@ -194,7 +228,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   const auto nhydro = hydro_pkg->Param<int>("nhydro");
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
   auto steepness = hydro_pkg->Param<Real>("steepness");
-  int clumps = hydro_pkg->Param<Real>("clumps");
+  int clumps = hydro_pkg->Param<int>("clumps");
   const Real r_clump = hydro_pkg->Param<Real>("r_clump");
 
   double number;
@@ -222,14 +256,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   }
   */
 
-  Real pos[2][clumps];
+  auto &position = position_;
   Real x1[clumps];
   Real x2[clumps];
-  for (int i = 0; i <= clumps; i++) {
-    pos[0][i] = dist_ang(rng);
-    pos[1][i] = dist_rad(rng);
-    x1[i] = (rinp + pos[1][i] * (routp - rinp)) * cos(pos[0][i]);
-    x2[i] = (rinp + pos[1][i] * (routp - rinp)) * sin(pos[0][i]); 
+  for (int i = 0; i < clumps; i++) {
+    x1[i] = (rinp + position(i,1) * (routp - rinp)) * cos(position(i,0));
+    x2[i] = (rinp + position(i,1) * (routp - rinp)) * sin(position(i,0)); 
   }
   //std::cout << x1[2] << '\n';
 
@@ -246,7 +278,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         Real distan[clumps];
         Real smooth[clumps];
 
-        for (int ind = 0; ind <= clumps; ind++) {
+        for (int ind = 0; ind < clumps; ind++) {
           distan[ind] = std::sqrt(SQR(x - x1[ind]) + SQR(y - x2[ind]));
           smooth[ind] = da + 0.5 * (denp - da) * (1.0 - std::tanh(steepness * (distan[ind] / r_clump - 1.0)));         
         }
@@ -326,6 +358,14 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
         }
       });
 }
+
+
+void Cleanup() {
+  // Ensure the Kokkos views are gargabe collected before finalized is called
+  position_ = {};
+}
+
+
 
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");

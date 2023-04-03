@@ -13,13 +13,13 @@ refinement = none #adaptive
 numlevel = 3
 nghost = 2
 
-nx1 = 512
+nx1 = 128
 x1min = -0.5
 x1max = 0.5
 ix1_bc = outflow
 ox1_bc = outflow
 
-nx2 = 512
+nx2 = 128
 x2min = -0.5
 x2max = 0.5
 ix2_bc = outflow
@@ -81,19 +81,19 @@ derefine_tol = 0.05
 <problem/blast>
 
 temperature_ambient = 4e6                   # K
-mach_number = 0.6
+mach_number = 0.5
 density_ambient  = 1e-27                    # 1 cm^-3
 radius_star      = 3.085677580962325e+16    # 0.01 pc
 outflow_density  = 1e-26                    # 10 cm^-3
 outflow_velocity = 1.6e9                    # 16000 km/s
 inner_perturbation = 3.085677580962325e+17  # 0.1 pc
-outer_perturbation = 5.385677580962325e+17  # 0.12 pc
+outer_perturbation = 6.05677580962325e+17  # 0.12 pc
 density_perturbation = 1e-23                # 10000 cm^-3
 shell_velocity = 1.1e8                      # 1100 km/s
-rseed = 3
+rseed = 5
 
 input_image = none      
-cloud_steepness = 5
+cloud_steepness = 2
 clumps = 10
 clump_size = 1.085677580962325e+16 #0.01 pc
 
