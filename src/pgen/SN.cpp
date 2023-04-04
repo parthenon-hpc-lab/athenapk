@@ -109,7 +109,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("density_perturbation", denp);
 
   Real steepness = pin->GetOrAddReal("problem/blast", "cloud_steepness", 10);
-  int clumps = pin->GetOrAddReal("problem/blast", "clumps", 10);
+  const int clumps = pin->GetOrAddReal("problem/blast", "clumps", 10);
   Real r_clump = pin->GetOrAddReal("problem/blast", "clump_size", 0.0) / units.code_length_cgs();
 
 
@@ -232,7 +232,7 @@ void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *
   const auto nhydro = hydro_pkg->Param<int>("nhydro");
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
   auto steepness = hydro_pkg->Param<Real>("steepness");
-  int clumps = hydro_pkg->Param<int>("clumps");
+  const int clumps = hydro_pkg->Param<int>("clumps");
   const Real r_clump = hydro_pkg->Param<Real>("r_clump");
 
 

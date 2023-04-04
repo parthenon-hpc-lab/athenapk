@@ -66,8 +66,9 @@ int main(int argc, char *argv[]) {
     pman.app_input->UserWorkAfterLoop = blast::UserWorkAfterLoop;
   } else if (problem == "SN") {
     Hydro::ProblemInitPackageData = SN::ProblemInitPackageData;
-    pman.app_input->ProblemGenerator = SN::ProblemGenerator;
+    pman.app_input->MeshProblemGenerator = SN::ProblemGenerator;
     Hydro::ProblemSourceFirstOrder = SN::Outflow;
+    pman.app_input->MeshBlockUserWorkBeforeOutput = SN::UserWorkBeforeOutput;
   } else if (problem == "advection") {
     pman.app_input->InitUserMeshData = advection::InitUserMeshData;
     pman.app_input->ProblemGenerator = advection::ProblemGenerator;
@@ -112,6 +113,10 @@ int main(int argc, char *argv[]) {
   // very ugly cleanup...
   if (problem == "turbulence") {
     turbulence::Cleanup();
+  }
+
+  if (problem == "SN") {
+    SN::Cleanup();
   }
 
   // call MPI_Finalize and Kokkos::finalize if necessary
