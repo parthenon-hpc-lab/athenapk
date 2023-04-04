@@ -174,8 +174,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto position_host = Kokkos::create_mirror_view(position_);
 
   for (int i = 0; i < clumps; i++) {
-    position_host(i,0) = dist_ang(rng);
-    position_host(i,1) = dist_rad(rng);
+    Real ang = dist_ang(rng);
+    Real rad = dist_rad(rng);
+    position_host(i,0) = (rinp + rad * (routp - rinp)) * cos(ang);
+    position_host(i,1) = (rinp + rad * (routp - rinp)) * sin(ang);
   }
   Kokkos::deep_copy(position_, position_host);
 }
@@ -256,14 +258,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   }
   */
 
+  using parthenon::IndexDomain;
+  using parthenon::IndexRange;
+  using parthenon::Real;
+
   auto &position = position_;
-  Real x1[clumps];
-  Real x2[clumps];
-  for (int i = 0; i < clumps; i++) {
-    x1[i] = (rinp + position(i,1) * (routp - rinp)) * cos(position(i,0));
-    x2[i] = (rinp + position(i,1) * (routp - rinp)) * sin(position(i,0)); 
-  }
-  //std::cout << x1[2] << '\n';
+
 
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
@@ -279,18 +279,25 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         Real smooth[clumps];
 
         for (int ind = 0; ind < clumps; ind++) {
-          distan[ind] = std::sqrt(SQR(x - x1[ind]) + SQR(y - x2[ind]));
+          distan[ind] = std::sqrt(SQR(x - position(ind,0)) + SQR(y - position(ind,1)));
           smooth[ind] = da + 0.5 * (denp - da) * (1.0 - std::tanh(steepness * (distan[ind] / r_clump - 1.0)));         
+        }
+
+        den = *std::max_element(smooth, smooth + clumps);
+
+        if (den > 1.1 * da){
+          mx = den * sh_vel * x / rad;
+          my = den * sh_vel * y / rad;
         }
 
         if (rad < routp) {
           if (rad > rinp) {
             //Real dist = std::sqrt(SQR(x_temp - x) + SQR(y_temp - y));
-            den = *std::max_element(smooth, smooth + clumps);
-            if (den > 1.1 * da){
-              mx = den * sh_vel * x / rad;
-              my = den * sh_vel * y / rad;
-            }   
+            //den = *std::max_element(smooth, smooth + clumps);
+            //if (den > 1.1 * da){
+            //  mx = den * sh_vel * x / rad;
+            //  my = den * sh_vel * y / rad;
+            //}   
             
             //number = distribution(generator);
               //den = denp * (fabs(sin(fringe * ang))) + da;
