@@ -153,7 +153,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("problem/blast", rseed);
 
   if (pin->DoesParameterExist("problem/blast", "state_rng")) {
-    std::cout << "ciao \n";
     {
       std::istringstream iss(pin->GetString("problem/blast", "state_rng"));
       iss >> rng;
@@ -216,10 +215,12 @@ void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
+  auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
+
   // initialize conserved variables
   auto &rc = pmb->meshblock_data.Get();
   auto &u_dev = rc->Get("cons").data;
-  auto &coords = pmb->coords;
+  //auto &coords = pmb->coords;
   // initializing on host
   auto u = u_dev.GetHostMirrorAndCopy();
   ///////auto &u = pmb->meshblock_data.Get()->Get("cons").data;
@@ -277,7 +278,7 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
       DEFAULT_LOOP_PATTERN, "Outflow", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-        auto &cons = cons_pack(b);
+        auto &u = cons(b);
         const auto &coords = cons_pack.GetCoords(b);
         Real x = coords.Xc<1>(i);
         Real y = coords.Xc<2>(j);
@@ -304,8 +305,8 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
           my = den * sh_vel * y / rad;
         }
 
-        if (rad < routp) {
-          if (rad > rinp) {
+        //if (rad < routp) {
+          //if (rad > rinp) {
             //Real dist = std::sqrt(SQR(x_temp - x) + SQR(y_temp - y));
             //den = *std::max_element(smooth, smooth + clumps);
             //if (den > 1.1 * da){
@@ -322,13 +323,13 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
             //u(IM2, k, j, i) = my;
             //u(IM3, k, j, i) = 0.0;
             //u(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
-          }
-        }
-        cons(IDN, k, j, i) = den;
-        cons(IM1, k, j, i) = mx;
-        cons(IM2, k, j, i) = my;
-        cons(IM3, k, j, i) = 0.0;
-        cons(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
+          //}
+        //}
+        u(IDN, k, j, i) = den;
+        u(IM1, k, j, i) = mx;
+        u(IM2, k, j, i) = my;
+        u(IM3, k, j, i) = 0.0;
+        u(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
       });
         
 //      }
