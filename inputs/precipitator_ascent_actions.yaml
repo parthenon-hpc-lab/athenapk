@@ -16,21 +16,6 @@
             look_at: [0.0, 0.0, 0.0]
             position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
-    pressure: 
-      plots: 
-        p1: 
-          type: "pseudocolor"
-          field: "dP_over_P"
-#          min_value: -0.1
-#          max_value: 0.1
-      renders:
-        r1:
-          image_prefix: "dP%05d"
-          annotations: "true"
-          camera:
-            look_at: [0.0, 0.0, 0.0]
-            position: [0.0, -250.0, 0.0]
-            up: [0.0, 0.0, 1.0]
     entropy:
       plots: 
         p1: 
@@ -61,24 +46,13 @@
             look_at: [0.0, 0.0, 0.0]
             position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
-    # cooling_profile:
-    #   plots: 
-    #     p1: 
-    #       type: "pseudocolor"
-    #       field: "mean_Edot"
-    #       color_table:
-    #         name: "viridis"
-    #   renders:
-    #     r1:
-    #       image_prefix: "cooling_profile%05d"
-    #       annotations: "true"
-    #       camera:
-    #         look_at: [0.0, 0.0, 0.0]
-    #         position: [0.0, -250.0, 0.0]
-    #         up: [0.0, 0.0, 1.0]
 -
   action: "add_queries"
   queries:
+    sum_entropy:
+      params:
+        expression: "sum(field('entropy'))"
+        name: "total_entropy"
     hist_density:
       params:
         expression: "histogram(field('drho_over_rho'), min_val=-1.0, max_val=1.0, num_bins=32)"
@@ -93,35 +67,35 @@
         name: "histogram_dK"
     bin_density:
       params:
-        expression: "binning('drho_over_rho','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
+        expression: "binning('drho_over_rho','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: drho_profile
     bin_pressure:
       params:
-        expression: "binning('dP_over_P','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
+        expression: "binning('dP_over_P','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: dP_profile
     bin_entropy:
       params:
-        expression: "binning('dK_over_K','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
+        expression: "binning('dK_over_K','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: dK_profile
     bin_cooling:
       params:
-        expression: "binning('mean_Edot','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
+        expression: "binning('mean_Edot','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: Edot_profile
     bin_rms_density:
       params:
-        expression: "binning('drho_over_rho','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
+        expression: "binning('drho_over_rho','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: drho_rms_profile
     bin_rms_pressure:
       params:
-        expression: "binning('dP_over_P','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
+        expression: "binning('dP_over_P','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: dP_rms_profile
     bin_rms_entropy:
       params:
-        expression: "binning('dK_over_K','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
+        expression: "binning('dK_over_K','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: dK_rms_profile
     bin_rms_Edot:
       params:
-        expression: "binning('dEdot_over_Edot','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=21)])"
+        expression: "binning('dEdot_over_Edot','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: dEdot_rms_profile
 -
   action: "save_session"

@@ -229,6 +229,8 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   // compute interpolant
   MonotoneInterpolator<PinnedArray1D<Real>> interpProfile(zbins, profile);
 
+  const Real epsilon = 0.97; // heating efficiency
+  
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HeatSource", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -240,7 +242,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
         // interpolate dE(z)/dt profile at z
         const Real dE_dt_interp = interpProfile(z);
         // compute heating source term
-        const Real dE = -dt * dE_dt_interp;
+        const Real dE = -dt * epsilon * dE_dt_interp;
 
         // update total energy
         cons(IEN, k, j, i) += dE;
@@ -386,6 +388,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add \bar Edot field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("mean_Edot", m);
+  // add entropy field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("entropy", m);
 
   const Units units(pin);
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
@@ -616,6 +621,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto &dK = data->Get("dK_over_K").data;
   auto &dEdot = data->Get("dEdot_over_Edot").data;
   auto &meanEdot = data->Get("mean_Edot").data;
+  auto &entropy = data->Get("entropy").data;
 
   // fill derived vars (including ghost cells)
   auto &coords = pmb->coords;
@@ -700,6 +706,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         dK(0, k, j, i) = (K - K_bg) / K_bg;
         dEdot(0, k, j, i) = (Edot - mean_Edot) / mean_Edot;
         meanEdot(0, k, j, i) = mean_Edot;
+        entropy(0, k, j, i) = K;
       });
 }
 
