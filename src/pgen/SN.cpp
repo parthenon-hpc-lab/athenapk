@@ -189,7 +189,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
 
 //void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
-void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
+void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md) {
+
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
   Units units(pin);
@@ -233,7 +235,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   int clumps = hydro_pkg->Param<int>("clumps");
   const Real r_clump = hydro_pkg->Param<Real>("r_clump");
 
-  double number;
 
   /*
   for (int ka = kb.s; ka <= kb.e; ka++) {
@@ -264,10 +265,20 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   auto &position = position_;
 
-
+/*
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
+*/
+
+const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "Outflow", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+        auto &cons = cons_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
         Real x = coords.Xc<1>(i);
         Real y = coords.Xc<2>(j);
         Real z = coords.Xc<3>(k);
@@ -310,15 +321,17 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
             //u(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
           }
         }
-        u(IDN, k, j, i) = den;
-        u(IM1, k, j, i) = mx;
-        u(IM2, k, j, i) = my;
-        u(IM3, k, j, i) = 0.0;
-        u(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
+        cons(IDN, k, j, i) = den;
+        cons(IM1, k, j, i) = mx;
+        cons(IM2, k, j, i) = my;
+        cons(IM3, k, j, i) = 0.0;
+        cons(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
+      });
         
-      }
-    }
-  }
+//      }
+//    }
+//  }
+
 
   // copy initialized vars to device
   u_dev.DeepCopy(u);

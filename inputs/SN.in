@@ -13,13 +13,13 @@ refinement = none #adaptive
 numlevel = 3
 nghost = 2
 
-nx1 = 1024
+nx1 =128 #1024
 x1min = -0.5
 x1max = 0.5
 ix1_bc = outflow
 ox1_bc = outflow
 
-nx2 = 1024
+nx2 =128 #1024
 x2min = -0.5
 x2max = 0.5
 ix2_bc = outflow
@@ -32,8 +32,8 @@ ix3_bc = outflow
 ox3_bc = outflow
 
 <parthenon/meshblock>
-nx1=16
-nx2=16  
+nx1=16 #512
+nx2=16 #64  
 nx3=1 
 
 <parthenon/time>
