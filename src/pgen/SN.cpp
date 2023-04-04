@@ -286,15 +286,18 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
         Real den = da;
         Real mx = 0.0;
         Real my = 0.0;
-        Real distan[clumps];
-        Real smooth[clumps];
+        //Real distan[clumps];
+        //Real smooth[clumps];
 
         for (int ind = 0; ind < clumps; ind++) {
-          distan[ind] = std::sqrt(SQR(x - position(ind,0)) + SQR(y - position(ind,1)));
-          smooth[ind] = da + 0.5 * (denp - da) * (1.0 - std::tanh(steepness * (distan[ind] / r_clump - 1.0)));         
+          //distan[ind] = std::sqrt(SQR(x - position(ind,0)) + SQR(y - position(ind,1)));
+          //smooth[ind] = da + 0.5 * (denp - da) * (1.0 - std::tanh(steepness * (distan[ind] / r_clump - 1.0)));
+          Real distan = std::sqrt(SQR(x - position(ind,0)) + SQR(y - position(ind,1)));
+          Real smooth = da + 0.5 * (denp - da) * (1.0 - std::tanh(steepness * (distan / r_clump - 1.0)));
+          den = std::max(den,smooth);
         }
 
-        den = *std::max_element(smooth, smooth + clumps);
+        //den = *std::max_element(smooth, smooth + clumps);
 
         if (den > 1.1 * da){
           mx = den * sh_vel * x / rad;
