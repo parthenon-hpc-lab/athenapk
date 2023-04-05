@@ -215,14 +215,8 @@ void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-  auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
-
   // initialize conserved variables
   auto &rc = pmb->meshblock_data.Get();
-  auto &u_dev = rc->Get("cons").data;
-  //auto &coords = pmb->coords;
-  // initializing on host
-  auto u = u_dev.GetHostMirrorAndCopy();
   ///////auto &u = pmb->meshblock_data.Get()->Get("cons").data;
   // setup uniform ambient medium with spherical over-pressured region
 
@@ -278,7 +272,7 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
       DEFAULT_LOOP_PATTERN, "Outflow", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-        auto &u = cons(b);
+        auto &u = cons_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
         Real x = coords.Xc<1>(i);
         Real y = coords.Xc<2>(j);
@@ -336,9 +330,6 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
 //    }
 //  }
 
-
-  // copy initialized vars to device
-  u_dev.DeepCopy(u);
 }
 
 void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
