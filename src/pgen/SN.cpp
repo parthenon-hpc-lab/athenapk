@@ -297,6 +297,9 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
         if (den > 1.1 * da){
           mx = den * sh_vel * x / rad;
           my = den * sh_vel * y / rad;
+          for (auto n = nhydro; n < nhydro + nscalars; n++) {
+            u(n, k, j, i) = den * den / denp;
+          }
         }
 
         //if (rad < routp) {
