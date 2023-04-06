@@ -44,6 +44,7 @@
 #include "../units.hpp"
 #include "outputs/outputs.hpp"
 #include "pgen.hpp"
+#include "utils/error_checking.hpp"
 
 typedef Kokkos::complex<Real> Complex;
 namespace precipitator {
@@ -230,7 +231,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   MonotoneInterpolator<PinnedArray1D<Real>> interpProfile(zbins, profile);
 
   const Real epsilon = 0.97; // heating efficiency
-  
+
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HeatSource", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -603,6 +604,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         // Add isobaric perturbations
         Real drho_over_rho =
             drho(k - kb.s, j - jb.s, i - ib.s).real() * SQR(tanh(abs_height / h_smooth));
+        
+        PARTHENON_REQUIRE(rho > 0, "rho must be positive!");
+        PARTHENON_REQUIRE(rho * (1. + drho_over_rho) > 0, "drho must be positive!");
+        PARTHENON_REQUIRE(P > 0, "pressure must be positive!");
 
         // Fill conserved states
         u_dev(IDN, k, j, i) = rho * (1. + drho_over_rho);
@@ -666,48 +671,77 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   // compute interpolant
   MonotoneInterpolator<PinnedArray1D<Real>> interpProfile(zbins, profile);
 
-  // get cooling function
-  const cooling::TabularCooling &tabular_cooling =
-      pkg->Param<cooling::TabularCooling>("tabular_cooling");
+  const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
+  
+  if (enable_cooling == Cooling::tabular) {
+    // get cooling function
+    const cooling::TabularCooling &tabular_cooling =
+        pkg->Param<cooling::TabularCooling>("tabular_cooling");
 
-  // get 'smoothing' height for heating/cooling
-  const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
+    // get 'smoothing' height for heating/cooling
+    const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
 
-  pmb->par_for(
-      "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int k, const int j, const int i) {
-        // compute background profile
-        const Real abs_height = std::abs(coords.Xc<3>(k));
-        const Real abs_height_cgs = abs_height * code_length_cgs;
-        const Real rho_cgs = P_rho_profile.rho(abs_height_cgs);
-        const Real P_cgs = P_rho_profile.P(abs_height_cgs);
-        const Real rho_bg = rho_cgs / code_density_cgs;
-        const Real P_bg = P_cgs / code_pressure_cgs;
-        const Real K_bg = P_bg / std::pow(rho_bg, gam);
+    pmb->par_for(
+        "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          // compute background profile
+          const Real abs_height = std::abs(coords.Xc<3>(k));
+          const Real abs_height_cgs = abs_height * code_length_cgs;
+          const Real rho_cgs = P_rho_profile.rho(abs_height_cgs);
+          const Real P_cgs = P_rho_profile.P(abs_height_cgs);
+          const Real rho_bg = rho_cgs / code_density_cgs;
+          const Real P_bg = P_cgs / code_pressure_cgs;
+          const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
-        // get local density, pressure, entropy
-        const Real rho = prim(IDN, k, j, i);
-        const Real P = prim(IPR, k, j, i);
-        const Real K = P / std::pow(rho, gam);
+          // get local density, pressure, entropy
+          const Real rho = prim(IDN, k, j, i);
+          const Real P = prim(IPR, k, j, i);
+          const Real K = P / std::pow(rho, gam);
 
-        // compute instantaneous cooling rate
-        const Real z = coords.Xc<3>(k);
-        const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
-        bool is_valid = true;
-        const Real eint = P / (rho * gm1);
+          // compute instantaneous cooling rate
+          const Real z = coords.Xc<3>(k);
+          const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
+          bool is_valid = true;
+          const Real eint = P / (rho * gm1);
 
-        // artificially limit temperature change in precipitator midplane
-        const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
-        const Real Edot = taper_fac * rho * tabular_cooling.edot(rho, eint, is_valid);
-        const Real mean_Edot = interpProfile(z);
+          // artificially limit temperature change in precipitator midplane
+          const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
+          const Real Edot = taper_fac * rho * tabular_cooling.edot(rho, eint, is_valid);
+          const Real mean_Edot = interpProfile(z);
 
-        drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
-        dP(0, k, j, i) = (P - P_bg) / P_bg;
-        dK(0, k, j, i) = (K - K_bg) / K_bg;
-        dEdot(0, k, j, i) = (Edot - mean_Edot) / mean_Edot;
-        meanEdot(0, k, j, i) = mean_Edot;
-        entropy(0, k, j, i) = K;
-      });
+          drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
+          dP(0, k, j, i) = (P - P_bg) / P_bg;
+          dK(0, k, j, i) = (K - K_bg) / K_bg;
+          dEdot(0, k, j, i) = (Edot - mean_Edot) / mean_Edot;
+          meanEdot(0, k, j, i) = mean_Edot;
+          entropy(0, k, j, i) = K;
+        });
+  } else {
+    pmb->par_for(
+        "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          // compute background profile
+          const Real abs_height = std::abs(coords.Xc<3>(k));
+          const Real abs_height_cgs = abs_height * code_length_cgs;
+          const Real rho_cgs = P_rho_profile.rho(abs_height_cgs);
+          const Real P_cgs = P_rho_profile.P(abs_height_cgs);
+          const Real rho_bg = rho_cgs / code_density_cgs;
+          const Real P_bg = P_cgs / code_pressure_cgs;
+          const Real K_bg = P_bg / std::pow(rho_bg, gam);
+
+          // get local density, pressure, entropy
+          const Real rho = prim(IDN, k, j, i);
+          const Real P = prim(IPR, k, j, i);
+          const Real K = P / std::pow(rho, gam);
+
+          drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
+          dP(0, k, j, i) = (P - P_bg) / P_bg;
+          dK(0, k, j, i) = (K - K_bg) / K_bg;
+          dEdot(0, k, j, i) = 0;
+          meanEdot(0, k, j, i) = 0;
+          entropy(0, k, j, i) = K;
+        });
+  }
 }
 
 } // namespace precipitator

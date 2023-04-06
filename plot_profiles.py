@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 with open("ascent_session.yaml",'r') as file:
     session = yaml.load(file, Loader=yaml.FullLoader)
 
-def plot_profile(name, skip=10, symmetric=False):
+def plot_profile(name, skip=5, symmetric=False):
     print(f"plotting {name}...")
     series = session[name]
     profiles = []

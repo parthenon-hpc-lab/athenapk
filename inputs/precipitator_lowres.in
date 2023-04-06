@@ -6,7 +6,7 @@ problem_id = precipitator   # problem ID: basename of output filenames
 
 <parthenon/output1>
 file_type  = hst       # History data dump
-dt         = 200.0       # time increment between outputs
+dt         = 10.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
@@ -21,14 +21,14 @@ id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 200.0
+dt           = 10.0
 actions_file = inputs/precipitator_ascent_actions.yaml
 
 <parthenon/time>
 cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 20000.0      # time limit
-integrator  = rk3       # time integration algorithm
+tlim       = 28093.0    # time limit
+integrator  = vl2       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
 
@@ -65,7 +65,7 @@ nx3        = 32        # Number of zones in X3-direction
 gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
 riemann = lhllc
-reconstruction = ppm
+reconstruction = plm
 first_order_flux_correct = true
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
@@ -80,7 +80,7 @@ code_mass_cgs = 1.98841586e+33  # Msun
 code_time_cgs = 3.15576e+13     # Myr
 
 <cooling>
-enable_cooling = tabular    # tabular
+enable_cooling = none    # tabular
 integrator = rk12           # (townsend, rk12)
 table_filename = ./inputs/precipitator.cooling
 log_temp_col = 0
@@ -89,16 +89,16 @@ lambda_units_cgs = 1
 cfl = 0.1
 
 <precipitator>
-hse_profile_filename = ./inputs/tabulated_hse_tc_tff_1.0.txt
+hse_profile_filename = ./inputs/tabulated_hse_tc_tff_8.0.txt
 
-enable_heating = magic   # magic
+enable_heating = none   # magic
 numHist = 64
-bg_temperature = 1.0e6
+bg_temperature = 3.0e7
 h_smooth_kpc = 10.
 h_smooth_heatcool_kpc = 20.
 dimensionless_mmw = 0.6
 
-perturb_sin_drho_over_rho = 0.10
+perturb_sin_drho_over_rho = 0.0
 perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32
