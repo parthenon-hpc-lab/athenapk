@@ -72,7 +72,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real gamma = pin->GetOrAddReal("hydro", "gamma", 5. / 3);
   const Real gm1 = gamma - 1.0;
   const Real shvel = pin->GetReal("problem/blast", "shell_velocity") / (units.code_length_cgs() / units.code_time_cgs());
-  const Real mach = pin->GetOrAddReal("problem/blast", "mach",1.);
+  const Real mach = pin->GetOrAddReal("problem/blast", "mach_number",1.);
 
   const auto Y_outflow = pin->GetReal("hydro", "He_mass_fraction_outflow");
   const auto Y_shell = pin->GetReal("hydro", "He_mass_fraction_shell");
