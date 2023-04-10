@@ -39,8 +39,10 @@ class MagneticTowerObj {
                    const parthenon::Real l_mass_scale, const JetCoords jet_coords)
       : field_(field), alpha_(alpha), l_scale_(l_scale), density_(density),
         l_mass_scale2_(SQR(l_mass_scale)), jet_coords_(jet_coords) {
-          PARTHENON_REQUIRE(l_scale > 0, "Magnetic Tower Length scale must be strictly postitive");
-          PARTHENON_REQUIRE(l_mass_scale > 0, "Magnetic Tower Mass Length scale must be strictly postitive");
+    PARTHENON_REQUIRE(l_scale > 0,
+                      "Magnetic Tower Length scale must be strictly postitive");
+    PARTHENON_REQUIRE(l_mass_scale > 0,
+                      "Magnetic Tower Mass Length scale must be strictly postitive");
   }
 
   // Compute Jet Potential in jet cylindrical coordinates

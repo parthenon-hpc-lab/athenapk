@@ -54,6 +54,9 @@ class JetCoords {
 
     // Position in jet-cylindrical coordinates
     r_jet = sqrt(pow(fabs(x_jet), 2) + pow(fabs(y_jet), 2));
+    // Setting cos_theta and sin_theta to 0 for r = 0 as all places where
+    // those variables are used (SimCardToJetCylCoords) an r = 0 leads to the x and y
+    // component being 0, too.
     cos_theta_jet = (r_jet != 0) ? x_jet / r_jet : 0;
     sin_theta_jet = (r_jet != 0) ? y_jet / r_jet : 0;
     h_jet = z_jet;
