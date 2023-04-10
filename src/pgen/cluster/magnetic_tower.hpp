@@ -38,7 +38,10 @@ class MagneticTowerObj {
                    const parthenon::Real l_scale, const parthenon::Real density,
                    const parthenon::Real l_mass_scale, const JetCoords jet_coords)
       : field_(field), alpha_(alpha), l_scale_(l_scale), density_(density),
-        l_mass_scale2_(SQR(l_mass_scale)), jet_coords_(jet_coords) {}
+        l_mass_scale2_(SQR(l_mass_scale)), jet_coords_(jet_coords) {
+          PARTHENON_REQUIRE(l_scale > 0, "Magnetic Tower Length scale must be strictly postitive");
+          PARTHENON_REQUIRE(l_mass_scale > 0, "Magnetic Tower Mass Length scale must be strictly postitive");
+  }
 
   // Compute Jet Potential in jet cylindrical coordinates
   KOKKOS_INLINE_FUNCTION void
@@ -135,7 +138,7 @@ class MagneticTower {
         initial_field_(pin->GetOrAddReal(block, "initial_field", 0)),
         fixed_field_rate_(pin->GetOrAddReal(block, "fixed_field_rate", 0)),
         fixed_mass_rate_(pin->GetOrAddReal(block, "fixed_mass_rate", 0)),
-        l_mass_scale_(pin->GetOrAddReal(block, "l_mass_scale", 1)) {
+        l_mass_scale_(pin->GetOrAddReal(block, "l_mass_scale", 0)) {
     hydro_pkg->AddParam<>("magnetic_tower", *this);
     hydro_pkg->AddParam<parthenon::Real>("magnetic_tower_linear_contrib", 0.0, true);
     hydro_pkg->AddParam<parthenon::Real>("magnetic_tower_quadratic_contrib", 0.0, true);

@@ -32,6 +32,10 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   using parthenon::IndexRange;
   using parthenon::Real;
 
+  if( field_to_add == 0 && mass_to_add == 0){
+    return; // Nothing to do
+  }
+
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   if (hydro_pkg->Param<Fluid>("fluid") != Fluid::glmmhd) {
     PARTHENON_FAIL("MagneticTower::AddSrcTerm: Only Fluid::glmmhd is supported");
@@ -205,6 +209,9 @@ void MagneticTower::AddInitialFieldToPotential(parthenon::MeshBlock *pmb,
                                                parthenon::IndexRange jb,
                                                parthenon::IndexRange ib,
                                                const View4D &A) const {
+  if( initial_field_ == 0){
+    return; //Nothing to do
+  }
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto &coords = pmb->coords;

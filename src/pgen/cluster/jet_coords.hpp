@@ -54,8 +54,8 @@ class JetCoords {
 
     // Position in jet-cylindrical coordinates
     r_jet = sqrt(pow(fabs(x_jet), 2) + pow(fabs(y_jet), 2));
-    cos_theta_jet = x_jet / r_jet;
-    sin_theta_jet = y_jet / r_jet;
+    cos_theta_jet = (r_jet != 0) ? x_jet / r_jet : 0;
+    sin_theta_jet = (r_jet != 0) ? y_jet / r_jet : 0;
     h_jet = z_jet;
   }
 
@@ -111,4 +111,4 @@ class JetCoordsFactory {
 
 } // namespace cluster
 
-#endif // CLUSTER_MAGNETIC_TOWER_HPP_
+#endif // CLUSTER_JET_COORDS_HPP_
