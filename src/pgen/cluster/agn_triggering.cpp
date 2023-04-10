@@ -198,7 +198,6 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -219,13 +218,12 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
 
   parthenon::par_reduce(
       parthenon::loop_pattern_mdrange_tag, "AGNTriggering::ReduceBondi",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      parthenon::DevExecSpace(), 0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     ReductionSumArray<Real, 4> &team_triggering_reduction) {
-        auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = prim_pack.GetCoords(b);
         const parthenon::Real r2 =
             pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
         if (r2 < accretion_radius2) {

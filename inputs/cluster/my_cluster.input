@@ -10,11 +10,11 @@ problem_id = cluster   # problem ID: basename of output filenames
 
 <parthenon/output1>
 file_type  = hst       # History data dump
-dt         = 0.1 Myr      # time increment between outputs
+dt         = 0.0001      # time increment between outputs
 
 <parthenon/output2>
 file_type  = rst       # restart data dump
-dt         = 1.0 Myr     # Time increment between outputs
+dt         = 0.001     # Time increment between outputs
 id         = restart
 
 # hdf5_compression_level = 0
@@ -24,7 +24,7 @@ use_final_label = false
 
 <parthenon/time>
 cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
-tlim       = 0.1 Myr       # time limit
+tlim       = 0.0001       # time limit
 integrator  = vl2       # time integration algorithm
 
 
@@ -96,9 +96,8 @@ log_lambda_col   = 1 # Column to read lambda in cooling table
 lambda_units_cgs = 1
 
 integrator     = townsend
-cfl            = 0.1  # Restricts hydro step based on minimum cooling time, disabled for "integrator=townsend"
+cfl            = 0.1  # Restricts hydro step based on fraction of minimum cooling time
 min_timestep   = 1.0
-max_iter       = 100
 d_e_tol        = 1e-8
 d_log_temp_tol = 1e-8
 

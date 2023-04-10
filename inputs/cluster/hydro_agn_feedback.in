@@ -20,7 +20,6 @@ cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
 tlim       = 0.01       # time limit
 integrator  = vl2       # time integration algorithm
-perf_cycle_offset  = 10 # interval for stdout summary info
 
 
 <parthenon/mesh>

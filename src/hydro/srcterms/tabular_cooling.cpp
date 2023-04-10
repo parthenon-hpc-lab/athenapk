@@ -602,7 +602,7 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
     return std::numeric_limits<Real>::max();
   }
 
-  if (cooling_time_cfl_ <= 0.0 || isnan(cooling_time_cfl_) || isinf(cooling_time_cfl_)) {
+  if (isnan(cooling_time_cfl_) || isinf(cooling_time_cfl_)) {
     return std::numeric_limits<Real>::infinity();
   }
 

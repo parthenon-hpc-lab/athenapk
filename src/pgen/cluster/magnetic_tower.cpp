@@ -279,7 +279,7 @@ void MagneticTower::PowerSrcTerm(const parthenon::Real power,
     msg << "MagneticTowerModel::PowerSrcTerm No field rate is viable"
         << " linear_contrib: " << std::to_string(linear_contrib)
         << " quadratic_contrib: " << std::to_string(quadratic_contrib);
-    PARTHENON_FAIL(msg.str().c_str());
+    PARTHENON_FAIL(msg);
   }
   const Real field_to_add = (-linear_contrib + sqrt(disc)) / (2 * quadratic_contrib);
   const Real mass_to_add = mass_rate * beta_dt;
