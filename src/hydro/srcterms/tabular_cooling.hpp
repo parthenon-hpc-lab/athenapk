@@ -155,12 +155,7 @@ class TabularCooling {
     const Real log_temp = log10(temp);
     Real log_lambda;
     if (log_temp < log_temp_start) {
-      // Below table - return 0 or first entry?
-      // log_lambda = log_lambdas(0);
-      // TODO(forrestglines):Currently, zero cooling is use for temperatures
-      // below the table. This behavior could be generalized via templates
-      // return 0;
-      log_lambda = log_lambdas(0); // HACK - to get it to cool to floor
+      return 0;
     } else if (log_temp > log_temp_final) {
       // Above table
       // Return de/dt
