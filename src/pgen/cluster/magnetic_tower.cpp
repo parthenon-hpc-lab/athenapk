@@ -18,7 +18,6 @@
 // Athena headers
 #include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../main.hpp"
-#include "../../reduction_utils.hpp"
 #include "../../units.hpp"
 #include "cluster_utils.hpp"
 #include "magnetic_tower.hpp"
@@ -166,15 +165,16 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
       MagneticTowerObj(1, alpha_, l_scale_, 0, l_mass_scale_, jet_coords);
 
   // Get the reduction of the linear and quadratic contributions ready
-  ReductionSumArray<Real, 2> mt_power_reduction;
-  Kokkos::Sum<ReductionSumArray<Real, 2>> reducer_sum(mt_power_reduction);
+  Real linear_contrib_red, quadratic_contrib_red;
 
-  parthenon::par_reduce(
-      parthenon::loop_pattern_mdrange_tag, "MagneticTowerScaleFactor",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-      ib.e,
+  Kokkos::parallel_reduce(
+      "MagneticTowerScaleFactor",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
-                    ReductionSumArray<Real, 2> &team_mt_power_reduction) {
+                    Real &llinear_contrib_red, Real &lquadratic_contrib_red) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
@@ -187,17 +187,15 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
                           b_z);
 
         // increases B**2 by 2*B0*Bnew + dt**2*Bnew**2)
-        team_mt_power_reduction.data[0] +=
-            (prim(IB1, k, j, i) * b_x + prim(IB2, k, j, i) * b_y +
-             prim(IB3, k, j, i) * b_z) *
-            cell_volume;
-        team_mt_power_reduction.data[1] +=
-            0.5 * (b_x * b_x + b_y * b_y + b_z * b_z) * cell_volume;
+        llinear_contrib_red += (prim(IB1, k, j, i) * b_x + prim(IB2, k, j, i) * b_y +
+                                prim(IB3, k, j, i) * b_z) *
+                               cell_volume;
+        lquadratic_contrib_red += 0.5 * (b_x * b_x + b_y * b_y + b_z * b_z) * cell_volume;
       },
-      reducer_sum);
+      linear_contrib_red, quadratic_contrib_red);
 
-  linear_contrib += mt_power_reduction.data[0];
-  quadratic_contrib += mt_power_reduction.data[1];
+  linear_contrib += linear_contrib_red;
+  quadratic_contrib += quadratic_contrib_red;
 }
 
 // Add magnetic potential to provided potential

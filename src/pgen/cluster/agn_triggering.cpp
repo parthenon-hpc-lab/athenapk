@@ -21,7 +21,6 @@
 #include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../eos/adiabatic_hydro.hpp"
 #include "../../main.hpp"
-#include "../../reduction_utils.hpp"
 #include "../../units.hpp"
 #include "agn_feedback.hpp"
 #include "agn_triggering.hpp"
@@ -207,21 +206,20 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
   // Reduce Mass-weighted total density, velocity, and sound speed and total
   // mass (in that order). Will need to divide the three latter quantities by
   // total mass in order to get their mass-weighted averaged values
-  const unsigned int MASS_IDX = 0;
-  const unsigned int DENSITY_IDX = 1;
-  const unsigned int VELOCITY_IDX = 2;
-  const unsigned int CS_IDX = 3;
-  ReductionSumArray<Real, 4> triggering_reduction;
-  Kokkos::Sum<ReductionSumArray<Real, 4>> reducer_sum(triggering_reduction);
+  Real total_mass_red, mass_weighted_density_red, mass_weighted_velocity_red,
+      mass_weighted_cs_red;
 
   const parthenon::Real gamma = gamma_;
 
-  parthenon::par_reduce(
-      parthenon::loop_pattern_mdrange_tag, "AGNTriggering::ReduceBondi",
-      parthenon::DevExecSpace(), 0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-      ib.e,
+  Kokkos::parallel_reduce(
+      "AGNTriggering::ReduceBondi",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
-                    ReductionSumArray<Real, 4> &team_triggering_reduction) {
+                    Real &ltotal_mass_red, Real &lmass_weighted_density_red,
+                    Real &lmass_weighted_velocity_red, Real &lmass_weighted_cs_red) {
         auto &prim = prim_pack(b);
         const auto &coords = prim_pack.GetCoords(b);
         const parthenon::Real r2 =
@@ -236,18 +234,19 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
           const Real cell_mass_weighted_cs =
               cell_mass * sqrt(gamma * prim(IPR, k, j, i) / prim(IDN, k, j, i));
 
-          team_triggering_reduction.data[MASS_IDX] += cell_mass;
-          team_triggering_reduction.data[DENSITY_IDX] += cell_mass_weighted_density;
-          team_triggering_reduction.data[VELOCITY_IDX] += cell_mass_weighted_velocity;
-          team_triggering_reduction.data[CS_IDX] += cell_mass_weighted_cs;
+          ltotal_mass_red += cell_mass;
+          lmass_weighted_density_red += cell_mass_weighted_density;
+          lmass_weighted_velocity_red += cell_mass_weighted_velocity;
+          lmass_weighted_cs_red += cell_mass_weighted_cs;
         }
       },
-      reducer_sum);
+      total_mass_red, mass_weighted_density_red, mass_weighted_velocity_red,
+      mass_weighted_cs_red);
   // Save the reduction results to triggering_quantities
-  total_mass += triggering_reduction.data[MASS_IDX];
-  mass_weighted_density += triggering_reduction.data[DENSITY_IDX];
-  mass_weighted_velocity += triggering_reduction.data[VELOCITY_IDX];
-  mass_weighted_cs += triggering_reduction.data[CS_IDX];
+  total_mass += total_mass_red;
+  mass_weighted_density += mass_weighted_density_red;
+  mass_weighted_velocity += mass_weighted_velocity_red;
+  mass_weighted_cs += mass_weighted_cs_red;
 }
 
 // Remove gas consistent with Bondi accretion
