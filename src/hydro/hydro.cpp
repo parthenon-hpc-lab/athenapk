@@ -411,6 +411,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       auto units = pkg->Param<Units>("units");
       const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
       const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+      pkg->AddParam<>("mu", mu);
       pkg->AddParam<>("mbar_over_kb",
                       mu * units.atomic_mass_unit() / units.k_boltzmann());
     }
