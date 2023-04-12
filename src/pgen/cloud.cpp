@@ -45,7 +45,8 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 
   auto gamma = pin->GetReal("hydro", "gamma");
   auto gm1 = (gamma - 1.0);
-  const auto mbar_over_kb = pin->GetReal("hydro", "mbar_over_kb");
+  const auto &pkg = mesh->packages.Get("Hydro");
+  const auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
 
   r_cloud = pin->GetReal("problem/cloud", "r0_cgs") / units.code_length_cgs();
   rho_cloud = pin->GetReal("problem/cloud", "rho_cloud_cgs") / units.code_density_cgs();
