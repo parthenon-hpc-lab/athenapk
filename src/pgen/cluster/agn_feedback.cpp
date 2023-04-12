@@ -200,19 +200,20 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const Real kinetic_jet_height = kinetic_jet_height_;
 
   // Matches 1/2.*jet_density*jet_velocity*jet_velocity*beta_dt;
-  const Real kinetic_feedback =
-      kinetic_fraction_ * power * kinetic_scaling_factor * beta_dt; // energy/volume
+  //const Real kinetic_feedback =
+  //    kinetic_fraction_ * power * kinetic_scaling_factor * beta_dt; // energy/volume
 
   // Amount of density to dump in each cell
-  const Real kinetic_density =
+  const Real jet_density =
       kinetic_mass_fraction_ * mass_rate * kinetic_scaling_factor * beta_dt;
 
   // Velocity of added gas
-  const Real kinetic_velocity =
+  const Real jet_velocity =
       std::sqrt(2. * kinetic_fraction_ * power / (kinetic_mass_fraction_ * mass_rate));
 
   // Amount of momentum density ( density * velocity) to dump in each cell
-  const Real kinetic_momentum = kinetic_density * kinetic_velocity;
+  const Real jet_momentum = jet_density * jet_velocity;
+  const Real jet_momentum2 = SQR(jet_momentum);
   ////////////////////////////////////////////////////////////////////////////////
 
   const parthenon::Real time = tm.time;
@@ -248,7 +249,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         }
 
         // Kinetic Jet Feedback
-        if (kinetic_feedback > 0 || kinetic_density > 0) {
+        if (  jet_density > 0) {
           // Get position in jet cylindrical coords
           Real r, cos_theta, sin_theta, h;
           jet_coords.SimCartToJetCylCoords(x, y, z, r, cos_theta, sin_theta, h);
@@ -263,12 +264,39 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
             const Real sign_jet = (h > 0) ? 1 : -1; // Above or below jet-disk
 
-            cons(IDN, k, j, i) += kinetic_density; // mass/volume
-            // velocity*mass/volume
-            cons(IM1, k, j, i) += kinetic_momentum * sign_jet * jet_axis_x;
-            cons(IM2, k, j, i) += kinetic_momentum * sign_jet * jet_axis_y;
-            cons(IM3, k, j, i) += kinetic_momentum * sign_jet * jet_axis_z;
-            cons(IEN, k, j, i) += kinetic_feedback; // energy/volume
+            ///////////////////////////////////////////////////////////////////
+            //  We add the kinetic jet with a fixed jet density and jet
+            //  velocity while keeping the same ambient temperature. Therefore,
+            //  we keep the same specific internal energy of the existing gas
+            //  while adding the jet density and jet momentum to the existing
+            //  gas
+            ///////////////////////////////////////////////////////////////////
+
+            //Compute the primitives of the old variables to get specific internal energy
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+            const Real specific_internal_e = prim( IPR, k, j, i)/( prim(IDN, k, j, i) * (eos.GetGamma() - 1.) );
+
+            //Helps comput 
+            const Real M_old2 = SQR(cons(IM1, k, j, i))
+                              + SQR(cons(IM2, k, j, i))
+                              + SQR(cons(IM3, k, j, i));
+            const Real M_old_dot_M_jet = cons(IM1, k, j, i) * jet_momentum * sign_jet * jet_axis_x
+                                       + cons(IM2, k, j, i) * jet_momentum * sign_jet * jet_axis_y
+                                       + cons(IM3, k, j, i) * jet_momentum * sign_jet * jet_axis_z;
+            const Real M_jet2 = jet_momentum * jet_momentum;
+
+            cons(IDN, k, j, i) += jet_density;
+            cons(IM1, k, j, i) += jet_momentum * sign_jet * jet_axis_x;
+            cons(IM2, k, j, i) += jet_momentum * sign_jet * jet_axis_y;
+            cons(IM3, k, j, i) += jet_momentum * sign_jet * jet_axis_z;
+
+            // Add thermal energy to keep the same temperature and kinetic energy to match the new momentum density
+            //cons(IEN, k, j, i) += new_thermal_e + new_kinetic_e;
+            const Real old_density = prim(IDN, k, j, i);
+            const Real new_density = cons(IDN, k, j, i);
+            cons(IEN, k, j, i) += jet_density*specific_internal_e + 
+              0.5 * (  -M_old2*jet_density/old_density
+                     + 2 * M_old_dot_M_jet + M_jet2 )/new_density;
           }
         }
         eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);

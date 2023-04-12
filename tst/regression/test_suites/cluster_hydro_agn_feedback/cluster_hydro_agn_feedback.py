@@ -315,7 +315,13 @@ class TestCase(utils.test_case.TestCaseAbs):
                     * jet_velocity
                     * jet_coords.jet_n[2]
                 )
-                dE = inside_jet * time * 0.5 * jet_density * jet_velocity**2
+                dKE = jet_density * inside_jet * time * 0.5 * jet_velocity**2
+                dTE = jet_density * inside_jet * time *self.uniform_gas_pres / (self.uniform_gas_rho*(self.adiabatic_index - 1.0))
+                dE = dKE + dTE
+
+                # DELETEME
+                #print(dKE.max().in_units("code_mass*code_length**-1*code_time**-2"),
+                #      dTE.max().in_units("code_mass*code_length**-1*code_time**-2"))
 
                 return drho, dMx, dMy, dMz, dE
 
