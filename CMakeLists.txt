@@ -83,5 +83,6 @@ add_subdirectory(src)
 if (AthenaPK_ENABLE_TESTING)
   include(CTest)
   add_subdirectory(tst/regression)
+  add_subdirectory(tst/unit)
 endif()
 

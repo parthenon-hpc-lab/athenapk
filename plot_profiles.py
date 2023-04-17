@@ -23,12 +23,14 @@ def plot_profile(name, skip=5, symmetric=False):
         plt.plot(bin_centers[i], profiles[i], label="{:.1f} Gyr".format(times[i]/1e3))
     plt.plot(bin_centers[-1], profiles[-1], label="{:.1f} Gyr".format(times[-1]/1e3))
 
+    plt.xlim(-100, 100)
+
     ymax = np.max(np.abs(np.array(profiles)))
     if symmetric:
         plt.ylim(-ymax, ymax)
         plt.plot(bin_centers[-1], np.zeros_like(bin_centers[-1]), '--', color='gray')
-    else:
-        plt.ylim(0, ymax)
+    #else:
+    #    plt.ylim(0, ymax)
     
     plt.legend(loc='best')
     plt.xlabel("z height (kpc)")
@@ -73,6 +75,9 @@ plot_profile("Edot_profile", symmetric=True)
 plot_profile("drho_rms_profile")
 plot_profile("dP_rms_profile")
 plot_profile("dK_rms_profile")
+plot_profile("grav_accel_profile")
+plot_profile("density_profile")
+plot_profile("pressure_profile")
 #plot_profile("dEdot_rms_profile")
 
 plot_timeseries("total_entropy")

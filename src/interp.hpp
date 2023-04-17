@@ -24,11 +24,16 @@ class MonotoneInterpolator {
   MonotoneInterpolator(VectorContainer const &x, VectorContainer const &y);
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION
   MonotoneInterpolator(MonotoneInterpolator const &rhs)
-      : x_vec_(rhs.x_vec_), f_vec_(rhs.f_vec_), d_vec_(rhs.d_vec_) {}
+      : x_min_(rhs.x_min_), x_max_(rhs.x_max_), x_vec_(rhs.x_vec_), f_vec_(rhs.f_vec_),
+        d_vec_(rhs.d_vec_) {}
 
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto operator()(Real x) const -> Real;
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto min() const -> Real { return x_min_; }
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto max() const -> Real { return x_max_; }
 
  private:
+  Real x_min_{};
+  Real x_max_{}; // x_min and x_max are the min and max of x_vec_
   VectorContainer x_vec_{};
   VectorContainer f_vec_{};
   VectorContainer d_vec_{};
@@ -38,7 +43,9 @@ template <class VectorContainer>
 MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
     VectorContainer const &x_vec, VectorContainer const &f_vec) {
   // compute the derivatives at x-values
-  // NOTE: we assume T.size >= 3
+  // NOTE: we assume T.size >= 3 and that the values in x_vec are sorted
+  x_min_ = x_vec[0];
+  x_max_ = x_vec[x_vec.size() - 1];
   x_vec_ = x_vec;
   f_vec_ = f_vec;
   d_vec_ = VectorContainer("d", x_vec_.size());
