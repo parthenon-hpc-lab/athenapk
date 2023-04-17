@@ -14,6 +14,7 @@
 //========================================================================================
 
 #include "Kokkos_Macros.hpp"
+#include "hydro/hydro.hpp"
 #include <kokkos_abstraction.hpp>
 #include <ostream>
 
@@ -30,6 +31,22 @@ class MonotoneInterpolator {
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto operator()(Real x) const -> Real;
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto min() const -> Real { return x_min_; }
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto max() const -> Real { return x_max_; }
+
+  template <class T>
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto ConstructVectorContainer(size_t size)
+      -> VectorContainer;
+
+  template <>
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto
+  ConstructVectorContainer<std::vector<Real>>(size_t size) -> VectorContainer {
+    return VectorContainer(size);
+  }
+
+  template <>
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto
+  ConstructVectorContainer<PinnedArray1D<Real>>(size_t size) -> VectorContainer {
+    return VectorContainer("d", size);
+  }
 
  private:
   Real x_min_{};
@@ -48,7 +65,7 @@ MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
   x_max_ = x_vec[x_vec.size() - 1];
   x_vec_ = x_vec;
   f_vec_ = f_vec;
-  d_vec_ = VectorContainer("d", x_vec_.size());
+  d_vec_ = ConstructVectorContainer<VectorContainer>(x_vec_.size());
 
   auto dright = [=](int i) { // \Delta_i
     return (f_vec_[i + 1] - f_vec_[i]) / (x_vec_[i + 1] - x_vec_[i]);
