@@ -117,7 +117,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("clumps", clumps);
   pkg->AddParam<>("r_clump", r_clump);
 
-  const Real pa = denp / gamma * SQR(vout - shvel) / SQR(mach);
+  const Real pa = dout / gamma * SQR(vout - shvel) / SQR(mach);
   pkg->AddParam<>("pressure_ambient", pa);
 
 /*
