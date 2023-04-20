@@ -42,14 +42,13 @@ class MonotoneInterpolator {
 };
 
 template <>
-KOKKOS_FUNCTION inline auto
-MonotoneInterpolator<std::vector<Real>>::ConstructVectorContainer(size_t size)
+inline auto MonotoneInterpolator<std::vector<Real>>::ConstructVectorContainer(size_t size)
     -> std::vector<Real> {
   return std::vector<Real>(size);
 }
 
 template <>
-KOKKOS_FUNCTION inline auto
+inline auto
 MonotoneInterpolator<PinnedArray1D<Real>>::ConstructVectorContainer(size_t size)
     -> PinnedArray1D<Real> {
   return PinnedArray1D<Real>("d", size);
