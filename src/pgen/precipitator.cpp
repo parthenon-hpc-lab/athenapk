@@ -501,17 +501,24 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real code_pressure_cgs = units.code_pressure_cgs();
   const Real code_time_cgs = units.code_time_cgs();
   const Real code_accel_cgs = code_length_cgs / (code_time_cgs * code_time_cgs);
+  IndexRange ibt = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jbt = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kbt = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
-  // fill gravitational accel field
+  // fill gravitational accel field (*must* also fill ghost zones for Ascent analysis)
   auto &grav_accel_z = rc->Get("grav_accel_z").data;
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetInitialConditionsGravAccel", parthenon::DevExecSpace(), 0,
-      0, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      0, kbt.s, kbt.e, jbt.s, jbt.e, ibt.s, ibt.e,
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         // Calculate height
         const Real z = coords.Xc<3>(k);
         const Real abs_z = std::abs(z);
         const Real abs_z_cgs = abs_z * code_length_cgs;
+        PARTHENON_REQUIRE(abs_z_cgs >= P_rho_profile.min(),
+                          "z must be greater than interpProfile.min()!");
+        PARTHENON_REQUIRE(abs_z_cgs <= P_rho_profile.max(),
+                          "z must be less than interpProfile.max()!");
 
         Real g_cgs = 0.0;
         if (z != 0) {
@@ -573,9 +580,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
 
   // fill derived vars (including ghost cells)
   auto &coords = pmb->coords;
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
   const Units units(pin);
   const Real code_length_cgs = units.code_length_cgs();
@@ -657,12 +664,10 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
           const Real Edot = taper_fac * rho * tabular_cooling.edot(rho, eint, is_valid);
 
-          PARTHENON_REQUIRE(z >= interpProfile.min(),
-                            "z must be greater than interpProfile.min()!");
-          PARTHENON_REQUIRE(z <= interpProfile.max(),
-                            "z must be less than interpProfile.max()!");
-
-          const Real mean_Edot = interpProfile(z);
+          Real mean_Edot = 0;
+          if ( (z >= interpProfile.min()) && (z <= interpProfile.max()) ) {
+            mean_Edot = interpProfile(z);
+          }
 
           drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
           dP(0, k, j, i) = (P - P_bg) / P_bg;

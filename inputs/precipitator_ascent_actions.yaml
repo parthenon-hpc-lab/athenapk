@@ -31,19 +31,19 @@
             look_at: [0.0, 0.0, 0.0]
             position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
-    gravity: 
-      plots:
-        p1: 
-          type: "pseudocolor"
-          field: "grav_accel_z"
-      renders:
-        r1:
-          image_prefix: "gz%05d"
-          annotations: "true"
-          camera:
-            look_at: [0.0, 0.0, 0.0]
-            position: [0.0, -250.0, 0.0]
-            up: [0.0, 0.0, 1.0]
+    # gravity: 
+    #   plots:
+    #     p1: 
+    #       type: "pseudocolor"
+    #       field: "grav_accel_z"
+    #   renders:
+    #     r1:
+    #       image_prefix: "gz%05d"
+    #       annotations: "true"
+    #       camera:
+    #         look_at: [0.0, 0.0, 0.0]
+    #         position: [0.0, -250.0, 0.0]
+    #         up: [0.0, 0.0, 1.0]
     # heating_rate:
     #   plots: 
     #     p1: 
