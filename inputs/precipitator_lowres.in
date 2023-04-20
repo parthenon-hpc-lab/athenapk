@@ -27,7 +27,7 @@ actions_file = inputs/precipitator_ascent_actions.yaml
 <parthenon/time>
 cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 1000.0    # time limit
+tlim       = 1.0e4      # time limit
 integrator  = rk4       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
