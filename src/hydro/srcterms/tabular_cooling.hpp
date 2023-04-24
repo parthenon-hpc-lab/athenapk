@@ -84,7 +84,7 @@ struct RK45Stepper {
   }
 };
 
-enum class CoolIntegrator { undefined, rk12, rk45, mixed, townsend };
+enum class CoolIntegrator { undefined, rk12, rk45, townsend };
 
 class TabularCooling {
  private:
@@ -106,16 +106,16 @@ class TabularCooling {
   parthenon::ParArray1D<parthenon::Real> townsend_alpha_k_;
 
   // Some constants
-  // mean_molecular_mass*atomic_mass_unit*(adiabatic_index-1)/k_B
-  parthenon::Real mu_m_u_gm1_by_k_B_;
-  // H_mass_fraction/atomic_mass_unit
-  parthenon::Real X_by_m_u_;
+  // mean_molecular_mass*mh*(adiabatic_index-1)/k_B
+  parthenon::Real mu_mh_gm1_by_k_B_;
+  // H_mass_fraction/mh
+  parthenon::Real X_by_mh_;
   // adiabatic_index -1
   parthenon::Real gm1_;
 
   CoolIntegrator integrator_;
 
-  // Temperature floor (assumed in Kelvin and only used in cooling function)
+  // Temperature floor of the fluid solver (assumed in Kelvin)
   parthenon::Real T_floor_;
 
   // Maximum number of iterations/subcycles
@@ -132,7 +132,7 @@ class TabularCooling {
 
   // Interpolate a cooling rate from the table
   static KOKKOS_INLINE_FUNCTION parthenon::Real
-  DeDt(const parthenon::Real &e, const parthenon::Real &mu_m_u_gm1_by_k_B,
+  DeDt(const parthenon::Real &e, const parthenon::Real &mu_mh_gm1_by_k_B,
        const parthenon::Real &n_h2_by_rho, const parthenon::Real &log_temp_start,
        const parthenon::Real &log_temp_final, const parthenon::Real &d_log_temp,
        const unsigned int n_temp,
@@ -144,7 +144,7 @@ class TabularCooling {
       return 0;
     }
 
-    const Real temp = mu_m_u_gm1_by_k_B * e;
+    const Real temp = mu_mh_gm1_by_k_B * e;
     const Real log_temp = log10(temp);
     Real log_lambda;
     if (log_temp < log_temp_start) {
@@ -189,10 +189,6 @@ class TabularCooling {
 
   void SrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt) const;
 
-  // Mixed integration scheme, i.e., try RK12 first and if error is too large
-  // switch to RK45 with adaptive timestepping
-  void MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
-                       const parthenon::Real dt) const;
   // Townsend 2009 exact integration scheme
   void TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real dt) const;

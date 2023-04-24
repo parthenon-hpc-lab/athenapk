@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file tabular_cooling.cpp
@@ -10,11 +10,11 @@
 
 // C++ headers
 #include <fstream>
+#include <limits>
 
 // Parthenon headers
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
-#include <limits>
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
 
@@ -35,8 +35,8 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
 
   gm1_ = pin->GetReal("hydro", "gamma") - 1.0;
 
-  mu_m_u_gm1_by_k_B_ = mu * units.atomic_mass_unit() * gm1_ / units.k_boltzmann();
-  X_by_m_u_ = H_mass_fraction / units.atomic_mass_unit();
+  mu_mh_gm1_by_k_B_ = mu * units.mh() * gm1_ / units.k_boltzmann();
+  X_by_mh_ = H_mass_fraction / units.mh();
 
   const std::string table_filename = pin->GetString("cooling", "table_filename");
 
@@ -53,8 +53,6 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     integrator_ = CoolIntegrator::rk12;
   } else if (integrator_str == "rk45") {
     integrator_ = CoolIntegrator::rk45;
-  } else if (integrator_str == "mixed") {
-    integrator_ = CoolIntegrator::mixed;
   } else if (integrator_str == "townsend") {
     integrator_ = CoolIntegrator::townsend;
   } else {
@@ -118,8 +116,7 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     std::vector<std::string> line_data{std::istream_iterator<std::string>{iss},
                                        std::istream_iterator<std::string>{}};
     // Check size
-    if (line_data.size() == 0 ||
-        line_data.size() <= std::max(log_temp_col, log_lambda_col)) {
+    if (line_data.empty() || line_data.size() <= std::max(log_temp_col, log_lambda_col)) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "Index " << std::max(log_temp_col, log_lambda_col) << " out of range on \""
           << line << "\"" << std::endl;
@@ -173,10 +170,10 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
       PARTHENON_FAIL(msg);
     }
 
-    // Technically, this check is not related do "not Townsend" cooling but to the Dedt()
-    // lookup function that is used in the subcycling method and in order to restrict `dt`
-    // by a cooling cfl.
-    if ((integrator_ != CoolIntegrator::townsend) &&
+    // The Dedt() function currently relies on an equally spaced cooling table for faster
+    // lookup (direct indexing). It is used in the subcycling method and in order to
+    // restrict `dt` by a cooling cfl.
+    if (((integrator_ != CoolIntegrator::townsend) || (cooling_time_cfl_ > 0.0)) &&
         (fabs(d_log_temp_i - d_log_temp) / d_log_temp > d_log_temp_tol_)) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "d_log_temp in table is uneven at i=" << i << " log_temp=" << log_temps[i]
@@ -198,7 +195,8 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
   d_log_temp_ = d_log_temp;
   lambda_final_ = std::pow(10.0, log_lambdas[n_temp_ - 1]);
 
-  if (integrator_ != CoolIntegrator::townsend) {
+  // Setup log_lambdas_ used in Dedt()
+  if ((integrator_ != CoolIntegrator::townsend) || (cooling_time_cfl_ > 0.0)) {
     log_lambdas_ = ParArray1D<Real>("log_lambdas_", n_temp_);
 
     // Read log_lambdas in host_log_lambdas, changing to code units along the way
@@ -208,9 +206,9 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     }
     // Copy host_log_lambdas into device memory
     Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
-
-    // Setup Townsend cooling, i.e., precalulcate piecewise powerlaw approx.
-  } else {
+  }
+  // Setup Townsend cooling, i.e., precalulcate piecewise powerlaw approx.
+  if (integrator_ == CoolIntegrator::townsend) {
     lambdas_ = ParArray1D<Real>("lambdas_", n_temp_);
     temps_ = ParArray1D<Real>("temps_", n_temp_);
 
@@ -268,8 +266,6 @@ void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
     SubcyclingFixedIntSrcTerm<RK12Stepper>(md, dt, RK12Stepper());
   } else if (integrator_ == CoolIntegrator::rk45) {
     SubcyclingFixedIntSrcTerm<RK45Stepper>(md, dt, RK45Stepper());
-  } else if (integrator_ == CoolIntegrator::mixed) {
-    MixedIntSrcTerm(md, dt);
   } else if (integrator_ == CoolIntegrator::townsend) {
     TownsendSrcTerm(md, dt);
   } else {
@@ -287,8 +283,8 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   // Grab member variables for compiler
 
   // Everything needed by DeDt
-  const Real mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
-  const Real X_by_m_u = X_by_m_u_;
+  const Real mu_mh_gm1_by_k_B = mu_mh_gm1_by_k_B_;
+  const Real X_by_mh = X_by_mh_;
   const Real log_temp_start = log_temp_start_;
   const Real log_temp_final = log_temp_final_;
   const Real d_log_temp = d_log_temp_;
@@ -301,7 +297,13 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   const Real min_sub_dt = dt / max_iter;
 
   const Real d_e_tol = d_e_tol_;
-  const Real internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B;
+
+  // Determine the cooling floor, whichever is higher of the cooling table floor
+  // or fluid solver floor
+  const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
+  const Real temp_floor = (T_floor_ > temp_cool_floor) ? T_floor_ : temp_cool_floor;
+
+  const Real internal_e_floor = temp_floor / mu_mh_gm1_by_k_B; // specific internal en.
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -334,13 +336,13 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         internal_e /= rho;
         const Real internal_e_initial = internal_e;
 
-        const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
+        const Real n_h2_by_rho = rho * X_by_mh * X_by_mh;
 
         bool dedt_valid = true;
 
         // Wrap DeDt into a functor for the RKStepper
         auto DeDt_wrapper = [&](const Real t, const Real e, bool &valid) {
-          return DeDt(e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
+          return DeDt(e, mu_mh_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
                       d_log_temp, n_temp, log_lambdas, valid);
         };
 
@@ -351,7 +353,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // Check if cooling is actually happening, e.g., when T below T_cool_min or if
         // temperature is already below floor.
         const Real dedt_initial = DeDt_wrapper(0.0, internal_e_initial, dedt_valid);
-        if (dedt_initial == 0.0 || internal_e_initial < internal_e_floor) {
+        if (dedt_initial == 0.0 || internal_e_initial <= internal_e_floor) {
           return;
         }
 
@@ -460,122 +462,13 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           sub_iter++;
         }
 
-        PARTHENON_REQUIRE(internal_e > internal_e_floor, "cooled below floor");
+        // If cooled below floor, reset to floor value.
+        // This could happen if the floor value is larger than the lower end of the
+        // cooling table or if they are close and the last subcycle in the cooling above
+        // the lower end pushed the temperature below the lower end (and the floor).
+        internal_e = (internal_e > internal_e_floor) ? internal_e : internal_e_floor;
 
         // Remove the cooling from the total energy density
-        cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
-        // Latter technically not required if no other tasks follows before
-        // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
-        prim(IPR, k, j, i) = rho * internal_e * gm1;
-      });
-}
-
-void TabularCooling::MixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
-                                     const parthenon::Real dt_) const {
-  const auto dt = dt_; // HACK capturing parameters still broken with Cuda 11.6 ...
-  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
-  // Grab member variables for compiler
-
-  // Everything needed by DeDt
-  const Real mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
-  const Real X_by_m_u = X_by_m_u_;
-  const Real log_temp_start = log_temp_start_;
-  const Real log_temp_final = log_temp_final_;
-  const Real d_log_temp = d_log_temp_;
-  const unsigned int n_temp = n_temp_;
-  const auto log_lambdas = log_lambdas_;
-
-  const Real gm1 = gm1_;
-
-  const Real d_e_tol = d_e_tol_;
-
-  const Real internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B;
-
-  // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  // need to include ghost zones as this source is called prior to the other fluxes when
-  // split
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
-
-  par_for(
-      DEFAULT_LOOP_PATTERN, "TabularCooling::MixedIntSrcTerm", DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-        auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
-        // Need to use `cons` here as prim may still contain state at t_0;
-        const Real rho = cons(IDN, k, j, i);
-        PARTHENON_REQUIRE(rho > 0.0, "starting with negative density");
-
-        // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
-        // function could be useful.
-        Real internal_e =
-            cons(IEN, k, j, i) - 0.5 *
-                                     (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                      SQR(cons(IM3, k, j, i))) /
-                                     rho;
-        if (mhd_enabled) {
-          internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
-                               SQR(cons(IB3, k, j, i)));
-        }
-        PARTHENON_REQUIRE(internal_e > 0.0, "starting with negative pressure");
-        internal_e /= rho;
-        const Real internal_e_initial = internal_e;
-
-        const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
-
-        bool dedt_valid = true;
-
-        // Wrap DeDt into a functor for the RKStepper
-        auto DeDt_wrapper = [&](const Real t, const Real e, bool &valid) {
-          return DeDt(e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
-                      d_log_temp, n_temp, log_lambdas, valid);
-        };
-
-        // Check if cooling is actually happening, e.g., when T below T_cool_min or if
-        // temperature is already below floor.
-        const Real dedt_initial = DeDt_wrapper(0.0, internal_e_initial, dedt_valid);
-        if (dedt_initial == 0.0 || internal_e_initial < internal_e_floor) {
-          return;
-        }
-
-        // Next higher order estimate
-        Real internal_e_next_h;
-        // Next lower order estimate
-        Real internal_e_next_l;
-        // Error in estimate of higher order
-        Real d_e_err;
-
-        // Do one dual order RK step
-        RK12Stepper::Step(0.0, dt, internal_e, DeDt_wrapper, internal_e_next_h,
-                          internal_e_next_l, dedt_valid);
-
-        PARTHENON_REQUIRE(dedt_valid,
-                          "RK12 (sub)step resulted in negative internal energy");
-
-        // Compute error
-        d_e_err = fabs((internal_e_next_h - internal_e_next_l) / internal_e_next_h);
-        // TODO(pgrete) switch to adaptive RK45 if error is too large.
-        PARTHENON_REQUIRE(d_e_err < d_e_tol,
-                          "Error of RK12 too large. Consider a smaller cooling_cfl.")
-
-        // Limit cooling to temperature floor
-        if (internal_e_initial > internal_e_floor &&
-            internal_e_next_h < internal_e_floor) {
-          internal_e = internal_e_floor;
-        } else {
-          internal_e = internal_e_next_h;
-        }
-
-        // TODO(pgrete) Remove following failsafe as it should never trigger (in theory)
-        PARTHENON_REQUIRE(internal_e_initial > internal_e,
-                          "Not cool... Gas didn't cool...");
-
-        // Remove the cooling from the specific total energy
         cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
@@ -590,8 +483,8 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   // Grab member variables for compiler
   const auto dt = dt_; // HACK capturing parameters still broken with Cuda 11.6 ...
-  const auto mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
-  const auto X_by_m_u = X_by_m_u_;
+  const auto mu_mh_gm1_by_k_B = mu_mh_gm1_by_k_B_;
+  const auto X_by_mh = X_by_mh_;
 
   const auto lambdas = lambdas_;
   const auto temps = temps_;
@@ -600,7 +493,7 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   const auto gm1 = gm1_;
 
-  const auto internal_e_floor = T_floor_ / mu_m_u_gm1_by_k_B;
+  const auto internal_e_floor = T_floor_ / mu_mh_gm1_by_k_B;
   const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
 
   // Grab some necessary variables
@@ -649,13 +542,13 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           return;
         }
 
-        auto temp = mu_m_u_gm1_by_k_B * internal_e;
+        auto temp = mu_mh_gm1_by_k_B * internal_e;
         // Temperature is above floor (see conditional above) but below cooling table:
         // -> no cooling
         if (temp < temp_cool_floor) {
           return;
         }
-        const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
+        const Real n_h2_by_rho = rho * X_by_mh * X_by_mh;
 
         // Get the index of the right temperature bin
         // TODO(?) this could be optimized for using a binary search
@@ -672,7 +565,7 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
         // Compute the adjusted TEF for new timestep (Eqn. 26) (term in brackets)
         const auto tef_adj =
-            tef + lambda_final * dt / temp_final * mu_m_u_gm1_by_k_B * n_h2_by_rho;
+            tef + lambda_final * dt / temp_final * mu_mh_gm1_by_k_B * n_h2_by_rho;
 
         // TEF is a strictly decreasing function and new_tef > tef
         // Check if the new TEF falls into a lower bin, i.e., find the right bin for A7
@@ -689,8 +582,8 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                      1.0 / (1.0 - alpha_k(idx)));
         // Set new temp (at the lowest to the lower end of the cooling table)
         const auto internal_e_new = temp_new > temp_cool_floor
-                                        ? temp_new / mu_m_u_gm1_by_k_B
-                                        : temp_cool_floor / mu_m_u_gm1_by_k_B;
+                                        ? temp_new / mu_mh_gm1_by_k_B
+                                        : temp_cool_floor / mu_mh_gm1_by_k_B;
         cons(IEN, k, j, i) += rho * (internal_e_new - internal_e);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
@@ -699,19 +592,14 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 }
 
 Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
-  // No need to restrict dt for townsend cooling
-  // TODO(pgrete) make this optional so that the cfl_cool is detached
-  // from the cooling mechanism, because it may still be desireable to
-  // not let different physical processes evolve on vastly different
-  // timescales.
-  if (integrator_ == CoolIntegrator::townsend) {
+  if (cooling_time_cfl_ <= 0.0) {
     return std::numeric_limits<Real>::max();
   }
   // Grab member variables for compiler
 
   // Everything needed by DeDt
-  const Real mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
-  const Real X_by_m_u = X_by_m_u_;
+  const Real mu_mh_gm1_by_k_B = mu_mh_gm1_by_k_B_;
+  const Real X_by_mh = X_by_mh_;
   const Real log_temp_start = log_temp_start_;
   const Real log_temp_final = log_temp_final_;
   const Real d_log_temp = d_log_temp_;
@@ -719,6 +607,13 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
   const auto log_lambdas = log_lambdas_;
 
   const Real gm1 = gm1_;
+
+  // Determine the cooling floor, whichever is higher of the cooling table floor
+  // or fluid solver floor
+  const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
+  const Real temp_floor = (T_floor_ > temp_cool_floor) ? T_floor_ : temp_cool_floor;
+
+  const Real internal_e_floor = temp_floor / mu_mh_gm1_by_k_B; // specific internal en.
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -740,20 +635,22 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
 
         const Real rho = prim(IDN, k, j, i);
         const Real pres = prim(IPR, k, j, i);
-        const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
+        const Real n_h2_by_rho = rho * X_by_mh * X_by_mh;
 
         const Real internal_e = pres / (rho * gm1);
 
         bool dedt_valid = true;
 
         const Real de_dt =
-            DeDt(internal_e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start,
+            DeDt(internal_e, mu_mh_gm1_by_k_B, n_h2_by_rho, log_temp_start,
                  log_temp_final, d_log_temp, n_temp, log_lambdas, dedt_valid);
 
         // Compute cooling time
-        // If de_dt is zero, using infinite cooling time
-        const Real cooling_time = (de_dt == 0 ? std::numeric_limits<Real>::infinity()
-                                              : fabs(internal_e / de_dt));
+        // If de_dt is zero (temperature is smaller than lower end of cooling table) or
+        // current temp is below floor, use infinite cooling time
+        const Real cooling_time = ((de_dt == 0) || (internal_e < internal_e_floor))
+                                      ? std::numeric_limits<Real>::infinity()
+                                      : fabs(internal_e / de_dt);
 
         thread_min_cooling_time = std::min(cooling_time, thread_min_cooling_time);
       },
@@ -777,8 +674,8 @@ void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
   // Grab member variables for compiler
 
   // Everything needed by DeDt
-  const auto mu_m_u_gm1_by_k_B = mu_m_u_gm1_by_k_B_;
-  const auto X_by_m_u = X_by_m_u_;
+  const auto mu_mh_gm1_by_k_B = mu_mh_gm1_by_k_B_;
+  const auto X_by_mh = X_by_mh_;
   const auto log_temp_start = log_temp_start_;
   const auto log_temp_final = log_temp_final_;
   const auto d_log_temp = d_log_temp_;
@@ -800,7 +697,7 @@ void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
         d_rho(j, i) = rho;
         d_pres(j, i) = pres;
 
-        const Real n_h2_by_rho = rho * X_by_m_u * X_by_m_u;
+        const Real n_h2_by_rho = rho * X_by_mh * X_by_mh;
 
         const Real internal_e = pres / (rho * gm1);
 
@@ -809,7 +706,7 @@ void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
         bool dedt_valid = true;
 
         const Real de_dt =
-            DeDt(internal_e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start,
+            DeDt(internal_e, mu_mh_gm1_by_k_B, n_h2_by_rho, log_temp_start,
                  log_temp_final, d_log_temp, n_temp, log_lambdas, dedt_valid);
 
         d_de_dt(j, i) = de_dt;

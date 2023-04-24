@@ -18,13 +18,14 @@ Current features include
   - optically thin cooling based on tabulated cooling tables with either Townsend 2009 exact integration or operator-split subcycling
 - static and adaptive mesh refinement
 - problem generators for
-  - a linear wave
+  - linear waves
   - circularly polarized Alfven wave
   - blast wave
   - Kelvin-Helmholtz instability
   - field loop advection
   - Orszag Tang vortex
-  - Cloud-in-wind/cloud crushing
+  - cloud-in-wind/cloud crushing
+  - turbulence (with stochastic forcing via an Ornstein-Uhlenbeck process)
 
 Latest performance results for various methods on a single Nvidia Ampere A100 can be found [here](https://github.com/parthenon-hpc-lab/athenapk/actions/workflows/ci.yml).
 
@@ -58,6 +59,8 @@ please either
 * MPI
 * OpenMP (for host parallelism. Note that MPI is the recommended option for on-node parallelism.)
 * HDF5 (for outputs)
+* Python3 (for regressions tests with numpy, scipy, matplotlib, unyt, and h5py modules)
+* Ascent (for in situ visualization and analysis)
 
 #### Building AthenaPK
 
@@ -70,10 +73,13 @@ Obtain all (AthenaPK, Parthenon, and Kokkos) sources
     git submodule init
     git submodule update
 
-Most of the general build instructions and options for Parthenon (see [here](https://github.com/parthenon-hpc-lab/parthenon/blob/develop/docs/building.md)) also apply to AthenaPK.
+Most of the general build instructions and options for Parthenon (see [here](https://parthenon-hpc-lab.github.io/parthenon/develop/src/building.html)) also apply to AthenaPK.
 The following examples are a few standard cases.
 
-Most simple configuration (only CPU, no MPI, no HDF5)
+Most simple configuration (only CPU, no MPI, no HDF5).
+The `Kokkos_ARCH_...` parameter should be adjusted to match the target machine where AthenaPK will be executed.
+A full list of architecture keywords is available on the [Kokkos wiki](https://kokkos.github.io/kokkos-core-wiki/keywords.html#architecture-keywords).
+
 
     # configure with enabling Broadwell architecture (AVX2) instructions
     cmake -S. -Bbuild-host -DKokkos_ARCH_BDW=ON -DPARTHENON_DISABLE_MPI=ON -DPARTHENON_DISABLE_HDF5=ON
@@ -110,7 +116,7 @@ Some example input files are provided in the [inputs](inputs/) folder.
 
 There exit several options to read/process data written by AthenaPK -- specifically in
 the `file_type = hdf5` format, see
-[Parthenon doc](https://github.com/parthenon-hpc-lab/parthenon/blob/develop/docs/outputs.md):
+[Parthenon doc](https://parthenon-hpc-lab.github.io/parthenon/develop/src/outputs.html):
 
 1. With [ParaView](https://www.paraview.org/) and
 [VisIt](https://wci.llnl.gov/simulation/computer-codes/visit/).
@@ -132,7 +138,11 @@ pip install --user -e .
 ```
 Afterwards, `*.phdf` files can be read as usual with `yt.load()`.
 
-3. (Not recommended) Using the integrated Python script called "`phdf`" provided by Parthenon,
+3. Using [Ascent](https://github.com/Alpine-DAV/ascent) (for in situ visualization and analysis).
+This requires Ascent to be installed/available at compile time of AthenaPK.
+To enable set `PARTHENON_ENABLE_ASCENT=ON`.
+
+4. (Not recommended) Using the integrated Python script called "`phdf`" provided by Parthenon,
 i.e., the either install `parthenon_tools`
 (located in `external/parthenon/scripts/python/packages/parthenon/tools`) or add
 that directory to your Python path.
