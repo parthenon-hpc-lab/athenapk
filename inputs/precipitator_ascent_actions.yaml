@@ -44,6 +44,19 @@
     #         look_at: [0.0, 0.0, 0.0]
     #         position: [0.0, -250.0, 0.0]
     #         up: [0.0, 0.0, 1.0]
+    vz: 
+      plots:
+        p1: 
+          type: "pseudocolor"
+          field: "Velocity3"
+      renders:
+        r1:
+          image_prefix: "vz%05d"
+          annotations: "true"
+          camera:
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
+            up: [0.0, 0.0, 1.0]
     # heating_rate:
     #   plots: 
     #     p1: 

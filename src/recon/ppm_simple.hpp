@@ -30,6 +30,10 @@
 
 using parthenon::ScratchPad2D;
 
+enum reconstruct_idx { im2 = 0, im1, i0, ip1, ip2 };
+
+#define WELL_BALANCED
+
 //----------------------------------------------------------------------------------------
 //! \fn PPM()
 //  \brief Reconstructs parabolic slope in cell i to compute ql(i+1) and qr(i). Works for
@@ -161,6 +165,50 @@ void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip
   }
 }
 
+//----------------------------------------------------------------------------------------
+//! \fn PPM_pressure()
+//  \brief Reconstructs parabolic slope in cell i to compute ql(i+1) and qr(i), but
+// subtracts the hydrostatic pressure before the reconstruction and add its back
+// afterward.
+
+KOKKOS_INLINE_FUNCTION
+void PPM_pressure(const Real &q_im2, const Real &q_im1, const Real &q_i,
+                  const Real &q_ip1, const Real &q_ip2, const std::array<Real, 5> &rho,
+                  const std::array<Real, 5> &accel, const Real &dx, Real &ql_ip1,
+                  Real &qr_i) {
+  // compute the hydrostatic pressure in each cell center starting with i0
+  const Real p_i_hse = q_i;
+
+  const Real p_ip1_hse =
+      p_i_hse + 0.25 * dx * (rho[i0] + rho[ip1]) * (accel[i0] + accel[ip1]);
+  const Real p_ip2_hse =
+      p_ip1_hse + 0.25 * dx * (rho[ip1] + rho[ip2]) * (accel[ip1] + accel[ip2]);
+  const Real p_im1_hse =
+      p_i_hse - 0.25 * dx * (rho[i0] + rho[im1]) * (accel[i0] + accel[im1]);
+  const Real p_im2_hse =
+      p_im1_hse - 0.25 * dx * (rho[im1] + rho[im2]) * (accel[im1] + accel[im2]);
+
+  if (p_ip1_hse < 0. || p_ip2_hse < 0. || p_im1_hse < 0. || p_im2_hse < 0.) {
+    // hse pressure is negative, do normal PPM
+    PPM(q_im2, q_im1, q_i, q_ip1, q_ip2, ql_ip1, qr_i);
+
+  } else {
+    // subtract hydrostatic pressure from the cell averages
+    const Real p_i = q_i - p_i_hse;
+    const Real p_ip1 = q_ip1 - p_ip1_hse;
+    const Real p_ip2 = q_ip2 - p_ip2_hse;
+    const Real p_im1 = q_im1 - p_im1_hse;
+    const Real p_im2 = q_im2 - p_im2_hse;
+
+    // do PPM reconstruction
+    PPM(p_im2, p_im1, p_i, p_ip1, p_ip2, ql_ip1, qr_i);
+
+    // add back hydrostatic pressure to the interface states
+    ql_ip1 += q_i + 0.5 * dx * rho[i0] * accel[i0];
+    qr_i += q_i - 0.5 * dx * rho[i0] * accel[i0];
+  }
+}
+
 //! \fn Reconstruct<Reconstruction::ppm, int DIR>()
 //  \brief Wrapper function for PPM reconstruction
 //  In X1DIR call over [is-1,ie+1] to get BOTH L/R states over [is,ie]
@@ -174,27 +222,62 @@ template <Reconstruction recon, int XNDIR>
 KOKKOS_INLINE_FUNCTION typename std::enable_if<recon == Reconstruction::ppm, void>::type
 Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
             const int iu, const parthenon::VariablePack<Real> &q, ScratchPad2D<Real> &ql,
-            ScratchPad2D<Real> &qr) {
-  const auto nvar = q.GetDim(4);
+            ScratchPad2D<Real> &qr, const int g_idx, const Real &dx) {
+  const auto nvar =
+      q.GetDim(4) - 1; // TODO(bwibking): replace with number of 'real' prim vars
+
   for (auto n = 0; n < nvar; ++n) {
-    parthenon::par_for_inner(member, il, iu, [&](const int i) {
-      if constexpr (XNDIR == parthenon::X1DIR) {
-        // ql is ql_ip1 and qr is qr_i
-        PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
-            q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
-      } else if constexpr (XNDIR == parthenon::X2DIR) {
-        // ql is ql_jp1 and qr is qr_j
-        PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
-            q(n, k, j + 2, i), ql(n, i), qr(n, i));
-      } else if constexpr (XNDIR == parthenon::X3DIR) {
-        // ql is ql_kp1 and qr is qr_k
-        PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
-            q(n, k + 2, j, i), ql(n, i), qr(n, i));
-      } else {
-        PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
-      }
-    });
+#ifdef WELL_BALANCED
+    if (n == IPR) {
+      // reconstruct pressure
+      parthenon::par_for_inner(member, il, iu, [&](const int i) {
+        if constexpr (XNDIR == parthenon::X1DIR) {
+          // ql is ql_ip1 and qr is qr_i
+          PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+              q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+        } else if constexpr (XNDIR == parthenon::X2DIR) {
+          // ql is ql_jp1 and qr is qr_j
+          PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+              q(n, k, j + 2, i), ql(n, i), qr(n, i));
+        } else if constexpr (XNDIR == parthenon::X3DIR) {
+          std::array<Real, 5> rho = {q(IDN, k - 2, j, i), q(IDN, k - 1, j, i),
+                                     q(IDN, k, j, i), q(IDN, k + 1, j, i),
+                                     q(IDN, k + 2, j, i)};
+          std::array<Real, 5> accel = {q(g_idx, k - 2, j, i), q(g_idx, k - 1, j, i),
+                                       q(g_idx, k, j, i), q(g_idx, k + 1, j, i),
+                                       q(g_idx, k + 2, j, i)};
+
+          // ql is ql_kp1 and qr is qr_k
+          PPM_pressure(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i),
+                       q(n, k + 1, j, i), q(n, k + 2, j, i), rho, accel, dx, ql(n, i),
+                       qr(n, i));
+        } else {
+          PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
+        }
+      });
+    } else {
+#endif
+      parthenon::par_for_inner(member, il, iu, [&](const int i) {
+        if constexpr (XNDIR == parthenon::X1DIR) {
+          // ql is ql_ip1 and qr is qr_i
+          PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+              q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+        } else if constexpr (XNDIR == parthenon::X2DIR) {
+          // ql is ql_jp1 and qr is qr_j
+          PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+              q(n, k, j + 2, i), ql(n, i), qr(n, i));
+        } else if constexpr (XNDIR == parthenon::X3DIR) {
+          // ql is ql_kp1 and qr is qr_k
+          PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
+              q(n, k + 2, j, i), ql(n, i), qr(n, i));
+        } else {
+          PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
+        }
+      });
+    }
+#ifdef WELL_BALANCED
   }
+#endif
 }
 
 #endif // RECONSTRUCT_PPM_SIMPLE_HPP_

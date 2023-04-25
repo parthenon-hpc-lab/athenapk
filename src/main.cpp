@@ -86,12 +86,10 @@ int main(int argc, char *argv[]) {
   } else if (problem == "precipitator") {
     Hydro::ProblemInitPackageData = precipitator::ProblemInitPackageData;
     pman.app_input->ProblemGenerator = precipitator::ProblemGenerator;
-#if 0
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x3] =
-        precipitator::HydrostaticInnerX3;
+        precipitator::ReflectingInnerX3;
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x3] =
-        precipitator::HydrostaticOuterX3;
-#endif
+        precipitator::ReflectingOuterX3;
     pman.app_input->MeshBlockUserWorkBeforeOutput = precipitator::UserWorkBeforeOutput;
     Hydro::ProblemSourceUnsplit = precipitator::AddUnsplitSrcTerms;
     Hydro::ProblemSourceFirstOrder = precipitator::AddSplitSrcTerms;

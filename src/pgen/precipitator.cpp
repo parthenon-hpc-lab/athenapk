@@ -27,6 +27,7 @@
 
 // Parthenon headers
 #include "config.hpp"
+#include "defs.hpp"
 #include "globals.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
@@ -163,6 +164,92 @@ class PrecipitatorProfile {
   MonotoneInterpolator<PinnedArray1D<Real>> spline_g_;
 };
 
+/**
+ * Function for checking boundary flags: is this a domain or internal bound?
+ */
+bool IsDomainBound(MeshBlock *pmb, parthenon::BoundaryFace face) {
+  return !(pmb->boundary_flag[face] == parthenon::BoundaryFlag::block ||
+           pmb->boundary_flag[face] == parthenon::BoundaryFlag::periodic);
+}
+/**
+ * Get zones which are inside the physical domain, i.e. set by computation or MPI halo
+ * sync, not by problem boundary conditions.
+ */
+auto GetPhysicalZones(MeshBlock *pmb, parthenon::IndexShape &bounds)
+    -> std::tuple<IndexRange, IndexRange, IndexRange> {
+  return std::tuple<IndexRange, IndexRange, IndexRange>{
+      IndexRange{IsDomainBound(pmb, parthenon::BoundaryFace::inner_x1)
+                     ? bounds.is(IndexDomain::interior)
+                     : bounds.is(IndexDomain::entire),
+                 IsDomainBound(pmb, parthenon::BoundaryFace::outer_x1)
+                     ? bounds.ie(IndexDomain::interior)
+                     : bounds.ie(IndexDomain::entire)},
+      IndexRange{IsDomainBound(pmb, parthenon::BoundaryFace::inner_x2)
+                     ? bounds.js(IndexDomain::interior)
+                     : bounds.js(IndexDomain::entire),
+                 IsDomainBound(pmb, parthenon::BoundaryFace::outer_x2)
+                     ? bounds.je(IndexDomain::interior)
+                     : bounds.je(IndexDomain::entire)},
+      IndexRange{IsDomainBound(pmb, parthenon::BoundaryFace::inner_x3)
+                     ? bounds.ks(IndexDomain::interior)
+                     : bounds.ks(IndexDomain::entire),
+                 IsDomainBound(pmb, parthenon::BoundaryFace::outer_x3)
+                     ? bounds.ke(IndexDomain::interior)
+                     : bounds.ke(IndexDomain::entire)}};
+}
+
+enum class BCSide { Inner, Outer };
+enum class BCType { Outflow, Reflect };
+
+template <parthenon::CoordinateDirection DIR, BCSide SIDE, BCType TYPE>
+void ApplyBC(MeshBlock *pmb, VariablePack<Real> &q, IndexRange &nvar,
+             const bool is_normal, const bool coarse) {
+  // convenient shorthands
+  constexpr bool X1 = (DIR == X1DIR);
+  constexpr bool X2 = (DIR == X2DIR);
+  constexpr bool X3 = (DIR == X3DIR);
+  constexpr bool INNER = (SIDE == BCSide::Inner);
+
+  const auto &bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
+
+  const auto &range = X1 ? bounds.GetBoundsI(IndexDomain::interior)
+                         : (X2 ? bounds.GetBoundsJ(IndexDomain::interior)
+                               : bounds.GetBoundsK(IndexDomain::interior));
+  const int ref = INNER ? range.s : range.e;
+
+  std::string label = (TYPE == BCType::Reflect ? "Reflect" : "Outflow");
+  label += (INNER ? "Inner" : "Outer");
+  label += "X" + std::to_string(DIR);
+
+  constexpr IndexDomain domain =
+      INNER ? (X1 ? IndexDomain::inner_x1
+                  : (X2 ? IndexDomain::inner_x2 : IndexDomain::inner_x3))
+            : (X1 ? IndexDomain::outer_x1
+                  : (X2 ? IndexDomain::outer_x2 : IndexDomain::outer_x3));
+
+  // used for reflections
+  const int offset = 2 * ref + (INNER ? -1 : 1);
+
+  pmb->par_for_bndry(
+      label, nvar, domain, coarse,
+      KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+        if (!q.IsAllocated(l)) return;
+        if (TYPE == BCType::Reflect) {
+          q(l, k, j, i) =
+              (is_normal ? -1.0 : 1.0) *
+              q(l, X3 ? offset - k : k, X2 ? offset - j : j, X1 ? offset - i : i);
+        } else {
+          q(l, k, j, i) = q(l, X3 ? ref : k, X2 ? ref : j, X1 ? ref : i);
+        }
+      });
+}
+
+template <parthenon::CoordinateDirection DIR, BCSide SIDE, BCType TYPE>
+void ApplyBC(MeshBlock *pmb, VariablePack<Real> &q, bool is_normal, bool coarse = false) {
+  auto nvar = IndexRange{0, q.GetDim(4) - 1};
+  ApplyBC<DIR, SIDE, TYPE>(pmb, q, nvar, is_normal, coarse);
+}
+
 void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) {
   // add source terms unsplit within the RK integrator
   // gravity
@@ -177,13 +264,6 @@ void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real
     MagicHeatingSrcTerm(md, t, dt);
   }
 }
-
-#if 0
-KOKKOS_FORCEINLINE_FUNCTION auto gz_pointwise(const Real z, const Real h_smooth,
-                                              const Real kT_over_mu) -> Real {
-  return (z != 0) ? (-kT_over_mu * SQR(std::tanh(std::abs(z) / h_smooth)) / z) : 0;
-}
-#endif
 
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
   // add gravitational source term directly to the rhs
@@ -279,6 +359,40 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
       });
 }
 
+void ReflectingInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
+  std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
+  auto cons_pack = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
+
+  // loop over vars in cons_pack
+  const auto nvar = cons_pack.GetDim(4);
+  for (int n = 0; n < nvar; ++n) {
+    bool is_normal_dir = false;
+    if (n == IM3) {
+      is_normal_dir = true;
+    }
+    IndexRange nv{n, n};
+    ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb.get(), cons_pack, nv,
+                                                   is_normal_dir, coarse);
+  }
+}
+
+void ReflectingOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
+  std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
+  auto cons_pack = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
+
+  // loop over vars in cons_pack
+  const auto nvar = cons_pack.GetDim(4);
+  for (int n = 0; n < nvar; ++n) {
+    bool is_normal_dir = false;
+    if (n == IM3) {
+      is_normal_dir = true;
+    }
+    IndexRange nv{n, n};
+    ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb.get(), cons_pack, nv,
+                                                   is_normal_dir, coarse);
+  }
+}
+
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
   if (parthenon::Globals::my_rank == 0) {
     std::cout << "Starting ProblemInitPackageData...\n";
@@ -286,7 +400,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto &hydro_pkg = pkg;
 
   // add gravitational accel field
-  auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  auto m = Metadata({Metadata::Cell, Metadata::OneCopy, Metadata::FillGhost},
+                    std::vector<int>({1}));
   pkg->AddField("grav_accel_z", m);
 
   /// add derived fields
@@ -501,12 +616,12 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real code_pressure_cgs = units.code_pressure_cgs();
   const Real code_time_cgs = units.code_time_cgs();
   const Real code_accel_cgs = code_length_cgs / (code_time_cgs * code_time_cgs);
-  IndexRange ibt = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jbt = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kbt = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+  auto [ibt, jbt, kbt] = GetPhysicalZones(pmb, pmb->cellbounds);
 
-  // fill gravitational accel field (*must* also fill ghost zones for Ascent analysis)
-  auto &grav_accel_z = rc->Get("grav_accel_z").data;
+  // fill gravitational accel field (*must* fill ghost zones for well-balanced PPM
+  // reconstruction)
+  auto grav_accel_z = rc->PackVariables(std::vector<std::string>{"grav_accel_z"});
+
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetInitialConditionsGravAccel", parthenon::DevExecSpace(), 0,
       0, kbt.s, kbt.e, jbt.s, jbt.e, ibt.s, ibt.e,
@@ -515,6 +630,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         const Real z = coords.Xc<3>(k);
         const Real abs_z = std::abs(z);
         const Real abs_z_cgs = abs_z * code_length_cgs;
+
         PARTHENON_REQUIRE(abs_z_cgs >= P_rho_profile.min(),
                           "z must be greater than interpProfile.min()!");
         PARTHENON_REQUIRE(abs_z_cgs <= P_rho_profile.max(),
@@ -527,6 +643,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         const Real g_z = g_cgs / code_accel_cgs; // convert to code units
         grav_accel_z(0, k, j, i) = g_z;
       });
+
+  // ensure that the gravitational acceleration is reflected at x3-boundaries
+  ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_accel_z, true);
+  ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_accel_z, true);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetInitialConditions", parthenon::DevExecSpace(), 0, 0, kb.s,
@@ -665,7 +785,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           const Real Edot = taper_fac * rho * tabular_cooling.edot(rho, eint, is_valid);
 
           Real mean_Edot = 0;
-          if ( (z >= interpProfile.min()) && (z <= interpProfile.max()) ) {
+          if ((z >= interpProfile.min()) && (z <= interpProfile.max())) {
             mean_Edot = interpProfile(z);
           }
 

@@ -21,7 +21,7 @@ id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 25.0
+dt           = 10.0
 actions_file = inputs/precipitator_ascent_actions.yaml
 
 <parthenon/time>
@@ -51,10 +51,9 @@ ox2_bc     = periodic   # outer-X2 boundary flag
 nx3        = 128       # Number of zones in X3-direction
 x3min      = -100.       # minimum value of X3
 x3max      = 100.       # maximum value of X3
-ix3_bc     = periodic       # inner-X3 boundary flag
-ox3_bc     = periodic       # outer-X3 boundary flag
-#ix3_bc     = user   # inner-X3 boundary flag
-#ox3_bc     = user   # outer-X3 boundary flag
+ix3_bc     = user       # inner-X3 boundary flag
+ox3_bc     = user       # outer-X3 boundary flag
+
 
 <parthenon/meshblock>
 nx1        = 32        # Number of zones in X1-direction
@@ -80,7 +79,7 @@ code_mass_cgs = 1.98841586e+33  # Msun
 code_time_cgs = 3.15576e+13     # Myr
 
 <cooling>
-enable_cooling = tabular    # tabular
+enable_cooling = none    # tabular
 integrator = rk12           # (townsend, rk12)
 table_filename = ./inputs/precipitator.cooling
 log_temp_col = 0
@@ -91,11 +90,11 @@ cfl = 1.0
 <precipitator>
 hse_profile_filename = ./inputs/tabulated_hse_tc_tff_8.0_taper.txt
 
-enable_heating = magic   # magic
+enable_heating = none   # magic
 numHist = 64
 h_smooth_heatcool_kpc = 20.
 
-perturb_sin_drho_over_rho = 0.01
+perturb_sin_drho_over_rho = 0.0
 perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32
