@@ -100,9 +100,9 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.bondi_beta = 2
         self.bondi_n0 = 0.05 * (self.uniform_gas_rho / self.mean_molecular_mass)
 
-        #Discrepency expected due to volume integration of sphere with cubic
-        #cells, difference in integration order between simulation and
-        #determined densities and pressures here
+        # Discrepency expected due to volume integration of sphere with cubic
+        # cells, difference in integration order between simulation and
+        # determined densities and pressures here
         self.norm_tol = 1e-2
         self.linf_accretion_rate_tol = 1e-2
 
@@ -240,7 +240,6 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             accretion_volume = 4.0 / 3.0 * np.pi * self.accretion_radius**3
 
-
             #################################################################
             # Integrate the accretion rate, density, and pressure at the same
             # times used by the simulation
@@ -248,7 +247,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             for i in range(n_times):
                 dt = sim_dts[i]
 
-                #Compute accretion rate from integrated density
+                # Compute accretion rate from integrated density
                 if triggering_mode == "COLD_GAS":
                     # Temperature should stay fixed below cold gas threshold
                     accretion_rate = (
@@ -277,7 +276,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                         * analytic_pressure[i]
                         / analytic_density[i]
                     )
-                    v2 = (self.uniform_gas_M/analytic_density[i])**2
+                    v2 = (self.uniform_gas_M / analytic_density[i]) ** 2
                     accretion_rate = (
                         alpha
                         * (
@@ -296,12 +295,18 @@ class TestCase(utils.test_case.TestCaseAbs):
 
                 accretion_rate_density = accretion_rate / accretion_volume
 
-                # From computed accretion rate, determine the new density and pressure 
+                # From computed accretion rate, determine the new density and pressure
                 analytic_density[i + 1] = (
                     analytic_density[i] - accretion_rate_density * dt
                 ).in_units(analytic_density.units)
 
-                analytic_pressure[i + 1] = ( (self.adiabatic_index - 1.0) *(self.uniform_gas_energy_density - 0.5*analytic_density[i+1]*self.uniform_gas_vel**2) ).in_units(analytic_pressure.units)
+                analytic_pressure[i + 1] = (
+                    (self.adiabatic_index - 1.0)
+                    * (
+                        self.uniform_gas_energy_density
+                        - 0.5 * analytic_density[i + 1] * self.uniform_gas_vel**2
+                    )
+                ).in_units(analytic_pressure.units)
 
                 analytic_accretion_rate[i] = accretion_rate.in_units(
                     analytic_accretion_rate.units
@@ -312,7 +317,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 (analytic_accretion_rate - sim_accretion_rate) / analytic_accretion_rate
             )
 
-            #import ipdb;ipdb.set_trace()
+            # import ipdb;ipdb.set_trace()
 
             if np.max(accretion_rate_err) > self.linf_accretion_rate_tol:
                 analyze_status = False
@@ -328,7 +333,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             final_Mx = self.uniform_gas_Mx
             final_My = self.uniform_gas_My
             final_Mz = self.uniform_gas_Mz
-            final_energy_density =  self.uniform_gas_energy_density
+            final_energy_density = self.uniform_gas_energy_density
 
             def accretion_mask(Z, Y, X, inner_state, outer_state):
                 pos_cart = unyt.unyt_array((X, Y, Z), "code_length")
@@ -391,18 +396,18 @@ class TestCase(utils.test_case.TestCaseAbs):
                 )
                 .in_units("code_mass/code_length**3")
                 .v,
-                "MomentumDensity1": lambda Z, Y, X, time: self.uniform_gas_Mx
-                .in_units("code_mass*code_length**-2*code_time**-1")
-                .v,
-                "MomentumDensity2": lambda Z, Y, X, time: self.uniform_gas_My
-                .in_units("code_mass*code_length**-2*code_time**-1")
-                .v,
-                "MomentumDensity3": lambda Z, Y, X, time: self.uniform_gas_Mz
-                .in_units("code_mass*code_length**-2*code_time**-1")
-                .v,
-                "TotalEnergyDensity": lambda Z, Y, X, time: self.uniform_gas_energy_density
-                .in_units("code_mass*code_length**-1*code_time**-2")
-                .v,
+                "MomentumDensity1": lambda Z, Y, X, time: self.uniform_gas_Mx.in_units(
+                    "code_mass*code_length**-2*code_time**-1"
+                ).v,
+                "MomentumDensity2": lambda Z, Y, X, time: self.uniform_gas_My.in_units(
+                    "code_mass*code_length**-2*code_time**-1"
+                ).v,
+                "MomentumDensity3": lambda Z, Y, X, time: self.uniform_gas_Mz.in_units(
+                    "code_mass*code_length**-2*code_time**-1"
+                ).v,
+                "TotalEnergyDensity": lambda Z, Y, X, time: self.uniform_gas_energy_density.in_units(
+                    "code_mass*code_length**-1*code_time**-2"
+                ).v,
                 "Pressure": lambda Z, Y, X, time: accretion_mask(
                     Z, Y, X, final_pres, self.uniform_gas_pres
                 )
