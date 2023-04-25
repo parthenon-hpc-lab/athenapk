@@ -223,9 +223,11 @@ cell within the accretion region changes by
 ```
 new_cell_mass = cell_mass - cell_mass/total_mass*mdot*dt;
 ```
-where `total_mass` is the total mass within the accretion zone. This mass is
-removed from the conserved variables such that the velocity and temperature of
-the cell remains the same. Momentum and energy density thus will also change.
+where `total_mass` is the total mass within the accretion zone.  The accreted
+mass is removed from the gas which momentum density and energy density
+unchanged. Thus velocities and temperatures will increase where mass is
+removed.
+
 
 With COLD_GAS accretion, the accretion rate becomes the total mass within the accretion zone equal to or
 below a defined cold temperature threshold divided by a defined accretion
@@ -241,8 +243,7 @@ timescale. E.g. for each cell in the accretion zone with cold gas
 new_cell_mass = cell_mass - cell_mass/cold_t_acc*dt;
 ```
 As with the Bondi-like accretion prescriptions, this mass is removed such that
-the velocity and temperature of the cell remains the same. Momentum and energy
-density thus will also change.
+the momentum and energy densities are unchanged.
 
 
 ## AGN Feedback
@@ -254,10 +255,11 @@ fixed_power = 0.0
 efficiency = 0.001
 ```
 Where and `mdot` calculated from AGN triggering will lead to an an AGN feedback
-power of `agn_power = efficiency*mdot*c**2`. The fixed power and triggered
-power are not mutually exclusive; if both `fixed_power` is defined and
-triggering is enabled with a non-zero `efficiency`, then the `fixed_power` will
-be added to the triggered AGN power.
+power of `agn_power = efficiency*mdot*c**2`. The parameter `efficiency` is
+specifically the AGN's effiency converting in-falling mass into energy in the
+jet. The fixed power and triggered power are not mutually exclusive; if both
+`fixed_power` is defined and triggering is enabled with a non-zero
+`efficiency`, then the `fixed_power` will be added to the triggered AGN power.
 
 
 AGN feedback can be injected via any combination of an injected magnetic tower,
@@ -280,16 +282,24 @@ Mass is also injected into the sphere at a flat density rate with the existing
 velocity and temperature to match the accreted mass proportioned to thermal
 feedback, e.g.
 ```
-thermal_injected_mass = mdot * normalized_thermal_fraction;
+thermal_injected_mass = mdot * (1 - efficiency) * normalized_thermal_fraction;
 ```
 
-Kinetic feedback is deposited into cylinder along the axis of the jet within a
-defined radius and height above and below the plane of the AGN disk.
+Kinetic feedback is deposited into two disks along the axis of the jet within a
+defined radius, thickness of each disk, and an offset above and below the plane
+of the AGN disk where each disk begins.
 ```
 <problem/cluster/agn_feedback>
 kinetic_jet_radius  = 0.0005
-kinetic_jet_height  = 0.0005
+kinetic_jet_thickness  = 0.0005
+kinetic_jet_offset  = 0.0005
 ```
+Along the axis of the jet, kinetic energy will be deposited as far away as
+`kinetic_jet_offset+kinetic_jet_thickness` in either direction. With a z-axis
+aligned jet, `kinetic_jet_thickness` should be a multiple of the deposition
+zone grid size, otherwise feedback will be lost due to systematic integration
+error.
+
 The axis of the jet can be set to precess with 
 ```
 <problem/cluster/precessing_jet>
@@ -301,27 +311,42 @@ at defined precession angle off of the z-axis (`jet_theta`), an initial
 azimuthal angle (`jet_phi0`), and an rate of azimuthal precession
 (`jet_phi_dot`).
 
-Kinetic jet energy is injected at a flat power density within the cynlinder of
-injection as purely kinetic energy, following [Meece
-2017](doi.org/10.1086/501499). The injected mass will match the proportioned
-kinetic feedback, e.g.
+Kinetic jet feedback is injected  is injected as if disk of fixed temperature
+and velocity and changing density to match the AGN triggering rate were added
+to the existing ambient gas. Either or both the jet temperature $T_{jet}$ and
+velocity $v_{jet}$ can be set via
 ```
-kinetic_injected_mass = mdot * normalized_kinetic_fraction;
+<problem/cluster/agn_feedback>
+#kinetic_jet_velocity  = 13.695710297774411 # code_length/code_time
+kinetic_jet_temperature = 1e7 # K
 ```
-and the injected momentum will total the injected kinetic feedback energy. Gas
-energy desnity will remain unchanged. As a result, the injected mass density  rate will be
-
+However, $T_{jet}$ and $v_{jet}$ must be non-negative and fulfill
 $$
-\dot{\rho} = \frac{\dot{M} f_{kinetic}}{2 \pi  h_{jet} r_{jet}^2}
+v_{jet} = \sqrt{ 2 \left ( \epsilon c^2 - (1 - \epsilon) \frac{k_B T_{jet}}{ \mu m_h \left( \gamma - 1 \right} \right ) }
 $$
-
-and the velocity of the injected gas will be 
-
+to ensure that the sum of rest mass energy, thermal energy, and kinetic energy of the new gas sums to $\dot{M} c^2$. Note that these equations places limits  on $T_{jet}$ and $v_{jet}$, specifically
 $$
-c\sqrt{ 2 \epsilon }
+v_{jet} \leq c \sqrt{ 2 \epsilon } \qquad \text{and} \qquad \frac{k_B T_{jet}}{ \mu m_h \left( \gamma - 1 \right} \leq c^2 \frac{ \epsilon}{1 - \epsilon}
 $$
+If the above equations are not satified then an exception will be thrown at
+initialization. If neither $T_{jet}$ nor $v_{jet}$ are specified, then
+$v_{jet}$ will be computed assuming $T_{jet}=0$ and a warning will be given
+that the temperature of the jet is assumed to be 0 K.
 
-where $\epsilon$ is the `efficiency` parameter described earlier in this section.
+The total mass injected with kinetic jet feedback at each time step is
+```
+kinetic_injected_mass = mdot * (1 - efficiency) * normalized_kinetic_fraction;
+```
+In each cell the added density, momentum, and energy are
+```
+kinetic_injected_density = kinetic_injected_mass/(2*kinetic_jet_thickness*pi*kinetic_jet_radius**2)
+kinetic_injected_momentum_density = kinetc_injected_density*kinetic_jet_velocity**2
+kinetic_injected_energy_density = mdot*efficiency*normalized_kinetic_fraction/(2*kinetic_jet_thickness*pi*kinetic_jet_radius**2
+```
+Note that this only guarentees a fixed change in momentum density and total
+energy density; changes in kinetic energy density will depend on the velocity
+of the ambient gas. Temperature will also change but should always increase
+with kinetic jet feedback.
 
 Magnetic feedback is injected following  ([Hui 2006](doi.org/10.1086/501499))
 where the injected magnetic field follows 
@@ -361,7 +386,7 @@ $$
 where $\dot{\rho}_B$ is set to
 
 $$
-\dot{\rho}_B = \frac{3 \pi}{2} \frac{\dot{M} f_{magnetic}}{\ell^3}
+\dot{\rho}_B = \frac{3 \pi}{2} \frac{\dot{M} \left ( 1 - \epsilon \right ) f_{magnetic}}{\ell^3}
 $$
 
 so that the total mass injected matches the accreted mass propotioned to magnetic feedback.
