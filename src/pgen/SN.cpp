@@ -201,6 +201,7 @@ void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *
   const Real rstar = hydro_pkg->Param<Real>("radius_star");
 
   const Real chi = hydro_pkg->Param<Real>("chi");
+  const Real vout = hydro_pkg->Param<Real>("outflow_velocity");
 
   // get coordinates of center of blast, and convert to Cartesian if necessary
   Real x0 = pin->GetOrAddReal("problem/blast", "x1_0", 0.0);
@@ -250,22 +251,23 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
 
         for (int ind = 0; ind < clumps; ind++) {
           Real distan = std::sqrt(SQR(x - position(ind,0)) + SQR(y - position(ind,1)));
-          Real smooth = den + 0.5 * (denp - den) * (1.0 - std::tanh(steepness * (distan / r_clump - 1.0)));
+          Real smooth = den + 0.5 * (chi * den - den) * (1.0 - std::tanh(steepness * (distan / r_clump - 1.0)));
           den = std::max(den,smooth);
         }
 
         //den = *std::max_element(smooth, smooth + clumps);
 
+        mx = den * vout * x / rad;
+        my = den * vout * y / rad;
+
         if (den > 1.1 * dout){
-          //mx = den * sh_vel * x / rad;
-          //my = den * sh_vel * y / rad;
+          mx = den * sh_vel * x / rad;
+          my = den * sh_vel * y / rad;
           for (auto n = nhydro; n < nhydro + nscalars; n++) {
-            u(n, k, j, i) = den * den / denp;
+            u(n, k, j, i) = den * den / chi * den;
           }
         }
 
-        mx = den * sh_vel * x / rad;
-        my = den * sh_vel * y / rad;
 
         //if (rad < routp) {
           //if (rad > rinp) {
