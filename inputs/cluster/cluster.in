@@ -175,9 +175,10 @@ kinetic_fraction = 0.3
 #thermal_fraction = 0.5
 #kinetic_fraction = 0.5
 
-thermal_radius = 0.0005
-kinetic_jet_radius  = 0.0005
-kinetic_jet_height  = 0.0005
+thermal_radius = 0.1
+kinetic_jet_radius  = 0.1
+kinetic_jet_thickness  = 0.05
+kinetic_jet_offset = 0.05
 
 <problem/cluster/magnetic_tower>
 

@@ -16,9 +16,9 @@ dt         = 0.01     # Time increment between outputs
 id         = vars      # Name to append to output
 
 <parthenon/time>
-cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+cfl = 1e1        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 0.01       # time limit
+tlim       = 0.1       # time limit
 integrator  = vl2       # time integration algorithm
 
 
@@ -108,8 +108,10 @@ kinetic_fraction = 0.5
 
 thermal_radius = 0.0125
 
-kinetic_jet_radius = 0.01
-kinetic_jet_height = 0.02
+kinetic_jet_radius = 0.02
+kinetic_jet_thickness  = 0.01
+kinetic_jet_offset = 0.01
+kinetic_jet_temperature = 1e7
 
 <problem/cluster/snia_feedback>
 disabled               = True

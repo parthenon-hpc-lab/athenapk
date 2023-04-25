@@ -118,11 +118,17 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.zjet_coords = ZJetCoords()
 
         # Feedback parameters
-        self.fixed_power = unyt.unyt_quantity(1e44, "erg/s")
+        self.fixed_power = unyt.unyt_quantity(2e46, "erg/s")
         self.agn_thermal_radius = unyt.unyt_quantity(100, "kpc")
         self.efficiency = 1.0e-3
-        self.agn_jet_radius = unyt.unyt_quantity(50, "kpc")
-        self.agn_jet_height = unyt.unyt_quantity(150, "kpc")
+        self.jet_temperature = unyt.unyt_quantity(1e7,"K")
+        self.jet_radius = unyt.unyt_quantity(50, "kpc")
+        self.jet_thickness = unyt.unyt_quantity(50, "kpc")
+        self.jet_offset = unyt.unyt_quantity(10, "kpc")
+
+
+        mu= 1./(3./4.*self.He_mass_fraction + (1-self.He_mass_fraction)*2)
+        self.jet_internal_e = self.jet_temperature*unyt.boltzmann_constant/(mu*unyt.amu*(self.adiabatic_index -1.))
 
         self.norm_tol = 1e-3
 
@@ -199,8 +205,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/cluster/agn_feedback/kinetic_fraction={agn_kinetic_fraction}",
             f"problem/cluster/agn_feedback/magnetic_fraction=0",
             f"problem/cluster/agn_feedback/thermal_radius={self.agn_thermal_radius.in_units('code_length').v}",
-            f"problem/cluster/agn_feedback/kinetic_jet_radius={self.agn_jet_radius.in_units('code_length').v}",
-            f"problem/cluster/agn_feedback/kinetic_jet_height={self.agn_jet_height.in_units('code_length').v}",
+            f"problem/cluster/agn_feedback/kinetic_jet_temperature={self.jet_temperature.in_units('K').v}",
+            f"problem/cluster/agn_feedback/kinetic_jet_radius={self.jet_radius.in_units('code_length').v}",
+            f"problem/cluster/agn_feedback/kinetic_jet_thickness={self.jet_thickness.in_units('code_length').v}",
+            f"problem/cluster/agn_feedback/kinetic_jet_offset={self.jet_offset.in_units('code_length').v}",
         ]
 
         return parameters
@@ -259,10 +267,11 @@ class TestCase(utils.test_case.TestCaseAbs):
             jet_density = (
                 (agn_kinetic_fraction * self.fixed_power)
                 / (self.efficiency * unyt.c_cgs**2)
-                / (2 * np.pi * self.agn_jet_radius**2 * self.agn_jet_height)
+                / (2 * np.pi * self.jet_radius**2 * self.jet_thickness)
             )
 
-            jet_velocity = np.sqrt(2 * self.efficiency) * unyt.c_cgs
+            jet_velocity = np.sqrt(2 * ( self.efficiency * unyt.c_cgs**2 - (1-self.efficiency)*self.jet_internal_e))
+            jet_feedback = self.fixed_power*agn_kinetic_fraction/ (2 * np.pi * self.jet_radius**2 * self.jet_thickness)
 
             def kinetic_feedback(Z, Y, X, time):
                 if not hasattr(time, "units"):
@@ -277,14 +286,21 @@ class TestCase(utils.test_case.TestCaseAbs):
                     np.piecewise(
                         R,
                         [
-                            R <= self.agn_jet_radius,
+                            R <= self.jet_radius,
                         ],
                         [1, 0],
                     )
                     * np.piecewise(
                         H,
                         [
-                            np.abs(H) <= self.agn_jet_height,
+                            np.abs(H) >= self.jet_offset,
+                        ],
+                        [1, 0],
+                    )
+                    * np.piecewise(
+                        H,
+                        [
+                            np.abs(H) <= self.jet_offset + self.jet_thickness,
                         ],
                         [1, 0],
                     )
@@ -315,13 +331,19 @@ class TestCase(utils.test_case.TestCaseAbs):
                     * jet_velocity
                     * jet_coords.jet_n[2]
                 )
-                dKE = jet_density * inside_jet * time * 0.5 * jet_velocity**2
-                dTE = jet_density * inside_jet * time *self.uniform_gas_pres / (self.uniform_gas_rho*(self.adiabatic_index - 1.0))
-                dE = dKE + dTE
+
+                #Note: Final density should be correct by thermal mass injected 
+                #final_density = (time*jet_density + self.uniform_gas_rho)
+                #final_velocity = (time*jet_density*jet_velocity)/( final_density)
+                #dKE = inside_jet * 0.5 * final_density * final_velocity**2
+                #dTE = inside_jet * time * jet_density * self.uniform_gas_pres / (self.uniform_gas_rho*(self.adiabatic_index - 1.0))
+                dE = jet_feedback*time*inside_jet
 
                 # DELETEME
                 #print(dKE.max().in_units("code_mass*code_length**-1*code_time**-2"),
                 #      dTE.max().in_units("code_mass*code_length**-1*code_time**-2"))
+                #print(dE.max()/(
+                #      time* agn_kinetic_fraction*self.fixed_power/(2*np.pi*self.jet_radius**2*self.jet_thickness)))
 
                 return drho, dMx, dMy, dMz, dE
 

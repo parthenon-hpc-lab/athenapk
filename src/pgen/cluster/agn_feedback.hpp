@@ -27,7 +27,6 @@ class AGNFeedback {
  public:
   const parthenon::Real fixed_power_;
   parthenon::Real thermal_fraction_, kinetic_fraction_, magnetic_fraction_;
-  parthenon::Real thermal_mass_fraction_, kinetic_mass_fraction_, magnetic_mass_fraction_;
 
   // Efficiency converting mass to energy
   const parthenon::Real efficiency_;
@@ -36,7 +35,8 @@ class AGNFeedback {
   const parthenon::Real thermal_radius_;
 
   // Kinetic Feedback Parameters
-  const parthenon::Real kinetic_jet_radius_, kinetic_jet_height_;
+  const parthenon::Real kinetic_jet_radius_, kinetic_jet_thickness_, kinetic_jet_offset_;
+  parthenon::Real kinetic_jet_velocity_, kinetic_jet_temperature_;
 
   const bool disabled_;
 
