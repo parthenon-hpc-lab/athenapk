@@ -10,8 +10,8 @@ dt         = 10.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
-variables  = prim, drho_over_rho, dP_over_P, dK_over_K      # Variables to be output
-dt         = 200.0        # Time increment between outputs
+variables  = prim, grav_accel_z, drho_over_rho, dP_over_P, dK_over_K, dEdot_over_Edot     # Variables to be output
+dt         = 100.0        # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/output3>
@@ -21,14 +21,14 @@ id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 20.0
+dt           = 10.0
 actions_file = inputs/precipitator_ascent_actions.yaml
 
 <parthenon/time>
 cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 20000.0      # time limit
-integrator  = rk3       # time integration algorithm
+tlim       = 1.0e4      # time limit
+integrator  = rk4       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
 
@@ -51,8 +51,8 @@ ox2_bc     = periodic   # outer-X2 boundary flag
 nx3        = 512       # Number of zones in X3-direction
 x3min      = -100.       # minimum value of X3
 x3max      = 100.       # maximum value of X3
-ix3_bc     = user   # inner-X3 boundary flag
-ox3_bc     = user   # outer-X3 boundary flag
+ix3_bc     = user       # inner-X3 boundary flag
+ox3_bc     = user       # outer-X3 boundary flag
 
 
 <parthenon/meshblock>
@@ -79,26 +79,23 @@ code_mass_cgs = 1.98841586e+33  # Msun
 code_time_cgs = 3.15576e+13     # Myr
 
 <cooling>
-enable_cooling = tabular    # tabular
+enable_cooling = none    # tabular
 integrator = rk12           # (townsend, rk12)
 table_filename = ./inputs/precipitator.cooling
 log_temp_col = 0
 log_lambda_col = 1
 lambda_units_cgs = 1
+cfl = 1.0
 
 <precipitator>
-hse_profile_filename = ./inputs/tabulated_hse_tc_tff_0.125.txt
+hse_profile_filename = ./inputs/tabulated_hse_tc_tff_8.0_taper.txt
 
-enable_heating = magic   # magic
+enable_heating = none   # magic
 numHist = 64
-bg_temperature = 1.0e6
-h_smooth_kpc = 10.
 h_smooth_heatcool_kpc = 20.
-dimensionless_mmw = 0.6
 
-perturb_sin_drho_over_rho = 0.10
+perturb_sin_drho_over_rho = 0.0
 perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32
 perturb_exponent = 1    # P(k) ~ k^{-2}
-
