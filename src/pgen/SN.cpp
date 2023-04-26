@@ -241,17 +241,19 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
         Real z = coords.Xc<3>(k);
         Real rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
         //Real den = da;
-        Real den = dout * SQR(rstar/rad);
+        Real den0 = dout * SQR(rstar/rad);
+        if (rad < rstar){
+          den0 = dout;          
+        }
+        Real den = den0;
         Real mx = 0.0;
         Real my = 0.0;
-        if (rad < rstar){
-          den = dout;          
-        }
+
 
 
         for (int ind = 0; ind < clumps; ind++) {
           Real distan = std::sqrt(SQR(x - position(ind,0)) + SQR(y - position(ind,1)));
-          Real smooth = den + 0.5 * (chi * den - den) * (1.0 - std::tanh(steepness * (distan / r_clump - 1.0)));
+          Real smooth = den0 + 0.5 * (chi * den0 - den0) * (1.0 - std::tanh(steepness * (distan / r_clump - 1.0)));
           den = std::max(den,smooth);
         }
 
