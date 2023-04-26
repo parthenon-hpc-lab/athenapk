@@ -31,8 +31,7 @@ class MonotoneInterpolator {
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto operator()(Real x) const -> Real;
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto min() const -> Real { return x_min_; }
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto max() const -> Real { return x_max_; }
-  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto ConstructVectorContainer(size_t size)
-      -> VectorContainer;
+  auto ConstructVectorContainer(size_t size) -> VectorContainer;
 
  private:
   Real x_min_{};
@@ -43,15 +42,13 @@ class MonotoneInterpolator {
 };
 
 template <>
-KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto
-MonotoneInterpolator<std::vector<Real>>::ConstructVectorContainer(size_t size)
+auto MonotoneInterpolator<std::vector<Real>>::ConstructVectorContainer(size_t size)
     -> std::vector<Real> {
   return std::vector<Real>(size);
 }
 
 template <>
-KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto
-MonotoneInterpolator<PinnedArray1D<Real>>::ConstructVectorContainer(size_t size)
+auto MonotoneInterpolator<PinnedArray1D<Real>>::ConstructVectorContainer(size_t size)
     -> PinnedArray1D<Real> {
   return PinnedArray1D<Real>("d", size);
 }

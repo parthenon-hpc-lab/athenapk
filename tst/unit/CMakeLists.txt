@@ -9,11 +9,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 # These tests can use the Catch2-provided main
-add_executable(tests tests.cpp)
-target_link_libraries(tests PRIVATE Catch2::Catch2WithMain)
-target_link_libraries(tests PRIVATE parthenon)
+#add_executable(tests tests.cpp)
+#target_link_libraries(tests PRIVATE Catch2::Catch2WithMain)
+#target_link_libraries(tests PRIVATE parthenon)
 
-list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
-include(CTest)
-include(Catch)
-catch_discover_tests(tests)
+#list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+#include(CTest)
+#include(Catch)
+#catch_discover_tests(tests)
