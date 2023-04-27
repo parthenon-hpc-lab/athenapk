@@ -38,6 +38,7 @@
 
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../gauss.hpp"
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../interp.hpp"
@@ -627,21 +628,24 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       0, kbt.s, kbt.e, jbt.s, jbt.e, ibt.s, ibt.e,
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         // Calculate height
-        const Real z = coords.Xc<3>(k);
-        const Real abs_z = std::abs(z);
-        const Real abs_z_cgs = abs_z * code_length_cgs;
+        const Real zcen = coords.Xc<3>(k);
+        const Real zmin = std::abs(zcen) - 0.5 * dx3;
+        const Real zmax = std::abs(zcen) + 0.5 * dx3;
+        const Real zmin_cgs = zmin * code_length_cgs;
+        const Real zmax_cgs = zmax * code_length_cgs;
 
-        PARTHENON_REQUIRE(abs_z_cgs >= P_rho_profile.min(),
-                          "z must be greater than interpProfile.min()!");
-        PARTHENON_REQUIRE(abs_z_cgs <= P_rho_profile.max(),
-                          "z must be less than interpProfile.max()!");
+        // compute 'effective' acceleration
+        // defined as the cell-average rho*g divided by the cell-average rho
+        parthenon::math::quadrature::gauss<Real, 7> quad;
+        auto src = [=](Real z) {
+          return (z > 0) ? (P_rho_profile.rho(z) * P_rho_profile.g(z)) : 0.0;
+        };
+        auto rho = [=](Real z) { return P_rho_profile.rho(z); };
+        const Real accel_eff = quad.integrate(src, zmin_cgs, zmax_cgs) /
+                               quad.integrate(rho, zmin_cgs, zmax_cgs);
 
-        Real g_cgs = 0.0;
-        if (z != 0) {
-          g_cgs = -P_rho_profile.g(abs_z_cgs) * std::copysign(1.0, z);
-        }
-        const Real g_z = g_cgs / code_accel_cgs; // convert to code units
-        grav_accel_z(0, k, j, i) = g_z;
+        const Real accel_code = -accel_eff * std::copysign(1.0, zcen) / code_accel_cgs;
+        grav_accel_z(0, k, j, i) = accel_code;
       });
 
   // ensure that the gravitational acceleration is reflected at x3-boundaries
@@ -653,17 +657,19 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         // Calculate height
-        const Real abs_height = std::abs(coords.Xc<3>(k));
-        const Real abs_height_cgs = abs_height * code_length_cgs;
-
-        PARTHENON_REQUIRE(abs_height_cgs >= P_rho_profile.min(),
-                          "z must be greater than interpProfile.min()!");
-        PARTHENON_REQUIRE(abs_height_cgs <= P_rho_profile.max(),
-                          "z must be less than interpProfile.max()!");
+        const Real zcen = coords.Xc<3>(k);
+        const Real zmin = std::abs(zcen) - 0.5 * dx3;
+        const Real zmax = std::abs(zcen) + 0.5 * dx3;
+        const Real zmin_cgs = zmin * code_length_cgs;
+        const Real zmax_cgs = zmax * code_length_cgs;
 
         // Get density and pressure from generated profile
-        const Real rho_cgs = P_rho_profile.rho(abs_height_cgs);
-        const Real P_cgs = P_rho_profile.P(abs_height_cgs);
+        parthenon::math::quadrature::gauss<Real, 7> quad;
+        auto f_rho = [=](Real z) { return (z > 0) ? P_rho_profile.rho(z) : 0; };
+        auto f_P = [=](Real z) { return (z > 0) ? P_rho_profile.P(z) : 0; };
+
+        const Real rho_cgs = quad.integrate(f_rho, zmin_cgs, zmax_cgs) / (dx3 * code_length_cgs);
+        const Real P_cgs = quad.integrate(f_P, zmin_cgs, zmax_cgs) / (dx3 * code_length_cgs);
 
         // Convert to code units
         const Real rho = rho_cgs / code_density_cgs;
