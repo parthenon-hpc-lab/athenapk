@@ -248,6 +248,10 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
         Real den = den0;
         Real mx = 0.0;
         Real my = 0.0;
+        Real p = pa * SQR(rstar/rad) ;
+        if (rad < rstar){
+          p = pa;          
+        }
 
 
 
@@ -297,7 +301,7 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
         u(IM1, k, j, i) = mx;
         u(IM2, k, j, i) = my;
         u(IM3, k, j, i) = 0.0;
-        u(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
+        u(IEN, k, j, i) = p/gm1 + 0.5 * (mx * mx + my * my) / den;
       });
         
 //      }
@@ -345,6 +349,9 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
           cons(IM2, k, j, i) = mout_y;
           cons(IEN, k, j, i) = pres / gm1 + 0.5*(cons(IM1, k, j, i)*cons(IM1, k, j, i) + cons(IM2, k, j, i)*cons(IM2, k, j, i))/cons(IDN, k, j, i);
         }
+
+        
+
       });
 }
 
