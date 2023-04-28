@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 with open("ascent_session.yaml",'r') as file:
     session = yaml.load(file, Loader=yaml.FullLoader)
 
-def plot_profile(name, skip=5, symmetric=False):
+def plot_profile(name, skip=20, symmetric=False):
     print(f"plotting {name}...")
     series = session[name]
     profiles = []
@@ -32,7 +32,7 @@ def plot_profile(name, skip=5, symmetric=False):
     #else:
     #    plt.ylim(0, ymax)
     
-    plt.legend(loc='best')
+    plt.legend(loc='upper left')
     plt.xlabel("z height (kpc)")
     plt.ylabel(f"{name}")
     plt.tight_layout()

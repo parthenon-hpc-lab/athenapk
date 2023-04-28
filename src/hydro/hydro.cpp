@@ -825,11 +825,10 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     c_h = pkg->Param<Real>("c_h");
   }
 
-  PackIndexMap vmap;
-  const auto &prim_in =
-      md->PackVariables(std::vector<std::string>({"prim", "grav_accel_z"}), vmap);
-  const int prim_idx = vmap.get("prim").first;
-  const int grav_idx = vmap.get("grav_accel_z").first;
+  const auto &prim_in = md->PackVariables(std::vector<std::string>({"prim"}));
+  const auto &hse_in = md->PackVariables(std::vector<std::string>({"pressure_hse"}));
+  const auto &hse_zface_in =
+      md->PackVariables(std::vector<std::string>({"pressure_hse_zface"}));
 
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
@@ -845,13 +844,15 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
       scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
         const auto &prim = prim_in(b);
+        const auto &hse = hse_in(b);
+        const auto &hse_zface = hse_zface_in(b);
         auto &cons = cons_in(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         // get reconstructed state on faces
-        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr, grav_idx, dx1);
+        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr, hse, hse_zface);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
@@ -887,6 +888,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
           const auto &prim = prim_in(b);
+          const auto &hse = hse_in(b);
+          const auto &hse_zface = hse_zface_in(b);
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
@@ -896,7 +899,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
                                             num_scratch_vars, nx1);
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
-            Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr, grav_idx, dx2);
+            Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr, hse, hse_zface);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
@@ -935,6 +938,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
           const auto &prim = prim_in(b);
+          const auto &hse = hse_in(b);
+          const auto &hse_zface = hse_zface_in(b);
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
@@ -944,7 +949,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
                                             num_scratch_vars, nx1);
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
-            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr, grav_idx, dx3);
+            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr, hse, hse_zface);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 

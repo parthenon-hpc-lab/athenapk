@@ -29,6 +29,7 @@
 #include "config.hpp"
 #include "defs.hpp"
 #include "globals.hpp"
+#include "impl/KokkosExp_Host_IterateTile.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
@@ -401,9 +402,15 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto &hydro_pkg = pkg;
 
   // add gravitational accel field
-  auto m = Metadata({Metadata::Cell, Metadata::OneCopy, Metadata::FillGhost},
-                    std::vector<int>({1}));
+  auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("grav_accel_z", m);
+
+  // add hydrostatic pressure field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("pressure_hse", m);
+
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("pressure_hse_zface", m);
 
   /// add derived fields
 
@@ -617,15 +624,16 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real code_pressure_cgs = units.code_pressure_cgs();
   const Real code_time_cgs = units.code_time_cgs();
   const Real code_accel_cgs = code_length_cgs / (code_time_cgs * code_time_cgs);
-  auto [ibt, jbt, kbt] = GetPhysicalZones(pmb, pmb->cellbounds);
+  // const Real code_potential_cgs = code_accel_cgs * code_length_cgs;
 
   // fill gravitational accel field (*must* fill ghost zones for well-balanced PPM
   // reconstruction)
   auto grav_accel_z = rc->PackVariables(std::vector<std::string>{"grav_accel_z"});
 
+  auto [ibp, jbp, kbp] = GetPhysicalZones(pmb, pmb->cellbounds);
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetInitialConditionsGravAccel", parthenon::DevExecSpace(), 0,
-      0, kbt.s, kbt.e, jbt.s, jbt.e, ibt.s, ibt.e,
+      0, kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         // Calculate height
         const Real zcen = coords.Xc<3>(k);
@@ -637,9 +645,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         // compute 'effective' acceleration
         // defined as the cell-average rho*g divided by the cell-average rho
         parthenon::math::quadrature::gauss<Real, 7> quad;
-        auto src = [=](Real z) {
-          return (z > 0) ? (P_rho_profile.rho(z) * P_rho_profile.g(z)) : 0.0;
-        };
+        auto src = [=](Real z) { return P_rho_profile.rho(z) * P_rho_profile.g(z); };
         auto rho = [=](Real z) { return P_rho_profile.rho(z); };
         const Real accel_eff = quad.integrate(src, zmin_cgs, zmax_cgs) /
                                quad.integrate(rho, zmin_cgs, zmax_cgs);
@@ -651,6 +657,47 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   // ensure that the gravitational acceleration is reflected at x3-boundaries
   ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_accel_z, true);
   ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_accel_z, true);
+
+  auto pressure_hse = rc->PackVariables(std::vector<std::string>{"pressure_hse"});
+  auto pressure_hse_zface =
+      rc->PackVariables(std::vector<std::string>{"pressure_hse_zface"});
+
+  IndexRange ibt = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jbt = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kbt = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "SetHydrostaticPressureCells", parthenon::DevExecSpace(), 0,
+      0, kbt.s, kbt.e, jbt.s, jbt.e, ibt.s, ibt.e,
+      KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+        // Calculate height
+        const Real zcen = coords.Xc<3>(k);
+        const Real zmin = std::abs(zcen) - 0.5 * dx3;
+        const Real zmax = std::abs(zcen) + 0.5 * dx3;
+        const Real zmin_cgs = zmin * code_length_cgs;
+        const Real zmax_cgs = zmax * code_length_cgs;
+        const Real dz_cgs = dx3 * code_length_cgs;
+
+        // compute 'effective' acceleration
+        // defined as the cell-average rho*g divided by the cell-average rho
+        parthenon::math::quadrature::gauss<Real, 7> quad;
+        auto p_hse = [=](Real z) { return P_rho_profile.P(z); };
+        const Real P_hse_avg = quad.integrate(p_hse, zmin_cgs, zmax_cgs) / dz_cgs;
+        pressure_hse(0, k, j, i) = P_hse_avg / code_pressure_cgs;
+      });
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "SetHydrostaticPressureFaces", parthenon::DevExecSpace(), 0,
+      0, kbt.s, kbt.e, jbt.s, jbt.e, ibt.s, ibt.e,
+      KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+        // Calculate height
+        const Real zmin_cgs = std::abs(coords.Xf<3>(k)) * code_length_cgs;
+        pressure_hse_zface(0, k, j, i) = P_rho_profile.P(zmin_cgs) / code_pressure_cgs;
+      });
+
+  ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse, false);
+  // FIXME: this does NOT work correctly for face-centered vars!!!
+  // ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse_zface, false);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetInitialConditions", parthenon::DevExecSpace(), 0, 0, kb.s,
@@ -665,11 +712,13 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
         // Get density and pressure from generated profile
         parthenon::math::quadrature::gauss<Real, 7> quad;
-        auto f_rho = [=](Real z) { return (z > 0) ? P_rho_profile.rho(z) : 0; };
-        auto f_P = [=](Real z) { return (z > 0) ? P_rho_profile.P(z) : 0; };
+        auto f_rho = [=](Real z) { return P_rho_profile.rho(z); };
+        auto f_P = [=](Real z) { return P_rho_profile.P(z); };
 
-        const Real rho_cgs = quad.integrate(f_rho, zmin_cgs, zmax_cgs) / (dx3 * code_length_cgs);
-        const Real P_cgs = quad.integrate(f_P, zmin_cgs, zmax_cgs) / (dx3 * code_length_cgs);
+        const Real rho_cgs =
+            quad.integrate(f_rho, zmin_cgs, zmax_cgs) / (dx3 * code_length_cgs);
+        const Real P_cgs =
+            quad.integrate(f_P, zmin_cgs, zmax_cgs) / (dx3 * code_length_cgs);
 
         // Convert to code units
         const Real rho = rho_cgs / code_density_cgs;
@@ -703,6 +752,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto &dEdot = data->Get("dEdot_over_Edot").data;
   auto &meanEdot = data->Get("mean_Edot").data;
   auto &entropy = data->Get("entropy").data;
+  auto &p_hse = data->Get("pressure_hse").data;
 
   // fill derived vars (including ghost cells)
   auto &coords = pmb->coords;
@@ -770,9 +820,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
                             "z must be less than interpProfile.max()!");
 
           const Real rho_cgs = P_rho_profile.rho(abs_height_cgs);
-          const Real P_cgs = P_rho_profile.P(abs_height_cgs);
           const Real rho_bg = rho_cgs / code_density_cgs;
-          const Real P_bg = P_cgs / code_pressure_cgs;
+
+          const Real P_bg = p_hse(0, k, j, i);
           const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
           // get local density, pressure, entropy
@@ -816,9 +866,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
                             "z must be less than interpProfile.max()!");
 
           const Real rho_cgs = P_rho_profile.rho(abs_height_cgs);
-          const Real P_cgs = P_rho_profile.P(abs_height_cgs);
           const Real rho_bg = rho_cgs / code_density_cgs;
-          const Real P_bg = P_cgs / code_pressure_cgs;
+
+          const Real P_bg = p_hse(0, k, j, i);
           const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
           // get local density, pressure, entropy

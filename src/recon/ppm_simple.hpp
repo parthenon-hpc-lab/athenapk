@@ -173,40 +173,26 @@ void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip
 
 KOKKOS_INLINE_FUNCTION
 void PPM_pressure(const Real &q_im2, const Real &q_im1, const Real &q_i,
-                  const Real &q_ip1, const Real &q_ip2, const std::array<Real, 5> &rho,
-                  const std::array<Real, 5> &accel, const Real &dx, Real &ql_ip1,
-                  Real &qr_i) {
-  // compute the hydrostatic pressure in each cell center starting with i0
-  const Real p_i_hse = q_i;
+                  const Real &q_ip1, const Real &q_ip2, const std::array<Real, 5> &p_hse,
+                  const std::array<Real, 2> &p_hse_faces, Real &ql_ip1, Real &qr_i) {
 
-  const Real p_ip1_hse =
-      p_i_hse + 0.25 * dx * (rho[i0] + rho[ip1]) * (accel[i0] + accel[ip1]);
-  const Real p_ip2_hse =
-      p_ip1_hse + 0.25 * dx * (rho[ip1] + rho[ip2]) * (accel[ip1] + accel[ip2]);
-  const Real p_im1_hse =
-      p_i_hse - 0.25 * dx * (rho[i0] + rho[im1]) * (accel[i0] + accel[im1]);
-  const Real p_im2_hse =
-      p_im1_hse - 0.25 * dx * (rho[im1] + rho[im2]) * (accel[im1] + accel[im2]);
+  // subtract cell-average hydrostatic pressure from the cell averages
+  const Real p_i = q_i - p_hse[i0];
+  const Real p_ip1 = q_ip1 - p_hse[ip1];
+  const Real p_ip2 = q_ip2 - p_hse[ip2];
+  const Real p_im1 = q_im1 - p_hse[im1];
+  const Real p_im2 = q_im2 - p_hse[im2];
 
-  if (p_ip1_hse < 0. || p_ip2_hse < 0. || p_im1_hse < 0. || p_im2_hse < 0.) {
-    // hse pressure is negative, do normal PPM
-    PPM(q_im2, q_im1, q_i, q_ip1, q_ip2, ql_ip1, qr_i);
+  // do PPM reconstruction
+  PPM(p_im2, p_im1, p_i, p_ip1, p_ip2, ql_ip1, qr_i);
 
-  } else {
-    // subtract hydrostatic pressure from the cell averages
-    const Real p_i = q_i - p_i_hse;
-    const Real p_ip1 = q_ip1 - p_ip1_hse;
-    const Real p_ip2 = q_ip2 - p_ip2_hse;
-    const Real p_im1 = q_im1 - p_im1_hse;
-    const Real p_im2 = q_im2 - p_im2_hse;
-
-    // do PPM reconstruction
-    PPM(p_im2, p_im1, p_i, p_ip1, p_ip2, ql_ip1, qr_i);
-
-    // add back hydrostatic pressure to the interface states
-    ql_ip1 += q_i + 0.5 * dx * rho[i0] * accel[i0];
-    qr_i += q_i - 0.5 * dx * rho[i0] * accel[i0];
-  }
+  // add pointwise hydrostatic pressure to the reconstructed interface states
+  const Real p_plus = p_hse_faces[1];
+  const Real p_minus = p_hse_faces[0];
+  //const Real p_plus = 0.5 * (p_hse[i0] + p_hse[ip1]);
+  //const Real p_minus = 0.5 * (p_hse[i0] + p_hse[im1]);
+  ql_ip1 += p_plus;
+  qr_i += p_minus;
 }
 
 //! \fn Reconstruct<Reconstruction::ppm, int DIR>()
@@ -222,10 +208,9 @@ template <Reconstruction recon, int XNDIR>
 KOKKOS_INLINE_FUNCTION typename std::enable_if<recon == Reconstruction::ppm, void>::type
 Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
             const int iu, const parthenon::VariablePack<Real> &q, ScratchPad2D<Real> &ql,
-            ScratchPad2D<Real> &qr, const int g_idx, const Real &dx) {
-  const auto nvar =
-      q.GetDim(4) - 1; // TODO(bwibking): replace with number of 'real' prim vars
-
+            ScratchPad2D<Real> &qr, const parthenon::VariablePack<Real> &p,
+            const parthenon::VariablePack<Real> &p_zface) {
+  const auto nvar = q.GetDim(4);
   for (auto n = 0; n < nvar; ++n) {
 #ifdef WELL_BALANCED
     if (n == IPR) {
@@ -240,16 +225,14 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
           PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
               q(n, k, j + 2, i), ql(n, i), qr(n, i));
         } else if constexpr (XNDIR == parthenon::X3DIR) {
-          std::array<Real, 5> rho = {q(IDN, k - 2, j, i), q(IDN, k - 1, j, i),
-                                     q(IDN, k, j, i), q(IDN, k + 1, j, i),
-                                     q(IDN, k + 2, j, i)};
-          std::array<Real, 5> accel = {q(g_idx, k - 2, j, i), q(g_idx, k - 1, j, i),
-                                       q(g_idx, k, j, i), q(g_idx, k + 1, j, i),
-                                       q(g_idx, k + 2, j, i)};
-
+          std::array<Real, 5> p_hse = {p(0, k - 2, j, i), p(0, k - 1, j, i),
+                                       p(0, k, j, i), p(0, k + 1, j, i),
+                                       p(0, k + 2, j, i)};
+          std::array<Real, 2> p_hse_faces = {p_zface(0, k, j, i),
+                                             p_zface(0, k + 1, j, i)};
           // ql is ql_kp1 and qr is qr_k
           PPM_pressure(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i),
-                       q(n, k + 1, j, i), q(n, k + 2, j, i), rho, accel, dx, ql(n, i),
+                       q(n, k + 1, j, i), q(n, k + 2, j, i), p_hse, p_hse_faces, ql(n, i),
                        qr(n, i));
         } else {
           PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
