@@ -106,8 +106,8 @@
     #     name: "histogram_dK"
     bin_gravity:
       params:
-        expression: "binning('grav_accel_z','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
-        name: grav_accel_profile
+        expression: "binning('grav_phi','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
+        name: grav_phi_profile
     bin_density_absolute:
       params:
         expression: "binning('Density','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"

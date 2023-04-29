@@ -89,6 +89,8 @@ cfl = 1.0
 
 <precipitator>
 hse_profile_filename = ./inputs/tabulated_hse_tc_tff_8.0.txt
+temperature = 3.0e7     # K
+dimensionless_mmw = 0.6
 
 enable_heating = none   # magic
 numHist = 64
