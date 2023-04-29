@@ -96,7 +96,7 @@ enable_heating = none   # magic
 numHist = 64
 h_smooth_heatcool_kpc = 20.
 
-perturb_sin_drho_over_rho = 0.0
+perturb_sin_drho_over_rho = 0.01
 perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32
