@@ -28,7 +28,7 @@ actions_file = inputs/precipitator_ascent_actions.yaml
 cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
 tlim       = 1.0e4      # time limit
-integrator  = rk4       # time integration algorithm
+integrator  = rk2       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
 
@@ -88,7 +88,7 @@ lambda_units_cgs = 1
 cfl = 1.0
 
 <precipitator>
-hse_profile_filename = ./inputs/tabulated_hse_tc_tff_8.0_taper.txt
+hse_profile_filename = ./inputs/tabulated_hse_tc_tff_8.0.txt
 
 enable_heating = none   # magic
 numHist = 64
