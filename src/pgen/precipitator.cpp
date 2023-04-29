@@ -58,12 +58,13 @@ class PrecipitatorProfile {
  public:
   PrecipitatorProfile(std::string const &filename)
       : z_min_(get_zmin(filename)), z_max_(get_zmax(filename)), z_(get_z(filename)),
-        rho_(get_rho(filename)), P_(get_P(filename)), g_(get_g(filename)),
-        spline_rho_(z_, rho_), spline_P_(z_, P_), spline_g_(z_, g_) {}
+        rho_(get_rho(filename)), P_(get_P(filename)), phi_(get_phi(filename)),
+        spline_rho_(z_, rho_), spline_P_(z_, P_), spline_phi_(z_, phi_) {}
+
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION
   PrecipitatorProfile(PrecipitatorProfile const &rhs)
       : z_min_(rhs.z_min_), z_max_(rhs.z_max_), spline_P_(rhs.spline_P_),
-        spline_rho_(rhs.spline_rho_), spline_g_(rhs.spline_g_) {}
+        spline_rho_(rhs.spline_rho_), spline_phi_(rhs.spline_phi_) {}
 
   inline auto readProfile(std::string const &filename)
       -> std::tuple<PinnedArray1D<Real>, PinnedArray1D<Real>, PinnedArray1D<Real>,
@@ -77,7 +78,7 @@ class PrecipitatorProfile {
     std::vector<Real> z_vec{};
     std::vector<Real> rho_vec{};
     std::vector<Real> P_vec{};
-    std::vector<Real> g_vec{};
+    std::vector<Real> phi_vec{};
 
     for (std::string line; std::getline(fstream, line);) {
       std::istringstream iss(line);
@@ -89,52 +90,53 @@ class PrecipitatorProfile {
       z_vec.push_back(values.at(0));
       rho_vec.push_back(values.at(1));
       P_vec.push_back(values.at(2));
-      g_vec.push_back(values.at(3));
+      phi_vec.push_back(values.at(6)); // phi is last
     }
 
     // copy to a PinnedArray1D<Real>
     PinnedArray1D<Real> z_("z", z_vec.size());
     PinnedArray1D<Real> rho_("rho", rho_vec.size());
     PinnedArray1D<Real> P_("P", P_vec.size());
-    PinnedArray1D<Real> g_("g", g_vec.size());
+    PinnedArray1D<Real> phi_("phi", phi_vec.size());
+
     for (int i = 0; i < z_vec.size(); ++i) {
       z_(i) = z_vec.at(i);
       rho_(i) = rho_vec.at(i);
       P_(i) = P_vec.at(i);
-      g_(i) = g_vec.at(i);
+      phi_(i) = phi_vec.at(i);
     }
 
-    return std::make_tuple(z_, rho_, P_, g_);
+    return std::make_tuple(z_, rho_, P_, phi_);
   }
 
   inline Real get_zmin(std::string const &filename) {
-    auto [z, rho, P, g] = readProfile(filename);
+    auto [z, rho, P, phi] = readProfile(filename);
     return z[0];
   }
 
   inline Real get_zmax(std::string const &filename) {
-    auto [z, rho, P, g] = readProfile(filename);
+    auto [z, rho, P, phi] = readProfile(filename);
     return z[z.size() - 1];
   }
 
   inline PinnedArray1D<Real> get_z(std::string const &filename) {
-    auto [z, rho, P, g] = readProfile(filename);
+    auto [z, rho, P, phi] = readProfile(filename);
     return z;
   }
 
   inline PinnedArray1D<Real> get_rho(std::string const &filename) {
-    auto [z, rho, P, g] = readProfile(filename);
+    auto [z, rho, P, phi] = readProfile(filename);
     return rho;
   }
 
   inline PinnedArray1D<Real> get_P(std::string const &filename) {
-    auto [z, rho, P, g] = readProfile(filename);
+    auto [z, rho, P, phi] = readProfile(filename);
     return P;
   }
 
-  inline PinnedArray1D<Real> get_g(std::string const &filename) {
-    auto [z, rho, P, g] = readProfile(filename);
-    return g;
+  inline PinnedArray1D<Real> get_phi(std::string const &filename) {
+    auto [z, rho, P, phi] = readProfile(filename);
+    return phi;
   }
 
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real min() const { return z_min_; }
@@ -149,9 +151,9 @@ class PrecipitatorProfile {
     return spline_P_(z);
   }
 
-  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real g(Real z) const {
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real phi(Real z) const {
     // interpolate acceleration from tabulated profile
-    return spline_g_(z);
+    return spline_phi_(z);
   }
 
  private:
@@ -160,10 +162,10 @@ class PrecipitatorProfile {
   PinnedArray1D<Real> z_{};
   PinnedArray1D<Real> rho_{};
   PinnedArray1D<Real> P_{};
-  PinnedArray1D<Real> g_{};
+  PinnedArray1D<Real> phi_{};
   MonotoneInterpolator<PinnedArray1D<Real>> spline_rho_;
   MonotoneInterpolator<PinnedArray1D<Real>> spline_P_;
-  MonotoneInterpolator<PinnedArray1D<Real>> spline_g_;
+  MonotoneInterpolator<PinnedArray1D<Real>> spline_phi_;
 };
 
 /**
@@ -269,34 +271,52 @@ void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real
 
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
   // add gravitational source term directly to the rhs
-  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  // Get HSE profile and parameters
-  const auto &P_rho_profile =
-      hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
+  auto &pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const Real gam = pkg->Param<Real>("gamma");
+  const Real gm1 = (gam - 1.0);
 
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  auto grav_pack = md->PackVariables(std::vector<std::string>{"grav_accel_z"});
+  auto grav_pack = md->PackVariables(std::vector<std::string>{"grav_phi"});
+  auto grav_zface_pack = md->PackVariables(std::vector<std::string>{"grav_phi_zface"});
+
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  auto &coords = md->GetBlockData(0)->GetBlockPointer()->coords;
+  Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
+  Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
+  Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "GravSource", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         auto &cons = cons_pack(b);
+        auto &grav_phi = grav_pack(b);
+        auto &grav_phi_zface = grav_zface_pack(b);
+
         const Real rho = cons(IDN, k, j, i);
         const Real p1 = cons(IM1, k, j, i);
         const Real p2 = cons(IM2, k, j, i);
         Real p3 = cons(IM3, k, j, i);
+        const Real Etot = cons(IEN, k, j, i);
         const Real KE_old = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
+        const Real Eint = Etot - KE_old;
+
+        // compute potential at center and faces
+        const Real phi_zcen = grav_phi(0, k, j, i);
+        const Real phi_zminus = grav_phi_zface(0, k    , j, i);
+        const Real phi_zplus  = grav_phi_zface(0, k + 1, j, i);
+
+        // reconstruct hydrostatic pressure at faces
+        const Real p_i = Eint * gm1;
+        const Real kT_over_mu_i = p_i / rho;
+        const Real p_hse_zplus = p_i * std::exp((phi_zplus - phi_zcen) / kT_over_mu_i);
+        const Real p_hse_zminus = p_i * std::exp((phi_zminus - phi_zcen) / kT_over_mu_i);
 
         // compute momentum update
-        auto &grav_accel_z = grav_pack(b);
-        const Real g_z = grav_accel_z(0, k, j, i);
-        p3 += dt * rho * g_z;
+        p3 += dt * (p_hse_zplus - p_hse_zminus) / dx3;
 
         // compute energy update
         const Real KE_new = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
@@ -312,6 +332,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto units = pkg->Param<Units>("units");
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -403,7 +424,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   // add gravitational accel field
   auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("grav_accel_z", m);
+  pkg->AddField("grav_phi", m);
+
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("grav_phi_zface", m);
 
   // add hydrostatic pressure field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
@@ -412,6 +436,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("pressure_hse_zface", m);
 
+  // add hydrostatic density field (used for derived outputs only)
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("density_hse", m);
 
@@ -627,11 +652,11 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real code_pressure_cgs = units.code_pressure_cgs();
   const Real code_time_cgs = units.code_time_cgs();
   const Real code_accel_cgs = code_length_cgs / (code_time_cgs * code_time_cgs);
-  // const Real code_potential_cgs = code_accel_cgs * code_length_cgs;
+  const Real code_potential_cgs = code_accel_cgs * code_length_cgs;
 
   // fill gravitational accel field (*must* fill ghost zones for well-balanced PPM
   // reconstruction)
-  auto grav_accel_z = rc->PackVariables(std::vector<std::string>{"grav_accel_z"});
+  auto grav_phi = rc->PackVariables(std::vector<std::string>{"grav_phi"});
 
   auto [ibp, jbp, kbp] = GetPhysicalZones(pmb, pmb->cellbounds);
   parthenon::par_for(
@@ -640,38 +665,39 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         // Calculate height
         const Real zcen = coords.Xc<3>(k);
-        const Real zmin = std::abs(zcen) - 0.5 * dx3;
-        const Real zmax = std::abs(zcen) + 0.5 * dx3;
-        const Real zmin_cgs = zmin * code_length_cgs;
-        const Real zmax_cgs = zmax * code_length_cgs;
-        const Real dz_cgs = zmax_cgs - zmin_cgs;
-
-        // compute 'effective' acceleration
-        // defined as (P_hse_i+1/2 - P_hse_i-1/2) / dx divided by the cell-average rho
-        parthenon::math::quadrature::gauss<Real, 7> quad;
-        auto rho = [=](Real z) { return P_rho_profile.rho(z); };
-        const Real rho_i_cgs = quad.integrate(rho, zmin_cgs, zmax_cgs) / dz_cgs;
-        const Real src_i_cgs = (P_rho_profile.P(zmax_cgs) - P_rho_profile.P(zmin_cgs)) /
-                               dz_cgs * std::copysign(1.0, zcen);
-        const Real accel_cgs = src_i_cgs / rho_i_cgs;
-
-        const Real accel_code = accel_cgs / code_accel_cgs;
-        grav_accel_z(0, k, j, i) = accel_code;
+        const Real zcen_cgs = std::abs(zcen) * code_length_cgs;
+        const Real phi_i = P_rho_profile.P(zcen_cgs) / code_potential_cgs;
+        grav_phi(0, k, j, i) = phi_i;
       });
 
-  // ensure that the gravitational acceleration is reflected at x3-boundaries
-  ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_accel_z, true);
-  ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_accel_z, true);
+  // ensure that the gravitational potential is reflected at x3-boundaries
+  //ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi, false);
+  //ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi, false);
+
+  auto grav_phi_zface = rc->PackVariables(std::vector<std::string>{"grav_phi_zface"});
+  IndexRange ibt = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jbt = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kbt = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "SetHydrostaticPressureFaces", parthenon::DevExecSpace(), 0,
+      0, kbt.s, kbt.e, jbt.s, jbt.e, ibt.s, ibt.e,
+      KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+        // Calculate height
+        const Real zmin_cgs = std::abs(coords.Xf<3>(k)) * code_length_cgs;
+        const Real phi_iminus = P_rho_profile.phi(zmin_cgs) / code_potential_cgs;
+        grav_phi_zface(0, k, j, i) = phi_iminus;
+      });
+
+  // FIXME: this does NOT work correctly for face-centered vars!!!
+  // ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi_zface, false);
+  // ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi_zface, false);
 
   auto pressure_hse = rc->PackVariables(std::vector<std::string>{"pressure_hse"});
   auto density_hse = rc->PackVariables(std::vector<std::string>{"density_hse"});
 
   auto pressure_hse_zface =
       rc->PackVariables(std::vector<std::string>{"pressure_hse_zface"});
-
-  IndexRange ibt = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jbt = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kbt = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetHydrostaticPressureCells", parthenon::DevExecSpace(), 0,
@@ -694,7 +720,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         density_hse(0, k, j, i) = rho_hse_avg / code_density_cgs;
       });
 
-  //ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse, false);
+  // ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse, false);
+  // ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, pressure_hse, false);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetHydrostaticPressureFaces", parthenon::DevExecSpace(), 0,
@@ -707,6 +734,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
   // FIXME: this does NOT work correctly for face-centered vars!!!
   // ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse_zface, false);
+  // ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, pressure_hse_zface, false);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetInitialConditions", parthenon::DevExecSpace(), 0, 0, kb.s,
