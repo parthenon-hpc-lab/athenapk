@@ -29,7 +29,6 @@
 #include "config.hpp"
 #include "defs.hpp"
 #include "globals.hpp"
-#include "impl/KokkosExp_Host_IterateTile.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
@@ -45,6 +44,7 @@
 #include "../interp.hpp"
 #include "../main.hpp"
 #include "../units.hpp"
+#include "../bc.hpp"
 #include "outputs/outputs.hpp"
 #include "pgen.hpp"
 #include "utils/error_checking.hpp"
@@ -168,92 +168,6 @@ class PrecipitatorProfile {
   MonotoneInterpolator<PinnedArray1D<Real>> spline_phi_;
 };
 
-/**
- * Function for checking boundary flags: is this a domain or internal bound?
- */
-bool IsDomainBound(MeshBlock *pmb, parthenon::BoundaryFace face) {
-  return !(pmb->boundary_flag[face] == parthenon::BoundaryFlag::block ||
-           pmb->boundary_flag[face] == parthenon::BoundaryFlag::periodic);
-}
-/**
- * Get zones which are inside the physical domain, i.e. set by computation or MPI halo
- * sync, not by problem boundary conditions.
- */
-auto GetPhysicalZones(MeshBlock *pmb, parthenon::IndexShape &bounds)
-    -> std::tuple<IndexRange, IndexRange, IndexRange> {
-  return std::tuple<IndexRange, IndexRange, IndexRange>{
-      IndexRange{IsDomainBound(pmb, parthenon::BoundaryFace::inner_x1)
-                     ? bounds.is(IndexDomain::interior)
-                     : bounds.is(IndexDomain::entire),
-                 IsDomainBound(pmb, parthenon::BoundaryFace::outer_x1)
-                     ? bounds.ie(IndexDomain::interior)
-                     : bounds.ie(IndexDomain::entire)},
-      IndexRange{IsDomainBound(pmb, parthenon::BoundaryFace::inner_x2)
-                     ? bounds.js(IndexDomain::interior)
-                     : bounds.js(IndexDomain::entire),
-                 IsDomainBound(pmb, parthenon::BoundaryFace::outer_x2)
-                     ? bounds.je(IndexDomain::interior)
-                     : bounds.je(IndexDomain::entire)},
-      IndexRange{IsDomainBound(pmb, parthenon::BoundaryFace::inner_x3)
-                     ? bounds.ks(IndexDomain::interior)
-                     : bounds.ks(IndexDomain::entire),
-                 IsDomainBound(pmb, parthenon::BoundaryFace::outer_x3)
-                     ? bounds.ke(IndexDomain::interior)
-                     : bounds.ke(IndexDomain::entire)}};
-}
-
-enum class BCSide { Inner, Outer };
-enum class BCType { Outflow, Reflect };
-
-template <parthenon::CoordinateDirection DIR, BCSide SIDE, BCType TYPE>
-void ApplyBC(MeshBlock *pmb, VariablePack<Real> &q, IndexRange &nvar,
-             const bool is_normal, const bool coarse) {
-  // convenient shorthands
-  constexpr bool X1 = (DIR == X1DIR);
-  constexpr bool X2 = (DIR == X2DIR);
-  constexpr bool X3 = (DIR == X3DIR);
-  constexpr bool INNER = (SIDE == BCSide::Inner);
-
-  const auto &bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
-
-  const auto &range = X1 ? bounds.GetBoundsI(IndexDomain::interior)
-                         : (X2 ? bounds.GetBoundsJ(IndexDomain::interior)
-                               : bounds.GetBoundsK(IndexDomain::interior));
-  const int ref = INNER ? range.s : range.e;
-
-  std::string label = (TYPE == BCType::Reflect ? "Reflect" : "Outflow");
-  label += (INNER ? "Inner" : "Outer");
-  label += "X" + std::to_string(DIR);
-
-  constexpr IndexDomain domain =
-      INNER ? (X1 ? IndexDomain::inner_x1
-                  : (X2 ? IndexDomain::inner_x2 : IndexDomain::inner_x3))
-            : (X1 ? IndexDomain::outer_x1
-                  : (X2 ? IndexDomain::outer_x2 : IndexDomain::outer_x3));
-
-  // used for reflections
-  const int offset = 2 * ref + (INNER ? -1 : 1);
-
-  pmb->par_for_bndry(
-      label, nvar, domain, coarse,
-      KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
-        if (!q.IsAllocated(l)) return;
-        if (TYPE == BCType::Reflect) {
-          q(l, k, j, i) =
-              (is_normal ? -1.0 : 1.0) *
-              q(l, X3 ? offset - k : k, X2 ? offset - j : j, X1 ? offset - i : i);
-        } else {
-          q(l, k, j, i) = q(l, X3 ? ref : k, X2 ? ref : j, X1 ? ref : i);
-        }
-      });
-}
-
-template <parthenon::CoordinateDirection DIR, BCSide SIDE, BCType TYPE>
-void ApplyBC(MeshBlock *pmb, VariablePack<Real> &q, bool is_normal, bool coarse = false) {
-  auto nvar = IndexRange{0, q.GetDim(4) - 1};
-  ApplyBC<DIR, SIDE, TYPE>(pmb, q, nvar, is_normal, coarse);
-}
-
 void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) {
   // add source terms unsplit within the RK integrator
   // gravity
@@ -307,10 +221,11 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
 
         // compute potential at center and faces
         const Real phi_zcen = grav_phi(0, k, j, i);
-        const Real phi_zminus = grav_phi_zface(0, k    , j, i);
-        const Real phi_zplus  = grav_phi_zface(0, k + 1, j, i);
-        //const Real phi_zminus = 0.5 * (grav_phi(0, k, j, i) + grav_phi(0, k - 1, j, i));
-        //const Real phi_zplus  = 0.5 * (grav_phi(0, k, j, i) + grav_phi(0, k + 1, j, i));
+        const Real phi_zminus = grav_phi_zface(0, k, j, i);
+        const Real phi_zplus = grav_phi_zface(0, k + 1, j, i);
+        // const Real phi_zminus = 0.5 * (grav_phi(0, k, j, i) + grav_phi(0, k - 1, j,
+        // i)); const Real phi_zplus  = 0.5 * (grav_phi(0, k, j, i) + grav_phi(0, k + 1,
+        // j, i));
 
         // reconstruct hydrostatic pressure at faces
         const Real p_i = Eint * gm1;
@@ -477,7 +392,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real gam = pin->GetReal("hydro", "gamma");
   hydro_pkg->AddParam("gamma", gam); // adiabatic index
 
-  const Real T_hse = pin->GetReal("precipitator", "temperature"); // Kelvins
+  const Real T_hse = pin->GetReal("precipitator", "temperature");    // Kelvins
   const Real mu = pin->GetReal("precipitator", "dimensionless_mmw"); // dimensionless
   const Real kT_over_mu = units.k_boltzmann() * T_hse / (mu * units.atomic_mass_unit());
   hydro_pkg->AddParam<Real>("kT_over_mu_hse", kT_over_mu);
@@ -668,7 +583,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   // reconstruction)
   auto grav_phi = rc->PackVariables(std::vector<std::string>{"grav_phi"});
 
-  //auto [ibp, jbp, kbp] = GetPhysicalZones(pmb, pmb->cellbounds);
+  // auto [ibp, jbp, kbp] = GetPhysicalZones(pmb, pmb->cellbounds);
   IndexRange ibt = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
   IndexRange jbt = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
   IndexRange kbt = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
@@ -685,8 +600,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       });
 
   // ensure that the gravitational potential is reflected at x3-boundaries
-  //ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi, false);
-  //ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi, false);
+  // ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi, false);
+  // ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi, false);
 
   auto grav_phi_zface = rc->PackVariables(std::vector<std::string>{"grav_phi_zface"});
 
@@ -731,8 +646,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         density_hse(0, k, j, i) = rho_hse_avg / code_density_cgs;
       });
 
-  //ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse, false);
-  //ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, pressure_hse, false);
+  // ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse, false);
+  // ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, pressure_hse, false);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetHydrostaticPressureFaces", parthenon::DevExecSpace(), 0,
