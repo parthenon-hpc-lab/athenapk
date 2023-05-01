@@ -37,6 +37,7 @@
 #include <vector>
 
 // AthenaPK headers
+#include "../bc.hpp"
 #include "../eos/adiabatic_hydro.hpp"
 #include "../gauss.hpp"
 #include "../hydro/hydro.hpp"
@@ -44,7 +45,6 @@
 #include "../interp.hpp"
 #include "../main.hpp"
 #include "../units.hpp"
-#include "../bc.hpp"
 #include "outputs/outputs.hpp"
 #include "pgen.hpp"
 #include "utils/error_checking.hpp"
@@ -279,7 +279,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   // compute interpolant
   MonotoneInterpolator<PinnedArray1D<Real>> interpProfile(zbins, profile);
 
-  const Real epsilon = 0.97; // heating efficiency
+  const Real epsilon = pkg->Param<Real>("epsilon_heating"); // heating efficiency
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HeatSource", parthenon::DevExecSpace(), 0,
@@ -396,6 +396,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real mu = pin->GetReal("precipitator", "dimensionless_mmw"); // dimensionless
   const Real kT_over_mu = units.k_boltzmann() * T_hse / (mu * units.atomic_mass_unit());
   hydro_pkg->AddParam<Real>("kT_over_mu_hse", kT_over_mu);
+
+  const Real epsilon = pin->GetReal("precipitator", "epsilon_heating"); // dimensionless
+  hydro_pkg->AddParam<Real>("epsilon_heating", epsilon); // heating efficiency
 
   /************************************************************
    * Initialize the hydrostatic profile

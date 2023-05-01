@@ -93,6 +93,7 @@ temperature = 3.0e7     # K
 dimensionless_mmw = 0.6
 
 enable_heating = none   # magic
+epsilon_heating = 1.0
 numHist = 64
 h_smooth_heatcool_kpc = 20.
 
