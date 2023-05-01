@@ -177,20 +177,20 @@ void PPM_pressure(const Real &q_im2, const Real &q_im1, const Real &q_i,
                   const std::array<Real, 2> &p_hse_faces, Real &ql_ip1, Real &qr_i) {
 
   // subtract cell-average hydrostatic pressure from the cell averages
-  const Real p_i = q_i - p_hse[i0];
-  const Real p_ip1 = q_ip1 - p_hse[ip1];
-  const Real p_ip2 = q_ip2 - p_hse[ip2];
-  const Real p_im1 = q_im1 - p_hse[im1];
-  const Real p_im2 = q_im2 - p_hse[im2];
+  const Real p_i = q_i - p_hse[i0]; // dc offset from HSE
+  const Real p_ip1 = q_ip1 - p_hse[ip1] - p_i;
+  const Real p_ip2 = q_ip2 - p_hse[ip2] - p_i;
+  const Real p_im1 = q_im1 - p_hse[im1] - p_i;
+  const Real p_im2 = q_im2 - p_hse[im2] - p_i;
 
   // do PPM reconstruction
-  PPM(p_im2, p_im1, p_i, p_ip1, p_ip2, ql_ip1, qr_i);
+  PPM(p_im2, p_im1, 0., p_ip1, p_ip2, ql_ip1, qr_i);
 
   // add pointwise hydrostatic pressure to the reconstructed interface states
-  const Real p_plus = p_hse_faces[1];
-  const Real p_minus = p_hse_faces[0];
-  //const Real p_plus = 0.5 * (p_hse[i0] + p_hse[ip1]);
-  //const Real p_minus = 0.5 * (p_hse[i0] + p_hse[im1]);
+  const Real p_plus = p_hse_faces[1] + p_i;
+  const Real p_minus = p_hse_faces[0] + p_i;
+  //const Real p_plus = 0.5 * (p_hse[i0] + p_hse[ip1]) + p_i;
+  //const Real p_minus = 0.5 * (p_hse[i0] + p_hse[im1]) + p_i;
   ql_ip1 += p_plus;
   qr_i += p_minus;
 }
