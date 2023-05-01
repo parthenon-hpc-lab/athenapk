@@ -600,8 +600,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       });
 
   // ensure that the gravitational potential is reflected at x3-boundaries
-  // ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi, false);
-  // ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi, false);
+  ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi, false);
+  ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi, false);
 
   auto grav_phi_zface = rc->PackVariables(std::vector<std::string>{"grav_phi_zface"});
 
@@ -615,9 +615,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         grav_phi_zface(0, k, j, i) = phi_iminus;
       });
 
-  // FIXME: this does NOT work correctly for face-centered vars!!!
-  // ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi_zface, false);
-  // ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi_zface, false);
+  ApplyX3FaceBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi_zface, false);
+  ApplyX3FaceBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi_zface, false);
 
   auto pressure_hse = rc->PackVariables(std::vector<std::string>{"pressure_hse"});
   auto density_hse = rc->PackVariables(std::vector<std::string>{"density_hse"});
@@ -646,8 +645,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         density_hse(0, k, j, i) = rho_hse_avg / code_density_cgs;
       });
 
-  // ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse, false);
-  // ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, pressure_hse, false);
+  ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse, false);
+  ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, pressure_hse, false);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetHydrostaticPressureFaces", parthenon::DevExecSpace(), 0,
@@ -658,9 +657,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         pressure_hse_zface(0, k, j, i) = P_rho_profile.P(zmin_cgs) / code_pressure_cgs;
       });
 
-  // FIXME: this does NOT work correctly for face-centered vars!!!
-  // ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse_zface, false);
-  // ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, pressure_hse_zface, false);
+  ApplyX3FaceBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, pressure_hse_zface, false);
+  ApplyX3FaceBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, pressure_hse_zface, false);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetInitialConditions", parthenon::DevExecSpace(), 0, 0, kb.s,
