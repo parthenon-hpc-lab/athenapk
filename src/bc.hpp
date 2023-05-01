@@ -13,6 +13,23 @@
 
 #include "bvals/bvals.hpp"
 
+#if 0
+// modification to parthenon/src/mesh/domain.hpp
+  KOKKOS_INLINE_FUNCTION int ks(const IndexDomain &domain) const noexcept {
+    switch (domain) {
+    case IndexDomain::interior:
+      return x_[2].s;
+    case IndexDomain::outer_x3:
+      return entire_ncells_[2] == 1 ? 0 : x_[2].e + 1;
++   case IndexDomain::outer_face_x3:
++     return entire_ncells_[2] == 1 ? 0 : x_[2].e + 2;
+    default:
+      return 0;
+    }
+  }
+#endif
+
+
 /**
  * Function for checking boundary flags: is this a domain or internal bound?
  */
