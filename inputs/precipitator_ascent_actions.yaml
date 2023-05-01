@@ -6,8 +6,8 @@
         p1: 
           type: "pseudocolor"
           field: "drho_over_rho"
-          #min_value: -0.05
-          #max_value: 0.05
+          min_value: -0.025
+          max_value: 0.025
       renders:
         r1:
           image_prefix: "drho%05d"
@@ -21,8 +21,8 @@
         p1: 
           type: "pseudocolor"
           field: "dK_over_K"
-          #min_value: -0.1
-          #max_value: 0.1
+          min_value: -0.05
+          max_value: 0.05
       renders:
         r1:
           image_prefix: "dK%05d"

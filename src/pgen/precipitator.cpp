@@ -187,8 +187,8 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
   // add gravitational source term directly to the rhs
   auto &pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const Real gam = pkg->Param<Real>("gamma");
-  const Real kT_over_mu = pkg->Param<Real>("kT_over_mu_hse");
   const Real gm1 = (gam - 1.0);
+  //const Real kT_over_mu = pkg->Param<Real>("kT_over_mu_hse");
 
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -229,6 +229,7 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
 
         // reconstruct hydrostatic pressure at faces
         const Real p_i = Eint * gm1;
+        const Real kT_over_mu = p_i / rho; // use cell temperature
         const Real p_hse_zplus = p_i * std::exp(-(phi_zplus - phi_zcen) / kT_over_mu);
         const Real p_hse_zminus = p_i * std::exp(-(phi_zminus - phi_zcen) / kT_over_mu);
 
