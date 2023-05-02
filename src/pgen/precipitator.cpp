@@ -217,6 +217,9 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         const Real Etot = cons(IEN, k, j, i);
         const Real KE_old = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
 
+        // compute v_z
+        const Real v_z = p3 / rho;
+
         // compute potential at center and faces
         const Real phi_zminus = grav_phi_zface(0, k, j, i);
         const Real phi_zplus = grav_phi_zface(0, k + 1, j, i);
@@ -230,14 +233,12 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         const Real p_hse_zminus = p_i * std::exp(-(phi_zminus - phi_zcen) / kT_over_mu);
 
         // compute momentum update
-        // p3 += dt * rho * (phi_zplus - phi_zminus) / dx3; // assumes rho is piecewise
-        // constant -- bad!!
-
-        p3 += dt * (p_hse_zplus - p_hse_zminus) / dx3; // Kappeli & Mishra (accurate)
+        p3 += dt * (p_hse_zplus - p_hse_zminus) / dx3; // Kappeli & Mishra (2.14)
 
         // compute energy update
-        const Real KE_new = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
-        const Real dE = KE_new - KE_old;
+        //const Real KE_new = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
+        //const Real dE = KE_new - KE_old;
+        const Real dE = -dt * rho * v_z * (phi_zplus - phi_zminus) / dx3; // Kappeli & Mishra (2.15)
 
         cons(IM3, k, j, i) = p3;  // update z-momentum
         cons(IEN, k, j, i) += dE; // update total energy
