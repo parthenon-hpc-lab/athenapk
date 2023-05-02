@@ -613,10 +613,6 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         grav_phi_zface(0, k, j, i) = phi_iminus;
       });
 
-  // these do not work correctly
-  //ApplyX3FaceBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi_zface, false);
-  //ApplyX3FaceBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi_zface, false);
-
   auto pressure_hse = rc->PackVariables(std::vector<std::string>{"pressure_hse"});
   auto density_hse = rc->PackVariables(std::vector<std::string>{"density_hse"});
 
