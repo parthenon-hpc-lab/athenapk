@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 with open("ascent_session.yaml",'r') as file:
     session = yaml.load(file, Loader=yaml.FullLoader)
 
-def plot_profile(name, skip=20, symmetric=False):
+def plot_profile(name, skip=10, symmetric=False):
     print(f"plotting {name}...")
     series = session[name]
     profiles = []
@@ -13,7 +13,7 @@ def plot_profile(name, skip=20, symmetric=False):
     bin_centers = []
 
     for cycle in series.values():
-        profiles.append(cycle['attrs']['value']['value'])
+        profiles.append(np.asarray(cycle['attrs']['value']['value'], dtype=np.float64))
         times.append(cycle['time'])
         bins = np.linspace( -106.25, 106.250002125, 64+1 )
         bin_centers.append( 0.5*(bins[:-1] + bins[1:]) )
@@ -21,17 +21,10 @@ def plot_profile(name, skip=20, symmetric=False):
     plt.figure(figsize=(6,4))
     for i in range(0, len(profiles), skip):
         plt.plot(bin_centers[i], profiles[i], label="{:.1f} Gyr".format(times[i]/1e3))
-    plt.plot(bin_centers[-1], profiles[-1], label="{:.1f} Gyr".format(times[-1]/1e3))
+
+    #plt.plot(bin_centers[-1], profiles[-1], label="{:.1f} Gyr".format(times[-1]/1e3))
 
     plt.xlim(-100, 100)
-
-    ymax = np.max(np.abs(np.array(profiles)))
-    if symmetric:
-        plt.ylim(-ymax, ymax)
-        plt.plot(bin_centers[-1], np.zeros_like(bin_centers[-1]), '--', color='gray')
-    #else:
-    #    plt.ylim(0, ymax)
-    
     plt.legend(loc='upper left')
     plt.xlabel("z height (kpc)")
     plt.ylabel(f"{name}")

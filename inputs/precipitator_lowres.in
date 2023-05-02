@@ -6,7 +6,7 @@ problem_id = precipitator   # problem ID: basename of output filenames
 
 <parthenon/output1>
 file_type  = hst       # History data dump
-dt         = 0.25       # time increment between outputs
+dt         = 20.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
@@ -21,13 +21,13 @@ id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 0.25
+dt           = 20.0
 actions_file = inputs/precipitator_ascent_actions.yaml
 
 <parthenon/time>
 cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
-nlim       = 5         # cycle limit
-tlim       = 1.0e4      # time limit
+nlim       = -1         # cycle limit
+tlim       = 1.0e3      # time limit
 integrator  = rk2       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
 
@@ -95,7 +95,7 @@ epsilon_heating = 1.0
 numHist = 64
 h_smooth_heatcool_kpc = 20.
 
-perturb_sin_drho_over_rho = 0.0
+perturb_sin_drho_over_rho = 0.01
 perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32
