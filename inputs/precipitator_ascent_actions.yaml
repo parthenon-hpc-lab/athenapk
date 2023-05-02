@@ -1,6 +1,32 @@
 - 
+  action: "add_pipelines"
+  pipelines: 
+    pl1: 
+      f1: 
+        type: "log10"
+        params:
+          field: "drho_over_rho"
+          output_name: "log_drho"
+          clamp_min_value: 0.01
+- 
   action: "add_scenes"
-  scenes: 
+  scenes:
+    log_density:
+      plots:
+        p1:
+          type: "pseudocolor"
+          field: "log_drho"
+          pipeline: "pl1"
+          min_value: -2.0
+          max_value: 1.5
+      renders:
+        r1:
+          image_prefix: "log_drho%05d"
+          annotations: "true"
+          camera:
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
+            up: [0.0, 0.0, 1.0]
     density: 
       plots:
         p1: 
