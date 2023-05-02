@@ -171,9 +171,9 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
             const Real cell_delta_rho = -prim(IDN, k, j, i) / cold_t_acc * dt;
 
             if (remove_accreted_mass) {
-              cons(IDN, k, j, i) += cell_delta_rho;
-
-              //// Update the Primitives
+              AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(),
+                                             k, j, i);
+              // Update the Primitives
               eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             }
           }
@@ -291,7 +291,8 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
           const Real cell_delta_rho =
               -prim(IDN, k, j, i) / total_mass * accretion_rate * dt;
 
-          cons(IDN, k, j, i) += cell_delta_rho;
+          AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), k, j,
+                                         i);
 
           // Update the Primitives
           eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
