@@ -188,7 +188,6 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
   auto &pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const Real gam = pkg->Param<Real>("gamma");
   const Real gm1 = (gam - 1.0);
-  // const Real kT_over_mu = pkg->Param<Real>("kT_over_mu_hse");
 
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -385,11 +384,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   const Real gam = pin->GetReal("hydro", "gamma");
   hydro_pkg->AddParam("gamma", gam); // adiabatic index
-
-  const Real T_hse = pin->GetReal("precipitator", "temperature");    // Kelvins
-  const Real mu = pin->GetReal("precipitator", "dimensionless_mmw"); // dimensionless
-  const Real kT_over_mu = units.k_boltzmann() * T_hse / (mu * units.atomic_mass_unit());
-  hydro_pkg->AddParam<Real>("kT_over_mu_hse", kT_over_mu);
 
   const Real epsilon = pin->GetReal("precipitator", "epsilon_heating"); // dimensionless
   hydro_pkg->AddParam<Real>("epsilon_heating", epsilon); // heating efficiency

@@ -13,8 +13,8 @@
           image_prefix: "drho%05d"
           annotations: "true"
           camera:
-            look_at: [0.0, 0.0, 60.0]
-            position: [0.0, -170.0, 60.0]
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
     entropy:
       plots: 
@@ -28,8 +28,8 @@
           image_prefix: "dK%05d"
           annotations: "true"
           camera:
-            look_at: [0.0, 0.0, 60.0]
-            position: [0.0, -170.0, 60.0]
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
     pressure: 
       plots:
@@ -41,8 +41,8 @@
           image_prefix: "dP%05d"
           annotations: "true"
           camera:
-            look_at: [0.0, 0.0, 60.0]
-            position: [0.0, -170.0, 60.0]
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
     # pressure_hse: 
     #   plots:

@@ -49,8 +49,8 @@ ix2_bc     = periodic   # inner-X2 boundary flag
 ox2_bc     = periodic   # outer-X2 boundary flag
 
 nx3        = 128       # Number of zones in X3-direction
-x3min      = 10.       # minimum value of X3
-x3max      = 110.       # maximum value of X3
+x3min      = -100.       # minimum value of X3
+x3max      = 100.       # maximum value of X3
 ix3_bc     = user       # inner-X3 boundary flag
 ox3_bc     = user       # outer-X3 boundary flag
 
@@ -88,9 +88,7 @@ lambda_units_cgs = 1
 cfl = 1.0
 
 <precipitator>
-hse_profile_filename = ./inputs/tabulated_const_tc_tff_8.0.txt
-temperature = 3.0e7     # K
-dimensionless_mmw = 0.6
+hse_profile_filename = ./inputs/tabulated_hse_tc_tff_8.0.txt
 
 enable_heating = none   # magic
 epsilon_heating = 1.0
