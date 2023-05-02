@@ -580,28 +580,15 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   // reconstruction)
   auto grav_phi = rc->PackVariables(std::vector<std::string>{"grav_phi"});
 
-  // auto [ibp, jbp, kbp] = GetPhysicalZones(pmb, pmb->cellbounds);
-  IndexRange ibt = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jbt = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kbt = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+  auto [ibp, jbp, kbp] = GetPhysicalZones(pmb, pmb->cellbounds);
 
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "SetGravPotential", parthenon::DevExecSpace(), 0,
-      0, kbt.s, kbt.e, jbt.s, jbt.e, ibt.s, ibt.e,
+      DEFAULT_LOOP_PATTERN, "SetGravPotentialCells", parthenon::DevExecSpace(), 0, 0,
+      kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         // Calculate height
         const Real zcen = coords.Xc<3>(k);
         const Real zcen_cgs = std::abs(zcen) * code_length_cgs;
-        const Real zmin = std::abs(zcen) - 0.5 * dx3;
-        const Real zmax = std::abs(zcen) + 0.5 * dx3;
-        const Real zmin_cgs = zmin * code_length_cgs;
-        const Real zmax_cgs = zmax * code_length_cgs;
-        const Real dz_cgs = dx3 * code_length_cgs;
-
-        //parthenon::math::quadrature::gauss<Real, 7> quad;
-        //auto phi = [=](Real z) { return P_rho_profile.phi(z); };
-        //const Real phi_i = quad.integrate(phi, zmin_cgs, zmax_cgs) / dz_cgs;
-
         const Real phi_i = P_rho_profile.phi(zcen_cgs);
         grav_phi(0, k, j, i) = phi_i / code_potential_cgs;
       });
@@ -612,9 +599,13 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
   auto grav_phi_zface = rc->PackVariables(std::vector<std::string>{"grav_phi_zface"});
 
+  IndexRange ibe = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jbe = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kbe = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "SetGravPotentialFaces", parthenon::DevExecSpace(), 0,
-      0, kbt.s, kbt.e, jbt.s, jbt.e, ibt.s, ibt.e,
+      DEFAULT_LOOP_PATTERN, "SetGravPotentialFaces", parthenon::DevExecSpace(), 0, 0,
+      kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         // Calculate height
         const Real zmin_cgs = std::abs(coords.Xf<3>(k)) * code_length_cgs;
@@ -622,15 +613,16 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         grav_phi_zface(0, k, j, i) = phi_iminus;
       });
 
-  ApplyX3FaceBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi_zface, false);
-  ApplyX3FaceBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi_zface, false);
+  // these do not work correctly
+  //ApplyX3FaceBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi_zface, false);
+  //ApplyX3FaceBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi_zface, false);
 
   auto pressure_hse = rc->PackVariables(std::vector<std::string>{"pressure_hse"});
   auto density_hse = rc->PackVariables(std::vector<std::string>{"density_hse"});
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetHydrostaticProfileCells", parthenon::DevExecSpace(), 0, 0,
-      kbt.s, kbt.e, jbt.s, jbt.e, ibt.s, ibt.e,
+      kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         // Calculate height
         const Real zcen = coords.Xc<3>(k);
@@ -645,6 +637,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         auto rho_hse = [=](Real z) { return P_rho_profile.rho(z); };
         const Real P_hse_avg = quad.integrate(p_hse, zmin_cgs, zmax_cgs) / dz_cgs;
         const Real rho_hse_avg = quad.integrate(rho_hse, zmin_cgs, zmax_cgs) / dz_cgs;
+
         pressure_hse(0, k, j, i) = P_hse_avg / code_pressure_cgs;
         density_hse(0, k, j, i) = rho_hse_avg / code_density_cgs;
       });
@@ -653,26 +646,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       DEFAULT_LOOP_PATTERN, "SetInitialConditions", parthenon::DevExecSpace(), 0, 0, kb.s,
       kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
-        // Calculate height
-        const Real zcen = coords.Xc<3>(k);
-        const Real zmin = std::abs(zcen) - 0.5 * dx3;
-        const Real zmax = std::abs(zcen) + 0.5 * dx3;
-        const Real zmin_cgs = zmin * code_length_cgs;
-        const Real zmax_cgs = zmax * code_length_cgs;
-
-        // Get density and pressure from generated profile
-        parthenon::math::quadrature::gauss<Real, 7> quad;
-        auto f_rho = [=](Real z) { return P_rho_profile.rho(z); };
-        auto f_P = [=](Real z) { return P_rho_profile.P(z); };
-
-        const Real rho_cgs =
-            quad.integrate(f_rho, zmin_cgs, zmax_cgs) / (dx3 * code_length_cgs);
-        const Real P_cgs =
-            quad.integrate(f_P, zmin_cgs, zmax_cgs) / (dx3 * code_length_cgs);
-
-        // Convert to code units
-        const Real rho = rho_cgs / code_density_cgs;
-        const Real P = P_cgs / code_pressure_cgs;
+        const Real rho = density_hse(0, k, j, i);
+        const Real P = pressure_hse(0, k, j, i);
 
         Real drho_over_rho = 0.0;
         if (amp > 0.) {

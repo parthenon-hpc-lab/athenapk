@@ -134,6 +134,7 @@ void ApplyBC(parthenon::MeshBlock *pmb, parthenon::VariablePack<Real> &q, bool i
   ApplyBC<DIR, SIDE, TYPE>(pmb, q, nvar, is_normal, coarse);
 }
 
+#if 0
 template <parthenon::CoordinateDirection DIR, BCSide SIDE, BCType TYPE>
 void ApplyX3FaceBC(parthenon::MeshBlock *pmb, parthenon::VariablePack<Real> &q,
                    parthenon::IndexRange &nvar, const bool is_normal, const bool coarse) {
@@ -200,5 +201,6 @@ void ApplyX3FaceBC(parthenon::MeshBlock *pmb, parthenon::VariablePack<Real> &q,
   auto nvar = parthenon::IndexRange{0, q.GetDim(4) - 1};
   ApplyX3FaceBC<DIR, SIDE, TYPE>(pmb, q, nvar, is_normal, coarse);
 }
+#endif
 
 #endif // BC_HPP_
