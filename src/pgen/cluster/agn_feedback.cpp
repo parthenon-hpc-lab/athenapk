@@ -111,7 +111,7 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
   } else if (std::isnan(kinetic_jet_temperature_)) {
     // Temperature is missing, compute e_jet and T_jet from v_jet
     kinetic_jet_e =
-        (efficiency_ * SQR(units.speed_of_light()) - 2 * SQR(kinetic_jet_velocity_)) /
+        (efficiency_ * SQR(units.speed_of_light()) - 0.5 * SQR(kinetic_jet_velocity_)) /
         (1 - efficiency_);
     const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
     const Real H_mass_fraction = 1.0 - He_mass_fraction;
