@@ -6,12 +6,12 @@ problem_id = precipitator   # problem ID: basename of output filenames
 
 <parthenon/output1>
 file_type  = hst       # History data dump
-dt         = 20.0       # time increment between outputs
+dt         = 25.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = prim, grav_accel_z, drho_over_rho, dP_over_P, dK_over_K, dEdot_over_Edot     # Variables to be output
-dt         = 100.0        # Time increment between outputs
+dt         = 250.0        # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/output3>
@@ -21,8 +21,8 @@ id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 20.0
-actions_file = inputs/precipitator_ascent_actions.yaml
+dt           = 25.0
+actions_file = inputs/precipitator_no_binning.yaml
 
 <parthenon/time>
 cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number

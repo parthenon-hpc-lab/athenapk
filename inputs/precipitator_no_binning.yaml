@@ -1,0 +1,91 @@
+- 
+  action: "add_scenes"
+  scenes: 
+    density: 
+      plots:
+        p1: 
+          type: "pseudocolor"
+          field: "drho_over_rho"
+          min_value: -0.025
+          max_value: 0.025
+      renders:
+        r1:
+          image_prefix: "drho%05d"
+          annotations: "true"
+          camera:
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+    entropy:
+      plots: 
+        p1: 
+          type: "pseudocolor"
+          field: "dK_over_K"
+          min_value: -0.05
+          max_value: 0.05
+      renders:
+        r1:
+          image_prefix: "dK%05d"
+          annotations: "true"
+          camera:
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+    pressure: 
+      plots:
+        p1: 
+          type: "pseudocolor"
+          field: "dP_over_P"
+      renders:
+        r1:
+          image_prefix: "dP%05d"
+          annotations: "true"
+          camera:
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+    vz: 
+      plots:
+        p1: 
+          type: "pseudocolor"
+          field: "Velocity3"
+      renders:
+        r1:
+          image_prefix: "vz%05d"
+          annotations: "true"
+          camera:
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+    # heating_rate:
+    #   plots: 
+    #     p1: 
+    #       type: "pseudocolor"
+    #       field: "dEdot_over_Edot"
+    #       min_value: -0.1
+    #       max_value: 0.1
+    #   renders:
+    #     r1:
+    #       image_prefix: "dEdot%05d"
+    #       annotations: "true"
+    #       camera:
+    #         look_at: [0.0, 0.0, 0.0]
+    #         position: [0.0, -250.0, 0.0]
+    #         up: [0.0, 0.0, 1.0]
+-
+  action: "add_queries"
+  queries:
+    sum_entropy:
+      params:
+        expression: "sum(field('entropy'))"
+        name: "total_entropy"
+-
+  action: "save_session"
+# -
+#   action: "add_extracts"
+#   extracts:
+#     e1:
+#       type: "relay"
+#       params:
+#         path: "conduit_blueprint"
+#         protocol: "blueprint/mesh/hdf5"
