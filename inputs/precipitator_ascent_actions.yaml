@@ -118,30 +118,6 @@
       params:
         expression: "sum(field('entropy'))"
         name: "total_entropy"
-    # hist_density:
-    #   params:
-    #     expression: "histogram(field('drho_over_rho'), min_val=-1.0, max_val=1.0, num_bins=32)"
-    #     name: "histogram_drho"
-    # hist_pressure:
-    #   params:
-    #     expression: "histogram(field('dP_over_P'), min_val=-1.0, max_val=1.0, num_bins=32)"
-    #     name: "histogram_dP"
-    # hist_entropy:
-    #   params:
-    #     expression: "histogram(field('dK_over_K'), min_val=-2.0, max_val=2.0, num_bins=32)"
-    #     name: "histogram_dK"
-    bin_gravity:
-      params:
-        expression: "binning('grav_phi','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
-        name: grav_phi_profile
-    bin_density_absolute:
-      params:
-        expression: "binning('Density','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
-        name: density_profile
-    bin_pressure_absolute:
-      params:
-        expression: "binning('Pressure','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
-        name: pressure_profile
     bin_density:
       params:
         expression: "binning('drho_over_rho','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
@@ -154,26 +130,18 @@
       params:
         expression: "binning('dK_over_K','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: dK_profile
-    bin_cooling:
-      params:
-        expression: "binning('mean_Edot','avg', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
-        name: Edot_profile
     bin_rms_density:
       params:
-        expression: "binning('drho_over_rho','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
+        expression: "binning('drho_over_rho','std', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: drho_rms_profile
     bin_rms_pressure:
       params:
-        expression: "binning('dP_over_P','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
+        expression: "binning('dP_over_P','std', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: dP_rms_profile
     bin_rms_entropy:
       params:
-        expression: "binning('dK_over_K','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
+        expression: "binning('dK_over_K','std', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
         name: dK_rms_profile
-    bin_rms_Edot:
-      params:
-        expression: "binning('dEdot_over_Edot','rms', [axis('x',[-50,50]), axis('y', [-50,50]), axis('z', num_bins=64)])"
-        name: dEdot_rms_profile
 -
   action: "save_session"
 # -
