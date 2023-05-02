@@ -124,7 +124,7 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
 
   // Verify all equations are satified. NAN's here should give failures
   PARTHENON_REQUIRE(
-      kinetic_jet_velocity_ - fabs(sqrt(2 * (efficiency_ * SQR(units.speed_of_light()) -
+      fabs(kinetic_jet_velocity_ - sqrt(2 * (efficiency_ * SQR(units.speed_of_light()) -
                                              (1 - efficiency_) * kinetic_jet_e))) <
           10 * std::numeric_limits<Real>::epsilon(),
       "Specified kinetic jet velocity and temperature are incompatible with mass to "
