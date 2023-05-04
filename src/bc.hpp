@@ -16,17 +16,19 @@
 
 using parthenon::Real;
 
-/**
- * Function for checking boundary flags: is this a domain or internal bound?
- */
+void ReflectingInnerX3(std::shared_ptr<parthenon::MeshBlockData<Real>> &mbd, bool coarse);
+void ReflectingOuterX3(std::shared_ptr<parthenon::MeshBlockData<Real>> &mbd, bool coarse);
+
+// Function for checking boundary flags: is this a domain or internal bound?
+//
 inline bool IsDomainBound(parthenon::MeshBlock *pmb, parthenon::BoundaryFace face) {
   return !(pmb->boundary_flag[face] == parthenon::BoundaryFlag::block ||
            pmb->boundary_flag[face] == parthenon::BoundaryFlag::periodic);
 }
-/**
- * Get zones which are inside the physical domain, i.e. set by computation or MPI halo
- * sync, not by problem boundary conditions.
- */
+
+// Get zones which are inside the physical domain, i.e. set by computation or MPI halo
+// sync, not by problem boundary conditions.
+//
 inline auto GetPhysicalZones(parthenon::MeshBlock *pmb, parthenon::IndexShape &bounds)
     -> std::tuple<parthenon::IndexRange, parthenon::IndexRange, parthenon::IndexRange> {
   return std::tuple<parthenon::IndexRange, parthenon::IndexRange, parthenon::IndexRange>{
