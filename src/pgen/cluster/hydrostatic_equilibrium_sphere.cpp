@@ -41,7 +41,7 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
     : gravitational_field_(gravitational_field), entropy_profile_(entropy_profile) {
   Units units(pin);
 
-  atomic_mass_unit_ = units.atomic_mass_unit();
+  mh_ = units.mh();
   k_boltzmann_ = units.k_boltzmann();
 
   const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");

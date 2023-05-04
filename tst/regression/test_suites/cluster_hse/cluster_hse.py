@@ -46,7 +46,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         # Setup constants
         self.k_b = unyt.kb_cgs
         self.G = unyt.G_cgs
-        self.m_u = unyt.amu
+        self.mh = unyt.mh
 
         self.adiabatic_index = 5.0 / 3.0
 
@@ -201,14 +201,14 @@ class TestCase(utils.test_case.TestCaseAbs):
             return (
                 K
                 * (self.mu / self.mu_e) ** (2.0 / 3.0)
-                * (rho / (self.mu * self.m_u)) ** (5.0 / 3.0)
+                * (rho / (self.mu * self.mh)) ** (5.0 / 3.0)
             )
 
         def rho_from_P_K(P, K):
             return (
                 (P / K) ** (3.0 / 5.0)
                 * self.mu
-                * self.m_u
+                * self.mh
                 / (self.mu / self.mu_e) ** (2.0 / 5.0)
             )
 
@@ -216,7 +216,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             return self.K_0 + self.K_100 * (r / self.R_K) ** self.alpha_K
 
         def n_from_rho(rho):
-            return rho / (self.mu * self.m_u)
+            return rho / (self.mu * self.mh)
 
         def ne_from_rho(rho):
             return self.mu / self.mu_e * n_from_rho(rho)

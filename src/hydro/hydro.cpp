@@ -411,8 +411,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       auto units = pkg->Param<Units>("units");
       const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
       const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-      pkg->AddParam<>("mbar_over_kb",
-                      mu * units.atomic_mass_unit() / units.k_boltzmann());
+      pkg->AddParam<>("mu", mu);
+      pkg->AddParam<>("He_mass_fraction", He_mass_fraction);
+      // Following convention in the astro community, we're using mh as unit for the mean
+      // molecular weight
+      pkg->AddParam<>("mbar_over_kb", mu * units.mh() / units.k_boltzmann());
     }
 
     // By default disable floors by setting a negative value

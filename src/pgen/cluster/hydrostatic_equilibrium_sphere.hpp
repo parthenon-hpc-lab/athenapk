@@ -36,7 +36,7 @@ class HydrostaticEquilibriumSphere {
   const EntropyProfile entropy_profile_;
 
   // Physical constants
-  parthenon::Real atomic_mass_unit_, k_boltzmann_;
+  parthenon::Real mh_, k_boltzmann_;
 
   // Density to fix baryons at a radius (change to temperature?)
   parthenon::Real R_fix_, rho_fix_;
@@ -58,7 +58,7 @@ class HydrostaticEquilibriumSphere {
   // of entropy
   parthenon::Real P_from_rho_K(const parthenon::Real rho, const parthenon::Real K) const {
     const parthenon::Real P =
-        K * pow(mu_ / mu_e_, 2. / 3.) * pow(rho / (mu_ * atomic_mass_unit_), 5. / 3.);
+        K * pow(mu_ / mu_e_, 2. / 3.) * pow(rho / (mu_ * mh_), 5. / 3.);
     return P;
   }
 
@@ -66,13 +66,13 @@ class HydrostaticEquilibriumSphere {
   // of entropy
   parthenon::Real rho_from_P_K(const parthenon::Real P, const parthenon::Real K) const {
     const parthenon::Real rho =
-        pow(P / K, 3. / 5.) * mu_ * atomic_mass_unit_ / pow(mu_ / mu_e_, 2. / 5);
+        pow(P / K, 3. / 5.) * mu_ * mh_ / pow(mu_ / mu_e_, 2. / 5);
     return rho;
   }
 
   // Get total number density from density
   parthenon::Real n_from_rho(const parthenon::Real rho) const {
-    const parthenon::Real n = rho / (mu_ * atomic_mass_unit_);
+    const parthenon::Real n = rho / (mu_ * mh_);
     return n;
   }
 

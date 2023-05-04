@@ -215,10 +215,10 @@ class TestCase(utils.test_case.TestCaseAbs):
         initial_internal_e = (
             self.uniform_gas_pres / (self.uniform_gas_rho * (self.adiabatic_index - 1))
         ).in_units("erg/g")
-        n_h = (self.uniform_gas_rho * H_mass_fraction / unyt.amu).in_units("1/cm**3")
+        n_h = (self.uniform_gas_rho * H_mass_fraction / unyt.mh).in_units("1/cm**3")
 
         # Compute temperature
-        initial_temp = initial_internal_e * (mu * unyt.amu * gm1 / unyt.kb)
+        initial_temp = initial_internal_e * (mu * unyt.mh * gm1 / unyt.kb)
 
         # Unit helpers
         Ta = unyt.unyt_quantity(1, "K")
@@ -230,7 +230,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         )
         cooling_b = self.log_lambda1 - self.log_temp1 * cooling_m
         B = unyt.unyt_quantity(10**cooling_b, "erg*cm**3/s")
-        X = mu * unyt.amu * (self.adiabatic_index - 1) / (unyt.kb * Ta)
+        X = mu * unyt.mh * (self.adiabatic_index - 1) / (unyt.kb * Ta)
         Y = B * n_h**2 / self.uniform_gas_rho
 
         # Integrate for the final internal energy
