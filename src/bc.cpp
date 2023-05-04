@@ -12,6 +12,7 @@
 #include "bc.hpp"
 
 // Parthenon headers
+#include "main.hpp"
 #include "mesh/mesh.hpp"
 
 using parthenon::Real;
