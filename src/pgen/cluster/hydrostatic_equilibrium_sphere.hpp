@@ -167,4 +167,7 @@ class HydrostaticEquilibriumSphere {
 
 } // namespace cluster
 
+// include implementations of functions of this template class
+#include "hydrostatic_equilibrium_sphere_impl.hpp"
+
 #endif // CLUSTER_HYDROSTATIC_EQUILIBRIUM_SPHERE_HPP_

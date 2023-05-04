@@ -3,7 +3,7 @@
 // Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
-//! \file hydrostatic_equilbirum_sphere.cpp
+//! \file hydrostatic_equilbirum_sphere_impl.hpp
 //  \brief Creates pressure profile in hydrostatic equilbrium
 //
 // Setups up a pressure profile in hydrostatic equilbrium given an entropy
@@ -25,7 +25,6 @@
 // Cluster headers
 #include "cluster_gravity.hpp"
 #include "entropy_profiles.hpp"
-#include "hydrostatic_equilibrium_sphere.hpp"
 
 namespace cluster {
 using namespace parthenon;
@@ -280,46 +279,5 @@ HydrostaticEquilibriumSphere<EntropyProfile, GravitationalField>::generate_P_rho
 
   return PRhoProfile<View1D>(R, P, *this);
 }
-
-// Instantiate HydrostaticEquilibriumSphere
-template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>;
-
-// Instantiate PRhoProfile
-template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-    PRhoProfile<Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
-                             parthenon::DevMemSpace>>;
-#if (defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP))
-template class HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-    PRhoProfile<Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>;
-#endif
-
-// Instantiate generate_P_rho_profile
-template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
-    Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper, parthenon::DevMemSpace>>
-    HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-        generate_P_rho_profile<Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
-                                            parthenon::DevMemSpace>>(
-            parthenon::IndexRange, parthenon::IndexRange, parthenon::IndexRange,
-            parthenon::UniformCartesian) const;
-template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
-    Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper, parthenon::DevMemSpace>>
-HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-    generate_P_rho_profile<Kokkos::View<parthenon::Real *, parthenon::LayoutWrapper,
-                                        parthenon::DevMemSpace>>(
-        const parthenon::Real, const parthenon::Real, const unsigned int) const;
-#if (defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP))
-template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
-    Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
-    HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-        generate_P_rho_profile<
-            Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>(
-            parthenon::IndexRange, parthenon::IndexRange, parthenon::IndexRange,
-            parthenon::UniformCartesian) const;
-template HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::PRhoProfile<
-    Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>
-HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>::
-    generate_P_rho_profile<Kokkos::View<parthenon::Real *, LayoutWrapper, HostMemSpace>>(
-        const parthenon::Real, const parthenon::Real, const unsigned int) const;
-#endif
 
 } // namespace cluster

@@ -6,7 +6,6 @@ target_sources(athenaPK PRIVATE
     blast.cpp
     cloud.cpp
     cluster.cpp
-    cluster/hydrostatic_equilibrium_sphere.cpp
     cpaw.cpp
     diffusion.cpp
     field_loop.cpp
