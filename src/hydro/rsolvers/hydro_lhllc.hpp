@@ -37,7 +37,6 @@ struct Riemann<Fluid::euler, RiemannSolver::lhllc> {
         const int iu, const int ivx, const ScratchPad2D<Real> &wl,
         const ScratchPad2D<Real> &wr, VariableFluxPack<Real> &cons,
         const AdiabaticHydroEOS &eos, const Real c_h) {
-    // dvn and dvt are stored in the last component of the scratch spaces
     const auto nvar = cons.GetDim(4);
 
     int ivy = IV1 + ((ivx - IV1) + 1) % 3;
