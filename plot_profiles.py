@@ -63,14 +63,14 @@ def plot_history(name=None):
 plot_profile("drho_profile", symmetric=True)
 plot_profile("dK_profile", symmetric=True)
 plot_profile("dP_profile", symmetric=True)
-plot_profile("Edot_profile", symmetric=True)
+#plot_profile("Edot_profile", symmetric=True)
 
 plot_profile("drho_rms_profile")
 plot_profile("dP_rms_profile")
 plot_profile("dK_rms_profile")
-plot_profile("grav_phi_profile")
-plot_profile("density_profile")
-plot_profile("pressure_profile")
+#plot_profile("grav_phi_profile")
+#plot_profile("density_profile")
+#plot_profile("pressure_profile")
 #plot_profile("dEdot_rms_profile")
 
 plot_timeseries("total_entropy")
