@@ -45,12 +45,8 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 
   auto gamma = pin->GetReal("hydro", "gamma");
   auto gm1 = (gamma - 1.0);
-  // TODO(pgrete): reuse code from tabular_cooling
-  const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-  const auto H_mass_fraction = 1.0 - He_mass_fraction;
-  const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-  const auto mu_m_u_gm1_by_k_B_ =
-      mu * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
+  const auto &pkg = mesh->packages.Get("Hydro");
+  const auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
 
   r_cloud = pin->GetReal("problem/cloud", "r0_cgs") / units.code_length_cgs();
   rho_cloud = pin->GetReal("problem/cloud", "rho_cloud_cgs") / units.code_density_cgs();
@@ -59,15 +55,15 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   auto v_wind = pin->GetReal("problem/cloud", "v_wind_cgs") /
                 (units.code_length_cgs() / units.code_time_cgs());
 
-  // mu_m_u_gm1_by_k_B is already in code units
-  rhoe_wind = T_wind * rho_wind / mu_m_u_gm1_by_k_B_;
+  // mu_mh_gm1_by_k_B is already in code units
+  rhoe_wind = T_wind * rho_wind / mbar_over_kb / gm1;
   const auto c_s_wind = std::sqrt(gamma * gm1 * rhoe_wind / rho_wind);
   const auto chi_0 = rho_cloud / rho_wind;               // cloud to wind density ratio
   const auto t_cc = r_cloud * std::sqrt(chi_0) / v_wind; // cloud crushting time (code)
   const auto pressure =
       gm1 * rhoe_wind; // one value for entire domain given initial pressure equil.
 
-  const auto T_cloud = pressure / gm1 / rho_cloud * mu_m_u_gm1_by_k_B_;
+  const auto T_cloud = pressure / rho_cloud * mbar_over_kb;
 
   auto plasma_beta = pin->GetOrAddReal("problem/cloud", "plasma_beta", -1.0);
 

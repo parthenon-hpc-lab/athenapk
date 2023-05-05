@@ -43,14 +43,11 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
     : gravitational_field_(gravitational_field), entropy_profile_(entropy_profile) {
   Units units(pin);
 
-  atomic_mass_unit_ = units.atomic_mass_unit();
+  mh_ = units.mh();
   k_boltzmann_ = units.k_boltzmann();
 
-  const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-  const Real H_mass_fraction = 1.0 - He_mass_fraction;
-
-  mu_ = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-  mu_e_ = 1 / (He_mass_fraction * 2. / 4. + (1 - He_mass_fraction));
+  mu_ = hydro_pkg->Param<Real>("mu");
+  mu_e_ = hydro_pkg->Param<Real>("me_e");
 
   r_fix_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "r_fix",
                              1953.9724519818478 * units.kpc());
