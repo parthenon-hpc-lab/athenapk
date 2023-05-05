@@ -47,7 +47,7 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
   k_boltzmann_ = units.k_boltzmann();
 
   mu_ = hydro_pkg->Param<Real>("mu");
-  mu_e_ = hydro_pkg->Param<Real>("me_e");
+  mu_e_ = hydro_pkg->Param<Real>("mu_e");
 
   r_fix_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "r_fix",
                              1953.9724519818478 * units.kpc());
