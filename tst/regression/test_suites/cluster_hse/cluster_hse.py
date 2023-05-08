@@ -361,10 +361,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             return False
 
         profile_comparison_vars = (
-            (analytic_P, he_sphere_P, "Pressure"),
-            (analytic_K, he_sphere_K, "Entropy"),
-            (analytic_rho, he_sphere_rho, "Density"),
-            (analytic_g, he_sphere_g, "Gravity"),
+            (analytic_P, he_sphere_P, "pressure"),
+            (analytic_K, he_sphere_K, "entropy"),
+            (analytic_rho, he_sphere_rho, "density"),
+            (analytic_g, he_sphere_g, "gravity"),
         )
 
         fig, axes = plt.subplots(2, 2)
@@ -442,8 +442,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             return analytic_interp
 
         analytic_components = {
-            "Pressure": lambda Z, Y, X, time: analytic_gold(Z, Y, X, analytic_P).v,
-            "Density": lambda Z, Y, X, time: analytic_gold(Z, Y, X, analytic_rho).v,
+            "prim_pressure": lambda Z, Y, X, time: analytic_gold(Z, Y, X, analytic_P).v,
+            "prim_density": lambda Z, Y, X, time: analytic_gold(
+                Z, Y, X, analytic_rho
+            ).v,
         }
 
         # Use a very loose tolerance, linf relative error
