@@ -517,34 +517,34 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam("nscalars", nscalars);
 
   std::vector<std::string> cons_labels(nhydro);
-  cons_labels[IDN] = "Density";
-  cons_labels[IM1] = "MomentumDensity1";
-  cons_labels[IM2] = "MomentumDensity2";
-  cons_labels[IM3] = "MomentumDensity3";
-  cons_labels[IEN] = "TotalEnergyDensity";
+  cons_labels[IDN] = "density";
+  cons_labels[IM1] = "momentum_density_1";
+  cons_labels[IM2] = "momentum_density_2";
+  cons_labels[IM3] = "momentum_density_3";
+  cons_labels[IEN] = "total_energy_density";
   if (fluid == Fluid::glmmhd) {
-    cons_labels[IB1] = "MagneticField1";
-    cons_labels[IB2] = "MagneticField2";
-    cons_labels[IB3] = "MagneticField3";
-    cons_labels[IPS] = "MagneticPhi";
+    cons_labels[IB1] = "magnetic_field_1";
+    cons_labels[IB2] = "magnetic_field_2";
+    cons_labels[IB3] = "magnetic_field_3";
+    cons_labels[IPS] = "magnetic_psi";
   }
 
   // TODO(pgrete) check if this could be "one-copy" for two stage SSP integrators
   std::vector<std::string> prim_labels(nhydro);
-  prim_labels[IDN] = "Density";
-  prim_labels[IV1] = "Velocity1";
-  prim_labels[IV2] = "Velocity2";
-  prim_labels[IV3] = "Velocity3";
-  prim_labels[IPR] = "Pressure";
+  prim_labels[IDN] = "density";
+  prim_labels[IV1] = "velocity_1";
+  prim_labels[IV2] = "velocity_2";
+  prim_labels[IV3] = "velocity_3";
+  prim_labels[IPR] = "pressure";
   if (fluid == Fluid::glmmhd) {
-    prim_labels[IB1] = "MagneticField1";
-    prim_labels[IB2] = "MagneticField2";
-    prim_labels[IB3] = "MagneticField3";
-    prim_labels[IPS] = "MagneticPhi";
+    prim_labels[IB1] = "magnetic_field_1";
+    prim_labels[IB2] = "magnetic_field_2";
+    prim_labels[IB3] = "magnetic_field_3";
+    prim_labels[IPS] = "magnetic_psi";
   }
   for (auto i = 0; i < nscalars; i++) {
-    cons_labels.emplace_back("Scalar_" + std::to_string(i));
-    prim_labels.emplace_back("Scalar_" + std::to_string(i));
+    cons_labels.emplace_back("scalar_density_" + std::to_string(i));
+    prim_labels.emplace_back("scalar_" + std::to_string(i));
   }
 
   Metadata m(
