@@ -503,13 +503,19 @@ class TestCase(utils.test_case.TestCaseAbs):
 
                 # Construct lambda functions for initial and final analytically expected magnetic fields
                 field_analytic_components = {
-                    "MagneticField1": lambda Z, Y, X, time: field_func(Z, Y, X, B_field)
+                    "cons_magnetic_field_1": lambda Z, Y, X, time: field_func(
+                        Z, Y, X, B_field
+                    )
                     .in_units(magnetic_units)[0]
                     .v,
-                    "MagneticField2": lambda Z, Y, X, time: field_func(Z, Y, X, B_field)
+                    "cons_magnetic_field_2": lambda Z, Y, X, time: field_func(
+                        Z, Y, X, B_field
+                    )
                     .in_units(magnetic_units)[1]
                     .v,
-                    "MagneticField3": lambda Z, Y, X, time: field_func(Z, Y, X, B_field)
+                    "cons_magnetic_field_3": lambda Z, Y, X, time: field_func(
+                        Z, Y, X, B_field
+                    )
                     .in_units(magnetic_units)[2]
                     .v,
                 }
@@ -559,7 +565,11 @@ class TestCase(utils.test_case.TestCaseAbs):
                 B = unyt.unyt_array(
                     list(
                         phdf_file.GetComponents(
-                            ["MagneticField1", "MagneticField2", "MagneticField3"],
+                            [
+                                "cons_magnetic_field_1",
+                                "cons_magnetic_field_2",
+                                "cons_magnetic_field_3",
+                            ],
                             flatten=False,
                         ).values()
                     ),
