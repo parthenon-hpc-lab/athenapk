@@ -420,48 +420,48 @@ class TestCase(utils.test_case.TestCaseAbs):
                 return False
 
             initial_analytic_components = {
-                "Density": lambda Z, Y, X, time: np.ones_like(Z)
+                "cons_density": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_rho.in_units("code_mass/code_length**3").v,
-                "MomentumDensity1": lambda Z, Y, X, time: np.ones_like(Z)
+                "cons_momentum_density_1": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_Mx.in_units(
                     "code_mass*code_length**-2*code_time**-1"
                 ).v,
-                "MomentumDensity2": lambda Z, Y, X, time: np.ones_like(Z)
+                "cons_momentum_density_2": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_My.in_units(
                     "code_mass*code_length**-2*code_time**-1"
                 ).v,
-                "MomentumDensity3": lambda Z, Y, X, time: np.ones_like(Z)
+                "cons_momentum_density_3": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_Mz.in_units(
                     "code_mass*code_length**-2*code_time**-1"
                 ).v,
-                "TotalEnergyDensity": lambda Z, Y, X, time: np.ones_like(Z)
+                "cons_total_energy_density": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_energy_density.in_units(
                     "code_mass*code_length**-1*code_time**-2"
                 ).v,
             }
 
             final_analytic_components = {
-                "Density": lambda Z, Y, X, time: (
+                "cons_density": lambda Z, Y, X, time: (
                     self.uniform_gas_rho + agn_feedback(Z, Y, X, time)[0]
                 )
                 .in_units("code_mass/code_length**3")
                 .v,
-                "MomentumDensity1": lambda Z, Y, X, time: (
+                "cons_momentum_density_1": lambda Z, Y, X, time: (
                     self.uniform_gas_Mx + agn_feedback(Z, Y, X, time)[1]
                 )
                 .in_units("code_mass*code_length**-2*code_time**-1")
                 .v,
-                "MomentumDensity2": lambda Z, Y, X, time: (
+                "cons_momentum_density_2": lambda Z, Y, X, time: (
                     self.uniform_gas_My + agn_feedback(Z, Y, X, time)[2]
                 )
                 .in_units("code_mass*code_length**-2*code_time**-1")
                 .v,
-                "MomentumDensity3": lambda Z, Y, X, time: (
+                "cons_momentum_density_3": lambda Z, Y, X, time: (
                     self.uniform_gas_Mz + agn_feedback(Z, Y, X, time)[3]
                 )
                 .in_units("code_mass*code_length**-2*code_time**-1")
                 .v,
-                "TotalEnergyDensity": lambda Z, Y, X, time: (
+                "cons_total_energy_density": lambda Z, Y, X, time: (
                     self.uniform_gas_energy_density + agn_feedback(Z, Y, X, time)[4]
                 )
                 .in_units("code_mass*code_length**-1*code_time**-2")

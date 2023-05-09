@@ -345,69 +345,69 @@ class TestCase(utils.test_case.TestCaseAbs):
                 return False
 
             initial_analytic_components = {
-                "Density": lambda Z, Y, X, time: np.ones_like(Z)
+                "cons_density": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_rho.in_units("code_mass/code_length**3").v,
-                "MomentumDensity1": lambda Z, Y, X, time: np.ones_like(Z)
+                "cons_momentum_density_1": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_Mx.in_units(
                     "code_mass*code_length**-2*code_time**-1"
                 ).v,
-                "MomentumDensity2": lambda Z, Y, X, time: np.ones_like(Z)
+                "cons_momentum_density_2": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_My.in_units(
                     "code_mass*code_length**-2*code_time**-1"
                 ).v,
-                "MomentumDensity3": lambda Z, Y, X, time: np.ones_like(Z)
+                "cons_momentum_density_3": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_Mz.in_units(
                     "code_mass*code_length**-2*code_time**-1"
                 ).v,
-                "TotalEnergyDensity": lambda Z, Y, X, time: np.ones_like(Z)
+                "cons_total_energy_density": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_energy_density.in_units(
                     "code_mass*code_length**-1*code_time**-2"
                 ).v,
-                "Velocity1": lambda Z, Y, X, time: np.ones_like(Z)
+                "prim_velocity_1": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_ux.in_units("code_length*code_time**-1").v,
-                "Velocity2": lambda Z, Y, X, time: np.ones_like(Z)
+                "prim_velocity_2": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_uy.in_units("code_length*code_time**-1").v,
-                "Velocity3": lambda Z, Y, X, time: np.ones_like(Z)
+                "prim_velocity_3": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_uz.in_units("code_length*code_time**-1").v,
-                "Pressure": lambda Z, Y, X, time: np.ones_like(Z)
+                "prim_pressure": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_pres.in_units(
                     "code_mass/(code_length*code_time**2)"
                 ).v,
             }
 
             final_analytic_components = {
-                "Density": lambda Z, Y, X, time: accretion_mask(
+                "cons_density": lambda Z, Y, X, time: accretion_mask(
                     Z, Y, X, final_rho, self.uniform_gas_rho
                 )
                 .in_units("code_mass/code_length**3")
                 .v,
-                "MomentumDensity1": lambda Z, Y, X, time: accretion_mask(
+                "cons_momentum_density_1": lambda Z, Y, X, time: accretion_mask(
                     Z, Y, X, final_Mx, self.uniform_gas_Mx
                 )
                 .in_units("code_mass*code_length**-2*code_time**-1")
                 .v,
-                "MomentumDensity2": lambda Z, Y, X, time: accretion_mask(
+                "cons_momentum_density_2": lambda Z, Y, X, time: accretion_mask(
                     Z, Y, X, final_My, self.uniform_gas_My
                 )
                 .in_units("code_mass*code_length**-2*code_time**-1")
                 .v,
-                "MomentumDensity3": lambda Z, Y, X, time: accretion_mask(
+                "cons_momentum_density_3": lambda Z, Y, X, time: accretion_mask(
                     Z, Y, X, final_Mz, self.uniform_gas_Mz
                 )
                 .in_units("code_mass*code_length**-2*code_time**-1")
                 .v,
-                "TotalEnergyDensity": lambda Z, Y, X, time: accretion_mask(
+                "cons_total_energy_density": lambda Z, Y, X, time: accretion_mask(
                     Z, Y, X, final_energy_density, self.uniform_gas_energy_density
                 )
                 .in_units("code_mass*code_length**-1*code_time**-2")
                 .v,
-                "Velocity1": lambda Z, Y, X, time: np.ones_like(Z)
+                "prim_velocity_1": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_ux.in_units("code_length*code_time**-1").v,
-                "Velocity2": lambda Z, Y, X, time: np.ones_like(Z)
+                "prim_velocity_2": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_uy.in_units("code_length*code_time**-1").v,
-                "Velocity3": lambda Z, Y, X, time: np.ones_like(Z)
+                "prim_velocity_3": lambda Z, Y, X, time: np.ones_like(Z)
                 * self.uniform_gas_uz.in_units("code_length*code_time**-1").v,
-                "Pressure": lambda Z, Y, X, time: accretion_mask(
+                "prim_pressure": lambda Z, Y, X, time: accretion_mask(
                     Z, Y, X, final_pres, self.uniform_gas_pres
                 )
                 .in_units("code_mass/(code_length*code_time**2)")

@@ -482,10 +482,10 @@ class TestCase(utils.test_case.TestCaseAbs):
                 # Construct lambda functions for initial and final analytically
                 # expected density and total energy density
                 densities_analytic_components = {
-                    "Density": lambda Z, Y, X, time: density_func(Z, Y, X, rho0)
+                    "cons_density": lambda Z, Y, X, time: density_func(Z, Y, X, rho0)
                     .in_units("code_mass*code_length**-3")
                     .v,
-                    "TotalEnergyDensity": lambda Z, Y, X, time: (
+                    "cons_total_energy_density": lambda Z, Y, X, time: (
                         internal_energy_density_func(Z, Y, X, rho0)
                         + b_energy_func(Z, Y, X, B_field)
                     )
