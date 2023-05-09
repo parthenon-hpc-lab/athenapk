@@ -259,19 +259,29 @@ class TestCase(utils.test_case.TestCaseAbs):
             return False
 
         analytic_uniform_gas_components = {
-            "Density": lambda Z, Y, X, time: (np.ones_like(X) * self.uniform_gas_rho)
+            "prim_density": lambda Z, Y, X, time: (
+                np.ones_like(X) * self.uniform_gas_rho
+            )
             .in_units("code_mass*code_length**-3")
             .v,
-            "Velocity1": lambda Z, Y, X, time: (np.ones_like(X) * self.uniform_gas_ux)
+            "prim_velocity_1": lambda Z, Y, X, time: (
+                np.ones_like(X) * self.uniform_gas_ux
+            )
             .in_units("code_length*code_time**-1")
             .v,
-            "Velocity2": lambda Z, Y, X, time: (np.ones_like(X) * self.uniform_gas_uy)
+            "prim_velocity_2": lambda Z, Y, X, time: (
+                np.ones_like(X) * self.uniform_gas_uy
+            )
             .in_units("code_length*code_time**-1")
             .v,
-            "Velocity3": lambda Z, Y, X, time: (np.ones_like(X) * self.uniform_gas_uz)
+            "prim_velocity_3": lambda Z, Y, X, time: (
+                np.ones_like(X) * self.uniform_gas_uz
+            )
             .in_units("code_length*code_time**-1")
             .v,
-            "Pressure": lambda Z, Y, X, time: (np.ones_like(X) * self.uniform_gas_pres)
+            "prim_pressure": lambda Z, Y, X, time: (
+                np.ones_like(X) * self.uniform_gas_pres
+            )
             .in_units("code_mass*code_length**-1*code_time**-2")
             .v,
         }
@@ -307,27 +317,15 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             # FIXME: TODO(forrestglines) For now this is hard coded - a component mapping should be done by phdf
             prim_col_dict = {
-                "Density": 0,
-                "Velocity1": 1,
-                "Velocity2": 2,
-                "Velocity3": 3,
-                "Pressure": 4,
+                "density": 0,
+                "pressure": 4,
             }
 
             rho = unyt.unyt_array(
-                prim[:, prim_col_dict["Density"]], "code_mass*code_length**-3"
-            )
-            ux = unyt.unyt_array(
-                prim[:, prim_col_dict["Velocity1"]], "code_length*code_time**-1"
-            )
-            uy = unyt.unyt_array(
-                prim[:, prim_col_dict["Velocity2"]], "code_length*code_time**-1"
-            )
-            uz = unyt.unyt_array(
-                prim[:, prim_col_dict["Velocity3"]], "code_length*code_time**-1"
+                prim[:, prim_col_dict["density"]], "code_mass*code_length**-3"
             )
             pres = unyt.unyt_array(
-                prim[:, prim_col_dict["Pressure"]],
+                prim[:, prim_col_dict["pressure"]],
                 "code_mass*code_length**-1*code_time**-2",
             )
 
@@ -356,7 +354,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 {
                     k: v
                     for k, v in analytic_uniform_gas_components.items()
-                    if k != "Pressure"
+                    if k != "prim_pressure"
                 },
                 err_func=zero_corrected_linf_err,
                 tol=self.machine_epsilon,
@@ -373,27 +371,15 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             # FIXME: TODO(forrestglines) For now this is hard coded - a component mapping should be done by phdf
             prim_col_dict = {
-                "Density": 0,
-                "Velocity1": 1,
-                "Velocity2": 2,
-                "Velocity3": 3,
-                "Pressure": 4,
+                "density": 0,
+                "pressure": 4,
             }
 
             rho = unyt.unyt_array(
-                prim[prim_col_dict["Density"]], "code_mass*code_length**-3"
-            )
-            ux = unyt.unyt_array(
-                prim[prim_col_dict["Velocity1"]], "code_length*code_time**-1"
-            )
-            uy = unyt.unyt_array(
-                prim[prim_col_dict["Velocity2"]], "code_length*code_time**-1"
-            )
-            uz = unyt.unyt_array(
-                prim[prim_col_dict["Velocity3"]], "code_length*code_time**-1"
+                prim[prim_col_dict["density"]], "code_mass*code_length**-3"
             )
             pres = unyt.unyt_array(
-                prim[prim_col_dict["Pressure"]],
+                prim[prim_col_dict["pressure"]],
                 "code_mass*code_length**-1*code_time**-2",
             )
 
