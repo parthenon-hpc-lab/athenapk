@@ -127,9 +127,12 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
+  IndexRange int_ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange int_jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange int_kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
   const auto nhydro = hydro_pkg->Param<int>("nhydro");
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
@@ -166,7 +169,13 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
           if (temp <= cold_temp_thresh) {
 
             const Real cell_cold_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
-            team_cold_mass += cell_cold_mass;
+
+            if( k >= int_kb.s && k <= int_kb.e && 
+                j >= int_jb.s && j <= int_jb.e &&
+                i >= int_ib.s && i <= int_ib.e) {
+              //Only reduce the cold gas that exists on the interior grid
+              team_cold_mass += cell_cold_mass;
+            }
 
             const Real cell_delta_rho = -prim(IDN, k, j, i) / cold_t_acc * dt;
 
@@ -265,9 +274,9 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
   // FIXME(forrestglines) When reductions are called, is `prim` up to date?
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
   const auto nhydro = hydro_pkg->Param<int>("nhydro");
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
