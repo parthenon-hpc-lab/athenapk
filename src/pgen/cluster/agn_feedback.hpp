@@ -36,7 +36,7 @@ class AGNFeedback {
 
   // Kinetic Feedback Parameters
   const parthenon::Real kinetic_jet_radius_, kinetic_jet_thickness_, kinetic_jet_offset_;
-  parthenon::Real kinetic_jet_velocity_, kinetic_jet_temperature_;
+  parthenon::Real kinetic_jet_velocity_, kinetic_jet_temperature_, kinetic_jet_e_;
 
   const bool disabled_;
 

@@ -73,8 +73,8 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
 
   kinetic_jet_velocity_ = NAN;
   kinetic_jet_temperature_ = NAN;
+  kinetic_jet_e_ = NAN;
 
-  Real kinetic_jet_e;
 
   const auto units = hydro_pkg->Param<Units>("units");
 
@@ -92,7 +92,7 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
     const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
     const Real gam = pin->GetReal("hydro", "gamma");
     const Real gm1 = (gam - 1.0);
-    kinetic_jet_e = units.k_boltzmann() * kinetic_jet_temperature_ /
+    kinetic_jet_e_ = units.k_boltzmann() * kinetic_jet_temperature_ /
                     (mu * units.atomic_mass_unit() * gm1);
   }
 
@@ -100,17 +100,17 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
     // Both velocity and temperature are missing, assume 0K temperature
     kinetic_jet_velocity_ = units.speed_of_light() * sqrt(2 * (efficiency_));
     kinetic_jet_temperature_ = 0;
-    kinetic_jet_e = 0;
+    kinetic_jet_e_ = 0;
     std::cout << "### WARNING Kinetic jet velocity nor temperature not specified. "
                  "Assuming 0K temperature jet"
               << std::endl;
   } else if (std::isnan(kinetic_jet_velocity_)) {
     // Velocity is missing, compute it from e_jet
     kinetic_jet_velocity_ = sqrt(2 * (efficiency_ * SQR(units.speed_of_light()) -
-                                      (1.0 - efficiency_) * kinetic_jet_e));
+                                      (1.0 - efficiency_) * kinetic_jet_e_));
   } else if (std::isnan(kinetic_jet_temperature_)) {
     // Temperature is missing, compute e_jet and T_jet from v_jet
-    kinetic_jet_e =
+    kinetic_jet_e_ =
         (efficiency_ * SQR(units.speed_of_light()) - 0.5 * SQR(kinetic_jet_velocity_)) /
         (1 - efficiency_);
     const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
@@ -119,13 +119,13 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
     const Real gam = pin->GetReal("hydro", "gamma");
     const Real gm1 = (gam - 1.0);
     kinetic_jet_temperature_ =
-        (kinetic_jet_e * mu * units.atomic_mass_unit() * gm1) / units.k_boltzmann();
+        (kinetic_jet_e_ * mu * units.atomic_mass_unit() * gm1) / units.k_boltzmann();
   }
 
   // Verify all equations are satified. NAN's here should give failures
   PARTHENON_REQUIRE(
       fabs(kinetic_jet_velocity_ - sqrt(2 * (efficiency_ * SQR(units.speed_of_light()) -
-                                             (1 - efficiency_) * kinetic_jet_e))) <
+                                             (1 - efficiency_) * kinetic_jet_e_))) <
           10 * std::numeric_limits<Real>::epsilon(),
       "Specified kinetic jet velocity and temperature are incompatible with mass to "
       "energy conversion efficiency. Choose either velocity or temperature.");
@@ -134,7 +134,7 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                         units.speed_of_light() * sqrt(2 * efficiency_),
                     "Kinetic jet velocity implies negative temperature of the jet");
 
-  PARTHENON_REQUIRE(kinetic_jet_e <=
+  PARTHENON_REQUIRE(kinetic_jet_e_ <=
                         SQR(units.speed_of_light()) * efficiency_ / (1 - efficiency_),
                     "Kinetic jet temperature implies negative kinetic energy of the jet");
 
@@ -270,6 +270,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   // Velocity of added gas
   const Real jet_velocity = kinetic_jet_velocity_;
+  const Real jet_specific_internal_e = kinetic_jet_e_;
 
   // Amount of momentum density ( density * velocity) to dump in each cell
   const Real jet_momentum = jet_density * jet_velocity;
@@ -333,7 +334,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         //  momentum, and total energy added depend on the triggered power.
         ///////////////////////////////////////////////////////////////////
 
-#ifdef DEBUG
+#ifndef NDEBUG
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             const Real old_specific_internal_e =
                 prim(IPR, k, j, i) / (prim(IDN, k, j, i) * (eos.GetGamma() - 1.));
@@ -345,7 +346,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             cons(IM3, k, j, i) += jet_momentum * sign_jet * jet_axis_z;
             cons(IEN, k, j, i) += jet_feedback;
 
-#ifdef DEBUG
+#ifndef NDEBUG
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             const Real new_specific_internal_e =
                 prim(IPR, k, j, i) / (prim(IDN, k, j, i) * (eos.GetGamma() - 1.));
@@ -357,6 +358,8 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           }
         }
         eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+        PARTHENON_DEBUG_REQUIRE(  prim(IPR, k, j, i) > 0,
+            "Kinetic injection leads to negative pressure");
       });
 
   // Apply magnetic tower feedback
