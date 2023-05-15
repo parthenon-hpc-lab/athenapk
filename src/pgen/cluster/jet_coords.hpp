@@ -86,7 +86,6 @@ class JetCoords {
 /************************************************************
  * Jet Coordinates Factory Class
  * A factory for creating JetCoords objects given a time
- * Keeps track of the precession
  ************************************************************/
 class JetCoordsFactory {
  private:
