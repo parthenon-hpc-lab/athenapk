@@ -75,12 +75,12 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
   kinetic_jet_temperature_ = NAN;
   kinetic_jet_e_ = NAN;
 
-
   const auto units = hydro_pkg->Param<Units>("units");
-  auto mbar_gm1_over_kb = hydro_pkg->Param<Real>("mbar_over_kb") * (pin->GetReal("hydro", "gamma") - 1);
+  auto mbar_gm1_over_kb =
+      hydro_pkg->Param<Real>("mbar_over_kb") * (pin->GetReal("hydro", "gamma") - 1);
 
-
-  // Get jet velocity and temperature/internal_e if in the sim parameters. These are NAN otherwise
+  // Get jet velocity and temperature/internal_e if in the sim parameters. These are NAN
+  // otherwise
   if (pin->DoesParameterExist("problem/cluster/agn_feedback", "kinetic_jet_velocity")) {
     kinetic_jet_velocity_ =
         pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_velocity");
@@ -351,8 +351,8 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           }
         }
         eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-        PARTHENON_DEBUG_REQUIRE(  prim(IPR, k, j, i) > 0,
-            "Kinetic injection leads to negative pressure");
+        PARTHENON_DEBUG_REQUIRE(prim(IPR, k, j, i) > 0,
+                                "Kinetic injection leads to negative pressure");
       });
 
   // Apply magnetic tower feedback
