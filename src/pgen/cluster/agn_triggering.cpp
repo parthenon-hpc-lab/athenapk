@@ -170,10 +170,9 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
 
             const Real cell_cold_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
 
-            if( k >= int_kb.s && k <= int_kb.e && 
-                j >= int_jb.s && j <= int_jb.e &&
+            if (k >= int_kb.s && k <= int_kb.e && j >= int_jb.s && j <= int_jb.e &&
                 i >= int_ib.s && i <= int_ib.e) {
-              //Only reduce the cold gas that exists on the interior grid
+              // Only reduce the cold gas that exists on the interior grid
               team_cold_mass += cell_cold_mass;
             }
 
