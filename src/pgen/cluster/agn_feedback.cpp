@@ -77,7 +77,10 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
 
 
   const auto units = hydro_pkg->Param<Units>("units");
+  auto mbar_gm1_over_kb = hydro_pkg->Param<Real>("mbar_over_kb") * (pin->GetReal("hydro", "gamma") - 1);
 
+
+  // Get jet velocity and temperature/internal_e if in the sim parameters. These are NAN otherwise
   if (pin->DoesParameterExist("problem/cluster/agn_feedback", "kinetic_jet_velocity")) {
     kinetic_jet_velocity_ =
         pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_velocity");
@@ -87,13 +90,7 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
     kinetic_jet_temperature_ =
         pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_temperature");
 
-    const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-    const Real H_mass_fraction = 1.0 - He_mass_fraction;
-    const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-    const Real gam = pin->GetReal("hydro", "gamma");
-    const Real gm1 = (gam - 1.0);
-    kinetic_jet_e_ = units.k_boltzmann() * kinetic_jet_temperature_ /
-                    (mu * units.atomic_mass_unit() * gm1);
+    kinetic_jet_e_ = kinetic_jet_temperature_ / mbar_gm1_over_kb;
   }
 
   if (std::isnan(kinetic_jet_velocity_) && std::isnan(kinetic_jet_temperature_)) {
@@ -113,13 +110,7 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
     kinetic_jet_e_ =
         (efficiency_ * SQR(units.speed_of_light()) - 0.5 * SQR(kinetic_jet_velocity_)) /
         (1 - efficiency_);
-    const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-    const Real H_mass_fraction = 1.0 - He_mass_fraction;
-    const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-    const Real gam = pin->GetReal("hydro", "gamma");
-    const Real gm1 = (gam - 1.0);
-    kinetic_jet_temperature_ =
-        (kinetic_jet_e_ * mu * units.atomic_mass_unit() * gm1) / units.k_boltzmann();
+    kinetic_jet_temperature_ = mbar_gm1_over_kb * kinetic_jet_e_;
   }
 
   // Verify all equations are satified. NAN's here should give failures
@@ -270,7 +261,9 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   // Velocity of added gas
   const Real jet_velocity = kinetic_jet_velocity_;
+#ifndef NDEBUG
   const Real jet_specific_internal_e = kinetic_jet_e_;
+#endif
 
   // Amount of momentum density ( density * velocity) to dump in each cell
   const Real jet_momentum = jet_density * jet_velocity;
