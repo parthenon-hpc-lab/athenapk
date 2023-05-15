@@ -1,4 +1,7 @@
-
+################################################################################
+# Input file for testing AGN triggering without fluid
+# evolution
+################################################################################
 <comment>
 problem   = AGN Triggering Test
 

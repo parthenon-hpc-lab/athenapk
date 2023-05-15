@@ -1,4 +1,7 @@
-
+################################################################################
+# Input file for testing magnetic tower AGN feedback without fluid
+# evolution
+################################################################################
 <comment>
 problem   = Magnetic Tower Test
 

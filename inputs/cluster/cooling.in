@@ -1,6 +1,8 @@
-
+################################################################################
+# Input file for testing tabular cooling
+################################################################################
 <comment>
-problem   = Galaxy Cluster Cooling Test
+problem   = Cooling Test
 
 <job>
 problem_id = cluster   # problem ID: basename of output filenames

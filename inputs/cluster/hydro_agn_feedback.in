@@ -1,4 +1,7 @@
-
+################################################################################
+# Input file for testing kinetic and thermal AGN feedback without fluid
+# evolution
+################################################################################
 <comment>
 problem   = Hydro AGN Feedback Test
 

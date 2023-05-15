@@ -1,4 +1,7 @@
-
+################################################################################
+# Input file for testing hydrostatic equilbrium setup for galaxy cluster-like
+# objects 
+################################################################################
 <comment>
 problem   = Galaxy Cluster Hydrostatic Equilibrium Test
 
