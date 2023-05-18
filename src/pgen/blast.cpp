@@ -206,6 +206,34 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
   image_data = {};
 }
 
-void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {}
+//========================================================================================
+//! \fn void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor
+//! *hydro_pkg)
+//! \brief Init package data from parameter input
+//========================================================================================
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) {
+  auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  hydro_pkg->AddField("cell_radius", m);
+}
+
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
+  auto &data = pmb->meshblock_data.Get();
+  auto &radius = data->Get("cell_radius").data;
+  auto &coords = pmb->coords;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+
+  pmb->par_for(
+      "FillDerivedHydro", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+        // compute radius
+        const Real x = coords.Xc<1>(i);
+        const Real y = coords.Xc<2>(j);
+        const Real z = coords.Xc<3>(k);
+        const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
+        radius(0, k, j, i) = r;
+      });
+}
 
 } // namespace blast

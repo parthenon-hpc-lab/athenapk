@@ -38,9 +38,9 @@ def plot_profile(name, session=None):
 if __name__ == "__main__":
     # plot profiles produced by Ascent DataBinning function
     
-    with open("ascent_profiles.yaml", 'r') as file:
+    with open("ascent_session.yaml", 'r') as file:
         session = yaml.load(file, Loader=yaml.FullLoader)
         plot_profile("density_profile", session=session)
-        plot_profile("pressure_profile", session=session)
+        #plot_profile("pressure_profile", session=session)
         plot_profile("vorticity_profile", session=session)
 
