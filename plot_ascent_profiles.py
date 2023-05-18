@@ -31,7 +31,7 @@ def plot_profile(name, session=None, log=False):
     plt.xlim(0, 0.5)
     if (log):
         plt.yscale('log')
-    plt.legend(loc='upper right')
+    plt.legend(loc='upper left')
     plt.ylabel(f"{name}")
     plt.xlabel(r"radius")
     plt.tight_layout()
