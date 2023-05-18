@@ -9,6 +9,7 @@
 //========================================================================================
 
 // C++ headers
+#include <cmath>
 #include <fstream>
 #include <limits>
 
@@ -394,11 +395,16 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
             if (!dedt_valid) {
               if (sub_dt == min_sub_dt) {
-                PARTHENON_FAIL("FATAL ERROR in [TabularCooling::SubcyclingSplitSrcTerm]: "
-                               "Minumum sub_dt leads to negative internal energy");
+                // Cooling is so fast that even the minimum subcycle dt would lead to
+                // negative internal energy -- so just cool to the floor of the cooling
+                // table
+                sub_dt = (dt - sub_t);
+                internal_e_next_h = internal_e_floor;
+                reattempt_sub = false;
+              } else {
+                reattempt_sub = true;
+                sub_dt = min_sub_dt;
               }
-              reattempt_sub = true;
-              sub_dt = min_sub_dt;
             } else {
 
               // Compute error
@@ -595,7 +601,10 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
   if (cooling_time_cfl_ <= 0.0) {
     return std::numeric_limits<Real>::max();
   }
-  // Grab member variables for compiler
+
+  if (isnan(cooling_time_cfl_) || isinf(cooling_time_cfl_)) {
+    return std::numeric_limits<Real>::infinity();
+  }
 
   // Everything needed by DeDt
   const Real mu_mh_gm1_by_k_B = mu_mh_gm1_by_k_B_;

@@ -37,3 +37,7 @@ compile_commands.json
 
 # CMake Test files
 Testing
+
+# generate_cluster_input.ipynb files
+inputs/cluster/generate_cluster_input.ipynb
+inputs/cluster/my_cluster.input

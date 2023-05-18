@@ -86,7 +86,9 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceFirstOrder = rand_blast::RandomBlasts;
   } else if (problem == "cluster") {
     pman.app_input->ProblemGenerator = cluster::ProblemGenerator;
+    Hydro::ProblemInitPackageData = cluster::ProblemInitPackageData;
     Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;
+    Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {
