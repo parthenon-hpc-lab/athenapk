@@ -1,8 +1,9 @@
 ################################################################################
-# Input file for testing tabular cooling
+# Input file for testing kinetic and thermal AGN feedback without fluid
+# evolution
 ################################################################################
 <comment>
-problem   = Cooling Test
+problem   = Hydro AGN Feedback Test
 
 <job>
 problem_id = cluster   # problem ID: basename of output filenames
@@ -13,38 +14,47 @@ dt         = 1e-4      # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
-variables  = prim      # Variables to be output
-dt         = 1.0     # Time increment between outputs
-id         = prim      # Name to append to output
+variables  = cons,prim      # Variables to be output
+dt         = 0.01     # Time increment between outputs
+id         = vars      # Name to append to output
 
 <parthenon/time>
-cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+cfl = 1e1        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
-tlim       = 1.0       # time limit
+tlim       = 0.1       # time limit
 integrator  = vl2       # time integration algorithm
 
 
 <parthenon/mesh>
-refinement  = none
+refinement  = static
 nghost = 2
 
-nx1        = 8       # Number of zones in X1-direction
-x1min      =-1.0       # minimum value of X1
-x1max      = 1.0       # maximum value of X1
+nx1        = 64        # Number of zones in X1-direction
+x1min      =-0.1       # minimum value of X1
+x1max      = 0.1       # maximum value of X1
 ix1_bc     = outflow   # inner-X1 boundary flag
 ox1_bc     = outflow   # outer-X1 boundary flag
 
-nx2        = 8       # Number of zones in X2-direction
-x2min      =-1.0       # minimum value of X2
-x2max      = 1.0       # maximum value of X2
+nx2        = 64        # Number of zones in X2-direction
+x2min      =-0.1       # minimum value of X2
+x2max      = 0.1       # maximum value of X2
 ix2_bc     = outflow   # inner-X2 boundary flag
 ox2_bc     = outflow   # outer-X2 boundary flag
 
-nx3        = 8       # Number of zones in X3-direction
-x3min      =-1.0       # minimum value of X3
-x3max      = 1.0       # maximum value of X3
+nx3        = 64        # Number of zones in X3-direction
+x3min      =-0.1       # minimum value of X3
+x3max      = 0.1       # maximum value of X3
 ix3_bc     = outflow   # inner-X3 boundary flag
 ox3_bc     = outflow   # outer-X3 boundary flag
+
+<parthenon/static_refinement0>
+x1min = -0.025
+x1max =  0.025
+x2min = -0.025
+x2max =  0.025
+x3min = -0.025
+x3max =  0.025
+level = 2
 
 
 <parthenon/meshblock>
@@ -53,10 +63,12 @@ nx2        = 8        # Number of zones in X2-direction
 nx3        = 8        # Number of zones in X3-direction
 
 <hydro>
+fluid = euler
 gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
-riemann = hlle
-reconstruction = plm
+riemann = none
+reconstruction = dc
+calc_dt_hyp = true
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 He_mass_fraction = 0.25
@@ -67,19 +79,6 @@ He_mass_fraction = 0.25
 code_length_cgs = 3.085677580962325e+24 # 1 Mpc in cm
 code_mass_cgs = 1.98841586e+47          # 1e14 Msun in g
 code_time_cgs = 3.15576e+16             # 1 Gyr in s
-
-<cooling>
-enable_cooling = tabular
-table_filename = schure.cooling
-log_temp_col = 0
-log_lambda_col = 1
-lambda_units_cgs = 1 #erg cm^3/s in cgs, as used in schure.cooling
-
-integrator = rk12
-max_iter = 100
-cfl = 0.1
-d_log_temp_tol = 1e-8
-d_e_tol = 1e-8
 
 <problem/cluster>
 
@@ -95,6 +94,27 @@ ux = 0
 uy = 0
 uz = 0
 pres = 1.5454368403867562
+
+<problem/cluster/precessing_jet>
+#Define a precessing jet
+jet_phi0 = 1.2
+jet_phi_dot = 1
+jet_theta = 0.4
+
+<problem/cluster/agn_feedback>
+fixed_power = 1.65998282e-04
+efficiency = 1e-3
+
+magnetic_fraction = = 0.0
+thermal_fraction = 0.5
+kinetic_fraction = 0.5
+
+thermal_radius = 0.0125
+
+kinetic_jet_radius = 0.02
+kinetic_jet_thickness  = 0.01
+kinetic_jet_offset = 0.01
+kinetic_jet_temperature = 1e7
 
 <problem/cluster/snia_feedback>
 disabled               = True
