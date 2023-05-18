@@ -227,11 +227,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddField("cell_radius", m);
   // entropy
   hydro_pkg->AddField("entropy", m);
+  // sonic Mach number v/c_s
+  hydro_pkg->AddField("Mach_sonic", m);
 
   // temperature
   // hydro_pkg->AddField("temperature", m);
-  // sonic Mach number v/c_s
-  // hydro_pkg->AddField("Mach_sonic", m);
   // cooling time
   // hydro_pkg->AddField("cooling_time", m);
 
@@ -443,8 +443,8 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   // get derived fields
   auto &radius = data->Get("cell_radius").data;
   auto &entropy = data->Get("entropy").data;
+  auto &mach_sonic = data->Get("Mach_sonic").data;
   // auto &temperature = data->Get("temperature").data;
-  // auto &mach_sonic = data->Get("Mach_sonic").data;
   // auto &cooling_time = data->Get("cooling_time").data;
 
   // get cooling function
@@ -478,14 +478,13 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         const Real K = P / std::pow(rho, gam);
         entropy(0, k, j, i) = K;
 
+        const Real v_mag = std::sqrt(SQR(v1) + SQR(v2) + SQR(v3));
+        const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
+        const Real M_s = v_mag / c_s;
+        mach_sonic(0, k, j, i) = M_s;
+
         // TODO: compute temperature
         // temperature(0, k, j, i) = Tgas;
-
-        // TODO: compute Mach number
-        const Real v_mag = std::sqrt(SQR(v1) + SQR(v2) + SQR(v3));
-        // const Real c_s = NAN; // TODO(ben): compute adiabatic sound speed
-        // const Real M_s = v_mag / c_s;
-        // mach_sonic(0, k, j, i) = M_s;
 
         // TODO: compute cooling time
         const Real eint = P / (rho * gm1);
