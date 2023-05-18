@@ -74,5 +74,5 @@ variables = cons
 
 <parthenon/output1>
 file_type = ascent
-actions_file = inputs/ascent_actions_vorticity_binning_bug.yaml
+actions_file = inputs/ascent_actions.yaml
 dt = 0.05

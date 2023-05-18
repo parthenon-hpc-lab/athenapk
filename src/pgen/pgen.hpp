@@ -52,6 +52,7 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
                        parthenon::SimTime &tm);
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin);
 } // namespace blast
 
 namespace advection {

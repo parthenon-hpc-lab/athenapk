@@ -68,6 +68,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->InitUserMeshData = blast::InitUserMeshData;
     pman.app_input->ProblemGenerator = blast::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = blast::UserWorkAfterLoop;
+    pman.app_input->MeshBlockUserWorkBeforeOutput = blast::UserWorkBeforeOutput;
   } else if (problem == "advection") {
     pman.app_input->InitUserMeshData = advection::InitUserMeshData;
     pman.app_input->ProblemGenerator = advection::ProblemGenerator;

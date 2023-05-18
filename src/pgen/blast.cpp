@@ -205,4 +205,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) {
   image_data = {};
 }
+
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {}
+
 } // namespace blast

@@ -1,0 +1,62 @@
+-
+  action: "add_pipelines"
+  pipelines: 
+    velocity_pl: # compute velocity magnitude
+      f1: 
+        type: "composite_vector"
+        params: 
+          field1: "prim_velocity_1"
+          field2: "prim_velocity_2"
+          field3: "prim_velocity_3"
+          output_name: "velocity_vec"
+      f3:
+        type: "vector_magnitude"
+        params:
+          field: "velocity_vec"
+          output_name: "velocity_mag"
+          
+    vorticity_pl: # compute vorticity magnitude
+      f1: 
+        type: "composite_vector"
+        params: 
+          field1: "prim_velocity_1"
+          field2: "prim_velocity_2"
+          field3: "prim_velocity_3"
+          output_name: "velocity_vec"
+      f2:
+        type: "vorticity"
+        params:
+          field: "velocity_vec"
+          output_name: "vorticity_vec"
+      f3:
+        type: "vector_magnitude"
+        params:
+          field: "vorticity_vec"
+          output_name: "vorticity_mag"
+      f4:
+        type: "recenter"
+        params:
+          field: "vorticity_mag"
+          association: "element"
+
+-
+  action: "add_queries"
+  queries: 
+    density_binning:
+      params: 
+        expression: "binning('prim_density', 'avg', [axis('cell_radius', num_bins=20)])"
+        name: "density_profile"
+
+    vorticity_binning: # this currently does not work due to an Ascent bug
+      params: 
+        expression: "binning('vorticity_mag', 'avg', [axis('cell_radius', num_bins=20)])"
+        name: "vorticity_profile"
+      pipeline: "vorticity_pl"
+
+    velocity_binning: # must be the last query (to work around an Ascent bug)
+      params: 
+        expression: "binning('velocity_mag', 'avg', [axis('cell_radius', num_bins=20)])"
+        name: "velocity_profile"
+      pipeline: "velocity_pl"
+-
+  action: "save_session"
