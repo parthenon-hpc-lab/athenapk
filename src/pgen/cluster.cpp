@@ -223,8 +223,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 
   auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
 
-  // cell-centered radius
-  hydro_pkg->AddField("cell_radius", m);
+  // log10 of cell-centered radius
+  hydro_pkg->AddField("log10_cell_radius", m);
   // entropy
   hydro_pkg->AddField("entropy", m);
   // sonic Mach number v/c_s
@@ -441,7 +441,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto const &prim = data->Get("prim").data;
 
   // get derived fields
-  auto &radius = data->Get("cell_radius").data;
+  auto &log10_radius = data->Get("log10_cell_radius").data;
   auto &entropy = data->Get("entropy").data;
   auto &mach_sonic = data->Get("Mach_sonic").data;
   // auto &temperature = data->Get("temperature").data;
@@ -472,7 +472,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         const Real y = coords.Xc<2>(j);
         const Real z = coords.Xc<3>(k);
         const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
-        radius(0, k, j, i) = r;
+        log10_radius(0, k, j, i) = std::log10(r);
 
         // compute entropy
         const Real K = P / std::pow(rho, gam);
