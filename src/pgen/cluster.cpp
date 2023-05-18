@@ -229,9 +229,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddField("entropy", m);
   // sonic Mach number v/c_s
   hydro_pkg->AddField("Mach_sonic", m);
-
   // temperature
-  // hydro_pkg->AddField("temperature", m);
+  hydro_pkg->AddField("temperature", m);
+  
   // cooling time
   // hydro_pkg->AddField("cooling_time", m);
 
