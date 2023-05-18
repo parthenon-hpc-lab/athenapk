@@ -444,8 +444,11 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto &log10_radius = data->Get("log10_cell_radius").data;
   auto &entropy = data->Get("entropy").data;
   auto &mach_sonic = data->Get("Mach_sonic").data;
-  // auto &temperature = data->Get("temperature").data;
+  auto &temperature = data->Get("temperature").data;
   // auto &cooling_time = data->Get("cooling_time").data;
+  
+  // for computing temperature from primitives
+  auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
 
   // get cooling function
   const cooling::TabularCooling &tabular_cooling =
@@ -484,7 +487,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         mach_sonic(0, k, j, i) = M_s;
 
         // TODO: compute temperature
-        // temperature(0, k, j, i) = Tgas;
+        temperature(0, k, j, i)  = mbar_over_kb * P / rho;
 
         // TODO: compute cooling time
         const Real eint = P / (rho * gm1);
