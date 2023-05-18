@@ -44,18 +44,23 @@
   queries: 
     density_binning:
       params: 
-        expression: "binning('prim_density', 'avg', [axis('cell_radius', num_bins=20)])"
+        expression: "binning('prim_density', 'avg', [axis('cell_radius', num_bins=100)])"
         name: "density_profile"
+
+    pressure_binning:
+      params: 
+        expression: "binning('prim_pressure', 'avg', [axis('cell_radius', num_bins=100)])"
+        name: "pressure_profile"
 
     vorticity_binning: # this currently does not work due to an Ascent bug
       params: 
-        expression: "binning('vorticity_mag', 'avg', [axis('cell_radius', num_bins=20)])"
+        expression: "binning('vorticity_mag', 'avg', [axis('cell_radius', num_bins=100)])"
         name: "vorticity_profile"
       pipeline: "vorticity_pl"
 
     velocity_binning: # must be the last query (to work around an Ascent bug)
       params: 
-        expression: "binning('velocity_mag', 'avg', [axis('cell_radius', num_bins=20)])"
+        expression: "binning('velocity_mag', 'avg', [axis('cell_radius', num_bins=100)])"
         name: "velocity_profile"
       pipeline: "velocity_pl"
 -

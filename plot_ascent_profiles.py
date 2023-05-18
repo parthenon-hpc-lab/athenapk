@@ -41,6 +41,6 @@ if __name__ == "__main__":
     with open("ascent_session.yaml", 'r') as file:
         session = yaml.load(file, Loader=yaml.FullLoader)
         plot_profile("density_profile", session=session)
-        #plot_profile("pressure_profile", session=session)
+        plot_profile("pressure_profile", session=session)
         plot_profile("vorticity_profile", session=session)
 

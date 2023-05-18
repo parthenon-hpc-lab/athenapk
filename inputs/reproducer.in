@@ -67,12 +67,7 @@ radius_inner      = 0.0     # Radius of the inter sphere (with ramp between inne
 density_ambient   = 1.0     # ambient density
 density_ratio     = 1.0     # density ratio
 
-<parthenon/output0>
-file_type = hdf5
-dt = 0.05
-variables = cons
-
 <parthenon/output1>
 file_type = ascent
 actions_file = inputs/ascent_actions.yaml
-dt = 0.05
+dt = 0.1
