@@ -38,8 +38,8 @@ nx3=16
 
 <parthenon/time>
 integrator = vl2
-cfl = 0.25
-tlim = 1.0
+cfl = 0.2
+tlim = 0.1
 nlim = 100000
 perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
 ncycle_out_mesh = -100
@@ -59,7 +59,7 @@ threshold_pressure_gradient  = 0.1
 # initialize a Sedov test problem using parameters from Richard Klein and J. Bolstad
 # [Reference: J.R. Kamm and F.X. Timmes,
 #    On Efficient Generation of Numerically Robust Sedov Solutions, LA-UR-07-2849.]
-#
+# (At t = 1, the shock radius is R_s = 1.)
 <problem/blast>
 pressure_ambient  = 2.6631008890474766e-07   # ambient pressure
 pressure_ratio    = 1.0e10  # initial pressure ratio
@@ -70,10 +70,10 @@ density_ratio     = 1.0     # density ratio
 
 <parthenon/output0>
 file_type = hdf5
-dt = 0.1
+dt = 0.01
 variables = prim
 
 <parthenon/output1>
 file_type = ascent
 actions_file = inputs/ascent_actions.yaml
-dt = 0.1
+dt = 0.01

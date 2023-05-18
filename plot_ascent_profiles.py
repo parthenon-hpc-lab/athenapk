@@ -2,7 +2,7 @@ import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_profile(name, session=None):
+def plot_profile(name, session=None, log=False):
     data = session[name]
     profiles = []
     times = []
@@ -26,9 +26,11 @@ def plot_profile(name, session=None):
     plt.figure(figsize=(6, 4))
     for i in range(len(profiles)):
         plt.plot(bin_centers[i], profiles[i],
-                 label=r"$t = {:.5f}$".format(times[i]))
+                 label=r"$t = {:.2f}$".format(times[i]))
 
     plt.xlim(0, 0.5)
+    if (log):
+        plt.yscale('log')
     plt.legend(loc='upper right')
     plt.ylabel(f"{name}")
     plt.xlabel(r"radius")
@@ -41,6 +43,6 @@ if __name__ == "__main__":
     with open("ascent_session.yaml", 'r') as file:
         session = yaml.load(file, Loader=yaml.FullLoader)
         plot_profile("density_profile", session=session)
-        plot_profile("pressure_profile", session=session)
+        plot_profile("pressure_profile", session=session, log=True)
         plot_profile("vorticity_profile", session=session)
 
