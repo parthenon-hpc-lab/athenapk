@@ -47,8 +47,9 @@ ncycle_out_mesh = -100
 <hydro>
 eos = adiabatic
 riemann = hlle
-reconstruction = ppm
+reconstruction = plm
 gamma = 1.4
+first_order_flux_correct = true 
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 <refinement>
@@ -63,9 +64,14 @@ threshold_pressure_gradient  = 0.1
 pressure_ambient  = 2.6631008890474766e-07   # ambient pressure
 pressure_ratio    = 1.0e10  # initial pressure ratio
 radius_outer      = 0.03125 # Radius of the outer sphere
-radius_inner      = 0.0     # Radius of the inter sphere (with ramp between inner and outer sphere)
+radius_inner      = 0.03125 # Radius of the inter sphere (with ramp between inner and outer sphere)
 density_ambient   = 1.0     # ambient density
 density_ratio     = 1.0     # density ratio
+
+<parthenon/output0>
+file_type = hdf5
+dt = 0.1
+variables = prim
 
 <parthenon/output1>
 file_type = ascent
