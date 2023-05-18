@@ -33,6 +33,7 @@
 // AthenaPK headers
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
+#include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
 
 // Cluster headers
@@ -214,6 +215,30 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    ************************************************************/
 
   SNIAFeedback snia_feedback(pin, hydro_pkg);
+
+  /************************************************************
+   * Add derived fields
+   * NOTE: these must be filled in UserWorkBeforeOutput
+   ************************************************************/
+
+  auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+
+  // cell-centered radius
+  hydro_pkg->AddField("cell_radius", m);
+  // entropy
+  hydro_pkg->AddField("entropy", m);
+
+  // temperature
+  // hydro_pkg->AddField("temperature", m);
+  // sonic Mach number v/c_s
+  // hydro_pkg->AddField("Mach_sonic", m);
+  // cooling time
+  // hydro_pkg->AddField("cooling_time", m);
+
+  if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+    // plasma beta
+    hydro_pkg->AddField("plasma_beta", m);
+  }
 }
 
 //========================================================================================
@@ -403,6 +428,91 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     }
 
   } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
+}
+
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
+  // get hydro
+  auto pkg = pmb->packages.Get("Hydro");
+  const Real gam = pin->GetReal("hydro", "gamma");
+  const Real gm1 = (gam - 1.0);
+
+  // get prim vars
+  auto &data = pmb->meshblock_data.Get();
+  auto const &prim = data->Get("prim").data;
+
+  // get derived fields
+  auto &radius = data->Get("cell_radius").data;
+  auto &entropy = data->Get("entropy").data;
+  // auto &temperature = data->Get("temperature").data;
+  // auto &mach_sonic = data->Get("Mach_sonic").data;
+  // auto &cooling_time = data->Get("cooling_time").data;
+
+  // get cooling function
+  const cooling::TabularCooling &tabular_cooling =
+      pkg->Param<cooling::TabularCooling>("tabular_cooling");
+
+  // fill derived vars (*including ghost cells*)
+  auto &coords = pmb->coords;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+
+  pmb->par_for(
+      "FillDerivedHydro", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+        // get gas properties
+        const Real rho = prim(IDN, k, j, i);
+        const Real v1 = prim(IV1, k, j, i);
+        const Real v2 = prim(IV1, k, j, i);
+        const Real v3 = prim(IV1, k, j, i);
+        const Real P = prim(IPR, k, j, i);
+
+        // compute radius
+        const Real x = coords.Xc<1>(i);
+        const Real y = coords.Xc<2>(j);
+        const Real z = coords.Xc<3>(k);
+        const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
+        radius(0, k, j, i) = r;
+
+        // compute entropy
+        const Real K = P / std::pow(rho, gam);
+        entropy(0, k, j, i) = K;
+
+        // TODO: compute temperature
+        // temperature(0, k, j, i) = Tgas;
+
+        // TODO: compute Mach number
+        const Real v_mag = std::sqrt(SQR(v1) + SQR(v2) + SQR(v3));
+        // const Real c_s = NAN; // TODO(ben): compute adiabatic sound speed
+        // const Real M_s = v_mag / c_s;
+        // mach_sonic(0, k, j, i) = M_s;
+
+        // TODO: compute cooling time
+        const Real eint = P / (rho * gm1);
+        bool is_valid = true;
+        // const Real edot = tabular_cooling.edot(rho, eint, is_valid);
+        // const Real t_cool = eint / edot;
+        // cooling_time(0, k, j, i) = t_cool;
+      });
+
+  if (pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+    auto &plasma_beta = data->Get("plasma_beta").data;
+
+    pmb->par_for(
+        "FillDerivedMHD", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          // get gas properties
+          const Real rho = prim(IDN, k, j, i);
+          const Real Pgas = prim(IPR, k, j, i);
+          const Real B1 = prim(IB1, k, j, i);
+          const Real B2 = prim(IB2, k, j, i);
+          const Real B3 = prim(IB3, k, j, i);
+          const Real Pmag = 0.5 * (SQR(B1) + SQR(B2) + SQR(B3));
+
+          // compute plasma beta
+          plasma_beta(0, k, j, i) = Pgas / Pmag;
+        });
+  }
 }
 
 } // namespace cluster
