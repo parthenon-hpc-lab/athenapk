@@ -232,8 +232,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   // temperature
   hydro_pkg->AddField("temperature", m);
   
-  // cooling time
-  // hydro_pkg->AddField("cooling_time", m);
+  if ( hydro_pkg->Param<Cooling>("enable_cooling") == Cooling::tabular ) {
+    // cooling time
+    hydro_pkg->AddField("cooling_time", m);
+  }
 
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     // plasma beta
@@ -445,14 +447,10 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto &entropy = data->Get("entropy").data;
   auto &mach_sonic = data->Get("Mach_sonic").data;
   auto &temperature = data->Get("temperature").data;
-  // auto &cooling_time = data->Get("cooling_time").data;
   
   // for computing temperature from primitives
   auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
 
-  // get cooling function
-  const cooling::TabularCooling &tabular_cooling =
-      pkg->Param<cooling::TabularCooling>("tabular_cooling");
 
   // fill derived vars (*including ghost cells*)
   auto &coords = pmb->coords;
@@ -486,16 +484,32 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         const Real M_s = v_mag / c_s;
         mach_sonic(0, k, j, i) = M_s;
 
-        // TODO: compute temperature
+        // compute temperature
         temperature(0, k, j, i)  = mbar_over_kb * P / rho;
 
-        // TODO: compute cooling time
-        const Real eint = P / (rho * gm1);
-        bool is_valid = true;
-        // const Real edot = tabular_cooling.edot(rho, eint, is_valid);
-        // const Real t_cool = eint / edot;
-        // cooling_time(0, k, j, i) = t_cool;
       });
+  if ( pkg->Param<Cooling>("enable_cooling") == Cooling::tabular ) {
+    auto &cooling_time = data->Get("cooling_time").data;
+
+    // get cooling function
+    const cooling::TabularCooling &tabular_cooling =
+        pkg->Param<cooling::TabularCooling>("tabular_cooling");
+    const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj(pkg);
+
+    pmb->par_for(
+        "FillDerivedCoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          // get gas properties
+          const Real rho = prim(IDN, k, j, i);
+          const Real P = prim(IPR, k, j, i);
+
+          // compute cooling time
+          const Real eint = P / (rho * gm1);
+          const Real edot = cooling_table_obj.DeDt(eint, rho);
+          const Real t_cool = eint / edot;
+          cooling_time(0, k, j, i) = t_cool;
+        });
+  }
 
   if (pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     auto &plasma_beta = data->Get("plasma_beta").data;
