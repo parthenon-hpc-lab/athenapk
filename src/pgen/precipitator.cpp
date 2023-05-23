@@ -44,8 +44,8 @@
 #include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../interp.hpp"
 #include "../main.hpp"
-#include "../units.hpp"
 #include "../reduction_utils.hpp"
+#include "../units.hpp"
 #include "outputs/outputs.hpp"
 #include "pgen.hpp"
 #include "utils/error_checking.hpp"
@@ -661,8 +661,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       });
 }
 
-void ComputeProfileLocal(MeshData<Real> *md)
-{
+void ComputeProfileLocal(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
 
@@ -704,7 +703,7 @@ void ComputeProfileLocal(MeshData<Real> *md)
 
   PARTHENON_REQUIRE(REDUCTION_ARRAY_SIZE == profile_dev.size(),
                     "REDUCTION_ARRAY_SIZE != profile_dev.size()");
-  
+
   ReductionSumArray<Real, REDUCTION_ARRAY_SIZE> profile_sum;
   Kokkos::Sum<ReductionSumArray<Real, REDUCTION_ARRAY_SIZE>> reducer_sum(profile_sum);
 
@@ -750,7 +749,10 @@ void ComputeProfileLocal(MeshData<Real> *md)
 void ComputeProfileGlobal(Mesh *mesh, ParameterInput *pin,
                           const parthenon::SimTime &time) {
   // compute a 1D profile across the entire Mesh
-  auto pkg = mesh->FindMeshBlock(0)->packages.Get("Hydro");
+  auto md = mesh->mesh_data.Get();
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto pkg = pmb->packages.Get("Hydro");
+
   AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
       pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
 
