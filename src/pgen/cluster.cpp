@@ -231,8 +231,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddField("Mach_sonic", m);
   // temperature
   hydro_pkg->AddField("temperature", m);
-  
-  if ( hydro_pkg->Param<Cooling>("enable_cooling") == Cooling::tabular ) {
+
+  if (hydro_pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     // cooling time
     hydro_pkg->AddField("cooling_time", m);
   }
@@ -447,10 +447,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto &entropy = data->Get("entropy").data;
   auto &mach_sonic = data->Get("Mach_sonic").data;
   auto &temperature = data->Get("temperature").data;
-  
+
   // for computing temperature from primitives
   auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
-
 
   // fill derived vars (*including ghost cells*)
   auto &coords = pmb->coords;
@@ -485,10 +484,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         mach_sonic(0, k, j, i) = M_s;
 
         // compute temperature
-        temperature(0, k, j, i)  = mbar_over_kb * P / rho;
-
+        temperature(0, k, j, i) = mbar_over_kb * P / rho;
       });
-  if ( pkg->Param<Cooling>("enable_cooling") == Cooling::tabular ) {
+  if (pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     auto &cooling_time = data->Get("cooling_time").data;
 
     // get cooling function

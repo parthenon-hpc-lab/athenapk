@@ -251,7 +251,6 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     Kokkos::deep_copy(townsend_alpha_k_, host_townsend_alpha_k);
     Kokkos::deep_copy(townsend_Y_k_, host_townsend_Y_k);
   }
-
 }
 
 void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
@@ -278,7 +277,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   const CoolingTableObj cooling_table_obj = GetCoolingTableObj(hydro_pkg);
   const auto gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
   const auto mbar_gm1_over_kb = hydro_pkg->Param<Real>("mbar_over_kb") * gm1;
-  
+
   const unsigned int max_iter = max_iter_;
 
   const Real min_sub_dt = dt / max_iter;
@@ -476,13 +475,13 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto units = hydro_pkg->Param<Units>("units");
   const auto gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
   const auto mbar_gm1_over_kb = hydro_pkg->Param<Real>("mbar_over_kb") * gm1;
-  const Real X_by_mh2 = std::pow( (1 - hydro_pkg->Param<Real>("He_mass_fraction"))/units.mh(),2);
+  const Real X_by_mh2 =
+      std::pow((1 - hydro_pkg->Param<Real>("He_mass_fraction")) / units.mh(), 2);
 
   const auto lambdas = lambdas_;
   const auto temps = temps_;
   const auto alpha_k = townsend_alpha_k_;
   const auto Y_k = townsend_Y_k_;
-
 
   const auto internal_e_floor = T_floor_ / mbar_gm1_over_kb;
   const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
