@@ -104,7 +104,7 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
 void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
 void ReflectingInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
 void ReflectingOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
-void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin);
+void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin, const parthenon::SimTime &);
 } // namespace precipitator
 
 namespace cluster {

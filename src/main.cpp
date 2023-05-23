@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
         precipitator::ReflectingInnerX3;
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x3] =
         precipitator::ReflectingOuterX3;
-    pman.app_input->MeshBlockUserWorkBeforeOutput = precipitator::UserWorkBeforeOutput;
+    pman.app_input->UserMeshWorkBeforeOutput = precipitator::UserMeshWorkBeforeOutput;
     Hydro::ProblemSourceUnsplit = precipitator::AddUnsplitSrcTerms;
     Hydro::ProblemSourceFirstOrder = precipitator::AddSplitSrcTerms;
   } else if (problem == "sod") {

@@ -236,9 +236,10 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
         p3 += dt * (p_hse_zplus - p_hse_zminus) / dx3; // Kappeli & Mishra (2.14)
 
         // compute energy update
-        //const Real KE_new = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
-        //const Real dE = KE_new - KE_old;
-        const Real dE = -dt * rho * v_z * (phi_zplus - phi_zminus) / dx3; // Kappeli & Mishra (2.15)
+        // const Real KE_new = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
+        // const Real dE = KE_new - KE_old;
+        const Real dE =
+            -dt * rho * v_z * (phi_zplus - phi_zminus) / dx3; // Kappeli & Mishra (2.15)
 
         cons(IM3, k, j, i) = p3;  // update z-momentum
         cons(IEN, k, j, i) += dE; // update total energy
@@ -659,120 +660,129 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       });
 }
 
-void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
-  auto &data = pmb->meshblock_data.Get();
-  auto const &prim = data->Get("prim").data;
-  auto &drho = data->Get("drho_over_rho").data;
-  auto &dP = data->Get("dP_over_P").data;
-  auto &dK = data->Get("dK_over_K").data;
-  auto &dEdot = data->Get("dEdot_over_Edot").data;
-  auto &meanEdot = data->Get("mean_Edot").data;
-  auto &entropy = data->Get("entropy").data;
-  auto &p_hse = data->Get("pressure_hse").data;
-  auto &rho_hse = data->Get("density_hse").data;
+void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
+                              const parthenon::SimTime & /*time*/) {
+  // perform reductions to compute average profiles vs. height z
 
-  // fill derived vars (including ghost cells)
-  auto &coords = pmb->coords;
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+  // ...
 
-  const Units units(pin);
-  const Real code_length_cgs = units.code_length_cgs();
-  const Real code_density_cgs = units.code_density_cgs();
-  const Real code_pressure_cgs = units.code_pressure_cgs();
-  const Real gam = pin->GetReal("hydro", "gamma");
-  const Real gm1 = (gam - 1.0);
-  auto pkg = pmb->packages.Get("Hydro");
+  // fill derived fields
 
-  // vertical dE/dt profile
-  parthenon::ParArray1D<Real> profile_reduce_dev =
-      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce")->val;
-  parthenon::ParArray1D<Real> profile_reduce_zbins_dev =
-      pkg->Param<parthenon::ParArray1D<Real>>("profile_reduce_zbins");
+  for (auto &pmb : mesh->block_list) {
+    auto &data = pmb->meshblock_data.Get();
+    auto const &prim = data->Get("prim").data;
+    auto &drho = data->Get("drho_over_rho").data;
+    auto &dP = data->Get("dP_over_P").data;
+    auto &dK = data->Get("dK_over_K").data;
+    auto &dEdot = data->Get("dEdot_over_Edot").data;
+    auto &meanEdot = data->Get("mean_Edot").data;
+    auto &entropy = data->Get("entropy").data;
+    auto &p_hse = data->Get("pressure_hse").data;
+    auto &rho_hse = data->Get("density_hse").data;
 
-  // get profile from device
-  auto profile_reduce = profile_reduce_dev.GetHostMirrorAndCopy();
-  auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
-  PinnedArray1D<Real> profile("profile", profile_reduce.size() + 2);
-  PinnedArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
-  profile(0) = profile_reduce(0);
-  profile(profile.size() - 1) = profile_reduce(profile_reduce.size() - 1);
-  zbins(0) = pmb->pmy_mesh->mesh_size.x3min;
-  zbins(zbins.size() - 1) = pmb->pmy_mesh->mesh_size.x3max;
+    // fill derived vars (including ghost cells)
+    auto &coords = pmb->coords;
+    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
-  for (int i = 1; i < (profile.size() - 1); ++i) {
-    profile(i) = profile_reduce(i - 1);
-    zbins(i) = profile_reduce_zbins(i - 1);
-  }
+    const Units units(pin);
+    const Real code_length_cgs = units.code_length_cgs();
+    const Real code_density_cgs = units.code_density_cgs();
+    const Real code_pressure_cgs = units.code_pressure_cgs();
+    const Real gam = pin->GetReal("hydro", "gamma");
+    const Real gm1 = (gam - 1.0);
+    auto pkg = pmb->packages.Get("Hydro");
 
-  // compute interpolant
-  MonotoneInterpolator<PinnedArray1D<Real>> interpProfile(zbins, profile);
+    // vertical dE/dt profile
+    parthenon::ParArray1D<Real> profile_reduce_dev =
+        pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce")->val;
+    parthenon::ParArray1D<Real> profile_reduce_zbins_dev =
+        pkg->Param<parthenon::ParArray1D<Real>>("profile_reduce_zbins");
 
-  const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
+    // get profile from device
+    auto profile_reduce = profile_reduce_dev.GetHostMirrorAndCopy();
+    auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
+    PinnedArray1D<Real> profile("profile", profile_reduce.size() + 2);
+    PinnedArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
+    profile(0) = profile_reduce(0);
+    profile(profile.size() - 1) = profile_reduce(profile_reduce.size() - 1);
+    zbins(0) = pmb->pmy_mesh->mesh_size.x3min;
+    zbins(zbins.size() - 1) = pmb->pmy_mesh->mesh_size.x3max;
 
-  if (enable_cooling == Cooling::tabular) {
-    // get cooling function
-    const cooling::TabularCooling &tabular_cooling =
-        pkg->Param<cooling::TabularCooling>("tabular_cooling");
+    for (int i = 1; i < (profile.size() - 1); ++i) {
+      profile(i) = profile_reduce(i - 1);
+      zbins(i) = profile_reduce_zbins(i - 1);
+    }
 
-    // get 'smoothing' height for heating/cooling
-    const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
+    // compute interpolant
+    MonotoneInterpolator<PinnedArray1D<Real>> interpProfile(zbins, profile);
 
-    pmb->par_for(
-        "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int k, const int j, const int i) {
-          const Real rho_bg = rho_hse(0, k, j, i);
-          const Real P_bg = p_hse(0, k, j, i);
-          const Real K_bg = P_bg / std::pow(rho_bg, gam);
+    const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
 
-          // get local density, pressure, entropy
-          const Real rho = prim(IDN, k, j, i);
-          const Real P = prim(IPR, k, j, i);
-          const Real K = P / std::pow(rho, gam);
+    if (enable_cooling == Cooling::tabular) {
+      // get cooling function
+      const cooling::TabularCooling &tabular_cooling =
+          pkg->Param<cooling::TabularCooling>("tabular_cooling");
 
-          // compute instantaneous cooling rate
-          const Real z = coords.Xc<3>(k);
-          const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
-          bool is_valid = true;
-          const Real eint = P / (rho * gm1);
+      // get 'smoothing' height for heating/cooling
+      const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
 
-          // artificially limit temperature change in precipitator midplane
-          const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
-          const Real Edot = taper_fac * rho * tabular_cooling.edot(rho, eint, is_valid);
+      pmb->par_for(
+          "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int k, const int j, const int i) {
+            const Real rho_bg = rho_hse(0, k, j, i);
+            const Real P_bg = p_hse(0, k, j, i);
+            const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
-          Real mean_Edot = 0;
-          if ((z >= interpProfile.min()) && (z <= interpProfile.max())) {
-            mean_Edot = interpProfile(z);
-          }
+            // get local density, pressure, entropy
+            const Real rho = prim(IDN, k, j, i);
+            const Real P = prim(IPR, k, j, i);
+            const Real K = P / std::pow(rho, gam);
 
-          drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
-          dP(0, k, j, i) = (P - P_bg) / P_bg;
-          dK(0, k, j, i) = (K - K_bg) / K_bg;
-          dEdot(0, k, j, i) = (Edot - mean_Edot) / mean_Edot;
-          meanEdot(0, k, j, i) = mean_Edot;
-          entropy(0, k, j, i) = K;
-        });
-  } else {
-    pmb->par_for(
-        "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int k, const int j, const int i) {
-          const Real rho_bg = rho_hse(0, k, j, i);
-          const Real P_bg = p_hse(0, k, j, i);
-          const Real K_bg = P_bg / std::pow(rho_bg, gam);
+            // compute instantaneous cooling rate
+            const Real z = coords.Xc<3>(k);
+            const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
+            bool is_valid = true;
+            const Real eint = P / (rho * gm1);
 
-          // get local density, pressure, entropy
-          const Real rho = prim(IDN, k, j, i);
-          const Real P = prim(IPR, k, j, i);
-          const Real K = P / std::pow(rho, gam);
+            // artificially limit temperature change in precipitator midplane
+            const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
+            const Real Edot = taper_fac * rho * tabular_cooling.edot(rho, eint, is_valid);
 
-          drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
-          dP(0, k, j, i) = (P - P_bg) / P_bg;
-          dK(0, k, j, i) = (K - K_bg) / K_bg;
-          dEdot(0, k, j, i) = 0;
-          meanEdot(0, k, j, i) = 0;
-          entropy(0, k, j, i) = K;
-        });
+            Real mean_Edot = 0;
+            if ((z >= interpProfile.min()) && (z <= interpProfile.max())) {
+              mean_Edot = interpProfile(z);
+            }
+
+            drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
+            dP(0, k, j, i) = (P - P_bg) / P_bg;
+            dK(0, k, j, i) = (K - K_bg) / K_bg;
+            dEdot(0, k, j, i) = (Edot - mean_Edot) / mean_Edot;
+            meanEdot(0, k, j, i) = mean_Edot;
+            entropy(0, k, j, i) = K;
+          });
+    } else {
+      pmb->par_for(
+          "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int k, const int j, const int i) {
+            const Real rho_bg = rho_hse(0, k, j, i);
+            const Real P_bg = p_hse(0, k, j, i);
+            const Real K_bg = P_bg / std::pow(rho_bg, gam);
+
+            // get local density, pressure, entropy
+            const Real rho = prim(IDN, k, j, i);
+            const Real P = prim(IPR, k, j, i);
+            const Real K = P / std::pow(rho, gam);
+
+            drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
+            dP(0, k, j, i) = (P - P_bg) / P_bg;
+            dK(0, k, j, i) = (K - K_bg) / K_bg;
+            dEdot(0, k, j, i) = 0;
+            meanEdot(0, k, j, i) = 0;
+            entropy(0, k, j, i) = K;
+          });
+    }
   }
 }
 
