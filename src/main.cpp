@@ -73,6 +73,11 @@ int main(int argc, char *argv[]) {
     pman.app_input->MeshProblemGenerator = SN::ProblemGenerator;
     Hydro::ProblemSourceFirstOrder = SN::Outflow;
     pman.app_input->MeshBlockUserWorkBeforeOutput = SN::UserWorkBeforeOutput;
+    } else if (problem == "SN2") {
+    Hydro::ProblemInitPackageData = SN2::ProblemInitPackageData;
+    pman.app_input->MeshProblemGenerator = SN2::ProblemGenerator;
+    Hydro::ProblemSourceFirstOrder = SN2::Outflow;
+    pman.app_input->MeshBlockUserWorkBeforeOutput = SN2::UserWorkBeforeOutput;
   } else if (problem == "advection") {
     pman.app_input->InitUserMeshData = advection::InitUserMeshData;
     pman.app_input->ProblemGenerator = advection::ProblemGenerator;
@@ -128,6 +133,10 @@ int main(int argc, char *argv[]) {
 
   if (problem == "SN") {
     SN::Cleanup();
+  }
+
+  if (problem == "SN2") {
+    SN2::Cleanup();
   }
 
   // call MPI_Finalize and Kokkos::finalize if necessary

@@ -6,7 +6,7 @@
 problem = spherical blast wave
 
 <job>
-problem_id = SN
+problem_id = SN2
 
 <parthenon/mesh>
 refinement = none #adaptive
@@ -86,7 +86,7 @@ density_ambient  = 1e-27                    # 1 cm^-3
 radius_star      = 3.085677580962325e+17    # 0.1 pc
 outflow_density  = 1e-26                    # 10 cm^-3
 outflow_velocity = 1.6e9                    # 16000 km/s
-inner_perturbation =1.385677580962325e+18 #3.385677580962325e+17  # 0.1 pc
+inner_perturbation =2.385677580962325e+18 #3.385677580962325e+17  # 0.1 pc
 outer_perturbation =1.585677580962325e+18 #6.05677580962325e+17  # 0.12 pc
 density_perturbation = 1e-23                # 10000 cm^-3
 shell_velocity = 1.1e8                      # 1100 km/s
@@ -95,8 +95,11 @@ chi = 1000
 
 input_image = none      
 cloud_steepness = 10
-clumps = 10 #40
+clumps =0 #10 #40
 clump_size = 3.085677580962325e+16 #0.01 pc
+pert_num = 5
+chi_pert = 1.5
+ang_pert = 0.2
 
 # location of initial over/under dense/pressurized region
 x1_0 = 0.0

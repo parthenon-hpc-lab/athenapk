@@ -7,7 +7,7 @@
 // Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
-//! \file SN.cpp
+//! \file SN2.cpp
 //  \brief Problem generator for spherical blast wave problem.  Works in Cartesian,
 //         cylindrical, and spherical coordinates.  Contains post-processing code
 //         to check whether blast is spherical for regression tests
@@ -47,7 +47,7 @@
 
 //using namespace parthenon::package::prelude;
 
-namespace SN {
+namespace SN2 {
 using namespace parthenon::package::prelude;
 
 typedef Kokkos::complex<Real> Complex;
@@ -61,6 +61,7 @@ using parthenon::ParArray2D;
 std::mt19937 rng;
 std::uniform_real_distribution<> dist_ang(0., 360.0);
 std::uniform_real_distribution<> dist_rad(0., 1.0);
+std::uniform_real_distribution<> dist_pert(0.,2.0 * M_PI);
 ParArray2D<Real> position_;
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
@@ -122,6 +123,15 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   Real chi = pin->GetOrAddReal("problem/blast", "chi", 1000);
   pkg->AddParam<>("chi", chi);
+
+  const int pert_num = pin->GetOrAddReal("problem/blast", "pert_num", 0);
+  pkg->AddParam<>("pert_num", pert_num);
+
+  const Real chi_pert = pin->GetOrAddReal("problem/blast", "chi_pert", 1.0);
+  pkg->AddParam<>("chi_pert", chi_pert);
+
+  const Real ang_pert = pin->GetOrAddReal("problem/blast", "ang_pert", 0.0);
+  pkg->AddParam<>("ang_pert", ang_pert);
 
   std::stringstream msg;
   msg << std::setprecision(2);
@@ -220,6 +230,9 @@ void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *
   auto steepness = hydro_pkg->Param<Real>("steepness");
   const int clumps = hydro_pkg->Param<int>("clumps");
   const Real r_clump = hydro_pkg->Param<Real>("r_clump");
+  const int pert_num = hydro_pkg->Param<int>("pert_num");
+  const Real chi_pert = hydro_pkg->Param<int>("chi_pert");
+  const Real ang_pert = hydro_pkg->Param<int>("ang_pert");
 
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
@@ -324,6 +337,17 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
   Real gm1 = gamma - 1.0;
   const Real vout = hydro_pkg->Param<Real>("outflow_velocity");
   const Real Y_shell = hydro_pkg->Param<Real>("He_mass_fraction_shell");
+  const int pert_num = hydro_pkg->Param<int>("pert_num");
+  const Real chi_pert = hydro_pkg->Param<int>("chi_pert");
+  const Real ang_pert = hydro_pkg->Param<int>("ang_pert");
+
+  Real den = dout;
+  auto steepness = hydro_pkg->Param<Real>("steepness");
+
+  
+
+  Real Angle[pert_num]; 
+  for(int i=0;i<pert_num;i++) Angle[i]=dist_pert(rng);
 
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -342,13 +366,26 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
                  coords.Xc<3>(k) * coords.Xc<3>(k));
         
         if (rad < rstar) {
-          const Real mout_x = dout * vout * coords.Xc<1>(i) / rad;
-          const Real mout_y = dout * vout * coords.Xc<2>(j) / rad;
-          cons(IDN, k, j, i) = dout;
+
+          Real pos_ang = M_PI + 2.0 * atan((1+coords.Xc<1>(i))/coords.Xc<2>(j));
+
+          
+          for (int in = 0; in < pert_num; in++) {
+           Real dist = std::min(abs(pos_ang - Angle[in]), 2 * M_PI - abs(pos_ang - Angle[in]));
+           Real smo = dout + 0.5 * (chi_pert * dout - dout) * (1.0 - std::tanh(steepness * (dist / ang_pert - 1.0)));
+           den = std::max(den,smo);
+          }
+          
+
+          const Real mout_x = den * vout * coords.Xc<1>(i) / rad;
+          const Real mout_y = den * vout * coords.Xc<2>(j) / rad;
+          cons(IDN, k, j, i) = den;
           cons(IM1, k, j, i) = mout_x;
           cons(IM2, k, j, i) = mout_y;
           cons(IEN, k, j, i) = pres / gm1 + 0.5*(cons(IM1, k, j, i)*cons(IM1, k, j, i) + cons(IM2, k, j, i)*cons(IM2, k, j, i))/cons(IDN, k, j, i);
         }
+
+        
 
       });
 }
@@ -382,4 +419,4 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
     pin->SetString("problem/blast", "state_dist_rad", oss.str());
   }
 }
-} // namespace SN
+} // namespace SN2

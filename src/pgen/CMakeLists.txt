@@ -18,4 +18,5 @@ target_sources(athenaPK PRIVATE
     sod.cpp
     turbulence.cpp
     SN.cpp
+    SN2.cpp
     )
