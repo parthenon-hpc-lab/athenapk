@@ -471,8 +471,8 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         const Real x = coords.Xc<1>(i);
         const Real y = coords.Xc<2>(j);
         const Real z = coords.Xc<3>(k);
-        const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
-        log10_radius(0, k, j, i) = std::log10(r);
+        const Real r2 = SQR(x) + SQR(y) + SQR(z);
+        log10_radius(0, k, j, i) = 0.5*std::log10(r2);
 
         // compute entropy
         const Real K = P / std::pow(rho, gam);
