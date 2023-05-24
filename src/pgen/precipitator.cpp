@@ -429,7 +429,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   parthenon::AllReduce<parthenon::ParArray1D<Real>> profile_reduce;
   profile_reduce.val = parthenon::ParArray1D<Real>("Edot_heating", numHist);
   pkg->AddParam("profile_reduce", profile_reduce, true);
-  
+
   parthenon::ParArray1D<Real> profile_reduce_zbins_dev("Bin centers", numHist);
   const Real dz_hist = (x3max - x3min) / numHist;
   auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
@@ -789,6 +789,63 @@ void ComputeEdotProfileLocal(AllReduce<parthenon::ParArray1D<Real>> *profile_red
   profile_dev.DeepCopy(profile);
 }
 
+void ComputeRhoMeanProfileLocal(AllReduce<parthenon::ParArray1D<Real>> *profile_reduce,
+                                MeshData<Real> *md) {
+  // check whether cooling is enabled
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto pkg = pmb->packages.Get("Hydro");
+
+  // compute rank-local reduction
+  auto pm = md->GetParentPointer();
+  const Real x3min = pm->mesh_size.x3min;
+  const Real Lz = pm->mesh_size.x3max - pm->mesh_size.x3min;
+  const size_t size = profile_reduce->val.size();
+  const int max_idx = size - 1;
+  const Real dz_hist = Lz / size;
+
+  // normalize result
+  const Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
+  const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
+  const Real histVolume = Lx * Ly * dz_hist;
+
+  auto &profile_dev = profile_reduce->val;
+  PARTHENON_REQUIRE(REDUCTION_ARRAY_SIZE == profile_dev.size(),
+                    "REDUCTION_ARRAY_SIZE != profile_dev.size()");
+
+  ReductionSumArray<Real, REDUCTION_ARRAY_SIZE> profile_sum;
+  Kokkos::Sum<ReductionSumArray<Real, REDUCTION_ARRAY_SIZE>> reducer_sum(profile_sum);
+
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  parthenon::par_reduce(
+      parthenon::loop_pattern_mdrange_tag, "ProfileReduction", parthenon::DevExecSpace(),
+      0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
+                    ReductionSumArray<Real, REDUCTION_ARRAY_SIZE> &sum) {
+        auto &prim = prim_pack(b);
+        const auto &coords = prim_pack.GetCoords(b);
+        const Real z = coords.Xc<3>(k);
+        const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
+        const Real rho = prim(IDN, k, j, i);
+
+        int idx = static_cast<int>((z - x3min) / dz_hist);
+        idx = (idx > max_idx) ? max_idx : idx;
+        idx = (idx < 0) ? 0 : idx;
+        sum.data[idx] += rho * dVol / histVolume;
+      },
+      reducer_sum);
+
+  // copy profile_sum to profile
+  auto profile = profile_dev.GetHostMirrorAndCopy();
+  for (size_t i = 0; i < size; i++) {
+    profile(i) += profile_sum.data[i];
+  }
+  profile_dev.DeepCopy(profile);
+}
+
 void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
                               const parthenon::SimTime &time) {
   // perform reductions to compute average profiles vs. height z
@@ -797,9 +854,31 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
 
-  // AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
-  //     pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
-  // ComputeProfileGlobal(ComputeEdotProfileLocal, pview_reduce, mesh);
+  AllReduce<parthenon::ParArray1D<Real>> rho_mean;
+  rho_mean.val = parthenon::ParArray1D<Real>("rho_mean", REDUCTION_ARRAY_SIZE);
+  ComputeProfileGlobal(ComputeRhoMeanProfileLocal, &rho_mean,
+                       mesh->mesh_data.Get().get());
+
+  // get profiles
+  parthenon::ParArray1D<Real> profile_dev = rho_mean.val;
+  parthenon::ParArray1D<Real> profile_reduce_zbins_dev("profile bins", REDUCTION_ARRAY_SIZE);
+  auto profile_reduce = profile_dev.GetHostMirrorAndCopy();
+  auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
+
+  // compute bins
+  PinnedArray1D<Real> profile("profile", profile_reduce.size() + 2);
+  PinnedArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
+  profile(0) = profile_reduce(0);
+  profile(profile.size() - 1) = profile_reduce(profile_reduce.size() - 1);
+  zbins(0) = md->GetParentPointer()->mesh_size.x3min;
+  zbins(zbins.size() - 1) = md->GetParentPointer()->mesh_size.x3max;
+  for (int i = 1; i < (profile.size() - 1); ++i) {
+    profile(i) = profile_reduce(i - 1);
+    zbins(i) = profile_reduce_zbins(i - 1);
+  }
+
+  // compute interpolants
+  MonotoneInterpolator<PinnedArray1D<Real>> rhoMeanInterp(zbins, profile);
 
   // fill derived fields
 
@@ -832,7 +911,11 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     pmb->par_for(
         "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
-          const Real rho_bg = rho_hse(k, j, i);
+          const Real z = coords.Xc<3>(k);
+          Real rho_bg = NAN;
+          if ((z >= rhoMeanInterp.min()) && (z <= rhoMeanInterp.max())) {
+            rho_bg = rhoMeanInterp(z);
+          }
           const Real P_bg = p_hse(k, j, i);
           const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
