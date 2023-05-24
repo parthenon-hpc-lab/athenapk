@@ -104,7 +104,10 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
 void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
 void ReflectingInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
 void ReflectingOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
-void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin, const parthenon::SimTime &);
+void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
+                              const parthenon::SimTime &);
+void ComputeEdotProfileLocal(AllReduce<parthenon::ParArray1D<Real>> *profile_reduce,
+                             MeshData<Real> *md);
 } // namespace precipitator
 
 namespace cluster {

@@ -51,6 +51,27 @@
 #include "utils/error_checking.hpp"
 
 typedef Kokkos::complex<Real> Complex;
+
+template <typename F>
+void ComputeProfileGlobal(F &&LocalReducer,
+                          parthenon::AllReduce<parthenon::ParArray1D<Real>> *pview,
+                          parthenon::MeshData<Real> *md) {
+  // compute a 1D profile across the entire Mesh
+
+  // initialize values to zero
+  Kokkos::deep_copy(pview->val, 0.0);
+
+  // compute rank-local reduction
+  LocalReducer(pview, md);
+
+#ifdef MPI_PARALLEL
+  // Perform blocking MPI_Allreduce on the host to sum up the local reductions.
+  parthenon::ParArray1D<Real> &profile = pview->val;
+  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, profile.data(), profile.size(),
+                                    MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
+#endif
+}
+
 namespace precipitator {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
@@ -249,6 +270,7 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
 
 void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
   // add 'magic' heating source term using operator splitting
+  
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto units = pkg->Param<Units>("units");
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
@@ -257,9 +279,13 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-  // vertical dE/dt profile
-  parthenon::ParArray1D<Real> profile_reduce_dev =
-      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce")->val;
+  // compute vertical dE/dt profile
+  AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
+      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
+
+  ComputeProfileGlobal(ComputeEdotProfileLocal, pview_reduce, md);
+
+  parthenon::ParArray1D<Real> profile_reduce_dev = pview_reduce->val;
   parthenon::ParArray1D<Real> profile_reduce_zbins_dev =
       pkg->Param<parthenon::ParArray1D<Real>>("profile_reduce_zbins");
 
@@ -661,32 +687,22 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       });
 }
 
-void ComputeProfileLocal(MeshData<Real> *md) {
+void ComputeEdotProfileLocal(AllReduce<parthenon::ParArray1D<Real>> *profile_reduce,
+                             MeshData<Real> *md) {
+  // check whether cooling is enabled
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
-
-  // check whether cooling is enabled
   const auto cooling_type = pkg->Param<Cooling>("enable_cooling");
   if (cooling_type == Cooling::none) {
     return;
   }
 
-  // N.B.: this function only works for uniform Cartesian coordinates
-  // TODO(benwibking): check coordinates
-
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-
-  const cooling::TabularCooling &tabular_cooling =
-      pkg->Param<cooling::TabularCooling>("tabular_cooling");
-
+  // compute rank-local reduction
   const Real gam = pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real gm1 = (gam - 1.0);
 
-  AllReduce<parthenon::ParArray1D<Real>> *profile_reduce =
-      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
+  const cooling::TabularCooling &tabular_cooling =
+      pkg->Param<cooling::TabularCooling>("tabular_cooling");
 
   auto pm = md->GetParentPointer();
   const Real x3min = pm->mesh_size.x3min;
@@ -694,13 +710,13 @@ void ComputeProfileLocal(MeshData<Real> *md) {
   const size_t size = profile_reduce->val.size();
   const int max_idx = size - 1;
   const Real dz_hist = Lz / size;
-  auto &profile_dev = profile_reduce->val;
 
   // normalize result
   const Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
   const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
   const Real histVolume = Lx * Ly * dz_hist;
 
+  auto &profile_dev = profile_reduce->val;
   PARTHENON_REQUIRE(REDUCTION_ARRAY_SIZE == profile_dev.size(),
                     "REDUCTION_ARRAY_SIZE != profile_dev.size()");
 
@@ -709,6 +725,11 @@ void ComputeProfileLocal(MeshData<Real> *md) {
 
   // get 'smoothing' height for heating/cooling
   const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
+
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   parthenon::par_reduce(
       parthenon::loop_pattern_mdrange_tag, "ProfileReduction", parthenon::DevExecSpace(),
@@ -746,37 +767,17 @@ void ComputeProfileLocal(MeshData<Real> *md) {
   profile_dev.DeepCopy(profile);
 }
 
-void ComputeProfileGlobal(Mesh *mesh, ParameterInput *pin,
-                          const parthenon::SimTime &time) {
-  // compute a 1D profile across the entire Mesh
-  auto md = mesh->mesh_data.Get();
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
-  auto pkg = pmb->packages.Get("Hydro");
-
-  AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
-      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
-
-  // initialize values to zero
-  Kokkos::deep_copy(pview_reduce->val, 0.0);
-
-  // compute rank-local reduction
-  ComputeProfileLocal(mesh->mesh_data.Get().get());
-
-#ifdef MPI_PARALLEL
-  // Perform blocking MPI_Allreduce on the host to sum up the local reductions.
-  parthenon::ParArray1D<Real> &profile =
-      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce")->val;
-
-  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, profile.data(), profile.size(),
-                                    MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
-#endif
-}
-
 void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
                               const parthenon::SimTime &time) {
   // perform reductions to compute average profiles vs. height z
 
-  ComputeProfileGlobal(mesh, pin, time);
+  auto md = mesh->mesh_data.Get();
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto pkg = pmb->packages.Get("Hydro");
+
+  //AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
+  //    pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
+  //ComputeProfileGlobal(ComputeEdotProfileLocal, pview_reduce, mesh);
 
   // fill derived fields
 
