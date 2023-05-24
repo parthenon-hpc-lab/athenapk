@@ -96,20 +96,25 @@ class CoolingTableObj {
    ************************************************************/
  private:
   // Log cooling rate/ne^3
-  const parthenon::ParArray1D<parthenon::Real> log_lambdas_;
+  parthenon::ParArray1D<parthenon::Real> log_lambdas_;
 
   // Spacing of cooling table
   // TODO: assumes evenly spaced cooling table
-  const parthenon::Real log_temp_start_, log_temp_final_, d_log_temp_;
-  const unsigned int n_temp_;
+  parthenon::Real log_temp_start_, log_temp_final_, d_log_temp_;
+  unsigned int n_temp_;
 
   // Mean molecular mass * ( adiabatic_index -1) / boltzmann_constant
-  const parthenon::Real mbar_gm1_over_k_B_;
+  parthenon::Real mbar_gm1_over_k_B_;
 
   // (Hydrogen mass fraction / hydrogen atomic mass)^2
-  const parthenon::Real x_H_over_m_h2_;
+  parthenon::Real x_H_over_m_h2_;
 
  public:
+  CoolingTableObj(): 
+    log_lambdas_(), log_temp_start_(NAN),
+    log_temp_final_(NAN), d_log_temp_(NAN), n_temp_(0),
+    mbar_gm1_over_k_B_(NAN),
+    x_H_over_m_h2_(NAN) {}
   CoolingTableObj(const parthenon::ParArray1D<parthenon::Real> log_lambdas,
                   const parthenon::Real log_temp_start,
                   const parthenon::Real log_temp_final, const parthenon::Real d_log_temp,
@@ -219,8 +224,10 @@ class TabularCooling {
   // Used for roundoff as subcycle approaches end of timestep
   static constexpr parthenon::Real KEpsilon_ = 1e-12;
 
+  CoolingTableObj cooling_table_obj_;
+
  public:
-  TabularCooling(parthenon::ParameterInput *pin);
+  TabularCooling(parthenon::ParameterInput *pin, std::shared_ptr<parthenon::StateDescriptor> hydro_pkg);
 
   void SrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt) const;
 
@@ -237,32 +244,9 @@ class TabularCooling {
   parthenon::Real EstimateTimeStep(parthenon::MeshData<parthenon::Real> *md) const;
 
   // Get a lightweight object for computing cooling rate from the cooling table
-  const CoolingTableObj GetCoolingTableObj(parthenon::ParameterInput *pin) const {
-    using parthenon::Real;
-    Units units(pin);
-
-    // Create a lightweight object for computing cooling rates within kernels
-    const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-    const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-    const Real mbar_over_kb = mu * units.mh() / units.k_boltzmann();
-    const Real adiabatic_index = pin->GetReal("hydro", "gamma");
-
-    return CoolingTableObj(log_lambdas_, log_temp_start_, log_temp_final_, d_log_temp_,
-                           n_temp_, mbar_over_kb, adiabatic_index, 1.0 - He_mass_fraction,
-                           units);
-  }
   const CoolingTableObj
-  GetCoolingTableObj(std::shared_ptr<parthenon::StateDescriptor> hydro_pkg) const {
-    using parthenon::Real;
-    // Create a lightweight object for computing cooling rates within kernels
-    const auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
-    const auto adiabatic_index = hydro_pkg->Param<Real>("AdiabaticIndex");
-    const auto He_mass_fraction = hydro_pkg->Param<Real>("He_mass_fraction");
-    const auto units = hydro_pkg->Param<Units>("units");
-
-    return CoolingTableObj(log_lambdas_, log_temp_start_, log_temp_final_, d_log_temp_,
-                           n_temp_, mbar_over_kb, adiabatic_index, 1.0 - He_mass_fraction,
-                           units);
+  GetCoolingTableObj() const {
+    return cooling_table_obj_;
   }
 
   void TestCoolingTable(parthenon::ParameterInput *pin) const;

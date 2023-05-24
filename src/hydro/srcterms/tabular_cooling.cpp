@@ -27,8 +27,8 @@
 namespace cooling {
 using namespace parthenon;
 
-TabularCooling::TabularCooling(ParameterInput *pin) {
-  Units units(pin);
+TabularCooling::TabularCooling(ParameterInput *pin, std::shared_ptr<parthenon::StateDescriptor> hydro_pkg ) {
+  auto units = hydro_pkg->Param<Units>("units");
 
   const std::string table_filename = pin->GetString("cooling", "table_filename");
 
@@ -251,6 +251,20 @@ TabularCooling::TabularCooling(ParameterInput *pin) {
     Kokkos::deep_copy(townsend_alpha_k_, host_townsend_alpha_k);
     Kokkos::deep_copy(townsend_Y_k_, host_townsend_Y_k);
   }
+  //// Create a lightweight object for computing cooling rates within kernels
+  //const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
+  //const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+  //const Real mbar_over_kb = mu * units.mh() / units.k_boltzmann();
+  //const Real adiabatic_index = pin->GetReal("hydro", "gamma");
+
+  // Create a lightweight object for computing cooling rates within kernels
+  const auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+  const auto adiabatic_index = hydro_pkg->Param<Real>("AdiabaticIndex");
+  const auto He_mass_fraction = hydro_pkg->Param<Real>("He_mass_fraction");
+
+  cooling_table_obj_ = CoolingTableObj(log_lambdas_, log_temp_start_, log_temp_final_, d_log_temp_,
+                         n_temp_, mbar_over_kb, adiabatic_index, 1.0 - He_mass_fraction,
+                         units);
 }
 
 void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
@@ -274,7 +288,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
   // Grab member variables for compiler
 
-  const CoolingTableObj cooling_table_obj = GetCoolingTableObj(hydro_pkg);
+  const CoolingTableObj cooling_table_obj = cooling_table_obj_;
   const auto gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
   const auto mbar_gm1_over_kb = hydro_pkg->Param<Real>("mbar_over_kb") * gm1;
 
@@ -592,7 +606,7 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const CoolingTableObj cooling_table_obj = GetCoolingTableObj(hydro_pkg);
+  const CoolingTableObj cooling_table_obj = cooling_table_obj_;
   const auto gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
   const auto mbar_gm1_over_kb = hydro_pkg->Param<Real>("mbar_over_kb") * gm1;
 
@@ -657,7 +671,7 @@ void TabularCooling::TestCoolingTable(ParameterInput *pin) const {
   // Grab member variables for compiler
 
   // Everything needed by DeDt
-  const CoolingTableObj cooling_table_obj = GetCoolingTableObj(pin);
+  const CoolingTableObj cooling_table_obj = cooling_table_obj_;
   const auto gm1 = pin->GetReal("hydro", "gamma") - 1.0;
 
   // Make some device arrays to store the test data

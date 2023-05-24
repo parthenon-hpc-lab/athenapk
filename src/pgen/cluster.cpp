@@ -238,6 +238,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   }
 
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+    // alfven Mach number v_A/c_s
+    hydro_pkg->AddField("mach_alfven", m);
+
     // plasma beta
     hydro_pkg->AddField("plasma_beta", m);
   }
@@ -445,7 +448,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   // get derived fields
   auto &log10_radius = data->Get("log10_cell_radius").data;
   auto &entropy = data->Get("entropy").data;
-  auto &mach_sonic = data->Get("Mach_sonic").data;
+  auto &mach_sonic = data->Get("mach_sonic").data;
   auto &temperature = data->Get("temperature").data;
 
   // for computing temperature from primitives
@@ -492,7 +495,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
     // get cooling function
     const cooling::TabularCooling &tabular_cooling =
         pkg->Param<cooling::TabularCooling>("tabular_cooling");
-    const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj(pkg);
+    const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
 
     pmb->par_for(
         "Cluster::UserWorkBeforeOutput::CoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -511,20 +514,27 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
 
   if (pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     auto &plasma_beta = data->Get("plasma_beta").data;
+    auto &mach_alfven = data->Get("mach_alfven").data;
 
     pmb->par_for(
         "Cluster::UserWorkBeforeOutput::MHD", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
           // get gas properties
           const Real rho = prim(IDN, k, j, i);
-          const Real Pgas = prim(IPR, k, j, i);
+          const Real P   = prim(IPR, k, j, i);
           const Real B1 = prim(IB1, k, j, i);
           const Real B2 = prim(IB2, k, j, i);
           const Real B3 = prim(IB3, k, j, i);
-          const Real Pmag = 0.5 * (SQR(B1) + SQR(B2) + SQR(B3));
+          const Real B = (SQR(B1) + SQR(B2) + SQR(B3));
+
+          // compute Alfven mach number
+          const Real v_A = B/std::sqrt(rho);
+          const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
+          const Real M_A = v_A/c_s;
+          mach_alfven(0, k, j, i) = M_A;
 
           // compute plasma beta
-          plasma_beta(0, k, j, i) = Pgas / Pmag;
+          plasma_beta(0, k, j, i) = P / ( 0.5 * B );
         });
   }
 }
