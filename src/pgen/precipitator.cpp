@@ -868,6 +868,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   auto profile_reduce = profile_reduce_dev.GetHostMirrorAndCopy();
   auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
 
+  // extrapolate to domain edges (!!)
   PinnedArray1D<Real> profile("profile", profile_reduce.size() + 2);
   PinnedArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
   profile(0) = profile_reduce(0);
