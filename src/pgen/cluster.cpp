@@ -463,8 +463,8 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         // get gas properties
         const Real rho = prim(IDN, k, j, i);
         const Real v1 = prim(IV1, k, j, i);
-        const Real v2 = prim(IV1, k, j, i);
-        const Real v3 = prim(IV1, k, j, i);
+        const Real v2 = prim(IV2, k, j, i);
+        const Real v3 = prim(IV3, k, j, i);
         const Real P = prim(IPR, k, j, i);
 
         // compute radius
