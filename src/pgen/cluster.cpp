@@ -475,7 +475,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         const Real y = coords.Xc<2>(j);
         const Real z = coords.Xc<3>(k);
         const Real r2 = SQR(x) + SQR(y) + SQR(z);
-        log10_radius(k, j, i) = 0.5*std::log10(r2);
+        log10_radius(k, j, i) = 0.5 * std::log10(r2);
 
         // compute entropy
         const Real K = P / std::pow(rho, gam);
@@ -521,20 +521,20 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
           // get gas properties
           const Real rho = prim(IDN, k, j, i);
-          const Real P   = prim(IPR, k, j, i);
+          const Real P = prim(IPR, k, j, i);
           const Real B1 = prim(IB1, k, j, i);
           const Real B2 = prim(IB2, k, j, i);
           const Real B3 = prim(IB3, k, j, i);
           const Real B = (SQR(B1) + SQR(B2) + SQR(B3));
 
           // compute Alfven mach number
-          const Real v_A = B/std::sqrt(rho);
+          const Real v_A = B / std::sqrt(rho);
           const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
-          const Real M_A = v_A/c_s;
+          const Real M_A = v_A / c_s;
           mach_alfven(k, j, i) = M_A;
 
           // compute plasma beta
-          plasma_beta(k, j, i) = P / ( 0.5 * B );
+          plasma_beta(k, j, i) = P / (0.5 * B);
         });
   }
 }

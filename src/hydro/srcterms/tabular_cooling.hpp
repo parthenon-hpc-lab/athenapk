@@ -110,11 +110,9 @@ class CoolingTableObj {
   parthenon::Real x_H_over_m_h2_;
 
  public:
-  CoolingTableObj(): 
-    log_lambdas_(), log_temp_start_(NAN),
-    log_temp_final_(NAN), d_log_temp_(NAN), n_temp_(0),
-    mbar_gm1_over_k_B_(NAN),
-    x_H_over_m_h2_(NAN) {}
+  CoolingTableObj()
+      : log_lambdas_(), log_temp_start_(NAN), log_temp_final_(NAN), d_log_temp_(NAN),
+        n_temp_(0), mbar_gm1_over_k_B_(NAN), x_H_over_m_h2_(NAN) {}
   CoolingTableObj(const parthenon::ParArray1D<parthenon::Real> log_lambdas,
                   const parthenon::Real log_temp_start,
                   const parthenon::Real log_temp_final, const parthenon::Real d_log_temp,
@@ -227,7 +225,8 @@ class TabularCooling {
   CoolingTableObj cooling_table_obj_;
 
  public:
-  TabularCooling(parthenon::ParameterInput *pin, std::shared_ptr<parthenon::StateDescriptor> hydro_pkg);
+  TabularCooling(parthenon::ParameterInput *pin,
+                 std::shared_ptr<parthenon::StateDescriptor> hydro_pkg);
 
   void SrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt) const;
 
@@ -244,10 +243,7 @@ class TabularCooling {
   parthenon::Real EstimateTimeStep(parthenon::MeshData<parthenon::Real> *md) const;
 
   // Get a lightweight object for computing cooling rate from the cooling table
-  const CoolingTableObj
-  GetCoolingTableObj() const {
-    return cooling_table_obj_;
-  }
+  const CoolingTableObj GetCoolingTableObj() const { return cooling_table_obj_; }
 
   void TestCoolingTable(parthenon::ParameterInput *pin) const;
 };

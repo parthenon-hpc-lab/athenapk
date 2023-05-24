@@ -27,7 +27,8 @@
 namespace cooling {
 using namespace parthenon;
 
-TabularCooling::TabularCooling(ParameterInput *pin, std::shared_ptr<parthenon::StateDescriptor> hydro_pkg ) {
+TabularCooling::TabularCooling(ParameterInput *pin,
+                               std::shared_ptr<parthenon::StateDescriptor> hydro_pkg) {
   auto units = hydro_pkg->Param<Units>("units");
 
   const std::string table_filename = pin->GetString("cooling", "table_filename");
@@ -252,19 +253,19 @@ TabularCooling::TabularCooling(ParameterInput *pin, std::shared_ptr<parthenon::S
     Kokkos::deep_copy(townsend_Y_k_, host_townsend_Y_k);
   }
   //// Create a lightweight object for computing cooling rates within kernels
-  //const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-  //const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-  //const Real mbar_over_kb = mu * units.mh() / units.k_boltzmann();
-  //const Real adiabatic_index = pin->GetReal("hydro", "gamma");
+  // const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
+  // const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+  // const Real mbar_over_kb = mu * units.mh() / units.k_boltzmann();
+  // const Real adiabatic_index = pin->GetReal("hydro", "gamma");
 
   // Create a lightweight object for computing cooling rates within kernels
   const auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
   const auto adiabatic_index = hydro_pkg->Param<Real>("AdiabaticIndex");
   const auto He_mass_fraction = hydro_pkg->Param<Real>("He_mass_fraction");
 
-  cooling_table_obj_ = CoolingTableObj(log_lambdas_, log_temp_start_, log_temp_final_, d_log_temp_,
-                         n_temp_, mbar_over_kb, adiabatic_index, 1.0 - He_mass_fraction,
-                         units);
+  cooling_table_obj_ = CoolingTableObj(log_lambdas_, log_temp_start_, log_temp_final_,
+                                       d_log_temp_, n_temp_, mbar_over_kb,
+                                       adiabatic_index, 1.0 - He_mass_fraction, units);
 }
 
 void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
