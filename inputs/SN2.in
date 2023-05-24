@@ -94,12 +94,12 @@ rseed = 37
 chi = 1000
 
 input_image = none      
-cloud_steepness = 10
+cloud_steepness = 0.4
 clumps =0 #10 #40
 clump_size = 3.085677580962325e+16 #0.01 pc
-pert_num = 5
+pert_num = 3
 chi_pert = 1.5
-ang_pert = 0.2
+ang_pert = 0.3
 
 # location of initial over/under dense/pressurized region
 x1_0 = 0.0

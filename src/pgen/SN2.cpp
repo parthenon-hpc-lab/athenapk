@@ -53,6 +53,7 @@ using namespace parthenon::package::prelude;
 typedef Kokkos::complex<Real> Complex;
 using parthenon::DevMemSpace;
 using parthenon::ParArray2D;
+using parthenon::ParArray1D;
 
 //Kokkos::View<Real ***, Kokkos::LayoutRight, DevMemSpace> position_;
 //Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::HostMemSpace> position_host;
@@ -231,8 +232,8 @@ void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *
   const int clumps = hydro_pkg->Param<int>("clumps");
   const Real r_clump = hydro_pkg->Param<Real>("r_clump");
   const int pert_num = hydro_pkg->Param<int>("pert_num");
-  const Real chi_pert = hydro_pkg->Param<int>("chi_pert");
-  const Real ang_pert = hydro_pkg->Param<int>("ang_pert");
+  const Real chi_pert = hydro_pkg->Param<Real>("chi_pert");
+  const Real ang_pert = hydro_pkg->Param<Real>("ang_pert");
 
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
@@ -338,16 +339,16 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
   const Real vout = hydro_pkg->Param<Real>("outflow_velocity");
   const Real Y_shell = hydro_pkg->Param<Real>("He_mass_fraction_shell");
   const int pert_num = hydro_pkg->Param<int>("pert_num");
-  const Real chi_pert = hydro_pkg->Param<int>("chi_pert");
-  const Real ang_pert = hydro_pkg->Param<int>("ang_pert");
+  const Real chi_pert = hydro_pkg->Param<Real>("chi_pert");
+  const Real ang_pert = hydro_pkg->Param<Real>("ang_pert");
 
-  Real den = dout;
   auto steepness = hydro_pkg->Param<Real>("steepness");
 
   
 
-  Real Angle[pert_num]; 
-  for(int i=0;i<pert_num;i++) Angle[i]=dist_pert(rng);
+  auto Angle_ = ParArray1D<Real>("pert", pert_num);
+  auto &Angle = Angle_;
+  for(int i=0;i<pert_num;i++) Angle(i)=dist_pert(rng);
 
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -365,13 +366,21 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
             sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
                  coords.Xc<3>(k) * coords.Xc<3>(k));
         
+        Real den = dout;
+        Real pos_ang;
         if (rad < rstar) {
 
-          Real pos_ang = M_PI + 2.0 * atan((1+coords.Xc<1>(i))/coords.Xc<2>(j));
+
+
+          if (coords.Xc<1>(i) > 0.0) {
+          pos_ang = 3./2. * M_PI + atan(coords.Xc<2>(j)/coords.Xc<1>(i));
+          } else {
+            pos_ang = M_PI / 2. + atan(coords.Xc<2>(j)/coords.Xc<1>(i));
+          }
 
           
           for (int in = 0; in < pert_num; in++) {
-           Real dist = std::min(abs(pos_ang - Angle[in]), 2 * M_PI - abs(pos_ang - Angle[in]));
+           Real dist = std::min(abs(pos_ang - Angle(in)), 2 * M_PI - abs(pos_ang - Angle(in)));
            Real smo = dout + 0.5 * (chi_pert * dout - dout) * (1.0 - std::tanh(steepness * (dist / ang_pert - 1.0)));
            den = std::max(den,smo);
           }
@@ -384,9 +393,7 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
           cons(IM2, k, j, i) = mout_y;
           cons(IEN, k, j, i) = pres / gm1 + 0.5*(cons(IM1, k, j, i)*cons(IM1, k, j, i) + cons(IM2, k, j, i)*cons(IM2, k, j, i))/cons(IDN, k, j, i);
         }
-
         
-
       });
 }
 
