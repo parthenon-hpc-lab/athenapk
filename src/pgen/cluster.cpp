@@ -458,7 +458,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
   pmb->par_for(
-      "FillDerivedHydro", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      "Cluster::UserWorkBeforeOutput", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int k, const int j, const int i) {
         // get gas properties
         const Real rho = prim(IDN, k, j, i);
