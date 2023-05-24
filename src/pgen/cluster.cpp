@@ -445,7 +445,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   // get derived fields
   auto &log10_radius = data->Get("log10_cell_radius").data;
   auto &entropy = data->Get("entropy").data;
-  auto &mach_sonic = data->Get("Mach_sonic").data;
+  auto &mach_sonic = data->Get("mach_sonic").data;
   auto &temperature = data->Get("temperature").data;
 
   // for computing temperature from primitives
@@ -472,19 +472,19 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         const Real y = coords.Xc<2>(j);
         const Real z = coords.Xc<3>(k);
         const Real r2 = SQR(x) + SQR(y) + SQR(z);
-        log10_radius(0, k, j, i) = 0.5*std::log10(r2);
+        log10_radius(k, j, i) = 0.5*std::log10(r2);
 
         // compute entropy
         const Real K = P / std::pow(rho, gam);
-        entropy(0, k, j, i) = K;
+        entropy(k, j, i) = K;
 
         const Real v_mag = std::sqrt(SQR(v1) + SQR(v2) + SQR(v3));
         const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
         const Real M_s = v_mag / c_s;
-        mach_sonic(0, k, j, i) = M_s;
+        mach_sonic(k, j, i) = M_s;
 
         // compute temperature
-        temperature(0, k, j, i) = mbar_over_kb * P / rho;
+        temperature(k, j, i) = mbar_over_kb * P / rho;
       });
   if (pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     auto &cooling_time = data->Get("cooling_time").data;
@@ -505,7 +505,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           const Real eint = P / (rho * gm1);
           const Real edot = cooling_table_obj.DeDt(eint, rho);
           const Real t_cool = eint / edot;
-          cooling_time(0, k, j, i) = t_cool;
+          cooling_time(k, j, i) = t_cool;
         });
   }
 
@@ -524,7 +524,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           const Real Pmag = 0.5 * (SQR(B1) + SQR(B2) + SQR(B3));
 
           // compute plasma beta
-          plasma_beta(0, k, j, i) = Pgas / Pmag;
+          plasma_beta(k, j, i) = Pgas / Pmag;
         });
   }
 }
