@@ -507,8 +507,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           // compute cooling time
           const Real eint = P / (rho * gm1);
           const Real edot = cooling_table_obj.DeDt(eint, rho);
-          const Real t_cool = eint / edot;
-          cooling_time(k, j, i) = t_cool;
+          cooling_time(k, j, i) = (edot != 0) ? eint / edot : NAN;
         });
   }
 
@@ -534,7 +533,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           mach_alfven(k, j, i) = M_A;
 
           // compute plasma beta
-          plasma_beta(k, j, i) = P / (0.5 * B);
+          plasma_beta(k, j, i) = ( B != 0) ? P / (0.5 * B): NAN;
         });
   }
 }
