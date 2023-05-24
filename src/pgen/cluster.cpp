@@ -495,7 +495,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
     const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj(pkg);
 
     pmb->par_for(
-        "FillDerivedCoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        "Cluster::UserWorkBeforeOutput::CoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
           // get gas properties
           const Real rho = prim(IDN, k, j, i);
