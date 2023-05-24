@@ -843,8 +843,8 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
       pmb->par_for(
           "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
           KOKKOS_LAMBDA(const int k, const int j, const int i) {
-            const Real rho_bg = rho_hse(0, k, j, i);
-            const Real P_bg = p_hse(0, k, j, i);
+            const Real rho_bg = rho_hse(k, j, i);
+            const Real P_bg = p_hse(k, j, i);
             const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
             // get local density, pressure, entropy
@@ -867,19 +867,19 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
               mean_Edot = interpProfile(z);
             }
 
-            drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
-            dP(0, k, j, i) = (P - P_bg) / P_bg;
-            dK(0, k, j, i) = (K - K_bg) / K_bg;
-            dEdot(0, k, j, i) = (Edot - mean_Edot) / mean_Edot;
-            meanEdot(0, k, j, i) = mean_Edot;
-            entropy(0, k, j, i) = K;
+            drho(k, j, i) = (rho - rho_bg) / rho_bg;
+            dP(k, j, i) = (P - P_bg) / P_bg;
+            dK(k, j, i) = (K - K_bg) / K_bg;
+            dEdot(k, j, i) = (Edot - mean_Edot) / mean_Edot;
+            meanEdot(k, j, i) = mean_Edot;
+            entropy(k, j, i) = K;
           });
     } else {
       pmb->par_for(
           "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
           KOKKOS_LAMBDA(const int k, const int j, const int i) {
-            const Real rho_bg = rho_hse(0, k, j, i);
-            const Real P_bg = p_hse(0, k, j, i);
+            const Real rho_bg = rho_hse(k, j, i);
+            const Real P_bg = p_hse(k, j, i);
             const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
             // get local density, pressure, entropy
@@ -887,12 +887,12 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
             const Real P = prim(IPR, k, j, i);
             const Real K = P / std::pow(rho, gam);
 
-            drho(0, k, j, i) = (rho - rho_bg) / rho_bg;
-            dP(0, k, j, i) = (P - P_bg) / P_bg;
-            dK(0, k, j, i) = (K - K_bg) / K_bg;
-            dEdot(0, k, j, i) = 0;
-            meanEdot(0, k, j, i) = 0;
-            entropy(0, k, j, i) = K;
+            drho(k, j, i) = (rho - rho_bg) / rho_bg;
+            dP(k, j, i) = (P - P_bg) / P_bg;
+            dK(k, j, i) = (K - K_bg) / K_bg;
+            dEdot(k, j, i) = 0;
+            meanEdot(k, j, i) = 0;
+            entropy(k, j, i) = K;
           });
     }
   }
