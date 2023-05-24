@@ -859,19 +859,22 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   ComputeProfileGlobal(ComputeRhoMeanProfileLocal, &rho_mean,
                        mesh->mesh_data.Get().get());
 
-  // get profiles
-  parthenon::ParArray1D<Real> profile_dev = rho_mean.val;
-  parthenon::ParArray1D<Real> profile_reduce_zbins_dev("profile bins", REDUCTION_ARRAY_SIZE);
-  auto profile_reduce = profile_dev.GetHostMirrorAndCopy();
+  // get profiles and bins
+  parthenon::ParArray1D<Real> profile_reduce_dev = rho_mean.val;
+  parthenon::ParArray1D<Real> profile_reduce_zbins_dev =
+      pkg->Param<parthenon::ParArray1D<Real>>("profile_reduce_zbins");
+
+  // get profile from device
+  auto profile_reduce = profile_reduce_dev.GetHostMirrorAndCopy();
   auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
 
-  // compute bins
   PinnedArray1D<Real> profile("profile", profile_reduce.size() + 2);
   PinnedArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
   profile(0) = profile_reduce(0);
   profile(profile.size() - 1) = profile_reduce(profile_reduce.size() - 1);
   zbins(0) = md->GetParentPointer()->mesh_size.x3min;
   zbins(zbins.size() - 1) = md->GetParentPointer()->mesh_size.x3max;
+
   for (int i = 1; i < (profile.size() - 1); ++i) {
     profile(i) = profile_reduce(i - 1);
     zbins(i) = profile_reduce_zbins(i - 1);
