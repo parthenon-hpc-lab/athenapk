@@ -513,7 +513,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
     auto &plasma_beta = data->Get("plasma_beta").data;
 
     pmb->par_for(
-        "FillDerivedMHD", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        "Cluster::UserWorkBeforeOutput::MHD", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
           // get gas properties
           const Real rho = prim(IDN, k, j, i);
