@@ -806,33 +806,54 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     const Real gm1 = (gam - 1.0);
     auto pkg = pmb->packages.Get("Hydro");
 
-    // vertical dE/dt profile
-    parthenon::ParArray1D<Real> profile_reduce_dev =
-        pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce")->val;
-    parthenon::ParArray1D<Real> profile_reduce_zbins_dev =
-        pkg->Param<parthenon::ParArray1D<Real>>("profile_reduce_zbins");
+    pmb->par_for(
+        "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          const Real rho_bg = rho_hse(k, j, i);
+          const Real P_bg = p_hse(k, j, i);
+          const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
-    // get profile from device
-    auto profile_reduce = profile_reduce_dev.GetHostMirrorAndCopy();
-    auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
-    PinnedArray1D<Real> profile("profile", profile_reduce.size() + 2);
-    PinnedArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
-    profile(0) = profile_reduce(0);
-    profile(profile.size() - 1) = profile_reduce(profile_reduce.size() - 1);
-    zbins(0) = pmb->pmy_mesh->mesh_size.x3min;
-    zbins(zbins.size() - 1) = pmb->pmy_mesh->mesh_size.x3max;
+          // get local density, pressure, entropy
+          const Real rho = prim(IDN, k, j, i);
+          const Real P = prim(IPR, k, j, i);
+          const Real K = P / std::pow(rho, gam);
 
-    for (int i = 1; i < (profile.size() - 1); ++i) {
-      profile(i) = profile_reduce(i - 1);
-      zbins(i) = profile_reduce_zbins(i - 1);
-    }
+          drho(k, j, i) = (rho - rho_bg) / rho_bg;
+          dP(k, j, i) = (P - P_bg) / P_bg;
+          dK(k, j, i) = (K - K_bg) / K_bg;
+          entropy(k, j, i) = K;
+        });
 
-    // compute interpolant
-    MonotoneInterpolator<PinnedArray1D<Real>> interpProfile(zbins, profile);
+    // fill cooling time
 
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
 
     if (enable_cooling == Cooling::tabular) {
+      // vertical dE/dt profile
+      parthenon::ParArray1D<Real> profile_reduce_dev =
+          pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce")
+              ->val;
+      parthenon::ParArray1D<Real> profile_reduce_zbins_dev =
+          pkg->Param<parthenon::ParArray1D<Real>>("profile_reduce_zbins");
+
+      // get profile from device
+      auto profile_reduce = profile_reduce_dev.GetHostMirrorAndCopy();
+      auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
+      PinnedArray1D<Real> profile("profile", profile_reduce.size() + 2);
+      PinnedArray1D<Real> zbins("zbins", profile_reduce_zbins.size() + 2);
+      profile(0) = profile_reduce(0);
+      profile(profile.size() - 1) = profile_reduce(profile_reduce.size() - 1);
+      zbins(0) = pmb->pmy_mesh->mesh_size.x3min;
+      zbins(zbins.size() - 1) = pmb->pmy_mesh->mesh_size.x3max;
+
+      for (int i = 1; i < (profile.size() - 1); ++i) {
+        profile(i) = profile_reduce(i - 1);
+        zbins(i) = profile_reduce_zbins(i - 1);
+      }
+
+      // compute interpolant
+      MonotoneInterpolator<PinnedArray1D<Real>> interpProfile(zbins, profile);
+
       // get cooling function
       const cooling::TabularCooling &tabular_cooling =
           pkg->Param<cooling::TabularCooling>("tabular_cooling");
@@ -843,14 +864,9 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
       pmb->par_for(
           "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
           KOKKOS_LAMBDA(const int k, const int j, const int i) {
-            const Real rho_bg = rho_hse(k, j, i);
-            const Real P_bg = p_hse(k, j, i);
-            const Real K_bg = P_bg / std::pow(rho_bg, gam);
-
             // get local density, pressure, entropy
             const Real rho = prim(IDN, k, j, i);
             const Real P = prim(IPR, k, j, i);
-            const Real K = P / std::pow(rho, gam);
 
             // compute instantaneous cooling rate
             const Real z = coords.Xc<3>(k);
@@ -867,32 +883,8 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
               mean_Edot = interpProfile(z);
             }
 
-            drho(k, j, i) = (rho - rho_bg) / rho_bg;
-            dP(k, j, i) = (P - P_bg) / P_bg;
-            dK(k, j, i) = (K - K_bg) / K_bg;
             dEdot(k, j, i) = (Edot - mean_Edot) / mean_Edot;
             meanEdot(k, j, i) = mean_Edot;
-            entropy(k, j, i) = K;
-          });
-    } else {
-      pmb->par_for(
-          "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int k, const int j, const int i) {
-            const Real rho_bg = rho_hse(k, j, i);
-            const Real P_bg = p_hse(k, j, i);
-            const Real K_bg = P_bg / std::pow(rho_bg, gam);
-
-            // get local density, pressure, entropy
-            const Real rho = prim(IDN, k, j, i);
-            const Real P = prim(IPR, k, j, i);
-            const Real K = P / std::pow(rho, gam);
-
-            drho(k, j, i) = (rho - rho_bg) / rho_bg;
-            dP(k, j, i) = (P - P_bg) / P_bg;
-            dK(k, j, i) = (K - K_bg) / K_bg;
-            dEdot(k, j, i) = 0;
-            meanEdot(k, j, i) = 0;
-            entropy(k, j, i) = K;
           });
     }
   }
