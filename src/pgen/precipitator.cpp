@@ -270,7 +270,7 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
 
 void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
   // add 'magic' heating source term using operator splitting
-  
+
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto units = pkg->Param<Units>("units");
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
@@ -416,6 +416,28 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   const Real epsilon = pin->GetReal("precipitator", "epsilon_heating"); // dimensionless
   hydro_pkg->AddParam<Real>("epsilon_heating", epsilon); // heating efficiency
+
+  /************************************************************
+   * Initialize magic heating
+   ************************************************************/
+
+  const int numHist = pin->GetOrAddInteger("precipitator", "numHist", 8);
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "Using numHist = " << numHist << std::endl;
+  }
+
+  parthenon::AllReduce<parthenon::ParArray1D<Real>> profile_reduce;
+  profile_reduce.val = parthenon::ParArray1D<Real>("Edot_heating", numHist);
+  pkg->AddParam("profile_reduce", profile_reduce, true);
+  
+  parthenon::ParArray1D<Real> profile_reduce_zbins_dev("Bin centers", numHist);
+  const Real dz_hist = (x3max - x3min) / numHist;
+  auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
+  for (int i = 0; i < numHist; ++i) {
+    profile_reduce_zbins(i) = dz_hist * (Real(i) + 0.5) + x3min;
+  }
+  profile_reduce_zbins_dev.DeepCopy(profile_reduce_zbins);
+  pkg->AddParam("profile_reduce_zbins", profile_reduce_zbins_dev, false);
 
   /************************************************************
    * Initialize the hydrostatic profile
@@ -775,9 +797,9 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
 
-  //AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
-  //    pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
-  //ComputeProfileGlobal(ComputeEdotProfileLocal, pview_reduce, mesh);
+  // AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
+  //     pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
+  // ComputeProfileGlobal(ComputeEdotProfileLocal, pview_reduce, mesh);
 
   // fill derived fields
 

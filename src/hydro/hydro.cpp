@@ -197,28 +197,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   bool calc_c_h = false; // calculate hyperbolic divergence cleaning speed
   int nhydro = -1;
 
-  // global reduction of a vector
-  const int numHist = pin->GetOrAddInteger("precipitator", "numHist", 8);
-  if (parthenon::Globals::my_rank == 0) {
-    std::cout << "Using numHist = " << numHist << std::endl;
-  }
-  parthenon::AllReduce<parthenon::ParArray1D<Real>> profile_reduce;
-  profile_reduce.val = parthenon::ParArray1D<Real>("Reduce me", numHist);
-  pkg->AddParam("profile_reduce", profile_reduce, true);
-
-  parthenon::ParArray1D<Real> profile_reduce_zbins_dev("Bin centers", numHist);
-  const Real x3min = pin->GetReal("parthenon/mesh", "x3min");
-  const Real x3max = pin->GetReal("parthenon/mesh", "x3max");
-  const Real dz_hist = (x3max - x3min) / numHist;
-
-  // initialize values on host via mirror view
-  auto profile_reduce_zbins = profile_reduce_zbins_dev.GetHostMirrorAndCopy();
-  for (int i = 0; i < numHist; ++i) {
-    profile_reduce_zbins(i) = dz_hist * (Real(i) + 0.5) + x3min;
-  }
-  profile_reduce_zbins_dev.DeepCopy(profile_reduce_zbins);
-  pkg->AddParam("profile_reduce_zbins", profile_reduce_zbins_dev, false);
-
   if (fluid_str == "euler") {
     fluid = Fluid::euler;
     nhydro = GetNVars<Fluid::euler>();
