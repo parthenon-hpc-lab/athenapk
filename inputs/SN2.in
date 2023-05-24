@@ -9,19 +9,19 @@ problem = spherical blast wave
 problem_id = SN2
 
 <parthenon/mesh>
-refinement = none #adaptive
+refinement = adaptive
 numlevel = 3
 nghost = 2
 
 nx1 =128 #1024
-x1min = -0.5
-x1max = 0.5
+x1min = -0.05
+x1max = 0.05
 ix1_bc = outflow
 ox1_bc = outflow
 
 nx2 =128 #1024
-x2min = -0.5
-x2max = 0.5
+x2min = -0.05
+x2max = 0.05
 ix2_bc = outflow
 ox2_bc = outflow
 
@@ -83,7 +83,7 @@ derefine_tol = 0.05
 temperature_ambient = 4e6                   # K
 mach_number = 0.5
 density_ambient  = 1e-27                    # 1 cm^-3
-radius_star      = 3.085677580962325e+17    # 0.1 pc
+radius_star      = 3.085677580962325e+15    # 0.001 pc
 outflow_density  = 1e-26                    # 10 cm^-3
 outflow_velocity = 1.6e9                    # 16000 km/s
 inner_perturbation =2.385677580962325e+18 #3.385677580962325e+17  # 0.1 pc
@@ -94,12 +94,14 @@ rseed = 37
 chi = 1000
 
 input_image = none      
-cloud_steepness = 0.4
+cloud_steepness = 0.2
 clumps =0 #10 #40
 clump_size = 3.085677580962325e+16 #0.01 pc
-pert_num = 3
-chi_pert = 1.5
-ang_pert = 0.3
+pert_num = 0
+chi_pert = 1.1
+ang_pert = 0.03
+
+overpressure = 1.6e8
 
 # location of initial over/under dense/pressurized region
 x1_0 = 0.0

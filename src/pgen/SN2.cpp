@@ -134,6 +134,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real ang_pert = pin->GetOrAddReal("problem/blast", "ang_pert", 0.0);
   pkg->AddParam<>("ang_pert", ang_pert);
 
+  const Real overpressure = pin->GetOrAddReal("problem/blast", "overpressure", 1.0);
+  pkg->AddParam<>("overpressure", overpressure);
+
   std::stringstream msg;
   msg << std::setprecision(2);
   msg << "######################################" << std::endl;
@@ -234,6 +237,7 @@ void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *
   const int pert_num = hydro_pkg->Param<int>("pert_num");
   const Real chi_pert = hydro_pkg->Param<Real>("chi_pert");
   const Real ang_pert = hydro_pkg->Param<Real>("ang_pert");
+  const Real overpressure = hydro_pkg->Param<Real>("overpressure");
 
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
@@ -254,63 +258,16 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
         Real y = coords.Xc<2>(j);
         Real z = coords.Xc<3>(k);
         Real rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
-        //Real den = da;
-        Real den0 = dout * SQR(rstar/rad);
-        if (rad < rstar){
-          den0 = dout;          
-        }
-        Real den = den0;
+        Real den = da;
         Real mx = 0.0;
         Real my = 0.0;
-        Real p = pa * SQR(rstar/rad) ;
+        Real p = pa;
+
         if (rad < rstar){
-          p = pa;          
+          p = pa * overpressure ;
         }
 
-
-
-        for (int ind = 0; ind < clumps; ind++) {
-          Real distan = std::sqrt(SQR(x - position(ind,0)) + SQR(y - position(ind,1)));
-          Real smooth = den0 + 0.5 * (chi * den0 - den0) * (1.0 - std::tanh(steepness * (distan / r_clump - 1.0)));
-          den = std::max(den,smooth);
-        }
-
-        //den = *std::max_element(smooth, smooth + clumps);
-
-        mx = den * vout * x / rad;
-        my = den * vout * y / rad;
-
-        if (den > 1.1 * dout){
-          mx = den * sh_vel * x / rad;
-          my = den * sh_vel * y / rad;
-          for (auto n = nhydro; n < nhydro + nscalars; n++) {
-            u(n, k, j, i) = den * den / chi * den;
-          }
-        }
-
-
-        //if (rad < routp) {
-          //if (rad > rinp) {
-            //Real dist = std::sqrt(SQR(x_temp - x) + SQR(y_temp - y));
-            //den = *std::max_element(smooth, smooth + clumps);
-            //if (den > 1.1 * da){
-            //  mx = den * sh_vel * x / rad;
-            //  my = den * sh_vel * y / rad;
-            //}   
-            
-            //number = distribution(generator);
-              //den = denp * (fabs(sin(fringe * ang))) + da;
-            //den = 1 / number;
-            
-            //u(IDN, k, j, i) = den;
-            //u(IM1, k, j, i) = mx;
-            //u(IM2, k, j, i) = my;
-            //u(IM3, k, j, i) = 0.0;
-            //u(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
-          //}
-        //}
-
-
+        
         u(IDN, k, j, i) = den;
         u(IM1, k, j, i) = mx;
         u(IM2, k, j, i) = my;
@@ -356,6 +313,7 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
+  /*
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Outflow", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -395,6 +353,7 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
         }
         
       });
+      */
 }
 
 
