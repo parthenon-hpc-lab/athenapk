@@ -54,9 +54,8 @@
 typedef Kokkos::complex<Real> Complex;
 
 template <typename Function>
-void ComputeProfileLocal(
-    parthenon::AllReduce<parthenon::ParArray1D<Real>> *profile_reduce, MeshData<Real> *md,
-    Function F) {
+void ComputeProfileLocal(parthenon::ParArray1D<Real> &profile_dev, MeshData<Real> *md,
+                         Function F) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
 
@@ -64,7 +63,7 @@ void ComputeProfileLocal(
   auto pm = md->GetParentPointer();
   const Real x3min = pm->mesh_size.x3min;
   const Real Lz = pm->mesh_size.x3max - pm->mesh_size.x3min;
-  const size_t size = profile_reduce->val.size();
+  const size_t size = profile_dev.size();
   const int max_idx = size - 1;
   const Real dz_hist = Lz / size;
 
@@ -73,7 +72,6 @@ void ComputeProfileLocal(
   const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
   const Real histVolume = Lx * Ly * dz_hist;
 
-  auto &profile_dev = profile_reduce->val;
   PARTHENON_REQUIRE(REDUCTION_ARRAY_SIZE == profile_dev.size(),
                     "REDUCTION_ARRAY_SIZE != profile_dev.size()");
 
@@ -112,33 +110,31 @@ void ComputeProfileLocal(
 }
 
 template <typename Function>
-void ComputeProfileGlobal(parthenon::AllReduce<parthenon::ParArray1D<Real>> *pview,
+void ComputeProfileGlobal(parthenon::ParArray1D<Real> &profile,
                           parthenon::MeshData<Real> *md, Function scalarFunction) {
   // compute a 1D profile across the entire Mesh
 
   // initialize values to zero
-  Kokkos::deep_copy(pview->val, 0.0);
+  Kokkos::deep_copy(profile, 0.0);
 
   // compute rank-local reduction
-  ComputeProfileLocal(pview, md, scalarFunction);
+  ComputeProfileLocal(profile, md, scalarFunction);
 
 #ifdef MPI_PARALLEL
   // Perform blocking MPI_Allreduce on the host to sum up the local reductions.
-  parthenon::ParArray1D<Real> &profile = pview->val;
   PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, profile.data(), profile.size(),
                                     MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
 #endif
 }
 
-auto GetInterpolantFromProfile(
-    parthenon::AllReduce<parthenon::ParArray1D<Real>> *profile_allreduce,
-    parthenon::MeshData<Real> *md) -> MonotoneInterpolator<PinnedArray1D<Real>> {
+auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
+                               parthenon::MeshData<Real> *md)
+    -> MonotoneInterpolator<PinnedArray1D<Real>> {
   // get MonotoneInterpolator for 1D profile
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
 
   // get profiles and bins
-  parthenon::ParArray1D<Real> profile_reduce_dev = profile_allreduce->val;
   PinnedArray1D<Real> profile_reduce_zbins("Bin centers", REDUCTION_ARRAY_SIZE);
 
   const Real x3min = md->GetParentPointer()->mesh_size.x3min;
@@ -371,8 +367,8 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   // compute vertical dE/dt profile
-  AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
-      pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
+  parthenon::ParArray1D<Real> *pview_reduce =
+      pkg->MutableParam<parthenon::ParArray1D<Real>>("profile_reduce");
 
   const Real gam = pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
   const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
@@ -380,7 +376,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
       pkg->Param<cooling::TabularCooling>("tabular_cooling");
 
   ComputeProfileGlobal(
-      pview_reduce, md,
+      *pview_reduce, md,
       [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords, int k,
           int j, int i) {
         const Real rho = prim(IDN, k, j, i);
@@ -399,7 +395,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
 
   // compute interpolant
   MonotoneInterpolator<PinnedArray1D<Real>> interpProfile =
-      GetInterpolantFromProfile(pview_reduce, md);
+      GetInterpolantFromProfile(*pview_reduce, md);
 
   const Real epsilon = pkg->Param<Real>("epsilon_heating"); // heating efficiency
   auto units = pkg->Param<Units>("units");
@@ -519,8 +515,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
    * Initialize magic heating
    ************************************************************/
 
-  parthenon::AllReduce<parthenon::ParArray1D<Real>> profile_reduce;
-  profile_reduce.val = parthenon::ParArray1D<Real>("Edot_heating", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> profile_reduce("Edot_heating", REDUCTION_ARRAY_SIZE);
   pkg->AddParam("profile_reduce", profile_reduce, true);
 
   /************************************************************
@@ -798,81 +793,96 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   auto md = mesh->mesh_data.Get();
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
+  const Real gam = pin->GetReal("hydro", "gamma");
 
   // perform reductions to compute average vertical profiles
+  parthenon::ParArray1D<Real> rho_mean("rho_mean", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> P_mean("P_mean", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> K_mean("K_mean", REDUCTION_ARRAY_SIZE);
 
-  parthenon::AllReduce<parthenon::ParArray1D<Real>> rho_mean;
-  rho_mean.val = parthenon::ParArray1D<Real>("rho_mean", REDUCTION_ARRAY_SIZE);
-  ComputeProfileGlobal(&rho_mean, md.get(),
-                       [=](VariablePack<Real> const &prim,
-                           parthenon::Coordinates_t const &coords, int k, int j,
-                           int i) { return prim(IDN, k, j, i); });
+  auto f_rho = [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
+                   int k, int j, int i) { return prim(IDN, k, j, i); };
+  auto f_P = [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
+                 int k, int j, int i) { return prim(IPR, k, j, i); };
+  auto f_K = [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
+                 int k, int j, int i) {
+    Real rho = prim(IDN, k, j, i);
+    Real P = prim(IPR, k, j, i);
+    Real K = P / std::pow(rho, gam);
+    return K;
+  };
+
+  ComputeProfileGlobal(rho_mean, md.get(), f_rho);
+  ComputeProfileGlobal(P_mean, md.get(), f_P);
+  ComputeProfileGlobal(K_mean, md.get(), f_K);
 
   // compute interpolants
-
   MonotoneInterpolator<PinnedArray1D<Real>> rhoMeanInterp =
-      GetInterpolantFromProfile(&rho_mean, md.get());
+      GetInterpolantFromProfile(rho_mean, md.get());
+  MonotoneInterpolator<PinnedArray1D<Real>> PMeanInterp =
+      GetInterpolantFromProfile(P_mean, md.get());
+  MonotoneInterpolator<PinnedArray1D<Real>> KMeanInterp =
+      GetInterpolantFromProfile(K_mean, md.get());
 
   // fill derived fields
-
   for (auto &pmb : mesh->block_list) {
     auto &data = pmb->meshblock_data.Get();
     auto const &prim = data->Get("prim").data;
+
     auto &drho = data->Get("drho_over_rho").data;
     auto &dP = data->Get("dP_over_P").data;
     auto &dK = data->Get("dK_over_K").data;
-    auto &dEdot = data->Get("dEdot_over_Edot").data;
-    auto &meanEdot = data->Get("mean_Edot").data;
     auto &entropy = data->Get("entropy").data;
-    auto &p_hse = data->Get("pressure_hse").data;
-    auto &rho_hse = data->Get("density_hse").data;
-
-    // fill derived vars (including ghost cells)
-    auto &coords = pmb->coords;
-    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
     const Units units(pin);
     const Real code_length_cgs = units.code_length_cgs();
     const Real code_density_cgs = units.code_density_cgs();
     const Real code_pressure_cgs = units.code_pressure_cgs();
-    const Real gam = pin->GetReal("hydro", "gamma");
-    const Real gm1 = (gam - 1.0);
     auto pkg = pmb->packages.Get("Hydro");
+
+    auto &coords = pmb->coords;
+    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
     pmb->par_for(
         "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          Real rho_bar = NAN;
+          Real P_bar = NAN;
+          Real K_bar = NAN;
+
           const Real z = coords.Xc<3>(k);
-          Real rho_bg = NAN;
           if ((z >= rhoMeanInterp.min()) && (z <= rhoMeanInterp.max())) {
-            rho_bg = rhoMeanInterp(z);
+            rho_bar = rhoMeanInterp(z);
+            P_bar = PMeanInterp(z);
+            K_bar = KMeanInterp(z);
           }
-          const Real P_bg = p_hse(k, j, i);
-          const Real K_bg = P_bg / std::pow(rho_bg, gam);
 
           // get local density, pressure, entropy
           const Real rho = prim(IDN, k, j, i);
           const Real P = prim(IPR, k, j, i);
           const Real K = P / std::pow(rho, gam);
 
-          drho(k, j, i) = (rho - rho_bg) / rho_bg;
-          dP(k, j, i) = (P - P_bg) / P_bg;
-          dK(k, j, i) = (K - K_bg) / K_bg;
+          drho(k, j, i) = (rho - rho_bar) / rho_bar;
+          dP(k, j, i) = (P - P_bar) / P_bar;
+          dK(k, j, i) = (K - K_bar) / K_bar;
           entropy(k, j, i) = K;
         });
 
-    // fill cooling time
-
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
 
+    // fill cooling time
     if (enable_cooling == Cooling::tabular) {
+      const Real gm1 = (gam - 1.0);
+      auto &dEdot = data->Get("dEdot_over_Edot").data;
+      auto &meanEdot = data->Get("mean_Edot").data;
+
       // compute interpolant
-      AllReduce<parthenon::ParArray1D<Real>> *pview_reduce =
-          pkg->MutableParam<AllReduce<parthenon::ParArray1D<Real>>>("profile_reduce");
+      parthenon::ParArray1D<Real> *pview_reduce =
+          pkg->MutableParam<parthenon::ParArray1D<Real>>("profile_reduce");
       MonotoneInterpolator<PinnedArray1D<Real>> interpProfile =
-          GetInterpolantFromProfile(pview_reduce, md.get());
+          GetInterpolantFromProfile(*pview_reduce, md.get());
 
       // get cooling function
       const cooling::TabularCooling &tabular_cooling =
