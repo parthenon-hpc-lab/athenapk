@@ -123,8 +123,8 @@ struct Riemann<Fluid::euler, RiemannSolver::lhllc> {
       const Real P_R = wri[IPR];
 
       Real cp = (((S_R - u_R) * rho_R * P_L) - ((S_L - u_L) * rho_L * P_R) +
-                (phi * rho_L * rho_R * (S_R - u_R) * (S_L - u_L) * (u_R - u_L))) /
-                    (((S_R - u_R) * rho_R) - ((S_L - u_L) * rho_L));
+                 (phi * rho_L * rho_R * (S_R - u_R) * (S_L - u_L) * (u_R - u_L))) /
+                (((S_R - u_R) * rho_R) - ((S_L - u_L) * rho_L));
 
       cp = cp > 0.0 ? cp : 0.0;
 

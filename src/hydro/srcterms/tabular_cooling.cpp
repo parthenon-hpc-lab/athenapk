@@ -349,8 +349,8 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
         // Wrap DeDt into a functor for the RKStepper
         auto DeDt_wrapper = [&](const Real t, const Real e, bool &valid) {
-          return taper_fac * DeDt(e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
-                      d_log_temp, n_temp, log_lambdas, valid);
+          return taper_fac * DeDt(e, mu_m_u_gm1_by_k_B, n_h2_by_rho, log_temp_start,
+                                  log_temp_final, d_log_temp, n_temp, log_lambdas, valid);
         };
 
         Real sub_t = 0; // current subcycle time

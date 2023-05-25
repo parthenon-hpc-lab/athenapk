@@ -54,9 +54,7 @@ typedef ReductionSumArray<parthenon::Real, REDUCTION_ARRAY_SIZE> ValueType;
 namespace Kokkos { // reduction identity must be defined in Kokkos namespace
 template <>
 struct reduction_identity<ValueType> {
-  KOKKOS_FORCEINLINE_FUNCTION static ValueType sum() {
-    return ValueType();
-  }
+  KOKKOS_FORCEINLINE_FUNCTION static ValueType sum() { return ValueType(); }
 };
 } // namespace Kokkos
 

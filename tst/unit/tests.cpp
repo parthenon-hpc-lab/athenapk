@@ -1,7 +1,7 @@
 // Path: tst/unit/tests.cpp
+#include "../../src/interp.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
-#include "../../src/interp.hpp"
 
 double interpolate_line(double x) {
   // f(x) = x
