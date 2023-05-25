@@ -252,11 +252,6 @@ TabularCooling::TabularCooling(ParameterInput *pin,
     Kokkos::deep_copy(townsend_alpha_k_, host_townsend_alpha_k);
     Kokkos::deep_copy(townsend_Y_k_, host_townsend_Y_k);
   }
-  //// Create a lightweight object for computing cooling rates within kernels
-  // const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-  // const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-  // const Real mbar_over_kb = mu * units.mh() / units.k_boltzmann();
-  // const Real adiabatic_index = pin->GetReal("hydro", "gamma");
 
   // Create a lightweight object for computing cooling rates within kernels
   const auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");

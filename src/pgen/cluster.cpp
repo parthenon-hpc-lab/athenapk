@@ -521,19 +521,18 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           // get gas properties
           const Real rho = prim(IDN, k, j, i);
           const Real P = prim(IPR, k, j, i);
-          const Real B1 = prim(IB1, k, j, i);
-          const Real B2 = prim(IB2, k, j, i);
-          const Real B3 = prim(IB3, k, j, i);
-          const Real B = (SQR(B1) + SQR(B2) + SQR(B3));
+          const Real Bx = prim(IB1, k, j, i);
+          const Real By = prim(IB2, k, j, i);
+          const Real Bz = prim(IB3, k, j, i);
+          const Real B2 = (SQR(Bx) + SQR(By) + SQR(Bz));
 
           // compute Alfven mach number
-          const Real v_A = B / std::sqrt(rho);
+          const Real v_A = std::sqrt(B2 / rho);
           const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
-          const Real M_A = v_A / c_s;
-          mach_alfven(k, j, i) = M_A;
+          mach_alfven(k, j, i) = mach_sonic(k, j, i) * c_s / v_A;
 
           // compute plasma beta
-          plasma_beta(k, j, i) = ( B != 0) ? P / (0.5 * B): NAN;
+          plasma_beta(k, j, i) = (B2 != 0) ? P / (0.5 * B2) : NAN;
         });
   }
 }
