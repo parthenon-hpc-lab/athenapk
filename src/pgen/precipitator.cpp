@@ -371,7 +371,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
 
   ComputeProfile1D(
       *pview_reduce, md,
-      [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords, int k,
+      KOKKOS_LAMBDA(VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords, int k,
           int j, int i) {
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
@@ -810,18 +810,18 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   parthenon::ParArray1D<Real> K_mean("K_mean", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> T_mean("T_mean", REDUCTION_ARRAY_SIZE);
 
-  auto f_rho = [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
+  auto f_rho = KOKKOS_LAMBDA(VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
                    int k, int j, int i) { return prim(IDN, k, j, i); };
-  auto f_P = [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
+  auto f_P = KOKKOS_LAMBDA(VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
                  int k, int j, int i) { return prim(IPR, k, j, i); };
-  auto f_K = [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
+  auto f_K = KOKKOS_LAMBDA(VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
                  int k, int j, int i) {
     const Real rho = prim(IDN, k, j, i);
     const Real P = prim(IPR, k, j, i);
     const Real K = P / std::pow(rho, gam);
     return K;
   };
-  auto f_T = [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
+  auto f_T = KOKKOS_LAMBDA(VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
                  int k, int j, int i) -> Real {
     // compute temperature
     const Real rho = prim(IDN, k, j, i);
