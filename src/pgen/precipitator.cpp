@@ -55,12 +55,16 @@
 typedef Kokkos::complex<Real> Complex;
 
 template <typename Function>
-void ComputeProfileLocal(parthenon::ParArray1D<Real> &profile_dev, MeshData<Real> *md,
-                         Function F) {
+void ComputeProfile1D(parthenon::ParArray1D<Real> &profile_dev,
+                          parthenon::MeshData<Real> *md, Function F) {
+  // compute a 1D profile across the entire Mesh
+
+  // Initialize values to zero
+  Kokkos::deep_copy(profile_dev, 0.0);
+
+  // Compute rank-local reduction
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
-
-  // compute rank-local reduction
   auto pm = md->GetParentPointer();
   const Real x3min = pm->mesh_size.x3min;
   const Real Lz = pm->mesh_size.x3max - pm->mesh_size.x3min;
@@ -108,22 +112,11 @@ void ComputeProfileLocal(parthenon::ParArray1D<Real> &profile_dev, MeshData<Real
     profile(i) += profile_sum.data[i];
   }
   profile_dev.DeepCopy(profile);
-}
 
-template <typename Function>
-void ComputeProfileGlobal(parthenon::ParArray1D<Real> &profile,
-                          parthenon::MeshData<Real> *md, Function scalarFunction) {
-  // compute a 1D profile across the entire Mesh
-
-  // initialize values to zero
-  Kokkos::deep_copy(profile, 0.0);
-
-  // compute rank-local reduction
-  ComputeProfileLocal(profile, md, scalarFunction);
-
+  // Compute global reduction
 #ifdef MPI_PARALLEL
   // Perform blocking MPI_Allreduce on the host to sum up the local reductions.
-  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, profile.data(), profile.size(),
+  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, profile_dev.data(), profile_dev.size(),
                                     MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
 #endif
 }
@@ -376,7 +369,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   const cooling::TabularCooling &tabular_cooling =
       pkg->Param<cooling::TabularCooling>("tabular_cooling");
 
-  ComputeProfileGlobal(
+  ComputeProfile1D(
       *pview_reduce, md,
       [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords, int k,
           int j, int i) {
@@ -837,10 +830,10 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     return T;
   };
 
-  ComputeProfileGlobal(rho_mean, md.get(), f_rho);
-  ComputeProfileGlobal(P_mean, md.get(), f_P);
-  ComputeProfileGlobal(K_mean, md.get(), f_K);
-  ComputeProfileGlobal(T_mean, md.get(), f_T);
+  ComputeProfile1D(rho_mean, md.get(), f_rho);
+  ComputeProfile1D(P_mean, md.get(), f_P);
+  ComputeProfile1D(K_mean, md.get(), f_K);
+  ComputeProfile1D(T_mean, md.get(), f_T);
 
   // compute interpolants
   MonotoneInterpolator<PinnedArray1D<Real>> rhoMeanInterp =
