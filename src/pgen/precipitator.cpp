@@ -30,6 +30,7 @@
 #include "coordinates/coordinates.hpp"
 #include "defs.hpp"
 #include "globals.hpp"
+#include "interface/variable_pack.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
@@ -468,13 +469,24 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("grav_phi_zface", m);
 
-  /// add derived fields
-  // add hydrostatic pressure field (used for derived outputs only)
+  // add hydrostatic pressure, density fields
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("pressure_hse", m);
-  // add hydrostatic density field (used for derived outputs only)
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("density_hse", m);
+
+  /// add derived fields
+
+  // add entropy field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("entropy", m);
+  // add temperature field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("temperature", m);
+  // add \bar Edot field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("mean_Edot", m);
+
   // add \delta \rho / \bar \rho field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("drho_over_rho", m);
@@ -484,15 +496,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add \delta K / \bar K field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("dK_over_K", m);
+  // add \delta T / \bar T field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("dT_over_T", m);
   // add \delta Edot / \bar Edot field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("dEdot_over_Edot", m);
-  // add \bar Edot field
-  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("mean_Edot", m);
-  // add entropy field
-  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("entropy", m);
 
   const Units units(pin);
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
@@ -795,10 +804,18 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   auto pkg = pmb->packages.Get("Hydro");
   const Real gam = pin->GetReal("hydro", "gamma");
 
+  const Units units(pin);
+  const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
+  const Real H_mass_fraction = 1.0 - He_mass_fraction;
+  const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+  const Real mmw = mu * units.atomic_mass_unit(); // mean molecular weight
+  const Real kboltz = units.k_boltzmann();
+
   // perform reductions to compute average vertical profiles
   parthenon::ParArray1D<Real> rho_mean("rho_mean", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> P_mean("P_mean", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> K_mean("K_mean", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> T_mean("T_mean", REDUCTION_ARRAY_SIZE);
 
   auto f_rho = [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
                    int k, int j, int i) { return prim(IDN, k, j, i); };
@@ -806,15 +823,24 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
                  int k, int j, int i) { return prim(IPR, k, j, i); };
   auto f_K = [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
                  int k, int j, int i) {
-    Real rho = prim(IDN, k, j, i);
-    Real P = prim(IPR, k, j, i);
-    Real K = P / std::pow(rho, gam);
+    const Real rho = prim(IDN, k, j, i);
+    const Real P = prim(IPR, k, j, i);
+    const Real K = P / std::pow(rho, gam);
     return K;
+  };
+  auto f_T = [=](VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
+                 int k, int j, int i) -> Real {
+    // compute temperature
+    const Real rho = prim(IDN, k, j, i);
+    const Real P = prim(IPR, k, j, i);
+    const Real T = P / (kboltz * rho / mmw);
+    return T;
   };
 
   ComputeProfileGlobal(rho_mean, md.get(), f_rho);
   ComputeProfileGlobal(P_mean, md.get(), f_P);
   ComputeProfileGlobal(K_mean, md.get(), f_K);
+  ComputeProfileGlobal(T_mean, md.get(), f_T);
 
   // compute interpolants
   MonotoneInterpolator<PinnedArray1D<Real>> rhoMeanInterp =
@@ -823,22 +849,21 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
       GetInterpolantFromProfile(P_mean, md.get());
   MonotoneInterpolator<PinnedArray1D<Real>> KMeanInterp =
       GetInterpolantFromProfile(K_mean, md.get());
+  MonotoneInterpolator<PinnedArray1D<Real>> TMeanInterp =
+      GetInterpolantFromProfile(T_mean, md.get());
 
   // fill derived fields
   for (auto &pmb : mesh->block_list) {
     auto &data = pmb->meshblock_data.Get();
     auto const &prim = data->Get("prim").data;
 
+    auto &entropy = data->Get("entropy").data;
+    auto &temperature = data->Get("temperature").data;
+
     auto &drho = data->Get("drho_over_rho").data;
     auto &dP = data->Get("dP_over_P").data;
     auto &dK = data->Get("dK_over_K").data;
-    auto &entropy = data->Get("entropy").data;
-
-    const Units units(pin);
-    const Real code_length_cgs = units.code_length_cgs();
-    const Real code_density_cgs = units.code_density_cgs();
-    const Real code_pressure_cgs = units.code_pressure_cgs();
-    auto pkg = pmb->packages.Get("Hydro");
+    auto &dT = data->Get("dT_over_T").data;
 
     auto &coords = pmb->coords;
     IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
@@ -851,23 +876,28 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           Real rho_bar = NAN;
           Real P_bar = NAN;
           Real K_bar = NAN;
+          Real T_bar = NAN;
 
           const Real z = coords.Xc<3>(k);
           if ((z >= rhoMeanInterp.min()) && (z <= rhoMeanInterp.max())) {
             rho_bar = rhoMeanInterp(z);
             P_bar = PMeanInterp(z);
             K_bar = KMeanInterp(z);
+            T_bar = TMeanInterp(z);
           }
 
           // get local density, pressure, entropy
           const Real rho = prim(IDN, k, j, i);
           const Real P = prim(IPR, k, j, i);
           const Real K = P / std::pow(rho, gam);
+          const Real T = P / (kboltz * rho / mmw);
 
           drho(k, j, i) = (rho - rho_bar) / rho_bar;
           dP(k, j, i) = (P - P_bar) / P_bar;
           dK(k, j, i) = (K - K_bar) / K_bar;
+          dT(k, j, i) = (T - T_bar) / T_bar;
           entropy(k, j, i) = K;
+          temperature(k, j, i) = T;
         });
 
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
@@ -879,6 +909,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
       auto &meanEdot = data->Get("mean_Edot").data;
 
       // compute interpolant
+      auto pkg = pmb->packages.Get("Hydro");
       parthenon::ParArray1D<Real> *pview_reduce =
           pkg->MutableParam<parthenon::ParArray1D<Real>>("profile_reduce");
       MonotoneInterpolator<PinnedArray1D<Real>> interpProfile =
