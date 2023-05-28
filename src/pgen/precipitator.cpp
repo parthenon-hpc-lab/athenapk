@@ -730,6 +730,16 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   IndexRange kbe = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
   parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "ReadGravPotentialFaces", parthenon::DevExecSpace(), 0, 0,
+      kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
+      KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+        // Calculate height
+        const Real zmin_cgs = std::abs(coords.Xf<3>(k)) * code_length_cgs;
+        const Real phi_iminus = P_rho_profile.phi(zmin_cgs) / code_potential_cgs;
+        printf("(%d, %d, %d): phi_iminus = %g", k, j, i, phi_iminus);
+      });
+
+  parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetGravPotentialFaces", parthenon::DevExecSpace(), 0, 0,
       kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
