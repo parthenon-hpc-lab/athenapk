@@ -87,7 +87,7 @@ struct RK45Stepper {
 enum class CoolIntegrator { undefined, rk12, rk45, townsend };
 
 class TabularCooling {
- private:
+  public: //FIXME Made public to allow computation of DeDt outside of TabularCooling. Refactor will fix this back to public
   // Defines uniformly spaced log temperature range of the table
   unsigned int n_temp_;
   parthenon::Real log_temp_start_, log_temp_final_, d_log_temp_, lambda_final_;

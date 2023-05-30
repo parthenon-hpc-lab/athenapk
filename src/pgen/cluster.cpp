@@ -495,7 +495,14 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
     // get cooling function
     const cooling::TabularCooling &tabular_cooling =
         pkg->Param<cooling::TabularCooling>("tabular_cooling");
-    const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
+
+    const Real mu_mh_gm1_by_k_B = tabular_cooling.mu_mh_gm1_by_k_B_;
+    const Real X_by_mh = tabular_cooling.X_by_mh_;
+    const Real log_temp_start = tabular_cooling.log_temp_start_;
+    const Real log_temp_final = tabular_cooling.log_temp_final_;
+    const Real d_log_temp = tabular_cooling.d_log_temp_;
+    const unsigned int n_temp = tabular_cooling.n_temp_;
+    const auto log_lambdas = tabular_cooling.log_lambdas_;
 
     pmb->par_for(
         "Cluster::UserWorkBeforeOutput::CoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -504,10 +511,14 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           const Real rho = prim(IDN, k, j, i);
           const Real P = prim(IPR, k, j, i);
 
+          const Real n_h2_by_rho = rho * X_by_mh * X_by_mh;
+
           // compute cooling time
           const Real eint = P / (rho * gm1);
-          const Real edot = cooling_table_obj.DeDt(eint, rho);
-          cooling_time(k, j, i) = (edot != 0) ? eint / edot : NAN;
+          bool valid=true;
+          const Real edot = cooling::TabularCooling::DeDt(eint, mu_mh_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
+              d_log_temp, n_temp, log_lambdas, valid);
+          cooling_time(k, j, i) = (edot != 0 && valid) ? eint / edot : NAN;
         });
   }
 
