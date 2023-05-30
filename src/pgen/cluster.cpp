@@ -515,8 +515,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
 
           // compute cooling time
           const Real eint = P / (rho * gm1);
-          bool valid=true;
-          const Real edot = cooling::TabularCooling::DeDt(eint, mu_mh_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
+          bool valid = true;
+          const Real edot = cooling::TabularCooling::DeDt(
+              eint, mu_mh_gm1_by_k_B, n_h2_by_rho, log_temp_start, log_temp_final,
               d_log_temp, n_temp, log_lambdas, valid);
           cooling_time(k, j, i) = (edot != 0 && valid) ? eint / edot : NAN;
         });
