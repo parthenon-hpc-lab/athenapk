@@ -189,7 +189,7 @@ TabularCooling::TabularCooling(ParameterInput *pin,
   lambda_final_ = std::pow(10.0, log_lambdas[n_temp_ - 1]);
 
   // Setup log_lambdas_ used in Dedt()
-  { 
+  {
     // log_lambdas is used if the integrator isn't Townsend, if the cooling CFL
     // is set, or if cooling time is a extra derived field. Since we don't have
     // a good way to check the last condition we always initialize log_lambdas_

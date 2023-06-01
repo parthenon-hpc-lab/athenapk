@@ -507,7 +507,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           // compute cooling time
           const Real eint = P / (rho * gm1);
           const Real edot = cooling_table_obj.DeDt(eint, rho);
-          cooling_time(k, j, i) = (edot != 0) ? - eint / edot : NAN;
+          cooling_time(k, j, i) = (edot != 0) ? -eint / edot : NAN;
         });
   }
 
