@@ -503,7 +503,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("enable_cooling", cooling);
 
   if (cooling == Cooling::tabular) {
-    TabularCooling tabular_cooling(pin);
+    TabularCooling tabular_cooling(pin, pkg);
     pkg->AddParam<>("tabular_cooling", tabular_cooling);
   }
 

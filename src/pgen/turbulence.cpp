@@ -120,18 +120,13 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
   // Step 2. Add appropriate fields required by this pgen
-  std::vector<std::string> acc_labels(3);
-  acc_labels[0] = "Acceleration1";
-  acc_labels[1] = "Acceleration2";
-  acc_labels[2] = "Acceleration3";
-
   // Using OneCopy here to save memory. We typically don't need to update/evolve the
   // acceleration field for various stages in a cycle as the "model" error of the
   // turbulence driver is larger than the numerical one any way. This may need to be
   // changed if an "as close as possible" comparison between methods/codes is the goal and
   // not turbulence from a physical point of view.
   Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
-             std::vector<int>({3}), acc_labels);
+             std::vector<int>({3}));
   pkg->AddField("acc", m);
 
   auto num_modes =

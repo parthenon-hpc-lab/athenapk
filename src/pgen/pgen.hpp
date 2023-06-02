@@ -99,6 +99,7 @@ using namespace parthenon::driver::prelude;
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void InitUserMeshData(ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin);
 void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_dt);
 parthenon::Real ClusterEstimateTimestep(MeshData<Real> *md);
 } // namespace cluster
