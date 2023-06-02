@@ -151,6 +151,28 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   }
 
   /************************************************************
+   * Read Magnetic Field Perturbations
+   ************************************************************/
+  const bool init_b_field_perturbations = pin->GetOrAddBoolean("problem/cluster/b_field_perturbations",
+                                                        "init_perturbations", false);
+  hydro_pkg->AddParam<>("init_b_field_perturbations", init_b_field_perturbations);
+  if ( init_b_field_perturbations ){
+    const  Real amplitude = pin->GetReal("problem/cluster/b_field_perturbations","amplitude");
+    const  Real l_scale = pin->GetReal("problem/cluster/b_field_perturbations","l_scale");
+    const  Real exponent = pin->GetReal("problem/cluster/b_field_perturbations","exponent");
+    const  int max_mode = pin->GetInteger("problem/cluster/b_field_perturbations", "max_mode");
+    const  int64_t seed = pin->GetInteger("problem/cluster/b_field_perturbations", "seed");
+    const  bool additive = pin->GetBoolean("problem/cluster/b_field_perturbations", "additive");
+
+    hydro_pkg->AddParam<>("init_b_field_perturbation_amplitude", amplitude);
+    hydro_pkg->AddParam<>("init_b_field_perturbation_l_scale", l_scale);
+    hydro_pkg->AddParam<>("init_b_field_perturbation_exponent", exponent);
+    hydro_pkg->AddParam<>("init_b_field_perturbation_max_mode", max_mode);
+    hydro_pkg->AddParam<>("init_b_field_perturbation_seed", seed);
+    hydro_pkg->AddParam<>("init_b_field_perturbation_additive", additive);
+  }
+
+  /************************************************************
    * Read Cluster Gravity Parameters
    ************************************************************/
 
