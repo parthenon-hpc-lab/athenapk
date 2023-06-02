@@ -33,6 +33,7 @@
 // AthenaPK headers
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
+#include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
 
 // Cluster headers
@@ -214,6 +215,35 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    ************************************************************/
 
   SNIAFeedback snia_feedback(pin, hydro_pkg);
+
+  /************************************************************
+   * Add derived fields
+   * NOTE: these must be filled in UserWorkBeforeOutput
+   ************************************************************/
+
+  auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+
+  // log10 of cell-centered radius
+  hydro_pkg->AddField("log10_cell_radius", m);
+  // entropy
+  hydro_pkg->AddField("entropy", m);
+  // sonic Mach number v/c_s
+  hydro_pkg->AddField("mach_sonic", m);
+  // temperature
+  hydro_pkg->AddField("temperature", m);
+
+  if (hydro_pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
+    // cooling time
+    hydro_pkg->AddField("cooling_time", m);
+  }
+
+  if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+    // alfven Mach number v_A/c_s
+    hydro_pkg->AddField("mach_alfven", m);
+
+    // plasma beta
+    hydro_pkg->AddField("plasma_beta", m);
+  }
 }
 
 //========================================================================================
@@ -403,6 +433,108 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     }
 
   } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
+}
+
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
+  // get hydro
+  auto pkg = pmb->packages.Get("Hydro");
+  const Real gam = pin->GetReal("hydro", "gamma");
+  const Real gm1 = (gam - 1.0);
+
+  // get prim vars
+  auto &data = pmb->meshblock_data.Get();
+  auto const &prim = data->Get("prim").data;
+
+  // get derived fields
+  auto &log10_radius = data->Get("log10_cell_radius").data;
+  auto &entropy = data->Get("entropy").data;
+  auto &mach_sonic = data->Get("mach_sonic").data;
+  auto &temperature = data->Get("temperature").data;
+
+  // for computing temperature from primitives
+  auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
+
+  // fill derived vars (*including ghost cells*)
+  auto &coords = pmb->coords;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+
+  pmb->par_for(
+      "Cluster::UserWorkBeforeOutput", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+        // get gas properties
+        const Real rho = prim(IDN, k, j, i);
+        const Real v1 = prim(IV1, k, j, i);
+        const Real v2 = prim(IV2, k, j, i);
+        const Real v3 = prim(IV3, k, j, i);
+        const Real P = prim(IPR, k, j, i);
+
+        // compute radius
+        const Real x = coords.Xc<1>(i);
+        const Real y = coords.Xc<2>(j);
+        const Real z = coords.Xc<3>(k);
+        const Real r2 = SQR(x) + SQR(y) + SQR(z);
+        log10_radius(k, j, i) = 0.5 * std::log10(r2);
+
+        // compute entropy
+        const Real K = P / std::pow(rho, gam);
+        entropy(k, j, i) = K;
+
+        const Real v_mag = std::sqrt(SQR(v1) + SQR(v2) + SQR(v3));
+        const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
+        const Real M_s = v_mag / c_s;
+        mach_sonic(k, j, i) = M_s;
+
+        // compute temperature
+        temperature(k, j, i) = mbar_over_kb * P / rho;
+      });
+  if (pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
+    auto &cooling_time = data->Get("cooling_time").data;
+
+    // get cooling function
+    const cooling::TabularCooling &tabular_cooling =
+        pkg->Param<cooling::TabularCooling>("tabular_cooling");
+    const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
+
+    pmb->par_for(
+        "Cluster::UserWorkBeforeOutput::CoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          // get gas properties
+          const Real rho = prim(IDN, k, j, i);
+          const Real P = prim(IPR, k, j, i);
+
+          // compute cooling time
+          const Real eint = P / (rho * gm1);
+          const Real edot = cooling_table_obj.DeDt(eint, rho);
+          cooling_time(k, j, i) = (edot != 0) ? -eint / edot : NAN;
+        });
+  }
+
+  if (pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+    auto &plasma_beta = data->Get("plasma_beta").data;
+    auto &mach_alfven = data->Get("mach_alfven").data;
+
+    pmb->par_for(
+        "Cluster::UserWorkBeforeOutput::MHD", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          // get gas properties
+          const Real rho = prim(IDN, k, j, i);
+          const Real P = prim(IPR, k, j, i);
+          const Real Bx = prim(IB1, k, j, i);
+          const Real By = prim(IB2, k, j, i);
+          const Real Bz = prim(IB3, k, j, i);
+          const Real B2 = (SQR(Bx) + SQR(By) + SQR(Bz));
+
+          // compute Alfven mach number
+          const Real v_A = std::sqrt(B2 / rho);
+          const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
+          mach_alfven(k, j, i) = mach_sonic(k, j, i) * c_s / v_A;
+
+          // compute plasma beta
+          plasma_beta(k, j, i) = (B2 != 0) ? P / (0.5 * B2) : NAN;
+        });
+  }
 }
 
 } // namespace cluster
