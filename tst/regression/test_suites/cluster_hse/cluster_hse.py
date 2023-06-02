@@ -33,7 +33,6 @@ sys.dont_write_bytecode = True
 
 class TestCase(utils.test_case.TestCaseAbs):
     def __init__(self):
-
         # Define cluster parameters
         # Setup units
         unyt.define_unit("code_length", (1, "Mpc"))
@@ -92,6 +91,9 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         self.norm_tol = 1e-3
 
+        self.sigma_v = unyt.unyt_quantity(75.0, "km/s")
+        self.sigma_B = unyt.unyt_quantity(1e-8, "G")
+
     def Prepare(self, parameters, step):
         """
         Any preprocessing that is needed before the drive is run can be done in
@@ -140,29 +142,23 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/cluster/hydrostatic_equilibrium/r_fix={self.R_fix.in_units('code_length').v}",
             f"problem/cluster/hydrostatic_equilibrium/rho_fix={self.rho_fix.in_units('code_mass/code_length**3').v}",
             f"problem/cluster/hydrostatic_equilibrium/r_sampling={self.R_sampling}",
+            f"problem/cluster/init_perturb/sigma_v={0.0 if step == 2 else self.sigma_v.in_units('code_length/code_time').v}",
+            f"problem/cluster/init_perturb/sigma_B={0.0 if step == 2 else self.sigma_B.in_units('(code_mass/code_length)**0.5/code_time').v}",
+            f"parthenon/output2/id={'prim' if step == 2 else 'prim_perturb'}",
+            f"parthenon/time/nlim={-1 if step == 2 else 1}",
         ]
 
         return parameters
 
     def Analyse(self, parameters):
-        """
-        Analyze the output and determine if the test passes.
+        analyze_status = self.AnalyseHSE(parameters)
+        analyze_status &= self.AnalyseInitPert(parameters)
+        return analyze_status
 
-        This function is called after the driver has been executed. It is
-        responsible for reading whatever data it needs and making a judgment
-        about whether or not the test passes. It takes no inputs. Output should
-        be True (test passes) or False (test fails).
+    def AnalyseInitPert(self, parameters):
+        return True
 
-        The parameters that are passed in provide the paths to relevant
-        locations and commands. Of particular importance is the path to the
-        output folder. All files from a drivers run should appear in and output
-        folder located in
-        parthenon/tst/regression/test_suites/test_name/output.
-
-        It is possible in this function to read any of the output files such as
-        hdf5 output and compare them to expected quantities.
-
-        """
+    def AnalyseHSE(self, parameters):
         analyze_status = True
 
         self.Yp = self.He_mass_fraction
