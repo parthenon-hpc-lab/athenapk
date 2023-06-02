@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemInitPackageData = rand_blast::ProblemInitPackageData;
     Hydro::ProblemSourceFirstOrder = rand_blast::RandomBlasts;
   } else if (problem == "cluster") {
-    pman.app_input->ProblemGenerator = cluster::ProblemGenerator;
+    pman.app_input->MeshProblemGenerator = cluster::ProblemGenerator;
     pman.app_input->MeshBlockUserWorkBeforeOutput = cluster::UserWorkBeforeOutput;
     Hydro::ProblemInitPackageData = cluster::ProblemInitPackageData;
     Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;

@@ -247,192 +247,201 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 }
 
 //========================================================================================
-//! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
-//! \brief Generate problem data on each meshblock
+//! \fn void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md)
+//! \brief Generate problem data for all blocks on rank
+//
+// Note, this requires that parthenon/mesh/pack_size=-1 during initialization so that
+// reductions work
 //========================================================================================
 
-void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
-  auto hydro_pkg = pmb->packages.Get("Hydro");
+void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
+  // This could be more optimized, but require a refactor of init routines being called.
+  // However, given that it's just called during initial setup, this should not be a
+  // performance concern.
+  for (int b; b < md->NumBlocks(); b++) {
+    auto pmb = md->GetBlockData(b)->GetBlockPointer();
+    auto hydro_pkg = pmb->packages.Get("Hydro");
 
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-  // Initialize the conserved variables
-  auto &u = pmb->meshblock_data.Get()->Get("cons").data;
+    // Initialize the conserved variables
+    auto &u = pmb->meshblock_data.Get()->Get("cons").data;
 
-  auto &coords = pmb->coords;
+    auto &coords = pmb->coords;
 
-  // Get Adiabatic Index
-  const Real gam = pin->GetReal("hydro", "gamma");
-  const Real gm1 = (gam - 1.0);
-
-  /************************************************************
-   * Initialize the initial hydro state
-   ************************************************************/
-  const auto &init_uniform_gas = hydro_pkg->Param<bool>("init_uniform_gas");
-  if (init_uniform_gas) {
-    const Real rho = hydro_pkg->Param<Real>("uniform_gas_rho");
-    const Real ux = hydro_pkg->Param<Real>("uniform_gas_ux");
-    const Real uy = hydro_pkg->Param<Real>("uniform_gas_uy");
-    const Real uz = hydro_pkg->Param<Real>("uniform_gas_uz");
-    const Real pres = hydro_pkg->Param<Real>("uniform_gas_pres");
-
-    const Real Mx = rho * ux;
-    const Real My = rho * uy;
-    const Real Mz = rho * uz;
-    const Real E = rho * (0.5 * (ux * ux + uy * uy + uz * uz) + pres / (gm1 * rho));
-
-    parthenon::par_for(
-        DEFAULT_LOOP_PATTERN, "Cluster::ProblemGenerator::UniformGas",
-        parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-          u(IDN, k, j, i) = rho;
-          u(IM1, k, j, i) = Mx;
-          u(IM2, k, j, i) = My;
-          u(IM3, k, j, i) = Mz;
-          u(IEN, k, j, i) = E;
-        });
-
-    // end if(init_uniform_gas)
-  } else {
-    /************************************************************
-     * Initialize a HydrostaticEquilibriumSphere
-     ************************************************************/
-    const auto &he_sphere =
-        hydro_pkg
-            ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
-                "hydrostatic_equilibirum_sphere");
-
-    const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
-
-    // initialize conserved variables
-    parthenon::par_for(
-        DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
-        parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-          // Calculate radius
-          const Real r =
-              sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
-                   coords.Xc<3>(k) * coords.Xc<3>(k));
-
-          // Get pressure and density from generated profile
-          const Real P_r = P_rho_profile.P_from_r(r);
-          const Real rho_r = P_rho_profile.rho_from_r(r);
-
-          // Fill conserved states, 0 initial velocity
-          u(IDN, k, j, i) = rho_r;
-          u(IM1, k, j, i) = 0.0;
-          u(IM2, k, j, i) = 0.0;
-          u(IM3, k, j, i) = 0.0;
-          u(IEN, k, j, i) = P_r / gm1;
-        });
-  }
-
-  if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
-    /************************************************************
-     * Initialize the initial magnetic field state via a vector potential
-     ************************************************************/
-    parthenon::ParArray4D<Real> A("A", 3, pmb->cellbounds.ncellsk(IndexDomain::entire),
-                                  pmb->cellbounds.ncellsj(IndexDomain::entire),
-                                  pmb->cellbounds.ncellsi(IndexDomain::entire));
-
-    IndexRange a_ib = ib;
-    a_ib.s -= 1;
-    a_ib.e += 1;
-    IndexRange a_jb = jb;
-    a_jb.s -= 1;
-    a_jb.e += 1;
-    IndexRange a_kb = kb;
-    a_kb.s -= 1;
-    a_kb.e += 1;
+    // Get Adiabatic Index
+    const Real gam = pin->GetReal("hydro", "gamma");
+    const Real gm1 = (gam - 1.0);
 
     /************************************************************
-     * Initialize an initial magnetic tower
+     * Initialize the initial hydro state
      ************************************************************/
-    const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
+    const auto &init_uniform_gas = hydro_pkg->Param<bool>("init_uniform_gas");
+    if (init_uniform_gas) {
+      const Real rho = hydro_pkg->Param<Real>("uniform_gas_rho");
+      const Real ux = hydro_pkg->Param<Real>("uniform_gas_ux");
+      const Real uy = hydro_pkg->Param<Real>("uniform_gas_uy");
+      const Real uz = hydro_pkg->Param<Real>("uniform_gas_uz");
+      const Real pres = hydro_pkg->Param<Real>("uniform_gas_pres");
 
-    magnetic_tower.AddInitialFieldToPotential(pmb, a_kb, a_jb, a_ib, A);
+      const Real Mx = rho * ux;
+      const Real My = rho * uy;
+      const Real Mz = rho * uz;
+      const Real E = rho * (0.5 * (ux * ux + uy * uy + uz * uz) + pres / (gm1 * rho));
 
-    /************************************************************
-     * Add dipole magnetic field to the magnetic potential
-     ************************************************************/
-    const auto &init_dipole_b_field = hydro_pkg->Param<bool>("init_dipole_b_field");
-    if (init_dipole_b_field) {
-      const Real mx = hydro_pkg->Param<Real>("dipole_b_field_mx");
-      const Real my = hydro_pkg->Param<Real>("dipole_b_field_my");
-      const Real mz = hydro_pkg->Param<Real>("dipole_b_field_mz");
       parthenon::par_for(
-          DEFAULT_LOOP_PATTERN, "MagneticTower::AddInitialFieldToPotential",
-          parthenon::DevExecSpace(), a_kb.s, a_kb.e, a_jb.s, a_jb.e, a_ib.s, a_ib.e,
-          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-            // Compute and apply potential
-            const Real x = coords.Xc<1>(i);
-            const Real y = coords.Xc<2>(j);
-            const Real z = coords.Xc<3>(k);
-
-            const Real r3 = pow(SQR(x) + SQR(y) + SQR(z), 3. / 2);
-
-            const Real m_cross_r_x = my * z - mz * y;
-            const Real m_cross_r_y = mz * x - mx * z;
-            const Real m_cross_r_z = mx * y - mx * y;
-
-            A(0, k, j, i) += m_cross_r_x / (4 * M_PI * r3);
-            A(1, k, j, i) += m_cross_r_y / (4 * M_PI * r3);
-            A(2, k, j, i) += m_cross_r_z / (4 * M_PI * r3);
-          });
-    }
-
-    /************************************************************
-     * Apply the potential to the conserved variables
-     ************************************************************/
-    parthenon::par_for(
-        DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyMagneticPotential",
-        parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-          u(IB1, k, j, i) =
-              (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
-              (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
-          u(IB2, k, j, i) =
-              (A(0, k + 1, j, i) - A(0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
-              (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
-          u(IB3, k, j, i) =
-              (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
-              (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
-
-          u(IEN, k, j, i) +=
-              0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
-        });
-
-    /************************************************************
-     * Add uniform magnetic field to the conserved variables
-     ************************************************************/
-    const auto &init_uniform_b_field = hydro_pkg->Param<bool>("init_uniform_b_field");
-    if (init_uniform_b_field) {
-      const Real bx = hydro_pkg->Param<Real>("uniform_b_field_bx");
-      const Real by = hydro_pkg->Param<Real>("uniform_b_field_by");
-      const Real bz = hydro_pkg->Param<Real>("uniform_b_field_bz");
-      parthenon::par_for(
-          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyUniformBField",
+          DEFAULT_LOOP_PATTERN, "Cluster::ProblemGenerator::UniformGas",
           parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
           KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-            const Real bx_i = u(IB1, k, j, i);
-            const Real by_i = u(IB2, k, j, i);
-            const Real bz_i = u(IB3, k, j, i);
-
-            u(IB1, k, j, i) += bx;
-            u(IB2, k, j, i) += by;
-            u(IB3, k, j, i) += bz;
-
-            // Old magnetic energy is b_i^2, new Magnetic energy should be 0.5*(b_i +
-            // b)^2, add b_i*b + 0.5b^2  to old energy to accomplish that
-            u(IEN, k, j, i) +=
-                bx_i * bx + by_i * by + bz_i * bz + 0.5 * (SQR(bx) + SQR(by) + SQR(bz));
+            u(IDN, k, j, i) = rho;
+            u(IM1, k, j, i) = Mx;
+            u(IM2, k, j, i) = My;
+            u(IM3, k, j, i) = Mz;
+            u(IEN, k, j, i) = E;
           });
-      // end if(init_uniform_b_field)
+
+      // end if(init_uniform_gas)
+    } else {
+      /************************************************************
+       * Initialize a HydrostaticEquilibriumSphere
+       ************************************************************/
+      const auto &he_sphere =
+          hydro_pkg
+              ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
+                  "hydrostatic_equilibirum_sphere");
+
+      const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
+
+      // initialize conserved variables
+      parthenon::par_for(
+          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
+          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+            // Calculate radius
+            const Real r = sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) +
+                                coords.Xc<2>(j) * coords.Xc<2>(j) +
+                                coords.Xc<3>(k) * coords.Xc<3>(k));
+
+            // Get pressure and density from generated profile
+            const Real P_r = P_rho_profile.P_from_r(r);
+            const Real rho_r = P_rho_profile.rho_from_r(r);
+
+            // Fill conserved states, 0 initial velocity
+            u(IDN, k, j, i) = rho_r;
+            u(IM1, k, j, i) = 0.0;
+            u(IM2, k, j, i) = 0.0;
+            u(IM3, k, j, i) = 0.0;
+            u(IEN, k, j, i) = P_r / gm1;
+          });
     }
 
-  } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
+    if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+      /************************************************************
+       * Initialize the initial magnetic field state via a vector potential
+       ************************************************************/
+      parthenon::ParArray4D<Real> A("A", 3, pmb->cellbounds.ncellsk(IndexDomain::entire),
+                                    pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                    pmb->cellbounds.ncellsi(IndexDomain::entire));
+
+      IndexRange a_ib = ib;
+      a_ib.s -= 1;
+      a_ib.e += 1;
+      IndexRange a_jb = jb;
+      a_jb.s -= 1;
+      a_jb.e += 1;
+      IndexRange a_kb = kb;
+      a_kb.s -= 1;
+      a_kb.e += 1;
+
+      /************************************************************
+       * Initialize an initial magnetic tower
+       ************************************************************/
+      const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
+
+      magnetic_tower.AddInitialFieldToPotential(pmb.get(), a_kb, a_jb, a_ib, A);
+
+      /************************************************************
+       * Add dipole magnetic field to the magnetic potential
+       ************************************************************/
+      const auto &init_dipole_b_field = hydro_pkg->Param<bool>("init_dipole_b_field");
+      if (init_dipole_b_field) {
+        const Real mx = hydro_pkg->Param<Real>("dipole_b_field_mx");
+        const Real my = hydro_pkg->Param<Real>("dipole_b_field_my");
+        const Real mz = hydro_pkg->Param<Real>("dipole_b_field_mz");
+        parthenon::par_for(
+            DEFAULT_LOOP_PATTERN, "MagneticTower::AddInitialFieldToPotential",
+            parthenon::DevExecSpace(), a_kb.s, a_kb.e, a_jb.s, a_jb.e, a_ib.s, a_ib.e,
+            KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+              // Compute and apply potential
+              const Real x = coords.Xc<1>(i);
+              const Real y = coords.Xc<2>(j);
+              const Real z = coords.Xc<3>(k);
+
+              const Real r3 = pow(SQR(x) + SQR(y) + SQR(z), 3. / 2);
+
+              const Real m_cross_r_x = my * z - mz * y;
+              const Real m_cross_r_y = mz * x - mx * z;
+              const Real m_cross_r_z = mx * y - mx * y;
+
+              A(0, k, j, i) += m_cross_r_x / (4 * M_PI * r3);
+              A(1, k, j, i) += m_cross_r_y / (4 * M_PI * r3);
+              A(2, k, j, i) += m_cross_r_z / (4 * M_PI * r3);
+            });
+      }
+
+      /************************************************************
+       * Apply the potential to the conserved variables
+       ************************************************************/
+      parthenon::par_for(
+          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyMagneticPotential",
+          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+            u(IB1, k, j, i) =
+                (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+                (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
+            u(IB2, k, j, i) =
+                (A(0, k + 1, j, i) - A(0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+                (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
+            u(IB3, k, j, i) =
+                (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+                (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
+
+            u(IEN, k, j, i) += 0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) +
+                                      SQR(u(IB3, k, j, i)));
+          });
+
+      /************************************************************
+       * Add uniform magnetic field to the conserved variables
+       ************************************************************/
+      const auto &init_uniform_b_field = hydro_pkg->Param<bool>("init_uniform_b_field");
+      if (init_uniform_b_field) {
+        const Real bx = hydro_pkg->Param<Real>("uniform_b_field_bx");
+        const Real by = hydro_pkg->Param<Real>("uniform_b_field_by");
+        const Real bz = hydro_pkg->Param<Real>("uniform_b_field_bz");
+        parthenon::par_for(
+            DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyUniformBField",
+            parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+            KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+              const Real bx_i = u(IB1, k, j, i);
+              const Real by_i = u(IB2, k, j, i);
+              const Real bz_i = u(IB3, k, j, i);
+
+              u(IB1, k, j, i) += bx;
+              u(IB2, k, j, i) += by;
+              u(IB3, k, j, i) += bz;
+
+              // Old magnetic energy is b_i^2, new Magnetic energy should be 0.5*(b_i +
+              // b)^2, add b_i*b + 0.5b^2  to old energy to accomplish that
+              u(IEN, k, j, i) +=
+                  bx_i * bx + by_i * by + bz_i * bz + 0.5 * (SQR(bx) + SQR(by) + SQR(bz));
+            });
+        // end if(init_uniform_b_field)
+      }
+
+    } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
+  }
 }
 
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
