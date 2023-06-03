@@ -36,7 +36,6 @@ sys.dont_write_bytecode = True
 
 class TestCase(utils.test_case.TestCaseAbs):
     def __init__(self):
-
         # Define cluster parameters
         # Setup units
         unyt.define_unit("code_length", (1, "Mpc"))
@@ -322,10 +321,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             }
 
             rho = unyt.unyt_array(
-                prim[:, prim_col_dict["density"]], "code_mass*code_length**-3"
+                prim[prim_col_dict["density"], :], "code_mass*code_length**-3"
             )
             pres = unyt.unyt_array(
-                prim[:, prim_col_dict["pressure"]],
+                prim[prim_col_dict["pressure"], :],
                 "code_mass*code_length**-1*code_time**-2",
             )
 
