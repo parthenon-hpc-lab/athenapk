@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 20212-2022, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file turbulence.cpp
@@ -27,13 +27,13 @@
 // AthenaPK headers
 #include "../main.hpp"
 #include "../units.hpp"
+#include "../utils/few_modes_ft.hpp"
 
 namespace turbulence {
 using namespace parthenon::package::prelude;
-
-typedef Kokkos::complex<Real> Complex;
 using parthenon::DevMemSpace;
 using parthenon::ParArray2D;
+using utils::few_modes_ft::Complex;
 
 // Defining these "globally" as they are fixed across all blocks
 ParArray2D<Complex> accel_hat_, accel_hat_new_;
@@ -600,25 +600,10 @@ void Generate(MeshData<Real> *md, Real dt) {
   auto phases_i = md->PackVariables(std::vector<std::string>{"phases_i"});
   auto phases_j = md->PackVariables(std::vector<std::string>{"phases_j"});
   auto phases_k = md->PackVariables(std::vector<std::string>{"phases_k"});
-  // implictly assuming cubic box of size L=1
-  pmb->par_for(
-      "Inverse FT", 0, acc_pack.GetDim(5) - 1, 0, 2, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
-        Complex phase, phase_i, phase_j, phase_k;
-        acc_pack(b, n, k, j, i) = 0.0;
 
-        for (int m = 0; m < num_modes; m++) {
-          phase_i =
-              Complex(phases_i(b, 0, i - ib.s, m, 0), phases_i(b, 0, i - ib.s, m, 1));
-          phase_j =
-              Complex(phases_j(b, 0, j - jb.s, m, 0), phases_j(b, 0, j - jb.s, m, 1));
-          phase_k =
-              Complex(phases_k(b, 0, k - kb.s, m, 0), phases_k(b, 0, k - kb.s, m, 1));
-          phase = phase_i * phase_j * phase_k;
-          acc_pack(b, n, k, j, i) += 2. * (accel_hat(n, m).real() * phase.real() -
-                                           accel_hat(n, m).imag() * phase.imag());
-        }
-      });
+  utils::few_modes_ft::InverseFT<decltype(acc_pack), ParArray2D<Complex>>(
+      acc_pack, phases_i, phases_j, phases_k, accel_hat, ib, jb, kb, acc_pack.GetDim(5),
+      num_modes);
 }
 
 //----------------------------------------------------------------------------------------
