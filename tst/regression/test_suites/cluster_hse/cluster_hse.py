@@ -38,6 +38,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         unyt.define_unit("code_length", (1, "Mpc"))
         unyt.define_unit("code_mass", (1e14, "Msun"))
         unyt.define_unit("code_time", (1, "Gyr"))
+        unyt.define_unit("code_velocity", (1, "code_length/code_time"))
         self.code_length = unyt.unyt_quantity(1, "code_length")
         self.code_mass = unyt.unyt_quantity(1, "code_mass")
         self.code_time = unyt.unyt_quantity(1, "code_time")
@@ -156,7 +157,74 @@ class TestCase(utils.test_case.TestCaseAbs):
         return analyze_status
 
     def AnalyseInitPert(self, parameters):
-        return True
+        analyze_status = True
+        sys.path.insert(
+            1,
+            parameters.parthenon_path
+            + "/scripts/python/packages/parthenon_tools/parthenon_tools",
+        )
+
+        try:
+            import phdf
+        except ModuleNotFoundError:
+            print("Couldn't find module to load Parthenon hdf5 files.")
+            return False
+
+        data_file = phdf.phdf(
+            f"{parameters.output_path}/parthenon.prim_perturb.00000.phdf"
+        )
+        dx = data_file.xf[:, 1:] - data_file.xf[:, :-1]
+        dy = data_file.yf[:, 1:] - data_file.yf[:, :-1]
+        dz = data_file.zf[:, 1:] - data_file.zf[:, :-1]
+
+        # create array of volume with (block, k, j, i) indices
+        cell_vol = np.empty(
+            (
+                data_file.x.shape[0],
+                data_file.z.shape[1],
+                data_file.y.shape[1],
+                data_file.x.shape[1],
+            )
+        )
+        for block in range(dx.shape[0]):
+            dz3d, dy3d, dx3d = np.meshgrid(
+                dz[block], dy[block], dx[block], indexing="ij"
+            )
+            cell_vol[block, :, :, :] = dx3d * dy3d * dz3d
+
+        # flatten array as prim var are also flattended
+        cell_vol = cell_vol.ravel()
+
+        prim = data_file.Get("prim")
+
+        # FIXME: For now this is hard coded - a component mapping should be done by phdf
+        prim_col_dict = {
+            "velocity_1": 1,
+            "velocity_2": 2,
+            "velocity_3": 3,
+        }
+
+        vx = prim[prim_col_dict["velocity_1"]]
+        vy = prim[prim_col_dict["velocity_2"]]
+        vz = prim[prim_col_dict["velocity_3"]]
+
+        # volume weighted rms velocity
+        rms_v = np.sqrt(
+            np.sum((vx**2 + vy**2 + vz**2) * cell_vol) / np.sum(cell_vol)
+        )
+
+        sigma_v_match = np.isclose(
+            rms_v, self.sigma_v.in_units("code_velocity").v, rtol=1e-14, atol=1e-14
+        )
+
+        if not sigma_v_match:
+            analyze_status = False
+            print(
+                f"ERROR: velocity perturbation too large\n"
+                f"Expected {self.sigma_v.in_units('code_velocity')} but got {rms_v}\n"
+            )
+
+        return analyze_status
 
     def AnalyseHSE(self, parameters):
         analyze_status = True

@@ -442,6 +442,64 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
     } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
   }
+
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto fluid = hydro_pkg->Param<Fluid>("fluid");
+  auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto num_blocks = md->NumBlocks();
+
+  const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
+  const auto sigma_B = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_B", 0.0);
+
+  if (sigma_v != 0.0) {
+
+    Real v2_sum = 0.0; // used for normalization
+
+    pmb->par_reduce(
+        "Init sigma_v", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+          const auto &coords = cons.GetCoords(b);
+          const auto &u = cons(b);
+          auto rho = u(IDN, k, j, i);
+
+          u(IM1, k, j, i) = rho * (i + b);
+          u(IM2, k, j, i) = rho * (j + b);
+          u(IM3, k, j, i) = rho * (k + b);
+          // No need to touch the energy yet as we'll normalize later
+
+          lsum += (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) *
+                  coords.CellVolume(k, j, i) / SQR(rho);
+        },
+        v2_sum);
+
+#ifdef MPI_PARALLEL
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &v2_sum, 1, MPI_PARTHENON_REAL,
+                                      MPI_SUM, MPI_COMM_WORLD));
+#endif // MPI_PARALLEL
+
+    const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
+    const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
+    const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
+    auto v_norm = std::sqrt(v2_sum / (Lx * Ly * Lz) / (SQR(sigma_v)));
+
+    pmb->par_for(
+        "Norm sigma_v", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto &u = cons(b);
+
+          u(IM1, k, j, i) /= v_norm;
+          u(IM2, k, j, i) /= v_norm;
+          u(IM3, k, j, i) /= v_norm;
+
+          u(IEN, k, j, i) +=
+              0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
+              u(IDN, k, j, i);
+        });
+  }
 }
 
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
