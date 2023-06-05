@@ -88,8 +88,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("density_ambient", da);
   pkg->AddParam<>("gamma", gamma);
   pkg->AddParam<>("shell_velocity", shvel);
-  //pkg->AddParam<>("He_mass_fraction_outflow", Y_outflow);
-  //pkg->AddParam<>("He_mass_fraction_shell", Y_shell);
+
 
 
   Real rstar = pin->GetOrAddReal("problem/blast", "radius_star", 0.0) / units.code_length_cgs();
