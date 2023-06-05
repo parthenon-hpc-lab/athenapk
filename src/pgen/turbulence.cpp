@@ -36,8 +36,6 @@ using parthenon::ParArray2D;
 using utils::few_modes_ft::Complex;
 
 // Defining these "globally" as they are fixed across all blocks
-ParArray2D<Complex> accel_hat_, accel_hat_new_;
-ParArray2D<Real> k_vec_;
 Kokkos::View<Real ***, Kokkos::LayoutRight, DevMemSpace> random_num_;
 Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::HostMemSpace> random_num_host;
 std::mt19937 rng;
@@ -131,26 +129,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   auto num_modes =
       pin->GetInteger("problem/turbulence", "num_modes"); // number of wavemodes
-  if ((num_modes > 100) && (parthenon::Globals::my_rank == 0)) {
-    std::cout << "### WARNING using more than 100 explicit modes will significantly "
-              << "increase the runtime." << std::endl
-              << "If many modes are required in the acceleration field consider using "
-              << "the driving mechanism based on full FFTs." << std::endl;
-  }
-  pkg->AddParam<>("turbulence/num_modes", num_modes);
-
-  const auto nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
-  const auto nx2 = pin->GetInteger("parthenon/meshblock", "nx2");
-  const auto nx3 = pin->GetInteger("parthenon/meshblock", "nx3");
-  m = Metadata({Metadata::None, Metadata::Derived, Metadata::OneCopy},
-               std::vector<int>({2, num_modes, nx1}), "phases_i");
-  pkg->AddField("phases_i", m);
-  m = Metadata({Metadata::None, Metadata::Derived, Metadata::OneCopy},
-               std::vector<int>({2, num_modes, nx2}), "phases_j");
-  pkg->AddField("phases_j", m);
-  m = Metadata({Metadata::None, Metadata::Derived, Metadata::OneCopy},
-               std::vector<int>({2, num_modes, nx3}), "phases_k");
-  pkg->AddField("phases_k", m);
 
   uint32_t rseed =
       pin->GetOrAddInteger("problem/turbulence", "rseed", -1); // seed for random number.
@@ -171,20 +149,20 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   Real sol_weight = pin->GetReal("problem/turbulence", "sol_weight"); // solenoidal weight
   pkg->AddParam<>("turbulence/sol_weight", sol_weight);
 
-  // Acceleration field in Fourier space using complex to real transform.
-  accel_hat_ = ParArray2D<Complex>("accel_hat", 3, num_modes);
-  accel_hat_new_ = ParArray2D<Complex>("accel_hat_new", 3, num_modes);
-
   // list of wavenumber vectors
-  k_vec_ = ParArray2D<Real>("k_vec", 3, num_modes);
-  auto k_vec_host = Kokkos::create_mirror_view(k_vec_);
+  auto k_vec = ParArray2D<Real>("k_vec", 3, num_modes);
+  auto k_vec_host = Kokkos::create_mirror_view(k_vec);
   for (int j = 0; j < 3; j++) {
     for (int i = 1; i <= num_modes; i++) {
       k_vec_host(j, i - 1) =
           pin->GetInteger("modes", "k_" + std::to_string(i) + "_" + std::to_string(j));
     }
   }
-  Kokkos::deep_copy(k_vec_, k_vec_host);
+  Kokkos::deep_copy(k_vec, k_vec_host);
+
+  auto few_modes_ft =
+      utils::few_modes_ft::FewModesFT(pin, pkg, "turbulence", num_modes, k_vec);
+  pkg->AddParam<>("turbulence/few_modes_ft", few_modes_ft);
 
   random_num_ = Kokkos::View<Real ***, Kokkos::LayoutRight, DevMemSpace>("random_num", 3,
                                                                          num_modes, 2);
@@ -193,7 +171,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // Check if this is is a restart and restore previous state
   if (pin->DoesParameterExist("problem/turbulence", "accel_hat_0_0_r")) {
     // Restore (common) acceleration field in spectral space
-    auto accel_hat_host = Kokkos::create_mirror_view(accel_hat_);
+    auto accel_hat = few_modes_ft.GetVarHat();
+    auto accel_hat_host = Kokkos::create_mirror_view(accel_hat);
     for (int i = 0; i < 3; i++) {
       for (int m = 0; m < num_modes; m++) {
         auto real =
@@ -205,7 +184,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
         accel_hat_host(i, m) = Complex(real, imag);
       }
     }
-    Kokkos::deep_copy(accel_hat_, accel_hat_host);
+    Kokkos::deep_copy(accel_hat, accel_hat_host);
 
     // Restore state of random number gen
     {

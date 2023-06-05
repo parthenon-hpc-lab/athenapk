@@ -11,15 +11,32 @@
 // Parthenon headers
 #include "basic_types.hpp"
 #include "config.hpp"
-#include "kokkos_abstraction.hpp"
+#include <parthenon/package.hpp>
 
 // AthenaPK headers
 #include "../main.hpp"
 #include "mesh/domain.hpp"
 
 namespace utils::few_modes_ft {
-using Complex = Kokkos::complex<parthenon::Real>;
+using parthenon::Real;
+using Complex = Kokkos::complex<Real>;
 using parthenon::IndexRange;
+using parthenon::ParArray2D;
+
+class FewModesFT {
+ private:
+  int num_modes_;
+  std::string prefix_;
+  ParArray2D<Complex> var_hat_, var_hat_new_;
+  ParArray2D<Real> k_vec_;
+
+ public:
+  FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescriptor *pkg,
+             std::string prefix, int num_modes, ParArray2D<Real> k_vec);
+
+  ParArray2D<Complex> GetVarHat() { return var_hat_ }
+  void SetVarHat(ParArray2D<Complex> var_hat) { var_hat_ = var_hat }
+};
 
 template <typename TPack, typename THat>
 void InverseFT(const TPack &out_pack, const TPack &phases_i, const TPack &phases_j,
