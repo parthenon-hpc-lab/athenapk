@@ -74,22 +74,22 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real shvel = pin->GetReal("problem/blast", "shell_velocity") / (units.code_length_cgs() / units.code_time_cgs());
   const Real mach = pin->GetOrAddReal("problem/blast", "mach_number",1.);
 
-  const auto Y_outflow = pin->GetReal("hydro", "He_mass_fraction_outflow");
-  const auto Y_shell = pin->GetReal("hydro", "He_mass_fraction_shell");
-  const auto Y_medium = pin->GetReal("hydro", "He_mass_fraction_medium");
-  //const auto mu = 1 / (Y_shell * 3. / 4. + (1 - Y_shell) * 2);
-  //const auto mu_medium = 1 / (Y_medium * 3. / 4. + (1 - Y_medium) / 2.);
-  //const auto mu_m_u_gm1_by_k_B_medium = mu_medium * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
-  //const Real rhoe = ta * da / mu_m_u_gm1_by_k_B_medium;
-  //const Real pa = gm1 * rhoe;
+  //const auto Y_outflow = pin->GetReal("hydro", "He_mass_fraction_outflow");
+  //const auto Y_shell = pin->GetReal("hydro", "He_mass_fraction_shell");
+  const auto Y = pin->GetReal("hydro", "He_mass_fraction");
+  //const auto mu = 1 / (Y * 3. / 4. + (1 - Y) * 2);  //metal-poor
+  const auto mu = 1 / (Y * 3. / 4. + (1 - Y) / 2.); //metal-rich
+  const auto mu_m_u_gm1_by_k_B = mu * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
+  const Real rhoe = ta * da / mu_m_u_gm1_by_k_B;
+  const Real pa = gm1 * rhoe;
 
   pkg->AddParam<>("temperature_ambient", ta);
-  //pkg->AddParam<>("pressure_ambient", pa);
+  pkg->AddParam<>("pressure_ambient", pa);
   pkg->AddParam<>("density_ambient", da);
   pkg->AddParam<>("gamma", gamma);
   pkg->AddParam<>("shell_velocity", shvel);
-  pkg->AddParam<>("He_mass_fraction_outflow", Y_outflow);
-  pkg->AddParam<>("He_mass_fraction_shell", Y_shell);
+  //pkg->AddParam<>("He_mass_fraction_outflow", Y_outflow);
+  //pkg->AddParam<>("He_mass_fraction_shell", Y_shell);
 
 
   Real rstar = pin->GetOrAddReal("problem/blast", "radius_star", 0.0) / units.code_length_cgs();
@@ -117,8 +117,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("clumps", clumps);
   pkg->AddParam<>("r_clump", r_clump);
 
-  const Real pa = dout / gamma * SQR(vout - shvel) / SQR(mach);
-  pkg->AddParam<>("pressure_ambient", pa);
+  //const Real pa = dout / gamma * SQR(vout - shvel) / SQR(mach);
+  //pkg->AddParam<>("pressure_ambient", pa);
 
   Real chi = pin->GetOrAddReal("problem/blast", "chi", 1000);
   pkg->AddParam<>("chi", chi);
@@ -192,7 +192,7 @@ void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *
   const Real gamma = hydro_pkg->Param<Real>("gamma");
   const Real gm1 = gamma - 1.0;
   const Real sh_vel = hydro_pkg->Param<Real>("shell_velocity");
-  const Real Y_shell = hydro_pkg->Param<Real>("He_mass_fraction_shell");
+  //const Real Y_shell = hydro_pkg->Param<Real>("He_mass_fraction_shell");
 
   Real rinp = hydro_pkg->Param<Real>("inner_perturbation");
   Real routp = hydro_pkg->Param<Real>("outer_perturbation");
@@ -323,7 +323,7 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
   const Real gamma = hydro_pkg->Param<Real>("gamma");
   Real gm1 = gamma - 1.0;
   const Real vout = hydro_pkg->Param<Real>("outflow_velocity");
-  const Real Y_shell = hydro_pkg->Param<Real>("He_mass_fraction_shell");
+  //const Real Y_shell = hydro_pkg->Param<Real>("He_mass_fraction_shell");
 
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});

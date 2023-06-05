@@ -50,12 +50,12 @@ riemann = hllc
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
-He_mass_fraction_outflow = 0.1
-He_mass_fraction_shell = 0.24
-He_mass_fraction_medium = 0.4
+He_mass_fraction = 0.1 #outflow 0.017 – 0.135 with 0.017 best fit (Paper 2)
+#He_mass_fraction = 0.24 #ambient
 nscalars = 1
 #dfloor = 0.000001    # density floor; should not be required enabled for testing
-pfloor = 0.0001   # pressure floor; should not be required enabled for testing
+#pfloor = 0.0001   # pressure floor; should not be required enabled for testing
+#Tfloor = 1e4
 
 <units>
 #Units parameters
@@ -63,6 +63,14 @@ code_length_cgs = 3.085677580962325e+18  # 1 pc
 code_mass_cgs = 1.98841586e+33           # 1 M_sun
 code_time_cgs = 3.15576e+13              # 1 Myr
 
+<cooling>
+enable_cooling=tabular
+table_filename= /Users/corrado/work/athenapk/inputs/cluster/schure.cooling
+log_temp_col=0
+log_lambda_col=1
+lambda_units_cgs=1.0 # 1.00e+00 cm**3*erg/s
+integrator=townsend
+cfl=0.0
 
 # Refinement based on methods implemented in AthenaPK
 #<refinement>
@@ -80,14 +88,14 @@ derefine_tol = 0.05
 
 <problem/blast>
 
-temperature_ambient = 4e6                   # K
+temperature_ambient = 4e6                   # K (outflow)
 mach_number = 0.5
-density_ambient  = 1e-27                    # 1 cm^-3
+density_ambient  = 1e-26                    #1 cm^-3
 radius_star      = 3.085677580962325e+17    # 0.1 pc
-outflow_density  = 1e-26                    # 10 cm^-3
+outflow_density  = 1.1e-25                   # 10 cm^-3 (From mass loss rate)
 outflow_velocity = 1.6e9                    # 16000 km/s
-inner_perturbation =1.385677580962325e+18 #3.385677580962325e+17  # 0.1 pc
-outer_perturbation =1.585677580962325e+18 #6.05677580962325e+17  # 0.12 pc
+inner_perturbation = 3.385677580962325e+17  # 0.11 pc
+outer_perturbation = 6.05677580962325e+17  # 0.2 pc
 density_perturbation = 1e-23                # 10000 cm^-3
 shell_velocity = 1.1e8                      # 1100 km/s
 rseed = 37
