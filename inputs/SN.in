@@ -13,13 +13,13 @@ refinement = none #adaptive
 numlevel = 3
 nghost = 2
 
-nx1 =128 #1024
+nx1 =1024
 x1min = -0.5
 x1max = 0.5
 ix1_bc = outflow
 ox1_bc = outflow
 
-nx2 =128 #1024
+nx2 =1024
 x2min = -0.5
 x2max = 0.5
 ix2_bc = outflow
@@ -50,12 +50,12 @@ riemann = hllc
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
-He_mass_fraction = 0.1 #outflow 0.017 – 0.135 with 0.017 best fit (Paper 2)
-#He_mass_fraction = 0.24 #ambient
+#He_mass_fraction = 0.1 #outflow 0.017 – 0.135 with 0.017 best fit (Paper 2)
+He_mass_fraction = 0.24 #ambient
 nscalars = 1
 #dfloor = 0.000001    # density floor; should not be required enabled for testing
 #pfloor = 0.0001   # pressure floor; should not be required enabled for testing
-#Tfloor = 1e4
+Tfloor = 1e4
 
 <units>
 #Units parameters
