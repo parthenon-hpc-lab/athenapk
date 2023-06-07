@@ -74,13 +74,18 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real shvel = pin->GetReal("problem/blast", "shell_velocity") / (units.code_length_cgs() / units.code_time_cgs());
   const Real mach = pin->GetOrAddReal("problem/blast", "mach_number",1.);
 
+  Real rstar = pin->GetOrAddReal("problem/blast", "radius_star", 0.0) / units.code_length_cgs();
+  Real dout = pin->GetOrAddReal("problem/blast", "outflow_density", 0.0) / units.code_density_cgs();;
+  Real vout = pin->GetOrAddReal("problem/blast", "outflow_velocity", 0.0) / (units.code_length_cgs() / units.code_time_cgs());
+
+
   //const auto Y_outflow = pin->GetReal("hydro", "He_mass_fraction_outflow");
   //const auto Y_shell = pin->GetReal("hydro", "He_mass_fraction_shell");
   const auto Y = pin->GetReal("hydro", "He_mass_fraction");
-  //const auto mu = 1 / (Y * 3. / 4. + (1 - Y) * 2);  //metal-poor
-  const auto mu = 1 / (Y * 3. / 4. + (1 - Y) / 2.); //metal-rich
+  const auto mu = 1 / (Y * 3. / 4. + (1 - Y) * 2);  //metal-poor
+  //const auto mu = 1 / (Y * 3. / 4. + (1 - Y) / 2.); //metal-rich
   const auto mu_m_u_gm1_by_k_B = mu * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
-  const Real rhoe = ta * da / mu_m_u_gm1_by_k_B;
+  const Real rhoe = ta * dout / mu_m_u_gm1_by_k_B;
   const Real pa = gm1 * rhoe;
 
   pkg->AddParam<>("temperature_ambient", ta);
@@ -90,10 +95,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("shell_velocity", shvel);
 
 
-
-  Real rstar = pin->GetOrAddReal("problem/blast", "radius_star", 0.0) / units.code_length_cgs();
-  Real dout = pin->GetOrAddReal("problem/blast", "outflow_density", 0.0) / units.code_density_cgs();;
-  Real vout = pin->GetOrAddReal("problem/blast", "outflow_velocity", 0.0) / (units.code_length_cgs() / units.code_time_cgs());
 
   pkg->AddParam<>("radius_star", rstar);
   pkg->AddParam<>("outflow_density", dout);
