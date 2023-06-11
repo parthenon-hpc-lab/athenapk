@@ -1,0 +1,69 @@
+<comment>
+problem = Rayleigh-Taylor instability
+
+<job>
+problem_id = rt
+
+<problem/rt>
+iprob  = 1
+amp   = 0.01
+drat  = 2.0
+
+<parthenon/mesh>
+refinement = adaptive
+numlevel = 3
+nghost = 4
+
+nx1       = 100         # Number of zones in X1-direction
+x1min     = -0.16666667 # minimum value of X1
+x1max     = 0.16666667  # maximum value of X1
+ix1_bc    = periodic    # inner-X1 boundary flag
+ox1_bc    = periodic    # outer-X1 boundary flag
+
+nx2       = 200         # Number of zones in X2-direction
+x2min     = -0.5        # minimum value of X2
+x2max     = 0.5         # maximum value of X2
+ix2_bc    = reflecting     # inner-X2 boundary flag
+ox2_bc    = reflecting     # outer-X2 boundary flag
+
+nx3       = 1           # Number of zones in X3-direction
+x3min     = -0.5        # minimum value of X3
+x3max     = 0.5         # maximum value of X3
+ix3_bc    = periodic    # inner-X3 boundary flag
+ox3_bc    = periodic    # outer-X3 boundary flag
+
+
+<parthenon/meshblock>
+nx1       = 100         # Number of cells in each MeshBlock, X1-dir
+nx2       = 200         # Number of cells in each MeshBlock, X2-dir
+nx3       = 1           # Number of cells in each MeshBlock, X3-dir
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.4
+tlim = 10.0
+nlim = 100000
+perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+ncycle_out_mesh = -1000
+
+<hydro>
+fluid = euler
+eos = adiabatic
+riemann = hlle
+reconstruction = ppm
+gamma = 1.666666666666667 # gamma = C_p/C_v
+const_accel     = true   # add constant accleration source term
+const_accel_val = -0.1   # value of constant acceleration
+const_accel_dir = 2      # direction of constant acceleration
+first_order_flux_correct = true 
+dfloor = 0.00000001                            # unused, in [code units]
+pfloor = 0.00000001                            # unused, in [code units]
+
+<parthenon/output0>
+file_type = hdf5
+dt = 1.0
+variables = prim
+
+<parthenon/output1>
+file_type = hst
+dt = 0.1
