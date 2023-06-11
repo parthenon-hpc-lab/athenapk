@@ -121,4 +121,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin);
 void Cleanup();
 } // namespace turbulence
 
+namespace rt {
+  using namespace parthenon::driver::prelude;
+  void ProblemGenerator(MeshBlock *pm, parthenon::ParameterInput *pin);
+}
+
 #endif // PGEN_PGEN_HPP_
