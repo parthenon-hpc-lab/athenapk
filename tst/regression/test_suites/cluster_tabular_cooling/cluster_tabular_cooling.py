@@ -164,12 +164,12 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"units/code_length_cgs={self.code_length.in_units('cm').v}",
             f"units/code_mass_cgs={self.code_mass.in_units('g').v}",
             f"units/code_time_cgs={self.code_time.in_units('s').v}",
-            f"problem/cluster/init_uniform_gas=true",
-            f"problem/cluster/uniform_gas_rho={self.uniform_gas_rho.in_units('code_mass*code_length**-3').v}",
-            f"problem/cluster/uniform_gas_ux={self.uniform_gas_ux.in_units('code_length*code_time**-1').v}",
-            f"problem/cluster/uniform_gas_uy={self.uniform_gas_uy.in_units('code_length*code_time**-1').v}",
-            f"problem/cluster/uniform_gas_uz={self.uniform_gas_uz.in_units('code_length*code_time**-1').v}",
-            f"problem/cluster/uniform_gas_pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
+            f"problem/cluster/uniform_gas/init_uniform_gas=true",
+            f"problem/cluster/uniform_gas/rho={self.uniform_gas_rho.in_units('code_mass*code_length**-3').v}",
+            f"problem/cluster/uniform_gas/ux={self.uniform_gas_ux.in_units('code_length*code_time**-1').v}",
+            f"problem/cluster/uniform_gas/uy={self.uniform_gas_uy.in_units('code_length*code_time**-1').v}",
+            f"problem/cluster/uniform_gas/uz={self.uniform_gas_uz.in_units('code_length*code_time**-1').v}",
+            f"problem/cluster/uniform_gas/pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
             f"cooling/table_filename={table_filename}",
             f"cooling/log_temp_col=0",
             f"cooling/log_lambda_col=1",
@@ -215,10 +215,10 @@ class TestCase(utils.test_case.TestCaseAbs):
         initial_internal_e = (
             self.uniform_gas_pres / (self.uniform_gas_rho * (self.adiabatic_index - 1))
         ).in_units("erg/g")
-        n_h = (self.uniform_gas_rho * H_mass_fraction / unyt.amu).in_units("1/cm**3")
+        n_h = (self.uniform_gas_rho * H_mass_fraction / unyt.mh).in_units("1/cm**3")
 
         # Compute temperature
-        initial_temp = initial_internal_e * (mu * unyt.amu * gm1 / unyt.kb)
+        initial_temp = initial_internal_e * (mu * unyt.mh * gm1 / unyt.kb)
 
         # Unit helpers
         Ta = unyt.unyt_quantity(1, "K")
@@ -230,7 +230,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         )
         cooling_b = self.log_lambda1 - self.log_temp1 * cooling_m
         B = unyt.unyt_quantity(10**cooling_b, "erg*cm**3/s")
-        X = mu * unyt.amu * (self.adiabatic_index - 1) / (unyt.kb * Ta)
+        X = mu * unyt.mh * (self.adiabatic_index - 1) / (unyt.kb * Ta)
         Y = B * n_h**2 / self.uniform_gas_rho
 
         # Integrate for the final internal energy
@@ -259,19 +259,29 @@ class TestCase(utils.test_case.TestCaseAbs):
             return False
 
         analytic_uniform_gas_components = {
-            "Density": lambda Z, Y, X, time: (np.ones_like(X) * self.uniform_gas_rho)
+            "prim_density": lambda Z, Y, X, time: (
+                np.ones_like(X) * self.uniform_gas_rho
+            )
             .in_units("code_mass*code_length**-3")
             .v,
-            "Velocity1": lambda Z, Y, X, time: (np.ones_like(X) * self.uniform_gas_ux)
+            "prim_velocity_1": lambda Z, Y, X, time: (
+                np.ones_like(X) * self.uniform_gas_ux
+            )
             .in_units("code_length*code_time**-1")
             .v,
-            "Velocity2": lambda Z, Y, X, time: (np.ones_like(X) * self.uniform_gas_uy)
+            "prim_velocity_2": lambda Z, Y, X, time: (
+                np.ones_like(X) * self.uniform_gas_uy
+            )
             .in_units("code_length*code_time**-1")
             .v,
-            "Velocity3": lambda Z, Y, X, time: (np.ones_like(X) * self.uniform_gas_uz)
+            "prim_velocity_3": lambda Z, Y, X, time: (
+                np.ones_like(X) * self.uniform_gas_uz
+            )
             .in_units("code_length*code_time**-1")
             .v,
-            "Pressure": lambda Z, Y, X, time: (np.ones_like(X) * self.uniform_gas_pres)
+            "prim_pressure": lambda Z, Y, X, time: (
+                np.ones_like(X) * self.uniform_gas_pres
+            )
             .in_units("code_mass*code_length**-1*code_time**-2")
             .v,
         }
@@ -307,27 +317,15 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             # FIXME: TODO(forrestglines) For now this is hard coded - a component mapping should be done by phdf
             prim_col_dict = {
-                "Density": 0,
-                "Velocity1": 1,
-                "Velocity2": 2,
-                "Velocity3": 3,
-                "Pressure": 4,
+                "density": 0,
+                "pressure": 4,
             }
 
             rho = unyt.unyt_array(
-                prim[:, prim_col_dict["Density"]], "code_mass*code_length**-3"
-            )
-            ux = unyt.unyt_array(
-                prim[:, prim_col_dict["Velocity1"]], "code_length*code_time**-1"
-            )
-            uy = unyt.unyt_array(
-                prim[:, prim_col_dict["Velocity2"]], "code_length*code_time**-1"
-            )
-            uz = unyt.unyt_array(
-                prim[:, prim_col_dict["Velocity3"]], "code_length*code_time**-1"
+                prim[:, prim_col_dict["density"]], "code_mass*code_length**-3"
             )
             pres = unyt.unyt_array(
-                prim[:, prim_col_dict["Pressure"]],
+                prim[:, prim_col_dict["pressure"]],
                 "code_mass*code_length**-1*code_time**-2",
             )
 
@@ -356,7 +354,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 {
                     k: v
                     for k, v in analytic_uniform_gas_components.items()
-                    if k != "Pressure"
+                    if k != "prim_pressure"
                 },
                 err_func=zero_corrected_linf_err,
                 tol=self.machine_epsilon,
@@ -373,27 +371,15 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             # FIXME: TODO(forrestglines) For now this is hard coded - a component mapping should be done by phdf
             prim_col_dict = {
-                "Density": 0,
-                "Velocity1": 1,
-                "Velocity2": 2,
-                "Velocity3": 3,
-                "Pressure": 4,
+                "density": 0,
+                "pressure": 4,
             }
 
             rho = unyt.unyt_array(
-                prim[prim_col_dict["Density"]], "code_mass*code_length**-3"
-            )
-            ux = unyt.unyt_array(
-                prim[prim_col_dict["Velocity1"]], "code_length*code_time**-1"
-            )
-            uy = unyt.unyt_array(
-                prim[prim_col_dict["Velocity2"]], "code_length*code_time**-1"
-            )
-            uz = unyt.unyt_array(
-                prim[prim_col_dict["Velocity3"]], "code_length*code_time**-1"
+                prim[prim_col_dict["density"]], "code_mass*code_length**-3"
             )
             pres = unyt.unyt_array(
-                prim[prim_col_dict["Pressure"]],
+                prim[prim_col_dict["pressure"]],
                 "code_mass*code_length**-1*code_time**-2",
             )
 

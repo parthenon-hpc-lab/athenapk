@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cluster.cpp
@@ -8,8 +8,8 @@
 //
 // Setups up an idealized galaxy cluster with an ACCEPT-like entropy profile in
 // hydrostatic equilbrium with an NFW+BCG+SMBH gravitational profile,
-// optionally with an initial magnetic tower field. Includes tabular cooling,
-// AGN feedback, AGN triggering via cold gas, simple SNIA Feedback
+// optionally with an initial magnetic tower field. Includes AGN feedback, AGN
+// triggering via cold gas, simple SNIA Feedback(TODO)
 //========================================================================================
 
 // C headers
@@ -25,6 +25,7 @@
 #include <string>    // c_str()
 
 // Parthenon headers
+#include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
@@ -32,18 +33,24 @@
 // AthenaPK headers
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
+#include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
 
 // Cluster headers
+#include "cluster/agn_feedback.hpp"
+#include "cluster/agn_triggering.hpp"
 #include "cluster/cluster_gravity.hpp"
 #include "cluster/entropy_profiles.hpp"
 #include "cluster/hydrostatic_equilibrium_sphere.hpp"
+#include "cluster/magnetic_tower.hpp"
+#include "cluster/snia_feedback.hpp"
 
 namespace cluster {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 
-void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
+void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                    const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
@@ -54,83 +61,215 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real bet
 
     GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
   }
+
+  const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
+  agn_feedback.FeedbackSrcTerm(md, beta_dt, tm);
+
+  const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
+  magnetic_tower.FixedFieldSrcTerm(md, beta_dt, tm);
+
+  const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
+  snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
+}
+
+Real ClusterEstimateTimestep(MeshData<Real> *md) {
+  Real min_dt = std::numeric_limits<Real>::max();
+
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  // TODO time constraints imposed by thermal AGN feedback, jet velocity,
+  // magnetic tower
+  const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
+  const Real agn_triggering_min_dt = agn_triggering.EstimateTimeStep(md);
+  min_dt = std::min(min_dt, agn_triggering_min_dt);
+
+  return min_dt;
 }
 
 //========================================================================================
-//! \fn void InitUserMeshData(Mesh *mesh, ParameterInput *pin)
-//  \brief Function to initialize problem-specific data in mesh class.  Can also be used
-//  to initialize variables which are global to (and therefore can be passed to) other
-//  functions in this file.  Called in Mesh constructor.
+//! \fn void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor
+//! *hydro_pkg) \brief Init package data from parameter input
+//========================================================================================
+
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) {
+
+  /************************************************************
+   * Read Uniform Gas
+   ************************************************************/
+
+  const bool init_uniform_gas =
+      pin->GetOrAddBoolean("problem/cluster/uniform_gas", "init_uniform_gas", false);
+  hydro_pkg->AddParam<>("init_uniform_gas", init_uniform_gas);
+
+  if (init_uniform_gas) {
+    const Real uniform_gas_rho = pin->GetReal("problem/cluster/uniform_gas", "rho");
+    const Real uniform_gas_ux = pin->GetReal("problem/cluster/uniform_gas", "ux");
+    const Real uniform_gas_uy = pin->GetReal("problem/cluster/uniform_gas", "uy");
+    const Real uniform_gas_uz = pin->GetReal("problem/cluster/uniform_gas", "uz");
+    const Real uniform_gas_pres = pin->GetReal("problem/cluster/uniform_gas", "pres");
+
+    hydro_pkg->AddParam<>("uniform_gas_rho", uniform_gas_rho);
+    hydro_pkg->AddParam<>("uniform_gas_ux", uniform_gas_ux);
+    hydro_pkg->AddParam<>("uniform_gas_uy", uniform_gas_uy);
+    hydro_pkg->AddParam<>("uniform_gas_uz", uniform_gas_uz);
+    hydro_pkg->AddParam<>("uniform_gas_pres", uniform_gas_pres);
+  }
+
+  /************************************************************
+   * Read Uniform Magnetic Field
+   ************************************************************/
+
+  const bool init_uniform_b_field = pin->GetOrAddBoolean(
+      "problem/cluster/uniform_b_field", "init_uniform_b_field", false);
+  hydro_pkg->AddParam<>("init_uniform_b_field", init_uniform_b_field);
+
+  if (init_uniform_b_field) {
+    const Real uniform_b_field_bx = pin->GetReal("problem/cluster/uniform_b_field", "bx");
+    const Real uniform_b_field_by = pin->GetReal("problem/cluster/uniform_b_field", "by");
+    const Real uniform_b_field_bz = pin->GetReal("problem/cluster/uniform_b_field", "bz");
+
+    hydro_pkg->AddParam<>("uniform_b_field_bx", uniform_b_field_bx);
+    hydro_pkg->AddParam<>("uniform_b_field_by", uniform_b_field_by);
+    hydro_pkg->AddParam<>("uniform_b_field_bz", uniform_b_field_bz);
+  }
+
+  /************************************************************
+   * Read Uniform Magnetic Field
+   ************************************************************/
+
+  const bool init_dipole_b_field = pin->GetOrAddBoolean("problem/cluster/dipole_b_field",
+                                                        "init_dipole_b_field", false);
+  hydro_pkg->AddParam<>("init_dipole_b_field", init_dipole_b_field);
+
+  if (init_dipole_b_field) {
+    const Real dipole_b_field_mx = pin->GetReal("problem/cluster/dipole_b_field", "mx");
+    const Real dipole_b_field_my = pin->GetReal("problem/cluster/dipole_b_field", "my");
+    const Real dipole_b_field_mz = pin->GetReal("problem/cluster/dipole_b_field", "mz");
+
+    hydro_pkg->AddParam<>("dipole_b_field_mx", dipole_b_field_mx);
+    hydro_pkg->AddParam<>("dipole_b_field_my", dipole_b_field_my);
+    hydro_pkg->AddParam<>("dipole_b_field_mz", dipole_b_field_mz);
+  }
+
+  /************************************************************
+   * Read Cluster Gravity Parameters
+   ************************************************************/
+
+  // Build cluster_gravity object
+  ClusterGravity cluster_gravity(pin, hydro_pkg);
+  // hydro_pkg->AddParam<>("cluster_gravity", cluster_gravity);
+
+  // Include gravity as a source term during evolution
+  const bool gravity_srcterm =
+      pin->GetBoolean("problem/cluster/gravity", "gravity_srcterm");
+  hydro_pkg->AddParam<>("gravity_srcterm", gravity_srcterm);
+
+  /************************************************************
+   * Read Initial Entropy Profile
+   ************************************************************/
+
+  // Build entropy_profile object
+  ACCEPTEntropyProfile entropy_profile(pin);
+
+  /************************************************************
+   * Build Hydrostatic Equilibrium Sphere
+   ************************************************************/
+
+  HydrostaticEquilibriumSphere hse_sphere(pin, hydro_pkg, cluster_gravity,
+                                          entropy_profile);
+
+  /************************************************************
+   * Read Precessing Jet Coordinate system
+   ************************************************************/
+
+  JetCoordsFactory jet_coords_factory(pin, hydro_pkg);
+
+  /************************************************************
+   * Read AGN Feedback
+   ************************************************************/
+
+  AGNFeedback agn_feedback(pin, hydro_pkg);
+
+  /************************************************************
+   * Read AGN Triggering
+   ************************************************************/
+  AGNTriggering agn_triggering(pin, hydro_pkg);
+
+  /************************************************************
+   * Read Magnetic Tower
+   ************************************************************/
+
+  // Build Magnetic Tower
+  MagneticTower magnetic_tower(pin, hydro_pkg);
+
+  // Determine if magnetic_tower_power_scaling is needed
+  // Is AGN Power and Magnetic fraction non-zero?
+  bool magnetic_tower_power_scaling =
+      (agn_feedback.magnetic_fraction_ != 0 &&
+       (agn_feedback.fixed_power_ != 0 ||
+        agn_triggering.triggering_mode_ != AGNTriggeringMode::NONE));
+  hydro_pkg->AddParam("magnetic_tower_power_scaling", magnetic_tower_power_scaling);
+
+  /************************************************************
+   * Read SNIA Feedback
+   ************************************************************/
+
+  SNIAFeedback snia_feedback(pin, hydro_pkg);
+
+  /************************************************************
+   * Add derived fields
+   * NOTE: these must be filled in UserWorkBeforeOutput
+   ************************************************************/
+
+  auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+
+  // log10 of cell-centered radius
+  hydro_pkg->AddField("log10_cell_radius", m);
+  // entropy
+  hydro_pkg->AddField("entropy", m);
+  // sonic Mach number v/c_s
+  hydro_pkg->AddField("mach_sonic", m);
+  // temperature
+  hydro_pkg->AddField("temperature", m);
+
+  if (hydro_pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
+    // cooling time
+    hydro_pkg->AddField("cooling_time", m);
+  }
+
+  if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+    // alfven Mach number v_A/c_s
+    hydro_pkg->AddField("mach_alfven", m);
+
+    // plasma beta
+    hydro_pkg->AddField("plasma_beta", m);
+  }
+}
+
+//========================================================================================
+//! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
+//! \brief Generate problem data on each meshblock
 //========================================================================================
 
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
-  if (pmb->lid == 0) {
-    /************************************************************
-     * Read Uniform Gas
-     ************************************************************/
-
-    const bool init_uniform_gas =
-        pin->GetOrAddBoolean("problem/cluster", "init_uniform_gas", false);
-    hydro_pkg->AddParam<>("init_uniform_gas", init_uniform_gas);
-
-    if (init_uniform_gas) {
-      const Real uniform_gas_rho = pin->GetReal("problem/cluster", "uniform_gas_rho");
-      const Real uniform_gas_ux = pin->GetReal("problem/cluster", "uniform_gas_ux");
-      const Real uniform_gas_uy = pin->GetReal("problem/cluster", "uniform_gas_uy");
-      const Real uniform_gas_uz = pin->GetReal("problem/cluster", "uniform_gas_uz");
-      const Real uniform_gas_pres = pin->GetReal("problem/cluster", "uniform_gas_pres");
-
-      hydro_pkg->AddParam<>("uniform_gas_rho", uniform_gas_rho);
-      hydro_pkg->AddParam<>("uniform_gas_ux", uniform_gas_ux);
-      hydro_pkg->AddParam<>("uniform_gas_uy", uniform_gas_uy);
-      hydro_pkg->AddParam<>("uniform_gas_uz", uniform_gas_uz);
-      hydro_pkg->AddParam<>("uniform_gas_pres", uniform_gas_pres);
-    }
-
-    /************************************************************
-     * Read Cluster Gravity Parameters
-     ************************************************************/
-
-    // Build cluster_gravity object
-    ClusterGravity cluster_gravity(pin);
-    hydro_pkg->AddParam<>("cluster_gravity", cluster_gravity);
-
-    // Include gravity as a source term during evolution
-    const bool gravity_srcterm = pin->GetBoolean("problem/cluster", "gravity_srcterm");
-    hydro_pkg->AddParam<>("gravity_srcterm", gravity_srcterm);
-
-    /************************************************************
-     * Read Initial Entropy Profile
-     ************************************************************/
-
-    // Build entropy_profile object
-    ACCEPTEntropyProfile entropy_profile(pin);
-
-    /************************************************************
-     * Build Hydrostatic Equilibrium Sphere
-     ************************************************************/
-
-    HydrostaticEquilibriumSphere hse_sphere(pin, cluster_gravity, entropy_profile);
-    hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere", hse_sphere);
-  }
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-  // initialize conserved variables
-  auto &rc = pmb->meshblock_data.Get();
-  auto &u_dev = rc->Get("cons").data;
-  auto &coords = pmb->coords;
-
   // Initialize the conserved variables
-  auto u = u_dev.GetHostMirrorAndCopy();
+  auto &u = pmb->meshblock_data.Get()->Get("cons").data;
+
+  auto &coords = pmb->coords;
 
   // Get Adiabatic Index
   const Real gam = pin->GetReal("hydro", "gamma");
   const Real gm1 = (gam - 1.0);
 
+  /************************************************************
+   * Initialize the initial hydro state
+   ************************************************************/
   const auto &init_uniform_gas = hydro_pkg->Param<bool>("init_uniform_gas");
   if (init_uniform_gas) {
     const Real rho = hydro_pkg->Param<Real>("uniform_gas_rho");
@@ -144,19 +283,18 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
     const Real Mz = rho * uz;
     const Real E = rho * (0.5 * (ux * ux + uy * uy + uz * uz) + pres / (gm1 * rho));
 
-    for (int k = kb.s; k <= kb.e; k++) {
-      for (int j = jb.s; j <= jb.e; j++) {
-        for (int i = ib.s; i <= ib.e; i++) {
-
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "Cluster::ProblemGenerator::UniformGas",
+        parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
           u(IDN, k, j, i) = rho;
           u(IM1, k, j, i) = Mx;
           u(IM2, k, j, i) = My;
           u(IM3, k, j, i) = Mz;
           u(IEN, k, j, i) = E;
-        }
-      }
-    }
+        });
 
+    // end if(init_uniform_gas)
   } else {
     /************************************************************
      * Initialize a HydrostaticEquilibriumSphere
@@ -166,15 +304,13 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
             ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
                 "hydrostatic_equilibirum_sphere");
 
-    const auto P_rho_profile = he_sphere.generate_P_rho_profile<Kokkos::View<
-        parthenon::Real *, parthenon::LayoutWrapper, parthenon::HostMemSpace>>(ib, jb, kb,
-                                                                               coords);
+    const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
 
     // initialize conserved variables
-    for (int k = kb.s; k <= kb.e; k++) {
-      for (int j = jb.s; j <= jb.e; j++) {
-        for (int i = ib.s; i <= ib.e; i++) {
-
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
+        parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
           // Calculate radius
           const Real r =
               sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
@@ -190,13 +326,215 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           u(IM2, k, j, i) = 0.0;
           u(IM3, k, j, i) = 0.0;
           u(IEN, k, j, i) = P_r / gm1;
-        }
-      }
-    }
+        });
   }
 
-  // copy initialized cons to device
-  u_dev.DeepCopy(u);
+  if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+    /************************************************************
+     * Initialize the initial magnetic field state via a vector potential
+     ************************************************************/
+    parthenon::ParArray4D<Real> A("A", 3, pmb->cellbounds.ncellsk(IndexDomain::entire),
+                                  pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                  pmb->cellbounds.ncellsi(IndexDomain::entire));
+
+    IndexRange a_ib = ib;
+    a_ib.s -= 1;
+    a_ib.e += 1;
+    IndexRange a_jb = jb;
+    a_jb.s -= 1;
+    a_jb.e += 1;
+    IndexRange a_kb = kb;
+    a_kb.s -= 1;
+    a_kb.e += 1;
+
+    /************************************************************
+     * Initialize an initial magnetic tower
+     ************************************************************/
+    const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
+
+    magnetic_tower.AddInitialFieldToPotential(pmb, a_kb, a_jb, a_ib, A);
+
+    /************************************************************
+     * Add dipole magnetic field to the magnetic potential
+     ************************************************************/
+    const auto &init_dipole_b_field = hydro_pkg->Param<bool>("init_dipole_b_field");
+    if (init_dipole_b_field) {
+      const Real mx = hydro_pkg->Param<Real>("dipole_b_field_mx");
+      const Real my = hydro_pkg->Param<Real>("dipole_b_field_my");
+      const Real mz = hydro_pkg->Param<Real>("dipole_b_field_mz");
+      parthenon::par_for(
+          DEFAULT_LOOP_PATTERN, "MagneticTower::AddInitialFieldToPotential",
+          parthenon::DevExecSpace(), a_kb.s, a_kb.e, a_jb.s, a_jb.e, a_ib.s, a_ib.e,
+          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+            // Compute and apply potential
+            const Real x = coords.Xc<1>(i);
+            const Real y = coords.Xc<2>(j);
+            const Real z = coords.Xc<3>(k);
+
+            const Real r3 = pow(SQR(x) + SQR(y) + SQR(z), 3. / 2);
+
+            const Real m_cross_r_x = my * z - mz * y;
+            const Real m_cross_r_y = mz * x - mx * z;
+            const Real m_cross_r_z = mx * y - mx * y;
+
+            A(0, k, j, i) += m_cross_r_x / (4 * M_PI * r3);
+            A(1, k, j, i) += m_cross_r_y / (4 * M_PI * r3);
+            A(2, k, j, i) += m_cross_r_z / (4 * M_PI * r3);
+          });
+    }
+
+    /************************************************************
+     * Apply the potential to the conserved variables
+     ************************************************************/
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyMagneticPotential",
+        parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+          u(IB1, k, j, i) =
+              (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+              (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
+          u(IB2, k, j, i) =
+              (A(0, k + 1, j, i) - A(0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+              (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
+          u(IB3, k, j, i) =
+              (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+              (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
+
+          u(IEN, k, j, i) +=
+              0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
+        });
+
+    /************************************************************
+     * Add uniform magnetic field to the conserved variables
+     ************************************************************/
+    const auto &init_uniform_b_field = hydro_pkg->Param<bool>("init_uniform_b_field");
+    if (init_uniform_b_field) {
+      const Real bx = hydro_pkg->Param<Real>("uniform_b_field_bx");
+      const Real by = hydro_pkg->Param<Real>("uniform_b_field_by");
+      const Real bz = hydro_pkg->Param<Real>("uniform_b_field_bz");
+      parthenon::par_for(
+          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyUniformBField",
+          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+            const Real bx_i = u(IB1, k, j, i);
+            const Real by_i = u(IB2, k, j, i);
+            const Real bz_i = u(IB3, k, j, i);
+
+            u(IB1, k, j, i) += bx;
+            u(IB2, k, j, i) += by;
+            u(IB3, k, j, i) += bz;
+
+            // Old magnetic energy is b_i^2, new Magnetic energy should be 0.5*(b_i +
+            // b)^2, add b_i*b + 0.5b^2  to old energy to accomplish that
+            u(IEN, k, j, i) +=
+                bx_i * bx + by_i * by + bz_i * bz + 0.5 * (SQR(bx) + SQR(by) + SQR(bz));
+          });
+      // end if(init_uniform_b_field)
+    }
+
+  } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
+}
+
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
+  // get hydro
+  auto pkg = pmb->packages.Get("Hydro");
+  const Real gam = pin->GetReal("hydro", "gamma");
+  const Real gm1 = (gam - 1.0);
+
+  // get prim vars
+  auto &data = pmb->meshblock_data.Get();
+  auto const &prim = data->Get("prim").data;
+
+  // get derived fields
+  auto &log10_radius = data->Get("log10_cell_radius").data;
+  auto &entropy = data->Get("entropy").data;
+  auto &mach_sonic = data->Get("mach_sonic").data;
+  auto &temperature = data->Get("temperature").data;
+
+  // for computing temperature from primitives
+  auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
+
+  // fill derived vars (*including ghost cells*)
+  auto &coords = pmb->coords;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+
+  pmb->par_for(
+      "Cluster::UserWorkBeforeOutput", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+        // get gas properties
+        const Real rho = prim(IDN, k, j, i);
+        const Real v1 = prim(IV1, k, j, i);
+        const Real v2 = prim(IV2, k, j, i);
+        const Real v3 = prim(IV3, k, j, i);
+        const Real P = prim(IPR, k, j, i);
+
+        // compute radius
+        const Real x = coords.Xc<1>(i);
+        const Real y = coords.Xc<2>(j);
+        const Real z = coords.Xc<3>(k);
+        const Real r2 = SQR(x) + SQR(y) + SQR(z);
+        log10_radius(k, j, i) = 0.5 * std::log10(r2);
+
+        // compute entropy
+        const Real K = P / std::pow(rho, gam);
+        entropy(k, j, i) = K;
+
+        const Real v_mag = std::sqrt(SQR(v1) + SQR(v2) + SQR(v3));
+        const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
+        const Real M_s = v_mag / c_s;
+        mach_sonic(k, j, i) = M_s;
+
+        // compute temperature
+        temperature(k, j, i) = mbar_over_kb * P / rho;
+      });
+  if (pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
+    auto &cooling_time = data->Get("cooling_time").data;
+
+    // get cooling function
+    const cooling::TabularCooling &tabular_cooling =
+        pkg->Param<cooling::TabularCooling>("tabular_cooling");
+    const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
+
+    pmb->par_for(
+        "Cluster::UserWorkBeforeOutput::CoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          // get gas properties
+          const Real rho = prim(IDN, k, j, i);
+          const Real P = prim(IPR, k, j, i);
+
+          // compute cooling time
+          const Real eint = P / (rho * gm1);
+          const Real edot = cooling_table_obj.DeDt(eint, rho);
+          cooling_time(k, j, i) = (edot != 0) ? -eint / edot : NAN;
+        });
+  }
+
+  if (pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
+    auto &plasma_beta = data->Get("plasma_beta").data;
+    auto &mach_alfven = data->Get("mach_alfven").data;
+
+    pmb->par_for(
+        "Cluster::UserWorkBeforeOutput::MHD", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          // get gas properties
+          const Real rho = prim(IDN, k, j, i);
+          const Real P = prim(IPR, k, j, i);
+          const Real Bx = prim(IB1, k, j, i);
+          const Real By = prim(IB2, k, j, i);
+          const Real Bz = prim(IB3, k, j, i);
+          const Real B2 = (SQR(Bx) + SQR(By) + SQR(Bz));
+
+          // compute Alfven mach number
+          const Real v_A = std::sqrt(B2 / rho);
+          const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
+          mach_alfven(k, j, i) = mach_sonic(k, j, i) * c_s / v_A;
+
+          // compute plasma beta
+          plasma_beta(k, j, i) = (B2 != 0) ? P / (0.5 * B2) : NAN;
+        });
+  }
 }
 
 } // namespace cluster

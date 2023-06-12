@@ -104,13 +104,16 @@ Real HydroHst(MeshData<Real> *md) {
             divb += (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
                     coords.Dxc<3>(k, j, i);
           }
-          lsum += 0.5 *
-                  (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) + SQR(coords.Dxc<2>(k, j, i)) +
-                             SQR(coords.Dxc<3>(k, j, i)))) *
-                  std::abs(divb) /
-                  std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
-                            SQR(cons(IB3, k, j, i))) *
-                  coords.CellVolume(k, j, i);
+
+          Real abs_b = std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                                 SQR(cons(IB3, k, j, i)));
+
+          lsum += (abs_b != 0) ? 0.5 *
+                                     (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) +
+                                                SQR(coords.Dxc<2>(k, j, i)) +
+                                                SQR(coords.Dxc<3>(k, j, i)))) *
+                                     std::abs(divb) / abs_b * coords.CellVolume(k, j, i)
+                               : 0; // Add zero when abs_b ==0
         }
       },
       sum);
@@ -423,8 +426,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       auto units = pkg->Param<Units>("units");
       const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
       const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-      pkg->AddParam<>("mbar_over_kb",
-                      mu * units.atomic_mass_unit() / units.k_boltzmann());
+      const auto mu_e = 1 / (He_mass_fraction * 2. / 4. + (1 - He_mass_fraction));
+      pkg->AddParam<>("mu", mu);
+      pkg->AddParam<>("mu_e", mu_e);
+      pkg->AddParam<>("He_mass_fraction", He_mass_fraction);
+      // Following convention in the astro community, we're using mh as unit for the mean
+      // molecular weight
+      pkg->AddParam<>("mbar_over_kb", mu * units.mh() / units.k_boltzmann());
     }
 
     // By default disable floors by setting a negative value
@@ -507,7 +515,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("enable_cooling", cooling);
 
   if (cooling == Cooling::tabular) {
-    TabularCooling tabular_cooling(pin);
+    TabularCooling tabular_cooling(pin, pkg);
     pkg->AddParam<>("tabular_cooling", tabular_cooling);
   }
 
@@ -518,34 +526,34 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam("nscalars", nscalars);
 
   std::vector<std::string> cons_labels(nhydro);
-  cons_labels[IDN] = "Density";
-  cons_labels[IM1] = "MomentumDensity1";
-  cons_labels[IM2] = "MomentumDensity2";
-  cons_labels[IM3] = "MomentumDensity3";
-  cons_labels[IEN] = "TotalEnergyDensity";
+  cons_labels[IDN] = "density";
+  cons_labels[IM1] = "momentum_density_1";
+  cons_labels[IM2] = "momentum_density_2";
+  cons_labels[IM3] = "momentum_density_3";
+  cons_labels[IEN] = "total_energy_density";
   if (fluid == Fluid::glmmhd) {
-    cons_labels[IB1] = "MagneticField1";
-    cons_labels[IB2] = "MagneticField2";
-    cons_labels[IB3] = "MagneticField3";
-    cons_labels[IPS] = "MagneticPhi";
+    cons_labels[IB1] = "magnetic_field_1";
+    cons_labels[IB2] = "magnetic_field_2";
+    cons_labels[IB3] = "magnetic_field_3";
+    cons_labels[IPS] = "magnetic_psi";
   }
 
   // TODO(pgrete) check if this could be "one-copy" for two stage SSP integrators
   std::vector<std::string> prim_labels(nhydro);
-  prim_labels[IDN] = "Density";
-  prim_labels[IV1] = "Velocity1";
-  prim_labels[IV2] = "Velocity2";
-  prim_labels[IV3] = "Velocity3";
-  prim_labels[IPR] = "Pressure";
+  prim_labels[IDN] = "density";
+  prim_labels[IV1] = "velocity_1";
+  prim_labels[IV2] = "velocity_2";
+  prim_labels[IV3] = "velocity_3";
+  prim_labels[IPR] = "pressure";
   if (fluid == Fluid::glmmhd) {
-    prim_labels[IB1] = "MagneticField1";
-    prim_labels[IB2] = "MagneticField2";
-    prim_labels[IB3] = "MagneticField3";
-    prim_labels[IPS] = "MagneticPhi";
+    prim_labels[IB1] = "magnetic_field_1";
+    prim_labels[IB2] = "magnetic_field_2";
+    prim_labels[IB3] = "magnetic_field_3";
+    prim_labels[IPS] = "magnetic_psi";
   }
   for (auto i = 0; i < nscalars; i++) {
-    cons_labels.emplace_back("Scalar_" + std::to_string(i));
-    prim_labels.emplace_back("Scalar_" + std::to_string(i));
+    cons_labels.emplace_back("scalar_density_" + std::to_string(i));
+    prim_labels.emplace_back("scalar_" + std::to_string(i));
   }
 
   Metadata m(

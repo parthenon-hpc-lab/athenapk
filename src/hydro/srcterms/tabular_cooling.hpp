@@ -25,7 +25,7 @@
 
 // AthenaPK headers
 #include "../../main.hpp"
-#include "Kokkos_Macros.hpp"
+#include "../../units.hpp"
 
 #ifdef MPI_PARALLEL
 #include <mpi.h>
@@ -87,6 +87,98 @@ struct RK45Stepper {
 
 enum class CoolIntegrator { undefined, rk12, rk45, townsend };
 
+class CoolingTableObj {
+  /************************************************************
+   *  Cooling Table Object, for interpolating a cooling rate out of a cooling
+   *  table. Currently assumes evenly space log_temperatures in cooling table
+   *
+   *  Lightweight object intended for inlined computation within kernels
+   ************************************************************/
+ private:
+  // Log cooling rate/ne^3
+  parthenon::ParArray1D<parthenon::Real> log_lambdas_;
+
+  // Spacing of cooling table
+  // TODO: assumes evenly spaced cooling table
+  parthenon::Real log_temp_start_, log_temp_final_, d_log_temp_;
+  unsigned int n_temp_;
+
+  // Mean molecular mass * ( adiabatic_index -1) / boltzmann_constant
+  parthenon::Real mbar_gm1_over_k_B_;
+
+  // (Hydrogen mass fraction / hydrogen atomic mass)^2
+  parthenon::Real x_H_over_m_h2_;
+
+ public:
+  CoolingTableObj()
+      : log_lambdas_(), log_temp_start_(NAN), log_temp_final_(NAN), d_log_temp_(NAN),
+        n_temp_(0), mbar_gm1_over_k_B_(NAN), x_H_over_m_h2_(NAN) {}
+  CoolingTableObj(const parthenon::ParArray1D<parthenon::Real> log_lambdas,
+                  const parthenon::Real log_temp_start,
+                  const parthenon::Real log_temp_final, const parthenon::Real d_log_temp,
+                  const unsigned int n_temp, const parthenon::Real mbar_over_kb,
+                  const parthenon::Real adiabatic_index, const parthenon::Real x_H,
+                  const Units units)
+      : log_lambdas_(log_lambdas), log_temp_start_(log_temp_start),
+        log_temp_final_(log_temp_final), d_log_temp_(d_log_temp), n_temp_(n_temp),
+        mbar_gm1_over_k_B_(mbar_over_kb * (adiabatic_index - 1)),
+        x_H_over_m_h2_(SQR(x_H / units.mh())) {}
+
+  // Interpolate a cooling rate from the table
+  // from internal energy density and density
+  KOKKOS_INLINE_FUNCTION parthenon::Real
+  DeDt(const parthenon::Real &e, const parthenon::Real &rho, bool &is_valid) const {
+    using namespace parthenon;
+
+    if (e < 0 || std::isnan(e)) {
+      is_valid = false;
+      return 0;
+    }
+
+    const Real temp = mbar_gm1_over_k_B_ * e;
+    const Real log_temp = log10(temp);
+    Real log_lambda;
+    if (log_temp < log_temp_start_) {
+      return 0;
+    } else if (log_temp > log_temp_final_) {
+      // Above table
+      // Return de/dt
+      // TODO(forrestglines):Currently free-free cooling is used for
+      // temperatures above the table. This behavior could be generalized via
+      // templates
+      log_lambda = 0.5 * log_temp - 0.5 * log_temp_final_ + log_lambdas_(n_temp_ - 1);
+    } else {
+      // Inside table, interpolate assuming log spaced temperatures
+
+      // Determine where temp is in the table
+      const unsigned int i_temp =
+          static_cast<unsigned int>((log_temp - log_temp_start_) / d_log_temp_);
+      const Real log_temp_i = log_temp_start_ + d_log_temp_ * i_temp;
+
+      // log_temp should be between log_temps[i_temp] and log_temps[i_temp+1]
+      PARTHENON_REQUIRE(log_temp >= log_temp_i && log_temp <= log_temp_i + d_log_temp_,
+                        "FATAL ERROR in [CoolingTable::DeDt]: Failed to find log_temp");
+
+      const Real log_lambda_i = log_lambdas_(i_temp);
+      const Real log_lambda_ip1 = log_lambdas_(i_temp + 1);
+
+      // Linearly interpolate lambda at log_temp
+      log_lambda = log_lambda_i + (log_temp - log_temp_i) *
+                                      (log_lambda_ip1 - log_lambda_i) / d_log_temp_;
+    }
+    // Return de/dt
+    const Real lambda = pow(10., log_lambda);
+    const Real de_dt = -lambda * x_H_over_m_h2_ * rho;
+    return de_dt;
+  }
+
+  KOKKOS_INLINE_FUNCTION parthenon::Real DeDt(const parthenon::Real &e,
+                                              const parthenon::Real &rho) const {
+    bool is_valid = true;
+    return DeDt(e, rho, is_valid);
+  }
+};
+
 class TabularCooling {
  private:
   // Defines uniformly spaced log temperature range of the table
@@ -106,17 +198,12 @@ class TabularCooling {
   // Townsend cooling power law indices
   parthenon::ParArray1D<parthenon::Real> townsend_alpha_k_;
 
-  // Some constants
-  // mean_molecular_mass*atomic_mass_unit*(adiabatic_index-1)/k_B
-  parthenon::Real mu_m_u_gm1_by_k_B_;
-  // H_mass_fraction/atomic_mass_unit
-  parthenon::Real X_by_m_u_;
-  // adiabatic_index -1
-  parthenon::Real gm1_;
-
   CoolIntegrator integrator_;
 
-  // Temperature floor of the fluid solver (assumed in Kelvin)
+  // Temperature floor (assumed in Kelvin and only used in cooling function)
+  // This is either the temperature floor used by the hydro method or the
+  // lowest temperature in the cooling table (assuming zero cooling below the
+  // table), whichever temperature is higher
   parthenon::Real T_floor_;
 
   // Maximum number of iterations/subcycles
@@ -125,68 +212,21 @@ class TabularCooling {
   // Cooling CFL
   parthenon::Real cooling_time_cfl_;
 
+  // Minimum timestep that the cooling may limit the simulation timestep
+  // Use nonpositive values to disable
+  parthenon::Real min_cooling_timestep_;
+
   // Tolerances
   parthenon::Real d_log_temp_tol_, d_e_tol_;
 
   // Used for roundoff as subcycle approaches end of timestep
   static constexpr parthenon::Real KEpsilon_ = 1e-12;
 
-  // Interpolate a cooling rate from the table
-  static KOKKOS_INLINE_FUNCTION parthenon::Real
-  DeDt(const parthenon::Real &e, const parthenon::Real &mu_m_u_gm1_by_k_B,
-       const parthenon::Real &n_h2_by_rho, const parthenon::Real &log_temp_start,
-       const parthenon::Real &log_temp_final, const parthenon::Real &d_log_temp,
-       const unsigned int n_temp,
-       const parthenon::ParArray1D<parthenon::Real> &log_lambdas, bool &valid) {
-    using namespace parthenon;
-
-    if (e < 0 || std::isnan(e)) {
-      valid = false;
-      return 0;
-    }
-
-    const Real temp = mu_m_u_gm1_by_k_B * e;
-    const Real log_temp = log10(temp);
-    Real log_lambda;
-    if (log_temp < log_temp_start) {
-      // Below table - return 0 or first entry?
-      // log_lambda = log_lambdas(0);
-      // TODO(forrestglines):Currently, no cooling is implemented above the
-      // table. This behavior could be generalized via templates
-      return 0;
-    } else if (log_temp > log_temp_final) {
-      // Above table
-      // Return de/dt
-      // TODO(forrestglines):Currently free-free cooling is implemented above the
-      // table. This behavior could be generalized via templates
-      log_lambda = 0.5 * log_temp - 0.5 * log_temp_final + log_lambdas(n_temp - 1);
-    } else {
-      // Inside table
-
-      // Determine where temp is in the table
-      const unsigned int i_temp =
-          static_cast<unsigned int>((log_temp - log_temp_start) / d_log_temp);
-      const Real log_temp_i = log_temp_start + d_log_temp * i_temp;
-
-      // log_temp should be between log_temps[i_temp] and log_temps[i_temp+1]
-      if (log_temp < log_temp_i || log_temp > log_temp_i + d_log_temp) {
-        // FIXME exception
-      }
-
-      const Real log_lambda_i = log_lambdas(i_temp);
-      const Real log_lambda_ip1 = log_lambdas(i_temp + 1);
-
-      // Linearly interpolate lambda at log_temp
-      log_lambda = log_lambda_i +
-                   (log_temp - log_temp_i) * (log_lambda_ip1 - log_lambda_i) / d_log_temp;
-    }
-    // Return de/dt
-    const Real lambda = pow(10., log_lambda);
-    return -lambda * n_h2_by_rho;
-  }
+  CoolingTableObj cooling_table_obj_;
 
  public:
-  TabularCooling(parthenon::ParameterInput *pin);
+  TabularCooling(parthenon::ParameterInput *pin,
+                 std::shared_ptr<parthenon::StateDescriptor> hydro_pkg);
 
   KOKKOS_FORCEINLINE_FUNCTION parthenon::Real
   edot(const parthenon::Real rho, const parthenon::Real e, bool &valid) const {
@@ -208,6 +248,9 @@ class TabularCooling {
                                  const RKStepper rk_stepper) const;
 
   parthenon::Real EstimateTimeStep(parthenon::MeshData<parthenon::Real> *md) const;
+
+  // Get a lightweight object for computing cooling rate from the cooling table
+  const CoolingTableObj GetCoolingTableObj() const { return cooling_table_obj_; }
 
   void TestCoolingTable(parthenon::ParameterInput *pin) const;
 };

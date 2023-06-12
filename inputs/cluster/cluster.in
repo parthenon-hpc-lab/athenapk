@@ -1,0 +1,190 @@
+
+<comment>
+problem   = Isolated galaxy cluster
+
+<job>
+problem_id = cluster   # problem ID: basename of output filenames
+
+<parthenon/output1>
+file_type  = hst       # History data dump
+dt         = 1e-3      # time increment between outputs (1 Myr)
+
+<parthenon/output2>
+file_type  = hdf5      # HDF5 data dump
+variables  = prim      # Variables to be output
+dt         = 1.e-2     # Time increment between outputs (10 Myr)
+id         = prim      # Name to append to output
+
+<parthenon/time>
+cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1         # cycle limit
+tlim       = 1e-1       # time limit (100 Myr)
+integrator  = vl2       # time integration algorithm
+
+
+<parthenon/mesh>
+refinement  = static
+nghost = 2
+
+nx1        = 128       # Number of zones in X1-direction
+x1min      =-1.6       # minimum value of X1
+x1max      = 1.6       # maximum value of X1
+ix1_bc     = outflow   # inner-X1 boundary flag
+ox1_bc     = outflow   # outer-X1 boundary flag
+
+nx2        = 128       # Number of zones in X2-direction
+x2min      =-1.6       # minimum value of X2
+x2max      = 1.6       # maximum value of X2
+ix2_bc     = outflow   # inner-X2 boundary flag
+ox2_bc     = outflow   # outer-X2 boundary flag
+
+nx3        = 128       # Number of zones in X3-direction
+x3min      =-1.6       # minimum value of X3
+x3max      = 1.6       # maximum value of X3
+ix3_bc     = outflow   # inner-X3 boundary flag
+ox3_bc     = outflow   # outer-X3 boundary flag
+
+<parthenon/static_refinement0>
+x1min = -0.4
+x1max =  0.4
+x2min = -0.4
+x2max =  0.4
+x3min = -0.4
+x3max =  0.4
+level = 1
+
+<parthenon/static_refinement1>
+x1min = -0.025
+x1max =  0.025
+x2min = -0.025
+x2max =  0.025
+x3min = -0.025
+x3max =  0.025
+level = 3
+
+<parthenon/meshblock>
+nx1        = 32        # Number of zones in X1-direction
+nx2        = 32        # Number of zones in X2-direction
+nx3        = 32        # Number of zones in X3-direction
+
+<hydro>
+fluid = glmmhd
+gamma = 1.6666666666666667 # gamma = C_p/C_v
+eos = adiabatic
+riemann = hlld
+reconstruction = plm
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+He_mass_fraction = 0.25
+
+<units>
+#Units parameters
+#Note: All other parameters for the cluster are in terms of these units
+code_length_cgs = 3.085677580962325e+24 # 1 Mpc in cm
+code_mass_cgs = 1.98841586e+47          # 1e14 Msun in g
+code_time_cgs = 3.15576e+16             # 1 Gyr in s
+
+<cooling>
+enable_cooling=tabular
+table_filename=schure.cooling
+log_temp_col=0
+log_lambda_col=1
+lambda_units_cgs=1.0
+
+integrator=rk45
+cfl=0.1
+max_iter=100
+d_e_tol=1e-08
+d_log_temp_tol=1e-08
+
+<problem/cluster>
+hubble_parameter = 0.0715898515654728
+
+<problem/cluster/gravity>
+#Include gravity as a source term
+gravity_srcterm = true
+#NOTE: Use this line instead to disable gravity source term
+#gravity_srcterm = false
+
+#Which gravitational fields to include
+include_nfw_g = True
+which_bcg_g = HERNQUIST
+include_smbh_g = True
+
+#NFW parameters
+c_nfw = 6.0
+m_nfw_200 = 10.0
+
+#BCG parameters
+m_bcg_s = 0.001
+r_bcg_s = 0.004
+
+#SMBH parameters
+m_smbh = 1.0e-06
+
+#Smooth gravity at origin, for numerical reasons
+g_smoothing_radius = 0.0
+
+#NOTE: Uncomment these lines to use a uniform initial gas instead of hydrostatic equilbrium
+#<problem/cluster/uniform_gas>
+##Initialize with a uniform gas
+#init_uniform_gas = true
+#rho = 147.7557589278723
+#ux = 0
+#uy = 0
+#uz = 0
+#pres = 1.5454368403867562
+
+<problem/cluster/entropy_profile>
+#Entropy profile parameters
+k_0 = 8.851337676479303e-121
+k_100 = 1.3277006514718954e-119
+r_k = 0.1
+alpha_k = 1.1
+
+<problem/cluster/hydrostatic_equilibrium>
+#Fix density at radius to close system of equations
+r_fix = 2.0
+rho_fix = 0.01477557589278723
+
+#Building the radii at which to sample initial rho,P
+r_sampling = 4.0
+
+<problem/cluster/agn_triggering>
+triggering_mode = COLD_GAS
+#NOTE: Change to this line to disable AGN triggering
+#triggering_mode = NONE
+accretion_radius = 0.0005
+cold_temp_thresh= 10000.0
+cold_t_acc= 0.1
+bondi_alpha= 100.0
+bondi_beta= 2.0
+bondi_n0= 2.9379989445851786e+72
+
+<problem/cluster/precessing_jet>
+jet_phi= 0.15
+jet_theta_dot= 628.3185307179587
+
+<problem/cluster/agn_feedback>
+efficiency = 0.001
+magnetic_fraction = 0.4
+thermal_fraction = 0.3
+kinetic_fraction = 0.3
+#NOTE: Change to these lines to disable magnetic AGN feedback
+#magnetic_fraction = 0.0
+#thermal_fraction = 0.5
+#kinetic_fraction = 0.5
+
+thermal_radius = 0.1
+kinetic_jet_radius  = 0.1
+kinetic_jet_thickness  = 0.05
+kinetic_jet_offset = 0.05
+
+<problem/cluster/magnetic_tower>
+
+alpha = 20
+l_scale = 0.001
+initial_field = 0.12431560000204142
+#NOTE: Change to this line to disable initial magnetic tower
+#initial_field = 0.
+l_mass_scale = 0.001

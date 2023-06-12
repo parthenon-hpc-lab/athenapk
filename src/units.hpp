@@ -1,6 +1,6 @@
 
 // Athena-Parthenon - a performance portable block structured AMR MHD code
-// Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2020-2023, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
 
 #ifndef UNITS_HPP_
@@ -34,6 +34,8 @@ class Units {
   static constexpr parthenon::Real erg_cgs = 1;                            // erg
   static constexpr parthenon::Real gauss_cgs = 1;                          // gauss
   static constexpr parthenon::Real microgauss_cgs = 1e-6;                  // gauss
+  static constexpr parthenon::Real mh_cgs =
+      1.007947 * atomic_mass_unit_cgs; // g (matching the definition used in yt)
 
   // PHYSICAL CONSTANTS
   static constexpr parthenon::Real k_boltzmann_cgs = 1.3806488e-16; // erg/k
@@ -122,9 +124,10 @@ class Units {
   parthenon::Real atomic_mass_unit() const {
     return atomic_mass_unit_cgs / code_mass_cgs();
   }
+  parthenon::Real mh() const { return mh_cgs / code_mass_cgs(); }
   parthenon::Real erg() const { return erg_cgs / code_energy_cgs(); }
   parthenon::Real gauss() const { return gauss_cgs / code_magnetic_cgs(); }
   parthenon::Real microgauss() const { return microgauss_cgs / code_magnetic_cgs(); }
 };
 
-#endif // PHYSICAL_CONSTANTS_HPP_
+#endif // UNITS_HPP_
