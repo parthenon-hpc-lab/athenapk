@@ -91,6 +91,7 @@ namespace rt {
         }
       }
     }
+    u_dev.DeepCopy(u);
   }
 
   void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
