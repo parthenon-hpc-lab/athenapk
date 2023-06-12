@@ -368,6 +368,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
   const cooling::TabularCooling &tabular_cooling =
       pkg->Param<cooling::TabularCooling>("tabular_cooling");
+  const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
 
   ComputeProfile1D(
       *pview_reduce, md,
@@ -382,8 +383,8 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
         const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
 
         // compute instantaneous Edot
-        bool is_valid = true;
-        const Real Edot = taper_fac * rho * tabular_cooling.edot(rho, eint, is_valid);
+        const Real edot_tabulated = cooling_table_obj.DeDt(eint, rho);
+        const Real Edot = taper_fac * rho * edot_tabulated;
         return Edot;
       });
 
@@ -921,6 +922,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
       // get cooling function
       const cooling::TabularCooling &tabular_cooling =
           pkg->Param<cooling::TabularCooling>("tabular_cooling");
+      const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
 
       // get 'smoothing' height for heating/cooling
       const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
@@ -940,7 +942,10 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
 
             // artificially limit temperature change in precipitator midplane
             const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
-            const Real Edot = taper_fac * rho * tabular_cooling.edot(rho, eint, is_valid);
+
+            // compute instantaneous Edot
+            const Real edot_tabulated = cooling_table_obj.DeDt(eint, rho);
+            const Real Edot = taper_fac * rho * edot_tabulated;
 
             Real mean_Edot = 0;
             if ((z >= interpProfile.min()) && (z <= interpProfile.max())) {

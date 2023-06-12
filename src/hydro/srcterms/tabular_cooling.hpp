@@ -228,13 +228,6 @@ class TabularCooling {
   TabularCooling(parthenon::ParameterInput *pin,
                  std::shared_ptr<parthenon::StateDescriptor> hydro_pkg);
 
-  KOKKOS_FORCEINLINE_FUNCTION parthenon::Real
-  edot(const parthenon::Real rho, const parthenon::Real e, bool &valid) const {
-    const parthenon::Real n_h2_by_rho = rho * X_by_m_u_ * X_by_m_u_;
-    return DeDt(e, mu_m_u_gm1_by_k_B_, n_h2_by_rho, log_temp_start_, log_temp_final_,
-                d_log_temp_, n_temp_, log_lambdas_, valid);
-  };
-
   void SrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt) const;
 
   // Townsend 2009 exact integration scheme

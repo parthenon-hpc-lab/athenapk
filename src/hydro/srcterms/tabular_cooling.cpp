@@ -195,13 +195,14 @@ TabularCooling::TabularCooling(ParameterInput *pin,
     // a good way to check the last condition we always initialize log_lambdas_
     log_lambdas_ = ParArray1D<Real>("log_lambdas_", n_temp_);
 
-  // Read log_lambdas in host_log_lambdas, changing to code units along the way
-  auto host_log_lambdas = Kokkos::create_mirror_view(log_lambdas_);
-  for (unsigned int i = 0; i < n_temp_; i++) {
-    host_log_lambdas(i) = log_lambdas[i];
+    // Read log_lambdas in host_log_lambdas, changing to code units along the way
+    auto host_log_lambdas = Kokkos::create_mirror_view(log_lambdas_);
+    for (unsigned int i = 0; i < n_temp_; i++) {
+      host_log_lambdas(i) = log_lambdas[i];
+    }
+    // Copy host_log_lambdas into device memory
+    Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
   }
-  // Copy host_log_lambdas into device memory
-  Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
 
   // Setup Townsend cooling, i.e., precalulcate piecewise powerlaw approx.
   if (integrator_ == CoolIntegrator::townsend) {
@@ -454,7 +455,8 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
             sub_dt = dt - sub_t;
           } else {
             // Grow the timestep
-            // (or shrink in case d_e_err >= d_e_tol and sub_dt is already at min_sub_dt)
+            // (or shrink in case d_e_err >= d_e_tol and sub_dt is already at
+            // min_sub_dt)
             sub_dt = RKStepper::OptimalStep(sub_dt, d_e_err, d_e_tol);
           }
 
@@ -522,8 +524,6 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto temp_final = std::pow(10.0, log_temp_final_);
   const auto lambda_final = lambda_final_;
 
-  auto units = hydro_pkg->Param<Units>("units");
-
   // get 'smoothing' height for heating/cooling
   const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
 
@@ -553,7 +553,8 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           // Remove the cooling from the total energy density
           cons(IEN, k, j, i) += rho * (internal_e_floor - internal_e);
           // Latter technically not required if no other tasks follows before
-          // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
+          // ConservedToPrim conversion, but keeping it for now (better safe than
+          // sorry).
           prim(IPR, k, j, i) = rho * internal_e_floor * gm1;
           return;
         }
