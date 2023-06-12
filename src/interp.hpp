@@ -15,6 +15,7 @@
 
 #include "Kokkos_Macros.hpp"
 #include "hydro/hydro.hpp"
+#include "utils/error_checking.hpp"
 #include <kokkos_abstraction.hpp>
 #include <ostream>
 
@@ -57,7 +58,11 @@ template <class VectorContainer>
 MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
     VectorContainer const &x_vec, VectorContainer const &f_vec) {
   // compute the derivatives at x-values
+
   // NOTE: we assume T.size >= 3 and that the values in x_vec are sorted
+  PARTHENON_REQUIRE(x_vec.size() == f_vec.size(), "x and f are not the same size!");
+  PARTHENON_REQUIRE(x_vec.size() >= 3, "vector size must be >= 3!");
+
   x_min_ = x_vec[0];
   x_max_ = x_vec[x_vec.size() - 1];
   x_vec_ = x_vec;
@@ -85,9 +90,12 @@ MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
   // adjust slopes to satisfy monotonicity constraints
   for (int i = 0; i < (x_vec.size() - 1); ++i) {
     const Real delta_i = dright(i);
+    PARTHENON_REQUIRE(delta_i != 0, "delta_i == 0");
+
     const Real alpha_i = d_vec_[i] / delta_i;
     const Real beta_i = d_vec_[i + 1] / delta_i;
     const Real tau_i = 3. / std::sqrt(alpha_i * alpha_i + beta_i * beta_i);
+    
     if (tau_i < 1.) { // modify slopes
       const Real alpha_i_star = tau_i * alpha_i;
       const Real beta_i_star = tau_i * beta_i;
