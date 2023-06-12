@@ -736,7 +736,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         // Calculate height
         const Real zmin_cgs = std::abs(coords.Xf<3>(k)) * code_length_cgs;
         const Real phi_iminus = P_rho_profile.phi(zmin_cgs) / code_potential_cgs;
-        printf("(%d, %d, %d): phi_iminus = %g\n", k, j, i, phi_iminus);
+        //printf("(%d, %d, %d): phi_iminus = %g\n", k, j, i, phi_iminus);
       });
 
   parthenon::par_for(
