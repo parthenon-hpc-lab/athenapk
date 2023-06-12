@@ -937,7 +937,6 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
             // compute instantaneous cooling rate
             const Real z = coords.Xc<3>(k);
             const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
-            bool is_valid = true;
             const Real eint = P / (rho * gm1);
 
             // artificially limit temperature change in precipitator midplane
