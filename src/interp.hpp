@@ -90,17 +90,24 @@ MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
   // adjust slopes to satisfy monotonicity constraints
   for (int i = 0; i < (x_vec.size() - 1); ++i) {
     const Real delta_i = dright(i);
-    PARTHENON_REQUIRE(delta_i != 0, "delta_i == 0");
-
-    const Real alpha_i = d_vec_[i] / delta_i;
-    const Real beta_i = d_vec_[i + 1] / delta_i;
-    const Real tau_i = 3. / std::sqrt(alpha_i * alpha_i + beta_i * beta_i);
     
-    if (tau_i < 1.) { // modify slopes
-      const Real alpha_i_star = tau_i * alpha_i;
-      const Real beta_i_star = tau_i * beta_i;
-      d_vec_[i] = alpha_i_star * delta_i;
-      d_vec_[i + 1] = beta_i_star * delta_i;
+    if (delta_i == 0) {
+      // delta_i == 0
+      d_vec_[i] = 0;
+      d_vec_[i + 1] = 0;
+
+    } else {
+      // delta_i != 0
+      const Real alpha_i = d_vec_[i] / delta_i;
+      const Real beta_i = d_vec_[i + 1] / delta_i;
+      const Real tau_i = 3. / std::sqrt(alpha_i * alpha_i + beta_i * beta_i);
+
+      if (tau_i < 1.) { // modify slopes
+        const Real alpha_i_star = tau_i * alpha_i;
+        const Real beta_i_star = tau_i * beta_i;
+        d_vec_[i] = alpha_i_star * delta_i;
+        d_vec_[i + 1] = beta_i_star * delta_i;
+      }
     }
   }
 }
