@@ -123,7 +123,7 @@ void Cleanup();
 
 namespace rt {
   using namespace parthenon::driver::prelude;
-  void ProblemGenerator(MeshBlock *pm, parthenon::ParameterInput *pin);
+  void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 }
 
 #endif // PGEN_PGEN_HPP_
