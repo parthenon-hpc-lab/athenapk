@@ -951,7 +951,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
               mean_Edot = interpProfile(z);
             }
 
-            dEdot(k, j, i) = (Edot - mean_Edot) / mean_Edot;
+            dEdot(k, j, i) = (mean_Edot != 0) ? ((Edot - mean_Edot) / mean_Edot) : NAN;
             meanEdot(k, j, i) = mean_Edot;
           });
     }
