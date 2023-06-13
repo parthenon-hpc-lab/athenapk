@@ -22,7 +22,7 @@ id         = restart
 <parthenon/output4>
 file_type    = ascent
 dt           = 50.0
-actions_file = inputs/precipitator_ascent_actions.yaml
+actions_file = inputs/precipitator_no_binning.yaml
 
 <parthenon/time>
 cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number

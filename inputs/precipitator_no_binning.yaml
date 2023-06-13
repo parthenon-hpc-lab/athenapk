@@ -8,25 +8,37 @@
           field: "drho_over_rho"
           output_name: "log_drho"
           clamp_min_value: 0.01
+    x_slice_pl:
+      f1: 
+        type: "slice"
+        params: 
+          point: 
+            x: 0.0
+            y: 0.0
+            z: 0.0
+          normal: 
+            x: 1.0
+            y: 0.0
+            z: 0.0
 - 
   action: "add_scenes"
   scenes:
-    log_density:
-      plots:
-        p1:
-          type: "pseudocolor"
-          field: "log_drho"
-          pipeline: "pl1"
-          min_value: -2.0
-          max_value: 1.5
-      renders:
-        r1:
-          image_prefix: "log_drho%05d"
-          annotations: "true"
-          camera:
-            look_at: [0.0, 0.0, 0.0]
-            position: [0.0, -250.0, 0.0]
-            up: [0.0, 0.0, 1.0]
+    # log_density:
+    #   plots:
+    #     p1:
+    #       type: "pseudocolor"
+    #       field: "log_drho"
+    #       pipeline: "pl1"
+    #       min_value: -2.0
+    #       max_value: 1.5
+    #   renders:
+    #     r1:
+    #       image_prefix: "log_drho%05d"
+    #       annotations: "true"
+    #       camera:
+    #         look_at: [0.0, 0.0, 0.0]
+    #         position: [0.0, -250.0, 0.0]
+    #         up: [0.0, 0.0, 1.0]
     density: 
       plots:
         p1: 
@@ -57,47 +69,47 @@
             look_at: [0.0, 0.0, 0.0]
             position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
-    pressure: 
+    temperature: 
       plots:
         p1: 
           type: "pseudocolor"
-          field: "dP_over_P"
+          field: "dT_over_T"
       renders:
         r1:
-          image_prefix: "dP%05d"
+          image_prefix: "dT%05d"
           annotations: "true"
           camera:
             look_at: [0.0, 0.0, 0.0]
             position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
-    vz: 
-      plots:
+    delta_heating_rate:
+      plots: 
         p1: 
           type: "pseudocolor"
-          field: "Velocity3"
+          field: "dEdot_over_Edot"
+          #min_value: -0.1
+          #max_value: 0.1
       renders:
         r1:
-          image_prefix: "vz%05d"
+          image_prefix: "deltaEdot%05d"
           annotations: "true"
           camera:
             look_at: [0.0, 0.0, 0.0]
             position: [0.0, -250.0, 0.0]
             up: [0.0, 0.0, 1.0]
-    # heating_rate:
-    #   plots: 
-    #     p1: 
-    #       type: "pseudocolor"
-    #       field: "dEdot_over_Edot"
-    #       min_value: -0.1
-    #       max_value: 0.1
-    #   renders:
-    #     r1:
-    #       image_prefix: "dEdot%05d"
-    #       annotations: "true"
-    #       camera:
-    #         look_at: [0.0, 0.0, 0.0]
-    #         position: [0.0, -250.0, 0.0]
-    #         up: [0.0, 0.0, 1.0]
+    heating_rate:
+      plots: 
+        p1: 
+          type: "pseudocolor"
+          field: "mean_Edot"
+      renders:
+        r1:
+          image_prefix: "Edot%05d"
+          annotations: "true"
+          camera:
+            look_at: [0.0, 0.0, 0.0]
+            position: [0.0, -250.0, 0.0]
+            up: [0.0, 0.0, 1.0]
 -
   action: "add_queries"
   queries:
@@ -107,11 +119,19 @@
         name: "total_entropy"
 -
   action: "save_session"
-# -
-#   action: "add_extracts"
-#   extracts:
-#     e1:
-#       type: "relay"
-#       params:
-#         path: "conduit_blueprint"
-#         protocol: "blueprint/mesh/hdf5"
+-
+  action: "add_extracts"
+  extracts: 
+    x_slice_extract: 
+      type: "relay"
+      pipeline: "x_slice_pl"
+      params: 
+        path: "slice_x"
+        protocol: "blueprint/mesh/hdf5"
+        fields:
+         - "entropy"
+         - "temperature"
+         - "drho_over_rho"
+         - "dK_over_K"
+         - "mean_Edot"
+         - "dEdot_over_Edot"
