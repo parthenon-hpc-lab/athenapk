@@ -12,12 +12,15 @@
 #include "basic_types.hpp"
 #include "config.hpp"
 #include <parthenon/package.hpp>
+#include <random>
+#include <sstream>
 
 // AthenaPK headers
 #include "../main.hpp"
 #include "mesh/domain.hpp"
 
 namespace utils::few_modes_ft {
+using namespace parthenon::package::prelude;
 using parthenon::Real;
 using Complex = Kokkos::complex<Real>;
 using parthenon::IndexRange;
@@ -29,39 +32,37 @@ class FewModesFT {
   std::string prefix_;
   ParArray2D<Complex> var_hat_, var_hat_new_;
   ParArray2D<Real> k_vec_;
+  Real k_peak_; // peak of the power spectrum
+  Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::DevMemSpace> random_num_;
+  Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::HostMemSpace> random_num_host_;
+  std::mt19937 rng_;
+  std::uniform_real_distribution<> dist_;
+  Real sol_weight_; // power in solenoidal modes for projection. Set to negative to
+                    // disable projection
+  Real t_corr_;     // correlation time for evolution of Ornstein-Uhlenbeck process
 
  public:
   FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescriptor *pkg,
-             std::string prefix, int num_modes, ParArray2D<Real> k_vec);
+             std::string prefix, int num_modes, ParArray2D<Real> k_vec, Real k_peak,
+             Real sol_weight, Real t_corr);
 
-  ParArray2D<Complex> GetVarHat() { return var_hat_ }
-  void SetVarHat(ParArray2D<Complex> var_hat) { var_hat_ = var_hat }
+  ParArray2D<Complex> GetVarHat() { return var_hat_; }
+  int GetNumModes() { return num_modes_; }
+  void SetPhases(MeshBlock *pmb, ParameterInput *pin);
+  void Generate(MeshData<Real> *md, const Real dt, const std::string &var_name);
+  void RestoreRNG(std::istringstream &iss) { iss >> rng_; }
+  void RestoreDist(std::istringstream &iss) { iss >> dist_; }
+  void SeedRNG(uint32_t rseed) { rng_.seed(rseed); }
+  std::string GetRNGState() {
+    std::ostringstream oss;
+    oss << rng_;
+    return oss.str();
+  }
+  std::string GetDistState() {
+    std::ostringstream oss;
+    oss << dist_;
+    return oss.str();
+  }
 };
 
-template <typename TPack, typename THat>
-void InverseFT(const TPack &out_pack, const TPack &phases_i, const TPack &phases_j,
-               const TPack &phases_k, const THat &in_hat, const IndexRange &ib,
-               const IndexRange &jb, const IndexRange &kb, const int num_blocks,
-               const int num_modes) {
-  // implictly assuming cubic box of size L=1
-  parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "Inverse FT", parthenon::DevExecSpace(), 0, num_blocks - 1, 0,
-      2, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
-        Complex phase, phase_i, phase_j, phase_k;
-        out_pack(b, n, k, j, i) = 0.0;
-
-        for (int m = 0; m < num_modes; m++) {
-          phase_i =
-              Complex(phases_i(b, 0, i - ib.s, m, 0), phases_i(b, 0, i - ib.s, m, 1));
-          phase_j =
-              Complex(phases_j(b, 0, j - jb.s, m, 0), phases_j(b, 0, j - jb.s, m, 1));
-          phase_k =
-              Complex(phases_k(b, 0, k - kb.s, m, 0), phases_k(b, 0, k - kb.s, m, 1));
-          phase = phase_i * phase_j * phase_k;
-          out_pack(b, n, k, j, i) += 2. * (in_hat(n, m).real() * phase.real() -
-                                           in_hat(n, m).imag() * phase.imag());
-        }
-      });
-}
 } // namespace utils::few_modes_ft

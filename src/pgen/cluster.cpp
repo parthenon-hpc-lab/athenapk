@@ -258,7 +258,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   // This could be more optimized, but require a refactor of init routines being called.
   // However, given that it's just called during initial setup, this should not be a
   // performance concern.
-  for (int b; b < md->NumBlocks(); b++) {
+  for (int b = 0; b < md->NumBlocks(); b++) {
     auto pmb = md->GetBlockData(b)->GetBlockPointer();
     auto hydro_pkg = pmb->packages.Get("Hydro");
 

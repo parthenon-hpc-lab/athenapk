@@ -119,10 +119,6 @@ int main(int argc, char *argv[]) {
     // This line actually runs the simulation
     driver.Execute();
   }
-  // very ugly cleanup...
-  if (problem == "turbulence") {
-    turbulence::Cleanup();
-  }
 
   // call MPI_Finalize and Kokkos::finalize if necessary
   pman.ParthenonFinalize();
