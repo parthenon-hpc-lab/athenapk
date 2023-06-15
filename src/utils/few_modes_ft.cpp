@@ -89,6 +89,7 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
   auto Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
   auto Lz = pm->mesh_size.x3max - pm->mesh_size.x3min;
+
   // should also be easily fixed, just need to double check transforms and volume
   // weighting everywhere
   if ((Lx != 1.0) || (Ly != 1.0) || (Lz != 1.0)) {
@@ -98,9 +99,14 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
     throw std::runtime_error(msg.str().c_str());
   }
 
-  auto gnx1 = pm->mesh_size.nx1;
-  auto gnx2 = pm->mesh_size.nx2;
-  auto gnx3 = pm->mesh_size.nx3;
+  // Adjust (logical) grid size at levels other than the root level.
+  // This is required for simulation with mesh refinement so that the phases calculated
+  // below take the logical grid size into account. For example, the local phases at level
+  // 1 should be calculated assuming a grid that is twice as large as the root grid.
+  const auto root_level = pm->GetRootLevel();
+  auto gnx1 = pm->mesh_size.nx1 * std::pow(2, pmb->loc.level - root_level);
+  auto gnx2 = pm->mesh_size.nx2 * std::pow(2, pmb->loc.level - root_level);
+  auto gnx3 = pm->mesh_size.nx3 * std::pow(2, pmb->loc.level - root_level);
   // as above, this restriction should/could be easily lifted
   if ((gnx1 != gnx2) || (gnx2 != gnx3)) {
     std::stringstream msg;

@@ -449,7 +449,6 @@ void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
-
   // Store (common) acceleration field in spectral space
   auto few_modes_ft = hydro_pkg->Param<FewModesFT>("turbulence/few_modes_ft");
   auto var_hat = few_modes_ft.GetVarHat();
