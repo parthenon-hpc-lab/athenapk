@@ -40,6 +40,17 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
               << "If many modes are required in the transform field consider using "
               << "the driving mechanism based on full FFTs." << std::endl;
   }
+  // Ensure that all all wavevectors can be represented on the root grid
+  const auto gnx1 = pin->GetInteger("parthenon/mesh", "nx1");
+  const auto gnx2 = pin->GetInteger("parthenon/mesh", "nx2");
+  const auto gnx3 = pin->GetInteger("parthenon/mesh", "nx3");
+  Kokkos::parallel_for(
+      "FMFT: Check k_vec", num_modes, KOKKOS_LAMBDA(const int i) {
+        PARTHENON_REQUIRE(std::abs(k_vec_(0, i)) <= gnx1 / 2, "k_vec x1 mode too large");
+        PARTHENON_REQUIRE(std::abs(k_vec_(1, i)) <= gnx2 / 2, "k_vec x2 mode too large");
+        PARTHENON_REQUIRE(std::abs(k_vec_(2, i)) <= gnx3 / 2, "k_vec x3 mode too large");
+      });
+
   const auto nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
   const auto nx2 = pin->GetInteger("parthenon/meshblock", "nx2");
   const auto nx3 = pin->GetInteger("parthenon/meshblock", "nx3");
@@ -90,18 +101,9 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
                            "Few modes FT currently needs parthenon/mesh/pack_size=-1 "
                            "to work because of global reductions.")
 
-  auto Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
-  auto Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
-  auto Lz = pm->mesh_size.x3max - pm->mesh_size.x3min;
-
-  // should also be easily fixed, just need to double check transforms and volume
-  // weighting everywhere
-  if ((Lx != 1.0) || (Ly != 1.0) || (Lz != 1.0)) {
-    std::stringstream msg;
-    msg << "### FATAL ERROR in turbulence driver" << std::endl
-        << "Only domain sizes with edge lengths of 1 are supported." << std::endl;
-    throw std::runtime_error(msg.str().c_str());
-  }
+  auto Lx1 = pm->mesh_size.x1max - pm->mesh_size.x1min;
+  auto Lx2 = pm->mesh_size.x2max - pm->mesh_size.x2min;
+  auto Lx3 = pm->mesh_size.x3max - pm->mesh_size.x3min;
 
   // Adjust (logical) grid size at levels other than the root level.
   // This is required for simulation with mesh refinement so that the phases calculated
@@ -111,13 +113,13 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto gnx1 = pm->mesh_size.nx1 * std::pow(2, pmb->loc.level - root_level);
   auto gnx2 = pm->mesh_size.nx2 * std::pow(2, pmb->loc.level - root_level);
   auto gnx3 = pm->mesh_size.nx3 * std::pow(2, pmb->loc.level - root_level);
-  // as above, this restriction should/could be easily lifted
-  if ((gnx1 != gnx2) || (gnx2 != gnx3)) {
-    std::stringstream msg;
-    msg << "### FATAL ERROR in turbulence driver" << std::endl
-        << "Only cubic mesh sizes are supported." << std::endl;
-    throw std::runtime_error(msg.str().c_str());
-  }
+
+  // Restriction should also be easily fixed, just need to double check transforms and
+  // volume weighting everywhere
+  PARTHENON_REQUIRE_THROWS(((gnx1 == gnx2) && (gnx2 == gnx3)) &&
+                               ((Lx1 == Lx2) && (Lx2 == Lx3)),
+                           "FMFT has only been tested with cubic meshes and constant "
+                           "dx/dy/dz. Remove this warning at your own risk.")
 
   const auto nx1 = pmb->block_size.nx1;
   const auto nx2 = pmb->block_size.nx2;
