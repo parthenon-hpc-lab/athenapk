@@ -155,14 +155,18 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   }
   Kokkos::deep_copy(k_vec, k_vec_host);
 
-  auto few_modes_ft =
-      FewModesFT(pin, pkg, "turbulence", num_modes, k_vec, k_peak, sol_weight, t_corr);
-  pkg->AddParam<>("turbulence/few_modes_ft", few_modes_ft);
+  auto few_modes_ft = FewModesFT(pin, pkg, "turbulence", num_modes, k_vec, k_peak,
+                                 sol_weight, t_corr, rseed);
+  // object must be mutable to update the internal state of the RNG
+  pkg->AddParam<>("turbulence/few_modes_ft", few_modes_ft, true);
 
   // Check if this is is a restart and restore previous state
   if (pin->DoesParameterExist("problem/turbulence", "accel_hat_0_0_r")) {
+    // Need to extract mutable object from Params here as the original few_modes_ft above
+    // and the one in Params are different instances
+    auto *pfew_modes_ft = pkg->MutableParam<FewModesFT>("turbulence/few_modes_ft");
     // Restore (common) acceleration field in spectral space
-    auto accel_hat = few_modes_ft.GetVarHat();
+    auto accel_hat = pfew_modes_ft->GetVarHat();
     auto accel_hat_host = Kokkos::create_mirror_view(accel_hat);
     for (int i = 0; i < 3; i++) {
       for (int m = 0; m < num_modes; m++) {
@@ -180,17 +184,13 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
     // Restore state of random number gen
     {
       std::istringstream iss(pin->GetString("problem/turbulence", "state_rng"));
-      few_modes_ft.RestoreRNG(iss);
+      pfew_modes_ft->RestoreRNG(iss);
     }
     // Restore state of dist
     {
       std::istringstream iss(pin->GetString("problem/turbulence", "state_dist"));
-      few_modes_ft.RestoreDist(iss);
+      pfew_modes_ft->RestoreDist(iss);
     }
-
-  } else {
-    // init RNG
-    few_modes_ft.SeedRNG(rseed);
   }
 }
 
@@ -342,8 +342,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 void Generate(MeshData<Real> *md, Real dt) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
-  auto few_modes_ft = hydro_pkg->Param<FewModesFT>("turbulence/few_modes_ft");
-  few_modes_ft.Generate(md, dt, "acc");
+  // Must be mutable so the internal RNG state is updated
+  auto *few_modes_ft = hydro_pkg->MutableParam<FewModesFT>("turbulence/few_modes_ft");
+  few_modes_ft->Generate(md, dt, "acc");
 }
 
 //----------------------------------------------------------------------------------------

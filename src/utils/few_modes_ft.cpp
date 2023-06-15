@@ -8,6 +8,7 @@
 //  \brief Helper functions for an inverse (explicit complex to real) FT
 
 // C++ headers
+#include <random>
 #include <utility>
 
 // Parthenon headers
@@ -29,9 +30,9 @@ using parthenon::Metadata;
 
 FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescriptor *pkg,
                        std::string prefix, int num_modes, ParArray2D<Real> k_vec,
-                       Real k_peak, Real sol_weight, Real t_corr)
+                       Real k_peak, Real sol_weight, Real t_corr, uint32_t rseed)
     : prefix_(prefix), num_modes_(num_modes), k_vec_(k_vec), k_peak_(k_peak),
-      t_corr_(t_corr), dist_(-1.0, 1.0) {
+      t_corr_(t_corr) {
 
   if ((num_modes > 100) && (parthenon::Globals::my_rank == 0)) {
     std::cout << "### WARNING using more than 100 explicit modes will significantly "
@@ -65,6 +66,9 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   random_num_ = Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::DevMemSpace>(
       "random_num", 3, num_modes, 2);
   random_num_host_ = Kokkos::create_mirror_view(random_num_);
+
+  rng_.seed(rseed);
+  dist_ = std::uniform_real_distribution<>(-1.0, 1.0);
 }
 
 void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
@@ -294,9 +298,8 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
   }
 
   // evolve
-  const auto t_corr = t_corr_;
-  Real c_drift = std::exp(-dt / t_corr);
-  Real c_diff = std::sqrt(1.0 - c_drift * c_drift);
+  const auto c_drift = std::exp(-dt / t_corr_);
+  const auto c_diff = std::sqrt(1.0 - c_drift * c_drift);
 
   pmb->par_for(
       "FMFT: evolve spec", 0, 2, 0, num_modes - 1,

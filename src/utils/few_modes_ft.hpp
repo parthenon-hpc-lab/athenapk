@@ -44,7 +44,7 @@ class FewModesFT {
  public:
   FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescriptor *pkg,
              std::string prefix, int num_modes, ParArray2D<Real> k_vec, Real k_peak,
-             Real sol_weight, Real t_corr);
+             Real sol_weight, Real t_corr, uint32_t rseed);
 
   ParArray2D<Complex> GetVarHat() { return var_hat_; }
   int GetNumModes() { return num_modes_; }
@@ -52,7 +52,6 @@ class FewModesFT {
   void Generate(MeshData<Real> *md, const Real dt, const std::string &var_name);
   void RestoreRNG(std::istringstream &iss) { iss >> rng_; }
   void RestoreDist(std::istringstream &iss) { iss >> dist_; }
-  void SeedRNG(uint32_t rseed) { rng_.seed(rseed); }
   std::string GetRNGState() {
     std::ostringstream oss;
     oss << rng_;
