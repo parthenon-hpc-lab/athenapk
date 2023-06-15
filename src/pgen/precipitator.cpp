@@ -93,6 +93,42 @@ auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
   return interpProfile;
 }
 
+void WriteProfileToFile(parthenon::ParArray1D<Real> &profile_reduce_dev,
+                        parthenon::MeshData<Real> *md, const char *filename_prefix) {
+  // get MonotoneInterpolator for 1D profile
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+
+  // get bins
+  PinnedArray1D<Real> profile_bins("Bin centers", REDUCTION_ARRAY_SIZE);
+  const Real x3min = md->GetParentPointer()->mesh_size.x3min;
+  const Real x3max = md->GetParentPointer()->mesh_size.x3max;
+  const Real dz_hist = (x3max - x3min) / REDUCTION_ARRAY_SIZE;
+  for (int i = 0; i < REDUCTION_ARRAY_SIZE; ++i) {
+    profile_bins(i) = dz_hist * (Real(i) + 0.5) + x3min;
+  }
+
+  // get profile
+  auto profile = profile_reduce_dev.GetHostMirrorAndCopy();
+
+  // write CSV file
+  {
+    // generate filename
+    static unsigned int output_counter = 0;
+    std::string filename =
+        std::to_string(*filename_prefix) + std::to_string(output_counter);
+    std::cout << "Writing to file " << filename << "\n";
+
+    // open file
+    // ...
+
+    // write to file
+    // ...
+
+    // close file
+    ++output_counter;
+  }
+}
+
 namespace precipitator {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
@@ -860,8 +896,11 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
                       parthenon::Coordinates_t const &coords, int k, int j,
                       int i) { return dT(k, j, i); });
 
-    // save rms profiles to YAML file
-    // ...
+    // save rms profiles to file
+    WriteProfileToFile(drho_rms, md.get(), "drho_rms");
+    WriteProfileToFile(dP_rms, md.get(), "dP_rms");
+    WriteProfileToFile(dK_rms, md.get(), "dK_rms");
+    WriteProfileToFile(dT_rms, md.get(), "dT_rms");
 
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
 
