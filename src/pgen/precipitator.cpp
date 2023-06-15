@@ -46,6 +46,7 @@
 #include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../interp.hpp"
 #include "../main.hpp"
+#include "../profile.hpp"
 #include "../reduction_utils.hpp"
 #include "../units.hpp"
 #include "outputs/outputs.hpp"
@@ -53,73 +54,6 @@
 #include "utils/error_checking.hpp"
 
 typedef Kokkos::complex<Real> Complex;
-
-template <typename Function>
-void ComputeProfile1D(parthenon::ParArray1D<Real> &profile_dev,
-                          parthenon::MeshData<Real> *md, Function F) {
-  // compute a 1D profile across the entire Mesh
-
-  // Initialize values to zero
-  Kokkos::deep_copy(profile_dev, 0.0);
-
-  // Compute rank-local reduction
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
-  auto pkg = pmb->packages.Get("Hydro");
-  auto pm = md->GetParentPointer();
-  const Real x3min = pm->mesh_size.x3min;
-  const Real Lz = pm->mesh_size.x3max - pm->mesh_size.x3min;
-  const size_t size = profile_dev.size();
-  const int max_idx = size - 1;
-  const Real dz_hist = Lz / size;
-
-  // normalize result
-  const Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
-  const Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
-  const Real histVolume = Lx * Ly * dz_hist;
-
-  PARTHENON_REQUIRE(REDUCTION_ARRAY_SIZE == profile_dev.size(),
-                    "REDUCTION_ARRAY_SIZE != profile_dev.size()");
-
-  ReductionSumArray<Real, REDUCTION_ARRAY_SIZE> profile_sum;
-  Kokkos::Sum<ReductionSumArray<Real, REDUCTION_ARRAY_SIZE>> reducer_sum(profile_sum);
-
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-
-  parthenon::par_reduce(
-      parthenon::loop_pattern_mdrange_tag, "ProfileReduction", parthenon::DevExecSpace(),
-      0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
-                    ReductionSumArray<Real, REDUCTION_ARRAY_SIZE> &sum) {
-        auto &prim = prim_pack(b);
-        const auto &coords = prim_pack.GetCoords(b);
-        const Real z = coords.Xc<3>(k);
-        const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
-        const Real rho = F(prim, coords, k, j, i);
-
-        int idx = static_cast<int>((z - x3min) / dz_hist);
-        idx = (idx > max_idx) ? max_idx : idx;
-        idx = (idx < 0) ? 0 : idx;
-        sum.data[idx] += rho * dVol / histVolume;
-      },
-      reducer_sum);
-
-  // copy profile_sum to profile
-  auto profile = profile_dev.GetHostMirrorAndCopy();
-  for (size_t i = 0; i < size; i++) {
-    profile(i) += profile_sum.data[i];
-  }
-  profile_dev.DeepCopy(profile);
-
-  // Compute global reduction
-#ifdef MPI_PARALLEL
-  // Perform blocking MPI_Allreduce on the host to sum up the local reductions.
-  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, profile_dev.data(), profile_dev.size(),
-                                    MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
-#endif
-}
 
 auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
                                parthenon::MeshData<Real> *md)
@@ -370,10 +304,10 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
       pkg->Param<cooling::TabularCooling>("tabular_cooling");
   const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
 
-  ComputeProfile1D(
+  ComputeAvgProfile1D(
       *pview_reduce, md,
-      KOKKOS_LAMBDA(VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords, int k,
-          int j, int i) {
+      KOKKOS_LAMBDA(VariablePack<Real> const &prim,
+                    parthenon::Coordinates_t const &coords, int k, int j, int i) {
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
         const Real eint = P / (rho * (gam - 1.0)); // specific internal energy
@@ -811,19 +745,24 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   parthenon::ParArray1D<Real> K_mean("K_mean", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> T_mean("T_mean", REDUCTION_ARRAY_SIZE);
 
-  auto f_rho = KOKKOS_LAMBDA(VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
-                   int k, int j, int i) { return prim(IDN, k, j, i); };
-  auto f_P = KOKKOS_LAMBDA(VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
-                 int k, int j, int i) { return prim(IPR, k, j, i); };
-  auto f_K = KOKKOS_LAMBDA(VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
-                 int k, int j, int i) {
+  auto f_rho =
+      KOKKOS_LAMBDA(VariablePack<Real> const &prim,
+                    parthenon::Coordinates_t const &coords, int k, int j, int i) {
+    return prim(IDN, k, j, i);
+  };
+  auto f_P = KOKKOS_LAMBDA(VariablePack<Real> const &prim,
+                           parthenon::Coordinates_t const &coords, int k, int j, int i) {
+    return prim(IPR, k, j, i);
+  };
+  auto f_K = KOKKOS_LAMBDA(VariablePack<Real> const &prim,
+                           parthenon::Coordinates_t const &coords, int k, int j, int i) {
     const Real rho = prim(IDN, k, j, i);
     const Real P = prim(IPR, k, j, i);
     const Real K = P / std::pow(rho, gam);
     return K;
   };
-  auto f_T = KOKKOS_LAMBDA(VariablePack<Real> const &prim, parthenon::Coordinates_t const &coords,
-                 int k, int j, int i) -> Real {
+  auto f_T = KOKKOS_LAMBDA(VariablePack<Real> const &prim,
+                           parthenon::Coordinates_t const &coords, int k, int j, int i) {
     // compute temperature
     const Real rho = prim(IDN, k, j, i);
     const Real P = prim(IPR, k, j, i);
@@ -831,10 +770,10 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     return T;
   };
 
-  ComputeProfile1D(rho_mean, md.get(), f_rho);
-  ComputeProfile1D(P_mean, md.get(), f_P);
-  ComputeProfile1D(K_mean, md.get(), f_K);
-  ComputeProfile1D(T_mean, md.get(), f_T);
+  ComputeAvgProfile1D(rho_mean, md.get(), f_rho);
+  ComputeAvgProfile1D(P_mean, md.get(), f_P);
+  ComputeAvgProfile1D(K_mean, md.get(), f_K);
+  ComputeAvgProfile1D(T_mean, md.get(), f_T);
 
   // compute interpolants
   MonotoneInterpolator<PinnedArray1D<Real>> rhoMeanInterp =
@@ -893,6 +832,36 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           entropy(k, j, i) = K;
           temperature(k, j, i) = T;
         });
+
+    parthenon::ParArray1D<Real> drho_rms("rms_drho", REDUCTION_ARRAY_SIZE);
+    parthenon::ParArray1D<Real> dP_rms("rms_dP", REDUCTION_ARRAY_SIZE);
+    parthenon::ParArray1D<Real> dK_rms("rms_dK", REDUCTION_ARRAY_SIZE);
+    parthenon::ParArray1D<Real> dT_rms("rms_dT", REDUCTION_ARRAY_SIZE);
+
+    // compute rms profiles of {drho, dP, dK, dT}
+    ComputeRmsProfile1D(
+        drho_rms, md.get(),
+        KOKKOS_LAMBDA(VariablePack<Real> const &prim,
+                      parthenon::Coordinates_t const &coords, int k, int j,
+                      int i) { return drho(k, j, i); });
+    ComputeRmsProfile1D(
+        dP_rms, md.get(),
+        KOKKOS_LAMBDA(VariablePack<Real> const &prim,
+                      parthenon::Coordinates_t const &coords, int k, int j,
+                      int i) { return dP(k, j, i); });
+    ComputeRmsProfile1D(
+        dK_rms, md.get(),
+        KOKKOS_LAMBDA(VariablePack<Real> const &prim,
+                      parthenon::Coordinates_t const &coords, int k, int j,
+                      int i) { return dK(k, j, i); });
+    ComputeRmsProfile1D(
+        dT_rms, md.get(),
+        KOKKOS_LAMBDA(VariablePack<Real> const &prim,
+                      parthenon::Coordinates_t const &coords, int k, int j,
+                      int i) { return dT(k, j, i); });
+
+    // save rms profiles to YAML file
+    // ...
 
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
 

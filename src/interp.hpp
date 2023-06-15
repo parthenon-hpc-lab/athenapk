@@ -115,10 +115,10 @@ MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
 template <class T>
 KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION auto
 MonotoneInterpolator<T>::operator()(const Real x_in) const -> Real {
-  // to avoid branchy code, do a linear search for the segment I_i
-  // where x_{i} <= x < x_{i+1}.
   const Real x = std::clamp(x_in, x_min_, x_max_);
 
+  // to avoid branchy code, do a linear search for the segment I_i
+  // where x_{i} <= x < x_{i+1}.
   int i = 0;
   for (; i < (x_vec_.size() - 1); ++i) {
     if ((x >= x_vec_[i]) && (x < x_vec_[i + 1])) {
