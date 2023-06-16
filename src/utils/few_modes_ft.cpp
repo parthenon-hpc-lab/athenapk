@@ -50,9 +50,9 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   // lambda cannot live in the constructor of an object.
   auto k_vec_host = k_vec.GetHostMirrorAndCopy();
   for (int i = 0; i < num_modes; i++) {
-    PARTHENON_REQUIRE(std::abs(k_vec(0, i)) <= gnx1 / 2, "k_vec x1 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec(1, i)) <= gnx2 / 2, "k_vec x2 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec(2, i)) <= gnx3 / 2, "k_vec x3 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) <= gnx1 / 2, "k_vec x1 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) <= gnx2 / 2, "k_vec x2 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) <= gnx3 / 2, "k_vec x3 mode too large");
   }
 
   const auto nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
