@@ -267,58 +267,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     // the perturbation (and is normalized in the following to get the desired sigma_v)
     const auto t_corr = 1e-10;
 
-    // Construct list of wavenumers for inital perturbation.We pick randomly between
-    // kpeak/2 and 2kpeak.
-    auto k_vec_v = parthenon::ParArray2D<Real>("k_vec", 3, num_modes_v);
-    auto k_vec_v_h =
-        Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), k_vec_v);
-
-    const int k_low = std::floor(k_peak_v / 2);
-    const int k_high = std::ceil(2 * k_peak_v);
-
-    std::mt19937 rng;
-    rng.seed(rseed_v);
-    std::uniform_int_distribution<> dist(-k_high, k_high);
-
-    int n_mode = 0;
-    int n_attempt = 0;
-    constexpr int max_attempts = 1000000;
-    Real kx1, kx2, kx3, k_mag, ampl;
-    bool mode_exists = false;
-    while (n_mode < num_modes_v && n_attempt < max_attempts) {
-      n_attempt += 1;
-
-      kx1 = dist(rng);
-      kx2 = dist(rng);
-      kx3 = dist(rng);
-      k_mag = std::sqrt(SQR(kx1) + SQR(kx2) + SQR(kx3));
-
-      // Expected amplitude of the spectral function. If this is changed, it also needs to
-      // be changed in the FMFT class (or abstracted).
-      ampl = SQR(k_mag / k_peak_v) * (2.0 - SQR(k_mag / k_peak_v));
-
-      // Check is mode was already picked by chance
-      mode_exists = false;
-      for (int n_mode_exsist = 0; n_mode_exsist < n_mode; n_mode_exsist++) {
-        if (k_vec_v_h(0, n_mode_exsist) == kx1 && k_vec_v_h(1, n_mode_exsist) == kx2 &&
-            k_vec_v_h(2, n_mode_exsist) == kx3) {
-          mode_exists = true;
-        }
-      }
-
-      // kx1 < 0.0 because we use a explicit symmetric Complex to Real transform
-      if (ampl < 0 || k_mag < k_low || k_mag > k_high || mode_exists || kx1 < 0.0) {
-        continue;
-      }
-      k_vec_v_h(0, n_mode) = kx1;
-      k_vec_v_h(1, n_mode) = kx2;
-      k_vec_v_h(2, n_mode) = kx3;
-      n_mode++;
-    }
-    PARTHENON_REQUIRE_THROWS(
-        n_attempt < max_attempts,
-        "Cluster init did not succeed in calculating perturbation modes.")
-    Kokkos::deep_copy(k_vec_v, k_vec_v_h);
+    auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v, rseed_v);
 
     auto few_modes_ft = FewModesFT(pin, hydro_pkg, "cluster_perturb_v", num_modes_v,
                                    k_vec_v, k_peak_v, sol_weight_v, t_corr, rseed_v);
