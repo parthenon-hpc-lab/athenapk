@@ -162,6 +162,39 @@ r_sampling = 4.0
 Specifically, the resolution of the 1D profile for each meshblock is either
 `min(dx,dy,dz)/r_sampling` or `r_k/r_sampling`, whichever is smaller.
 
+## Initial perturbations
+
+Initial perturbations for both the velocity field and the magnetic field are
+supported.
+
+*Note* that these intial perturbation are currently incompatible with
+other initial conditions that modify the velocity or magnetic field, e.g.,
+an initial magnetic dipole or a uniform field.
+This restriction could be lifted if required/desired but the normalization
+of the fields would need to be adjusted.
+
+In general, the perturbations will be seeded by an inverse parabolic
+spectral profile centered on a peak wavenumber (in normalized units, i.e.,
+`k_peak = 2` mean half the box size) with a finite number of modes (default 40)
+randomly chosen between `k_peak/2` and `2*k_peak`.
+
+Pertubations are controlled by the following parameters:
+```
+<problem/cluster/init_perturb>
+# for the velocity field
+sigma_v = 0.0      # in code velocity; default: 0.0 (disabled)
+k_peak_v = ???     # wavenumber in normalized units where the velocity spectrum peaks. No default value.
+num_modes_v = 40   # (optional) number of wavemodes in spectral space; default: 40
+sol_weight_v = 1.0 # (optional) power in solenoidal (rotational) modes of the perturbation. Range between 0 (fully compressive) and 1.0 (default, fully solenoidal).
+rseed_v = 1        # (optional) integer seed for RNG for wavenumbers and amplitudes
+
+# for the magnetic field
+sigma_b = 0.0      # in code magnetic; default: 0.0 (disabled)
+k_peak_b = ???     # wavenumber in normalized units where the magnetic field spectrum peaks. No default value.
+num_modes_b = 40   # (optional) number of wavemodes in spectral space; default: 40
+rseed_b = 2        # (optional) integer seed for RNG for wavenumbers and amplitudes
+```
+
 ## AGN Triggering
 
 If AGN triggering is enabled, at the end of each time step, a mass accretion

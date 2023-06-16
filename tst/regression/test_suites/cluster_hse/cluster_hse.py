@@ -39,7 +39,10 @@ class TestCase(utils.test_case.TestCaseAbs):
         unyt.define_unit("code_mass", (1e14, "Msun"))
         unyt.define_unit("code_time", (1, "Gyr"))
         unyt.define_unit("code_velocity", (1, "code_length/code_time"))
-        unyt.define_unit("code_magnetic", (np.sqrt(4*np.pi), "(code_mass/code_length)**0.5/code_time"))
+        unyt.define_unit(
+            "code_magnetic",
+            (np.sqrt(4 * np.pi), "(code_mass/code_length)**0.5/code_time"),
+        )
         self.code_length = unyt.unyt_quantity(1, "code_length")
         self.code_mass = unyt.unyt_quantity(1, "code_mass")
         self.code_time = unyt.unyt_quantity(1, "code_time")
