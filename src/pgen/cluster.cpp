@@ -25,6 +25,7 @@
 #include <string>    // c_str()
 
 // Parthenon headers
+#include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
@@ -35,6 +36,7 @@
 #include "../hydro/srcterms/gravitational_field.hpp"
 #include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
+#include "../utils/few_modes_ft.hpp"
 
 // Cluster headers
 #include "cluster/agn_feedback.hpp"
@@ -44,10 +46,13 @@
 #include "cluster/hydrostatic_equilibrium_sphere.hpp"
 #include "cluster/magnetic_tower.hpp"
 #include "cluster/snia_feedback.hpp"
+#include "parthenon_array_generic.hpp"
+#include "utils/error_checking.hpp"
 
 namespace cluster {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
+using utils::few_modes_ft::FewModesFT;
 
 void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                     const Real beta_dt) {
@@ -243,6 +248,87 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 
     // plasma beta
     hydro_pkg->AddField("plasma_beta", m);
+  }
+
+  /************************************************************
+   * Add infrastructure for initial pertubations
+   ************************************************************/
+
+  const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
+  if (sigma_v != 0.0) {
+    // peak of init vel perturb
+    auto k_peak_v = pin->GetReal("problem/cluster/init_perturb", "k_peak_v");
+    auto num_modes_v =
+        pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_v", 40);
+    auto sol_weight_v =
+        pin->GetOrAddReal("problem/cluster/init_perturb", "sol_weight_v", 1.0);
+    uint32_t rseed_v = pin->GetOrAddInteger("problem/cluster/init_perturb", "rseed_v", 1);
+    // In principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
+    // the perturbation (and is normalized in the following to get the desired sigma_v)
+    const auto t_corr = 1e-10;
+
+    // Construct list of wavenumers for inital perturbation.We pick randomly between
+    // kpeak/2 and 2kpeak.
+    auto k_vec_v = parthenon::ParArray2D<Real>("k_vec", 3, num_modes_v);
+    auto k_vec_v_h =
+        Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), k_vec_v);
+
+    const int k_low = std::floor(k_peak_v / 2);
+    const int k_high = std::ceil(2 * k_peak_v);
+
+    std::mt19937 rng;
+    rng.seed(rseed_v);
+    std::uniform_int_distribution<> dist(-k_high, k_high);
+
+    int n_mode = 0;
+    int n_attempt = 0;
+    constexpr int max_attempts = 1000000;
+    Real kx1, kx2, kx3, k_mag, ampl;
+    bool mode_exists = false;
+    while (n_mode < num_modes_v && n_attempt < max_attempts) {
+      n_attempt += 1;
+
+      kx1 = dist(rng);
+      kx2 = dist(rng);
+      kx3 = dist(rng);
+      k_mag = std::sqrt(SQR(kx1) + SQR(kx2) + SQR(kx3));
+
+      // Expected amplitude of the spectral function. If this is changed, it also needs to
+      // be changed in the FMFT class (or abstracted).
+      ampl = SQR(k_mag / k_peak_v) * (2.0 - SQR(k_mag / k_peak_v));
+
+      // Check is mode was already picked by chance
+      mode_exists = false;
+      for (int n_mode_exsist = 0; n_mode_exsist < n_mode; n_mode_exsist++) {
+        if (k_vec_v_h(0, n_mode_exsist) == kx1 && k_vec_v_h(1, n_mode_exsist) == kx2 &&
+            k_vec_v_h(2, n_mode_exsist) == kx3) {
+          mode_exists = true;
+        }
+      }
+
+      // kx1 < 0.0 because we use a explicit symmetric Complex to Real transform
+      if (ampl < 0 || k_mag < k_low || k_mag > k_high || mode_exists || kx1 < 0.0) {
+        continue;
+      }
+      k_vec_v_h(0, n_mode) = kx1;
+      k_vec_v_h(1, n_mode) = kx2;
+      k_vec_v_h(2, n_mode) = kx3;
+      n_mode++;
+    }
+    PARTHENON_REQUIRE_THROWS(
+        n_attempt < max_attempts,
+        "Cluster init did not succeed in calculating perturbation modes.")
+    Kokkos::deep_copy(k_vec_v, k_vec_v_h);
+
+    auto few_modes_ft = FewModesFT(pin, hydro_pkg, "cluster_perturb_v", num_modes_v,
+                                   k_vec_v, k_peak_v, sol_weight_v, t_corr, rseed_v);
+    hydro_pkg->AddParam<>("cluster/few_modes_ft_v", few_modes_ft);
+
+    // Add field for initial perturation (must not need to be consistent but defining it
+    // this way is easier for now)
+    Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+               std::vector<int>({3}));
+    hydro_pkg->AddField("tmp_perturb", m);
   }
 }
 
@@ -456,8 +542,21 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   const auto sigma_B = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_B", 0.0);
 
   if (sigma_v != 0.0) {
+    auto few_modes_ft = hydro_pkg->Param<FewModesFT>("cluster/few_modes_ft_v");
+    // Init phases on all blocks
+    for (int b = 0; b < md->NumBlocks(); b++) {
+      auto pmb = md->GetBlockData(b)->GetBlockPointer();
+      few_modes_ft.SetPhases(pmb.get(), pin);
+    }
+    // As for t_corr in few_modes_ft, the choice for dt is
+    // in principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
+    // the perturbation (and is normalized in the following to get the desired sigma_v)
+    const Real dt = 1.0;
+    few_modes_ft.Generate(md, dt, "tmp_perturb");
 
     Real v2_sum = 0.0; // used for normalization
+
+    auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
 
     pmb->par_reduce(
         "Init sigma_v", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -466,9 +565,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           const auto &u = cons(b);
           auto rho = u(IDN, k, j, i);
 
-          u(IM1, k, j, i) = rho * (i + b);
-          u(IM2, k, j, i) = rho * (j + b);
-          u(IM3, k, j, i) = rho * (k + b);
+          u(IM1, k, j, i) = rho * perturb_pack(b, 0, k, j, i);
+          u(IM2, k, j, i) = rho * perturb_pack(b, 1, k, j, i);
+          u(IM3, k, j, i) = rho * perturb_pack(b, 2, k, j, i);
           // No need to touch the energy yet as we'll normalize later
 
           lsum += (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) *

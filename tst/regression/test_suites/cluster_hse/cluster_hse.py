@@ -93,6 +93,12 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.norm_tol = 1e-3
 
         self.sigma_v = unyt.unyt_quantity(75.0, "km/s")
+        char_v_lengthscale = unyt.unyt_quantity(100.0, "kpc")
+        # Note that the box scale is set in the input file directly (-0.1 to 0.1),
+        # so if the input file changes, the following line should change, too.
+        Lbox = 0.2 * self.code_length
+        self.k_peak_v = Lbox / char_v_lengthscale
+
         self.sigma_B = unyt.unyt_quantity(1e-8, "G")
 
     def Prepare(self, parameters, step):
@@ -144,6 +150,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/cluster/hydrostatic_equilibrium/rho_fix={self.rho_fix.in_units('code_mass/code_length**3').v}",
             f"problem/cluster/hydrostatic_equilibrium/r_sampling={self.R_sampling}",
             f"problem/cluster/init_perturb/sigma_v={0.0 if step == 2 else self.sigma_v.in_units('code_length/code_time').v}",
+            f"problem/cluster/init_perturb/k_peak_v={0.0 if step == 2 else self.k_peak_v.v}",
             f"problem/cluster/init_perturb/sigma_B={0.0 if step == 2 else self.sigma_B.in_units('(code_mass/code_length)**0.5/code_time').v}",
             f"parthenon/output2/id={'prim' if step == 2 else 'prim_perturb'}",
             f"parthenon/time/nlim={-1 if step == 2 else 1}",
