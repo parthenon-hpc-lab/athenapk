@@ -37,14 +37,15 @@ class FewModesFT {
   Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::HostMemSpace> random_num_host_;
   std::mt19937 rng_;
   std::uniform_real_distribution<> dist_;
-  Real sol_weight_; // power in solenoidal modes for projection. Set to negative to
-                    // disable projection
-  Real t_corr_;     // correlation time for evolution of Ornstein-Uhlenbeck process
+  Real sol_weight_;  // power in solenoidal modes for projection. Set to negative to
+                     // disable projection
+  Real t_corr_;      // correlation time for evolution of Ornstein-Uhlenbeck process
+  bool fill_ghosts_; // if the inverse transform should also fill ghost zones
 
  public:
   FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescriptor *pkg,
              std::string prefix, int num_modes, ParArray2D<Real> k_vec, Real k_peak,
-             Real sol_weight, Real t_corr, uint32_t rseed);
+             Real sol_weight, Real t_corr, uint32_t rseed, bool fill_ghosts = false);
 
   ParArray2D<Complex> GetVarHat() { return var_hat_; }
   int GetNumModes() { return num_modes_; }

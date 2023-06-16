@@ -14,6 +14,7 @@
 // Parthenon headers
 #include "basic_types.hpp"
 #include "config.hpp"
+#include "globals.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/meshblock_pack.hpp"
@@ -30,9 +31,10 @@ using parthenon::Metadata;
 
 FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescriptor *pkg,
                        std::string prefix, int num_modes, ParArray2D<Real> k_vec,
-                       Real k_peak, Real sol_weight, Real t_corr, uint32_t rseed)
+                       Real k_peak, Real sol_weight, Real t_corr, uint32_t rseed,
+                       bool fill_ghosts)
     : prefix_(prefix), num_modes_(num_modes), k_vec_(k_vec), k_peak_(k_peak),
-      t_corr_(t_corr) {
+      t_corr_(t_corr), fill_ghosts_(fill_ghosts) {
 
   if ((num_modes > 100) && (parthenon::Globals::my_rank == 0)) {
     std::cout << "### WARNING using more than 100 explicit modes will significantly "
@@ -56,14 +58,15 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   const auto nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
   const auto nx2 = pin->GetInteger("parthenon/meshblock", "nx2");
   const auto nx3 = pin->GetInteger("parthenon/meshblock", "nx3");
+  const auto ng_tot = fill_ghosts_ ? 2 * parthenon::Globals::nghost : 0;
   auto m = Metadata({Metadata::None, Metadata::Derived, Metadata::OneCopy},
-                    std::vector<int>({2, num_modes, nx1}), prefix + "_phases_i");
+                    std::vector<int>({2, num_modes, nx1 + ng_tot}), prefix + "_phases_i");
   pkg->AddField(prefix + "_phases_i", m);
   m = Metadata({Metadata::None, Metadata::Derived, Metadata::OneCopy},
-               std::vector<int>({2, num_modes, nx2}), prefix + "_phases_j");
+               std::vector<int>({2, num_modes, nx2 + ng_tot}), prefix + "_phases_j");
   pkg->AddField(prefix + "_phases_j", m);
   m = Metadata({Metadata::None, Metadata::Derived, Metadata::OneCopy},
-               std::vector<int>({2, num_modes, nx3}), prefix + "_phases_k");
+               std::vector<int>({2, num_modes, nx3 + ng_tot}), prefix + "_phases_k");
   pkg->AddField(prefix + "_phases_k", m);
 
   // Variable (e.g., acceleration field for turbulence driver) in Fourier space using
@@ -142,9 +145,10 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto &phases_j = base->Get(prefix_ + "_phases_j").data;
   auto &phases_k = base->Get(prefix_ + "_phases_k").data;
 
+  const auto ng = fill_ghosts_ ? parthenon::Globals::nghost : 0;
   pmb->par_for(
-      "FMFT: calc phases_i", 0, nx1 - 1, KOKKOS_LAMBDA(int i) {
-        Real gi = static_cast<Real>(i + gis);
+      "FMFT: calc phases_i", 0, nx1 - 1 + 2 * ng, KOKKOS_LAMBDA(int i) {
+        Real gi = static_cast<Real>((i + gis - ng) % static_cast<int>(gnx1));
         Real w_kx;
         Complex phase;
 
@@ -162,8 +166,8 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
       });
 
   pmb->par_for(
-      "FMFT: calc phases_j", 0, nx2 - 1, KOKKOS_LAMBDA(int j) {
-        Real gj = static_cast<Real>(j + gjs);
+      "FMFT: calc phases_j", 0, nx2 - 1 + 2 * ng, KOKKOS_LAMBDA(int j) {
+        Real gj = static_cast<Real>((j + gjs - ng) % static_cast<int>(gnx2));
         Real w_ky;
         Complex phase;
 
@@ -176,8 +180,8 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
       });
 
   pmb->par_for(
-      "FMFT: calc phases_k", 0, nx3 - 1, KOKKOS_LAMBDA(int k) {
-        Real gk = static_cast<Real>(k + gks);
+      "FMFT: calc phases_k", 0, nx3 - 1 + 2 * ng, KOKKOS_LAMBDA(int k) {
+        Real gk = static_cast<Real>((k + gks - ng) % static_cast<int>(gnx3));
         Real w_kz;
         Complex phase;
 
@@ -313,9 +317,10 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
                     var_hat(n, m).imag() * c_drift + var_hat_new(n, m).imag() * c_diff);
       });
 
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  auto domain = fill_ghosts_ ? IndexDomain::entire : IndexDomain::interior;
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(domain);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(domain);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(domain);
   auto var_pack = md->PackVariables(std::vector<std::string>{var_name});
   auto phases_i = md->PackVariables(std::vector<std::string>{prefix_ + "_phases_i"});
   auto phases_j = md->PackVariables(std::vector<std::string>{prefix_ + "_phases_j"});
