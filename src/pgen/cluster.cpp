@@ -279,6 +279,38 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
                std::vector<int>({3}));
     hydro_pkg->AddField("tmp_perturb", m);
   }
+  const auto sigma_b = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_b", 0.0);
+  if (sigma_b != 0.0) {
+    PARTHENON_REQUIRE_THROWS(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd,
+                             "Requested initial magnetic field perturbations but not "
+                             "solving the MHD equations.")
+    // peak of init vel perturb
+    auto k_peak_b = pin->GetReal("problem/cluster/init_perturb", "k_peak_b");
+    auto num_modes_b =
+        pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_b", 40);
+    uint32_t rseed_b = pin->GetOrAddInteger("problem/cluster/init_perturb", "rseed_b", 2);
+    // In principle arbitrary because the inital A_hat is 0 and the A_hat_new will contain
+    // the perturbation (and is normalized in the following to get the desired sigma_b)
+    const auto t_corr = 1e-10;
+    // This field should by construction have no compressive modes, so we fix the number.
+    const auto sol_weight_b = 1.0;
+
+    auto k_vec_b = utils::few_modes_ft::MakeRandomModes(num_modes_b, k_peak_b, rseed_b);
+
+    const bool fill_ghosts = true; // as we fill a vector potential to calc B
+    auto few_modes_ft =
+        FewModesFT(pin, hydro_pkg, "cluster_perturb_b", num_modes_b, k_vec_b, k_peak_b,
+                   sol_weight_b, t_corr, rseed_b, fill_ghosts);
+    hydro_pkg->AddParam<>("cluster/few_modes_ft_b", few_modes_ft);
+
+    // Add field for initial perturation (must not need to be consistent but defining it
+    // this way is easier for now). Only add if not already done for the velocity.
+    if (sigma_v == 0.0) {
+      Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+                 std::vector<int>({3}));
+      hydro_pkg->AddField("tmp_perturb", m);
+    }
+  }
 }
 
 //========================================================================================
@@ -478,6 +510,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
   }
 
+  /************************************************************
+   * Set initial velocity perturbations (requires no other velocities for now)
+   ************************************************************/
+
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -488,7 +524,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   const auto num_blocks = md->NumBlocks();
 
   const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
-  const auto sigma_B = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_B", 0.0);
 
   if (sigma_v != 0.0) {
     auto few_modes_ft = hydro_pkg->Param<FewModesFT>("cluster/few_modes_ft_v");
@@ -513,6 +548,11 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
           auto rho = u(IDN, k, j, i);
+          // The following restriction could be lifted, but requires refactoring of the
+          // logic for the normalization/reduction below
+          PARTHENON_REQUIRE(
+              u(IM1, k, j, i) == 0.0 && u(IM2, k, j, i) == 0.0 && u(IM3, k, j, i) == 0.0,
+              "Found existing non-zero velocity when setting velocity perturbations.");
 
           u(IM1, k, j, i) = rho * perturb_pack(b, 0, k, j, i);
           u(IM2, k, j, i) = rho * perturb_pack(b, 1, k, j, i);
@@ -546,6 +586,83 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           u(IEN, k, j, i) +=
               0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
               u(IDN, k, j, i);
+        });
+  }
+
+  /************************************************************
+   * Set initial magnetic field perturbations (resets magnetic field field)
+   ************************************************************/
+  const auto sigma_b = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_b", 0.0);
+  if (sigma_b != 0.0) {
+    auto few_modes_ft = hydro_pkg->Param<FewModesFT>("cluster/few_modes_ft_b");
+    // Init phases on all blocks
+    for (int b = 0; b < md->NumBlocks(); b++) {
+      auto pmb = md->GetBlockData(b)->GetBlockPointer();
+      few_modes_ft.SetPhases(pmb.get(), pin);
+    }
+    // As for t_corr in few_modes_ft, the choice for dt is
+    // in principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
+    // the perturbation (and is normalized in the following to get the desired sigma_v)
+    const Real dt = 1.0;
+    few_modes_ft.Generate(md, dt, "tmp_perturb");
+
+    Real b2_sum = 0.0; // used for normalization
+
+    auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
+
+    pmb->par_reduce(
+        "Init sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+          const auto &coords = cons.GetCoords(b);
+          const auto &u = cons(b);
+          // The following restriction could be lifted, but requires refactoring of the
+          // logic for the normalization/reduction below
+          PARTHENON_REQUIRE(
+              u(IB1, k, j, i) == 0.0 && u(IB2, k, j, i) == 0.0 && u(IB3, k, j, i) == 0.0,
+              "Found existing non-zero B when setting magnetic field perturbations.");
+          u(IB1, k, j, i) =
+              (perturb_pack(b, 2, k, j + 1, i) - perturb_pack(b, 2, k, j - 1, i)) /
+                  coords.Dxc<2>(j) / 2.0 -
+              (perturb_pack(b, 1, k + 1, j, i) - perturb_pack(b, 1, k - 1, j, i)) /
+                  coords.Dxc<3>(k) / 2.0;
+          u(IB2, k, j, i) =
+              (perturb_pack(b, 0, k + 1, j, i) - perturb_pack(b, 0, k - 1, j, i)) /
+                  coords.Dxc<3>(k) / 2.0 -
+              (perturb_pack(b, 2, k, j, i + 1) - perturb_pack(b, 2, k, j, i - 1)) /
+                  coords.Dxc<1>(i) / 2.0;
+          u(IB3, k, j, i) =
+              (perturb_pack(b, 1, k, j, i + 1) - perturb_pack(b, 1, k, j, i - 1)) /
+                  coords.Dxc<1>(i) / 2.0 -
+              (perturb_pack(b, 0, k, j + 1, i) - perturb_pack(b, 0, k, j - 1, i)) /
+                  coords.Dxc<2>(j) / 2.0;
+
+          // No need to touch the energy yet as we'll normalize later
+          lsum += (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i))) *
+                  coords.CellVolume(k, j, i);
+        },
+        b2_sum);
+
+#ifdef MPI_PARALLEL
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &b2_sum, 1, MPI_PARTHENON_REAL,
+                                      MPI_SUM, MPI_COMM_WORLD));
+#endif // MPI_PARALLEL
+
+    const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
+    const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
+    const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
+    auto b_norm = std::sqrt(b2_sum / (Lx * Ly * Lz) / (SQR(sigma_b)));
+
+    pmb->par_for(
+        "Norm sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto &u = cons(b);
+
+          u(IB1, k, j, i) /= b_norm;
+          u(IB2, k, j, i) /= b_norm;
+          u(IB3, k, j, i) /= b_norm;
+
+          u(IEN, k, j, i) +=
+              0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
         });
   }
 }

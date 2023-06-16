@@ -39,6 +39,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         unyt.define_unit("code_mass", (1e14, "Msun"))
         unyt.define_unit("code_time", (1, "Gyr"))
         unyt.define_unit("code_velocity", (1, "code_length/code_time"))
+        unyt.define_unit("code_magnetic", (np.sqrt(4*np.pi), "(code_mass/code_length)**0.5/code_time"))
         self.code_length = unyt.unyt_quantity(1, "code_length")
         self.code_mass = unyt.unyt_quantity(1, "code_mass")
         self.code_time = unyt.unyt_quantity(1, "code_time")
@@ -96,10 +97,13 @@ class TestCase(utils.test_case.TestCaseAbs):
         char_v_lengthscale = unyt.unyt_quantity(100.0, "kpc")
         # Note that the box scale is set in the input file directly (-0.1 to 0.1),
         # so if the input file changes, the following line should change, too.
-        Lbox = 0.2 * self.code_length
-        self.k_peak_v = Lbox / char_v_lengthscale
+        l_box = 0.2 * self.code_length
+        self.k_peak_v = l_box / char_v_lengthscale
 
-        self.sigma_B = unyt.unyt_quantity(1e-8, "G")
+        self.sigma_b = unyt.unyt_quantity(1e-8, "G")
+        # using a different one than for the velocity
+        char_b_lengthscale = unyt.unyt_quantity(50.0, "kpc")
+        self.k_peak_b = l_box / char_b_lengthscale
 
     def Prepare(self, parameters, step):
         """
@@ -149,9 +153,11 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/cluster/hydrostatic_equilibrium/r_fix={self.R_fix.in_units('code_length').v}",
             f"problem/cluster/hydrostatic_equilibrium/rho_fix={self.rho_fix.in_units('code_mass/code_length**3').v}",
             f"problem/cluster/hydrostatic_equilibrium/r_sampling={self.R_sampling}",
-            f"problem/cluster/init_perturb/sigma_v={0.0 if step == 2 else self.sigma_v.in_units('code_length/code_time').v}",
+            f"hydro/fluid={'euler' if step == 2 else 'glmmhd'}",
+            f"problem/cluster/init_perturb/sigma_v={0.0 if step == 2 else self.sigma_v.in_units('code_velocity').v}",
             f"problem/cluster/init_perturb/k_peak_v={0.0 if step == 2 else self.k_peak_v.v}",
-            f"problem/cluster/init_perturb/sigma_B={0.0 if step == 2 else self.sigma_B.in_units('(code_mass/code_length)**0.5/code_time').v}",
+            f"problem/cluster/init_perturb/sigma_b={0.0 if step == 2 else self.sigma_b.in_units('code_magnetic').v}",
+            f"problem/cluster/init_perturb/k_peak_b={0.0 if step == 2 else self.k_peak_b.v}",
             f"parthenon/output2/id={'prim' if step == 2 else 'prim_perturb'}",
             f"parthenon/time/nlim={-1 if step == 2 else 1}",
         ]
@@ -209,6 +215,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             "velocity_1": 1,
             "velocity_2": 2,
             "velocity_3": 3,
+            "magnetic_field_1": 5,
+            "magnetic_field_2": 6,
+            "magnetic_field_3": 7,
         }
 
         vx = prim[prim_col_dict["velocity_1"]]
@@ -227,8 +236,28 @@ class TestCase(utils.test_case.TestCaseAbs):
         if not sigma_v_match:
             analyze_status = False
             print(
-                f"ERROR: velocity perturbation too large\n"
+                f"ERROR: velocity perturbations don't match\n"
                 f"Expected {self.sigma_v.in_units('code_velocity')} but got {rms_v}\n"
+            )
+
+        bx = prim[prim_col_dict["magnetic_field_1"]]
+        by = prim[prim_col_dict["magnetic_field_2"]]
+        bz = prim[prim_col_dict["magnetic_field_3"]]
+
+        # volume weighted rms magnetic field
+        rms_b = np.sqrt(
+            np.sum((bx**2 + by**2 + bz**2) * cell_vol) / np.sum(cell_vol)
+        )
+
+        sigma_b_match = np.isclose(
+            rms_b, self.sigma_b.in_units("code_magnetic").v, rtol=1e-14, atol=1e-14
+        )
+
+        if not sigma_b_match:
+            analyze_status = False
+            print(
+                f"ERROR: magnetic field perturbations don't match\n"
+                f"Expected {self.sigma_b.in_units('code_magnetic')} but got {rms_b}\n"
             )
 
         return analyze_status
