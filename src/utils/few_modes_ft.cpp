@@ -44,12 +44,14 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   const auto gnx1 = pin->GetInteger("parthenon/mesh", "nx1");
   const auto gnx2 = pin->GetInteger("parthenon/mesh", "nx2");
   const auto gnx3 = pin->GetInteger("parthenon/mesh", "nx3");
-  Kokkos::parallel_for(
-      "FMFT: Check k_vec", num_modes, KOKKOS_LAMBDA(const int i) {
-        PARTHENON_REQUIRE(std::abs(k_vec_(0, i)) <= gnx1 / 2, "k_vec x1 mode too large");
-        PARTHENON_REQUIRE(std::abs(k_vec_(1, i)) <= gnx2 / 2, "k_vec x2 mode too large");
-        PARTHENON_REQUIRE(std::abs(k_vec_(2, i)) <= gnx3 / 2, "k_vec x3 mode too large");
-      });
+  // Need to make this comparison on the host as (for some reason) an extended cuda device
+  // lambda cannot live in the constructor of an object.
+  auto k_vec_host = k_vec.GetHostMirrorAndCopy();
+  for (int i = 0; i < num_modes; i++) {
+    PARTHENON_REQUIRE(std::abs(k_vec(0, i)) <= gnx1 / 2, "k_vec x1 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec(1, i)) <= gnx2 / 2, "k_vec x2 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec(2, i)) <= gnx3 / 2, "k_vec x3 mode too large");
+  }
 
   const auto nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
   const auto nx2 = pin->GetInteger("parthenon/meshblock", "nx2");
