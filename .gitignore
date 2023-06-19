@@ -1,6 +1,14 @@
 # Object and binary directories
 build*/
 
+# output files
+*.csv
+*.png
+*.hdf5
+*.root
+*.rhdf
+*.hst
+
 # Mac OS metadata
 .DS_Store
 
