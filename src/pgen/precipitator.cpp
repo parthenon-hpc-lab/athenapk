@@ -117,7 +117,7 @@ void WriteProfileToFile(parthenon::ParArray1D<Real> &profile_reduce_dev,
     std::ofstream csvfile;
     csvfile.open(filename);
     csvfile.precision(17);
-    
+
     csvfile << "# bin_value profile_value\n";
     for (size_t i = 0; i < profile.size(); ++i) {
       csvfile << profile_bins(i) << " ";
@@ -338,10 +338,13 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
       pkg->Param<cooling::TabularCooling>("tabular_cooling");
   const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
 
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
   ComputeAvgProfile1D(
-      *pview_reduce, md,
-      KOKKOS_LAMBDA(VariablePack<Real> const &prim,
-                    parthenon::Coordinates_t const &coords, int k, int j, int i) {
+      *pview_reduce, md, KOKKOS_LAMBDA(int b, int k, int j, int i) {
+        auto &prim = prim_pack(b);
+        const auto &coords = prim_pack.GetCoords(b);
+
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
         const Real eint = P / (rho * (gam - 1.0)); // specific internal energy
@@ -779,25 +782,25 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   parthenon::ParArray1D<Real> K_mean("K_mean", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> T_mean("T_mean", REDUCTION_ARRAY_SIZE);
 
-  auto f_rho =
-      KOKKOS_LAMBDA(VariablePack<Real> const &prim,
-                    parthenon::Coordinates_t const &coords, int k, int j, int i) {
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
+  auto f_rho = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &prim = prim_pack(b);
     return prim(IDN, k, j, i);
   };
-  auto f_P = KOKKOS_LAMBDA(VariablePack<Real> const &prim,
-                           parthenon::Coordinates_t const &coords, int k, int j, int i) {
+  auto f_P = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &prim = prim_pack(b);
     return prim(IPR, k, j, i);
   };
-  auto f_K = KOKKOS_LAMBDA(VariablePack<Real> const &prim,
-                           parthenon::Coordinates_t const &coords, int k, int j, int i) {
+  auto f_K = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &prim = prim_pack(b);
     const Real rho = prim(IDN, k, j, i);
     const Real P = prim(IPR, k, j, i);
     const Real K = P / std::pow(rho, gam);
     return K;
   };
-  auto f_T = KOKKOS_LAMBDA(VariablePack<Real> const &prim,
-                           parthenon::Coordinates_t const &coords, int k, int j, int i) {
-    // compute temperature
+  auto f_T = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &prim = prim_pack(b);
     const Real rho = prim(IDN, k, j, i);
     const Real P = prim(IPR, k, j, i);
     const Real T = P / (kboltz * rho / mmw);
@@ -867,47 +870,6 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           temperature(k, j, i) = T;
         });
 
-    parthenon::ParArray1D<Real> drho_rms("rms_drho", REDUCTION_ARRAY_SIZE);
-    parthenon::ParArray1D<Real> dP_rms("rms_dP", REDUCTION_ARRAY_SIZE);
-    parthenon::ParArray1D<Real> dK_rms("rms_dK", REDUCTION_ARRAY_SIZE);
-    parthenon::ParArray1D<Real> dT_rms("rms_dT", REDUCTION_ARRAY_SIZE);
-
-    // compute rms profiles of {drho, dP, dK, dT}
-    ComputeRmsProfile1D(
-        drho_rms, md.get(),
-        KOKKOS_LAMBDA(VariablePack<Real> const &prim,
-                      parthenon::Coordinates_t const &coords, int k, int j,
-                      int i) { return drho(k, j, i); });
-    ComputeRmsProfile1D(
-        dP_rms, md.get(),
-        KOKKOS_LAMBDA(VariablePack<Real> const &prim,
-                      parthenon::Coordinates_t const &coords, int k, int j,
-                      int i) { return dP(k, j, i); });
-    ComputeRmsProfile1D(
-        dK_rms, md.get(),
-        KOKKOS_LAMBDA(VariablePack<Real> const &prim,
-                      parthenon::Coordinates_t const &coords, int k, int j,
-                      int i) { return dK(k, j, i); });
-    ComputeRmsProfile1D(
-        dT_rms, md.get(),
-        KOKKOS_LAMBDA(VariablePack<Real> const &prim,
-                      parthenon::Coordinates_t const &coords, int k, int j,
-                      int i) { return dT(k, j, i); });
-
-    // save rms profiles to file
-    auto filename = [=](const char *basename, unsigned int counter) {
-      std::ostringstream count_str;
-      count_str << basename;
-      count_str << std::setw(5) << std::setfill('0') << counter << ".csv";
-      return count_str.str();
-    };
-    static unsigned int counter = 0;
-    WriteProfileToFile(drho_rms, md.get(), filename("drho_rms", counter));
-    WriteProfileToFile(dP_rms, md.get(), filename("dP_rms", counter));
-    WriteProfileToFile(dK_rms, md.get(), filename("dK_rms", counter));
-    WriteProfileToFile(dT_rms, md.get(), filename("dT_rms", counter));
-    ++counter;
-
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
 
     // fill cooling time
@@ -958,8 +920,61 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
             dEdot(k, j, i) = (mean_Edot != 0) ? ((Edot - mean_Edot) / mean_Edot) : NAN;
             meanEdot(k, j, i) = mean_Edot;
           });
-    }
+    } // end fill cooling time
+  }   // end fill derived fields
+
+  // write rms profiles to disk
+  
+  static int noutputs = 0;
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "noutputs = " << noutputs << "\n";
   }
+
+  parthenon::ParArray1D<Real> drho_rms("rms_drho", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> dP_rms("rms_dP", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> dK_rms("rms_dK", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> dT_rms("rms_dT", REDUCTION_ARRAY_SIZE);
+
+  const auto &drho = md->PackVariables(std::vector<std::string>{"drho_over_rho"});
+  const auto &dP = md->PackVariables(std::vector<std::string>{"dP_over_P"});
+  const auto &dK = md->PackVariables(std::vector<std::string>{"dK_over_K"});
+  const auto &dT = md->PackVariables(std::vector<std::string>{"dT_over_T"});
+
+  ComputeRmsProfile1D(
+      drho_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
+        auto const &var = drho(b);
+        return var(0, k, j, i);
+      });
+  ComputeRmsProfile1D(
+      dP_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
+        auto const &var = dP(b);
+        return var(0, k, j, i);
+      });
+  ComputeRmsProfile1D(
+      dK_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
+        auto const &var = dK(b);
+        return var(0, k, j, i);
+      });
+  ComputeRmsProfile1D(
+      dT_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
+        auto const &var = dT(b);
+        return var(0, k, j, i);
+      });
+
+  // save rms profiles to file
+  auto filename = [=](const char *basename, unsigned int ncycles) {
+    std::ostringstream count_str;
+    count_str << basename;
+    count_str << std::setw(5) << std::setfill('0') << ncycles << ".csv";
+    return count_str.str();
+  };
+
+  WriteProfileToFile(drho_rms, md.get(), filename("drho_rms", noutputs));
+  WriteProfileToFile(dP_rms, md.get(), filename("dP_rms", noutputs));
+  WriteProfileToFile(dK_rms, md.get(), filename("dK_rms", noutputs));
+  WriteProfileToFile(dT_rms, md.get(), filename("dT_rms", noutputs));
+
+  ++noutputs;
 }
 
 } // namespace precipitator

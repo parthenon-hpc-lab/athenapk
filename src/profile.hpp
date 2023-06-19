@@ -44,7 +44,6 @@ void ComputeAvgProfile1D(parthenon::ParArray1D<parthenon::Real> &profile_dev,
   Kokkos::Sum<ReductionSumArray<parthenon::Real, REDUCTION_ARRAY_SIZE>> reducer_sum(
       profile_sum);
 
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   parthenon::IndexRange ib =
       md->GetBlockData(0)->GetBoundsI(parthenon::IndexDomain::interior);
   parthenon::IndexRange jb =
@@ -52,16 +51,17 @@ void ComputeAvgProfile1D(parthenon::ParArray1D<parthenon::Real> &profile_dev,
   parthenon::IndexRange kb =
       md->GetBlockData(0)->GetBoundsK(parthenon::IndexDomain::interior);
 
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
   parthenon::par_reduce(
       parthenon::loop_pattern_mdrange_tag, "ProfileReduction", parthenon::DevExecSpace(),
       0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     ReductionSumArray<parthenon::Real, REDUCTION_ARRAY_SIZE> &sum) {
-        auto &prim = prim_pack(b);
         const auto &coords = prim_pack.GetCoords(b);
         const parthenon::Real z = coords.Xc<3>(k);
         const parthenon::Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
-        const parthenon::Real rho = F(prim, coords, k, j, i);
+        const parthenon::Real rho = F(b, k, j, i);
 
         int idx = static_cast<int>((z - x3min) / dz_hist);
         idx = (idx > max_idx) ? max_idx : idx;
@@ -93,9 +93,8 @@ void ComputeRmsProfile1D(parthenon::ParArray1D<parthenon::Real> &profile_dev,
   // compute <F^2>
   ComputeAvgProfile1D(
       profile_dev, md,
-      KOKKOS_LAMBDA(parthenon::VariablePack<parthenon::Real> const &prim,
-                    parthenon::Coordinates_t const &coords, int k, int j, int i) {
-        const parthenon::Real val = F(prim, coords, k, j, i);
+      KOKKOS_LAMBDA(int b, int k, int j, int i) {
+        const parthenon::Real val = F(b, k, j, i);
         return val * val;
       });
 
