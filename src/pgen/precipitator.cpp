@@ -94,7 +94,7 @@ auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
 }
 
 void WriteProfileToFile(parthenon::ParArray1D<Real> &profile_reduce_dev,
-                        parthenon::MeshData<Real> *md, const char *filename_prefix) {
+                        parthenon::MeshData<Real> *md, const std::string &filename) {
   // get MonotoneInterpolator for 1D profile
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
 
@@ -109,23 +109,21 @@ void WriteProfileToFile(parthenon::ParArray1D<Real> &profile_reduce_dev,
 
   // get profile
   auto profile = profile_reduce_dev.GetHostMirrorAndCopy();
+  PARTHENON_REQUIRE(profile_bins.size() == profile.size(),
+                    "bins must have the same size as profile!");
 
-  // write CSV file
-  {
-    // generate filename
-    static unsigned int output_counter = 0;
-    std::string filename =
-        std::to_string(*filename_prefix) + std::to_string(output_counter);
-    std::cout << "Writing to file " << filename << "\n";
-
-    // open file
-    // ...
-
-    // write to file
-    // ...
-
-    // close file
-    ++output_counter;
+  // write CSV file (only on rank 0)
+  if (parthenon::Globals::my_rank == 0) {
+    std::ofstream csvfile;
+    csvfile.open(filename);
+    csvfile.precision(17);
+    
+    csvfile << "# bin_value profile_value\n";
+    for (size_t i = 0; i < profile.size(); ++i) {
+      csvfile << profile_bins(i) << " ";
+      csvfile << profile(i) << "\n";
+    }
+    csvfile.close();
   }
 }
 
@@ -897,10 +895,18 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
                       int i) { return dT(k, j, i); });
 
     // save rms profiles to file
-    WriteProfileToFile(drho_rms, md.get(), "drho_rms");
-    WriteProfileToFile(dP_rms, md.get(), "dP_rms");
-    WriteProfileToFile(dK_rms, md.get(), "dK_rms");
-    WriteProfileToFile(dT_rms, md.get(), "dT_rms");
+    auto filename = [=](const char *basename, unsigned int counter) {
+      std::ostringstream count_str;
+      count_str << basename;
+      count_str << std::setw(5) << std::setfill('0') << counter << ".csv";
+      return count_str.str();
+    };
+    static unsigned int counter = 0;
+    WriteProfileToFile(drho_rms, md.get(), filename("drho_rms", counter));
+    WriteProfileToFile(dP_rms, md.get(), filename("dP_rms", counter));
+    WriteProfileToFile(dK_rms, md.get(), filename("dK_rms", counter));
+    WriteProfileToFile(dT_rms, md.get(), filename("dT_rms", counter));
+    ++counter;
 
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
 
