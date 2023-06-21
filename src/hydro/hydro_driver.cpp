@@ -297,13 +297,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
 
     auto send_flx =
-        tl.AddTask(first_order_flux_correct,
-                   parthenon::LoadAndSendFluxCorrections, mu0);
+        tl.AddTask(first_order_flux_correct, parthenon::LoadAndSendFluxCorrections, mu0);
     auto recv_flx =
-        tl.AddTask(first_order_flux_correct,
-                   parthenon::ReceiveFluxCorrections, mu0);
-    auto set_flx =
-        tl.AddTask(recv_flx, parthenon::SetFluxCorrections, mu0);
+        tl.AddTask(first_order_flux_correct, parthenon::ReceiveFluxCorrections, mu0);
+    auto set_flx = tl.AddTask(recv_flx, parthenon::SetFluxCorrections, mu0);
 
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(
@@ -339,8 +336,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // TODO(someone) experiment with split (local/nonlocal) comms with respect to
     // performance for various tests (static, amr, block sizes) and then decide on the
     // best impl. Go with default call (split local/nonlocal) for now.
-    parthenon::AddBoundaryExchangeTasks(source_split_first_order, tl,
-                                                             mu0, pmesh->multilevel);
+    parthenon::AddBoundaryExchangeTasks(source_split_first_order, tl, mu0,
+                                        pmesh->multilevel);
   }
 
   TaskRegion &async_region_3 = tc.AddRegion(num_task_lists_executed_independently);
@@ -348,7 +345,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = async_region_3[i];
     auto &u0 = blocks[i]->meshblock_data.Get("base");
     auto prolongBound = none;
-    //if (pmesh->multilevel) {
+    // if (pmesh->multilevel) {
     //  prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, u0);
     //}
 
