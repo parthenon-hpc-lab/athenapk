@@ -451,6 +451,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add \bar Edot field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("mean_Edot", m);
+  // add Mach number field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("mach_sonic", m);
 
   // add \delta \rho / \bar \rho field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
@@ -829,6 +832,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
 
     auto &entropy = data->Get("entropy").data;
     auto &temperature = data->Get("temperature").data;
+    auto &mach_sonic = data->Get("mach_sonic").data;
 
     auto &drho = data->Get("drho_over_rho").data;
     auto &dP = data->Get("dP_over_P").data;
@@ -861,6 +865,13 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           const Real P = prim(IPR, k, j, i);
           const Real K = P / std::pow(rho, gam);
           const Real T = P / (kboltz * rho / mmw);
+          const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
+
+          const Real vx = prim(IV1, k, j, i);
+          const Real vy = prim(IV2, k, j, i);
+          const Real vz = prim(IV3, k, j, i);
+          const Real v_mag = std::sqrt(SQR(vx) + SQR(vy) + SQR(vz));
+          const Real M_s = v_mag / c_s;
 
           drho(k, j, i) = (rho - rho_bar) / rho_bar;
           dP(k, j, i) = (P - P_bar) / P_bar;
@@ -868,6 +879,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           dT(k, j, i) = (T - T_bar) / T_bar;
           entropy(k, j, i) = K;
           temperature(k, j, i) = T;
+          mach_sonic(k, j, i) = M_s;
         });
 
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
@@ -934,11 +946,13 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   parthenon::ParArray1D<Real> dP_rms("rms_dP", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> dK_rms("rms_dK", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> dT_rms("rms_dT", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> mach_rms("rms_mach", REDUCTION_ARRAY_SIZE);
 
   const auto &drho = md->PackVariables(std::vector<std::string>{"drho_over_rho"});
   const auto &dP = md->PackVariables(std::vector<std::string>{"dP_over_P"});
   const auto &dK = md->PackVariables(std::vector<std::string>{"dK_over_K"});
   const auto &dT = md->PackVariables(std::vector<std::string>{"dT_over_T"});
+  const auto &mach_sonic = md->PackVariables(std::vector<std::string>{"mach_sonic"});
 
   ComputeRmsProfile1D(
       drho_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
@@ -960,6 +974,11 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
         auto const &var = dT(b);
         return var(0, k, j, i);
       });
+  ComputeRmsProfile1D(
+      mach_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
+        auto const &var = mach_sonic(b);
+        return var(0, k, j, i);
+      });
 
   // save rms profiles to file
   auto filename = [=](const char *basename, unsigned int ncycles) {
@@ -973,6 +992,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   WriteProfileToFile(dP_rms, md.get(), filename("dP_rms", noutputs));
   WriteProfileToFile(dK_rms, md.get(), filename("dK_rms", noutputs));
   WriteProfileToFile(dT_rms, md.get(), filename("dT_rms", noutputs));
+  WriteProfileToFile(mach_rms, md.get(), filename("mach_rms", noutputs));
 
   ++noutputs;
 }
