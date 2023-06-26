@@ -13,50 +13,6 @@
             x: 1.0
             y: 0.0
             z: 0.0
-- 
-  action: "add_scenes"
-  scenes:
-    density: 
-      plots:
-        p1: 
-          type: "pseudocolor"
-          field: "drho_over_rho"
-      renders:
-        r1:
-          image_prefix: "drho%05d"
-          annotations: "true"
-          camera:
-            look_at: [0.0, 0.0, 0.0]
-            position: [0.0, -250.0, 0.0]
-            up: [0.0, 0.0, 1.0]
-    entropy:
-      plots: 
-        p1: 
-          type: "pseudocolor"
-          field: "dK_over_K"
-      renders:
-        r1:
-          image_prefix: "dK%05d"
-          annotations: "true"
-          camera:
-            look_at: [0.0, 0.0, 0.0]
-            position: [0.0, -250.0, 0.0]
-            up: [0.0, 0.0, 1.0]
-    mach_sonic: 
-      plots:
-        p1: 
-          type: "pseudocolor"
-          field: "mach_sonic"
-      renders:
-        r1:
-          image_prefix: "mach%05d"
-          annotations: "true"
-          camera:
-            look_at: [0.0, 0.0, 0.0]
-            position: [0.0, -250.0, 0.0]
-            up: [0.0, 0.0, 1.0]
--
-  action: "save_session"
 -
   action: "add_extracts"
   extracts: 
