@@ -12,7 +12,7 @@
 
 // Parthenon headers
 #include "amr_criteria/refinement_package.hpp"
-#include "bvals/cc/bvals_cc_in_one.hpp"
+#include "bvals/comms/bvals_in_one.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
@@ -277,7 +277,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
-    tl.AddTask(none, parthenon::cell_centered_bvars::StartReceiveFluxCorrections, mu0);
+    tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
@@ -297,13 +297,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
 
     auto send_flx =
-        tl.AddTask(first_order_flux_correct,
-                   parthenon::cell_centered_bvars::LoadAndSendFluxCorrections, mu0);
+        tl.AddTask(first_order_flux_correct, parthenon::LoadAndSendFluxCorrections, mu0);
     auto recv_flx =
-        tl.AddTask(first_order_flux_correct,
-                   parthenon::cell_centered_bvars::ReceiveFluxCorrections, mu0);
-    auto set_flx =
-        tl.AddTask(recv_flx, parthenon::cell_centered_bvars::SetFluxCorrections, mu0);
+        tl.AddTask(first_order_flux_correct, parthenon::ReceiveFluxCorrections, mu0);
+    auto set_flx = tl.AddTask(recv_flx, parthenon::SetFluxCorrections, mu0);
 
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(
@@ -339,8 +336,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // TODO(someone) experiment with split (local/nonlocal) comms with respect to
     // performance for various tests (static, amr, block sizes) and then decide on the
     // best impl. Go with default call (split local/nonlocal) for now.
-    parthenon::cell_centered_bvars::AddBoundaryExchangeTasks(source_split_first_order, tl,
-                                                             mu0, pmesh->multilevel);
+    parthenon::AddBoundaryExchangeTasks(source_split_first_order, tl, mu0,
+                                        pmesh->multilevel);
   }
 
   TaskRegion &async_region_3 = tc.AddRegion(num_task_lists_executed_independently);
@@ -348,9 +345,11 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = async_region_3[i];
     auto &u0 = blocks[i]->meshblock_data.Get("base");
     auto prolongBound = none;
-    if (pmesh->multilevel) {
-      prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, u0);
-    }
+    // Currently taken care of by AddBoundaryExchangeTasks above.
+    // Needs to be reintroduced once we reintroduce split (local/nonlocal) communication.
+    // if (pmesh->multilevel) {
+    //  prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, u0);
+    //}
 
     // set physical boundaries
     auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, u0);
