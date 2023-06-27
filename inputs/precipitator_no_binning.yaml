@@ -4,21 +4,40 @@
     x_slice_pl:
       f1: 
         type: "slice"
-        params: 
-          point: 
+        params:
+          point:
             x: 0.0
             y: 0.0
             z: 0.0
-          normal: 
+          normal:
             x: 1.0
             y: 0.0
             z: 0.0
     contour_pl:
-      f1: 
+      f2:
         type: "contour"
         params: 
           field: "drho_over_rho"
           iso_values: [-1.0, -0.1, -0.01, 0.0, 0.01, 0.1, 1.0]
+- 
+  action: "add_scenes"
+  scenes:
+    density: 
+      plots:
+        p1: 
+          type: "pseudocolor"
+          field: "drho_over_rho"
+          pipeline: "x_slice_pl"
+      renders:
+        r1:
+          image_prefix: "drho%05d"
+          annotations: "true"
+          camera:
+            position: [207.84609691, 0.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+            fov: 60
 -
   action: "add_extracts"
   extracts: 
