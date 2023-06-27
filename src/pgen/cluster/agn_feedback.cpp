@@ -119,7 +119,7 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                                              (1 - efficiency_) * kinetic_jet_e_))) <
           10 * std::numeric_limits<Real>::epsilon(),
       "Specified kinetic jet velocity and temperature are incompatible with mass to "
-      "energy conversion efficiency. Choose either velocity or temperature.");
+      "energy conversion efficiency. Either the specified velocity, temperature, or efficiency are incompatible");
 
   PARTHENON_REQUIRE(kinetic_jet_velocity_ <=
                         units.speed_of_light() * sqrt(2 * efficiency_),
