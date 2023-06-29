@@ -82,11 +82,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   //const auto Y_outflow = pin->GetReal("hydro", "He_mass_fraction_outflow");
   //const auto Y_shell = pin->GetReal("hydro", "He_mass_fraction_shell");
   const auto Y = pin->GetReal("hydro", "He_mass_fraction");
-  //const auto mu = 1 / (Y * 3. / 4. + (1 - Y) * 2);  //metal-poor
+  const auto mu = 1 / (Y * 3. / 4. + (1 - Y) * 2);  //metal-poor
   //const auto mu = 1 / (Y * 3. / 4. + (1 - Y) / 2.); //metal-rich
-  //const auto mu_m_u_gm1_by_k_B = mu * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
-  //const Real rhoe = ta * dout / mu_m_u_gm1_by_k_B;
-  //const Real pa = gm1 * rhoe;
+  const auto mu_m_u_gm1_by_k_B = mu * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
+  const Real rhoe = ta * dout / mu_m_u_gm1_by_k_B;
+  const Real pa = gm1 * rhoe;
 
   pkg->AddParam<>("temperature_ambient", ta);
   //pkg->AddParam<>("pressure_ambient", pa);
@@ -117,8 +117,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("clumps", clumps);
   pkg->AddParam<>("r_clump", r_clump);
 
-  const Real pa = dout / gamma * SQR(vout - shvel) / SQR(mach);
-  pkg->AddParam<>("pressure_ambient", pa);
+  //const Real pa = dout / gamma * SQR(vout - shvel) / SQR(mach);
+  //pkg->AddParam<>("pressure_ambient", pa);
 
   Real chi = pin->GetOrAddReal("problem/blast", "chi", 1000);
   pkg->AddParam<>("chi", chi);
