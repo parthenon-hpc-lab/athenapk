@@ -82,14 +82,14 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   //const auto Y_outflow = pin->GetReal("hydro", "He_mass_fraction_outflow");
   //const auto Y_shell = pin->GetReal("hydro", "He_mass_fraction_shell");
   const auto Y = pin->GetReal("hydro", "He_mass_fraction");
-  const auto mu = 1 / (Y * 3. / 4. + (1 - Y) * 2);  //metal-poor
+  //const auto mu = 1 / (Y * 3. / 4. + (1 - Y) * 2);  //metal-poor
   //const auto mu = 1 / (Y * 3. / 4. + (1 - Y) / 2.); //metal-rich
-  const auto mu_m_u_gm1_by_k_B = mu * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
-  const Real rhoe = ta * dout / mu_m_u_gm1_by_k_B;
-  const Real pa = gm1 * rhoe;
+  //const auto mu_m_u_gm1_by_k_B = mu * units.atomic_mass_unit() * gm1 / units.k_boltzmann();
+  //const Real rhoe = ta * dout / mu_m_u_gm1_by_k_B;
+  //const Real pa = gm1 * rhoe;
 
   pkg->AddParam<>("temperature_ambient", ta);
-  pkg->AddParam<>("pressure_ambient", pa);
+  //pkg->AddParam<>("pressure_ambient", pa);
   pkg->AddParam<>("density_ambient", da);
   pkg->AddParam<>("gamma", gamma);
   pkg->AddParam<>("shell_velocity", shvel);
@@ -117,8 +117,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddParam<>("clumps", clumps);
   pkg->AddParam<>("r_clump", r_clump);
 
-  //const Real pa = dout / gamma * SQR(vout - shvel) / SQR(mach);
-  //pkg->AddParam<>("pressure_ambient", pa);
+  const Real pa = dout / gamma * SQR(vout - shvel) / SQR(mach);
+  pkg->AddParam<>("pressure_ambient", pa);
 
   Real chi = pin->GetOrAddReal("problem/blast", "chi", 1000);
   pkg->AddParam<>("chi", chi);
@@ -248,6 +248,7 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
         Real den = den0;
         Real mx = 0.0;
         Real my = 0.0;
+        Real mz = 0.0;
         Real p = pa * SQR(rstar/rad) ;
         if (rad < rstar){
           p = pa;          
@@ -256,7 +257,7 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
 
 
         for (int ind = 0; ind < clumps; ind++) {
-          Real distan = std::sqrt(SQR(x - position(ind,0)) + SQR(y - position(ind,1)));
+          Real distan = std::sqrt(SQR(x - position(ind,0)) + SQR(y - position(ind,1)) + SQR(z));
           Real smooth = den0 + 0.5 * (chi * den0 - den0) * (1.0 - std::tanh(steepness * (distan / r_clump - 1.0)));
           den = std::max(den,smooth);
         }
@@ -265,10 +266,13 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
 
         mx = den * vout * x / rad;
         my = den * vout * y / rad;
+        mz = den * vout * z / rad;
+
 
         if (den > 1.1 * dout){
           mx = den * sh_vel * x / rad;
           my = den * sh_vel * y / rad;
+          mz = den * sh_vel * z / rad;
           for (auto n = nhydro; n < nhydro + nscalars; n++) {
             u(n, k, j, i) = den * den / chi * den;
           }
@@ -300,8 +304,8 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
         u(IDN, k, j, i) = den;
         u(IM1, k, j, i) = mx;
         u(IM2, k, j, i) = my;
-        u(IM3, k, j, i) = 0.0;
-        u(IEN, k, j, i) = p/gm1 + 0.5 * (mx * mx + my * my) / den;
+        u(IM3, k, j, i) = mz;
+        u(IEN, k, j, i) = p/gm1 + 0.5 * (mx * mx + my * my + mz * mz) / den;
       });
         
 //      }
@@ -344,10 +348,12 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
         if (rad < rstar) {
           const Real mout_x = dout * vout * coords.Xc<1>(i) / rad;
           const Real mout_y = dout * vout * coords.Xc<2>(j) / rad;
+          const Real mout_z = dout * vout * coords.Xc<3>(k) / rad;
           cons(IDN, k, j, i) = dout;
           cons(IM1, k, j, i) = mout_x;
           cons(IM2, k, j, i) = mout_y;
-          cons(IEN, k, j, i) = pres / gm1 + 0.5*(cons(IM1, k, j, i)*cons(IM1, k, j, i) + cons(IM2, k, j, i)*cons(IM2, k, j, i))/cons(IDN, k, j, i);
+          cons(IM3, k, j, i) = mout_z;
+          cons(IEN, k, j, i) = pres / gm1 + 0.5*(cons(IM1, k, j, i)*cons(IM1, k, j, i) + cons(IM2, k, j, i)*cons(IM2, k, j, i) + cons(IM3, k, j, i)*cons(IM3, k, j, i))/cons(IDN, k, j, i);
         }
 
       });
