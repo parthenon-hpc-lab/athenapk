@@ -89,7 +89,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real pa = gm1 * rhoe;
 
   pkg->AddParam<>("temperature_ambient", ta);
-  //pkg->AddParam<>("pressure_ambient", pa);
+  pkg->AddParam<>("pressure_ambient", pa);
   pkg->AddParam<>("density_ambient", da);
   pkg->AddParam<>("gamma", gamma);
   pkg->AddParam<>("shell_velocity", shvel);
