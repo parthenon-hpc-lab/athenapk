@@ -341,9 +341,12 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         auto &cons = cons_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
+        //const Real rad =
+        //    sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
+        //         coords.Xc<3>(k) * coords.Xc<3>(k));
+
         const Real rad =
-            sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
-                 coords.Xc<3>(k) * coords.Xc<3>(k));
+            sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j)); // cylinder approach
         
         if (rad < rstar) {
           const Real mout_x = dout * vout * coords.Xc<1>(i) / rad;
@@ -352,7 +355,7 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
           cons(IDN, k, j, i) = dout;
           cons(IM1, k, j, i) = mout_x;
           cons(IM2, k, j, i) = mout_y;
-          cons(IM3, k, j, i) = mout_z;
+          cons(IM3, k, j, i) = 0; //cylinder aproach //mout_z;
           cons(IEN, k, j, i) = pres / gm1 + 0.5*(cons(IM1, k, j, i)*cons(IM1, k, j, i) + cons(IM2, k, j, i)*cons(IM2, k, j, i) + cons(IM3, k, j, i)*cons(IM3, k, j, i))/cons(IDN, k, j, i);
         }
 
