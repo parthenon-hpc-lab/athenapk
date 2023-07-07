@@ -45,7 +45,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IM2, k, j, i) = -d0 * v0 * std::sin(2.0 * M_PI * coords.Xc<1>(i));
         u(IM3, k, j, i) = 0.0;
 
-        u(IB1, k, j, i) = -B0 * std::sin(2.0 * M_PI * coords.Xc<2>(j));
+        u(IB1, k, j, i) = B0 * std::sin(2.0 * M_PI * coords.Xc<2>(j));
         u(IB2, k, j, i) = B0 * std::sin(4.0 * M_PI * coords.Xc<1>(i));
         u(IB3, k, j, i) = 0.0;
 
