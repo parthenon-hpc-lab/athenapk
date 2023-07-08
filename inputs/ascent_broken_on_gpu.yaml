@@ -42,3 +42,8 @@
         path: "yslice"
         protocol: "blueprint/mesh/hdf5"
         num_files: 2
+    e1:
+      type: "relay"
+      params:
+        path: "blueprint"
+        protocol: "blueprint/mesh/hdf5"
