@@ -89,18 +89,9 @@ template <typename TV, typename TI>
 struct ValPropPair {
   TV value;
   TI index;
-
-  constexpr TV &first() { return value; }
-  constexpr TV const &first() const { return value; }
-  constexpr TI &second() { return index; }
-  constexpr TI const &second() const { return index; }
-
+  
   static constexpr ValPropPair<TV, TI> max() {
     return ValPropPair<TV, TI>{std::numeric_limits<TV>::max(), TI()};
-  }
-
-  static constexpr ValPropPair<TV, TI> min() {
-    return ValPropPair<TV, TI>{std::numeric_limits<TV>::min(), TI()};
   }
 
   friend constexpr bool operator<(ValPropPair<TV, TI> const &a,
@@ -120,7 +111,7 @@ namespace Kokkos { // reduction identity must be defined in Kokkos namespace
    template<typename TV, typename TI>
    struct reduction_identity<Hydro::ValPropPair<TV, TI>> {
       KOKKOS_FORCEINLINE_FUNCTION static Hydro::ValPropPair<TV, TI> min() {
-         return Hydro::ValPropPair<TV, TI>::min();
+         return Hydro::ValPropPair<TV, TI>::max(); // confusingly, this is correct
       }
    };
 }
