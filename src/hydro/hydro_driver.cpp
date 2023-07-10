@@ -376,10 +376,15 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto fill_derived =
         tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+  }
 
+  TaskRegion &explicitly_sync_region = tc.AddRegion(1);
+  {
+    auto &tl = explicitly_sync_region[0];
+    auto &mu0 = pmesh->mesh_data.Get("base");
     if (stage == integrator->nstages) {
-      auto new_dt = tl.AddTask(
-          fill_derived, parthenon::Update::EstimateTimestep<MeshData<Real>>, mu0.get());
+      auto new_dt_task = tl.AddTask(
+          none, parthenon::Update::EstimateTimestep<MeshData<Real>>, mu0.get());
     }
   }
 

@@ -6,6 +6,7 @@
 
 #include <limits>
 #include <memory>
+#include <mpi.h>
 #include <string>
 #include <vector>
 
@@ -676,11 +677,17 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
       },
       Kokkos::Min<ValPropPair<Real, CellPrimValues>>(min_dt_hyperbolic));
 
-  // min_dt_hyperbolic.value now contains the CFL timestep and min_dt_hyperbolic.index
-  // contains the primitive vars for the cell that set the timestep.
+  // Locally, min_dt_hyperbolic.value now contains the min timestep and
+  // min_dt_hyperbolic.index contains the primitive vars for the cell that set the min
+  // timestep on this local partition.
 
-  // TODO(bwibking): the cell properties still need to be propagated through the MPI
-  // reduction.
+  // TODO(bwibking): do MPI_Allreduce here in order to obtain the min timestep globally
+  // and the associated min_dt_hyperbolic.index
+  MPI_Allreduce(&min_dt_hyperbolic, &min_dt_hyperbolic, sizeof(min_dt_hyperbolic), MPI_BYTE,
+                MPI_MINLOC, MPI_COMM_WORLD);
+
+  // save the result
+  hydro_pkg->UpdateParam("cfl_cell_properties", min_dt_hyperbolic.index);
 
   // TODO(pgrete) THIS WORKAROUND IS NOT THREAD SAFE (though this will only become
   // relevant once parthenon uses host-multithreading in the driver).
