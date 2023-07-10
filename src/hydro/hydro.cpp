@@ -640,8 +640,10 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         const Real B2 = prim(IB2, k, j, i);
         const Real B3 = prim(IB3, k, j, i);
 
-        Real lambda_max_x, lambda_max_y, lambda_max_z;
-        
+        Real lambda_max_x{};
+        Real lambda_max_y{};
+        Real lambda_max_z{};
+
         if constexpr (fluid == Fluid::euler) {
           lambda_max_x = eos.SoundSpeed(w);
           lambda_max_y = lambda_max_x;
@@ -674,11 +676,11 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
       },
       Kokkos::Min<ValPropPair<Real, CellPrimValues>>(min_dt_hyperbolic));
 
-  // Now min_dt_hyperbolic.value contains the CFL timestep and min_dt_hyperbolic.index
-  // contains the primitive vars for the cell that set the timestep
+  // min_dt_hyperbolic.value now contains the CFL timestep and min_dt_hyperbolic.index
+  // contains the primitive vars for the cell that set the timestep.
 
   // TODO(bwibking): the cell properties still need to be propagated through the MPI
-  // reduction
+  // reduction.
 
   // TODO(pgrete) THIS WORKAROUND IS NOT THREAD SAFE (though this will only become
   // relevant once parthenon uses host-multithreading in the driver).

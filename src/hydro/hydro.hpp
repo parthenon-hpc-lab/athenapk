@@ -99,8 +99,8 @@ struct ValPropPair {
     return ValPropPair<TV, TI>{std::numeric_limits<TV>::max(), TI()};
   }
 
-  static constexpr ValPropPair<TV, TI> lowest() {
-    return ValPropPair<TV, TI>{std::numeric_limits<TV>::lowest(), TI()};
+  static constexpr ValPropPair<TV, TI> min() {
+    return ValPropPair<TV, TI>{std::numeric_limits<TV>::min(), TI()};
   }
 
   friend constexpr bool operator<(ValPropPair<TV, TI> const &a,
