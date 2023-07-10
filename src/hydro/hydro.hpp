@@ -116,4 +116,13 @@ struct ValPropPair {
 
 } // namespace Hydro
 
+namespace Kokkos { // reduction identity must be defined in Kokkos namespace
+   template<typename TV, typename TI>
+   struct reduction_identity<Hydro::ValPropPair<TV, TI>> {
+      KOKKOS_FORCEINLINE_FUNCTION static Hydro::ValPropPair<TV, TI> min() {
+         return Hydro::ValPropPair<TV, TI>::min();
+      }
+   };
+}
+
 #endif // HYDRO_HYDRO_HPP_
