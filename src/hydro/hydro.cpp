@@ -30,6 +30,7 @@
 #include "defs.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
+#include "globals.hpp"
 #include "hydro.hpp"
 #include "outputs/outputs.hpp"
 #include "rsolvers/rsolvers.hpp"
@@ -188,6 +189,9 @@ TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm) {
 
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto pkg = std::make_shared<StateDescriptor>("Hydro");
+
+  CellPrimValues cell_values{};
+  pkg->AddParam<CellPrimValues>("cfl_cell_properties", cell_values, true);
 
   Real cfl = pin->GetOrAddReal("parthenon/time", "cfl", 0.3);
   pkg->AddParam<>("cfl", cfl);
@@ -681,10 +685,40 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   // min_dt_hyperbolic.index contains the primitive vars for the cell that set the min
   // timestep on this local partition.
 
-  // TODO(bwibking): do MPI_Allreduce here in order to obtain the min timestep globally
-  // and the associated min_dt_hyperbolic.index
-  MPI_Allreduce(&min_dt_hyperbolic, &min_dt_hyperbolic, sizeof(min_dt_hyperbolic), MPI_BYTE,
-                MPI_MINLOC, MPI_COMM_WORLD);
+  MPI_Datatype mpi_valproppair_types[2] = {MPI_PARTHENON_REAL, MPI_BYTE};
+  MPI_Aint mpi_valproppair_disps[2] = {
+      offsetof(valprop_reduce_type, value),
+      offsetof(valprop_reduce_type, index),
+  };
+  int mpi_valproppair_lens[2] = {1, sizeof(CellPrimValues)};
+
+  // create MPI datatype
+  MPI_Datatype mpi_valproppair;
+  MPI_Type_create_struct(2, mpi_valproppair_lens, mpi_valproppair_disps,
+                         mpi_valproppair_types, &mpi_valproppair);
+  MPI_Type_commit(&mpi_valproppair);
+
+  // create MPI reduction op
+  MPI_Op mpi_minloc_valproppair;
+  MPI_Op_create(ValPropPairMPIReducer, 1, &mpi_minloc_valproppair);
+
+  // do MPI reduction
+  MPI_Allreduce(&min_dt_hyperbolic, &min_dt_hyperbolic, 1, mpi_valproppair,
+                mpi_minloc_valproppair, MPI_COMM_WORLD);
+
+  if (parthenon::Globals::my_rank == 0) {
+    // print timestep
+    std::cout << "\n";
+    std::cout << "Hyperbolic dt = " << cfl_hyp * min_dt_hyperbolic.value << "\n";
+
+    // print cell properties
+    CellPrimValues &props = min_dt_hyperbolic.index;
+    std::cout << "\tprops.rho = " << props.rho << "\n";
+    std::cout << "\tprops.v1 = " << props.v1 << "\n";
+    std::cout << "\tprops.v2 = " << props.v2 << "\n";
+    std::cout << "\tprops.v3 = " << props.v3 << "\n";
+    std::cout << "\tprops.P = " << props.P << "\n";
+  }
 
   // save the result
   hydro_pkg->UpdateParam("cfl_cell_properties", min_dt_hyperbolic.index);

@@ -89,7 +89,7 @@ template <typename TV, typename TI>
 struct ValPropPair {
   TV value;
   TI index;
-  
+
   static constexpr ValPropPair<TV, TI> max() {
     return ValPropPair<TV, TI>{std::numeric_limits<TV>::max(), TI()};
   }
@@ -105,15 +105,27 @@ struct ValPropPair {
   }
 };
 
+typedef ValPropPair<Real, CellPrimValues> valprop_reduce_type;
+inline void ValPropPairMPIReducer(void *in, void *inout, int *len, MPI_Datatype *type) {
+  valprop_reduce_type *invals = static_cast<valprop_reduce_type *>(in);
+  valprop_reduce_type *inoutvals = static_cast<valprop_reduce_type *>(inout);
+
+  for (int i = 0; i < *len; i++) {
+    if (invals[i] < inoutvals[i]) {
+      inoutvals[i] = invals[i];
+    }
+  }
+};
+
 } // namespace Hydro
 
 namespace Kokkos { // reduction identity must be defined in Kokkos namespace
-   template<typename TV, typename TI>
-   struct reduction_identity<Hydro::ValPropPair<TV, TI>> {
-      KOKKOS_FORCEINLINE_FUNCTION static Hydro::ValPropPair<TV, TI> min() {
-         return Hydro::ValPropPair<TV, TI>::max(); // confusingly, this is correct
-      }
-   };
-}
+template <typename TV, typename TI>
+struct reduction_identity<Hydro::ValPropPair<TV, TI>> {
+  KOKKOS_FORCEINLINE_FUNCTION static Hydro::ValPropPair<TV, TI> min() {
+    return Hydro::ValPropPair<TV, TI>::max(); // confusingly, this is correct
+  }
+};
+} // namespace Kokkos
 
 #endif // HYDRO_HYDRO_HPP_
