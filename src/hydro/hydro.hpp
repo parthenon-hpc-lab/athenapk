@@ -74,6 +74,46 @@ constexpr size_t GetNVars<Fluid::glmmhd>() {
   return 9; // above plus B_x, B_y, B_z, psi
 }
 
+struct CellPrimValues {
+  Real rho{};
+  Real v1{};
+  Real v2{};
+  Real v3{};
+  Real P{};
+  Real B1{};
+  Real B2{};
+  Real B3{};
+};
+
+template <typename TV, typename TI>
+struct ValPropPair {
+  TV value;
+  TI index;
+
+  constexpr TV &first() { return value; }
+  constexpr TV const &first() const { return value; }
+  constexpr TI &second() { return index; }
+  constexpr TI const &second() const { return index; }
+
+  static constexpr ValPropPair<TV, TI> max() {
+    return ValPropPair<TV, TI>{std::numeric_limits<TV>::max(), TI()};
+  }
+
+  static constexpr ValPropPair<TV, TI> lowest() {
+    return ValPropPair<TV, TI>{std::numeric_limits<TV>::lowest(), TI()};
+  }
+
+  friend constexpr bool operator<(ValPropPair<TV, TI> const &a,
+                                  ValPropPair<TV, TI> const &b) {
+    return a.value < b.value;
+  }
+
+  friend constexpr bool operator>(ValPropPair<TV, TI> const &a,
+                                  ValPropPair<TV, TI> const &b) {
+    return a.value > b.value;
+  }
+};
+
 } // namespace Hydro
 
 #endif // HYDRO_HYDRO_HPP_

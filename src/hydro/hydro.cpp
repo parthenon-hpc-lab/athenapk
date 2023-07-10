@@ -25,6 +25,7 @@
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
 #include "../units.hpp"
+#include "basic_types.hpp"
 #include "defs.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
@@ -607,7 +608,10 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-  Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
+  // reduce ValPropPair<Real, CellPrimValues> so we can obtain the properties of
+  // the cell that is limiting the timestep
+  ValPropPair<Real, CellPrimValues> min_dt_hyperbolic{std::numeric_limits<Real>::max(),
+                                                      {}};
 
   const auto ndim_ = prim_pack.GetNdim();
   Kokkos::parallel_reduce(
@@ -616,7 +620,8 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
           DevExecSpace(), {0, kb.s, jb.s, ib.s},
           {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
           {1, 1, 1, ib.e + 1 - ib.s}),
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i,
+                    ValPropPair<Real, CellPrimValues> &min_dt) {
         const auto &prim = prim_pack(b);
         const auto &coords = prim_pack.GetCoords(b);
         // Need to reference variables here so that they are properly caught by
@@ -630,37 +635,50 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         w[IV2] = prim(IV2, k, j, i);
         w[IV3] = prim(IV3, k, j, i);
         w[IPR] = prim(IPR, k, j, i);
+
+        const Real B1 = prim(IB1, k, j, i);
+        const Real B2 = prim(IB2, k, j, i);
+        const Real B3 = prim(IB3, k, j, i);
+
         Real lambda_max_x, lambda_max_y, lambda_max_z;
+        
         if constexpr (fluid == Fluid::euler) {
           lambda_max_x = eos.SoundSpeed(w);
           lambda_max_y = lambda_max_x;
           lambda_max_z = lambda_max_x;
 
         } else if constexpr (fluid == Fluid::glmmhd) {
-          lambda_max_x = eos.FastMagnetosonicSpeed(
-              w[IDN], w[IPR], prim(IB1, k, j, i), prim(IB2, k, j, i), prim(IB3, k, j, i));
+          lambda_max_x = eos.FastMagnetosonicSpeed(w[IDN], w[IPR], B1, B2, B3);
           if (ndim > 1) {
-            lambda_max_y =
-                eos.FastMagnetosonicSpeed(w[IDN], w[IPR], prim(IB2, k, j, i),
-                                          prim(IB3, k, j, i), prim(IB1, k, j, i));
+            lambda_max_y = eos.FastMagnetosonicSpeed(w[IDN], w[IPR], B2, B3, B1);
           }
           if (ndim > 2) {
-            lambda_max_z =
-                eos.FastMagnetosonicSpeed(w[IDN], w[IPR], prim(IB3, k, j, i),
-                                          prim(IB1, k, j, i), prim(IB2, k, j, i));
+            lambda_max_z = eos.FastMagnetosonicSpeed(w[IDN], w[IPR], B3, B1, B2);
           }
         } else {
           PARTHENON_FAIL("Unknown fluid in EstimateTimestep");
         }
-        min_dt = fmin(min_dt, coords.Dxc<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
+        min_dt.value =
+            fmin(min_dt.value, coords.Dxc<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
         if (ndim > 1) {
-          min_dt = fmin(min_dt, coords.Dxc<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
+          min_dt.value =
+              fmin(min_dt.value, coords.Dxc<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
         }
         if (ndim > 2) {
-          min_dt = fmin(min_dt, coords.Dxc<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
+          min_dt.value =
+              fmin(min_dt.value, coords.Dxc<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
         }
+
+        CellPrimValues this_cell{w[IDN], w[IV1], w[IV2], w[IV3], w[IPR], B1, B2, B3};
+        min_dt.index = this_cell;
       },
-      Kokkos::Min<Real>(min_dt_hyperbolic));
+      Kokkos::Min<ValPropPair<Real, CellPrimValues>>(min_dt_hyperbolic));
+
+  // Now min_dt_hyperbolic.value contains the CFL timestep and min_dt_hyperbolic.index
+  // contains the primitive vars for the cell that set the timestep
+
+  // TODO(bwibking): the cell properties still need to be propagated through the MPI
+  // reduction
 
   // TODO(pgrete) THIS WORKAROUND IS NOT THREAD SAFE (though this will only become
   // relevant once parthenon uses host-multithreading in the driver).
@@ -670,11 +688,11 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   // processes.
   if constexpr (fluid == Fluid::glmmhd) {
     auto dt_hyp_pkg = hydro_pkg->Param<Real>("dt_hyp");
-    if (cfl_hyp * min_dt_hyperbolic < dt_hyp_pkg) {
-      hydro_pkg->UpdateParam("dt_hyp", cfl_hyp * min_dt_hyperbolic);
+    if (cfl_hyp * min_dt_hyperbolic.value < dt_hyp_pkg) {
+      hydro_pkg->UpdateParam("dt_hyp", cfl_hyp * min_dt_hyperbolic.value);
     }
   }
-  return cfl_hyp * min_dt_hyperbolic;
+  return cfl_hyp * min_dt_hyperbolic.value;
 }
 
 // provide the routine that estimates a stable timestep for this package
