@@ -55,7 +55,7 @@ scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 type                         = pressure_gradient
 threshold_pressure_gradient  = 0.1
 
-<problem>
+<problem/blast>
 pressure_ambient  = 0.001   # ambient pressure
 pressure_ratio    = 1.6e8   # Pressure ratio initially
 radius_outer      = 0.03125 # Radius of the outer sphere
