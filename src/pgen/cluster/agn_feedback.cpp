@@ -359,34 +359,35 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                 "Kinetic injection leads to temperature below jet and existing gas");
 #endif
           }
+
+
+          //Apply velocity ceiling
+          const Real v2 = SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) + SQR(prim(IV3, k, j, i));
+          if( v2 > vceil2){
+            //Fix the velocity to the velocity ceiling
+            const Real v = sqrt(v2);
+            cons(IM1, k, j, i) += vceil/v;
+            cons(IM2, k, j, i) += vceil/v;
+            cons(IM3, k, j, i) += vceil/v;
+            prim(IV1, k, j, i) += vceil/v;
+            prim(IV2, k, j, i) += vceil/v;
+            prim(IV3, k, j, i) += vceil/v;
+
+            //Update the internal energy
+            cons(IEN, k, j, i) -= 0.5*prim(IDN, k, j, i)*( v2 - vceil2);
+          }
+
+          //Apply  internal energy ceiling as a pressure ceiling
+          const Real internal_e = prim(IPR, k, j, i)/( gm1 * prim(IDN, k, j, i) );
+          if( internal_e > eceil){
+            cons(IEN, k, j, i) -= (internal_e - eceil);
+            prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
+          }
         }
+
         eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
         PARTHENON_DEBUG_REQUIRE(prim(IPR, k, j, i) > 0,
                                 "Kinetic injection leads to negative pressure");
-
-
-        //Apply velocity ceiling
-        const Real v2 = SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) + SQR(prim(IV3, k, j, i));
-        if( v2 > vceil2){
-          //Fix the velocity to the velocity ceiling
-          const Real v = sqrt(v2);
-          cons(IM1, k, j, i) += vceil/v;
-          cons(IM2, k, j, i) += vceil/v;
-          cons(IM3, k, j, i) += vceil/v;
-          prim(IV1, k, j, i) += vceil/v;
-          prim(IV2, k, j, i) += vceil/v;
-          prim(IV3, k, j, i) += vceil/v;
-
-          //Update the internal energy
-          cons(IEN, k, j, i) -= 0.5*prim(IDN, k, j, i)*( v2 - vceil2);
-        }
-
-        //Apply  internal energy ceiling as a pressure ceiling
-        const Real internal_e = prim(IPR, k, j, i)/( gm1 * prim(IDN, k, j, i) );
-        if( internal_e > eceil){
-          cons(IEN, k, j, i) -= (internal_e - eceil);
-          prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
-        }
       });
 
   // Apply magnetic tower feedback
