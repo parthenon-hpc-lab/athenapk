@@ -156,7 +156,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
     const Real eff_pressure_ceiling = gm1 * u_d * e_ceiling_;
     if (w_p > eff_pressure_ceiling) {
       // apply temperature ceiling, correct total energy
-      u_e = (u_d * e_ceiling_) + e_k;
+      u_e = (u_d * e_ceiling_) + e_k + e_B;
       w_p = eff_pressure_ceiling;
     }
 
