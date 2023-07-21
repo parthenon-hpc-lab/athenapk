@@ -686,7 +686,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   // for computing temperature from primitives
   auto units = pkg->Param<Units>("units");
   auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
-  auto mbar = mbar_over_kb*units.k_boltzmann();
+  auto mbar = mbar_over_kb * units.k_boltzmann();
 
   // fill derived vars (*including ghost cells*)
   auto &coords = pmb->coords;
@@ -712,7 +712,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         log10_radius(k, j, i) = 0.5 * std::log10(r2);
 
         // compute entropy
-        const Real K = P / std::pow(rho/mbar, gam);
+        const Real K = P / std::pow(rho / mbar, gam);
         entropy(k, j, i) = K;
 
         const Real v_mag = std::sqrt(SQR(v1) + SQR(v2) + SQR(v3));

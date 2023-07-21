@@ -33,7 +33,8 @@ using namespace parthenon;
 AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                          parthenon::StateDescriptor *hydro_pkg)
     : fixed_power_(pin->GetOrAddReal("problem/cluster/agn_feedback", "fixed_power", 0.0)),
-      vceil_(pin->GetOrAddReal("problem/cluster/agn_feedback", "vceil", std::numeric_limits<Real>::infinity())),
+      vceil_(pin->GetOrAddReal("problem/cluster/agn_feedback", "vceil",
+                               std::numeric_limits<Real>::infinity())),
       efficiency_(pin->GetOrAddReal("problem/cluster/agn_feedback", "efficiency", 1e-3)),
       thermal_fraction_(
           pin->GetOrAddReal("problem/cluster/agn_feedback", "thermal_fraction", 0.0)),
@@ -117,10 +118,11 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
   // Verify all equations are satified. NAN's here should give failures
   PARTHENON_REQUIRE(
       fabs(kinetic_jet_velocity_ - sqrt(2 * (efficiency_ * SQR(units.speed_of_light()) -
-                                            (1 - efficiency_) * kinetic_jet_e_))) <
+                                             (1 - efficiency_) * kinetic_jet_e_))) <
           10 * std::numeric_limits<Real>::epsilon(),
       "Specified kinetic jet velocity and temperature are incompatible with mass to "
-      "energy conversion efficiency. Either the specified velocity, temperature, or efficiency are incompatible");
+      "energy conversion efficiency. Either the specified velocity, temperature, or "
+      "efficiency are incompatible");
 
   PARTHENON_REQUIRE(kinetic_jet_velocity_ <=
                         units.speed_of_light() * sqrt(2 * efficiency_),
@@ -135,9 +137,10 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
   PARTHENON_REQUIRE(kinetic_jet_temperature_ >= 0,
                     "Kinetic jet temperature must be non-negative");
 
-  //Compute the internal energy ceiling from the temperature ceiling 
-  const Real tceil = pin->GetOrAddReal("problem/cluster/agn_feedback", "Tceil", std::numeric_limits<Real>::infinity());
-  eceil_ = tceil /mbar_gm1_over_kb;
+  // Compute the internal energy ceiling from the temperature ceiling
+  const Real tceil = pin->GetOrAddReal("problem/cluster/agn_feedback", "Tceil",
+                                       std::numeric_limits<Real>::infinity());
+  eceil_ = tceil / mbar_gm1_over_kb;
 
   // Add user history output variable for AGN power
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
@@ -277,7 +280,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const Real jet_feedback = kinetic_fraction_ * power * kinetic_scaling_factor * beta_dt;
 
   const Real vceil = vceil_;
-  const Real vceil2 =  SQR(vceil);
+  const Real vceil2 = SQR(vceil);
   const Real eceil = eceil_;
   const Real gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
   ////////////////////////////////////////////////////////////////////////////////
@@ -360,27 +363,27 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 #endif
           }
 
-
-          //Apply velocity ceiling
-          const Real v2 = SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) + SQR(prim(IV3, k, j, i));
-          if( v2 > vceil2){
-            //Fix the velocity to the velocity ceiling
+          // Apply velocity ceiling
+          const Real v2 =
+              SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) + SQR(prim(IV3, k, j, i));
+          if (v2 > vceil2) {
+            // Fix the velocity to the velocity ceiling
             const Real v = sqrt(v2);
-            cons(IM1, k, j, i) *= vceil/v;
-            cons(IM2, k, j, i) *= vceil/v;
-            cons(IM3, k, j, i) *= vceil/v;
-            prim(IV1, k, j, i) *= vceil/v;
-            prim(IV2, k, j, i) *= vceil/v;
-            prim(IV3, k, j, i) *= vceil/v;
+            cons(IM1, k, j, i) *= vceil / v;
+            cons(IM2, k, j, i) *= vceil / v;
+            cons(IM3, k, j, i) *= vceil / v;
+            prim(IV1, k, j, i) *= vceil / v;
+            prim(IV2, k, j, i) *= vceil / v;
+            prim(IV3, k, j, i) *= vceil / v;
 
-            //Update the internal energy
-            cons(IEN, k, j, i) -= 0.5*prim(IDN, k, j, i)*( v2 - vceil2);
+            // Update the internal energy
+            cons(IEN, k, j, i) -= 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
           }
 
-          //Apply  internal energy ceiling as a pressure ceiling
-          const Real internal_e = prim(IPR, k, j, i)/( gm1 * prim(IDN, k, j, i) );
-          if( internal_e > eceil){
-            cons(IEN, k, j, i) -= prim(IDN, k, j, i)*(internal_e - eceil);
+          // Apply  internal energy ceiling as a pressure ceiling
+          const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
+          if (internal_e > eceil) {
+            cons(IEN, k, j, i) -= prim(IDN, k, j, i) * (internal_e - eceil);
             prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
           }
         }

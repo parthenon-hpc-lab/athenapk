@@ -31,8 +31,8 @@ class AGNFeedback {
   // Efficiency converting mass to energy
   const parthenon::Real efficiency_;
 
-  //Velocity and temperature ceilings
-  parthenon::Real vceil_,eceil_;
+  // Velocity and temperature ceilings
+  parthenon::Real vceil_, eceil_;
 
   // Thermal Heating Parameters
   const parthenon::Real thermal_radius_;
