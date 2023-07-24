@@ -961,8 +961,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 // (multiple calls) versus extra memory usage is.
 template <Fluid fluid>
 TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
-                                 const Real gam0_, const Real gam1_, const Real beta_dt_) {
-  //Work around for CUDA <=11.6
+                                 const Real gam0_, const Real gam1_,
+                                 const Real beta_dt_) {
+  // Work around for CUDA <=11.6
   const Real gam0 = gam0_;
   const Real gam1 = gam1_;
   const Real beta_dt = beta_dt_;
