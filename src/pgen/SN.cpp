@@ -254,6 +254,131 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
           p = pa;          
         }
 
+        mx = den * vout * x / rad;
+        my = den * vout * y / rad;
+        mz = den * vout * z / rad;
+
+
+
+        /*for (int ind = 0; ind < clumps; ind++) {
+          Real distan = std::sqrt(SQR(x - position(ind,0)) + SQR(y - position(ind,1)) + SQR(z));
+          Real smooth = den0 + 0.5 * (chi * den0 - den0) * (1.0 - std::tanh(steepness * (distan / r_clump - 1.0)));
+          den = std::max(den,smooth);
+        }
+
+        //den = *std::max_element(smooth, smooth + clumps);
+
+        mx = den * vout * x / rad;
+        my = den * vout * y / rad;
+        mz = den * vout * z / rad;
+
+
+        if (den > 1.1 * dout){
+          mx = den * sh_vel * x / rad;
+          my = den * sh_vel * y / rad;
+          mz = den * sh_vel * z / rad;
+          for (auto n = nhydro; n < nhydro + nscalars; n++) {
+            u(n, k, j, i) = den * den / chi * den;
+          }
+        }
+        */
+
+
+        //if (rad < routp) {
+          //if (rad > rinp) {
+            //Real dist = std::sqrt(SQR(x_temp - x) + SQR(y_temp - y));
+            //den = *std::max_element(smooth, smooth + clumps);
+            //if (den > 1.1 * da){
+            //  mx = den * sh_vel * x / rad;
+            //  my = den * sh_vel * y / rad;
+            //}   
+            
+            //number = distribution(generator);
+              //den = denp * (fabs(sin(fringe * ang))) + da;
+            //den = 1 / number;
+            
+            //u(IDN, k, j, i) = den;
+            //u(IM1, k, j, i) = mx;
+            //u(IM2, k, j, i) = my;
+            //u(IM3, k, j, i) = 0.0;
+            //u(IEN, k, j, i) = pa/gm1 + 0.5 * (mx * mx + my * my) / den;
+          //}
+        //}
+
+
+        u(IDN, k, j, i) = den;
+        u(IM1, k, j, i) = mx;
+        u(IM2, k, j, i) = my;
+        u(IM3, k, j, i) = mz;
+        u(IEN, k, j, i) = p/gm1 + 0.5 * (mx * mx + my * my + mz * mz) / den;
+      });
+        
+//      }
+//    }
+//  }
+
+}
+
+void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_dt) {
+
+  using parthenon::IndexDomain;
+  using parthenon::IndexRange;
+  using parthenon::Real;
+  
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const Real rstar = hydro_pkg->Param<Real>("radius_star");
+  const Real dout = hydro_pkg->Param<Real>("outflow_density");
+  const Real pres = hydro_pkg->Param<Real>("pressure_ambient");
+  const Real gamma = hydro_pkg->Param<Real>("gamma");
+  Real gm1 = gamma - 1.0;
+  const Real vout = hydro_pkg->Param<Real>("outflow_velocity");
+  const Real chi = hydro_pkg->Param<Real>("chi");
+
+  const Real da = hydro_pkg->Param<Real>("density_ambient");
+  const Real pa = hydro_pkg->Param<Real>("pressure_ambient");
+  const Real sh_vel = hydro_pkg->Param<Real>("shell_velocity");
+  
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
+  auto steepness = hydro_pkg->Param<Real>("steepness");
+  const int clumps = hydro_pkg->Param<int>("clumps");
+  const Real r_clump = hydro_pkg->Param<Real>("r_clump");
+
+  auto &position = position_;
+
+
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  if (tm.ncycle == 150) {
+    parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "Outflow", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+        auto &u = cons_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
+        Real x = coords.Xc<1>(i);
+        Real y = coords.Xc<2>(j);
+        Real z = coords.Xc<3>(k);
+        Real rad = std::sqrt(SQR(x) + SQR(y) + SQR(z));
+        //Real den = da;
+        Real den0 = dout * SQR(rstar/rad);
+        if (rad < rstar){
+          den0 = dout;
+        }
+        Real den = den0;
+        Real mx = 0.0;
+        Real my = 0.0;
+        Real mz = 0.0;
+        Real p = pa * SQR(rstar/rad) ;
+        if (rad < rstar){
+          p = pa;          
+        }
+
 
 
         for (int ind = 0; ind < clumps; ind++) {
@@ -307,33 +432,7 @@ const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
         u(IM3, k, j, i) = mz;
         u(IEN, k, j, i) = p/gm1 + 0.5 * (mx * mx + my * my + mz * mz) / den;
       });
-        
-//      }
-//    }
-//  }
-
-}
-
-void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt) {
-  using parthenon::IndexDomain;
-  using parthenon::IndexRange;
-  using parthenon::Real;
-  
-  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  const Real rstar = hydro_pkg->Param<Real>("radius_star");
-  const Real dout = hydro_pkg->Param<Real>("outflow_density");
-  const Real pres = hydro_pkg->Param<Real>("pressure_ambient");
-  const Real gamma = hydro_pkg->Param<Real>("gamma");
-  Real gm1 = gamma - 1.0;
-  const Real vout = hydro_pkg->Param<Real>("outflow_velocity");
-  //const Real Y_shell = hydro_pkg->Param<Real>("He_mass_fraction_shell");
-
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  }
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Outflow", parthenon::DevExecSpace(), 0,

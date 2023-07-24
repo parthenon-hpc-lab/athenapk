@@ -58,7 +58,7 @@ namespace SN {
 using namespace parthenon::driver::prelude;
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md);
-void Outflow(MeshData<Real> *md, const parthenon::SimTime, const Real beta_dt);
+void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_dt);
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin);
 void Cleanup();
 
