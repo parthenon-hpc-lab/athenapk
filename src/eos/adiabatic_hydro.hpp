@@ -24,9 +24,11 @@ using parthenon::Real;
 
 class AdiabaticHydroEOS : public EquationOfState {
  public:
-  AdiabaticHydroEOS(Real pressure_floor, Real density_floor, Real internal_e_floor,
-                    Real gamma)
-      : EquationOfState(pressure_floor, density_floor, internal_e_floor), gamma_{gamma} {}
+   AdiabaticHydroEOS(Real pressure_floor, Real density_floor, 
+       Real internal_e_floor, Real velocity_ceiling, Real internal_e_ceiling,
+       Real gamma)
+     : EquationOfState(pressure_floor, density_floor, internal_e_floor,
+       velocity_ceiling, internal_e_ceiling), gamma_{gamma} {}
 
   void ConservedToPrimitive(MeshData<Real> *md) const override;
 
@@ -55,6 +57,9 @@ class AdiabaticHydroEOS : public EquationOfState {
     auto pressure_floor_ = GetPressureFloor();
     auto e_floor_ = GetInternalEFloor();
 
+    auto velocity_ceiling_ = GetVelocityCeiling();
+    auto e_ceiling_ = GetInternalECeiling();
+    
     Real &u_d = cons(IDN, k, j, i);
     Real &u_m1 = cons(IM1, k, j, i);
     Real &u_m2 = cons(IM2, k, j, i);
@@ -84,6 +89,23 @@ class AdiabaticHydroEOS : public EquationOfState {
     Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
     w_p = gm1 * (u_e - e_k);
 
+    // apply velocity ceiling. By default ceiling is std::numeric_limits<Real>::infinity()
+    const Real w_v2 = SQR(w_vx) + SQR(w_vy) + SQR(w_vz);
+    if( w_v2 > SQR(velocity_ceiling_) ){
+      const Real w_v = sqrt(w_v2);
+      w_vx *= velocity_ceiling_/w_v;
+      w_vy *= velocity_ceiling_/w_v;
+      w_vz *= velocity_ceiling_/w_v;
+
+      u_m1 *= velocity_ceiling_/w_v;
+      u_m2 *= velocity_ceiling_/w_v;
+      u_m3 *= velocity_ceiling_/w_v;
+
+      Real e_k_new = 0.5 * u_d * SQR(velocity_ceiling_);
+      u_e -= e_k - e_k_new;
+      e_k = e_k_new;
+    }
+
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.
     PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
@@ -103,6 +125,14 @@ class AdiabaticHydroEOS : public EquationOfState {
       // apply temperature floor, correct total energy
       u_e = (u_d * e_floor_) + e_k;
       w_p = eff_pressure_floor;
+    }
+
+    // temperature (internal energy) based pressure ceiling
+    const Real eff_pressure_ceiling = gm1 * u_d * e_ceiling_;
+    if (w_p > eff_pressure_ceiling) {
+      // apply temperature ceiling, correct total energy
+      u_e = (u_d * e_ceiling_) + e_k;
+      w_p = eff_pressure_ceiling;
     }
 
     // Convert passive scalars

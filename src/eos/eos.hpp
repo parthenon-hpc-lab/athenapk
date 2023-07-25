@@ -32,9 +32,11 @@ using parthenon::Real;
 
 class EquationOfState {
  public:
-  EquationOfState(Real pressure_floor, Real density_floor, Real internal_e_floor)
-      : pressure_floor_(pressure_floor), density_floor_(density_floor),
-        internal_e_floor_(internal_e_floor) {}
+   EquationOfState(Real pressure_floor, Real density_floor, Real
+       internal_e_floor, Real velocity_ceiling, Real internal_e_ceiling)
+     : pressure_floor_(pressure_floor), density_floor_(density_floor),
+     internal_e_floor_(internal_e_floor), velocity_ceiling_(velocity_ceiling),
+     internal_e_ceiling_(internal_e_ceiling) {}
   virtual void ConservedToPrimitive(MeshData<Real> *md) const = 0;
 
   KOKKOS_INLINE_FUNCTION
@@ -47,8 +49,15 @@ class EquationOfState {
   KOKKOS_INLINE_FUNCTION
   Real GetInternalEFloor() const { return internal_e_floor_; }
 
+  KOKKOS_INLINE_FUNCTION
+  Real GetVelocityCeiling() const { return velocity_ceiling_; }
+
+  KOKKOS_INLINE_FUNCTION
+  Real GetInternalECeiling() const { return internal_e_ceiling_; }
+
  private:
   Real pressure_floor_, density_floor_, internal_e_floor_;
+  Real velocity_ceiling_, internal_e_ceiling_;
 };
 
 #endif // EOS_EOS_HPP_
