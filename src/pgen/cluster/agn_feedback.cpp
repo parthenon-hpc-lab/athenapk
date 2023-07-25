@@ -17,7 +17,7 @@
 #include <parameter_input.hpp>
 #include <parthenon/package.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../eos/adiabatic_hydro.hpp"
 #include "../../main.hpp"
@@ -291,7 +291,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory");
   const JetCoords jet_coords = jet_coords_factory.CreateJetCoords(time);
 
-  // Constant volumetric heating
+  // Appy kinietic jet and thermal feedback
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HydroAGNFeedback::FeedbackSrcTerm",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
