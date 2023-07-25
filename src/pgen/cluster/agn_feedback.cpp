@@ -269,9 +269,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   // Velocity of added gas
   const Real jet_velocity = kinetic_jet_velocity_;
-#ifndef NDEBUG
   const Real jet_specific_internal_e = kinetic_jet_e_;
-#endif
 
   // Amount of momentum density ( density * velocity) to dump in each cell
   const Real jet_momentum = jet_density * jet_velocity;
@@ -340,11 +338,9 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         //  momentum, and total energy added depend on the triggered power.
         ///////////////////////////////////////////////////////////////////
 
-#ifndef NDEBUG
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             const Real old_specific_internal_e =
                 prim(IPR, k, j, i) / (prim(IDN, k, j, i) * (eos.GetGamma() - 1.));
-#endif
 
             cons(IDN, k, j, i) += jet_density;
             cons(IM1, k, j, i) += jet_momentum * sign_jet * jet_axis_x;
@@ -352,15 +348,13 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             cons(IM3, k, j, i) += jet_momentum * sign_jet * jet_axis_z;
             cons(IEN, k, j, i) += jet_feedback;
 
-#ifndef NDEBUG
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             const Real new_specific_internal_e =
                 prim(IPR, k, j, i) / (prim(IDN, k, j, i) * (eos.GetGamma() - 1.));
-            PARTHENON_DEBUG_REQUIRE(
+            PARTHENON_REQUIRE(
                 new_specific_internal_e > jet_specific_internal_e ||
                     new_specific_internal_e > old_specific_internal_e,
                 "Kinetic injection leads to temperature below jet and existing gas");
-#endif
           }
 
           // Apply velocity ceiling
@@ -389,7 +383,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         }
 
         eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-        PARTHENON_DEBUG_REQUIRE(prim(IPR, k, j, i) > 0,
+        PARTHENON_REQUIRE(prim(IPR, k, j, i) > 0,
                                 "Kinetic injection leads to negative pressure");
       });
 
