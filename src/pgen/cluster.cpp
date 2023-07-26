@@ -139,7 +139,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
 
               if (va2 > vAceil2) {
                 //Increase the density to match the alfven velocity ceiling
-                const Real rho_new = std::sqrt(vAceil2/B2);
+                const Real rho_new = std::sqrt(B2/vAceil2);
                 cons(IDN, k, j, i) = rho_new;
                 prim(IDN, k, j, i) = rho_new;
               }
