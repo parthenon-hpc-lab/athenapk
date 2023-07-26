@@ -365,7 +365,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
                      "(defined code units) instead.");
     }
     auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
-    eceil = Tceil / mbar_over_kb / (hydro_pkg->Param<Real>("adiabatic_index") - 1.0);
+    eceil = Tceil / mbar_over_kb / (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
   }
   hydro_pkg->AddParam("cluster_dfloor",dfloor);
   hydro_pkg->AddParam("cluster_eceil",eceil);
