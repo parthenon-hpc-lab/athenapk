@@ -347,15 +347,15 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    ************************************************************/
 
   //Disable all clips by default with a negative radius clip
-  Real clip_r = pin->GetOrAddReal("cluster/clips", "clip_r", -1.0);
+  Real clip_r = pin->GetOrAddReal("problem/cluster/clips", "clip_r", -1.0);
 
   // By default disable floors by setting a negative value
-  Real dfloor = pin->GetOrAddReal("cluster/clips", "dfloor", -1.0);
+  Real dfloor = pin->GetOrAddReal("problem/cluster/clips", "dfloor", -1.0);
 
   // By default disable ceilings by setting to infinity
-  Real vceil = pin->GetOrAddReal("cluster/clips", "vceil", std::numeric_limits<Real>::infinity());
-  Real vAceil = pin->GetOrAddReal("cluster/clips", "vAceil", std::numeric_limits<Real>::infinity());
-  Real Tceil = pin->GetOrAddReal("cluster/clips", "Tceil", std::numeric_limits<Real>::infinity());
+  Real vceil = pin->GetOrAddReal("problem/cluster/clips", "vceil", std::numeric_limits<Real>::infinity());
+  Real vAceil = pin->GetOrAddReal("problem/cluster/clips", "vAceil", std::numeric_limits<Real>::infinity());
+  Real Tceil = pin->GetOrAddReal("problem/cluster/clips", "Tceil", std::numeric_limits<Real>::infinity());
   Real eceil = Tceil;
   if (eceil < std::numeric_limits<Real>::infinity()) {
     if (!hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
