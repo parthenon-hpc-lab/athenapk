@@ -126,6 +126,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const int cyc = pin->GetOrAddReal("problem/blast", "cyc", 1000);
   pkg->AddParam<>("cyc", cyc);
 
+  const Real t_clump = pin->GetReal("problem/blast", "temperature_clump");
+  pkg->AddParam<>("t_clump", t_clump);
 
   std::stringstream msg;
   msg << std::setprecision(2);
@@ -340,6 +342,7 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_d
   const Real chi = hydro_pkg->Param<Real>("chi");
 
   const Real da = hydro_pkg->Param<Real>("density_ambient");
+  const Real ta = hydro_pkg->Param<Real>("temperature_ambient");
   const Real pa = hydro_pkg->Param<Real>("pressure_ambient");
   const Real sh_vel = hydro_pkg->Param<Real>("shell_velocity");
   
@@ -350,6 +353,7 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_d
   const Real r_clump = hydro_pkg->Param<Real>("r_clump");
 
   const int cyc = hydro_pkg->Param<int>("cyc");
+  const Real t_clump = hydro_pkg->Param<Real>("t_clump");
 
   auto &position = position_;
 
@@ -380,10 +384,11 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_d
         Real mx = 0.0;
         Real my = 0.0;
         Real mz = 0.0;
-        Real p = pa * SQR(rstar/rad) ;
+        Real p0 = pa * SQR(rstar/rad) ;
         if (rad < rstar){
-          p = pa;          
+          p0 = pa;          
         }
+        Real p = p0;
 
 
 
@@ -407,6 +412,7 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_d
           for (auto n = nhydro; n < nhydro + nscalars; n++) {
             u(n, k, j, i) = den * den / chi * den;
           }
+          p = p0 * den/den0 * t_clump/ta;
         }
 
 
