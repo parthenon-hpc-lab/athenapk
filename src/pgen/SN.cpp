@@ -123,6 +123,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   Real chi = pin->GetOrAddReal("problem/blast", "chi", 1000);
   pkg->AddParam<>("chi", chi);
 
+  const int cyc = pin->GetOrAddReal("problem/blast", "cyc", 1000);
+  pkg->AddParam<>("cyc", cyc);
+
+
   std::stringstream msg;
   msg << std::setprecision(2);
   msg << "######################################" << std::endl;
@@ -345,6 +349,8 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_d
   const int clumps = hydro_pkg->Param<int>("clumps");
   const Real r_clump = hydro_pkg->Param<Real>("r_clump");
 
+  const int cyc = hydro_pkg->Param<int>("cyc");
+
   auto &position = position_;
 
 
@@ -354,7 +360,7 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_d
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-  if (tm.ncycle == 150) {
+  if (tm.ncycle == cyc) {
     parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Outflow", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
