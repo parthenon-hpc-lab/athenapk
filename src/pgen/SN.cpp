@@ -413,6 +413,12 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_d
             u(n, k, j, i) = den * den / chi * den;
           }
           p = p0 * den/den0 * t_clump/ta;
+
+          u(IDN, k, j, i) = den;
+          u(IM1, k, j, i) = mx;
+          u(IM2, k, j, i) = my;
+          u(IM3, k, j, i) = mz;
+          u(IEN, k, j, i) = p/gm1 + 0.5 * (mx * mx + my * my + mz * mz) / den;
         }
 
 
@@ -438,11 +444,11 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_d
         //}
 
 
-        u(IDN, k, j, i) = den;
-        u(IM1, k, j, i) = mx;
-        u(IM2, k, j, i) = my;
-        u(IM3, k, j, i) = mz;
-        u(IEN, k, j, i) = p/gm1 + 0.5 * (mx * mx + my * my + mz * mz) / den;
+        //u(IDN, k, j, i) = den;
+        //u(IM1, k, j, i) = mx;
+        //u(IM2, k, j, i) = my;
+        //u(IM3, k, j, i) = mz;
+        //u(IEN, k, j, i) = p/gm1 + 0.5 * (mx * mx + my * my + mz * mz) / den;
       });
   }
 
