@@ -124,7 +124,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
                 prim(IV2, k, j, i) *= vceil / v;
                 prim(IV3, k, j, i) *= vceil / v;
 
-                // Update the internal energy
+                // Remove kinetic energy
                 cons(IEN, k, j, i) -= 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
               }
             }
