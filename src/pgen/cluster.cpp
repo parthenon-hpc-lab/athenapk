@@ -755,8 +755,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       few_modes_ft.SetPhases(pmb.get(), pin);
     }
     // As for t_corr in few_modes_ft, the choice for dt is
-    // in principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
-    // the perturbation (and is normalized in the following to get the desired sigma_v)
+    // in principle arbitrary because the inital b_hat is 0 and the b_hat_new will contain
+    // the perturbation (and is normalized in the following to get the desired sigma_b)
     const Real dt = 1.0;
     few_modes_ft.Generate(md, dt, "tmp_perturb");
 
