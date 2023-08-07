@@ -385,10 +385,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   auto first_order_flux_correct =
       pin->GetOrAddBoolean("hydro", "first_order_flux_correct", false);
-  if (first_order_flux_correct && integrator != Integrator::vl2) {
-    PARTHENON_FAIL("Please use 'vl2' integrator with first order flux correction. Other "
-                   "integrators have not been tested.")
-  }
   pkg->AddParam<>("first_order_flux_correct", first_order_flux_correct);
   if (first_order_flux_correct) {
     if (fluid == Fluid::euler) {
@@ -439,6 +435,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       efloor = Tfloor / mbar_over_kb / (gamma - 1.0);
     }
 
+    // By default disable ceilings by setting to infinity
+    Real vceil =
+        pin->GetOrAddReal("hydro", "vceil", std::numeric_limits<Real>::infinity());
+    Real Tceil =
+        pin->GetOrAddReal("hydro", "Tceil", std::numeric_limits<Real>::infinity());
+    Real eceil = Tceil;
+    if (eceil < std::numeric_limits<Real>::infinity()) {
+      if (!pkg->AllParams().hasKey("mbar_over_kb")) {
+        PARTHENON_FAIL("Temperature ceiling requires units and gas composition. "
+                       "Either set a 'units' block and the 'hydro/He_mass_fraction' in "
+                       "input file or use a pressure floor "
+                       "(defined code units) instead.");
+      }
+      auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
+      eceil = Tceil / mbar_over_kb / (gamma - 1.0);
+    }
+
     auto conduction = Conduction::none;
     auto conduction_str = pin->GetOrAddString("diffusion", "conduction", "none");
     if (conduction_str == "spitzer") {
@@ -472,12 +485,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     pkg->AddParam<>("conduction", conduction);
 
     if (fluid == Fluid::euler) {
-      AdiabaticHydroEOS eos(pfloor, dfloor, efloor, gamma);
+      AdiabaticHydroEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::euler>;
     } else if (fluid == Fluid::glmmhd) {
-      AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, gamma);
+      AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticGLMMHDEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::glmmhd>;
@@ -975,6 +988,7 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto u0_cons_pack = u0_data->PackVariablesAndFluxes(flags_ind);
+  auto const &u0_prim_pack = u0_data->PackVariables(std::vector<std::string>{"prim"});
   auto u1_cons_pack = u1_data->PackVariablesAndFluxes(flags_ind);
   auto pkg = pmb->packages.Get("Hydro");
 
@@ -987,14 +1001,6 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
   if (fluid == Fluid::glmmhd) {
     c_h = pkg->Param<Real>("c_h");
   }
-  // Using "u1_prim" as "u0_prim" here because all current integrators start with copying
-  // the initial state to the "u0" register, see conditional for `stage == 1` in the
-  // hydro_driver where normally only "cons" is copied but in case for flux correction
-  // "prim", too. This means both during stage 1 and during stage 2 `u1` holds the
-  // original data at the beginning of the timestep. For flux correction we want to make a
-  // full (dt) low order update using the original data and thus use the "prim" data from
-  // u1 here.
-  auto const &u0_prim_pack = u1_data->PackVariables(std::vector<std::string>{"prim"});
 
   const int ndim = pmb->pmy_mesh->ndim;
 
