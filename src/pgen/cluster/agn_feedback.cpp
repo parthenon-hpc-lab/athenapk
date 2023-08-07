@@ -332,11 +332,11 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
             const Real sign_jet = (h > 0) ? 1 : -1; // Above or below jet-disk
 
-        ///////////////////////////////////////////////////////////////////
-        //  We add the kinetic jet with a fixed jet velocity and specific
-        //  internal energy/temperature of the added gas. The density,
-        //  momentum, and total energy added depend on the triggered power.
-        ///////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////
+            //  We add the kinetic jet with a fixed jet velocity and specific
+            //  internal energy/temperature of the added gas. The density,
+            //  momentum, and total energy added depend on the triggered power.
+            ///////////////////////////////////////////////////////////////////
 
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             const Real old_specific_internal_e =
@@ -384,7 +384,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
         eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
         PARTHENON_REQUIRE(prim(IPR, k, j, i) > 0,
-                                "Kinetic injection leads to negative pressure");
+                          "Kinetic injection leads to negative pressure");
       });
 
   // Apply magnetic tower feedback

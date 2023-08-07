@@ -56,24 +56,23 @@ using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
 
-template<class EOS>
+template <class EOS>
 void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
-                    const Real beta_dt, const EOS eos) {
+                       const Real beta_dt, const EOS eos) {
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  //Apply clips -- ceilings on temperature, velocity, alfven velocity, and
-  //density floor -- within a radius of the AGN
+  // Apply clips -- ceilings on temperature, velocity, alfven velocity, and
+  // density floor -- within a radius of the AGN
   const auto &dfloor = hydro_pkg->Param<Real>("cluster_dfloor");
   const auto &eceil = hydro_pkg->Param<Real>("cluster_eceil");
   const auto &vceil = hydro_pkg->Param<Real>("cluster_vceil");
   const auto &vAceil = hydro_pkg->Param<Real>("cluster_vAceil");
   const auto &clip_r = hydro_pkg->Param<Real>("cluster_clip_r");
 
-  if( clip_r > 0 && (dfloor > 0 || 
-                     eceil  < std::numeric_limits<Real>::infinity() ||
-                     vceil  < std::numeric_limits<Real>::infinity() ||
-                     vAceil < std::numeric_limits<Real>::infinity()) ){
+  if (clip_r > 0 && (dfloor > 0 || eceil < std::numeric_limits<Real>::infinity() ||
+                     vceil < std::numeric_limits<Real>::infinity() ||
+                     vAceil < std::numeric_limits<Real>::infinity())) {
     // Grab some necessary variables
     const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
     const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
@@ -89,31 +88,32 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
     const Real gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
 
     parthenon::par_for(
-        DEFAULT_LOOP_PATTERN, "Cluster::ApplyClusterClips",
-        parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-        ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+        DEFAULT_LOOP_PATTERN, "Cluster::ApplyClusterClips", parthenon::DevExecSpace(), 0,
+        cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
           auto &cons = cons_pack(b);
           auto &prim = prim_pack(b);
           const auto &coords = cons_pack.GetCoords(b);
 
-          const Real r2 = SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k));
+          const Real r2 =
+              SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k));
 
-          if ( r2 < clip_r2 ) {
-            //Cell falls within clipping radius
+          if (r2 < clip_r2) {
+            // Cell falls within clipping radius
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
 
-            if( dfloor > 0 ){
+            if (dfloor > 0) {
               const Real rho = prim(IDN, k, j, i);
-              if( rho < dfloor){
+              if (rho < dfloor) {
                 cons(IDN, k, j, i) = dfloor;
                 prim(IDN, k, j, i) = dfloor;
               }
             }
 
-            if( vceil < std::numeric_limits<Real>::infinity() ){
+            if (vceil < std::numeric_limits<Real>::infinity()) {
               // Apply velocity ceiling
-              const Real v2 =
-                  SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) + SQR(prim(IV3, k, j, i));
+              const Real v2 = SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) +
+                              SQR(prim(IV3, k, j, i));
               if (v2 > vceil2) {
                 // Fix the velocity to the velocity ceiling
                 const Real v = sqrt(v2);
@@ -129,23 +129,24 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
               }
             }
 
-            if( vAceil2 < std::numeric_limits<Real>::infinity() ){
+            if (vAceil2 < std::numeric_limits<Real>::infinity()) {
               // Apply Alfven velocity ceiling by raising density
               const Real rho = prim(IDN, k, j, i);
-              const Real B2 = (SQR(prim(IB1, k, j, i)) + SQR(prim(IB2, k, j, i)) + SQR(prim(IB3, k, j, i)));
+              const Real B2 = (SQR(prim(IB1, k, j, i)) + SQR(prim(IB2, k, j, i)) +
+                               SQR(prim(IB3, k, j, i)));
 
               // compute Alfven mach number
               const Real va2 = (B2 / rho);
 
               if (va2 > vAceil2) {
-                //Increase the density to match the alfven velocity ceiling
-                const Real rho_new = std::sqrt(B2/vAceil2);
+                // Increase the density to match the alfven velocity ceiling
+                const Real rho_new = std::sqrt(B2 / vAceil2);
                 cons(IDN, k, j, i) = rho_new;
                 prim(IDN, k, j, i) = rho_new;
               }
             }
 
-            if( eceil < std::numeric_limits<Real>::infinity() ){
+            if (eceil < std::numeric_limits<Real>::infinity()) {
               // Apply  internal energy ceiling as a pressure ceiling
               const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
               if (internal_e > eceil) {
@@ -155,11 +156,11 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
             }
           }
         });
-  }    
+  }
 }
 
 void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
-                    const Real beta_dt) {
+                       const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto fluid = hydro_pkg->Param<Fluid>("fluid");
   if (fluid == Fluid::euler) {
@@ -169,7 +170,6 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
   } else {
     PARTHENON_FAIL("Cluster::ApplyClusterClips: Unknown EOS");
   }
-
 }
 
 void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
@@ -341,21 +341,23 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 
   SNIAFeedback snia_feedback(pin, hydro_pkg);
 
-
   /************************************************************
    * Read Clips  (ceilings and floors)
    ************************************************************/
 
-  //Disable all clips by default with a negative radius clip
+  // Disable all clips by default with a negative radius clip
   Real clip_r = pin->GetOrAddReal("problem/cluster/clips", "clip_r", -1.0);
 
   // By default disable floors by setting a negative value
   Real dfloor = pin->GetOrAddReal("problem/cluster/clips", "dfloor", -1.0);
 
   // By default disable ceilings by setting to infinity
-  Real vceil = pin->GetOrAddReal("problem/cluster/clips", "vceil", std::numeric_limits<Real>::infinity());
-  Real vAceil = pin->GetOrAddReal("problem/cluster/clips", "vAceil", std::numeric_limits<Real>::infinity());
-  Real Tceil = pin->GetOrAddReal("problem/cluster/clips", "Tceil", std::numeric_limits<Real>::infinity());
+  Real vceil = pin->GetOrAddReal("problem/cluster/clips", "vceil",
+                                 std::numeric_limits<Real>::infinity());
+  Real vAceil = pin->GetOrAddReal("problem/cluster/clips", "vAceil",
+                                  std::numeric_limits<Real>::infinity());
+  Real Tceil = pin->GetOrAddReal("problem/cluster/clips", "Tceil",
+                                 std::numeric_limits<Real>::infinity());
   Real eceil = Tceil;
   if (eceil < std::numeric_limits<Real>::infinity()) {
     if (!hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
@@ -367,11 +369,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
     eceil = Tceil / mbar_over_kb / (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
   }
-  hydro_pkg->AddParam("cluster_dfloor",dfloor);
-  hydro_pkg->AddParam("cluster_eceil",eceil);
-  hydro_pkg->AddParam("cluster_vceil",vceil);
-  hydro_pkg->AddParam("cluster_vAceil",vAceil);
-  hydro_pkg->AddParam("cluster_clip_r",clip_r);
+  hydro_pkg->AddParam("cluster_dfloor", dfloor);
+  hydro_pkg->AddParam("cluster_eceil", eceil);
+  hydro_pkg->AddParam("cluster_vceil", vceil);
+  hydro_pkg->AddParam("cluster_vAceil", vAceil);
+  hydro_pkg->AddParam("cluster_clip_r", clip_r);
 
   /************************************************************
    * Add derived fields

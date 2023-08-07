@@ -440,8 +440,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
 
     // By default disable ceilings by setting to infinity
-    Real vceil = pin->GetOrAddReal("hydro", "vceil", std::numeric_limits<Real>::infinity());
-    Real Tceil = pin->GetOrAddReal("hydro", "Tceil", std::numeric_limits<Real>::infinity());
+    Real vceil =
+        pin->GetOrAddReal("hydro", "vceil", std::numeric_limits<Real>::infinity());
+    Real Tceil =
+        pin->GetOrAddReal("hydro", "Tceil", std::numeric_limits<Real>::infinity());
     Real eceil = Tceil;
     if (eceil < std::numeric_limits<Real>::infinity()) {
       if (!pkg->AllParams().hasKey("mbar_over_kb")) {
