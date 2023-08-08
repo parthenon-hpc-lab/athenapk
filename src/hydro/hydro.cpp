@@ -31,6 +31,7 @@
 #include "hydro.hpp"
 #include "outputs/outputs.hpp"
 #include "rsolvers/rsolvers.hpp"
+#include "srcterms/geometric_srcterm.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
 
@@ -142,6 +143,10 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     hydro_pkg->Param<GLMMHD::SourceFun_t>("glmmhd_source")(md, beta_dt);
   }
+
+  // add geomtric source terms
+  geometric::GeometricSrcTerm(md, beta_dt);
+
   if (ProblemSourceUnsplit != nullptr) {
     ProblemSourceUnsplit(md, tm, beta_dt);
   }
