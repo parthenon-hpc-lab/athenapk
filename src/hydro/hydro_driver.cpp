@@ -345,6 +345,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = async_region_3[i];
     auto &u0 = blocks[i]->meshblock_data.Get("base");
     auto prolongBound = none;
+    // Currently taken care of by AddBoundaryExchangeTasks above.
+    // Needs to be reintroduced once we reintroduce split (local/nonlocal) communication.
     // if (pmesh->multilevel) {
     //  prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, u0);
     //}

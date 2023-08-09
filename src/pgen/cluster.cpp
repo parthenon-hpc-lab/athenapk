@@ -32,6 +32,8 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
+#include "../eos/adiabatic_glmmhd.hpp"
+#include "../eos/adiabatic_hydro.hpp"
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
 #include "../hydro/srcterms/tabular_cooling.hpp"
@@ -54,6 +56,122 @@ using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
 
+template <class EOS>
+void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
+                       const Real beta_dt, const EOS eos) {
+
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  // Apply clips -- ceilings on temperature, velocity, alfven velocity, and
+  // density floor -- within a radius of the AGN
+  const auto &dfloor = hydro_pkg->Param<Real>("cluster_dfloor");
+  const auto &eceil = hydro_pkg->Param<Real>("cluster_eceil");
+  const auto &vceil = hydro_pkg->Param<Real>("cluster_vceil");
+  const auto &vAceil = hydro_pkg->Param<Real>("cluster_vAceil");
+  const auto &clip_r = hydro_pkg->Param<Real>("cluster_clip_r");
+
+  if (clip_r > 0 && (dfloor > 0 || eceil < std::numeric_limits<Real>::infinity() ||
+                     vceil < std::numeric_limits<Real>::infinity() ||
+                     vAceil < std::numeric_limits<Real>::infinity())) {
+    // Grab some necessary variables
+    const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+    const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+    IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+    IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+    IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+    const auto nhydro = hydro_pkg->Param<int>("nhydro");
+    const auto nscalars = hydro_pkg->Param<int>("nscalars");
+
+    const Real clip_r2 = SQR(clip_r);
+    const Real vceil2 = SQR(vceil);
+    const Real vAceil2 = SQR(vAceil);
+    const Real gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
+
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "Cluster::ApplyClusterClips", parthenon::DevExecSpace(), 0,
+        cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+          auto &cons = cons_pack(b);
+          auto &prim = prim_pack(b);
+          const auto &coords = cons_pack.GetCoords(b);
+
+          const Real r2 =
+              SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k));
+
+          if (r2 < clip_r2) {
+            // Cell falls within clipping radius
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+
+            if (dfloor > 0) {
+              const Real rho = prim(IDN, k, j, i);
+              if (rho < dfloor) {
+                cons(IDN, k, j, i) = dfloor;
+                prim(IDN, k, j, i) = dfloor;
+              }
+            }
+
+            if (vceil < std::numeric_limits<Real>::infinity()) {
+              // Apply velocity ceiling
+              const Real v2 = SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) +
+                              SQR(prim(IV3, k, j, i));
+              if (v2 > vceil2) {
+                // Fix the velocity to the velocity ceiling
+                const Real v = sqrt(v2);
+                cons(IM1, k, j, i) *= vceil / v;
+                cons(IM2, k, j, i) *= vceil / v;
+                cons(IM3, k, j, i) *= vceil / v;
+                prim(IV1, k, j, i) *= vceil / v;
+                prim(IV2, k, j, i) *= vceil / v;
+                prim(IV3, k, j, i) *= vceil / v;
+
+                // Remove kinetic energy
+                cons(IEN, k, j, i) -= 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
+              }
+            }
+
+            if (vAceil2 < std::numeric_limits<Real>::infinity()) {
+              // Apply Alfven velocity ceiling by raising density
+              const Real rho = prim(IDN, k, j, i);
+              const Real B2 = (SQR(prim(IB1, k, j, i)) + SQR(prim(IB2, k, j, i)) +
+                               SQR(prim(IB3, k, j, i)));
+
+              // compute Alfven mach number
+              const Real va2 = (B2 / rho);
+
+              if (va2 > vAceil2) {
+                // Increase the density to match the alfven velocity ceiling
+                const Real rho_new = std::sqrt(B2 / vAceil2);
+                cons(IDN, k, j, i) = rho_new;
+                prim(IDN, k, j, i) = rho_new;
+              }
+            }
+
+            if (eceil < std::numeric_limits<Real>::infinity()) {
+              // Apply  internal energy ceiling as a pressure ceiling
+              const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
+              if (internal_e > eceil) {
+                cons(IEN, k, j, i) -= prim(IDN, k, j, i) * (internal_e - eceil);
+                prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
+              }
+            }
+          }
+        });
+  }
+}
+
+void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
+                       const Real beta_dt) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  auto fluid = hydro_pkg->Param<Fluid>("fluid");
+  if (fluid == Fluid::euler) {
+    ApplyClusterClips(md, tm, beta_dt, hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+  } else if (fluid == Fluid::glmmhd) {
+    ApplyClusterClips(md, tm, beta_dt, hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+  } else {
+    PARTHENON_FAIL("Cluster::ApplyClusterClips: Unknown EOS");
+  }
+}
+
 void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                     const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
@@ -75,7 +193,9 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
   snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
-}
+
+  ApplyClusterClips(md, tm, beta_dt);
+};
 
 Real ClusterEstimateTimestep(MeshData<Real> *md) {
   Real min_dt = std::numeric_limits<Real>::max();
@@ -220,6 +340,40 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    ************************************************************/
 
   SNIAFeedback snia_feedback(pin, hydro_pkg);
+
+  /************************************************************
+   * Read Clips  (ceilings and floors)
+   ************************************************************/
+
+  // Disable all clips by default with a negative radius clip
+  Real clip_r = pin->GetOrAddReal("problem/cluster/clips", "clip_r", -1.0);
+
+  // By default disable floors by setting a negative value
+  Real dfloor = pin->GetOrAddReal("problem/cluster/clips", "dfloor", -1.0);
+
+  // By default disable ceilings by setting to infinity
+  Real vceil = pin->GetOrAddReal("problem/cluster/clips", "vceil",
+                                 std::numeric_limits<Real>::infinity());
+  Real vAceil = pin->GetOrAddReal("problem/cluster/clips", "vAceil",
+                                  std::numeric_limits<Real>::infinity());
+  Real Tceil = pin->GetOrAddReal("problem/cluster/clips", "Tceil",
+                                 std::numeric_limits<Real>::infinity());
+  Real eceil = Tceil;
+  if (eceil < std::numeric_limits<Real>::infinity()) {
+    if (!hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
+      PARTHENON_FAIL("Temperature ceiling requires units and gas composition. "
+                     "Either set a 'units' block and the 'hydro/He_mass_fraction' in "
+                     "input file or use a pressure floor "
+                     "(defined code units) instead.");
+    }
+    auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+    eceil = Tceil / mbar_over_kb / (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
+  }
+  hydro_pkg->AddParam("cluster_dfloor", dfloor);
+  hydro_pkg->AddParam("cluster_eceil", eceil);
+  hydro_pkg->AddParam("cluster_vceil", vceil);
+  hydro_pkg->AddParam("cluster_vAceil", vAceil);
+  hydro_pkg->AddParam("cluster_clip_r", clip_r);
 
   /************************************************************
    * Add derived fields
@@ -601,8 +755,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       few_modes_ft.SetPhases(pmb.get(), pin);
     }
     // As for t_corr in few_modes_ft, the choice for dt is
-    // in principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
-    // the perturbation (and is normalized in the following to get the desired sigma_v)
+    // in principle arbitrary because the inital b_hat is 0 and the b_hat_new will contain
+    // the perturbation (and is normalized in the following to get the desired sigma_b)
     const Real dt = 1.0;
     few_modes_ft.Generate(md, dt, "tmp_perturb");
 
@@ -684,7 +838,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto &temperature = data->Get("temperature").data;
 
   // for computing temperature from primitives
+  auto units = pkg->Param<Units>("units");
   auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
+  auto mbar = mbar_over_kb * units.k_boltzmann();
 
   // fill derived vars (*including ghost cells*)
   auto &coords = pmb->coords;
@@ -710,7 +866,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         log10_radius(k, j, i) = 0.5 * std::log10(r2);
 
         // compute entropy
-        const Real K = P / std::pow(rho, gam);
+        const Real K = P / std::pow(rho / mbar, gam);
         entropy(k, j, i) = K;
 
         const Real v_mag = std::sqrt(SQR(v1) + SQR(v2) + SQR(v3));
