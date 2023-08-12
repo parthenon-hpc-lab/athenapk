@@ -50,11 +50,16 @@ class MagneticTowerObj {
   PotentialInJetCyl(const parthenon::Real r, const parthenon::Real h,
                     parthenon::Real &a_r, parthenon::Real &a_theta,
                     parthenon::Real &a_h) const __attribute__((always_inline)) {
-    const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2) - pow(h / l_scale_, 2));
-    // Compute the potential in jet cylindrical coordinates
+    const parthenon::Real exp_r2_h2 =
+        exp(-pow(r / l_scale_, 2) - pow((std::abs(h) - 0.002) / l_scale_, 2));
+    // const parthenon::Real exp_r2_h2 = exp(- pow((std::abs(h) - 0.00205)/ l_scale_, 4));
+    // // split donut const parthenon::Real exp_r2_h2 = exp(-pow(h / l_scale_, 2)); // -
+    // pow((std::abs(h) - 0.00225)/ l_scale_, 4)); Compute the potential in jet
+    // cylindrical coordinates
     a_r = 0.0;
-    a_theta = field_ * l_scale_ * (r / l_scale_) * exp_r2_h2;
+    a_theta = field_ * r * exp_r2_h2;
     a_h = field_ * l_scale_ * alpha_ / 2.0 * exp_r2_h2;
+    // a_h = r <= l_scale_ ? field_ * r / l_scale_ * alpha_ * exp_r2_h2 : 0.0; // donut
   }
 
   // Compute Magnetic Potential in simulation Cartesian coordinates
@@ -81,11 +86,26 @@ class MagneticTowerObj {
                 parthenon::Real &b_theta, parthenon::Real &b_h) const
       __attribute__((always_inline)) {
 
-    const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2) - pow(h / l_scale_, 2));
-    // Compute the field in jet cylindrical coordinates
-    b_r = field_ * 2 * (h / l_scale_) * (r / l_scale_) * exp_r2_h2;
-    b_theta = field_ * alpha_ * (r / l_scale_) * exp_r2_h2;
-    b_h = field_ * 2 * (1 - pow(r / l_scale_, 2)) * exp_r2_h2;
+    const parthenon::Real exp_r2_h2 =
+        exp(-pow(r / l_scale_, 2) - pow((std::abs(h) - 0.002) / l_scale_, 2));
+    // const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2) - pow((std::abs(h) -
+    // 0.00225)/ l_scale_, 4)); const parthenon::Real exp_r2_h2 = exp(- pow((std::abs(h) -
+    // 0.00205)/ l_scale_, 4)); const parthenon::Real exp_r2_h2 = exp(-pow(h / l_scale_,
+    // 2)); // - pow((std::abs(h) - 0.00225)/ l_scale_, 4)); Compute the field in jet
+    // cylindrical coordinates
+    if (h == 0) {
+      b_r = 0.0;
+    } else {
+      b_r =
+          2.0 * field_ * ((std::abs(h) - 0.002) / l_scale_) * (r / l_scale_) * exp_r2_h2;
+      // adjust for sgn(h)
+      if (h < 0.0) {
+        b_r *= -1.0;
+      }
+    }
+    b_theta = field_ * alpha_ * r / l_scale_ * exp_r2_h2;
+    // b_theta = r <= l_scale_ ? field_ * alpha_  / l_scale_ * exp_r2_h2 : 0.0;
+    b_h = 2.0 * field_ * (1.0 - pow(r / l_scale_, 2)) * exp_r2_h2;
   }
 
   // Compute Magnetic field in Simulation Cartesian coordinates
