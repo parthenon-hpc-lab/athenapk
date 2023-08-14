@@ -38,8 +38,8 @@ namespace refinement_ops {
 
 using parthenon::Coordinates_t;
 using parthenon::ParArray6D;
-using parthenon::TopologicalElement;
 using parthenon::TE;
+using parthenon::TopologicalElement;
 
 struct ProlongateCellMinModMultiD {
   static constexpr bool OperationRequired(TopologicalElement fel,
