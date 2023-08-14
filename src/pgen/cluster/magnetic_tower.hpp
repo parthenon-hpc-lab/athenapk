@@ -51,7 +51,7 @@ class MagneticTowerObj {
                     parthenon::Real &a_r, parthenon::Real &a_theta,
                     parthenon::Real &a_h) const __attribute__((always_inline)) {
     const parthenon::Real exp_r2_h2 =
-        exp(-pow(r / l_scale_, 2) - pow((std::abs(h) - 0.002) / l_scale_, 2));
+        exp(-pow(r / l_scale_, 2) - pow((std::abs(h) - 0.0025) / l_scale_, 4));
     // const parthenon::Real exp_r2_h2 = exp(- pow((std::abs(h) - 0.00205)/ l_scale_, 4));
     // // split donut const parthenon::Real exp_r2_h2 = exp(-pow(h / l_scale_, 2)); // -
     // pow((std::abs(h) - 0.00225)/ l_scale_, 4)); Compute the potential in jet
@@ -87,7 +87,7 @@ class MagneticTowerObj {
       __attribute__((always_inline)) {
 
     const parthenon::Real exp_r2_h2 =
-        exp(-pow(r / l_scale_, 2) - pow((std::abs(h) - 0.002) / l_scale_, 2));
+        exp(-pow(r / l_scale_, 2) - pow((std::abs(h) - 0.0025) / l_scale_, 4));
     // const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2) - pow((std::abs(h) -
     // 0.00225)/ l_scale_, 4)); const parthenon::Real exp_r2_h2 = exp(- pow((std::abs(h) -
     // 0.00205)/ l_scale_, 4)); const parthenon::Real exp_r2_h2 = exp(-pow(h / l_scale_,
@@ -96,8 +96,8 @@ class MagneticTowerObj {
     if (h == 0) {
       b_r = 0.0;
     } else {
-      b_r =
-          2.0 * field_ * ((std::abs(h) - 0.002) / l_scale_) * (r / l_scale_) * exp_r2_h2;
+      b_r = 2.0 * field_ * 2 * pow((std::abs(h) - 0.002) / l_scale_, 3.0) *
+            (r / l_scale_) * exp_r2_h2;
       // adjust for sgn(h)
       if (h < 0.0) {
         b_r *= -1.0;
