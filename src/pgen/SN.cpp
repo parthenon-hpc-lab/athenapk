@@ -376,11 +376,11 @@ void Outflow(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_d
         Real z = coords.Xc<3>(k);
         Real rad = std::sqrt(SQR(x) + SQR(y) + SQR(z));
         //Real den = da;
-        Real den0 = dout * SQR(rstar/rad);
+        Real den0 = u(IDN, k, j, i);
         if (rad < rstar){
           den0 = dout;
         }
-        Real den = den0;
+        Real den = u(IDN, k, j, i);
         Real mx = 0.0;
         Real my = 0.0;
         Real mz = 0.0;
