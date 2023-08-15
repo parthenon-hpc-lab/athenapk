@@ -133,9 +133,9 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
                               0.5 * (b_x * b_x + b_y * b_y + b_z * b_z);
 
         // Add density
-        const Real cell_delta_rho =
-            mt.DensityFromSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
-        cons(IDN, k, j, i) += cell_delta_rho;
+        // const Real cell_delta_rho =
+        // mt.DensityFromSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
+        // cons(IDN, k, j, i) += cell_delta_rho;
       });
 }
 
