@@ -55,7 +55,7 @@ class MagneticTowerObj {
     a_r = 0.0;
     a_theta = 0.0;
     if (fabs(h) >= 0.001 && fabs(h) <= 0.001 + 0.000390625) {
-      a_h = field_ * l_scale_ * alpha_ / 2.0 * exp_r2_h2;
+      a_h = field_ * l_scale_ * exp_r2_h2;
     } else {
       a_h = 0.0;
     }
