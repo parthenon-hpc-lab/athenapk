@@ -26,6 +26,7 @@
 #include "agn_triggering.hpp"
 #include "cluster_utils.hpp"
 #include "magnetic_tower.hpp"
+#include "utils/error_checking.hpp"
 
 namespace cluster {
 using namespace parthenon;
@@ -50,6 +51,8 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                                                "kinetic_jet_thickness", 0.02)),
       kinetic_jet_offset_(
           pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_jet_offset", 0.02)),
+      enable_tracer_(
+          pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false)),
       disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)) {
 
   // Normalize the thermal, kinetic, and magnetic fractions to sum to 1.0
@@ -159,6 +162,10 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
         "agn_feedback_power"));
   }
   hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
+
+  // Double check that tracers are also enabled in fluid solver
+  PARTHENON_REQUIRE_THROWS(enable_tracer_ && hydro_pkg->Param<int>("nscalars") == 1,
+                           "Enabling tracer for AGN feedback requires hydro/nscalars=1");
 
   hydro_pkg->AddParam<>("agn_feedback", *this);
 }
@@ -281,6 +288,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const Real vceil2 = SQR(vceil);
   const Real eceil = eceil_;
   const Real gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
+  const auto enable_tracer = enable_tracer_;
   ////////////////////////////////////////////////////////////////////////////////
 
   const parthenon::Real time = tm.time;
@@ -347,6 +355,14 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             cons(IM2, k, j, i) += jet_momentum * sign_jet * jet_axis_y;
             cons(IM3, k, j, i) += jet_momentum * sign_jet * jet_axis_z;
             cons(IEN, k, j, i) += jet_feedback;
+
+            // Reset tracer to one for the entire material in the jet launching region as
+            // we cannot distinguish between original material in a cell and new jet
+            // material in the evolution of the jet. Eventually, we're just interested in
+            // stuff that came from here.
+            if (enable_tracer) {
+              cons(nhydro, k, j, i) = 1.0 * cons(IDN, k, j, i);
+            }
 
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             const Real new_specific_internal_e =

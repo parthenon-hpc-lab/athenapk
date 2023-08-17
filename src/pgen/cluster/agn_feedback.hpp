@@ -41,6 +41,9 @@ class AGNFeedback {
   const parthenon::Real kinetic_jet_radius_, kinetic_jet_thickness_, kinetic_jet_offset_;
   parthenon::Real kinetic_jet_velocity_, kinetic_jet_temperature_, kinetic_jet_e_;
 
+  // enable passive scalar to trace AGN material
+  const bool enable_tracer_;
+
   const bool disabled_;
 
   AGNFeedback(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
