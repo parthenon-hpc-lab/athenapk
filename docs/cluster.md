@@ -306,6 +306,8 @@ kinetic_fraction = 0.3333
 ```
 These values are automatically normalized to sum to 1.0 at run time.
 
+### Thermal feedback
+
 Thermal feedback is deposited at a flat power density within a sphere of defined radius
 ```
 <problem/cluster/agn_feedback>
@@ -317,6 +319,8 @@ feedback, e.g.
 ```
 thermal_injected_mass = mdot * (1 - efficiency) * normalized_thermal_fraction;
 ```
+
+### Kinetic feedback
 
 Kinetic feedback is deposited into two disks along the axis of the jet within a
 defined radius, thickness of each disk, and an offset above and below the plane
@@ -380,6 +384,31 @@ Note that this only guarentees a fixed change in momentum density and total
 energy density; changes in kinetic energy density will depend on the velocity
 of the ambient gas. Temperature will also change but should always increase
 with kinetic jet feedback.
+
+#### Tracing jet material
+
+Material launched by the kinetic jet component can be traced by setting
+```
+<problem/cluster/agn_feedback>
+enable_tracer = true
+```
+
+At the moment, this also requires to enable a single passive scalar by setting
+```
+<hydro>
+nscalars = 1
+```
+This may change in the future as the current implementation restricts the
+passive scalar use to tracing jet material.
+This is a design decision motivated by simplicity and not for technical
+reasons (KISS!).
+
+Note that all material launched from within the jet region is traced, i.e.,
+passive scalar concentration does not differentiate between original cell
+material and mass added through the kinetic jet feedback mechanism.
+
+
+### Magnetic feedback
 
 Magnetic feedback is injected following  ([Hui 2006](doi.org/10.1086/501499))
 where the injected magnetic field follows 
