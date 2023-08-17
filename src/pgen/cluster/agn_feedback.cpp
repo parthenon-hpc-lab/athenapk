@@ -164,7 +164,7 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
   hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
   // Double check that tracers are also enabled in fluid solver
-  PARTHENON_REQUIRE_THROWS(enable_tracer_ && hydro_pkg->Param<int>("nscalars") == 1,
+  PARTHENON_REQUIRE_THROWS(!enable_tracer_ || hydro_pkg->Param<int>("nscalars") == 1,
                            "Enabling tracer for AGN feedback requires hydro/nscalars=1");
 
   hydro_pkg->AddParam<>("agn_feedback", *this);

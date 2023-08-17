@@ -9,7 +9,7 @@
 // Setups up an idealized galaxy cluster with an ACCEPT-like entropy profile in
 // hydrostatic equilbrium with an NFW+BCG+SMBH gravitational profile,
 // optionally with an initial magnetic tower field. Includes AGN feedback, AGN
-// triggering via cold gas, simple SNIA Feedback(TODO)
+// triggering via cold gas, simple SNIA Feedback, and simple stellar feedback
 //========================================================================================
 
 // C headers
@@ -28,6 +28,8 @@
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
+#include "parthenon_array_generic.hpp"
+#include "utils/error_checking.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -48,8 +50,7 @@
 #include "cluster/hydrostatic_equilibrium_sphere.hpp"
 #include "cluster/magnetic_tower.hpp"
 #include "cluster/snia_feedback.hpp"
-#include "parthenon_array_generic.hpp"
-#include "utils/error_checking.hpp"
+#include "cluster/stellar_feedback.hpp"
 
 namespace cluster {
 using namespace parthenon::driver::prelude;
@@ -193,6 +194,9 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
   snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
+
+  const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
+  stellar_feedback.FeedbackSrcTerm(md, beta_dt, tm);
 
   ApplyClusterClips(md, tm, beta_dt);
 };
@@ -340,6 +344,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    ************************************************************/
 
   SNIAFeedback snia_feedback(pin, hydro_pkg);
+
+  /************************************************************
+   * Read Stellar Feedback
+   ************************************************************/
+
+  StellarFeedback stellar_feedback(pin, hydro_pkg);
 
   /************************************************************
    * Read Clips  (ceilings and floors)
