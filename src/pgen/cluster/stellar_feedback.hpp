@@ -1,12 +1,12 @@
-#ifndef CLUSTER_SNIA_FEEDBACK_HPP_
-#define CLUSTER_SNIA_FEEDBACK_HPP_
+#ifndef CLUSTER_STELLAR_FEEDBACK_HPP_
+#define CLUSTER_STELLAR_FEEDBACK_HPP_
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
-//! \file snia_feedback.hpp
-//  \brief  Class for injecting SNIA feedback following BCG density
+//! \file stellar_feedback.hpp
+//  \brief  Class for injecting Stellar feedback following BCG density
 
 // parthenon headers
 #include <basic_types.hpp>
@@ -20,25 +20,25 @@
 namespace cluster {
 
 /************************************************************
- *  AGNFeedback
+ *  StellarFeedback
  ************************************************************/
-class SNIAFeedback {
+class StellarFeedback {
+ private:
+  // feedback parameters in code units
+  const parthenon::Real stellar_radius_;           // length
+  const parthenon::Real efficiency_;               // dimless
+  const parthenon::Real number_density_threshold_; // 1/(length^3)
+  const parthenon::Real temperatue_threshold_;     // K
+
+  bool disabled_;
+
  public:
-  // Power and Mass to inject per mass in the BCG
-  parthenon::Real power_per_bcg_mass_;     // energy/(mass*time)
-  parthenon::Real mass_rate_per_bcg_mass_; // 1/(time)
-
-  // ClusterGravity object to calculate BCG density
-  ClusterGravity bcg_gravity_;
-
-  const bool disabled_;
-
-  SNIAFeedback(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
+  StellarFeedback(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
 
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real beta_dt, const parthenon::SimTime &tm) const;
 
-  // Apply the feedback from SNIAe tied to the BCG density
+  // Apply the feedback from stellare tied to the BCG density
   template <typename EOS>
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real beta_dt, const parthenon::SimTime &tm,
@@ -47,4 +47,4 @@ class SNIAFeedback {
 
 } // namespace cluster
 
-#endif // CLUSTER_SNIA_FEEDBACK_HPP_
+#endif // CLUSTER_STELLAR_FEEDBACK_HPP_

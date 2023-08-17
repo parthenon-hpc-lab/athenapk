@@ -390,7 +390,7 @@ with kinetic jet feedback.
 Material launched by the kinetic jet component can be traced by setting
 ```
 <problem/cluster/agn_feedback>
-enable_tracer = true
+enable_tracer = true   # disabled by default
 ```
 
 At the moment, this also requires to enable a single passive scalar by setting
@@ -483,3 +483,27 @@ where `power_per_bcg_mass` and `mass_rate_per_bcg_mass` is the power and mass
 per time respectively injected per BCG mass at a given radius. This SNIA
 feedback is otherwise fixed in time, spherically symmetric, and dependant on
 the BCG specified in `<problem/cluster/gravity>`.
+
+## Stellar feedback
+
+Cold, dense, potentially magnetically supported gas may accumulate in a small
+disk-like structure around the AGN depending on the specific setup.
+In reality, this gas would form stars.
+
+In absence of star particles (or similar) in the current setup, we use a simple
+formulation to convert some fraction of this gas to thermal energy.
+More specifically, gas within a given radius, above a critical number density
+and below a temperature threshold, will be converted to thermal energy with a
+given efficiency.
+The parameters can be set as follows (numerical values here just for illustration purpose -- by default they are all 0, i.e., stellar feedback is disabled).
+
+```
+<problem/cluster/stellar_feedback>
+stellar_radius = 0.025 # in code length
+efficiency = 5e-6
+number_density_threshold = 2.93799894e+74 # in code_length**-3
+temperature_threshold = 2e4 # in K
+```
+
+Note that all parameters need to be specified explicitly for the feedback to work
+(i.e., no hidden default values).
