@@ -31,6 +31,7 @@ class MagneticTowerObj {
  private:
   const parthenon::Real field_;
   const parthenon::Real alpha_, l_scale_;
+  const parthenon::Real offset_, thickness_;
 
   const parthenon::Real density_, l_mass_scale2_;
 
@@ -42,12 +43,13 @@ class MagneticTowerObj {
 
  public:
   MagneticTowerObj(const parthenon::Real field, const parthenon::Real alpha,
-                   const parthenon::Real l_scale, const parthenon::Real density,
+                   const parthenon::Real l_scale, const parthenon::Real offset,
+                   const parthenon::Real thickness, const parthenon::Real density,
                    const parthenon::Real l_mass_scale, const JetCoords jet_coords,
                    const MagneticTowerPotential potential)
-      : field_(field), alpha_(alpha), l_scale_(l_scale), density_(density),
-        l_mass_scale2_(SQR(l_mass_scale)), jet_coords_(jet_coords),
-        potential_(potential) {
+      : field_(field), alpha_(alpha), l_scale_(l_scale), offset_(offset),
+        thickness_(thickness), density_(density), l_mass_scale2_(SQR(l_mass_scale)),
+        jet_coords_(jet_coords), potential_(potential) {
     PARTHENON_REQUIRE(l_scale > 0,
                       "Magnetic Tower Length scale must be strictly postitive");
     PARTHENON_REQUIRE(
@@ -65,7 +67,7 @@ class MagneticTowerObj {
       // Compute the potential in jet cylindrical coordinates
       a_r = 0.0;
       a_theta = 0.0;
-      if (fabs(h) >= 0.001 && fabs(h) <= 0.001 + 0.000390625) {
+      if (fabs(h) >= 0.001 && fabs(h) <= offset_ + thickness_) {
         a_h = field_ * l_scale_ * exp_r2_h2;
       } else {
         a_h = 0.0;
@@ -108,7 +110,7 @@ class MagneticTowerObj {
       const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2));
       // Compute the field in jet cylindrical coordinates
       b_r = 0.0;
-      if (fabs(h) >= 0.001 && fabs(h) <= 0.001 + 0.000390625) {
+      if (fabs(h) >= 0.001 && fabs(h) <= offset_ + thickness_) {
         b_theta = 2.0 * field_ * r / l_scale_ * exp_r2_h2;
       } else {
         b_theta = 0.0;
@@ -163,6 +165,7 @@ class MagneticTowerObj {
 class MagneticTower {
  public:
   const parthenon::Real alpha_, l_scale_;
+  const parthenon::Real offset_, thickness_;
 
   const parthenon::Real initial_field_;
   const parthenon::Real fixed_field_rate_;
@@ -176,6 +179,8 @@ class MagneticTower {
                 const std::string &block = "problem/cluster/magnetic_tower")
       : alpha_(pin->GetOrAddReal(block, "alpha", 0)),
         l_scale_(pin->GetOrAddReal(block, "l_scale", 0)),
+        offset_(pin->GetOrAddReal(block, "offset", 0)),
+        thickness_(pin->GetOrAddReal(block, "thickness", 0)),
         initial_field_(pin->GetOrAddReal(block, "initial_field", 0)),
         fixed_field_rate_(pin->GetOrAddReal(block, "fixed_field_rate", 0)),
         fixed_mass_rate_(pin->GetOrAddReal(block, "fixed_mass_rate", 0)),
@@ -188,8 +193,14 @@ class MagneticTower {
 
     if (potential_str == "donut") {
       potential_ = MagneticTowerPotential::donut;
+      PARTHENON_REQUIRE_THROWS(
+          offset_ >= 0.0 && thickness_ > 0.0,
+          "Incompatible combination of offset and thickness for magnetic donut feedback.")
     } else if (potential_str == "li") {
       potential_ = MagneticTowerPotential::li;
+      PARTHENON_REQUIRE_THROWS(offset_ <= 0.0 && thickness_ <= 0.0,
+                               "Please disable (set to zero) tower offset and thickness "
+                               "for the Li tower model");
     } else {
       PARTHENON_FAIL(
           "Unknown potential for magnetic tower. Current options are: donut, li")

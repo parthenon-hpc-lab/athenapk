@@ -448,6 +448,7 @@ $$
 The parameters $\alpha$ and $\ell$ can be changed with
 ```
 <problem/cluster/magnetic_tower>
+potential_type = li
 alpha = 20
 l_scale = 0.001
 ```
@@ -493,10 +494,22 @@ B_\theta(r, \theta, h) = 2 B_0 r /L \exp^\left ( -r^2/L^2 \right)$ for $h_\mathr
 $$
 with all other components being zero.
 
+
+```
+<problem/cluster/magnetic_tower>
+potential_type = donut
+l_scale = 0.0005   # in code length
+offset = 0.001     # in code length
+thickness = 0.0001 # in code length
+```
+
 It is recommended to match the donut thickness to the thickness of the kinetic jet launching region
 and to choose a lengthscale that is half the jet launching radius.
 This results in almost all injected fields being confined to the launching region (and thus being
 carried along with a dominant jet).
+
+Mass feedback for the donut model is currently identical to the Li tower above
+(and, thus, the parameters above pertaining to the mass injection equally apply here).
 
 #### Fixed magnetic feedback
 
