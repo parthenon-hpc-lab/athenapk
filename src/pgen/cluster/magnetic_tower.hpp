@@ -17,8 +17,11 @@
 #include <parthenon/package.hpp>
 
 #include "jet_coords.hpp"
+#include "utils/error_checking.hpp"
 
 namespace cluster {
+
+enum class MagneticTowerPotential { undefined, li, donut };
 /************************************************************
  *  Magnetic Tower Object, for computing magnetic field, vector potential at a
  *  fixed time with a fixed field
@@ -32,17 +35,24 @@ class MagneticTowerObj {
   const parthenon::Real density_, l_mass_scale2_;
 
   JetCoords jet_coords_;
+  // Note that this eventually might better be a template parameter, but while the number
+  // of potentials implemented is limited (and similarly complex) this should currently
+  // not be a performance concern.
+  const MagneticTowerPotential potential_;
 
  public:
   MagneticTowerObj(const parthenon::Real field, const parthenon::Real alpha,
                    const parthenon::Real l_scale, const parthenon::Real density,
-                   const parthenon::Real l_mass_scale, const JetCoords jet_coords)
+                   const parthenon::Real l_mass_scale, const JetCoords jet_coords,
+                   const MagneticTowerPotential potential)
       : field_(field), alpha_(alpha), l_scale_(l_scale), density_(density),
-        l_mass_scale2_(SQR(l_mass_scale)), jet_coords_(jet_coords) {
+        l_mass_scale2_(SQR(l_mass_scale)), jet_coords_(jet_coords),
+        potential_(potential) {
     PARTHENON_REQUIRE(l_scale > 0,
                       "Magnetic Tower Length scale must be strictly postitive");
-    PARTHENON_REQUIRE(l_mass_scale >= 0,
-                      "Magnetic Tower Mass Length scale must be zero (disabled) or postitive");
+    PARTHENON_REQUIRE(
+        l_mass_scale >= 0,
+        "Magnetic Tower Mass Length scale must be zero (disabled) or postitive");
   }
 
   // Compute Jet Potential in jet cylindrical coordinates
@@ -50,14 +60,24 @@ class MagneticTowerObj {
   PotentialInJetCyl(const parthenon::Real r, const parthenon::Real h,
                     parthenon::Real &a_r, parthenon::Real &a_theta,
                     parthenon::Real &a_h) const __attribute__((always_inline)) {
-    const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2));
-    // Compute the potential in jet cylindrical coordinates
-    a_r = 0.0;
-    a_theta = 0.0;
-    if (fabs(h) >= 0.001 && fabs(h) <= 0.001 + 0.000390625) {
-      a_h = field_ * l_scale_ * exp_r2_h2;
+    if (potential_ == MagneticTowerPotential::donut) {
+      const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2));
+      // Compute the potential in jet cylindrical coordinates
+      a_r = 0.0;
+      a_theta = 0.0;
+      if (fabs(h) >= 0.001 && fabs(h) <= 0.001 + 0.000390625) {
+        a_h = field_ * l_scale_ * exp_r2_h2;
+      } else {
+        a_h = 0.0;
+      }
+    } else if (potential_ == MagneticTowerPotential::li) {
+      const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2) - pow(h / l_scale_, 2));
+      // Compute the potential in jet cylindrical coordinates
+      a_r = 0.0;
+      a_theta = field_ * l_scale_ * (r / l_scale_) * exp_r2_h2;
+      a_h = field_ * l_scale_ * alpha_ / 2.0 * exp_r2_h2;
     } else {
-      a_h = 0.0;
+      PARTHENON_FAIL("Unknown magnetic tower potential.");
     }
   }
 
@@ -84,16 +104,25 @@ class MagneticTowerObj {
   FieldInJetCyl(const parthenon::Real r, const parthenon::Real h, parthenon::Real &b_r,
                 parthenon::Real &b_theta, parthenon::Real &b_h) const
       __attribute__((always_inline)) {
-
-    const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2));
-    // Compute the field in jet cylindrical coordinates
-    b_r = 0.0;
-    if (fabs(h) >= 0.001 && fabs(h) <= 0.001 + 0.000390625) {
-      b_theta = 2.0 * field_ * r / l_scale_ * exp_r2_h2;
+    if (potential_ == MagneticTowerPotential::donut) {
+      const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2));
+      // Compute the field in jet cylindrical coordinates
+      b_r = 0.0;
+      if (fabs(h) >= 0.001 && fabs(h) <= 0.001 + 0.000390625) {
+        b_theta = 2.0 * field_ * r / l_scale_ * exp_r2_h2;
+      } else {
+        b_theta = 0.0;
+      }
+      b_h = 0.0;
+    } else if (potential_ == MagneticTowerPotential::li) {
+      const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2) - pow(h / l_scale_, 2));
+      // Compute the field in jet cylindrical coordinates
+      b_r = field_ * 2 * (h / l_scale_) * (r / l_scale_) * exp_r2_h2;
+      b_theta = field_ * alpha_ * (r / l_scale_) * exp_r2_h2;
+      b_h = field_ * 2 * (1 - pow(r / l_scale_, 2)) * exp_r2_h2;
     } else {
-      b_theta = 0.0;
+      PARTHENON_FAIL("Unknown magnetic tower potential.");
     }
-    b_h = 0.0;
   }
 
   // Compute Magnetic field in Simulation Cartesian coordinates
@@ -141,6 +170,8 @@ class MagneticTower {
   const parthenon::Real fixed_mass_rate_;
   const parthenon::Real l_mass_scale_;
 
+  MagneticTowerPotential potential_;
+
   MagneticTower(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg,
                 const std::string &block = "problem/cluster/magnetic_tower")
       : alpha_(pin->GetOrAddReal(block, "alpha", 0)),
@@ -148,10 +179,21 @@ class MagneticTower {
         initial_field_(pin->GetOrAddReal(block, "initial_field", 0)),
         fixed_field_rate_(pin->GetOrAddReal(block, "fixed_field_rate", 0)),
         fixed_mass_rate_(pin->GetOrAddReal(block, "fixed_mass_rate", 0)),
-        l_mass_scale_(pin->GetOrAddReal(block, "l_mass_scale", 0)) {
-    hydro_pkg->AddParam<>("magnetic_tower", *this);
+        l_mass_scale_(pin->GetOrAddReal(block, "l_mass_scale", 0)),
+        potential_(MagneticTowerPotential::undefined) {
     hydro_pkg->AddParam<parthenon::Real>("magnetic_tower_linear_contrib", 0.0, true);
     hydro_pkg->AddParam<parthenon::Real>("magnetic_tower_quadratic_contrib", 0.0, true);
+
+    const auto potential_str = pin->GetOrAddString(block, "potential_type", "undefined");
+
+    if (potential_str == "donut") {
+      potential_ = MagneticTowerPotential::donut;
+    } else if (potential_str == "li") {
+      potential_ = MagneticTowerPotential::li;
+    } else {
+      PARTHENON_FAIL(
+          "Unknown potential for magnetic tower. Current options are: donut, li")
+    }
 
     // Vector potential is only locally used, so no need to
     // communicate/restrict/prolongate/fluxes/etc
@@ -159,6 +201,10 @@ class MagneticTower {
                            parthenon::Metadata::OneCopy},
                           std::vector<int>({3}));
     hydro_pkg->AddField("magnetic_tower_A", m);
+
+    // Finally, add object to params (should be done last as otherwise modification within
+    // this function would not survive).
+    hydro_pkg->AddParam<>("magnetic_tower", *this);
   }
 
   // Add initial magnetic field to provided potential with a single meshblock

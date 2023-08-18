@@ -412,7 +412,19 @@ material and mass added through the kinetic jet feedback mechanism.
 
 ### Magnetic feedback
 
-Magnetic feedback is injected following  ([Hui 2006](doi.org/10.1086/501499))
+Multiple options exists to inject magnetic fields:
+- a simple field loop (donut) configuration (better suited for kinetically dominated jets at larger scales)
+- a more complex pinching tower model (particularly suited for magnetically dominated jets at small scales)
+
+The option is controlled by the following parameter
+```
+<problem/cluster/magnetic_tower>
+potential_type = li # alternative: "donut"
+```
+
+#### Pinching magnetic tower
+
+Magnetic feedback is injected following  ([Li 2006](doi.org/10.1086/501499))
 where the injected magnetic field follows 
 
 $$
@@ -469,10 +481,29 @@ enable_magnetic_tower_mass_injection = false
 In this case, the injected mass through kinetic and thermal feedback
 according to their ratio.
 
+#### Simple field loop (donut) feedback
 
-A magnetic tower can also be inserted at runtime and injected at a fixed
+Magnetic energy is injected according to the following simple potential
+$$
+A_h(r, \theta, h) = B_0 L \exp^\left ( -r^2/L^2 \right)$ for $h_\mathrm{offset} \leq |h| \leq h_\mathrm{offset} + h_\mathrm{thickness}
+$$
+resultig in a magnetic field configuration of
+$$
+B_\theta(r, \theta, h) = 2 B_0 r /L \exp^\left ( -r^2/L^2 \right)$ for $h_\mathrm{offset} \leq |h| \leq h_\mathrm{offset} + h_\mathrm{thickness}
+$$
+with all other components being zero.
+
+It is recommended to match the donut thickness to the thickness of the kinetic jet launching region
+and to choose a lengthscale that is half the jet launching radius.
+This results in almost all injected fields being confined to the launching region (and thus being
+carried along with a dominant jet).
+
+#### Fixed magnetic feedback
+
+Magnetic feedback can also be inserted at runtime and injected at a fixed
 increase in magnetic field, and additional mass can be injected at a fixed
 rate.
+This works for all magnetic vector potentials.
 ```
 <problem/cluster/magnetic_tower>
 initial_field = 0.12431560000204142
