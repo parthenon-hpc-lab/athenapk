@@ -63,8 +63,8 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   const JetCoords jet_coords =
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory").CreateJetCoords(tm.time);
   const MagneticTowerObj mt =
-      MagneticTowerObj(field_to_add, alpha_, l_scale_, density_to_add, l_mass_scale_,
-                       jet_coords, potential_);
+      MagneticTowerObj(field_to_add, alpha_, l_scale_, offset_, thickness_,
+                       density_to_add, l_mass_scale_, jet_coords, potential_);
 
   const auto &eos = hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos");
 
@@ -164,8 +164,8 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory").CreateJetCoords(tm.time);
 
   // Make a construct a copy of this with field strength 1 to send to the device
-  const MagneticTowerObj mt =
-      MagneticTowerObj(1, alpha_, l_scale_, 0, l_mass_scale_, jet_coords, potential_);
+  const MagneticTowerObj mt = MagneticTowerObj(1, alpha_, l_scale_, offset_, thickness_,
+                                               0, l_mass_scale_, jet_coords, potential_);
 
   // Get the reduction of the linear and quadratic contributions ready
   Real linear_contrib_red, quadratic_contrib_red;
@@ -217,8 +217,8 @@ void MagneticTower::AddInitialFieldToPotential(parthenon::MeshBlock *pmb,
 
   const JetCoords jet_coords =
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory").CreateJetCoords(0.0);
-  const MagneticTowerObj mt(initial_field_, alpha_, l_scale_, 0, l_mass_scale_,
-                            jet_coords, potential_);
+  const MagneticTowerObj mt(initial_field_, alpha_, l_scale_, offset_, thickness_, 0,
+                            l_mass_scale_, jet_coords, potential_);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "MagneticTower::AddInitialFieldToPotential",
