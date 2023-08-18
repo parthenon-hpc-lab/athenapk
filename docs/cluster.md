@@ -183,14 +183,16 @@ Pertubations are controlled by the following parameters:
 <problem/cluster/init_perturb>
 # for the velocity field
 sigma_v = 0.0      # volume weighted RMS |v| in code velocity; default: 0.0 (disabled)
-k_peak_v = ???     # wavenumber in normalized units where the velocity spectrum peaks. No default value.
+l_peak_v = ???     # lengthscale (in code length units) where the velocity spectrum peaks. No default value.
+k_peak_v = ???     # (alternative to l_peak_v): wavenumber in normalized units where the velocity spectrum peaks. No default value.
 num_modes_v = 40   # (optional) number of wavemodes in spectral space; default: 40
 sol_weight_v = 1.0 # (optional) power in solenoidal (rotational) modes of the perturbation. Range between 0 (fully compressive) and 1.0 (default, fully solenoidal).
 rseed_v = 1        # (optional) integer seed for RNG for wavenumbers and amplitudes
 
 # for the magnetic field
 sigma_b = 0.0      # volume weighted RMS |B| in code magnetic; default: 0.0 (disabled)
-k_peak_b = ???     # wavenumber in normalized units where the magnetic field spectrum peaks. No default value.
+l_peak_b = ???     # lengthscale (in code length units) where the magnetic field spectrum peaks. No default value.
+k_peak_b = ???     # (alternative to l_peak_b): wavenumber in normalized units where the magnetic field spectrum peaks. No default value.
 num_modes_b = 40   # (optional) number of wavemodes in spectral space; default: 40
 rseed_b = 2        # (optional) integer seed for RNG for wavenumbers and amplitudes
 ```
