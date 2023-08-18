@@ -44,6 +44,8 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto &A_pack = md->PackVariables(std::vector<std::string>{"magnetic_tower_A"});
+
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -59,20 +61,6 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   const auto &eos = hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos");
 
   // Construct magnetic vector potential then compute magnetic fields
-
-  // Currently reallocates this vector potential everytime step and constructs
-  // the potential in a separate kernel. There are two solutions:
-  //  1. Allocate a dependant variable in the hydro package for scratch
-  //  variables, use to store this potential. Would save time in allocations
-  //  but would still require more DRAM memory and two kernel launches
-  //  2. Compute the potential (12 needed in all) in the same kernel,
-  //  constructing the derivative without storing the potential (more
-  //  arithmetically intensive, maybe faster)
-  ParArray5D<Real> A(
-      "magnetic_tower_A", 3, cons_pack.GetDim(5),
-      md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsk(IndexDomain::entire),
-      md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsj(IndexDomain::entire),
-      md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsi(IndexDomain::entire));
   IndexRange a_ib = ib;
   a_ib.s -= 1;
   a_ib.e += 1;
@@ -90,15 +78,16 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
       a_jb.e, a_ib.s, a_ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         // Compute and apply potential
+        auto &A = A_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
 
         Real a_x_, a_y_, a_z_;
         mt.PotentialInSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k), a_x_,
                               a_y_, a_z_);
 
-        A(0, b, k, j, i) = a_x_;
-        A(1, b, k, j, i) = a_y_;
-        A(2, b, k, j, i) = a_z_;
+        A(0, k, j, i) = a_x_;
+        A(1, k, j, i) = a_y_;
+        A(2, k, j, i) = a_z_;
       });
 
   // Take the curl of the potential and apply the new magnetic field
@@ -108,18 +97,19 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
       ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
+        auto &A = A_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
 
         // Take the curl of a to compute the magnetic field
         const Real b_x =
-            (A(2, b, k, j + 1, i) - A(2, b, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
-            (A(1, b, k + 1, j, i) - A(1, b, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
+            (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+            (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
         const Real b_y =
-            (A(0, b, k + 1, j, i) - A(0, b, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
-            (A(2, b, k, j, i + 1) - A(2, b, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
+            (A(0, k + 1, j, i) - A(0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+            (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
         const Real b_z =
-            (A(1, b, k, j, i + 1) - A(1, b, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
-            (A(0, b, k, j + 1, i) - A(0, b, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
+            (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+            (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
 
         // Add the magnetic field to the conserved variables
         cons(IB1, k, j, i) += b_x;
