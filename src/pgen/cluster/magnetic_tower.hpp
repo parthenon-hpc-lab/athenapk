@@ -152,6 +152,13 @@ class MagneticTower {
     hydro_pkg->AddParam<>("magnetic_tower", *this);
     hydro_pkg->AddParam<parthenon::Real>("magnetic_tower_linear_contrib", 0.0, true);
     hydro_pkg->AddParam<parthenon::Real>("magnetic_tower_quadratic_contrib", 0.0, true);
+
+    // Vector potential is only locally used, so no need to
+    // communicate/restrict/prolongate/fluxes/etc
+    parthenon::Metadata m({parthenon::Metadata::Cell, parthenon::Metadata::Derived,
+                           parthenon::Metadata::OneCopy},
+                          std::vector<int>({3}));
+    hydro_pkg->AddField("magnetic_tower_A", m);
   }
 
   // Add initial magnetic field to provided potential with a single meshblock
