@@ -53,7 +53,9 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_jet_offset", 0.02)),
       enable_tracer_(
           pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false)),
-      disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)) {
+      disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)),
+      enable_magnetic_tower_mass_injection_(pin->GetOrAddBoolean(
+          "problem/cluster/agn_feedback", "enable_magnetic_tower_mass_injection", true)) {
 
   // Normalize the thermal, kinetic, and magnetic fractions to sum to 1.0
   const Real total_frac = thermal_fraction_ + kinetic_fraction_ + magnetic_fraction_;
@@ -66,6 +68,18 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
   PARTHENON_REQUIRE(thermal_fraction_ >= 0 && kinetic_fraction_ >= 0 &&
                         magnetic_fraction_ >= 0,
                     "AGN feedback energy fractions must be non-negative.");
+
+  // Normalize the thermal, kinetic, and magnetic mass fractions to sum to 1.0
+  if (enable_magnetic_tower_mass_injection_) {
+    thermal_mass_fraction_ = thermal_fraction_;
+    kinetic_mass_fraction_ = kinetic_fraction_;
+    magnetic_mass_fraction_ = magnetic_fraction_;
+  } else {
+    const auto total_mass_frac = thermal_fraction_ + kinetic_fraction_;
+    thermal_mass_fraction_ = thermal_fraction_ / total_mass_frac;
+    kinetic_mass_fraction_ = kinetic_fraction_ / total_mass_frac;
+    magnetic_mass_fraction_ = 0.0;
+  }
 
   /////////////////////////////////////////////////////
   // Read in or calculate jet velocity and temperature. Either and or both can
@@ -254,7 +268,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
       thermal_fraction_ * power * thermal_scaling_factor * beta_dt;
   // Amount of density to dump in each cell
   const Real thermal_density =
-      thermal_fraction_ * mass_rate * thermal_scaling_factor * beta_dt;
+      thermal_mass_fraction_ * mass_rate * thermal_scaling_factor * beta_dt;
 
   ////////////////////////////////////////////////////////////////////////////////
   // Kinetic Jet Quantities
@@ -272,7 +286,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   // Amount of density to dump in each cell
   const Real jet_density =
-      kinetic_fraction_ * mass_rate * kinetic_scaling_factor * beta_dt;
+      kinetic_mass_fraction_ * mass_rate * kinetic_scaling_factor * beta_dt;
 
   // Velocity of added gas
   const Real jet_velocity = kinetic_jet_velocity_;
@@ -407,7 +421,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
 
   const Real magnetic_power = power * magnetic_fraction_;
-  const Real magnetic_mass_rate = mass_rate * magnetic_fraction_;
+  const Real magnetic_mass_rate = mass_rate * magnetic_mass_fraction_;
   magnetic_tower.PowerSrcTerm(magnetic_power, magnetic_mass_rate, md, beta_dt, tm);
 }
 
