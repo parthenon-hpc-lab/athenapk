@@ -21,6 +21,7 @@
 #include "../../units.hpp"
 #include "cluster_utils.hpp"
 #include "magnetic_tower.hpp"
+#include "utils/error_checking.hpp"
 
 namespace cluster {
 using namespace parthenon;
@@ -51,7 +52,13 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   // Scale density_to_add to match mass_to_add when integrated over all space
-  const Real density_to_add = mass_to_add / (pow(l_mass_scale_, 3) * pow(M_PI, 3. / 2.));
+  PARTHENON_REQUIRE_THROWS(
+      mass_to_add == 0.0 || l_mass_scale_ > 0.0,
+      "Trying to inject mass with the tower model but 0 mass lengthscale. Either disable "
+      "tower mass injection or set positive lengthscale.");
+  const auto density_to_add =
+      mass_to_add > 0.0 ? mass_to_add / (pow(l_mass_scale_, 3) * pow(M_PI, 3. / 2.))
+                        : 0.0;
 
   const JetCoords jet_coords =
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory").CreateJetCoords(tm.time);
@@ -123,9 +130,11 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
                               0.5 * (b_x * b_x + b_y * b_y + b_z * b_z);
 
         // Add density
-        // const Real cell_delta_rho =
-        // mt.DensityFromSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
-        // cons(IDN, k, j, i) += cell_delta_rho;
+        const auto cell_delta_rho =
+            density_to_add > 0.0
+                ? mt.DensityFromSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k))
+                : 0.0;
+        cons(IDN, k, j, i) += cell_delta_rho;
       });
 }
 

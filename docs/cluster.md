@@ -458,6 +458,16 @@ so that the total mass injected matches the accreted mass propotioned to magneti
 l_mass_scale = 0.001
 ```
 
+Mass injection by the tower is enabled by default.
+It can be disabled by setting
+```
+<problem/cluster/agn_feedback>
+enable_magnetic_tower_mass_injection = false
+```
+In this case, the injected mass through kinetic and thermal feedback
+according to their ratio.
+
+
 A magnetic tower can also be inserted at runtime and injected at a fixed
 increase in magnetic field, and additional mass can be injected at a fixed
 rate.
