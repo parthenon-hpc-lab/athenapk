@@ -9,7 +9,7 @@
 // Setups up an idealized galaxy cluster with an ACCEPT-like entropy profile in
 // hydrostatic equilbrium with an NFW+BCG+SMBH gravitational profile,
 // optionally with an initial magnetic tower field. Includes AGN feedback, AGN
-// triggering via cold gas, simple SNIA Feedback(TODO)
+// triggering via cold gas, simple SNIA Feedback, and simple stellar feedback
 //========================================================================================
 
 // C headers
@@ -28,6 +28,8 @@
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
+#include "parthenon_array_generic.hpp"
+#include "utils/error_checking.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -48,8 +50,7 @@
 #include "cluster/hydrostatic_equilibrium_sphere.hpp"
 #include "cluster/magnetic_tower.hpp"
 #include "cluster/snia_feedback.hpp"
-#include "parthenon_array_generic.hpp"
-#include "utils/error_checking.hpp"
+#include "cluster/stellar_feedback.hpp"
 
 namespace cluster {
 using namespace parthenon::driver::prelude;
@@ -193,6 +194,9 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
   snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
+
+  const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
+  stellar_feedback.FeedbackSrcTerm(md, beta_dt, tm);
 
   ApplyClusterClips(md, tm, beta_dt);
 };
@@ -342,6 +346,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   SNIAFeedback snia_feedback(pin, hydro_pkg);
 
   /************************************************************
+   * Read Stellar Feedback
+   ************************************************************/
+
+  StellarFeedback stellar_feedback(pin, hydro_pkg);
+
+  /************************************************************
    * Read Clips  (ceilings and floors)
    ************************************************************/
 
@@ -411,7 +421,20 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
   if (sigma_v != 0.0) {
     // peak of init vel perturb
-    auto k_peak_v = pin->GetReal("problem/cluster/init_perturb", "k_peak_v");
+    auto l_peak_v = pin->GetOrAddReal("problem/cluster/init_perturb", "l_peak_v", -1.0);
+    auto k_peak_v = pin->GetOrAddReal("problem/cluster/init_perturb", "k_peak_v", -1.0);
+
+    PARTHENON_REQUIRE_THROWS((l_peak_v > 0.0 && k_peak_v <= 0.0) ||
+                                 (k_peak_v > 0.0 && l_peak_v <= 0.0),
+                             "Setting initial velocity perturbation requires a single "
+                             "length scale by either setting l_peak_v or k_peak_v.");
+    // Set peak wavemode as required by few_modes_fft when not directly given
+    if (l_peak_v > 0) {
+      const auto Lx = pin->GetReal("parthenon/mesh", "x1max") -
+                      pin->GetReal("parthenon/mesh", "x1min");
+      // Note that this assumes a cubic box
+      k_peak_v = Lx / l_peak_v;
+    }
     auto num_modes_v =
         pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_v", 40);
     auto sol_weight_v =
@@ -438,8 +461,20 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     PARTHENON_REQUIRE_THROWS(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd,
                              "Requested initial magnetic field perturbations but not "
                              "solving the MHD equations.")
-    // peak of init vel perturb
-    auto k_peak_b = pin->GetReal("problem/cluster/init_perturb", "k_peak_b");
+    // peak of init magnetic field perturb
+    auto l_peak_b = pin->GetOrAddReal("problem/cluster/init_perturb", "l_peak_b", -1.0);
+    auto k_peak_b = pin->GetOrAddReal("problem/cluster/init_perturb", "k_peak_b", -1.0);
+    PARTHENON_REQUIRE_THROWS((l_peak_b > 0.0 && k_peak_b <= 0.0) ||
+                                 (k_peak_b > 0.0 && l_peak_b <= 0.0),
+                             "Setting initial B perturbation requires a single "
+                             "length scale by either setting l_peak_b or k_peak_b.");
+    // Set peak wavemode as required by few_modes_fft when not directly given
+    if (l_peak_b > 0) {
+      const auto Lx = pin->GetReal("parthenon/mesh", "x1max") -
+                      pin->GetReal("parthenon/mesh", "x1min");
+      // Note that this assumes a cubic box
+      k_peak_b = Lx / l_peak_b;
+    }
     auto num_modes_b =
         pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_b", 40);
     uint32_t rseed_b = pin->GetOrAddInteger("problem/cluster/init_perturb", "rseed_b", 2);

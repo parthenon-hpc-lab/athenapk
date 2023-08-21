@@ -109,6 +109,7 @@ kinetic_fraction = 0
 thermal_fraction = 0
 
 <problem/cluster/magnetic_tower>
+potential_type = li
 alpha = 20
 l_scale = 0.01
 initial_field = 0.12431560000204142

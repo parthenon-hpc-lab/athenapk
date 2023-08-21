@@ -181,7 +181,7 @@ kinetic_jet_thickness  = 0.05
 kinetic_jet_offset = 0.05
 
 <problem/cluster/magnetic_tower>
-
+potential_type = li
 alpha = 20
 l_scale = 0.001
 initial_field = 0.12431560000204142

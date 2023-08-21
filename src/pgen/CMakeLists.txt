@@ -11,6 +11,7 @@ target_sources(athenaPK PRIVATE
     cluster/hydrostatic_equilibrium_sphere.cpp
     cluster/magnetic_tower.cpp
     cluster/snia_feedback.cpp
+    cluster/stellar_feedback.cpp
     cpaw.cpp
     diffusion.cpp
     field_loop.cpp
