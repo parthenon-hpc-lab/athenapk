@@ -24,6 +24,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <vector>
 
 // AthenaPK headers
 #include "../main.hpp"
@@ -195,8 +196,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
     }
   }
 
-  // Parameters to rescale the simulation to a target Mach number at a given cycle, time,
-  // or restart
+  // Parameters to rescale the simulation to a target Mach number at a given cycle,
+  // time, or restart
   auto rescale_once_at_time =
       pin->GetOrAddReal("problem/turbulence", "rescale_once_at_time", -1.0);
   auto rescale_once_at_cycle =
@@ -219,6 +220,44 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto rescale_to_rms_Ms =
       pin->GetOrAddReal("problem/turbulence", "rescale_to_rms_Ms", -1.0);
   pkg->AddParam<>("turbulence/rescale_to_rms_Ms", rescale_to_rms_Ms);
+
+  // Parameters to inject overdense blobs into the simulation with a target overdensity
+  // and radius at a given cycle, time, or restart
+  auto inject_once_at_time =
+      pin->GetOrAddReal("problem/turbulence", "inject_once_at_time", -1.0);
+  auto inject_once_at_cycle =
+      pin->GetOrAddInteger("problem/turbulence", "inject_once_at_cycle", -1);
+  auto inject_once_on_restart =
+      pin->GetOrAddBoolean("problem/turbulence", "inject_once_on_restart", false);
+
+  PARTHENON_REQUIRE_THROWS(
+      (inject_once_at_time < 0.0 && inject_once_at_cycle < 0 &&
+       !inject_once_on_restart) ||
+          (inject_once_at_cycle * inject_once_at_time < 0.0 && !inject_once_on_restart) ||
+          (inject_once_at_cycle * inject_once_at_time > 0.0 && inject_once_on_restart),
+      "injectng should only be set for one option (or none at all).");
+  // Make Params mutable as they're reset after inject
+  pkg->AddParam<>("turbulence/inject_once_at_time", inject_once_at_time, true);
+  pkg->AddParam<>("turbulence/inject_once_at_cycle", inject_once_at_cycle, true);
+  pkg->AddParam<>("turbulence/inject_once_on_restart", inject_once_on_restart, true);
+
+  auto inject_n_blobs = pin->GetOrAddInteger("problem/turbulence", "inject_n_blobs", -1);
+  pkg->AddParam<>("turbulence/inject_n_blobs", inject_n_blobs);
+
+  for (int i = 0; i < inject_n_blobs; i++) {
+    auto inject_blob_radius =
+        pin->GetReal("problem/turbulence", "inject_blob_radius_" + std::to_string(i));
+    pkg->AddParam<>("turbulence/inject_blob_radius_" + std::to_string(i),
+                    inject_blob_radius);
+
+    auto inject_blob_loc = pin->GetVector<Real>("problem/turbulence",
+                                                "inject_blob_loc_" + std::to_string(i));
+    pkg->AddParam<>("turbulence/inject_blob_loc_" + std::to_string(i), inject_blob_loc);
+
+    auto inject_blob_chi =
+        pin->GetReal("problem/turbulence", "inject_blob_chi_" + std::to_string(i));
+    pkg->AddParam<>("turbulence/inject_blob_chi_" + std::to_string(i), inject_blob_chi);
+  }
 }
 
 // SetPhases is used as InitMeshBlockUserData because phases need to be reset on remeshing
@@ -560,6 +599,105 @@ void Rescale(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
       });
 }
 
+void InjectBlob(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto pkg = pmb->packages.Get("Hydro");
+
+  const auto inject_once_at_time = pkg->Param<Real>("turbulence/inject_once_at_time");
+  const auto inject_once_at_cycle = pkg->Param<int>("turbulence/inject_once_at_cycle");
+  const auto inject_once_on_restart =
+      pkg->Param<bool>("turbulence/inject_once_on_restart");
+
+  // Check if any condition is met for injecting
+  if (!((inject_once_at_time >= tm.time && inject_once_at_time < tm.time + dt) ||
+        (inject_once_at_cycle == tm.ncycle) || inject_once_on_restart)) {
+    return;
+  }
+
+  // Always disable injecting as the original value doesn't matter
+  pkg->UpdateParam("turbulence/inject_once_at_time", -1.0);
+  pkg->UpdateParam("turbulence/inject_once_at_cycle", -1);
+  pkg->UpdateParam("turbulence/inject_once_on_restart", false);
+
+  const auto inject_n_blobs = pkg->Param<int>("turbulence/inject_n_blobs");
+  PARTHENON_REQUIRE_THROWS(inject_n_blobs > 0, "Need to inject at least one blob");
+
+  for (int n_blob = 0; n_blob < inject_n_blobs; n_blob++) {
+    const auto radius =
+        pkg->Param<Real>("turbulence/inject_blob_radius_" + std::to_string(n_blob));
+    const auto chi =
+        pkg->Param<Real>("turbulence/inject_blob_chi_" + std::to_string(n_blob));
+    const auto loc = pkg->Param<std::vector<Real>>("turbulence/inject_blob_loc_" +
+                                                   std::to_string(n_blob));
+
+    // redef vars for easier capture (std::vector does not work)
+    const auto loc_x = loc[0];
+    const auto loc_y = loc[1];
+    const auto loc_z = loc[2];
+    if (parthenon::Globals::my_rank == 0) {
+      std::stringstream msg;
+      msg << std::setprecision(2);
+      msg << "\n# Turbulence driver: injecting blob number " << n_blob;
+      msg << " at location " << loc_x << " " << loc_y << " " << loc_z
+          << " with overdensity " << chi << ".\n\n ";
+      std::cout << msg.str();
+    }
+
+    const auto *const error_msg =
+        "Blob bounds crossing domain bounds currently not supported.";
+    PARTHENON_REQUIRE_THROWS(loc_x + radius < pmb->pmy_mesh->mesh_size.x1max, error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_x - radius > pmb->pmy_mesh->mesh_size.x1min, error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_y + radius < pmb->pmy_mesh->mesh_size.x2max, error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_y - radius > pmb->pmy_mesh->mesh_size.x2min, error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_z + radius < pmb->pmy_mesh->mesh_size.x3max, error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_z - radius > pmb->pmy_mesh->mesh_size.x3min, error_msg)
+
+    IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+    IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+    IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+    auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+
+    const auto fluid = pkg->Param<Fluid>("fluid");
+    // To fix this, we'd just have to account for the magnetic energy in the reduction
+    PARTHENON_REQUIRE(fluid == Fluid::euler,
+                      "Injecting only supported for hydro sims at the moment.");
+
+    const auto gamma = pkg->Param<Real>("AdiabaticIndex");
+
+    pmb->par_for(
+        "turbulence: inject blob", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e,
+        ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto &coords = cons_pack.GetCoords(b);
+          auto &cons = cons_pack(b);
+
+          const auto x = coords.Xc<1>(i) - loc_x;
+          const auto y = coords.Xc<2>(j) - loc_y;
+          const auto z = coords.Xc<3>(k) - loc_z;
+          const auto r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
+
+          if (r < radius) {
+            const auto kin_en_density =
+                0.5 *
+                (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                 SQR(cons(IM3, k, j, i))) /
+                cons(IDN, k, j, i);
+            auto rho_e = cons(IEN, k, j, i) - kin_en_density;
+
+            // increase density according to overdensity
+            cons(IDN, k, j, i) *= chi;
+            // adjust momentum (so that the velocity remains constant)
+            cons(IM1, k, j, i) *= chi;
+            cons(IM2, k, j, i) *= chi;
+            cons(IM2, k, j, i) *= chi;
+            // adjust total energy density (using original rho_e translates to an increase
+            // of 1/chi in temperature)
+            cons(IEN, k, j, i) = kin_en_density * chi + rho_e;
+          }
+        });
+  }
+}
+
 //----------------------------------------------------------------------------------------
 //! \fn void FewModesTurbulenceDriver::Driving(void)
 //  \brief Generate and Perturb the velocity field
@@ -573,6 +711,9 @@ void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
 
   // Magic rescaling of simulation to target regime
   Rescale(md, tm, dt);
+
+  // Magic injection of blobs into the simulation
+  InjectBlob(md, tm, dt);
 }
 
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
