@@ -522,11 +522,12 @@ void Rescale(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
         const auto &coords = cons_pack.GetCoords(b);
         auto &cons = cons_pack(b);
 
-        const auto kin_en_density = (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+        const auto kin_en_density = 0.5 *
+                                    (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
                                      SQR(cons(IM3, k, j, i))) /
                                     cons(IDN, k, j, i);
         auto pres = (gamma - 1.0) * (cons(IEN, k, j, i) - kin_en_density);
-        lMs2_sum += kin_en_density / (gamma * pres) * coords.CellVolume(k, j, i);
+        lMs2_sum += 2.0 * kin_en_density / (gamma * pres) * coords.CellVolume(k, j, i);
       },
       Ms2_sum);
 
@@ -539,7 +540,7 @@ void Rescale(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
   const auto Lx = pmb->pmy_mesh->mesh_size.x1max - pmb->pmy_mesh->mesh_size.x1min;
   const auto Ly = pmb->pmy_mesh->mesh_size.x2max - pmb->pmy_mesh->mesh_size.x2min;
   const auto Lz = pmb->pmy_mesh->mesh_size.x3max - pmb->pmy_mesh->mesh_size.x3min;
-  auto norm = rescale_to_rms_Ms / std::sqrt(Ms2_sum / (Lx * Ly * Lz));
+  auto norm = SQR(rescale_to_rms_Ms) / (Ms2_sum / (Lx * Ly * Lz));
 
   pmb->par_for(
       "Rescale temperature to target rms Ms", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e,
@@ -548,13 +549,14 @@ void Rescale(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
         const auto &coords = cons_pack.GetCoords(b);
         auto &cons = cons_pack(b);
 
-        const auto kin_en_density = (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+        const auto kin_en_density = 0.5 *
+                                    (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
                                      SQR(cons(IM3, k, j, i))) /
                                     cons(IDN, k, j, i);
 
         auto e = (cons(IEN, k, j, i) - kin_en_density) / cons(IDN, k, j, i);
 
-        cons(IEN, k, j, i) = kin_en_density + e * norm * cons(IDN, k, j, i);
+        cons(IEN, k, j, i) = kin_en_density + e / norm * cons(IDN, k, j, i);
       });
 }
 
