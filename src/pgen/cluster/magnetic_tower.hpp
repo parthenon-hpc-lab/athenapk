@@ -201,9 +201,6 @@ class MagneticTower {
       PARTHENON_REQUIRE_THROWS(offset_ <= 0.0 && thickness_ <= 0.0,
                                "Please disable (set to zero) tower offset and thickness "
                                "for the Li tower model");
-    } else {
-      PARTHENON_FAIL(
-          "Unknown potential for magnetic tower. Current options are: donut, li")
     }
 
     // Vector potential is only locally used, so no need to

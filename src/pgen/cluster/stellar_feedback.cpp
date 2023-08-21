@@ -140,9 +140,7 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), k, j,
                                        i);
         //  Then add thermal energy
-        const auto cell_delta_mass = -cell_delta_rho * coords.CellVolume(k, j, i);
-        const auto cell_delta_energy_density =
-            mass_to_energy * cell_delta_mass / coords.CellVolume(k, j, i);
+        const auto cell_delta_energy_density = -mass_to_energy * cell_delta_rho;
         PARTHENON_REQUIRE(cell_delta_energy_density > 0.0,
                           "Sanity check failed. Added thermal energy should be positive.")
         cons(IEN, k, j, i) += cell_delta_energy_density;

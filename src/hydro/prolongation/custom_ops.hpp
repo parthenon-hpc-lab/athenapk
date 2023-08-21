@@ -41,6 +41,11 @@ using parthenon::ParArray6D;
 using parthenon::TE;
 using parthenon::TopologicalElement;
 
+// Multi-dimensional, limited prolongation:
+// Multi-dim stencil corresponds to eq (5) in Stone et al. (2020).
+// Limiting based on implementation in AMReX (see
+// https://github.com/AMReX-Codes/amrex/blob/735c3513153f1d06f783e64f455816be85fb3602/Src/AmrCore/AMReX_MFInterp_3D_C.H#L89)
+// to preserve extrema.
 struct ProlongateCellMinModMultiD {
   static constexpr bool OperationRequired(TopologicalElement fel,
                                           TopologicalElement cel) {
@@ -77,7 +82,7 @@ struct ProlongateCellMinModMultiD {
     Real dx1fm = 0;
     Real dx1fp = 0;
     Real gx1c = 0;
-    if constexpr (INCLUDE_X2) {
+    if constexpr (INCLUDE_X1) {
       Real dx1m, dx1p;
       GetGridSpacings<1, el>(coords, coarse_coords, cib, ib, i, fi, &dx1m, &dx1p, &dx1fm,
                              &dx1fp);
