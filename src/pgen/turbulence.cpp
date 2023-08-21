@@ -14,6 +14,7 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "globals.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/mesh.hpp"
 #include <iomanip>
@@ -28,6 +29,7 @@
 #include "../main.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
+#include "utils/error_checking.hpp"
 
 namespace turbulence {
 using namespace parthenon::package::prelude;
@@ -192,6 +194,31 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
       pfew_modes_ft->RestoreDist(iss);
     }
   }
+
+  // Parameters to rescale the simulation to a target Mach number at a given cycle, time,
+  // or restart
+  auto rescale_once_at_time =
+      pin->GetOrAddReal("problem/turbulence", "rescale_once_at_time", -1.0);
+  auto rescale_once_at_cycle =
+      pin->GetOrAddInteger("problem/turbulence", "rescale_once_at_cycle", -1);
+  auto rescale_once_on_restart =
+      pin->GetOrAddBoolean("problem/turbulence", "rescale_once_on_restart", false);
+
+  PARTHENON_REQUIRE_THROWS(
+      (rescale_once_at_time < 0.0 && rescale_once_at_cycle < 0 &&
+       !rescale_once_on_restart) ||
+          (rescale_once_at_cycle * rescale_once_at_time < 0.0 &&
+           !rescale_once_on_restart) ||
+          (rescale_once_at_cycle * rescale_once_at_time > 0.0 && rescale_once_on_restart),
+      "Rescaling should only be set for one option (or none at all).");
+  // Make Params mutable as they're reset after rescale
+  pkg->AddParam<>("turbulence/rescale_once_at_time", rescale_once_at_time, true);
+  pkg->AddParam<>("turbulence/rescale_once_at_cycle", rescale_once_at_cycle, true);
+  pkg->AddParam<>("turbulence/rescale_once_on_restart", rescale_once_on_restart, true);
+
+  auto rescale_to_rms_Ms =
+      pin->GetOrAddReal("problem/turbulence", "rescale_to_rms_Ms", -1.0);
+  pkg->AddParam<>("turbulence/rescale_to_rms_Ms", rescale_to_rms_Ms);
 }
 
 // SetPhases is used as InitMeshBlockUserData because phases need to be reset on remeshing
@@ -211,6 +238,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  const auto pack_size = pin->GetInteger("parthenon/mesh", "pack_size");
+  PARTHENON_REQUIRE_THROWS(
+      pack_size == -1, "Turbulence problem generator currently relies on synchronous MPI "
+                       "Allreduce. Therefore, only a `parthenon/mesh/pack_size=-1` is "
+                       "supported. Please get in contact if this is an issue.");
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
@@ -435,6 +468,96 @@ void Perturb(MeshData<Real> *md, const Real dt) {
       });
 }
 
+void Rescale(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto pkg = pmb->packages.Get("Hydro");
+
+  const auto rescale_once_at_time = pkg->Param<Real>("turbulence/rescale_once_at_time");
+  const auto rescale_once_at_cycle = pkg->Param<int>("turbulence/rescale_once_at_cycle");
+  const auto rescale_once_on_restart =
+      pkg->Param<bool>("turbulence/rescale_once_on_restart");
+
+  // Check if any condition is met for rescaling
+  if (!((rescale_once_at_time >= tm.time && rescale_once_at_time < tm.time + dt) ||
+        (rescale_once_at_cycle == tm.ncycle) || rescale_once_on_restart)) {
+    return;
+  }
+
+  // Always disable rescaling as the original value doesn't matter
+  pkg->UpdateParam("turbulence/rescale_once_at_time", -1.0);
+  pkg->UpdateParam("turbulence/rescale_once_at_cycle", -1);
+  pkg->UpdateParam("turbulence/rescale_once_on_restart", false);
+
+  const auto rescale_to_rms_Ms = pkg->Param<Real>("turbulence/rescale_to_rms_Ms");
+  PARTHENON_REQUIRE_THROWS(rescale_to_rms_Ms > 0.0, "What's a negative Mach number?");
+
+  if (parthenon::Globals::my_rank == 0) {
+    std::stringstream msg;
+    msg << std::setprecision(2);
+    msg << "\n# Turbulence driver: rescaling to an RMS Ms of " << rescale_to_rms_Ms;
+    msg << " by resetting the temperature.\n\n";
+    std::cout << msg.str();
+  }
+
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+
+  const auto fluid = pkg->Param<Fluid>("fluid");
+  // To fix this, we'd just have to account for the magnetic energy in the reduction
+  PARTHENON_REQUIRE(fluid == Fluid::euler,
+                    "Rescaling only supported for hydro sims at the moment.");
+
+  const auto gamma = pkg->Param<Real>("AdiabaticIndex");
+
+  Real Ms2_sum;
+  Kokkos::parallel_reduce(
+      "turbulence: calc RMS Ms",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          {0, kb.s, jb.s, ib.s}, {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lMs2_sum) {
+        const auto &coords = cons_pack.GetCoords(b);
+        auto &cons = cons_pack(b);
+
+        const auto kin_en_density = (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                     SQR(cons(IM3, k, j, i))) /
+                                    cons(IDN, k, j, i);
+        auto pres = (gamma - 1.0) * (cons(IEN, k, j, i) - kin_en_density);
+        lMs2_sum += kin_en_density / (gamma * pres) * coords.CellVolume(k, j, i);
+      },
+      Ms2_sum);
+
+#ifdef MPI_PARALLEL
+  // Sum the perturbations over all processors
+  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &Ms2_sum, 1, MPI_PARTHENON_REAL,
+                                    MPI_SUM, MPI_COMM_WORLD));
+#endif // MPI_PARALLEL
+
+  const auto Lx = pmb->pmy_mesh->mesh_size.x1max - pmb->pmy_mesh->mesh_size.x1min;
+  const auto Ly = pmb->pmy_mesh->mesh_size.x2max - pmb->pmy_mesh->mesh_size.x2min;
+  const auto Lz = pmb->pmy_mesh->mesh_size.x3max - pmb->pmy_mesh->mesh_size.x3min;
+  auto norm = rescale_to_rms_Ms / std::sqrt(Ms2_sum / (Lx * Ly * Lz));
+
+  pmb->par_for(
+      "Rescale temperature to target rms Ms", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e,
+      jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const auto &coords = cons_pack.GetCoords(b);
+        auto &cons = cons_pack(b);
+
+        const auto kin_en_density = (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                     SQR(cons(IM3, k, j, i))) /
+                                    cons(IDN, k, j, i);
+
+        auto e = (cons(IEN, k, j, i) - kin_en_density) / cons(IDN, k, j, i);
+
+        cons(IEN, k, j, i) = kin_en_density + e * norm * cons(IDN, k, j, i);
+      });
+}
+
 //----------------------------------------------------------------------------------------
 //! \fn void FewModesTurbulenceDriver::Driving(void)
 //  \brief Generate and Perturb the velocity field
@@ -445,6 +568,9 @@ void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
 
   // actually drive turbulence
   Perturb(md, dt);
+
+  // Magic rescaling of simulation to target regime
+  Rescale(md, tm, dt);
 }
 
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
