@@ -15,9 +15,7 @@ using parthenon::IndexDomain;
 using parthenon::IndexRange;
 
 // refinement condition: check max density
-parthenon::AmrTag Always(MeshBlockData<Real> *rc) {
-  return parthenon::AmrTag::refine;
-}
+parthenon::AmrTag Always(MeshBlockData<Real> *rc) { return parthenon::AmrTag::refine; }
 
 // refinement condition: check max density
 parthenon::AmrTag MaxDensity(MeshBlockData<Real> *rc) {
