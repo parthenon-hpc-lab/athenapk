@@ -52,7 +52,7 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   //const bool useVisc = (viscosity != Viscosity::none);
   ////const bool useVisc = false;
 
-  //const auto &visflx_pack = md->PackVariables(std::vector<std::string>{"visflx"});
+  //const to &visflx_pack = md->PackVariables(std::vector<std::string>{"visflx"});
 
   if ( std::is_same<decltype(coords0),parthenon::UniformCylindrical>::value ){
     parthenon::par_for(

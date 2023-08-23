@@ -98,7 +98,35 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceFirstOrder = turbulence::Driving;
     pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
     pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
-  } else {
+  } else if (problem == "disk") {
+    pman.app_input->InitUserMeshData = disk::InitUserMeshData;
+    pman.app_input->ProblemGenerator = disk::ProblemGenerator;
+    pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x1] =
+        []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
+          disk::DiskBoundary(IndexDomain::inner_x1,mbd,coarse);
+        };
+    pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x1] =
+        []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
+          disk::DiskBoundary(IndexDomain::outer_x1,mbd,coarse);
+        };
+    pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x2] =
+        []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
+          disk::DiskBoundary(IndexDomain::inner_x2,mbd,coarse);
+        };
+    pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x2] =
+        []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
+          disk::DiskBoundary(IndexDomain::outer_x2,mbd,coarse);
+        };
+    pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x3] =
+        []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
+          disk::DiskBoundary(IndexDomain::inner_x3,mbd,coarse);
+        };
+    pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x3] =
+        []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
+          disk::DiskBoundary(IndexDomain::outer_x3,mbd,coarse);
+        };
+  }
+  else {
     // parthenon throw error message for the invalid problem
     std::stringstream msg;
     msg << "Problem ID '" << problem << "' is not implemented yet.";

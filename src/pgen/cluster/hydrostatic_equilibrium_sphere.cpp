@@ -178,6 +178,20 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
 
   return generate_P_rho_profile(r_start, r_end, n_r);
 }
+template <typename GravitationalField, typename EntropyProfile>
+PRhoProfile<GravitationalField, EntropyProfile>
+HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
+    IndexRange ib, IndexRange jb, IndexRange kb,
+    parthenon::UniformCylindrical coords) const {
+      PARTHENON_FAIL("HydrostaticEquilibriumSphere::generate_P_rho_profile not yet implemented for UniformCylindrical" );
+    }
+template <typename GravitationalField, typename EntropyProfile>
+PRhoProfile<GravitationalField, EntropyProfile>
+HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
+    IndexRange ib, IndexRange jb, IndexRange kb,
+    parthenon::UniformSpherical coords) const {
+      PARTHENON_FAIL("HydrostaticEquilibriumSphere::generate_P_rho_profile not yet implemented for UniformSpherical" );
+    }
 
 /************************************************************
  * HydrostaticEquilibriumSphere::generate_P_rho_profile(Ri,Re,nR)

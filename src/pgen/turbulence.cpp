@@ -270,9 +270,9 @@ void SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   const auto nx2 = pmb->block_size.nx2;
   const auto nx3 = pmb->block_size.nx3;
 
-  const auto gis = pmb->loc.lx1 * pmb->block_size.nx1;
-  const auto gjs = pmb->loc.lx2 * pmb->block_size.nx2;
-  const auto gks = pmb->loc.lx3 * pmb->block_size.nx3;
+  const auto gis = pmb->loc.lx1() * pmb->block_size.nx1;
+  const auto gjs = pmb->loc.lx2() * pmb->block_size.nx2;
+  const auto gks = pmb->loc.lx3() * pmb->block_size.nx3;
 
   const auto num_modes = hydro_pkg->Param<int>("turbulence/num_modes");
 

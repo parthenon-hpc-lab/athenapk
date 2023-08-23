@@ -140,6 +140,14 @@ class HydrostaticEquilibriumSphere {
   generate_P_rho_profile(parthenon::IndexRange ib, parthenon::IndexRange jb,
                          parthenon::IndexRange kb,
                          parthenon::UniformCartesian coords) const;
+  PRhoProfile<GravitationalField, EntropyProfile>
+  generate_P_rho_profile(parthenon::IndexRange ib, parthenon::IndexRange jb,
+                         parthenon::IndexRange kb,
+                         parthenon::UniformCylindrical coords) const;
+  PRhoProfile<GravitationalField, EntropyProfile>
+  generate_P_rho_profile(parthenon::IndexRange ib, parthenon::IndexRange jb,
+                         parthenon::IndexRange kb,
+                         parthenon::UniformSpherical coords) const;
 
   PRhoProfile<GravitationalField, EntropyProfile>
   generate_P_rho_profile(const parthenon::Real r_start, const parthenon::Real r_end,
