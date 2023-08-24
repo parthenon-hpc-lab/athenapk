@@ -143,6 +143,14 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     hydro_pkg->Param<GLMMHD::SourceFun_t>("glmmhd_source")(md, beta_dt);
   }
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+
+  if (enable_cooling == Cooling::tabular) {
+    const TabularCooling &tabular_cooling =
+        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    tabular_cooling.SrcTerm(md, beta_dt);
+  }
   if (ProblemSourceUnsplit != nullptr) {
     ProblemSourceUnsplit(md, tm, beta_dt);
   }
@@ -153,14 +161,14 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
 
-  if (enable_cooling == Cooling::tabular) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+  // if (enable_cooling == Cooling::tabular) {
+  //   const TabularCooling &tabular_cooling =
+  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
 
-    tabular_cooling.SrcTerm(md, tm.dt);
-  }
+  //   tabular_cooling.SrcTerm(md, tm.dt);
+  // }
   if (ProblemSourceFirstOrder != nullptr) {
     ProblemSourceFirstOrder(md, tm, tm.dt);
   }
