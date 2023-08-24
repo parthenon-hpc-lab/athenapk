@@ -88,10 +88,18 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
     const Real vAceil2 = SQR(vAceil);
     const Real gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
 
-    parthenon::par_for(
-        DEFAULT_LOOP_PATTERN, "Cluster::ApplyClusterClips", parthenon::DevExecSpace(), 0,
-        cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+    Real added_dfloor_mass = 0.0, removed_vceil_energy = 0.0, added_vAceil_mass = 0.0,
+         removed_eceil_energy = 0.0;
+
+    Kokkos::parallel_reduce(
+      "Cluster::ApplyClusterClips",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
+                      Real &added_dfloor_mass_team, Real& removed_vceil_energy_team,
+                      Real& added_vAceil_mass_team, Real& removed_eceil_energy_team) {
           auto &cons = cons_pack(b);
           auto &prim = prim_pack(b);
           const auto &coords = cons_pack.GetCoords(b);
@@ -106,6 +114,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
             if (dfloor > 0) {
               const Real rho = prim(IDN, k, j, i);
               if (rho < dfloor) {
+                added_dfloor_mass_team += (dfloor - rho)*coords.CellVolume(k,j,i);
                 cons(IDN, k, j, i) = dfloor;
                 prim(IDN, k, j, i) = dfloor;
               }
@@ -126,7 +135,9 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
                 prim(IV3, k, j, i) *= vceil / v;
 
                 // Remove kinetic energy
-                cons(IEN, k, j, i) -= 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
+                const Real removed_energy = 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
+                removed_vceil_energy_team += removed_energy*coords.CellVolume(k,j,i);
+                cons(IEN, k, j, i) -= removed_energy;
               }
             }
 
@@ -142,6 +153,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
               if (va2 > vAceil2) {
                 // Increase the density to match the alfven velocity ceiling
                 const Real rho_new = std::sqrt(B2 / vAceil2);
+                added_vAceil_mass_team += (rho_new - rho)*coords.CellVolume(k,j,i);
                 cons(IDN, k, j, i) = rho_new;
                 prim(IDN, k, j, i) = rho_new;
               }
@@ -151,12 +163,25 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
               // Apply  internal energy ceiling as a pressure ceiling
               const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
               if (internal_e > eceil) {
-                cons(IEN, k, j, i) -= prim(IDN, k, j, i) * (internal_e - eceil);
+                const Real removed_energy = prim(IDN, k, j, i) * (internal_e - eceil);
+                removed_eceil_energy_team += removed_energy*coords.CellVolume(k,j,i);
+                cons(IEN, k, j, i) -= removed_energy;
                 prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
               }
             }
           }
-        });
+        }, added_dfloor_mass, removed_vceil_energy,
+           added_vAceil_mass, removed_eceil_energy);
+
+    //Add the freshly added mass/removed energy to running totals
+    hydro_pkg->UpdateParam("added_dfloor_mass", added_dfloor_mass +
+     hydro_pkg->Param<parthenon::Real>("added_dfloor_mass"));
+    hydro_pkg->UpdateParam("removed_vceil_energy", removed_vceil_energy +
+     hydro_pkg->Param<parthenon::Real>("removed_vceil_energy"));
+    hydro_pkg->UpdateParam("added_vAceil_mass", added_vAceil_mass + 
+     hydro_pkg->Param<parthenon::Real>("added_vAceil_mass"));
+    hydro_pkg->UpdateParam("removed_eceil_energy", removed_eceil_energy +
+     hydro_pkg->Param<parthenon::Real>("removed_eceil_energy"));
   }
 }
 
@@ -173,7 +198,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
   }
 }
 
-void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                     const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
@@ -195,11 +220,16 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
   snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
 
-  const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
-  stellar_feedback.FeedbackSrcTerm(md, beta_dt, tm);
-
-  ApplyClusterClips(md, tm, beta_dt);
 };
+void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                    const Real dt) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
+  stellar_feedback.FeedbackSrcTerm(md, dt, tm);
+
+  ApplyClusterClips(md, tm, dt);
+}
 
 Real ClusterEstimateTimestep(MeshData<Real> *md) {
   Real min_dt = std::numeric_limits<Real>::max();
@@ -384,6 +414,41 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddParam("cluster_vceil", vceil);
   hydro_pkg->AddParam("cluster_vAceil", vAceil);
   hydro_pkg->AddParam("cluster_clip_r", clip_r);
+
+  /************************************************************
+   * Start running reductions into history outputs for clips and stellar mass
+   ************************************************************/
+
+  /* FIXME(forrestglines) This implementation with a reduction into Params might
+   be broken in several ways.
+    1. Each reduction in params is Rank local. Multiple meshblocks packs per
+    rank adding to these params is not thread-safe
+    2. These Params are not carried over between restarts. If a restart dump is
+    made and a history output is not, then the mass/energy between the last
+    history output and the restart dump is lost
+  */
+  std::string reduction_strs[] =  {"stellar_mass","added_dfloor_mass", "removed_eceil_energy",
+                              "removed_vceil_energy", "added_vAceil_mass"};
+
+  //Add a param for each reduction, then add it as a summation reduction for
+  //history outputs
+  auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
+
+  for( auto reduction_str : reduction_strs ) {
+    hydro_pkg->AddParam(reduction_str,    0.0, true);
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::sum,
+        [reduction_str](MeshData<Real> *md) {
+          auto pmb = md->GetBlockData(0)->GetBlockPointer();
+          auto hydro_pkg = pmb->packages.Get("Hydro");
+          const Real reduction = hydro_pkg->Param<Real>(reduction_str);
+          //Reset the running count for this reduction between history outputs
+          hydro_pkg->UpdateParam(reduction_str,0.0);
+          return reduction;
+        },
+        reduction_str));
+  }
+  hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
   /************************************************************
    * Add derived fields
