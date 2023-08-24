@@ -177,10 +177,10 @@ class MagneticTower {
 
   MagneticTower(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg,
                 const std::string &block = "problem/cluster/magnetic_tower")
-      : alpha_(pin->GetOrAddReal(block, "alpha", 0)),
+      : alpha_(pin->GetOrAddReal(block, "li_alpha", 0)),
         l_scale_(pin->GetOrAddReal(block, "l_scale", 0)),
-        offset_(pin->GetOrAddReal(block, "offset", 0)),
-        thickness_(pin->GetOrAddReal(block, "thickness", 0)),
+        offset_(pin->GetOrAddReal(block, "donut_offset", 0)),
+        thickness_(pin->GetOrAddReal(block, "donut_thickness", 0)),
         initial_field_(pin->GetOrAddReal(block, "initial_field", 0)),
         fixed_field_rate_(pin->GetOrAddReal(block, "fixed_field_rate", 0)),
         fixed_mass_rate_(pin->GetOrAddReal(block, "fixed_mass_rate", 0)),
@@ -195,7 +195,10 @@ class MagneticTower {
       potential_ = MagneticTowerPotential::donut;
       PARTHENON_REQUIRE_THROWS(
           offset_ >= 0.0 && thickness_ > 0.0,
-          "Incompatible combination of offset and thickness for magnetic donut feedback.")
+          "Incompatible combination of donut_offset and donut_thickness for magnetic donut feedback.")
+      PARTHENON_REQUIRE_THROWS(alpha_ == 0.0,
+                               "Please disable (set to zero) tower li_alpha "
+                               "for the donut model");
     } else if (potential_str == "li") {
       potential_ = MagneticTowerPotential::li;
       PARTHENON_REQUIRE_THROWS(offset_ <= 0.0 && thickness_ <= 0.0,
