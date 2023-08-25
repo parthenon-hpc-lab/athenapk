@@ -45,8 +45,9 @@
 // Cluster headers
 #include "cluster/agn_feedback.hpp"
 #include "cluster/agn_triggering.hpp"
-#include "cluster/cluster_gravity.hpp"
 #include "cluster/cluster_clips.hpp"
+#include "cluster/cluster_gravity.hpp"
+#include "cluster/cluster_reductions.hpp"
 #include "cluster/entropy_profiles.hpp"
 #include "cluster/hydrostatic_equilibrium_sphere.hpp"
 #include "cluster/magnetic_tower.hpp"
@@ -277,7 +278,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddParam("cluster_clip_r", clip_r);
 
   /************************************************************
-   * Start running reductions into history outputs for clips and stellar mass
+   * Start running reductions into history outputs for clips, stellar mass, cold
+   * gas, and AGN extent
    ************************************************************/
 
   /* FIXME(forrestglines) This implementation with a reduction into Params might
@@ -309,6 +311,29 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
         },
         reduction_str));
   }
+
+  //Add history reduction for total cold gas using stellar mass threshold
+  const Real cold_thresh =
+      pin->GetOrAddReal("problem/cluster/reductions", "cold_temp_thresh", 0.0);
+  if( cold_thresh > 0){
+    hydro_pkg->AddParam("reduction_cold_threshold", cold_thresh);
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::sum, LocalReduceColdGas,
+        "cold_mass"));
+  }
+  const Real agn_tracer_thresh =
+      pin->GetOrAddReal("problem/cluster/reductions", "agn_tracer_thresh", -1.0);
+  if( agn_tracer_thresh >= 0){
+  auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+    PARTHENON_REQUIRE(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false),
+      "AGN Tracer must be enabled to reduce AGN tracer extent");
+    hydro_pkg->AddParam("reduction_agn_tracer_threshold", agn_tracer_thresh);
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::max, LocalReduceAGNExtent,
+        "agn_extent"));
+  }
+
+
   hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
   /************************************************************
