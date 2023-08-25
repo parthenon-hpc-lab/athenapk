@@ -42,7 +42,7 @@ LocalReduceColdGas(parthenon::MeshData<parthenon::Real> *md){
   Real cold_gas = 0.0;
 
   Kokkos::parallel_reduce(
-    "Cluster::ApplyClusterClips",
+    "LocalReduceColdGas",
     Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
         DevExecSpace(), {0, kb.s, jb.s, ib.s},
         {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
@@ -76,7 +76,7 @@ LocalReduceAGNExtent(parthenon::MeshData<parthenon::Real> *md){
   Real max_r2 = 0.0;
 
   Kokkos::parallel_reduce(
-    "Cluster::ApplyClusterClips",
+    "LocalReduceAGNExtent",
     Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
         DevExecSpace(), {0, kb.s, jb.s, ib.s},
         {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
