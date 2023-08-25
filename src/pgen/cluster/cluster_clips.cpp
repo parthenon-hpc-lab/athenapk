@@ -26,7 +26,6 @@ template <class EOS>
 void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
                        const Real beta_dt, const EOS eos);
 
-
 void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
                        const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
@@ -167,6 +166,5 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
      hydro_pkg->Param<parthenon::Real>("removed_eceil_energy"));
   }
 }
-
 
 } // namespace cluster
