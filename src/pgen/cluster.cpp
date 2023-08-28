@@ -45,7 +45,9 @@
 // Cluster headers
 #include "cluster/agn_feedback.hpp"
 #include "cluster/agn_triggering.hpp"
+#include "cluster/cluster_clips.hpp"
 #include "cluster/cluster_gravity.hpp"
+#include "cluster/cluster_reductions.hpp"
 #include "cluster/entropy_profiles.hpp"
 #include "cluster/hydrostatic_equilibrium_sphere.hpp"
 #include "cluster/magnetic_tower.hpp"
@@ -57,124 +59,8 @@ using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
 
-template <class EOS>
-void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
-                       const Real beta_dt, const EOS eos) {
-
-  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  // Apply clips -- ceilings on temperature, velocity, alfven velocity, and
-  // density floor -- within a radius of the AGN
-  const auto &dfloor = hydro_pkg->Param<Real>("cluster_dfloor");
-  const auto &eceil = hydro_pkg->Param<Real>("cluster_eceil");
-  const auto &vceil = hydro_pkg->Param<Real>("cluster_vceil");
-  const auto &vAceil = hydro_pkg->Param<Real>("cluster_vAceil");
-  const auto &clip_r = hydro_pkg->Param<Real>("cluster_clip_r");
-
-  if (clip_r > 0 && (dfloor > 0 || eceil < std::numeric_limits<Real>::infinity() ||
-                     vceil < std::numeric_limits<Real>::infinity() ||
-                     vAceil < std::numeric_limits<Real>::infinity())) {
-    // Grab some necessary variables
-    const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-    const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-    IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-    IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-    IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-    const auto nhydro = hydro_pkg->Param<int>("nhydro");
-    const auto nscalars = hydro_pkg->Param<int>("nscalars");
-
-    const Real clip_r2 = SQR(clip_r);
-    const Real vceil2 = SQR(vceil);
-    const Real vAceil2 = SQR(vAceil);
-    const Real gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
-
-    parthenon::par_for(
-        DEFAULT_LOOP_PATTERN, "Cluster::ApplyClusterClips", parthenon::DevExecSpace(), 0,
-        cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-          auto &cons = cons_pack(b);
-          auto &prim = prim_pack(b);
-          const auto &coords = cons_pack.GetCoords(b);
-
-          const Real r2 =
-              SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k));
-
-          if (r2 < clip_r2) {
-            // Cell falls within clipping radius
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-
-            if (dfloor > 0) {
-              const Real rho = prim(IDN, k, j, i);
-              if (rho < dfloor) {
-                cons(IDN, k, j, i) = dfloor;
-                prim(IDN, k, j, i) = dfloor;
-              }
-            }
-
-            if (vceil < std::numeric_limits<Real>::infinity()) {
-              // Apply velocity ceiling
-              const Real v2 = SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) +
-                              SQR(prim(IV3, k, j, i));
-              if (v2 > vceil2) {
-                // Fix the velocity to the velocity ceiling
-                const Real v = sqrt(v2);
-                cons(IM1, k, j, i) *= vceil / v;
-                cons(IM2, k, j, i) *= vceil / v;
-                cons(IM3, k, j, i) *= vceil / v;
-                prim(IV1, k, j, i) *= vceil / v;
-                prim(IV2, k, j, i) *= vceil / v;
-                prim(IV3, k, j, i) *= vceil / v;
-
-                // Remove kinetic energy
-                cons(IEN, k, j, i) -= 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
-              }
-            }
-
-            if (vAceil2 < std::numeric_limits<Real>::infinity()) {
-              // Apply Alfven velocity ceiling by raising density
-              const Real rho = prim(IDN, k, j, i);
-              const Real B2 = (SQR(prim(IB1, k, j, i)) + SQR(prim(IB2, k, j, i)) +
-                               SQR(prim(IB3, k, j, i)));
-
-              // compute Alfven mach number
-              const Real va2 = (B2 / rho);
-
-              if (va2 > vAceil2) {
-                // Increase the density to match the alfven velocity ceiling
-                const Real rho_new = std::sqrt(B2 / vAceil2);
-                cons(IDN, k, j, i) = rho_new;
-                prim(IDN, k, j, i) = rho_new;
-              }
-            }
-
-            if (eceil < std::numeric_limits<Real>::infinity()) {
-              // Apply  internal energy ceiling as a pressure ceiling
-              const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
-              if (internal_e > eceil) {
-                cons(IEN, k, j, i) -= prim(IDN, k, j, i) * (internal_e - eceil);
-                prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
-              }
-            }
-          }
-        });
-  }
-}
-
-void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
-                       const Real beta_dt) {
-  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  auto fluid = hydro_pkg->Param<Fluid>("fluid");
-  if (fluid == Fluid::euler) {
-    ApplyClusterClips(md, tm, beta_dt, hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
-  } else if (fluid == Fluid::glmmhd) {
-    ApplyClusterClips(md, tm, beta_dt, hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
-  } else {
-    PARTHENON_FAIL("Cluster::ApplyClusterClips: Unknown EOS");
-  }
-}
-
-void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
-                    const Real beta_dt) {
+void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                           const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
@@ -194,12 +80,16 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
   snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
+};
+void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                         const Real dt) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
-  stellar_feedback.FeedbackSrcTerm(md, beta_dt, tm);
+  stellar_feedback.FeedbackSrcTerm(md, dt, tm);
 
-  ApplyClusterClips(md, tm, beta_dt);
-};
+  ApplyClusterClips(md, tm, dt);
+}
 
 Real ClusterEstimateTimestep(MeshData<Real> *md) {
   Real min_dt = std::numeric_limits<Real>::max();
@@ -384,6 +274,64 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddParam("cluster_vceil", vceil);
   hydro_pkg->AddParam("cluster_vAceil", vAceil);
   hydro_pkg->AddParam("cluster_clip_r", clip_r);
+
+  /************************************************************
+   * Start running reductions into history outputs for clips, stellar mass, cold
+   * gas, and AGN extent
+   ************************************************************/
+
+  /* FIXME(forrestglines) This implementation with a reduction into Params might
+   be broken in several ways.
+    1. Each reduction in params is Rank local. Multiple meshblocks packs per
+    rank adding to these params is not thread-safe
+    2. These Params are not carried over between restarts. If a restart dump is
+    made and a history output is not, then the mass/energy between the last
+    history output and the restart dump is lost
+  */
+  std::string reduction_strs[] = {"stellar_mass", "added_dfloor_mass",
+                                  "removed_eceil_energy", "removed_vceil_energy",
+                                  "added_vAceil_mass"};
+
+  // Add a param for each reduction, then add it as a summation reduction for
+  // history outputs
+  auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
+
+  for (auto reduction_str : reduction_strs) {
+    hydro_pkg->AddParam(reduction_str, 0.0, true);
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::sum,
+        [reduction_str](MeshData<Real> *md) {
+          auto pmb = md->GetBlockData(0)->GetBlockPointer();
+          auto hydro_pkg = pmb->packages.Get("Hydro");
+          const Real reduction = hydro_pkg->Param<Real>(reduction_str);
+          // Reset the running count for this reduction between history outputs
+          hydro_pkg->UpdateParam(reduction_str, 0.0);
+          return reduction;
+        },
+        reduction_str));
+  }
+
+  // Add history reduction for total cold gas using stellar mass threshold
+  const Real cold_thresh =
+      pin->GetOrAddReal("problem/cluster/reductions", "cold_temp_thresh", 0.0);
+  if (cold_thresh > 0) {
+    hydro_pkg->AddParam("reduction_cold_threshold", cold_thresh);
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::sum, LocalReduceColdGas, "cold_mass"));
+  }
+  const Real agn_tracer_thresh =
+      pin->GetOrAddReal("problem/cluster/reductions", "agn_tracer_thresh", -1.0);
+  if (agn_tracer_thresh >= 0) {
+    auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+    PARTHENON_REQUIRE(
+        pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false),
+        "AGN Tracer must be enabled to reduce AGN tracer extent");
+    hydro_pkg->AddParam("reduction_agn_tracer_threshold", agn_tracer_thresh);
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::max, LocalReduceAGNExtent, "agn_extent"));
+  }
+
+  hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
   /************************************************************
    * Add derived fields
