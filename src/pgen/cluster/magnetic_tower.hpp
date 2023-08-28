@@ -193,9 +193,9 @@ class MagneticTower {
 
     if (potential_str == "donut") {
       potential_ = MagneticTowerPotential::donut;
-      PARTHENON_REQUIRE_THROWS(
-          offset_ >= 0.0 && thickness_ > 0.0,
-          "Incompatible combination of donut_offset and donut_thickness for magnetic donut feedback.")
+      PARTHENON_REQUIRE_THROWS(offset_ >= 0.0 && thickness_ > 0.0,
+                               "Incompatible combination of donut_offset and "
+                               "donut_thickness for magnetic donut feedback.")
       PARTHENON_REQUIRE_THROWS(alpha_ == 0.0,
                                "Please disable (set to zero) tower li_alpha "
                                "for the donut model");

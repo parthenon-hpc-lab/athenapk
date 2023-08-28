@@ -74,14 +74,14 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
          removed_eceil_energy = 0.0;
 
     Kokkos::parallel_reduce(
-      "Cluster::ApplyClusterClips",
-      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
-          DevExecSpace(), {0, kb.s, jb.s, ib.s},
-          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-          {1, 1, 1, ib.e + 1 - ib.s}),
+        "Cluster::ApplyClusterClips",
+        Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+            DevExecSpace(), {0, kb.s, jb.s, ib.s},
+            {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+            {1, 1, 1, ib.e + 1 - ib.s}),
         KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
-                      Real &added_dfloor_mass_team, Real& removed_vceil_energy_team,
-                      Real& added_vAceil_mass_team, Real& removed_eceil_energy_team) {
+                      Real &added_dfloor_mass_team, Real &removed_vceil_energy_team,
+                      Real &added_vAceil_mass_team, Real &removed_eceil_energy_team) {
           auto &cons = cons_pack(b);
           auto &prim = prim_pack(b);
           const auto &coords = cons_pack.GetCoords(b);
@@ -96,7 +96,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
             if (dfloor > 0) {
               const Real rho = prim(IDN, k, j, i);
               if (rho < dfloor) {
-                added_dfloor_mass_team += (dfloor - rho)*coords.CellVolume(k,j,i);
+                added_dfloor_mass_team += (dfloor - rho) * coords.CellVolume(k, j, i);
                 cons(IDN, k, j, i) = dfloor;
                 prim(IDN, k, j, i) = dfloor;
               }
@@ -118,7 +118,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
 
                 // Remove kinetic energy
                 const Real removed_energy = 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
-                removed_vceil_energy_team += removed_energy*coords.CellVolume(k,j,i);
+                removed_vceil_energy_team += removed_energy * coords.CellVolume(k, j, i);
                 cons(IEN, k, j, i) -= removed_energy;
               }
             }
@@ -135,7 +135,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
               if (va2 > vAceil2) {
                 // Increase the density to match the alfven velocity ceiling
                 const Real rho_new = std::sqrt(B2 / vAceil2);
-                added_vAceil_mass_team += (rho_new - rho)*coords.CellVolume(k,j,i);
+                added_vAceil_mass_team += (rho_new - rho) * coords.CellVolume(k, j, i);
                 cons(IDN, k, j, i) = rho_new;
                 prim(IDN, k, j, i) = rho_new;
               }
@@ -146,24 +146,28 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
               const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
               if (internal_e > eceil) {
                 const Real removed_energy = prim(IDN, k, j, i) * (internal_e - eceil);
-                removed_eceil_energy_team += removed_energy*coords.CellVolume(k,j,i);
+                removed_eceil_energy_team += removed_energy * coords.CellVolume(k, j, i);
                 cons(IEN, k, j, i) -= removed_energy;
                 prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
               }
             }
           }
-        }, added_dfloor_mass, removed_vceil_energy,
-           added_vAceil_mass, removed_eceil_energy);
+        },
+        added_dfloor_mass, removed_vceil_energy, added_vAceil_mass, removed_eceil_energy);
 
-    //Add the freshly added mass/removed energy to running totals
-    hydro_pkg->UpdateParam("added_dfloor_mass", added_dfloor_mass +
-     hydro_pkg->Param<parthenon::Real>("added_dfloor_mass"));
-    hydro_pkg->UpdateParam("removed_vceil_energy", removed_vceil_energy +
-     hydro_pkg->Param<parthenon::Real>("removed_vceil_energy"));
-    hydro_pkg->UpdateParam("added_vAceil_mass", added_vAceil_mass + 
-     hydro_pkg->Param<parthenon::Real>("added_vAceil_mass"));
-    hydro_pkg->UpdateParam("removed_eceil_energy", removed_eceil_energy +
-     hydro_pkg->Param<parthenon::Real>("removed_eceil_energy"));
+    // Add the freshly added mass/removed energy to running totals
+    hydro_pkg->UpdateParam("added_dfloor_mass",
+                           added_dfloor_mass +
+                               hydro_pkg->Param<parthenon::Real>("added_dfloor_mass"));
+    hydro_pkg->UpdateParam("removed_vceil_energy",
+                           removed_vceil_energy +
+                               hydro_pkg->Param<parthenon::Real>("removed_vceil_energy"));
+    hydro_pkg->UpdateParam("added_vAceil_mass",
+                           added_vAceil_mass +
+                               hydro_pkg->Param<parthenon::Real>("added_vAceil_mass"));
+    hydro_pkg->UpdateParam("removed_eceil_energy",
+                           removed_eceil_energy +
+                               hydro_pkg->Param<parthenon::Real>("removed_eceil_energy"));
   }
 }
 
