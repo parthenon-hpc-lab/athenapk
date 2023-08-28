@@ -11,13 +11,13 @@
 //  \brief  Class for applying floors and ceils and reducing removed/added mass/energy
 
 // C++ headers
-#include <cmath>     // sqrt()
+#include <cmath> // sqrt()
 
 // Parthenon headers
 #include "basic_types.hpp"
 #include "mesh/mesh.hpp"
 
-namespace cluster{
+namespace cluster {
 
 void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
                        const Real beta_dt);

@@ -6,7 +6,8 @@
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file cluster_reductions.hpp
-//  \brief  Cluster-specific reductions to compute the total cold gas and maximum radius of AGN feedback
+//  \brief  Cluster-specific reductions to compute the total cold gas and maximum radius
+//  of AGN feedback
 
 // parthenon headers
 #include <basic_types.hpp>
@@ -14,11 +15,9 @@
 
 namespace cluster {
 
-parthenon::Real
-LocalReduceColdGas(parthenon::MeshData<parthenon::Real> *md);
+parthenon::Real LocalReduceColdGas(parthenon::MeshData<parthenon::Real> *md);
 
-parthenon::Real
-LocalReduceAGNExtent(parthenon::MeshData<parthenon::Real> *md);
+parthenon::Real LocalReduceAGNExtent(parthenon::MeshData<parthenon::Real> *md);
 
 } // namespace cluster
 

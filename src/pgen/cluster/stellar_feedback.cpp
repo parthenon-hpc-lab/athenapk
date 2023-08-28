@@ -109,11 +109,11 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   // Constant volumetric heating, reduce mass removed
   Kokkos::parallel_reduce(
-    "StellarFeedback::FeedbackSrcTerm",
-    Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
-      DevExecSpace(), {0, kb.s, jb.s, ib.s},
-      {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-      {1, 1, 1, ib.e + 1 - ib.s}),
+      "StellarFeedback::FeedbackSrcTerm",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     Real &stellar_mass_team) {
         auto &cons = cons_pack(b);
@@ -141,22 +141,24 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
         // All conditions to convert mass to energy are met
         const auto cell_delta_rho = number_density_threshold * mbar - prim(IDN, k, j, i);
-        stellar_mass_team -= cell_delta_rho*coords.CellVolume(k,j,i);
+        stellar_mass_team -= cell_delta_rho * coords.CellVolume(k, j, i);
 
         // First remove density at fixed temperature
         AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), k, j,
                                        i);
         //  Then add thermal energy
         const auto cell_delta_energy_density = -mass_to_energy * cell_delta_rho;
-        PARTHENON_REQUIRE(cell_delta_energy_density > 0.0,
-                          "Sanity check failed. Added thermal energy should be positive.");
+        PARTHENON_REQUIRE(
+            cell_delta_energy_density > 0.0,
+            "Sanity check failed. Added thermal energy should be positive.");
         cons(IEN, k, j, i) += cell_delta_energy_density;
 
         // Update prims
         eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-      }, stellar_mass);
-  hydro_pkg->UpdateParam("stellar_mass", stellar_mass +
-    hydro_pkg->Param<parthenon::Real>("stellar_mass"));
+      },
+      stellar_mass);
+  hydro_pkg->UpdateParam(
+      "stellar_mass", stellar_mass + hydro_pkg->Param<parthenon::Real>("stellar_mass"));
 }
 
 } // namespace cluster
