@@ -81,7 +81,6 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
   snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
-
 };
 void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                     const Real dt) {
