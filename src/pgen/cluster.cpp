@@ -59,9 +59,8 @@ using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
 
-
 void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
-                    const Real beta_dt) {
+                           const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
@@ -79,17 +78,16 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
   magnetic_tower.FixedFieldSrcTerm(md, beta_dt, tm);
 
-  //const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
-  //snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
+  // const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
+  // snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
 
-  //ApplyClusterClips(md, tm, beta_dt);
+  // ApplyClusterClips(md, tm, beta_dt);
 
   const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
   stellar_feedback.FeedbackSrcTerm(md, beta_dt, tm);
-
 };
 void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
-                    const Real dt) {
+                         const Real dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
@@ -295,49 +293,48 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     made and a history output is not, then the mass/energy between the last
     history output and the restart dump is lost
   */
-  std::string reduction_strs[] =  {"stellar_mass","added_dfloor_mass", "removed_eceil_energy",
-                              "removed_vceil_energy", "added_vAceil_mass"};
+  std::string reduction_strs[] = {"stellar_mass", "added_dfloor_mass",
+                                  "removed_eceil_energy", "removed_vceil_energy",
+                                  "added_vAceil_mass"};
 
-  //Add a param for each reduction, then add it as a summation reduction for
-  //history outputs
+  // Add a param for each reduction, then add it as a summation reduction for
+  // history outputs
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
 
-  for( auto reduction_str : reduction_strs ) {
-    hydro_pkg->AddParam(reduction_str,    0.0, true);
+  for (auto reduction_str : reduction_strs) {
+    hydro_pkg->AddParam(reduction_str, 0.0, true);
     hst_vars.emplace_back(parthenon::HistoryOutputVar(
         parthenon::UserHistoryOperation::sum,
         [reduction_str](MeshData<Real> *md) {
           auto pmb = md->GetBlockData(0)->GetBlockPointer();
           auto hydro_pkg = pmb->packages.Get("Hydro");
           const Real reduction = hydro_pkg->Param<Real>(reduction_str);
-          //Reset the running count for this reduction between history outputs
-          hydro_pkg->UpdateParam(reduction_str,0.0);
+          // Reset the running count for this reduction between history outputs
+          hydro_pkg->UpdateParam(reduction_str, 0.0);
           return reduction;
         },
         reduction_str));
   }
 
-  //Add history reduction for total cold gas using stellar mass threshold
+  // Add history reduction for total cold gas using stellar mass threshold
   const Real cold_thresh =
       pin->GetOrAddReal("problem/cluster/reductions", "cold_temp_thresh", 0.0);
-  if( cold_thresh > 0){
+  if (cold_thresh > 0) {
     hydro_pkg->AddParam("reduction_cold_threshold", cold_thresh);
     hst_vars.emplace_back(parthenon::HistoryOutputVar(
-        parthenon::UserHistoryOperation::sum, LocalReduceColdGas,
-        "cold_mass"));
+        parthenon::UserHistoryOperation::sum, LocalReduceColdGas, "cold_mass"));
   }
   const Real agn_tracer_thresh =
       pin->GetOrAddReal("problem/cluster/reductions", "agn_tracer_thresh", -1.0);
-  if( agn_tracer_thresh >= 0){
-  auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
-    PARTHENON_REQUIRE(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false),
-      "AGN Tracer must be enabled to reduce AGN tracer extent");
+  if (agn_tracer_thresh >= 0) {
+    auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+    PARTHENON_REQUIRE(
+        pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false),
+        "AGN Tracer must be enabled to reduce AGN tracer extent");
     hydro_pkg->AddParam("reduction_agn_tracer_threshold", agn_tracer_thresh);
     hst_vars.emplace_back(parthenon::HistoryOutputVar(
-        parthenon::UserHistoryOperation::max, LocalReduceAGNExtent,
-        "agn_extent"));
+        parthenon::UserHistoryOperation::max, LocalReduceAGNExtent, "agn_extent"));
   }
-
 
   hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
