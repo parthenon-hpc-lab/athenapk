@@ -795,7 +795,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   jl = jb.s, ju = jb.e, kl = kb.s, ku = kb.e;
   // TODO(pgrete): are these looop limits are likely too large for 2nd order
   if (pmb->block_size.nx(X2DIR) > 1) {
-    if (pmb->block_size.nx(X3DIR)== 1) // 2D
+    if (pmb->block_size.nx(X3DIR) == 1) // 2D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s, ku = kb.e;
     else // 3D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;

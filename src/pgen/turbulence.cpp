@@ -402,9 +402,12 @@ void Perturb(MeshData<Real> *md, const Real dt) {
                                     MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
 
-  const auto Lx = pmb->pmy_mesh->mesh_size.xmax(X1DIR) - pmb->pmy_mesh->mesh_size.xmin(X1DIR);
-  const auto Ly = pmb->pmy_mesh->mesh_size.xmax(X2DIR) - pmb->pmy_mesh->mesh_size.xmin(X2DIR);
-  const auto Lz = pmb->pmy_mesh->mesh_size.xmax(X3DIR) - pmb->pmy_mesh->mesh_size.xmin(X3DIR);
+  const auto Lx =
+      pmb->pmy_mesh->mesh_size.xmax(X1DIR) - pmb->pmy_mesh->mesh_size.xmin(X1DIR);
+  const auto Ly =
+      pmb->pmy_mesh->mesh_size.xmax(X2DIR) - pmb->pmy_mesh->mesh_size.xmin(X2DIR);
+  const auto Lz =
+      pmb->pmy_mesh->mesh_size.xmax(X3DIR) - pmb->pmy_mesh->mesh_size.xmin(X3DIR);
   const auto accel_rms = hydro_pkg->Param<Real>("turbulence/accel_rms");
   auto norm = accel_rms / std::sqrt(sums[0] / (Lx * Ly * Lz));
 
