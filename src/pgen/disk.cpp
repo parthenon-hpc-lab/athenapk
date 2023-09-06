@@ -216,17 +216,17 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
   auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
-  const auto &coords = cons.GetCoords();
   // TODO(pgrete) Add par_for_bndry to Parthenon without requiring nb
   const auto nb = IndexRange{0, 0};
 
   const auto sd_ = sd;
   const auto gamma_m1_ = gamma_m1;
   
-  if ( std::is_same<decltype(coords),parthenon::UniformCylindrical>::value ){
+  if (std::is_same<parthenon::Coordinates_t,parthenon::UniformCylindrical>::value ){
     pmb->par_for_bndry(
       "DiskBoundary::UniformCylindrical", nb, domain, parthenon::TopologicalElement::CC,
       coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
+        const auto &coords = cons.GetCoords();
         Real rad,phi,z;
         GetCylCoord(coords,rad,phi,z,i,j,k);
 
@@ -243,6 +243,7 @@ void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>>
     pmb->par_for_bndry(
       "DiskBoundary::UniformSpherical", nb, domain, parthenon::TopologicalElement::CC,
       coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
+        const auto &coords = cons.GetCoords();
         Real rad,phi,z;
         GetCylCoord(coords,rad,phi,z,i,j,k);
 
