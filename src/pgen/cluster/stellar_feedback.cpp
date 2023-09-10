@@ -33,19 +33,28 @@ StellarFeedback::StellarFeedback(parthenon::ParameterInput *pin,
                                  parthenon::StateDescriptor *hydro_pkg)
     : stellar_radius_(
           pin->GetOrAddReal("problem/cluster/stellar_feedback", "stellar_radius", 0.0)),
+      exclusion_radius_(
+          pin->GetOrAddReal("problem/cluster/stellar_feedback", "exclusion_radius", 0.0)),
       efficiency_(
           pin->GetOrAddReal("problem/cluster/stellar_feedback", "efficiency", 0.0)),
       number_density_threshold_(pin->GetOrAddReal("problem/cluster/stellar_feedback",
                                                   "number_density_threshold", 0.0)),
       temperatue_threshold_(pin->GetOrAddReal("problem/cluster/stellar_feedback",
                                               "temperature_threshold", 0.0)) {
-  if (stellar_radius_ == 0.0 && efficiency_ == 0.0 && number_density_threshold_ == 0.0 &&
+  if (stellar_radius_ == 0.0 && exclusion_radius_ == 0.0 && efficiency_ == 0.0 && number_density_threshold_ == 0.0 &&
       temperatue_threshold_ == 0.0) {
     disabled_ = true;
   } else {
     disabled_ = false;
   }
-  PARTHENON_REQUIRE(disabled_ || (stellar_radius_ != 0.0 && efficiency_ != 0.00 &&
+
+  if (!disabled_ && exclusion_radius_ == 0.0){
+    // If exclusion_radius_ is not specified, use AGN triggering accretion radius.
+    // If both are zero, the PARTHENON_REQUIRE will fail
+    exclusion_radius_ = pin->GetOrAddReal("problem/cluster/agn_triggering", "accretion_radius", 0);
+  }
+
+  PARTHENON_REQUIRE(disabled_ || (stellar_radius_ != 0.0 && exclusion_radius_!= 0.0 && efficiency_ != 0.00 &&
                                   number_density_threshold_ != 0.0 &&
                                   temperatue_threshold_ != 0.0),
                     "Enabling stellar feedback requires setting all parameters.");
@@ -98,6 +107,7 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   const auto mass_to_energy = efficiency_ * SQR(units.speed_of_light());
   const auto stellar_radius = stellar_radius_;
+  const auto exclusion_radius = exclusion_radius_;
   const auto temperature_threshold = temperatue_threshold_;
   const auto number_density_threshold = number_density_threshold_;
 
@@ -125,7 +135,7 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         const auto z = coords.Xc<3>(k);
 
         const auto r = sqrt(x * x + y * y + z * z);
-        if (r > stellar_radius) {
+        if (r > stellar_radius || r <= exclusion_radius) {
           return;
         }
 
