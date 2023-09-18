@@ -17,6 +17,7 @@ add_executable(
         hydro/srcterms/tabular_cooling.cpp
         refinement/gradient.cpp
         refinement/other.cpp
+	utils/few_modes_ft.cpp
 )
 
 add_subdirectory(pgen)
