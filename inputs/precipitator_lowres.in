@@ -100,3 +100,11 @@ perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32
 perturb_exponent = 1    # P(k) ~ k^{-2}
+
+<precipitator/driving>
+sigma_v = 0.0001
+k_peak = 2
+num_modes = 40
+sol_weight = 1.0
+rseed = 42
+t_corr = 1.0

@@ -49,11 +49,13 @@
 #include "../profile.hpp"
 #include "../reduction_utils.hpp"
 #include "../units.hpp"
+#include "../utils/few_modes_ft.hpp"
 #include "outputs/outputs.hpp"
 #include "pgen.hpp"
 #include "utils/error_checking.hpp"
 
 typedef Kokkos::complex<Real> Complex;
+using utils::few_modes_ft::FewModesFT;
 
 auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
                                parthenon::MeshData<Real> *md)
@@ -259,6 +261,75 @@ void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real
   if (pkg->Param<std::string>("enable_heating") == "magic") {
     MagicHeatingSrcTerm(md, t, dt);
   }
+
+  // turbulent driving
+  TurbSrcTerm(md, t, dt);
+}
+
+void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime time, const Real /*dt*/) {
+  // add turbulent driving using an Ornstein-Uhlenbeck process
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto pmesh = md->GetMeshPointer();
+  const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
+  const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
+  const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  // generate perturbations
+  auto few_modes_ft = hydro_pkg->Param<FewModesFT>("precipitator/few_modes_ft_v");
+  few_modes_ft.Generate(md, time.time, "tmp_perturb");
+
+  // normalize perturbations
+  const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");
+  Real v2_sum{};
+  auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
+
+  pmb->par_reduce(
+      "normalize_perturb_v", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+        const auto &coords = cons.GetCoords(b);
+        const Real dv_x = perturb_pack(b, 0, k, j, i);
+        const Real dv_y = perturb_pack(b, 1, k, j, i);
+        const Real dv_z = perturb_pack(b, 2, k, j, i);
+        lsum += (SQR(dv_x) + SQR(dv_y) + SQR(dv_z)) * coords.CellVolume(k, j, i);
+      },
+      v2_sum);
+
+#ifdef MPI_PARALLEL
+  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &v2_sum, 1, MPI_PARTHENON_REAL, MPI_SUM,
+                                    MPI_COMM_WORLD));
+#endif // MPI_PARALLEL
+  auto v_norm = std::sqrt(v2_sum / (Lx * Ly * Lz) / (SQR(sigma_v)));
+
+  pmb->par_for(
+      "apply_perturb_v", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const auto &u = cons(b);
+        // compute delta_v
+        const Real dv_x = perturb_pack(b, 0, k, j, i) / v_norm;
+        const Real dv_y = perturb_pack(b, 1, k, j, i) / v_norm;
+        const Real dv_z = perturb_pack(b, 2, k, j, i) / v_norm;
+        // compute old kinetic energy
+        const Real rho = u(IDN, k, j, i);
+        const Real KE_old =
+            0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
+            rho;
+        // update momentum components
+        u(IM1, k, j, i) += rho * dv_x;
+        u(IM2, k, j, i) += rho * dv_y;
+        u(IM3, k, j, i) += rho * dv_z;
+        // compute new kinetic energy
+        const Real KE_new =
+            0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
+            rho;
+        const Real dE = KE_new - KE_old;
+        // update total energy
+        u(IEN, k, j, i) += dE;
+      });
 }
 
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
@@ -526,6 +597,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   hydro_pkg->AddParam<int>("perturb_exponent", expo);
   hydro_pkg->AddParam<Real>("perturb_amplitude", amp);
 
+  // density perturbations
   if (amp > 0.) {
     parthenon::ParArray3D<Complex> drho_hat;
     const int Nkz = 2 * kz_max + 1;
@@ -597,6 +669,25 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
     hydro_pkg->AddParam("drho_hat", drho_hat);
   }
 
+  // setup velocity perturbations
+  const auto sigma_v = pin->GetOrAddReal("precipitator/driving", "sigma_v", 0.0);
+  hydro_pkg->AddParam<>("sigma_v", sigma_v);
+  auto k_peak_v = pin->GetReal("precipitator/driving", "k_peak");
+  auto num_modes_v = pin->GetOrAddInteger("precipitator/driving", "num_modes", 40);
+  auto sol_weight_v = pin->GetOrAddReal("precipitator/driving", "sol_weight", 1.0);
+  uint32_t rseed_v = pin->GetOrAddInteger("precipitator/driving", "rseed", 1);
+  auto t_corr = pin->GetOrAddReal("precipitator/driving", "t_corr", 1.0);
+
+  auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v, rseed_v);
+  auto few_modes_ft = FewModesFT(pin, hydro_pkg, "precipitator_perturb_v", num_modes_v,
+                                 k_vec_v, k_peak_v, sol_weight_v, t_corr, rseed_v);
+  hydro_pkg->AddParam<>("precipitator/few_modes_ft_v", few_modes_ft);
+
+  // Add vector field for velocity perturbations
+  Metadata m_perturb({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+                     std::vector<int>({3}));
+  hydro_pkg->AddField("tmp_perturb", m_perturb);
+
   if (parthenon::Globals::my_rank == 0) {
     std::cout << "End of ProblemInitPackageData.\n\n";
   }
@@ -635,7 +726,12 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const auto &P_rho_profile =
       hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
 
-  // Get perturbation parameters
+  // Initialize phase factors for velocity perturbations
+  const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");
+  auto few_modes_ft = hydro_pkg->Param<FewModesFT>("precipitator/few_modes_ft_v");
+  few_modes_ft.SetPhases(pmb, pin);
+
+  // Get (density) perturbation parameters
   const int kx_max = hydro_pkg->Param<int>("perturb_kx");
   const int ky_max = hydro_pkg->Param<int>("perturb_ky");
   const int kz_max = hydro_pkg->Param<int>("perturb_kz");
@@ -936,7 +1032,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   }   // end fill derived fields
 
   // write rms profiles to disk
-  
+
   static int noutputs = 0;
   if (parthenon::Globals::my_rank == 0) {
     std::cout << "noutputs = " << noutputs << "\n";

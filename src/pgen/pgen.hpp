@@ -102,6 +102,7 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Re
 void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt);
 void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
 void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
+void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt);
 void ReflectingInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
 void ReflectingOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
 void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
