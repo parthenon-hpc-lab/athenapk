@@ -6,7 +6,7 @@ problem_id = precipitator   # problem ID: basename of output filenames
 
 <parthenon/output1>
 file_type  = hst       # History data dump
-dt         = 1.0       # time increment between outputs
+dt         = 5.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
@@ -21,7 +21,7 @@ id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 1.0
+dt           = 5.0
 actions_file = inputs/precipitator_no_binning.yaml
 
 <parthenon/time>
@@ -88,22 +88,21 @@ lambda_units_cgs = 1
 cfl = 1.0
 
 <precipitator>
-hse_profile_filename = ./inputs/tabulated_hse_tc_tff_0.1.txt
-
+hse_profile_filename = ./inputs/tabulated_hse_tc_tff_8.0.txt
 enable_heating = magic   # magic
 epsilon_heating = 1.0
 numHist = 64
 h_smooth_heatcool_kpc = 20.
 
-perturb_sin_drho_over_rho = 0.01
+perturb_sin_drho_over_rho = 0.0
 perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32
 perturb_exponent = 1    # P(k) ~ k^{-2}
 
 <precipitator/driving>
-sigma_v = 0.01   # kpc Myr^{-1}
-k_peak = 4
+sigma_v = 0.001   # kpc Myr^{-1}
+k_peak = 2
 num_modes = 40
 sol_weight = 1.0
 rseed = 42
