@@ -266,7 +266,7 @@ void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real
   TurbSrcTerm(md, t, dt);
 }
 
-void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime time, const Real /*dt*/) {
+void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Real dt) {
   // add turbulent driving using an Ornstein-Uhlenbeck process
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
@@ -281,7 +281,7 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime time, const Real /
 
   // generate perturbations
   auto few_modes_ft = hydro_pkg->Param<FewModesFT>("precipitator/few_modes_ft_v");
-  few_modes_ft.Generate(md, time.time, "tmp_perturb");
+  few_modes_ft.Generate(md, dt, "tmp_perturb");
 
   // normalize perturbations
   const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");

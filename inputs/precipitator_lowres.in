@@ -6,7 +6,7 @@ problem_id = precipitator   # problem ID: basename of output filenames
 
 <parthenon/output1>
 file_type  = hst       # History data dump
-dt         = 20.0       # time increment between outputs
+dt         = 1.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
@@ -21,7 +21,7 @@ id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 20.0
+dt           = 1.0
 actions_file = inputs/precipitator_no_binning.yaml
 
 <parthenon/time>
@@ -102,9 +102,9 @@ perturb_kz = 32
 perturb_exponent = 1    # P(k) ~ k^{-2}
 
 <precipitator/driving>
-sigma_v = 0.0001
-k_peak = 2
+sigma_v = 0.01   # kpc Myr^{-1}
+k_peak = 4
 num_modes = 40
 sol_weight = 1.0
 rseed = 42
-t_corr = 1.0
+t_corr = 10.0   # Myr
