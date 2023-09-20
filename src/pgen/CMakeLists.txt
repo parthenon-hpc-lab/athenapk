@@ -5,12 +5,6 @@ target_sources(athenaPK PRIVATE
     advection.cpp
     blast.cpp
     cloud.cpp
-    cluster.cpp
-    cluster/agn_feedback.cpp
-    cluster/agn_triggering.cpp
-    cluster/hydrostatic_equilibrium_sphere.cpp
-    cluster/magnetic_tower.cpp
-    cluster/snia_feedback.cpp
     cpaw.cpp
     diffusion.cpp
     field_loop.cpp

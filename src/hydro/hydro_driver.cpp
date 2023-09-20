@@ -22,8 +22,8 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
-#include "../pgen/cluster/agn_triggering.hpp"
-#include "../pgen/cluster/magnetic_tower.hpp"
+//#include "../pgen/cluster/agn_triggering.hpp"
+//#include "../pgen/cluster/magnetic_tower.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
@@ -96,7 +96,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   auto num_task_lists_executed_independently = blocks.size();
 
   const int num_partitions = pmesh->DefaultNumPartitions();
-
+#if 0
   // calculate agn triggering accretion rate
   if ((stage == 1) &&
       hydro_pkg->AllParams().hasKey("agn_triggering_reduce_accretion_rate") &&
@@ -132,7 +132,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       prev_task = new_remove_accreted_gas;
     }
   }
-
+#endif
+  
   for (int i = 0; i < blocks.size(); i++) {
     auto &pmb = blocks[i];
     // Using "base" as u0, which already exists (and returned by using plain Get())
@@ -194,7 +195,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         },
         hydro_pkg.get());
   }
-
+#if 0
   // calculate magnetic tower scaling
   if ((stage == 1) && hydro_pkg->AllParams().hasKey("magnetic_tower_power_scaling") &&
       hydro_pkg->Param<bool>("magnetic_tower_power_scaling")) {
@@ -236,7 +237,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         hydro_pkg.get());
 #endif
   }
-
+#endif
+  
   // First add split sources before the main time integration
   if (stage == 1) {
     TaskRegion &strang_init_region = tc.AddRegion(num_partitions);

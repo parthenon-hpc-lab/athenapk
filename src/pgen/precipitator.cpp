@@ -16,6 +16,7 @@
 #include <cmath>     // sqrt()
 #include <cstdio>    // fopen(), fprintf(), freopen()
 #include <iostream>  // endl
+#include <iomanip>   // setw
 #include <limits>
 #include <memory>
 #include <sstream>   // stringstream

@@ -7,11 +7,13 @@
 //  \brief  Class for computing AGN triggering from Bondi-like and cold gas accretion
 
 #include <cmath>
+#include <fstream> // for ofstream
 #include <limits>
 
 // Parthenon headers
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
+#include <interface/params.hpp>
 #include <interface/state_descriptor.hpp>
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
@@ -82,15 +84,19 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
   }
   switch (triggering_mode_) {
   case AGNTriggeringMode::COLD_GAS: {
-    hydro_pkg->AddParam<Real>("agn_triggering_cold_mass", 0, true);
+    hydro_pkg->AddParam<Real>("agn_triggering_cold_mass", 0, Params::Mutability::Restart);
     break;
   }
   case AGNTriggeringMode::BOOSTED_BONDI:
   case AGNTriggeringMode::BOOTH_SCHAYE: {
-    hydro_pkg->AddParam<Real>("agn_triggering_total_mass", 0, true);
-    hydro_pkg->AddParam<Real>("agn_triggering_mass_weighted_density", 0, true);
-    hydro_pkg->AddParam<Real>("agn_triggering_mass_weighted_velocity", 0, true);
-    hydro_pkg->AddParam<Real>("agn_triggering_mass_weighted_cs", 0, true);
+    hydro_pkg->AddParam<Real>("agn_triggering_total_mass", 0,
+                              Params::Mutability::Restart);
+    hydro_pkg->AddParam<Real>("agn_triggering_mass_weighted_density", 0,
+                              Params::Mutability::Restart);
+    hydro_pkg->AddParam<Real>("agn_triggering_mass_weighted_velocity", 0,
+                              Params::Mutability::Restart);
+    hydro_pkg->AddParam<Real>("agn_triggering_mass_weighted_cs", 0,
+                              Params::Mutability::Restart);
     break;
   }
   case AGNTriggeringMode::NONE: {
