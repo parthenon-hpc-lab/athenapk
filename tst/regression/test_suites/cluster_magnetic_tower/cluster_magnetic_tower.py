@@ -275,7 +275,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/cluster/agn_feedback/magnetic_fraction=1",
             f"problem/cluster/agn_feedback/kinetic_fraction=0",
             f"problem/cluster/agn_feedback/thermal_fraction=0",
-            f"problem/cluster/magnetic_tower/alpha={self.magnetic_tower_alpha}",
+            f"problem/cluster/magnetic_tower/li_alpha={self.magnetic_tower_alpha}",
             f"problem/cluster/magnetic_tower/l_scale={self.magnetic_tower_l_scale.in_units('code_length').v}",
             f"problem/cluster/magnetic_tower/initial_field={self.initial_magnetic_tower_field.in_units('sqrt(code_mass)/sqrt(code_length)/code_time').v}",
             f"problem/cluster/magnetic_tower/fixed_field_rate={fixed_field_rate}",
