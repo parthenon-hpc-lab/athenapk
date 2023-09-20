@@ -449,7 +449,7 @@ The parameters $\alpha$ and $\ell$ can be changed with
 ```
 <problem/cluster/magnetic_tower>
 potential_type = li
-alpha = 20
+li_alpha = 20
 l_scale = 0.001
 ```
 When injected as a fraction of 
@@ -498,9 +498,9 @@ with all other components being zero.
 ```
 <problem/cluster/magnetic_tower>
 potential_type = donut
-l_scale = 0.0005   # in code length
-offset = 0.001     # in code length
-thickness = 0.0001 # in code length
+l_scale = 0.0005         # in code length
+donut_offset = 0.001     # in code length
+donut_thickness = 0.0001 # in code length
 ```
 
 It is recommended to match the donut thickness to the thickness of the kinetic jet launching region
