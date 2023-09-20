@@ -322,7 +322,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   const Real agn_tracer_thresh =
       pin->GetOrAddReal("problem/cluster/reductions", "agn_tracer_thresh", -1.0);
   if (agn_tracer_thresh >= 0) {
-    auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
     PARTHENON_REQUIRE(
         pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false),
         "AGN Tracer must be enabled to reduce AGN tracer extent");

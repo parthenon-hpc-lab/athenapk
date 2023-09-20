@@ -41,22 +41,24 @@ StellarFeedback::StellarFeedback(parthenon::ParameterInput *pin,
                                                   "number_density_threshold", 0.0)),
       temperatue_threshold_(pin->GetOrAddReal("problem/cluster/stellar_feedback",
                                               "temperature_threshold", 0.0)) {
-  if (stellar_radius_ == 0.0 && exclusion_radius_ == 0.0 && efficiency_ == 0.0 && number_density_threshold_ == 0.0 &&
-      temperatue_threshold_ == 0.0) {
+  if (stellar_radius_ == 0.0 && exclusion_radius_ == 0.0 && efficiency_ == 0.0 &&
+      number_density_threshold_ == 0.0 && temperatue_threshold_ == 0.0) {
     disabled_ = true;
   } else {
     disabled_ = false;
   }
 
-  if (!disabled_ && exclusion_radius_ == 0.0){
+  if (!disabled_ && exclusion_radius_ == 0.0) {
     // If exclusion_radius_ is not specified, use AGN triggering accretion radius.
     // If both are zero, the PARTHENON_REQUIRE will fail
-    exclusion_radius_ = pin->GetOrAddReal("problem/cluster/agn_triggering", "accretion_radius", 0);
+    exclusion_radius_ =
+        pin->GetOrAddReal("problem/cluster/agn_triggering", "accretion_radius", 0);
   }
 
-  PARTHENON_REQUIRE(disabled_ || (stellar_radius_ != 0.0 && exclusion_radius_!= 0.0 && efficiency_ != 0.00 &&
-                                  number_density_threshold_ != 0.0 &&
-                                  temperatue_threshold_ != 0.0),
+  PARTHENON_REQUIRE(disabled_ ||
+                        (stellar_radius_ != 0.0 && exclusion_radius_ != 0.0 &&
+                         efficiency_ != 0.00 && number_density_threshold_ != 0.0 &&
+                         temperatue_threshold_ != 0.0),
                     "Enabling stellar feedback requires setting all parameters.");
 
   hydro_pkg->AddParam<StellarFeedback>("stellar_feedback", *this);
