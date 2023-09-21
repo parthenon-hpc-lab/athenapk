@@ -689,7 +689,7 @@ void InjectBlob(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)
             // adjust momentum (so that the velocity remains constant)
             cons(IM1, k, j, i) *= chi;
             cons(IM2, k, j, i) *= chi;
-            cons(IM2, k, j, i) *= chi;
+            cons(IM3, k, j, i) *= chi;
             // adjust total energy density (using original rho_e translates to an increase
             // of 1/chi in temperature)
             cons(IEN, k, j, i) = kin_en_density * chi + rho_e;
