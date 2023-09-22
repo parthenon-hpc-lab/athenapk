@@ -12,7 +12,7 @@
 #include "Kokkos_Macros.hpp"
 #include <parthenon/parthenon.hpp>
 
-#define WELL_BALANCED
+// #define WELL_BALANCED
 
 using parthenon::ScratchPad2D;
 
@@ -132,10 +132,10 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
         } else {
           PARTHENON_FAIL("Unknow direction for PLM reconstruction.")
         }
-#ifdef WELL_BALANCED
       });
-#endif
+#ifdef WELL_BALANCED
     }
+#endif
   }
 }
 

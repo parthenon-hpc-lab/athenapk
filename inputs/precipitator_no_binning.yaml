@@ -28,6 +28,8 @@
           type: "pseudocolor"
           field: "drho_over_rho"
           pipeline: "x_slice_pl"
+          min_value: -0.5
+          max_value: 0.5
       renders:
         r1:
           image_prefix: "drho%05d"
