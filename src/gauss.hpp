@@ -805,8 +805,9 @@ class gauss
         if (a == b) {
           return K(0);
         }
-        if (b < a) {
-          return -integrate(f, b, a, pL1);
+        if (b < a) { // we can't inline this function on GPU if we recurse
+          //return -integrate(f, b, a, pL1);
+          return std::numeric_limits<K>::signaling_NaN();
         }
         Real avg = 0.5 * (a + b);
         Real scale = 0.5 * (b - a);
