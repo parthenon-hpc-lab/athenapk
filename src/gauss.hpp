@@ -10,8 +10,6 @@
 #include <cmath>
 #include <limits>
 
-#include "kokkos_abstraction.hpp"
-
 namespace parthenon::math::quadrature {
 namespace detail {
 
@@ -49,7 +47,7 @@ class gauss_detail;
 template <class T>
 class gauss_detail<T, 7, 0> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 4> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 4> const & {
     static constexpr std::array<T, 4> data = {
         0.000000000e+00F,
         4.058451514e-01F,
@@ -58,7 +56,7 @@ class gauss_detail<T, 7, 0> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 4> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 4> const & {
     static constexpr std::array<T, 4> data = {
         4.179591837e-01F,
         3.818300505e-01F,
@@ -72,7 +70,7 @@ class gauss_detail<T, 7, 0> {
 template <class T>
 class gauss_detail<T, 7, 1> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 4> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 4> const & {
     static constexpr std::array<T, 4> data = {
         0.00000000000000000e+00,
         4.05845151377397167e-01,
@@ -81,7 +79,7 @@ class gauss_detail<T, 7, 1> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 4> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 4> const & {
     static constexpr std::array<T, 4> data = {
         4.17959183673469388e-01,
         3.81830050505118945e-01,
@@ -95,7 +93,7 @@ class gauss_detail<T, 7, 1> {
 template <class T>
 class gauss_detail<T, 7, 2> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 4> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 4> const & {
     static constexpr std::array<T, 4> data = {
         0.00000000000000000000000000000000000e+00L,
         4.05845151377397166906606412076961463e-01L,
@@ -104,7 +102,7 @@ class gauss_detail<T, 7, 2> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 4> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 4> const & {
     static constexpr std::array<T, 4> data = {
         4.17959183673469387755102040816326531e-01L,
         3.81830050505118944950369775488975134e-01L,
@@ -142,14 +140,14 @@ class gauss_detail<T, 7, 3> {
 template <class T>
 class gauss_detail<T, 10, 0> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 5> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 5> const & {
     static constexpr std::array<T, 5> data = {
         1.488743390e-01F, 4.333953941e-01F, 6.794095683e-01F,
         8.650633667e-01F, 9.739065285e-01F,
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 5> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 5> const & {
     static constexpr std::array<T, 5> data = {
         2.955242247e-01F, 2.692667193e-01F, 2.190863625e-01F,
         1.494513492e-01F, 6.667134431e-02F,
@@ -161,14 +159,14 @@ class gauss_detail<T, 10, 0> {
 template <class T>
 class gauss_detail<T, 10, 1> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 5> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 5> const & {
     static constexpr std::array<T, 5> data = {
         1.48874338981631211e-01, 4.33395394129247191e-01, 6.79409568299024406e-01,
         8.65063366688984511e-01, 9.73906528517171720e-01,
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 5> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 5> const & {
     static constexpr std::array<T, 5> data = {
         2.95524224714752870e-01, 2.69266719309996355e-01, 2.19086362515982044e-01,
         1.49451349150580593e-01, 6.66713443086881376e-02,
@@ -180,7 +178,7 @@ class gauss_detail<T, 10, 1> {
 template <class T>
 class gauss_detail<T, 10, 2> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 5> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 5> const & {
     static constexpr std::array<T, 5> data = {
         1.48874338981631210884826001129719985e-01L,
         4.33395394129247190799265943165784162e-01L,
@@ -190,7 +188,7 @@ class gauss_detail<T, 10, 2> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 5> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 5> const & {
     static constexpr std::array<T, 5> data = {
         2.95524224714752870173892994651338329e-01L,
         2.69266719309996355091226921569469353e-01L,
@@ -231,14 +229,14 @@ class gauss_detail<T, 10, 3> {
 template <class T>
 class gauss_detail<T, 15, 0> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 8> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 8> const & {
     static constexpr std::array<T, 8> data = {
         0.000000000e+00F, 2.011940940e-01F, 3.941513471e-01F, 5.709721726e-01F,
         7.244177314e-01F, 8.482065834e-01F, 9.372733924e-01F, 9.879925180e-01F,
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 8> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 8> const & {
     static constexpr std::array<T, 8> data = {
         2.025782419e-01F, 1.984314853e-01F, 1.861610000e-01F, 1.662692058e-01F,
         1.395706779e-01F, 1.071592205e-01F, 7.036604749e-02F, 3.075324200e-02F,
@@ -250,7 +248,7 @@ class gauss_detail<T, 15, 0> {
 template <class T>
 class gauss_detail<T, 15, 1> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 8> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 8> const & {
     static constexpr std::array<T, 8> data = {
         0.00000000000000000e+00, 2.01194093997434522e-01, 3.94151347077563370e-01,
         5.70972172608538848e-01, 7.24417731360170047e-01, 8.48206583410427216e-01,
@@ -258,7 +256,7 @@ class gauss_detail<T, 15, 1> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 8> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 8> const & {
     static constexpr std::array<T, 8> data = {
         2.02578241925561273e-01, 1.98431485327111576e-01, 1.86161000015562211e-01,
         1.66269205816993934e-01, 1.39570677926154314e-01, 1.07159220467171935e-01,
@@ -271,7 +269,7 @@ class gauss_detail<T, 15, 1> {
 template <class T>
 class gauss_detail<T, 15, 2> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 8> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 8> const & {
     static constexpr std::array<T, 8> data = {
         0.00000000000000000000000000000000000e+00L,
         2.01194093997434522300628303394596208e-01L,
@@ -284,7 +282,7 @@ class gauss_detail<T, 15, 2> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 8> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 8> const & {
     static constexpr std::array<T, 8> data = {
         2.02578241925561272880620199967519315e-01L,
         1.98431485327111576456118326443839325e-01L,
@@ -334,7 +332,7 @@ class gauss_detail<T, 15, 3> {
 template <class T>
 class gauss_detail<T, 20, 0> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 10> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 10> const & {
     static constexpr std::array<T, 10> data = {
         7.652652113e-02F, 2.277858511e-01F, 3.737060887e-01F, 5.108670020e-01F,
         6.360536807e-01F, 7.463319065e-01F, 8.391169718e-01F, 9.122344283e-01F,
@@ -342,7 +340,7 @@ class gauss_detail<T, 20, 0> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 10> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 10> const & {
     static constexpr std::array<T, 10> data = {
         1.527533871e-01F, 1.491729865e-01F, 1.420961093e-01F, 1.316886384e-01F,
         1.181945320e-01F, 1.019301198e-01F, 8.327674158e-02F, 6.267204833e-02F,
@@ -355,7 +353,7 @@ class gauss_detail<T, 20, 0> {
 template <class T>
 class gauss_detail<T, 20, 1> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 10> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 10> const & {
     static constexpr std::array<T, 10> data = {
         7.65265211334973338e-02, 2.27785851141645078e-01, 3.73706088715419561e-01,
         5.10867001950827098e-01, 6.36053680726515025e-01, 7.46331906460150793e-01,
@@ -364,7 +362,7 @@ class gauss_detail<T, 20, 1> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 10> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 10> const & {
     static constexpr std::array<T, 10> data = {
         1.52753387130725851e-01, 1.49172986472603747e-01, 1.42096109318382051e-01,
         1.31688638449176627e-01, 1.18194531961518417e-01, 1.01930119817240435e-01,
@@ -378,7 +376,7 @@ class gauss_detail<T, 20, 1> {
 template <class T>
 class gauss_detail<T, 20, 2> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 10> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 10> const & {
     static constexpr std::array<T, 10> data = {
         7.65265211334973337546404093988382110e-02L,
         2.27785851141645078080496195368574625e-01L,
@@ -393,7 +391,7 @@ class gauss_detail<T, 20, 2> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 10> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 10> const & {
     static constexpr std::array<T, 10> data = {
         1.52753387130725850698084331955097593e-01L,
         1.49172986472603746787828737001969437e-01L,
@@ -449,7 +447,7 @@ class gauss_detail<T, 20, 3> {
 template <class T>
 class gauss_detail<T, 25, 0> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 13> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 13> const & {
     static constexpr std::array<T, 13> data = {
         0.000000000e+00F, 1.228646926e-01F, 2.438668837e-01F, 3.611723058e-01F,
         4.730027314e-01F, 5.776629302e-01F, 6.735663685e-01F, 7.592592630e-01F,
@@ -458,7 +456,7 @@ class gauss_detail<T, 25, 0> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 13> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 13> const & {
     static constexpr std::array<T, 13> data = {
         1.231760537e-01F, 1.222424430e-01F, 1.194557635e-01F, 1.148582591e-01F,
         1.085196245e-01F, 1.005359491e-01F, 9.102826198e-02F, 8.014070034e-02F,
@@ -472,7 +470,7 @@ class gauss_detail<T, 25, 0> {
 template <class T>
 class gauss_detail<T, 25, 1> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 13> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 13> const & {
     static constexpr std::array<T, 13> data = {
         0.00000000000000000e+00, 1.22864692610710396e-01, 2.43866883720988432e-01,
         3.61172305809387838e-01, 4.73002731445714961e-01, 5.77662930241222968e-01,
@@ -482,7 +480,7 @@ class gauss_detail<T, 25, 1> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 13> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 13> const & {
     static constexpr std::array<T, 13> data = {
         1.23176053726715451e-01, 1.22242442990310042e-01, 1.19455763535784772e-01,
         1.14858259145711648e-01, 1.08519624474263653e-01, 1.00535949067050644e-01,
@@ -497,7 +495,7 @@ class gauss_detail<T, 25, 1> {
 template <class T>
 class gauss_detail<T, 25, 2> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 13> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 13> const & {
     static constexpr std::array<T, 13> data = {
         0.00000000000000000000000000000000000e+00L,
         1.22864692610710396387359818808036806e-01L,
@@ -515,7 +513,7 @@ class gauss_detail<T, 25, 2> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 13> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 13> const & {
     static constexpr std::array<T, 13> data = {
         1.23176053726715451203902873079050142e-01L,
         1.22242442990310041688959518945851506e-01L,
@@ -580,7 +578,7 @@ class gauss_detail<T, 25, 3> {
 template <class T>
 class gauss_detail<T, 30, 0> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 15> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 15> const & {
     static constexpr std::array<T, 15> data = {
         5.147184256e-02F, 1.538699136e-01F, 2.546369262e-01F, 3.527047255e-01F,
         4.470337695e-01F, 5.366241481e-01F, 6.205261830e-01F, 6.978504948e-01F,
@@ -589,7 +587,7 @@ class gauss_detail<T, 30, 0> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 15> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 15> const & {
     static constexpr std::array<T, 15> data = {
         1.028526529e-01F, 1.017623897e-01F, 9.959342059e-02F, 9.636873717e-02F,
         9.212252224e-02F, 8.689978720e-02F, 8.075589523e-02F, 7.375597474e-02F,
@@ -603,7 +601,7 @@ class gauss_detail<T, 30, 0> {
 template <class T>
 class gauss_detail<T, 30, 1> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 15> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 15> const & {
     static constexpr std::array<T, 15> data = {
         5.14718425553176958e-02, 1.53869913608583547e-01, 2.54636926167889846e-01,
         3.52704725530878113e-01, 4.47033769538089177e-01, 5.36624148142019899e-01,
@@ -613,7 +611,7 @@ class gauss_detail<T, 30, 1> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 15> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 15> const & {
     static constexpr std::array<T, 15> data = {
         1.02852652893558840e-01, 1.01762389748405505e-01, 9.95934205867952671e-02,
         9.63687371746442596e-02, 9.21225222377861287e-02, 8.68997872010829798e-02,
@@ -628,7 +626,7 @@ class gauss_detail<T, 30, 1> {
 template <class T>
 class gauss_detail<T, 30, 2> {
  public:
-  KOKKOS_FUNCTION static auto abscissa() -> std::array<T, 15> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto abscissa() -> std::array<T, 15> const & {
     static constexpr std::array<T, 15> data = {
         5.14718425553176958330252131667225737e-02L,
         1.53869913608583546963794672743255920e-01L,
@@ -648,7 +646,7 @@ class gauss_detail<T, 30, 2> {
     };
     return data;
   }
-  KOKKOS_FUNCTION static auto weights() -> std::array<T, 15> const & {
+  KOKKOS_FORCEINLINE_FUNCTION static auto weights() -> std::array<T, 15> const & {
     static constexpr std::array<T, 15> data = {
         1.02852652893558840341285636705415044e-01L,
         1.01762389748405504596428952168554045e-01L,
@@ -726,7 +724,7 @@ class gauss
 
  public:
   template <class F>
-  KOKKOS_FUNCTION static auto integrate(F f, Real *pL1 = nullptr)
+  KOKKOS_FORCEINLINE_FUNCTION static auto integrate(F f, Real *pL1 = nullptr)
       -> decltype(std::declval<F>()(std::declval<Real>())) {
     // In many math texts, K represents the field of real or complex numbers.
     // Too bad we can't put blackboard bold into C++ source!
@@ -757,7 +755,7 @@ class gauss
   }
 
   template <class F>
-  KOKKOS_FUNCTION static auto integrate(F f, Real a, Real b, Real *pL1 = nullptr)
+  KOKKOS_FORCEINLINE_FUNCTION static auto integrate(F f, Real a, Real b, Real *pL1 = nullptr)
       -> decltype(std::declval<F>()(std::declval<Real>())) {
     using K = decltype(f(a));
 
