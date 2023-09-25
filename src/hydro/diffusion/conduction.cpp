@@ -78,14 +78,14 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
             {1, 1, 1, ib.e + 1 - ib.s}),
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
           const auto &coords = prim_pack.GetCoords(b);
-          min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X1DIR, k, j, i)) /
-                                    (thermal_diff_coeff + TINY_NUMBER));
+          min_dt = fmin(min_dt,
+                        SQR(coords.Dxc<1>(k, j, i)) / (thermal_diff_coeff + TINY_NUMBER));
           if (ndim >= 2) {
-            min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X2DIR, k, j, i)) /
+            min_dt = fmin(min_dt, SQR(coords.Dxc<2>(k, j, i)) /
                                       (thermal_diff_coeff + TINY_NUMBER));
           }
           if (ndim >= 3) {
-            min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X3DIR, k, j, i)) /
+            min_dt = fmin(min_dt, SQR(coords.Dxc<3>(k, j, i)) /
                                       (thermal_diff_coeff + TINY_NUMBER));
           }
         },
@@ -106,20 +106,20 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
           const auto dTdx = 0.5 *
                             (prim(IPR, k, j, i + 1) / prim(IDN, k, j, i + 1) -
                              prim(IPR, k, j, i - 1) / prim(IDN, k, j, i - 1)) /
-                            coords.dx1v(i);
+                            coords.Dxc<1>(i);
 
           const auto dTdy = ndim >= 2
                                 ? 0.5 *
                                       (prim(IPR, k, j + 1, i) / prim(IDN, k, j + 1, i) -
                                        prim(IPR, k, j - 1, i) / prim(IDN, k, j - 1, i)) /
-                                      coords.dx2v(j)
+                                      coords.Dxc<2>(j)
                                 : 0.0;
 
           const auto dTdz = ndim >= 3
                                 ? 0.5 *
                                       (prim(IPR, k + 1, j, i) / prim(IDN, k + 1, j, i) -
                                        prim(IPR, k - 1, j, i) / prim(IDN, k - 1, j, i)) /
-                                      coords.dx3v(k)
+                                      coords.Dxc<3>(k)
                                 : 0.0;
           const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
 
@@ -130,15 +130,12 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
           auto thermal_diff_coeff = thermal_diff.Get(p, rho);
 
           if (thermal_diff.GetType() == Conduction::isotropic) {
-            min_dt = fmin(min_dt,
-                          SQR(coords.Dx(parthenon::X1DIR, k, j, i)) / thermal_diff_coeff);
+            min_dt = fmin(min_dt, SQR(coords.Dxc<1>(k, j, i)) / thermal_diff_coeff);
             if (ndim >= 2) {
-              min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X2DIR, k, j, i)) /
-                                        thermal_diff_coeff);
+              min_dt = fmin(min_dt, SQR(coords.Dxc<2>(k, j, i)) / thermal_diff_coeff);
             }
             if (ndim >= 3) {
-              min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X3DIR, k, j, i)) /
-                                        thermal_diff_coeff);
+              min_dt = fmin(min_dt, SQR(coords.Dxc<3>(k, j, i)) / thermal_diff_coeff);
             }
             return;
           }
@@ -166,16 +163,16 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
           const auto costheta =
               fabs(Bx * dTdx + By * dTdy + Bz * dTdz) / (Bmag * gradTmag);
 
-          min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X1DIR, k, j, i)) /
+          min_dt = fmin(min_dt, SQR(coords.Dxc<1>(k, j, i)) /
                                     (thermal_diff_coeff * fabs(Bx) / Bmag * costheta +
                                      TINY_NUMBER));
           if (ndim >= 2) {
-            min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X2DIR, k, j, i)) /
+            min_dt = fmin(min_dt, SQR(coords.Dxc<2>(k, j, i)) /
                                       (thermal_diff_coeff * fabs(By) / Bmag * costheta +
                                        TINY_NUMBER));
           }
           if (ndim >= 3) {
-            min_dt = fmin(min_dt, SQR(coords.Dx(parthenon::X3DIR, k, j, i)) /
+            min_dt = fmin(min_dt, SQR(coords.Dxc<3>(k, j, i)) /
                                       (thermal_diff_coeff * fabs(Bz) / Bmag * costheta +
                                        TINY_NUMBER));
           }
@@ -217,7 +214,7 @@ void ThermalFluxIsoFixed(MeshData<Real> *md) {
         const auto &prim = prim_pack(b);
         const auto T_i = prim(IPR, k, j, i) / prim(IDN, k, j, i);
         const auto T_im1 = prim(IPR, k, j, i - 1) / prim(IDN, k, j, i - 1);
-        const auto dTdx = (T_i - T_im1) / coords.Dx(parthenon::X1DIR, k, j, i);
+        const auto dTdx = (T_i - T_im1) / coords.Dxc<1>(k, j, i);
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k, j, i - 1));
         cons.flux(X1DIR, IEN, k, j, i) -= thermal_diff_coeff * denf * dTdx;
       });
@@ -236,7 +233,7 @@ void ThermalFluxIsoFixed(MeshData<Real> *md) {
 
         const auto T_j = prim(IPR, k, j, i) / prim(IDN, k, j, i);
         const auto T_jm1 = prim(IPR, k, j - 1, i) / prim(IDN, k, j - 1, i);
-        const auto dTdy = (T_j - T_jm1) / coords.Dx(parthenon::X2DIR, k, j, i);
+        const auto dTdy = (T_j - T_jm1) / coords.Dxc<2>(k, j, i);
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k, j - 1, i));
         cons.flux(X2DIR, IEN, k, j, i) -= thermal_diff_coeff * denf * dTdy;
       });
@@ -255,7 +252,7 @@ void ThermalFluxIsoFixed(MeshData<Real> *md) {
 
         const auto T_k = prim(IPR, k, j, i) / prim(IDN, k, j, i);
         const auto T_km1 = prim(IPR, k - 1, j, i) / prim(IDN, k - 1, j, i);
-        const auto dTdz = (T_k - T_km1) / coords.Dx(parthenon::X3DIR, k, j, i);
+        const auto dTdz = (T_k - T_km1) / coords.Dxc<3>(k, j, i);
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k - 1, j, i));
         cons.flux(X3DIR, IEN, k, j, i) -= thermal_diff_coeff * denf * dTdz;
       });
@@ -304,7 +301,7 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
                            prim(IPR, k, j    , i - 1) / prim(IDN, k, j    , i - 1),
                            prim(IPR, k, j    , i - 1) / prim(IDN, k, j    , i - 1) -
                            prim(IPR, k, j - 1, i - 1) / prim(IDN, k, j - 1, i - 1)) /
-            coords.Dx(parthenon::X2DIR, k, j, i);
+            coords.Dxc<2>( k, j, i);
 
         if (ndim >= 3) {
           /* Monotonized temperature difference dT/dz, 3D problem ONLY */
@@ -316,13 +313,13 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
                                 prim(IPR, k    , j, i - 1) / prim(IDN, k    , j, i - 1),
                                 prim(IPR, k    , j, i - 1) / prim(IDN, k    , j, i - 1) -
                                 prim(IPR, k - 1, j, i - 1) / prim(IDN, k - 1, j, i - 1)) /
-                 coords.Dx(parthenon::X3DIR, k, j, i);
+                 coords.Dxc<3>( k, j, i);
         }
         // clang-format on
 
         const auto T_i = prim(IPR, k, j, i) / prim(IDN, k, j, i);
         const auto T_im1 = prim(IPR, k, j, i - 1) / prim(IDN, k, j, i - 1);
-        const auto dTdx = (T_i - T_im1) / coords.Dx(parthenon::X1DIR, k, j, i);
+        const auto dTdx = (T_i - T_im1) / coords.Dxc<1>(k, j, i);
 
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k, j, i - 1));
         const auto thermal_diff_f =
@@ -399,7 +396,7 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
                            prim(IPR, k, j - 1, i    ) / prim(IDN, k, j - 1, i    ),
                            prim(IPR, k, j - 1, i    ) / prim(IDN, k, j - 1, i    ) -
                            prim(IPR, k, j - 1, i - 1) / prim(IDN, k, j - 1, i - 1)) /
-            coords.Dx(parthenon::X1DIR, k, j, i);
+            coords.Dxc<1>(k, j, i);
 
         if (ndim >= 3) {
           /* Monotonized temperature difference dT/dz, 3D problem ONLY */
@@ -411,14 +408,14 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
                                 prim(IPR, k    , j - 1, i) / prim(IDN, k    , j - 1, i),
                                 prim(IPR, k    , j - 1, i) / prim(IDN, k    , j - 1, i) -
                                 prim(IPR, k - 1, j - 1, i) / prim(IDN, k - 1, j - 1, i)) /
-                 coords.Dx(parthenon::X3DIR, k, j, i);
+                 coords.Dxc<3>(k, j, i);
 
         }
         // clang-format on
 
         const auto T_j = prim(IPR, k, j, i) / prim(IDN, k, j, i);
         const auto T_jm1 = prim(IPR, k, j - 1, i) / prim(IDN, k, j - 1, i);
-        const auto dTdy = (T_j - T_jm1) / coords.Dx(parthenon::X2DIR, k, j, i);
+        const auto dTdy = (T_j - T_jm1) / coords.Dxc<2>(k, j, i);
 
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k, j - 1, i));
         const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));
@@ -489,7 +486,7 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
                            prim(IPR, k - 1, j, i    ) / prim(IDN, k - 1, j, i    ),
                            prim(IPR, k - 1, j, i    ) / prim(IDN, k - 1, j, i    ) -
                            prim(IPR, k - 1, j, i - 1) / prim(IDN, k - 1, j, i - 1)) /
-            coords.Dx(parthenon::X1DIR, k, j, i);
+            coords.Dxc<1>(k, j, i);
 
         /* Monotonized temperature difference dT/dy */
         const auto dTdy =
@@ -501,12 +498,12 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
                            prim(IPR, k - 1, j    , i) / prim(IDN, k - 1, j    , i),
                            prim(IPR, k - 1, j    , i) / prim(IDN, k - 1, j    , i) -
                            prim(IPR, k - 1, j - 1, i) / prim(IDN, k - 1, j - 1, i)) /
-            coords.Dx(parthenon::X2DIR, k, j, i);
+            coords.Dxc<2>(k, j, i);
         // clang-format on
 
         const auto T_k = prim(IPR, k, j, i) / prim(IDN, k, j, i);
         const auto T_km1 = prim(IPR, k - 1, j, i) / prim(IDN, k - 1, j, i);
-        const auto dTdz = (T_k - T_km1) / coords.Dx(parthenon::X3DIR, k, j, i);
+        const auto dTdz = (T_k - T_km1) / coords.Dxc<3>(k, j, i);
 
         const auto denf = 0.5 * (prim(IDN, k, j, i) + prim(IDN, k - 1, j, i));
         const auto gradTmag = sqrt(SQR(dTdx) + SQR(dTdy) + SQR(dTdz));

@@ -250,8 +250,6 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto &pmb = blocks[i];
     auto &tl = region_init[i];
     auto &base = pmb->meshblock_data.Get();
-    auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, base.get(),
-                                 BoundaryCommSubset::all);
 
     // Add extra registers. No-op for existing variables so it's safe to call every
     // time.
@@ -266,6 +264,11 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = region_calc_fluxes_step_init[i];
     auto &base = pmesh->mesh_data.GetOrAdd("base", i);
+    const auto any = parthenon::BoundaryType::any;
+    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, base);
+    auto start_flxcor_recv =
+        tl.AddTask(none, parthenon::StartReceiveFluxCorrections, base);
+
     // Reset flux arrays (not guaranteed to be zero)
     auto reset_fluxes = tl.AddTask(none, ResetFluxes, base.get());
 
@@ -274,27 +277,19 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     // (in every subsetp).
     auto hydro_diff_fluxes =
         tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), base.get());
-  }
 
-  TaskRegion &region_flux_correct_step_init = ptask_coll->AddRegion(blocks.size());
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &tl = region_flux_correct_step_init[i];
-    auto &base = blocks[i]->meshblock_data.Get("base");
-    auto send_flux =
-        tl.AddTask(none, &MeshBlockData<Real>::SendFluxCorrection, base.get());
-    auto recv_flux =
-        tl.AddTask(none, &MeshBlockData<Real>::ReceiveFluxCorrection, base.get());
-  }
+    auto send_flx =
+        tl.AddTask(hydro_diff_fluxes, parthenon::LoadAndSendFluxCorrections, base);
+    auto recv_flx =
+        tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, base);
+    auto set_flx =
+        tl.AddTask(recv_flx | hydro_diff_fluxes, parthenon::SetFluxCorrections, base);
 
-  TaskRegion &region_rkl2_step_init = ptask_coll->AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; i++) {
-    auto &tl = region_rkl2_step_init[i];
     auto &Y0 = pmesh->mesh_data.GetOrAdd("u1", i);
     auto &MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
-    auto &base = pmesh->mesh_data.GetOrAdd("base", i);
     auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
 
-    auto init_MY0 = tl.AddTask(none, parthenon::Update::FluxDivergence<MeshData<Real>>,
+    auto init_MY0 = tl.AddTask(set_flx, parthenon::Update::FluxDivergence<MeshData<Real>>,
                                base.get(), MY0.get());
 
     // Initialize Y0 and Y1 and the recursion relation starting with j = 2 needs data from
@@ -302,36 +297,18 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto rkl2_step_first = tl.AddTask(init_MY0, RKL2StepFirst, Y0.get(), base.get(),
                                       Yjm2.get(), MY0.get(), s_rkl, tau);
 
-    // Update ghost cells of Y1 (as MY1 is calculated for each Y_j)
+    // Update ghost cells of Y1 (as MY1 is calculated for each Y_j).
+    // Y1 stored in "base", see rkl2_step_first task.
+    // Update ghost cells (local and non local), prolongate and apply bound cond.
+    // TODO(someone) experiment with split (local/nonlocal) comms with respect to
+    // performance for various tests (static, amr, block sizes) and then decide on the
+    // best impl. Go with default call (split local/nonlocal) for now.
     // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
-    auto send = tl.AddTask(rkl2_step_first,
-                           parthenon::cell_centered_bvars::SendBoundaryBuffers, base);
-    auto recv =
-        tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, base);
-    auto fill_from_bufs =
-        tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, base);
-  }
+    auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
+        rkl2_step_first | start_bnd, tl, base, pmesh->multilevel);
 
-  TaskRegion &region_clear_bnd = ptask_coll->AddRegion(blocks.size());
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &tl = region_clear_bnd[i];
-    auto &base = blocks[i]->meshblock_data.Get();
-    auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
-                                       base.get(), BoundaryCommSubset::all);
-    auto prolongBound = none;
-    if (pmesh->multilevel) {
-      prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, base);
-    }
-
-    // set physical boundaries
-    auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, base);
-  }
-  TaskRegion &region_cons_to_prim = ptask_coll->AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; i++) {
-    auto &tl = region_cons_to_prim[i];
-    auto &base = pmesh->mesh_data.GetOrAdd("base", i);
-    auto fill_derived =
-        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, base.get());
+    tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
+               base.get());
   }
 
   // Compute coefficients. Meyer+2012 eq. (16)
@@ -351,22 +328,18 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     mu_tilde_j = mu_j * w1;
     gamma_tilde_j = -(1.0 - b_jm1) * mu_tilde_j; // -a_jm1*mu_tilde_j
 
-    TaskRegion &region_init_other = ptask_coll->AddRegion(blocks.size());
-    for (int i = 0; i < blocks.size(); i++) {
-      auto &pmb = blocks[i];
-      auto &tl = region_init_other[i];
-      auto &base = pmb->meshblock_data.Get();
-      // Only need boundaries for base as it's the only "active" container exchanging
-      // data/fluxes with neighbors. All other containers are passive (i.e., data is only
-      // used but not exchanged).
-      auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, base.get(),
-                                   BoundaryCommSubset::all);
-    }
-
     TaskRegion &region_calc_fluxes_step_other = ptask_coll->AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = region_calc_fluxes_step_other[i];
       auto &base = pmesh->mesh_data.GetOrAdd("base", i);
+
+      // Only need boundaries for base as it's the only "active" container exchanging
+      // data/fluxes with neighbors. All other containers are passive (i.e., data is only
+      // used but not exchanged).
+      const auto any = parthenon::BoundaryType::any;
+      auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, base);
+      auto start_flxcor_recv =
+          tl.AddTask(none, parthenon::StartReceiveFluxCorrections, base);
 
       // Reset flux arrays (not guaranteed to be zero)
       auto reset_fluxes = tl.AddTask(none, ResetFluxes, base.get());
@@ -374,59 +347,33 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       // Calculate the diffusive fluxes for Yjm1 (here u1)
       auto hydro_diff_fluxes =
           tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), base.get());
-    }
 
-    TaskRegion &region_flux_correct_step_other = ptask_coll->AddRegion(blocks.size());
-    for (int i = 0; i < blocks.size(); i++) {
-      auto &tl = region_flux_correct_step_other[i];
-      auto &base = blocks[i]->meshblock_data.Get();
-      auto send_flux =
-          tl.AddTask(none, &MeshBlockData<Real>::SendFluxCorrection, base.get());
-      auto recv_flux =
-          tl.AddTask(none, &MeshBlockData<Real>::ReceiveFluxCorrection, base.get());
-    }
+      auto send_flx =
+          tl.AddTask(hydro_diff_fluxes, parthenon::LoadAndSendFluxCorrections, base);
+      auto recv_flx =
+          tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, base);
+      auto set_flx =
+          tl.AddTask(recv_flx | hydro_diff_fluxes, parthenon::SetFluxCorrections, base);
 
-    TaskRegion &region_rkl2_step_other = ptask_coll->AddRegion(num_partitions);
-    for (int i = 0; i < num_partitions; i++) {
-      auto &tl = region_rkl2_step_other[i];
       auto &Y0 = pmesh->mesh_data.GetOrAdd("u1", i);
       auto &MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
-      auto &base = pmesh->mesh_data.GetOrAdd("base", i);
       auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
 
       auto rkl2_step_other =
-          tl.AddTask(none, RKL2StepOther, Y0.get(), base.get(), Yjm2.get(), MY0.get(),
+          tl.AddTask(set_flx, RKL2StepOther, Y0.get(), base.get(), Yjm2.get(), MY0.get(),
                      mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
 
       // update ghost cells of base (currently storing Yj)
+      // Update ghost cells (local and non local), prolongate and apply bound cond.
+      // TODO(someone) experiment with split (local/nonlocal) comms with respect to
+      // performance for various tests (static, amr, block sizes) and then decide on the
+      // best impl. Go with default call (split local/nonlocal) for now.
       // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
-      auto send = tl.AddTask(rkl2_step_other,
-                             parthenon::cell_centered_bvars::SendBoundaryBuffers, base);
-      auto recv =
-          tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, base);
-      auto fill_from_bufs =
-          tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, base);
-    }
-    TaskRegion &region_clear_bnd_other = ptask_coll->AddRegion(blocks.size());
-    for (int i = 0; i < blocks.size(); i++) {
-      auto &tl = region_clear_bnd_other[i];
-      auto &base = blocks[i]->meshblock_data.Get();
-      auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
-                                         base.get(), BoundaryCommSubset::all);
-      auto prolongBound = none;
-      if (pmesh->multilevel) {
-        prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, base);
-      }
+      auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
+          rkl2_step_other | start_bnd, tl, base, pmesh->multilevel);
 
-      // set physical boundaries
-      auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, base);
-    }
-    TaskRegion &region_cons_to_prim_other = ptask_coll->AddRegion(num_partitions);
-    for (int i = 0; i < num_partitions; i++) {
-      auto &tl = region_cons_to_prim_other[i];
-      auto &base = pmesh->mesh_data.GetOrAdd("base", i);
-      auto fill_derived =
-          tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, base.get());
+      tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
+                 base.get());
     }
 
     b_jm2 = b_jm1;
@@ -639,7 +586,11 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
-    tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
+
+    const auto any = parthenon::BoundaryType::any;
+    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
+    auto start_flxcor_recv =
+        tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
@@ -660,9 +611,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
     auto send_flx =
         tl.AddTask(first_order_flux_correct, parthenon::LoadAndSendFluxCorrections, mu0);
-    auto recv_flx =
-        tl.AddTask(first_order_flux_correct, parthenon::ReceiveFluxCorrections, mu0);
-    auto set_flx = tl.AddTask(recv_flx, parthenon::SetFluxCorrections, mu0);
+    auto recv_flx = tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, mu0);
+    auto set_flx = tl.AddTask(recv_flx | first_order_flux_correct,
+                              parthenon::SetFluxCorrections, mu0);
 
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(
@@ -694,27 +645,12 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(source_split_strang_final, AddSplitSourcesFirstOrder, mu0.get(), tm);
     }
 
-    // Update ghost cells (local and non local)
+    // Update ghost cells (local and non local), prolongate and apply bound cond.
     // TODO(someone) experiment with split (local/nonlocal) comms with respect to
     // performance for various tests (static, amr, block sizes) and then decide on the
     // best impl. Go with default call (split local/nonlocal) for now.
-    parthenon::AddBoundaryExchangeTasks(source_split_first_order, tl, mu0,
+    parthenon::AddBoundaryExchangeTasks(source_split_first_order | start_bnd, tl, mu0,
                                         pmesh->multilevel);
-  }
-
-  TaskRegion &async_region_3 = tc.AddRegion(num_task_lists_executed_independently);
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &tl = async_region_3[i];
-    auto &u0 = blocks[i]->meshblock_data.Get("base");
-    auto prolongBound = none;
-    // Currently taken care of by AddBoundaryExchangeTasks above.
-    // Needs to be reintroduced once we reintroduce split (local/nonlocal) communication.
-    // if (pmesh->multilevel) {
-    //  prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, u0);
-    //}
-
-    // set physical boundaries
-    auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, u0);
   }
 
   // Single task in single (serial) region to reset global vars used in reductions in the
