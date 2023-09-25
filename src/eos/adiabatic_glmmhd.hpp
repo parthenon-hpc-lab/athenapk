@@ -30,10 +30,10 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
         gamma_{gamma} {}
 
   void ConservedToPrimitive(MeshData<Real> *md) const override;
-
+  
   KOKKOS_INLINE_FUNCTION
   Real GetGamma() const { return gamma_; }
-
+  
   //----------------------------------------------------------------------------------------
   // \!fn Real EquationOfState::SoundSpeed(Real prim[NHYDRO])
   // \brief returns adiabatic sound speed given vector of primitive variables
@@ -53,7 +53,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
     return std::sqrt(0.5 * (qsq + std::sqrt(tmp * tmp + 4.0 * asq * ct2)) / d);
   }
   //
-
+  
   //----------------------------------------------------------------------------------------
   // \!fn Real EquationOfState::ConsToPrim(View4D cons, View4D prim, const int& k, const
   // int& j, const int& i) \brief Fills an array of primitives given an array of
@@ -61,7 +61,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
   template <typename View4D>
   KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro,
                                          const int &nscalars, const int &k, const int &j,
-                                         const int &i) const {
+                                         const int &i, const int &gks, const int &gjs, const int &gis) const {
     auto gam = GetGamma();
     auto gm1 = gam - 1.0;
     auto density_floor_ = GetDensityFloor();

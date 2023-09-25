@@ -30,26 +30,40 @@ using parthenon::ParArray4D;
 //           Container<Real> &rc,
 //           int il, int iu, int jl, int ju, int kl, int ku)
 // \brief Converts conserved into primitive variables in adiabatic hydro.
+
 void AdiabaticHydroEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   auto ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
   auto jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   auto kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
-
+  
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
-
+  
   auto this_on_device = (*this);
-
+  
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ConservedToPrimitive", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        
+        // Getting the global indexing
+        
+        auto pmb = md->GetBlockData(b)->GetBlockPointer();
+        auto pm = pmb->pmy_mesh;
+        auto hydro_pkg = pmb->packages.Get("Hydro");
+        
+        const auto gis = pmb->loc.lx1 * pmb->block_size.nx1;
+        const auto gjs = pmb->loc.lx2 * pmb->block_size.nx2;
+        const auto gks = pmb->loc.lx3 * pmb->block_size.nx3;
+        
+        // ...
+        
         const auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-
-        return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+        
+        return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, gks, gjs ,gis);
       });
 }

@@ -188,7 +188,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
               AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(),
                                              k, j, i);
               // Update the Primitives
-              eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+              eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i,0,0,0);
             }
           }
         }
@@ -309,7 +309,7 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
                                          i);
 
           // Update the Primitives
-          eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+          eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i,0,0,0);
         }
       });
 }

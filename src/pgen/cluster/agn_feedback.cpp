@@ -338,7 +338,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             //  momentum, and total energy added depend on the triggered power.
             ///////////////////////////////////////////////////////////////////
 
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i,0,0,0);
             const Real old_specific_internal_e =
                 prim(IPR, k, j, i) / (prim(IDN, k, j, i) * (eos.GetGamma() - 1.));
 
@@ -348,7 +348,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             cons(IM3, k, j, i) += jet_momentum * sign_jet * jet_axis_z;
             cons(IEN, k, j, i) += jet_feedback;
 
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i,0,0,0);
             const Real new_specific_internal_e =
                 prim(IPR, k, j, i) / (prim(IDN, k, j, i) * (eos.GetGamma() - 1.));
             PARTHENON_REQUIRE(
@@ -382,7 +382,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           }
         }
 
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i,0,0,0);
         PARTHENON_REQUIRE(prim(IPR, k, j, i) > 0,
                           "Kinetic injection leads to negative pressure");
       });

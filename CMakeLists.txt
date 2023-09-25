@@ -17,6 +17,9 @@ endif()
 
 project(athenaPK LANGUAGES CXX)
 
+# Adding HighFive library
+add_subdirectory(external/HighFive)
+
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -84,4 +87,3 @@ if (AthenaPK_ENABLE_TESTING)
   include(CTest)
   add_subdirectory(tst/regression)
 endif()
-

@@ -39,7 +39,7 @@ TabularCooling::TabularCooling(ParameterInput *pin,
   // Heating constants
   const Real heating_const_cgs   = pin->GetOrAddReal("cooling", "heating_const", 0.0);
   const Real gamma_units         = heating_const_cgs * (units.erg() / units.s());
-  
+    
   // Checkpoint
   std::cout << "heating_const_cgs=" << heating_const_cgs << "\n";
   std::cout << "units.s()=" << units.s() << "\n";
@@ -127,11 +127,11 @@ TabularCooling::TabularCooling(ParameterInput *pin,
           << line << "\"" << std::endl;
       PARTHENON_FAIL(msg);
     }
-    
+
     try {
       const Real log_temp = std::stod(line_data[log_temp_col]);
       const Real log_lambda = std::stod(line_data[log_lambda_col]);
-      
+
       // Add to growing list
       log_temps.push_back(log_temp);
       log_lambdas.push_back(log_lambda - std::log10(lambda_units));
@@ -142,7 +142,7 @@ TabularCooling::TabularCooling(ParameterInput *pin,
       PARTHENON_FAIL(msg);
     }
   }
-  
+
   /****************************************
    * Check some assumtions about the cooling table
    ****************************************/
@@ -180,7 +180,7 @@ TabularCooling::TabularCooling(ParameterInput *pin,
           << " log_temp= " << log_temps[i] << std::endl;
       PARTHENON_FAIL(msg);
     }
-    
+
     // The Dedt() function currently relies on an equally spaced cooling table for faster
     // lookup (direct indexing). It is used in the subcycling method and in order to
     // restrict `dt` by a cooling cfl.
@@ -205,7 +205,6 @@ TabularCooling::TabularCooling(ParameterInput *pin,
   log_temp_final_ = log_temps[n_temp_ - 1];
   d_log_temp_ = d_log_temp;
   lambda_final_ = std::pow(10.0, log_lambdas[n_temp_ - 1]);
-  gamma_units_ = gamma_units;
   
   // Setup log_lambdas_ used in Dedt()
   {
@@ -234,7 +233,6 @@ TabularCooling::TabularCooling(ParameterInput *pin,
       host_lambdas(i) = std::pow(10.0, log_lambdas[i]);
       host_temps(i) = std::pow(10.0, log_temps[i]);
     }
-    
     // Copy host_lambdas into device memory
     Kokkos::deep_copy(lambdas_, host_lambdas);
     Kokkos::deep_copy(temps_, host_temps);
@@ -243,11 +241,11 @@ TabularCooling::TabularCooling(ParameterInput *pin,
     const auto n_bins = n_temp_ - 1;
     townsend_Y_k_ = ParArray1D<Real>("townsend_Y_k_", n_bins);
     townsend_alpha_k_ = ParArray1D<Real>("townsend_alpha_k_", n_bins);
-    
+
     // Initialize on host (make *this* recursion simpler)
     auto host_townsend_Y_k = Kokkos::create_mirror_view(townsend_Y_k_);
     auto host_townsend_alpha_k = Kokkos::create_mirror_view(townsend_alpha_k_);
-    
+
     // Initialize piecewise power law indices
     for (unsigned int i = 0; i < n_bins; i++) {
       // Could use log_lambdas_ here, but using lambdas_ instead as they've already been
@@ -282,7 +280,7 @@ TabularCooling::TabularCooling(ParameterInput *pin,
   const auto He_mass_fraction = hydro_pkg->Param<Real>("He_mass_fraction");
 
   cooling_table_obj_ = CoolingTableObj(log_lambdas_, log_temp_start_, log_temp_final_,
-                                       d_log_temp_, n_temp_, gamma_units_, mbar_over_kb,
+                                       d_log_temp_, n_temp_, mbar_over_kb,
                                        adiabatic_index, 1.0 - He_mass_fraction, units);
 }
 

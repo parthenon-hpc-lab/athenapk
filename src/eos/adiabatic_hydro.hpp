@@ -51,15 +51,16 @@ class AdiabaticHydroEOS : public EquationOfState {
   template <typename View4D>
   KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro,
                                          const int &nscalars, const int &k, const int &j,
-                                         const int &i) const {
+                                         const int &i, const int &gks, const int &gjs, const int &gis) const {
+    
     Real gm1 = GetGamma() - 1.0;
     auto density_floor_ = GetDensityFloor();
     auto pressure_floor_ = GetPressureFloor();
     auto e_floor_ = GetInternalEFloor();
-
+    
     auto velocity_ceiling_ = GetVelocityCeiling();
     auto e_ceiling_ = GetInternalECeiling();
-
+    
     Real &u_d = cons(IDN, k, j, i);
     Real &u_m1 = cons(IM1, k, j, i);
     Real &u_m2 = cons(IM2, k, j, i);
@@ -71,7 +72,11 @@ class AdiabaticHydroEOS : public EquationOfState {
     Real &w_vy = prim(IV2, k, j, i);
     Real &w_vz = prim(IV3, k, j, i);
     Real &w_p = prim(IPR, k, j, i);
-
+    
+    if (u_d <= 0.0) {std::cout << "(k,j,i)=(" << k << "," << j << "," << i << ") \n" ;
+                     std::cout << "(gks,gjs,gis)=(" << gks << "," << gjs << "," << gis << ") \n" ;
+                   }
+      
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
     PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
@@ -88,7 +93,7 @@ class AdiabaticHydroEOS : public EquationOfState {
 
     Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
     w_p = gm1 * (u_e - e_k);
-
+    
     // apply velocity ceiling. By default ceiling is std::numeric_limits<Real>::infinity()
     const Real w_v2 = SQR(w_vx) + SQR(w_vy) + SQR(w_vz);
     if (w_v2 > SQR(velocity_ceiling_)) {
@@ -105,11 +110,29 @@ class AdiabaticHydroEOS : public EquationOfState {
       u_e -= e_k - e_k_new;
       e_k = e_k_new;
     }
-
+    
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.
+    
+    // Trying to understand why negative pressure appear in tests
+    
+    if (w_p <= 0.0) {std::cout << "w_p = gm1 * (u_e - e_k)";
+                    std::cout << "w_p=" << w_p << "\n" ;
+                    std::cout << "gm1=" << gm1 << "\n" ;
+                    std::cout << "u_e=" << u_e << "\n" ;
+                    std::cout << "e_k=" << e_k << "\n" ;
+                    std::cout << "(k,j,i)=(" << k << "," << j << "," << i << ") \n" ;
+                    std::cout << "(gks,gjs,gis)=(" << gks << "," << gjs << "," << gis << ") \n" ;
+                   }
+    
+    //if (pressure_floor_ < 0.0) {std::cout << "pressure_floor_" << pressure_floor_ << "\n" ;}
+    //if (e_floor_ < 0.0) {std::cout << "e_floor_" << e_floor_ << "\n" ;}
+    
+    // The first argument check whether one of the conditions is true
+    // By default, floors are deactivated, ie. pressure floor and e_floor
+    // are -1. The code will eventually crash when w_p turns < 0.
     PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
-                      "Got negative pressure. Consider enabling first-order flux "
+                      "Wow. Got negative pressure. Consider enabling first-order flux "
                       "correction or setting a reasonble pressure or temperature floor.");
 
     // Pressure floor (if present) takes precedence over temperature floor
