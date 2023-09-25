@@ -30,6 +30,7 @@
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "outputs/outputs.hpp"
+#include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
@@ -142,6 +143,14 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     hydro_pkg->Param<GLMMHD::SourceFun_t>("glmmhd_source")(md, beta_dt);
   }
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+
+  if (enable_cooling == Cooling::tabular) {
+    const TabularCooling &tabular_cooling =
+        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    tabular_cooling.SrcTerm(md, beta_dt);
+  }
   if (ProblemSourceUnsplit != nullptr) {
     ProblemSourceUnsplit(md, tm, beta_dt);
   }
@@ -152,14 +161,6 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  if (enable_cooling == Cooling::tabular) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-    tabular_cooling.SrcTerm(md, tm.dt);
-  }
   if (ProblemSourceFirstOrder != nullptr) {
     ProblemSourceFirstOrder(md, tm, tm.dt);
   }
@@ -167,17 +168,6 @@ TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
 }
 
 TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm) {
-  // auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  // if (enable_cooling == Cooling::tabular) {
-  //   const TabularCooling &tabular_cooling =
-  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-  //   tabular_cooling.SrcTerm(md, 0.5 * tm.dt);
-  // }
-
   if (ProblemSourceStrangSplit != nullptr) {
     ProblemSourceStrangSplit(md, tm, tm.dt);
   }
@@ -560,6 +550,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   Metadata m(
       {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
       std::vector<int>({nhydro + nscalars}), cons_labels);
+  m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
+                          parthenon::refinement_ops::RestrictAverage>();
   pkg->AddField("cons", m);
 
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro + nscalars}),

@@ -21,6 +21,7 @@
 #include "../../units.hpp"
 #include "cluster_utils.hpp"
 #include "magnetic_tower.hpp"
+#include "utils/error_checking.hpp"
 
 namespace cluster {
 using namespace parthenon;
@@ -44,35 +45,30 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto &A_pack = md->PackVariables(std::vector<std::string>{"magnetic_tower_A"});
+
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   // Scale density_to_add to match mass_to_add when integrated over all space
-  const Real density_to_add = mass_to_add / (pow(l_mass_scale_, 3) * pow(M_PI, 3. / 2.));
+  PARTHENON_REQUIRE_THROWS(
+      mass_to_add == 0.0 || l_mass_scale_ > 0.0,
+      "Trying to inject mass with the tower model but 0 mass lengthscale. Either disable "
+      "tower mass injection or set positive lengthscale.");
+  const auto density_to_add =
+      mass_to_add > 0.0 ? mass_to_add / (pow(l_mass_scale_, 3) * pow(M_PI, 3. / 2.))
+                        : 0.0;
 
   const JetCoords jet_coords =
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory").CreateJetCoords(tm.time);
-  const MagneticTowerObj mt = MagneticTowerObj(field_to_add, alpha_, l_scale_,
-                                               density_to_add, l_mass_scale_, jet_coords);
+  const MagneticTowerObj mt =
+      MagneticTowerObj(field_to_add, alpha_, l_scale_, offset_, thickness_,
+                       density_to_add, l_mass_scale_, jet_coords, potential_);
 
   const auto &eos = hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos");
 
   // Construct magnetic vector potential then compute magnetic fields
-
-  // Currently reallocates this vector potential everytime step and constructs
-  // the potential in a separate kernel. There are two solutions:
-  //  1. Allocate a dependant variable in the hydro package for scratch
-  //  variables, use to store this potential. Would save time in allocations
-  //  but would still require more DRAM memory and two kernel launches
-  //  2. Compute the potential (12 needed in all) in the same kernel,
-  //  constructing the derivative without storing the potential (more
-  //  arithmetically intensive, maybe faster)
-  ParArray5D<Real> A(
-      "magnetic_tower_A", 3, cons_pack.GetDim(5),
-      md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsk(IndexDomain::entire),
-      md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsj(IndexDomain::entire),
-      md->GetBlockData(0)->GetBlockPointer()->cellbounds.ncellsi(IndexDomain::entire));
   IndexRange a_ib = ib;
   a_ib.s -= 1;
   a_ib.e += 1;
@@ -90,15 +86,16 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
       a_jb.e, a_ib.s, a_ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         // Compute and apply potential
+        auto &A = A_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
 
         Real a_x_, a_y_, a_z_;
         mt.PotentialInSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k), a_x_,
                               a_y_, a_z_);
 
-        A(0, b, k, j, i) = a_x_;
-        A(1, b, k, j, i) = a_y_;
-        A(2, b, k, j, i) = a_z_;
+        A(0, k, j, i) = a_x_;
+        A(1, k, j, i) = a_y_;
+        A(2, k, j, i) = a_z_;
       });
 
   // Take the curl of the potential and apply the new magnetic field
@@ -108,18 +105,19 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
       ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
+        auto &A = A_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
 
         // Take the curl of a to compute the magnetic field
         const Real b_x =
-            (A(2, b, k, j + 1, i) - A(2, b, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
-            (A(1, b, k + 1, j, i) - A(1, b, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
+            (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+            (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
         const Real b_y =
-            (A(0, b, k + 1, j, i) - A(0, b, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
-            (A(2, b, k, j, i + 1) - A(2, b, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
+            (A(0, k + 1, j, i) - A(0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+            (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
         const Real b_z =
-            (A(1, b, k, j, i + 1) - A(1, b, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
-            (A(0, b, k, j + 1, i) - A(0, b, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
+            (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+            (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
 
         // Add the magnetic field to the conserved variables
         cons(IB1, k, j, i) += b_x;
@@ -133,8 +131,10 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
                               0.5 * (b_x * b_x + b_y * b_y + b_z * b_z);
 
         // Add density
-        const Real cell_delta_rho =
-            mt.DensityFromSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
+        const auto cell_delta_rho =
+            density_to_add > 0.0
+                ? mt.DensityFromSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k))
+                : 0.0;
         cons(IDN, k, j, i) += cell_delta_rho;
       });
 }
@@ -164,8 +164,8 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory").CreateJetCoords(tm.time);
 
   // Make a construct a copy of this with field strength 1 to send to the device
-  const MagneticTowerObj mt =
-      MagneticTowerObj(1, alpha_, l_scale_, 0, l_mass_scale_, jet_coords);
+  const MagneticTowerObj mt = MagneticTowerObj(1, alpha_, l_scale_, offset_, thickness_,
+                                               0, l_mass_scale_, jet_coords, potential_);
 
   // Get the reduction of the linear and quadratic contributions ready
   Real linear_contrib_red, quadratic_contrib_red;
@@ -217,8 +217,8 @@ void MagneticTower::AddInitialFieldToPotential(parthenon::MeshBlock *pmb,
 
   const JetCoords jet_coords =
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory").CreateJetCoords(0.0);
-  const MagneticTowerObj mt(initial_field_, alpha_, l_scale_, 0, l_mass_scale_,
-                            jet_coords);
+  const MagneticTowerObj mt(initial_field_, alpha_, l_scale_, offset_, thickness_, 0,
+                            l_mass_scale_, jet_coords, potential_);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "MagneticTower::AddInitialFieldToPotential",
