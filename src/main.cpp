@@ -2,6 +2,8 @@
 // Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE");
 
+#include <sstream>
+
 // Parthenon headers
 #include "globals.hpp"
 #include "parthenon_manager.hpp"
@@ -10,6 +12,7 @@
 #include "hydro/hydro.hpp"
 #include "hydro/hydro_driver.hpp"
 #include "main.hpp"
+
 #include "pgen/pgen.hpp"
 // Initialize defaults for package specific callback functions
 namespace Hydro {
@@ -43,6 +46,7 @@ int main(int argc, char *argv[]) {
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
   pman.app_input->PreStepMeshUserWorkInLoop = Hydro::PreStepMeshUserWorkInLoop;
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
+
   if (problem == "linear_wave") {
     pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
@@ -82,10 +86,25 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemInitPackageData = rand_blast::ProblemInitPackageData;
     Hydro::ProblemSourceFirstOrder = rand_blast::RandomBlasts;
   } else if (problem == "cluster") {
-    pman.app_input->ProblemGenerator = cluster::ProblemGenerator;
-    Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;
+    pman.app_input->MeshProblemGenerator = cluster::ProblemGenerator;
+    pman.app_input->MeshBlockUserWorkBeforeOutput = cluster::UserWorkBeforeOutput;
+    Hydro::ProblemInitPackageData = cluster::ProblemInitPackageData;
+    Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
+    Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
+    Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
+  } else if (problem == "turbulence") {
+    pman.app_input->MeshProblemGenerator = turbulence::ProblemGenerator;
+    Hydro::ProblemInitPackageData = turbulence::ProblemInitPackageData;
+    Hydro::ProblemSourceFirstOrder = turbulence::Driving;
+    pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
+    pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
+  } else {
+    // parthenon throw error message for the invalid problem
+    std::stringstream msg;
+    msg << "Problem ID '" << problem << "' is not implemented yet.";
+    PARTHENON_THROW(msg);
   }
 
   pman.ParthenonInitPackagesAndMesh();
@@ -95,10 +114,13 @@ int main(int argc, char *argv[]) {
     std::cout << "Starting up hydro driver" << std::endl;
   }
 
-  Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
+  // This needs to be scoped so that the driver object is destructed before Finalize
+  {
+    Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
 
-  // This line actually runs the simulation
-  auto driver_status = driver.Execute();
+    // This line actually runs the simulation
+    driver.Execute();
+  }
 
   // call MPI_Finalize and Kokkos::finalize if necessary
   pman.ParthenonFinalize();

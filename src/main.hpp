@@ -41,6 +41,8 @@ enum class DiffInt { none, unsplit, rkl2 };
 
 enum class Hst { idx, ekin, emag, divb };
 
+enum class CartesianDir { x, y, z };
+
 constexpr parthenon::Real float_min{std::numeric_limits<float>::min()};
 
 #endif // MAIN_HPP_

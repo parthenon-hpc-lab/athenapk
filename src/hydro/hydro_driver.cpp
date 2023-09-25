@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2020, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2020-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
@@ -11,16 +11,15 @@
 #include <vector>
 
 // Parthenon headers
-#include "bvals/cc/bvals_cc_in_one.hpp"
-#include "diffusion/diffusion.hpp"
-#include "interface/update.hpp"
-#include "parthenon/driver.hpp"
-#include "parthenon/package.hpp"
-#include "refinement/refinement.hpp"
-#include "tasks/task_id.hpp"
-#include "utils/partition_stl_containers.hpp"
+#include "amr_criteria/refinement_package.hpp"
+#include "bvals/comms/bvals_in_one.hpp"
+#include "prolong_restrict/prolong_restrict.hpp"
+#include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../pgen/cluster/agn_triggering.hpp"
+#include "../pgen/cluster/magnetic_tower.hpp"
+#include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
@@ -58,12 +57,12 @@ TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
       ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmindx) {
         const auto &coords = prim_pack.GetCoords(b);
-        lmindx = fmin(lmindx, coords.dx1v(k, j, i));
+        lmindx = fmin(lmindx, coords.Dxc<1>(k, j, i));
         if (nx2) {
-          lmindx = fmin(lmindx, coords.dx2v(k, j, i));
+          lmindx = fmin(lmindx, coords.Dxc<2>(k, j, i));
         }
         if (nx3) {
-          lmindx = fmin(lmindx, coords.dx3v(k, j, i));
+          lmindx = fmin(lmindx, coords.Dxc<3>(k, j, i));
         }
       },
       Kokkos::Min<Real>(mindx));
@@ -447,35 +446,70 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // required to be 1 or blocks.size() but could also only apply to a subset of blocks.
   auto num_task_lists_executed_independently = blocks.size();
 
-  TaskRegion &async_region_1 = tc.AddRegion(num_task_lists_executed_independently);
+  const int num_partitions = pmesh->DefaultNumPartitions();
+
+  // calculate agn triggering accretion rate
+  if ((stage == 1) &&
+      hydro_pkg->AllParams().hasKey("agn_triggering_reduce_accretion_rate") &&
+      hydro_pkg->Param<bool>("agn_triggering_reduce_accretion_rate")) {
+
+    // need to make sure that there's only one region in order to MPI_reduce to work
+    TaskRegion &single_task_region = tc.AddRegion(1);
+    auto &tl = single_task_region[0];
+    // First globally reset triggering quantities
+    auto prev_task =
+        tl.AddTask(none, cluster::AGNTriggeringResetTriggering, hydro_pkg.get());
+
+    // Adding one task for each partition. Given that they're all in one task list
+    // they'll be executed sequentially. Given that a par_reduce to a host var is
+    // blocking it's also save to store the variable in the Params for now.
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto new_agn_triggering =
+          tl.AddTask(prev_task, cluster::AGNTriggeringReduceTriggering, mu0.get(), tm.dt);
+      prev_task = new_agn_triggering;
+    }
+#ifdef MPI_PARALLEL
+    auto reduce_agn_triggering =
+        tl.AddTask(prev_task, cluster::AGNTriggeringMPIReduceTriggering, hydro_pkg.get());
+    prev_task = reduce_agn_triggering;
+#endif
+
+    // Remove accreted gas
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto new_remove_accreted_gas =
+          tl.AddTask(prev_task, cluster::AGNTriggeringFinalizeTriggering, mu0.get(), tm);
+      prev_task = new_remove_accreted_gas;
+    }
+  }
+
   for (int i = 0; i < blocks.size(); i++) {
     auto &pmb = blocks[i];
-    auto &tl = async_region_1[i];
     // Using "base" as u0, which already exists (and returned by using plain Get())
     auto &u0 = pmb->meshblock_data.Get();
 
     // Create meshblock data for register u1.
+    // This is a noop if u1 already exists.
     // TODO(pgrete) update to derive from other quanity as u1 does not require fluxes
     if (stage == 1) {
       pmb->meshblock_data.Add("u1", u0);
     }
   }
 
-  const int num_partitions = pmesh->DefaultNumPartitions();
-
   // Calculate hyperbolic divergence cleaning speed
-  // TODO(pgrete) Calculating mindx is only required after remeshing. Need to find a
-  // clean solution for this one-off global reduction.
+  // TODO(pgrete) Calculating mindx is only required after remeshing. Need to find a clean
+  // solution for this one-off global reduction.
   if (hydro_pkg->Param<bool>("calc_c_h") && (stage == 1)) {
     // need to make sure that there's only one region in order to MPI_reduce to work
     TaskRegion &single_task_region = tc.AddRegion(1);
     auto &tl = single_task_region[0];
     // Adding one task for each partition. Not using a (new) single partition containing
     // all blocks here as this (default) split is also used for the following tasks and
-    // thus does not create an overhead (such as creating a new MeshBlockPack that is
-    // just used here). Given that all partitions are in one task list they'll be
-    // executed sequentially. Given that a par_reduce to a host var is blocking it's
-    // also save to store the variable in the Params for now.
+    // thus does not create an overhead (such as creating a new MeshBlockPack that is just
+    // used here). Given that all partitions are in one task list they'll be executed
+    // sequentially. Given that a par_reduce to a host var is blocking it's also save to
+    // store the variable in the Params for now.
     auto prev_task = none;
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
@@ -512,6 +546,48 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         hydro_pkg.get());
   }
 
+  // calculate magnetic tower scaling
+  if ((stage == 1) && hydro_pkg->AllParams().hasKey("magnetic_tower_power_scaling") &&
+      hydro_pkg->Param<bool>("magnetic_tower_power_scaling")) {
+    const auto &magnetic_tower =
+        hydro_pkg->Param<cluster::MagneticTower>("magnetic_tower");
+
+    // need to make sure that there's only one region in order to MPI_reduce to work
+    TaskRegion &single_task_region = tc.AddRegion(1);
+    auto &tl = single_task_region[0];
+    // First globally reset magnetic_tower_linear_contrib and
+    // magnetic_tower_quadratic_contrib
+    auto prev_task =
+        tl.AddTask(none, cluster::MagneticTowerResetPowerContribs, hydro_pkg.get());
+
+    // Adding one task for each partition. Given that they're all in one task list
+    // they'll be executed sequentially. Given that a par_reduce to a host var is
+    // blocking it's also save to store the variable in the Params for now.
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto new_magnetic_tower_power_contrib =
+          tl.AddTask(prev_task, cluster::MagneticTowerReducePowerContribs, mu0.get(), tm);
+      prev_task = new_magnetic_tower_power_contrib;
+    }
+#ifdef MPI_PARALLEL
+    auto reduce_magnetic_tower_power_contrib = tl.AddTask(
+        prev_task,
+        [](StateDescriptor *hydro_pkg) {
+          Real magnetic_tower_contribs[] = {
+              hydro_pkg->Param<Real>("magnetic_tower_linear_contrib"),
+              hydro_pkg->Param<Real>("magnetic_tower_quadratic_contrib")};
+          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, magnetic_tower_contribs, 2,
+                                            MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
+          hydro_pkg->UpdateParam("magnetic_tower_linear_contrib",
+                                 magnetic_tower_contribs[0]);
+          hydro_pkg->UpdateParam("magnetic_tower_quadratic_contrib",
+                                 magnetic_tower_contribs[1]);
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+#endif
+  }
+
   // First add split sources before the main time integration
   if (stage == 1) {
     const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
@@ -538,9 +614,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &pmb = blocks[i];
     auto &tl = async_region_init_int[i];
     auto &u0 = pmb->meshblock_data.Get();
-    auto start_recv = tl.AddTask(none, &MeshBlockData<Real>::StartReceiving, u0.get(),
-                                 BoundaryCommSubset::all);
-
     // init u1, see (11) in Athena++ method paper
     if (stage == 1) {
       auto &u1 = pmb->meshblock_data.Get("u1");
@@ -566,42 +639,34 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
+    tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
     auto calc_flux = tl.AddTask(none, calc_flux_fun, mu0);
 
     // TODO(pgrete) figure out what to do about the sources from the first stage
-    // that are potentially disregarded when the (m)hd fluxes are corrected in the
-    // second stage.
+    // that are potentially disregarded when the (m)hd fluxes are corrected in the second
+    // stage.
+    TaskID first_order_flux_correct = calc_flux;
     if (hydro_pkg->Param<bool>("first_order_flux_correct")) {
       auto *first_order_flux_correct_fun =
           hydro_pkg->Param<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun");
-      auto first_order_flux_correct =
+      first_order_flux_correct =
           tl.AddTask(calc_flux, first_order_flux_correct_fun, mu0.get(), mu1.get(),
                      integrator->gam0[stage - 1], integrator->gam1[stage - 1],
                      integrator->beta[stage - 1] * integrator->dt);
     }
-  }
-  TaskRegion &async_region_2 = tc.AddRegion(num_task_lists_executed_independently);
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &tl = async_region_2[i];
-    auto &u0 = blocks[i]->meshblock_data.Get("base");
-    auto send_flux = tl.AddTask(none, &MeshBlockData<Real>::SendFluxCorrection, u0.get());
-    auto recv_flux =
-        tl.AddTask(none, &MeshBlockData<Real>::ReceiveFluxCorrection, u0.get());
-  }
 
-  TaskRegion &single_tasklist_per_pack_region_2 = tc.AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; i++) {
-    auto &tl = single_tasklist_per_pack_region_2[i];
-
-    auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-    auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
+    auto send_flx =
+        tl.AddTask(first_order_flux_correct, parthenon::LoadAndSendFluxCorrections, mu0);
+    auto recv_flx =
+        tl.AddTask(first_order_flux_correct, parthenon::ReceiveFluxCorrections, mu0);
+    auto set_flx = tl.AddTask(recv_flx, parthenon::SetFluxCorrections, mu0);
 
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(
-        none, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
+        set_flx, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
         mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
         integrator->beta[stage - 1] * integrator->dt);
 
@@ -629,25 +694,24 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(source_split_strang_final, AddSplitSourcesFirstOrder, mu0.get(), tm);
     }
 
-    // update ghost cells
-    auto send = tl.AddTask(source_split_first_order,
-                           parthenon::cell_centered_bvars::SendBoundaryBuffers, mu0);
-    auto recv =
-        tl.AddTask(send, parthenon::cell_centered_bvars::ReceiveBoundaryBuffers, mu0);
-    auto fill_from_bufs =
-        tl.AddTask(recv, parthenon::cell_centered_bvars::SetBoundaries, mu0);
+    // Update ghost cells (local and non local)
+    // TODO(someone) experiment with split (local/nonlocal) comms with respect to
+    // performance for various tests (static, amr, block sizes) and then decide on the
+    // best impl. Go with default call (split local/nonlocal) for now.
+    parthenon::AddBoundaryExchangeTasks(source_split_first_order, tl, mu0,
+                                        pmesh->multilevel);
   }
 
   TaskRegion &async_region_3 = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {
     auto &tl = async_region_3[i];
     auto &u0 = blocks[i]->meshblock_data.Get("base");
-    auto clear_comm_flags = tl.AddTask(none, &MeshBlockData<Real>::ClearBoundary,
-                                       u0.get(), BoundaryCommSubset::all);
     auto prolongBound = none;
-    if (pmesh->multilevel) {
-      prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, u0);
-    }
+    // Currently taken care of by AddBoundaryExchangeTasks above.
+    // Needs to be reintroduced once we reintroduce split (local/nonlocal) communication.
+    // if (pmesh->multilevel) {
+    //  prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, u0);
+    //}
 
     // set physical boundaries
     auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, u0);

@@ -38,7 +38,6 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlle> {
 
     const auto gamma = eos.GetGamma();
     const auto gm1 = gamma - 1.0;
-    const auto igm1 = 1.0 / gm1;
 
     // TODO(pgrete) move to a more central center and add logic
     constexpr int NGLMMHD = 9;

@@ -28,7 +28,7 @@ KOKKOS_INLINE_FUNCTION Real limo3_limiter(const Real dvp, const Real dvm, const 
   constexpr Real r = 0.1; // radius of asymptotic region
 
   // "a small positive number, which is about the size of the particular machine prec."
-  constexpr Real eps = 1e-12;
+  constexpr Real eps = 10.0 * std::numeric_limits<Real>::epsilon();
 
   // (2.8) in CT09; local smoothness measure
   const Real theta = dvm / (dvp + TINY_NUMBER);
@@ -97,7 +97,7 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
     // respect to the entries in the single state vector containing all components
     const bool ensure_positivity = (n == IDN || n == IPR);
     parthenon::par_for_inner(member, il, iu, [&](const int i) {
-      auto dx = q.GetCoords().Dx(XNDIR, k, j, i);
+      auto dx = q.GetCoords().Dxc<XNDIR>(k, j, i);
       if constexpr (XNDIR == parthenon::X1DIR) {
         // ql is ql_ip1 and qr is qr_i
         LimO3(q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1), ql(n, i + 1), qr(n, i),

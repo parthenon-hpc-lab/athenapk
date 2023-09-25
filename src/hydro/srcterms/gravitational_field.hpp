@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file gravitational_field.hpp
@@ -46,23 +46,20 @@ void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         const auto &coords = cons_pack.GetCoords(b);
 
         const Real r =
-            sqrt(coords.x1v(i) * coords.x1v(i) + coords.x2v(j) * coords.x2v(j) +
-                 coords.x3v(k) * coords.x3v(k));
+            sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
+                 coords.Xc<3>(k) * coords.Xc<3>(k));
 
         const Real g_r = gravitationalField.g_from_r(r);
 
         // Apply g_r as a source term
         const Real den = prim(IDN, k, j, i);
-        const Real src =
-            (r == 0) ? 0
-                     : beta_dt * den * g_r / r; // FIXME watch out for previous /r errors
-        cons(IM1, k, j, i) -= src * coords.x1v(i);
-        cons(IM2, k, j, i) -= src * coords.x2v(j);
-        cons(IM3, k, j, i) -= src * coords.x3v(k);
-        // FIXME Double check this
-        cons(IEN, k, j, i) -= src * (coords.x1v(i) * prim(IV1, k, j, i) +
-                                     coords.x2v(j) * prim(IV2, k, j, i) +
-                                     coords.x3v(k) * prim(IV3, k, j, i));
+        const Real src = (r == 0) ? 0 : beta_dt * den * g_r / r;
+        cons(IM1, k, j, i) -= src * coords.Xc<1>(i);
+        cons(IM2, k, j, i) -= src * coords.Xc<2>(j);
+        cons(IM3, k, j, i) -= src * coords.Xc<3>(k);
+        cons(IEN, k, j, i) -= src * (coords.Xc<1>(i) * prim(IV1, k, j, i) +
+                                     coords.Xc<2>(j) * prim(IV2, k, j, i) +
+                                     coords.Xc<3>(k) * prim(IV3, k, j, i));
       });
 }
 

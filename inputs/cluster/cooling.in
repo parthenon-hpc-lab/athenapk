@@ -1,6 +1,8 @@
-
+################################################################################
+# Input file for testing tabular cooling
+################################################################################
 <comment>
-problem   = Isolated galaxy cluster
+problem   = Cooling Test
 
 <job>
 problem_id = cluster   # problem ID: basename of output filenames
@@ -20,7 +22,6 @@ cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
 tlim       = 1.0       # time limit
 integrator  = vl2       # time integration algorithm
-perf_cycle_offset  = 10 # interval for stdout summary info
 
 
 <parthenon/mesh>
@@ -56,36 +57,23 @@ gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
 riemann = hlle
 reconstruction = plm
-use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 He_mass_fraction = 0.25
 
 <units>
 #Units parameters
-code_length_cgs = 3.085677580962325e+24
-code_mass_cgs = 1.98841586e+47
-code_time_cgs = 3.15576e+16
-
-<problem/cluster>
-
-#Disable gravity as a source term
-gravity_srcterm = false
-
-#Initialize with a uniform gas
-init_uniform_gas = true
-uniform_gas_rho = 147.7557589278723
-uniform_gas_ux = 0
-uniform_gas_uy = 0
-uniform_gas_uz = 0
-uniform_gas_pres = 1.5454368403867562
+#Note: All other parameters for the cluster are in terms of these units
+code_length_cgs = 3.085677580962325e+24 # 1 Mpc in cm
+code_mass_cgs = 1.98841586e+47          # 1e14 Msun in g
+code_time_cgs = 3.15576e+16             # 1 Gyr in s
 
 <cooling>
 enable_cooling = tabular
 table_filename = schure.cooling
 log_temp_col = 0
 log_lambda_col = 1
-lambda_units_cgs = 1
+lambda_units_cgs = 1 #erg cm^3/s in cgs, as used in schure.cooling
 
 integrator = rk12
 max_iter = 100
@@ -93,3 +81,20 @@ cfl = 0.1
 d_log_temp_tol = 1e-8
 d_e_tol = 1e-8
 
+<problem/cluster>
+
+<problem/cluster/gravity>
+#Disable gravity as a source term
+gravity_srcterm = false
+
+<problem/cluster/uniform_gas>
+#Initialize with a uniform gas
+init_uniform_gas = true
+rho = 147.7557589278723
+ux = 0
+uy = 0
+uz = 0
+pres = 1.5454368403867562
+
+<problem/cluster/snia_feedback>
+disabled               = True

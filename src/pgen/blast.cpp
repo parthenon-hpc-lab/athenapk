@@ -1,5 +1,9 @@
 
 //========================================================================================
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
+// Licensed under the 3-clause BSD License, see LICENSE file for details
+//========================================================================================
 // Athena++ astrophysical MHD code
 // Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
@@ -42,14 +46,15 @@ using namespace parthenon::package::prelude;
 
 namespace blast {
 
-int nrows = 0;
-int ncols = 0;
+// image dimensions
+int img_nx1 = 0;
+int img_nx2 = 0;
 bool use_input_image = false;
 parthenon::ParArrayHost<int> image_data;
 std::vector<Real> image_x, image_y;
 
 void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
-  std::string input_image = pin->GetOrAddString("problem", "input_image", "none");
+  std::string input_image = pin->GetOrAddString("problem/blast", "input_image", "none");
   // read input image if provided
   use_input_image = input_image != "none";
   if (use_input_image) {
@@ -62,21 +67,24 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
     getline(infile, line); // version line
     getline(infile, line); // comment line
 
-    infile >> ncols >> nrows;
+    // Read width and height.
+    // We're using a "standard" coordinate system here: width is x1 and height is x2
+    // Therefore, read y-data needs to be flipped.
+    infile >> img_nx1 >> img_nx2;
     getline(infile, line); // jump past the dimension line
 
-    image_data = ParArrayHost<int>("image_data", ncols, nrows);
+    image_data = ParArrayHost<int>("image_data", img_nx2, img_nx1);
 
     char c;
-    size_t row = 0;
-    size_t col = 0;
+    int img_i = 0;
+    int img_j = img_nx2 - 1;
     while (infile.get(c)) {
       for (int i = 7; i >= 0; i--) {
-        image_data(col, row) = ((c >> i) & 1);
-        row++;
-        if (row == nrows) {
-          col++;
-          row = 0;
+        image_data(img_j, img_i) = ((c >> i) & 1);
+        img_i++;
+        if (img_i == img_nx1) {
+          img_j--;
+          img_i = 0;
         }
       }
     }
@@ -84,8 +92,9 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
     infile.close();
 
     // simple sanity check, could be improved in loop above
-    PARTHENON_REQUIRE(col == ncols, "Number of cols read doesn't match expected val.");
-    PARTHENON_REQUIRE(row == 0, "Number of rows read doesn't match expected val.");
+    PARTHENON_REQUIRE(img_j == -1, "Number of img_j read doesn't match expected val.");
+    PARTHENON_REQUIRE(img_i == 0,
+                      "Number of img_i rows read doesn't match expected val.");
 
     const auto x1min = pin->GetReal("parthenon/mesh", "x1min");
     const auto x1max = pin->GetReal("parthenon/mesh", "x1max");
@@ -93,17 +102,17 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
     const auto x2max = pin->GetReal("parthenon/mesh", "x2max");
     Real x1size = x1max - x1min;
     Real x2size = x2max - x2min;
-    Real dx = x1size / nrows;
-    Real dy = x2size / ncols;
+    Real img_dx = x1size / img_nx1;
+    Real img_dy = x2size / img_nx2;
 
-    image_x.resize(nrows);
-    for (auto row = 0; row < nrows; row++) {
-      image_x.at(row) = x1min + 0.5 * dx + row * dx;
+    image_x.resize(img_nx1);
+    for (auto img_i = 0; img_i < img_nx1; img_i++) {
+      image_x.at(img_i) = x1min + 0.5 * img_dx + img_i * img_dx;
     }
 
-    image_y.resize(ncols);
-    for (auto col = 0; col < ncols; col++) {
-      image_y.at(col) = x2min + 0.5 * dy + col * dy;
+    image_y.resize(img_nx2);
+    for (auto img_j = 0; img_j < img_nx2; img_j++) {
+      image_y.at(img_j) = x2min + 0.5 * img_dy + img_j * img_dy;
     }
   }
 }
@@ -114,23 +123,19 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 //========================================================================================
 
 void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
-  Real rout = pin->GetReal("problem", "radius_outer");
-  Real rin = rout - pin->GetOrAddReal("problem", "radius_inner", rout);
-  Real pa = pin->GetOrAddReal("problem", "pamb", 1.0);
-  Real da = pin->GetOrAddReal("problem", "damb", 1.0);
-  Real prat = pin->GetReal("problem", "prat");
-  Real drat = pin->GetOrAddReal("problem", "drat", 1.0);
+  Real rout = pin->GetReal("problem/blast", "radius_outer");
+  Real rin = pin->GetOrAddReal("problem/blast", "radius_inner", rout);
+  Real pa = pin->GetOrAddReal("problem/blast", "pressure_ambient", 1.0);
+  Real da = pin->GetOrAddReal("problem/blast", "density_ambient", 1.0);
+  Real prat = pin->GetReal("problem/blast", "pressure_ratio");
+  Real drat = pin->GetOrAddReal("problem/blast", "density_ratio", 1.0);
   Real gamma = pin->GetOrAddReal("hydro", "gamma", 5 / 3);
   Real gm1 = gamma - 1.0;
 
   // get coordinates of center of blast, and convert to Cartesian if necessary
-  Real x1_0 = pin->GetOrAddReal("problem", "x1_0", 0.0);
-  Real x2_0 = pin->GetOrAddReal("problem", "x2_0", 0.0);
-  Real x3_0 = pin->GetOrAddReal("problem", "x3_0", 0.0);
-  Real x0, y0, z0;
-  x0 = x1_0;
-  y0 = x2_0;
-  z0 = x3_0;
+  Real x0 = pin->GetOrAddReal("problem/blast", "x1_0", 0.0);
+  Real y0 = pin->GetOrAddReal("problem/blast", "x2_0", 0.0);
+  Real z0 = pin->GetOrAddReal("problem/blast", "x3_0", 0.0);
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -148,18 +153,18 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       for (int i = ib.s; i <= ib.e; i++) {
         Real den = da;
         Real pres = pa;
-        Real x = coords.x1v(i);
-        Real y = coords.x2v(j);
-        Real z = coords.x3v(k);
+        Real x = coords.Xc<1>(i);
+        Real y = coords.Xc<2>(j);
+        Real z = coords.Xc<3>(k);
         Real rad = std::sqrt(SQR(x - x0) + SQR(y - y0) + SQR(z - z0));
 
         if (use_input_image) {
           auto x_idx = std::distance(
               image_x.begin(),
-              std::upper_bound(image_x.begin(), image_x.end(), coords.x1v(i)));
+              std::upper_bound(image_x.begin(), image_x.end(), coords.Xc<1>(i)));
           auto y_idx = std::distance(
               image_y.begin(),
-              std::upper_bound(image_y.begin(), image_y.end(), coords.x2v(j)));
+              std::upper_bound(image_y.begin(), image_y.end(), coords.Xc<2>(j)));
 
           if (image_data(y_idx, x_idx) != 0) {
             den = drat * da;

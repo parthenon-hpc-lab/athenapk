@@ -1,0 +1,11 @@
+name: Check Formatting
+on: push
+jobs:
+  check-formatting:
+    name: Check Python and C++ Formatting
+    runs-on: ubuntu-latest
+    steps:
+    - uses: pgrete/cpp-py-formatter/check@v0.3.0
+      with:
+        clangFormatVersion: 11
+        token: ${{ secrets.GITHUB_TOKEN }}

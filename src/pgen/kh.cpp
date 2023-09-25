@@ -74,7 +74,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           u(IM1, k, j, i) = vflow + amp * ran(gen);
           u(IM2, k, j, i) = amp * ran(gen);
           u(IM3, k, j, i) = 0.0;
-          if (std::abs(coords.x2v(j)) < 0.25) {
+          if (std::abs(coords.Xc<2>(j)) < 0.25) {
             u(IDN, k, j, i) = drat;
             u(IM1, k, j, i) = -drat * (vflow + amp * ran(gen));
             u(IM2, k, j, i) = drat * amp * ran(gen);
@@ -101,9 +101,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       for (int j = jb.s; j <= jb.e; j++) {
         for (int i = ib.s; i <= ib.e; i++) {
           u(IDN, k, j, i) = 1.0;
-          u(IM1, k, j, i) = vflow * std::tanh((coords.x2v(j)) / a);
-          u(IM2, k, j, i) = amp * std::cos(2.0 * M_PI * coords.x1v(i)) *
-                            std::exp(-(SQR(coords.x2v(j))) / SQR(sigma));
+          u(IM1, k, j, i) = vflow * std::tanh((coords.Xc<2>(j)) / a);
+          u(IM2, k, j, i) = amp * std::cos(2.0 * M_PI * coords.Xc<1>(i)) *
+                            std::exp(-(SQR(coords.Xc<2>(j))) / SQR(sigma));
           u(IM3, k, j, i) = 0.0;
           u(IEN, k, j, i) =
               1.0 / gm1 +
@@ -119,20 +119,20 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   if (iprob == 3) {
     // Read/set problem parameters
-    Real amp = pin->GetReal("problem", "amp");
+    Real amp = pin->GetReal("problem/kh", "amp");
     Real a = 0.01;
     Real sigma = 0.1;
     for (int k = kb.s; k <= kb.e; k++) {
       for (int j = jb.s; j <= jb.e; j++) {
         for (int i = ib.s; i <= ib.e; i++) {
           u(IDN, k, j, i) =
-              0.505 + 0.495 * std::tanh((std::abs(coords.x2v(j)) - 0.5) / a);
-          u(IM1, k, j, i) = vflow * std::tanh((std::abs(coords.x2v(j)) - 0.5) / a);
-          u(IM2, k, j, i) = amp * vflow * std::sin(2.0 * M_PI * coords.x1v(i)) *
-                            std::exp(-((std::abs(coords.x2v(j)) - 0.5) *
-                                       (std::abs(coords.x2v(j)) - 0.5)) /
+              0.505 + 0.495 * std::tanh((std::abs(coords.Xc<2>(j)) - 0.5) / a);
+          u(IM1, k, j, i) = vflow * std::tanh((std::abs(coords.Xc<2>(j)) - 0.5) / a);
+          u(IM2, k, j, i) = amp * vflow * std::sin(2.0 * M_PI * coords.Xc<1>(i)) *
+                            std::exp(-((std::abs(coords.Xc<2>(j)) - 0.5) *
+                                       (std::abs(coords.Xc<2>(j)) - 0.5)) /
                                      (sigma * sigma));
-          if (coords.x2v(j) < 0.0) u(IM2, k, j, i) *= -1.0;
+          if (coords.Xc<2>(j) < 0.0) u(IM2, k, j, i) *= -1.0;
           u(IM1, k, j, i) *= u(IDN, k, j, i);
           u(IM2, k, j, i) *= u(IDN, k, j, i);
           u(IM3, k, j, i) = 0.0;
@@ -169,12 +169,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         for (int i = ib.s; i <= ib.e; i++) {
           // Lecoanet (2015) equation 8a)
           Real dens = 1.0 + 0.5 * drho_rho0 *
-                                (std::tanh((coords.x2v(j) - z1) / a) -
-                                 std::tanh((coords.x2v(j) - z2) / a));
+                                (std::tanh((coords.Xc<2>(j) - z1) / a) -
+                                 std::tanh((coords.Xc<2>(j) - z2) / a));
           u(IDN, k, j, i) = dens;
 
-          Real v1 = vflow * (std::tanh((coords.x2v(j) - z1) / a) -
-                             std::tanh((coords.x2v(j) - z2) / a) - 1.0) // 8b)
+          Real v1 = vflow * (std::tanh((coords.Xc<2>(j) - z1) / a) -
+                             std::tanh((coords.Xc<2>(j) - z2) / a) - 1.0) // 8b)
                     + vboost;
           // Currently, the midpoint approx. is applied in the momenta and energy calc
           u(IM1, k, j, i) = v1 * dens;
@@ -212,19 +212,20 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           // domain The assumption of periodic domain with x1min=-0.5 and x1max=0.5 is
           // hardcoded here (v2 is the only quantity in the IC with x1 dependence)
 
-          Real ave_sine = std::sin(2.0 * M_PI * coords.x1v(i));
-          if (coords.x1v(i) > 0.0) {
-            ave_sine -= std::sin(2.0 * M_PI * (-0.5 + coords.x1v(i)));
+          Real ave_sine = std::sin(2.0 * M_PI * coords.Xc<1>(i));
+          if (coords.Xc<1>(i) > 0.0) {
+            ave_sine -= std::sin(2.0 * M_PI * (-0.5 + coords.Xc<1>(i)));
           } else {
-            ave_sine -= std::sin(2.0 * M_PI * (0.5 + coords.x1v(i)));
+            ave_sine -= std::sin(2.0 * M_PI * (0.5 + coords.Xc<1>(i)));
           }
           ave_sine /= 2.0;
 
           // translated x1= x - 1/2 relative to Lecoanet (2015) shifts sine function by pi
           // (half-period) and introduces U_z sign change:
-          Real v2 = -amp * ave_sine *
-                    (std::exp(-(SQR(coords.x2v(j) - z1)) / (sigma * sigma)) +
-                     std::exp(-(SQR(coords.x2v(j) - z2)) / (sigma * sigma))); // 8c), mod.
+          Real v2 =
+              -amp * ave_sine *
+              (std::exp(-(SQR(coords.Xc<2>(j) - z1)) / (sigma * sigma)) +
+               std::exp(-(SQR(coords.Xc<2>(j) - z2)) / (sigma * sigma))); // 8c), mod.
           u(IM2, k, j, i) = v2 * dens;
 
           u(IM3, k, j, i) = 0.0;
@@ -252,12 +253,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
     for (int k = kb.s; k <= kb.e; k++) {
       for (int j = jb.s; j <= jb.e; j++) {
         for (int i = ib.s; i <= ib.e; i++) {
-          Real w = (std::tanh((std::abs(coords.x2v(j)) - 0.25) / a) + 1.0) * 0.5;
+          Real w = (std::tanh((std::abs(coords.Xc<2>(j)) - 0.25) / a) + 1.0) * 0.5;
           u(IDN, k, j, i) = w + (1.0 - w) * drat;
           u(IM1, k, j, i) = w * vflow - (1.0 - w) * vflow * drat;
           u(IM2, k, j, i) =
-              u(IDN, k, j, i) * amp * std::sin(2.0 * 2.0 * M_PI * coords.x1v(i)) *
-              std::exp(-SQR(std::abs(coords.x2v(j)) - 0.25) / (sigma * sigma));
+              u(IDN, k, j, i) * amp * std::sin(2.0 * 2.0 * M_PI * coords.Xc<1>(i)) *
+              std::exp(-SQR(std::abs(coords.Xc<2>(j)) - 0.25) / (sigma * sigma));
           u(IM3, k, j, i) = 0.0;
           // Pressure scaled to give a sound speed of 1 with gamma=1.4
           u(IEN, k, j, i) =

@@ -30,6 +30,7 @@
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "outputs/outputs.hpp"
+#include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
@@ -111,35 +112,36 @@ Real HydroHst(MeshData<Real> *md) {
         const auto &coords = cons_pack.GetCoords(b);
 
         if (hst == Hst::idx) {
-          lsum += cons(idx, k, j, i) * coords.Volume(k, j, i);
+          lsum += cons(idx, k, j, i) * coords.CellVolume(k, j, i);
         } else if (hst == Hst::ekin) {
           lsum += 0.5 / cons(IDN, k, j, i) *
                   (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
                    SQR(cons(IM3, k, j, i))) *
-                  coords.Volume(k, j, i);
+                  coords.CellVolume(k, j, i);
         } else if (hst == Hst::emag) {
           lsum += 0.5 *
                   (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                    SQR(cons(IB3, k, j, i))) *
-                  coords.Volume(k, j, i);
+                  coords.CellVolume(k, j, i);
           // relative divergence of B error, i.e., L * |div(B)| / |B|
         } else if (hst == Hst::divb) {
-          Real divb = (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) /
-                          coords.Dx(X1DIR, k, j, i) +
-                      (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) /
-                          coords.Dx(X2DIR, k, j, i);
+          Real divb =
+              (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) / coords.Dxc<1>(k, j, i) +
+              (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
           if (three_d) {
             divb += (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
-                    coords.Dx(X3DIR, k, j, i);
+                    coords.Dxc<3>(k, j, i);
           }
-          lsum +=
-              0.5 *
-              (std::sqrt(SQR(coords.Dx(X1DIR, k, j, i)) + SQR(coords.Dx(X2DIR, k, j, i)) +
-                         SQR(coords.Dx(X3DIR, k, j, i)))) *
-              std::abs(divb) /
-              std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
-                        SQR(cons(IB3, k, j, i))) *
-              coords.Volume(k, j, i);
+
+          Real abs_b = std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                                 SQR(cons(IB3, k, j, i)));
+
+          lsum += (abs_b != 0) ? 0.5 *
+                                     (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) +
+                                                SQR(coords.Dxc<2>(k, j, i)) +
+                                                SQR(coords.Dxc<3>(k, j, i)))) *
+                                     std::abs(divb) / abs_b * coords.CellVolume(k, j, i)
+                               : 0; // Add zero when abs_b ==0
         }
       },
       sum);
@@ -170,6 +172,14 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     hydro_pkg->Param<GLMMHD::SourceFun_t>("glmmhd_source")(md, beta_dt);
   }
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+
+  if (enable_cooling == Cooling::tabular) {
+    const TabularCooling &tabular_cooling =
+        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    tabular_cooling.SrcTerm(md, beta_dt);
+  }
   if (ProblemSourceUnsplit != nullptr) {
     ProblemSourceUnsplit(md, tm, beta_dt);
   }
@@ -180,14 +190,6 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  if (enable_cooling == Cooling::tabular) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-    tabular_cooling.SrcTerm(md, tm.dt);
-  }
   if (ProblemSourceFirstOrder != nullptr) {
     ProblemSourceFirstOrder(md, tm, tm.dt);
   }
@@ -195,17 +197,6 @@ TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
 }
 
 TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm) {
-  // auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  // if (enable_cooling == Cooling::tabular) {
-  //   const TabularCooling &tabular_cooling =
-  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-  //   tabular_cooling.SrcTerm(md, 0.5 * tm.dt);
-  // }
-
   if (ProblemSourceStrangSplit != nullptr) {
     ProblemSourceStrangSplit(md, tm, tm.dt);
   }
@@ -437,12 +428,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         pkg->AllParams().hasKey("units")) {
       auto units = pkg->Param<Units>("units");
       const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-      const auto H_mass_fraction = 1.0 - He_mass_fraction;
       const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+      const auto mu_e = 1 / (He_mass_fraction * 2. / 4. + (1 - He_mass_fraction));
       pkg->AddParam<>("mu", mu);
+      pkg->AddParam<>("mu_e", mu_e);
+      pkg->AddParam<>("He_mass_fraction", He_mass_fraction);
       pkg->AddParam<>("mbar", mu * units.atomic_mass_unit());
-      pkg->AddParam<>("mbar_over_kb",
-                      mu * units.atomic_mass_unit() / units.k_boltzmann());
+      // Following convention in the astro community, we're using mh as unit for the mean
+      // molecular weight
+      pkg->AddParam<>("mbar_over_kb", mu * units.mh() / units.k_boltzmann());
     }
 
     // By default disable floors by setting a negative value
@@ -459,6 +453,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       }
       auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
       efloor = Tfloor / mbar_over_kb / (gamma - 1.0);
+    }
+
+    // By default disable ceilings by setting to infinity
+    Real vceil =
+        pin->GetOrAddReal("hydro", "vceil", std::numeric_limits<Real>::infinity());
+    Real Tceil =
+        pin->GetOrAddReal("hydro", "Tceil", std::numeric_limits<Real>::infinity());
+    Real eceil = Tceil;
+    if (eceil < std::numeric_limits<Real>::infinity()) {
+      if (!pkg->AllParams().hasKey("mbar_over_kb")) {
+        PARTHENON_FAIL("Temperature ceiling requires units and gas composition. "
+                       "Either set a 'units' block and the 'hydro/He_mass_fraction' in "
+                       "input file or use a pressure floor "
+                       "(defined code units) instead.");
+      }
+      auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
+      eceil = Tceil / mbar_over_kb / (gamma - 1.0);
     }
 
     auto conduction = Conduction::none;
@@ -544,12 +555,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     pkg->AddParam<>("diffint", diffint);
 
     if (fluid == Fluid::euler) {
-      AdiabaticHydroEOS eos(pfloor, dfloor, efloor, gamma);
+      AdiabaticHydroEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::euler>;
     } else if (fluid == Fluid::glmmhd) {
-      AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, gamma);
+      AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticGLMMHDEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::glmmhd>;
@@ -575,7 +586,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("enable_cooling", cooling);
 
   if (cooling == Cooling::tabular) {
-    TabularCooling tabular_cooling(pin);
+    TabularCooling tabular_cooling(pin, pkg);
     pkg->AddParam<>("tabular_cooling", tabular_cooling);
   }
 
@@ -586,39 +597,41 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam("nscalars", nscalars);
 
   std::vector<std::string> cons_labels(nhydro);
-  cons_labels[IDN] = "Density";
-  cons_labels[IM1] = "MomentumDensity1";
-  cons_labels[IM2] = "MomentumDensity2";
-  cons_labels[IM3] = "MomentumDensity3";
-  cons_labels[IEN] = "TotalEnergyDensity";
+  cons_labels[IDN] = "density";
+  cons_labels[IM1] = "momentum_density_1";
+  cons_labels[IM2] = "momentum_density_2";
+  cons_labels[IM3] = "momentum_density_3";
+  cons_labels[IEN] = "total_energy_density";
   if (fluid == Fluid::glmmhd) {
-    cons_labels[IB1] = "MagneticField1";
-    cons_labels[IB2] = "MagneticField2";
-    cons_labels[IB3] = "MagneticField3";
-    cons_labels[IPS] = "MagneticPhi";
+    cons_labels[IB1] = "magnetic_field_1";
+    cons_labels[IB2] = "magnetic_field_2";
+    cons_labels[IB3] = "magnetic_field_3";
+    cons_labels[IPS] = "magnetic_psi";
   }
 
   // TODO(pgrete) check if this could be "one-copy" for two stage SSP integrators
   std::vector<std::string> prim_labels(nhydro);
-  prim_labels[IDN] = "Density";
-  prim_labels[IV1] = "Velocity1";
-  prim_labels[IV2] = "Velocity2";
-  prim_labels[IV3] = "Velocity3";
-  prim_labels[IPR] = "Pressure";
+  prim_labels[IDN] = "density";
+  prim_labels[IV1] = "velocity_1";
+  prim_labels[IV2] = "velocity_2";
+  prim_labels[IV3] = "velocity_3";
+  prim_labels[IPR] = "pressure";
   if (fluid == Fluid::glmmhd) {
-    prim_labels[IB1] = "MagneticField1";
-    prim_labels[IB2] = "MagneticField2";
-    prim_labels[IB3] = "MagneticField3";
-    prim_labels[IPS] = "MagneticPhi";
+    prim_labels[IB1] = "magnetic_field_1";
+    prim_labels[IB2] = "magnetic_field_2";
+    prim_labels[IB3] = "magnetic_field_3";
+    prim_labels[IPS] = "magnetic_psi";
   }
   for (auto i = 0; i < nscalars; i++) {
-    cons_labels.emplace_back("Scalar_" + std::to_string(i));
-    prim_labels.emplace_back("Scalar_" + std::to_string(i));
+    cons_labels.emplace_back("scalar_density_" + std::to_string(i));
+    prim_labels.emplace_back("scalar_" + std::to_string(i));
   }
 
   Metadata m(
       {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
       std::vector<int>({nhydro + nscalars}), cons_labels);
+  m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
+                          parthenon::refinement_ops::RestrictAverage>();
   pkg->AddField("cons", m);
 
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro + nscalars}),
@@ -724,15 +737,12 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         } else {
           PARTHENON_FAIL("Unknown fluid in EstimateTimestep");
         }
-        min_dt = fmin(min_dt, coords.Dx(parthenon::X1DIR, k, j, i) /
-                                  (fabs(w[IV1]) + lambda_max_x));
+        min_dt = fmin(min_dt, coords.Dxc<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
         if (ndim > 1) {
-          min_dt = fmin(min_dt, coords.Dx(parthenon::X2DIR, k, j, i) /
-                                    (fabs(w[IV2]) + lambda_max_y));
+          min_dt = fmin(min_dt, coords.Dxc<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
         }
         if (ndim > 2) {
-          min_dt = fmin(min_dt, coords.Dx(parthenon::X3DIR, k, j, i) /
-                                    (fabs(w[IV3]) + lambda_max_z));
+          min_dt = fmin(min_dt, coords.Dxc<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
         }
       },
       Kokkos::Min<Real>(min_dt_hyperbolic));
@@ -808,15 +818,12 @@ TaskStatus CalculateFluxesTight(std::shared_ptr<MeshData<Real>> &md) {
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                            AdiabaticGLMMHDEOS>::type>("eos");
 
-  const auto nhydro = pkg->Param<int>("nhydro");
-  const auto nscalars = pkg->Param<int>("nscalars");
-
   // Hyperbolic divergence cleaning speed for GLM MHD
   Real c_h = 0.0;
   if (fluid == Fluid::glmmhd) {
     c_h = pkg->Param<Real>("c_h");
   }
-
+  // TODO(pgrete) fix scalar fluxes, too
   auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
 
   const int ndim = pmb->pmy_mesh->ndim;
@@ -890,7 +897,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
       scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
-        const auto &coords = cons_in.GetCoords(b);
         const auto &prim = prim_in(b);
         auto &cons = cons_in(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -933,7 +939,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
         scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
-          const auto &coords = cons_in.GetCoords(b);
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -982,7 +987,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
         scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
-          const auto &coords = cons_in.GetCoords(b);
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -1044,7 +1048,13 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 // (multiple calls) versus extra memory usage is.
 template <Fluid fluid>
 TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
-                                 const Real gam0, const Real gam1, const Real beta_dt) {
+                                 const Real gam0_, const Real gam1_,
+                                 const Real beta_dt_) {
+  // Work around for CUDA <=11.6
+  const Real gam0 = gam0_;
+  const Real gam1 = gam1_;
+  const Real beta_dt = beta_dt_;
+
   auto pmb = u0_data->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -1055,7 +1065,6 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
   auto const &u0_prim_pack = u0_data->PackVariables(std::vector<std::string>{"prim"});
   auto u1_cons_pack = u1_data->PackVariablesAndFluxes(flags_ind);
   auto pkg = pmb->packages.Get("Hydro");
-  const int nhydro = pkg->Param<int>("nhydro");
 
   const auto &eos =
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,

@@ -1,6 +1,6 @@
 
 // AthenaPK - a performance portable block structured AMR MHD code
-// Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
 
 // Parthenon headers
@@ -57,17 +57,17 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         if (iprob == 0) {
           u(IB1, k, j, i) = Bx;
           u(IB2, k, j, i) = By;
-          eint = coords.x1v(i) <= 0.0 ? 10.0 : 12.0;
+          eint = coords.Xc<1>(i) <= 0.0 ? 10.0 : 12.0;
           // step function x2
         } else if (iprob == 1) {
           u(IB2, k, j, i) = Bx;
           u(IB3, k, j, i) = By;
-          eint = coords.x2v(j) <= 0.0 ? 10.0 : 12.0;
+          eint = coords.Xc<2>(j) <= 0.0 ? 10.0 : 12.0;
           // step function x3
         } else if (iprob == 2) {
           u(IB3, k, j, i) = Bx;
           u(IB1, k, j, i) = By;
-          eint = coords.x3v(k) <= 0.0 ? 10.0 : 12.0;
+          eint = coords.Xc<3>(k) <= 0.0 ? 10.0 : 12.0;
           // Gaussian
         } else if (iprob == 10) {
           u(IB1, k, j, i) = Bx;
@@ -79,12 +79,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           // conduction, other directions, and Bfield configs with |B| != 1
           Real eff_diff_coeff = Bx == 0.0 ? diff_coeff : diff_coeff * Bx * Bx;
           eint = 1 + amp / std::sqrt(4. * M_PI * eff_diff_coeff * t0) *
-                         std::exp(-(std::pow(coords.x1v(i), 2.)) /
+                         std::exp(-(std::pow(coords.Xc<1>(i), 2.)) /
                                   (4. * eff_diff_coeff * t0));
           // Ring diffusion in x1-x2 plane
         } else if (iprob == 20) {
-          const auto x = coords.x1v(i);
-          const auto y = coords.x2v(j);
+          const auto x = coords.Xc<1>(i);
+          const auto y = coords.Xc<2>(j);
           Real r = std::sqrt(SQR(x) + SQR(y));
           Real phi = std::atan2(y, x);
 
@@ -93,8 +93,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           eint = std::abs(r - 0.6) < 0.1 && std::abs(phi) < M_PI / 12.0 ? 12.0 : 10.0;
           // Ring diffusion in x2-x3 plane
         } else if (iprob == 21) {
-          const auto x = coords.x2v(j);
-          const auto y = coords.x3v(k);
+          const auto x = coords.Xc<2>(j);
+          const auto y = coords.Xc<3>(k);
           Real r = std::sqrt(SQR(x) + SQR(y));
           Real phi = std::atan2(y, x);
 
@@ -103,8 +103,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           eint = std::abs(r - 0.6) < 0.1 && std::abs(phi) < M_PI / 12.0 ? 12.0 : 10.0;
           // Ring diffusion in x3-x1 plane
         } else if (iprob == 22) {
-          const auto x = coords.x3v(k);
-          const auto y = coords.x1v(i);
+          const auto x = coords.Xc<3>(k);
+          const auto y = coords.Xc<1>(i);
           Real r = std::sqrt(SQR(x) + SQR(y));
           Real phi = std::atan2(y, x);
 

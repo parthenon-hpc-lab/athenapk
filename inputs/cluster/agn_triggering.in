@@ -1,0 +1,117 @@
+################################################################################
+# Input file for testing AGN triggering without fluid
+# evolution
+################################################################################
+<comment>
+problem   = AGN Triggering Test
+
+<job>
+problem_id = cluster   # problem ID: basename of output filenames
+
+<parthenon/output1>
+file_type  = hst       # History data dump
+dt         = 1e-4      # time increment between outputs
+
+<parthenon/output2>
+file_type  = hdf5      # HDF5 data dump
+variables  = cons,prim      # Variables to be output
+dt         = 0.1     # Time increment between outputs
+id         = vars      # Name to append to output
+
+<parthenon/time>
+cfl_number = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1         # cycle limit
+tlim       = 0.1       # time limit
+integrator  = vl2       # time integration algorithm
+
+
+<parthenon/mesh>
+refinement  = static
+nghost = 2
+
+nx1        = 64        # Number of zones in X1-direction
+x1min      =-0.1       # minimum value of X1
+x1max      = 0.1       # maximum value of X1
+ix1_bc     = outflow   # inner-X1 boundary flag
+ox1_bc     = outflow   # outer-X1 boundary flag
+
+nx2        = 64        # Number of zones in X2-direction
+x2min      =-0.1       # minimum value of X2
+x2max      = 0.1       # maximum value of X2
+ix2_bc     = outflow   # inner-X2 boundary flag
+ox2_bc     = outflow   # outer-X2 boundary flag
+
+nx3        = 64        # Number of zones in X3-direction
+x3min      =-0.1       # minimum value of X3
+x3max      = 0.1       # maximum value of X3
+ix3_bc     = outflow   # inner-X3 boundary flag
+ox3_bc     = outflow   # outer-X3 boundary flag
+
+<parthenon/static_refinement0>
+x1min = -0.025
+x1max =  0.025
+x2min = -0.025
+x2max =  0.025
+x3min = -0.025
+x3max =  0.025
+level = 2
+
+
+<parthenon/meshblock>
+nx1        = 8        # Number of zones in X1-direction
+nx2        = 8        # Number of zones in X2-direction
+nx3        = 8        # Number of zones in X3-direction
+
+<hydro>
+fluid = euler
+gamma = 1.6666666666666667 # gamma = C_p/C_v
+eos = adiabatic
+riemann = none
+reconstruction = dc
+calc_dt_hyp = true
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+He_mass_fraction = 0.25
+
+<units>
+#Units parameters
+#Note: All other parameters for the cluster are in terms of these units
+code_length_cgs = 3.085677580962325e+24 # 1 Mpc in cm
+code_mass_cgs = 1.98841586e+47          # 1e14 Msun in g
+code_time_cgs = 3.15576e+16             # 1 Gyr in s
+
+<problem/cluster>
+
+<problem/cluster/gravity>
+#Define SMBH for Bondi accretion
+m_smbh = 1.0e-06
+
+#Disable gravity as a source term
+gravity_srcterm = false
+
+<problem/cluster/uniform_gas>
+#Initialize with a uniform gas
+init_uniform_gas = true
+rho = 14775.575892787232
+ux = 0.0006136272991326239
+uy = 0.0004090848660884159
+uz =-0.0005113560826105199
+pres = 1.5454368403867562
+
+<problem/cluster/agn_triggering>
+triggering_mode = COLD_GAS
+accretion_radius = 0.02
+cold_temp_thresh = 7198.523584993224
+cold_t_acc  = 0.1
+bondi_alpha = 100
+bondi_beta = 2
+bondi_n0 = 1.4928506511614283e+74
+write_to_file=false
+triggering_filename= agn_triggering.dat
+
+<problem/cluster/agn_feedback>
+#Don't do any feedback with the triggering
+disabled = true
+
+<problem/cluster/snia_feedback>
+disabled               = True

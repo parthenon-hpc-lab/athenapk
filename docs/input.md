@@ -51,6 +51,22 @@ Parameter: `reconstruction` (string)
 
 Note, `ppm` and `wenoz` need at least three ghost zones (`parthenon/mesh/num_ghost`).
 
+#### Floors
+
+Three floors can be enforced.
+In practice, this happens in the conserved to primitive variable converison.
+
+By default, all floors are disabled (set to a negative value) and the code will crash
+with an error message when negative values are encountered.
+
+To control the floors, following parameters can be set in the `<hydro>` block:
+- `dfloor` (float): density floor in code units
+- `pfloor` (float): pressure floor in code units
+- `Tfloor` (float): temperature floor in K (requires a set of units to be defined)
+
+*Note* the pressure floor will take precedence over the temperature floor in the
+conserved to primitive conversion if both are defined.
+
 #### Diffusive processes
 
 ##### Isotropic (hydro and MHD )and anisotropic thermal conduction (only MHD)
@@ -124,7 +140,6 @@ Default value corresponds to the typical value used in literature and goes back 
 [^BM82]:
     S. A. Balbus and C. F. McKee, “The evaporation of spherical clouds in a hot gas. III - Suprathermal evaporation,” , vol. 252, pp. 529–552, Jan. 1982, doi: https://doi.org/10.1086/159581
 
-
 ### Additional MHD options in `<hydro>` block
 
 Parameter: `glmmhd_source` (string)
@@ -197,3 +212,28 @@ Parameter: `max_dt` (float)
 - Maximum global timestep. Disabled (i.e., set to a negative value) by default.
 If set to a positive value, it will limit the `dt` in the simulation if `max_dt` is lower
 than any other timestep constraint (e.g., the hyperbolic one).
+
+### Cooling
+
+Tabular cooling (e.g., for optically thin cooling) is enabled through the `cooling` block in the input file.
+A possible block might look like:
+
+```
+<cooling>
+enable_cooling = tabular           # To disable, set to `none`
+table_filename = schure.cooling    # Path to the cooling table (in a text file)
+log_temp_col = 0                   # Column in the file that contains the log10 temperatures
+log_lambda_col = 1                 # Column in the file that contains the cooling rates
+lambda_units_cgs = 1               # Conversion factor of the cooling rate relative to CGS units
+
+integrator = townsend              # Other possible options are `rk12` and `rk45` for error bound subcycling
+#max_iter = 100                    # Max number of iteration for subcycling. Unsued for Townsend integrator
+cfl = 0.1                          # Restrict global timestep to `cfl*e / dedt`, i.e., some fraction of change per cycle in the specific internal energy (i.e., temperature)
+d_log_temp_tol = 1e-8              # Tolerance in cooling table between subsequent entries. Both subcycling integrators and cfl restriction rely on a table lookup that assumes equally spaced (in log space) temperature values.
+#d_e_tol = 1e-8                    # Tolerance for the relative error in the change of internal energy for the error bound subcyling integrators (rk12 and rk45). Unused for Townsend integrator.
+```
+
+*Note* several special cases for handling the lower end of the cooling table/low temperatures:
+- Cooling is turned off once the temperature reaches the lower end of the cooling table. Within the cooling function, gas does not cool past the cooling table.
+- If the global temperature floor `<hydro/Tfloor>` is higher than the lower end of the cooling table, then the global temperature floor takes precedence.
+- The pressure floor if present is not considered in the cooling function, only the temperature floor `<hydro/Tfloor>`
