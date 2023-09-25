@@ -691,12 +691,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     /************************************************************
    * Initial parameters
    ************************************************************/    
-    
+  
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-
+  
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
   auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
@@ -711,6 +711,56 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   const bool spherical_collapse = pin->GetOrAddBoolean("problem/cluster/init_perturb", "spherical_collapse", false);
   
   hydro_pkg->AddParam<>("init_perturb_rho", init_perturb_rho);
+  
+  Real passive_scalar = 0.0; // Not useful here
+    
+  // Spherical collapse test with an initial overdensity
+
+  if (spherical_collapse == true) {
+  
+    pmb->par_reduce(
+        "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+          
+          auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
+          
+          const auto gis = pmbb->loc.lx1 * pmb->block_size.nx1;
+          const auto gjs = pmbb->loc.lx2 * pmb->block_size.nx2;
+          const auto gks = pmbb->loc.lx3 * pmb->block_size.nx3;
+                    
+          const auto &coords = cons.GetCoords(b);
+          const auto &u = cons(b);
+          
+          const Real x = coords.Xc<1>(i);
+          const Real y = coords.Xc<2>(j);
+          const Real z = coords.Xc<3>(k);
+          const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z)); // Computing radius
+          const Real overdensity_radius = pin->GetOrAddReal("problem/cluster/init_perturb", "overdensity_radius", 0.01);
+          const Real background_density  = pin->GetOrAddReal("problem/cluster/init_perturb", "background_density", 3);
+          const Real foreground_density  = pin->GetOrAddReal("problem/cluster/init_perturb", "foreground_density", 150);
+          
+          // Setting an initial 
+          u(IDN, k, j, i) = background_density;
+          
+          // For any cell at a radius less then overdensity radius, set the density to foreground_density
+          if (r < overdensity_radius){
+              u(IDN, k, j, i) = foreground_density;   
+          }
+          
+          
+        },
+        passive_scalar);
+      
+  }
+    
+  /* -------------- Setting up a clumpy atmosphere --------------
+  
+  1) Extract the values of the density from an input hdf5 file using H5Easy
+  2) Initiate the associated density field
+  3) Optionnaly, add some overpressure ring to check behavior (overpressure_ring bool)
+  4) Optionnaly, add a central overdensity
+  
+  */
   
   if (init_perturb_rho == true) {
     
@@ -760,9 +810,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               const Real z = coords.Xc<3>(k);
               const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z)); // Computing radius
               const Real width = 0.002;
-              const Real overpressure_radius = pin->GetOrAddReal("problem/cluster/init_perturb", "overpressure_radius", 0.01);
+              const Real overdensity_radius = pin->GetOrAddReal("problem/cluster/init_perturb", "overdensity_radius", 0.01);
               
-              if (r > 0 && r < overpressure_radius){
+              if (r > 0 && r < overdensity_radius){
                   
                   //u(IEN, k, j, i) *= 100; 
                   
@@ -788,11 +838,11 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               const Real y = coords.Xc<2>(j);
               const Real z = coords.Xc<3>(k);
               const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z)); // Computing radius
-              const Real overpressure_radius = pin->GetOrAddReal("problem/cluster/init_perturb", "overpressure_radius", 0.01);
+              const Real overdensity_radius = pin->GetOrAddReal("problem/cluster/init_perturb", "overdensity_radius", 0.01);
               
               u(IDN, k, j, i) = 3;
                   
-              if (r > 0 && r < overpressure_radius){
+              if (r > 0 && r < overdensity_radius){
                   
                   u(IDN, k, j, i) *= 50;
                   
