@@ -26,6 +26,7 @@ class StellarFeedback {
  private:
   // feedback parameters in code units
   const parthenon::Real stellar_radius_;           // length
+  parthenon::Real exclusion_radius_;               // length
   const parthenon::Real efficiency_;               // dimless
   const parthenon::Real number_density_threshold_; // 1/(length^3)
   const parthenon::Real temperatue_threshold_;     // K
@@ -38,7 +39,7 @@ class StellarFeedback {
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real beta_dt, const parthenon::SimTime &tm) const;
 
-  // Apply the feedback from stellare tied to the BCG density
+  // Apply stellar feedback following cold gas density above a density threshold
   template <typename EOS>
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real beta_dt, const parthenon::SimTime &tm,

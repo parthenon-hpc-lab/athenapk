@@ -89,7 +89,7 @@ parthenon::Real LocalReduceAGNExtent(parthenon::MeshData<parthenon::Real> *md) {
 
         const auto r2 = SQR(coords.Xc<1>(k, j, i)) + SQR(coords.Xc<2>(k, j, i)) +
                         SQR(coords.Xc<3>(k, j, i));
-        if (cons(nhydro, k, j, i) > tracer_thresh && r2 > max_r2) {
+        if (cons(nhydro, k, j, i) / cons(IDN, k, j, i) > tracer_thresh && r2 > max_r2) {
           max_r2_team = r2;
         }
       },
