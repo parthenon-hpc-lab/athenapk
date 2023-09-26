@@ -897,7 +897,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   }
   //--------------------------------------------------------------------------------------
   // k-direction
-  if (pmb->pmy_mesh->ndim >= 3) {
+  if (pmb->pmy_mesh->ndim >= 3 && recon != Reconstruction::plm) {
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
 
@@ -939,6 +939,90 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             auto *tmp = wl.data();
             wl.assign_data(wlb.data());
             wlb.assign_data(tmp);
+          }
+        });
+  }
+  if (pmb->pmy_mesh->ndim >= 3 && recon == Reconstruction::plm) {
+    // set the loop limits
+    il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
+    scratch_size_in_bytes =
+        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3 * 2;
+
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
+        scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
+          const auto &prim = prim_in(b);
+          auto &cons = cons_in(b);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> prim_km1(member.team_scratch(scratch_level),
+                                                 num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> prim_k(member.team_scratch(scratch_level),
+                                               num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> prim_kp1(member.team_scratch(scratch_level),
+                                                 num_scratch_vars, nx1);
+
+          const auto nvar = prim.GetDim(4);
+          // Cache first two stencils from DRAM/HBM
+          for (auto n = 0; n < nvar; ++n) {
+            parthenon::par_for_inner(member, il, iu, [&](const int i) {
+              // ql is ql_kp1 and qr is qr_k
+              prim_km1(n, i) = prim(n, kb.s - 2, j, i);
+              prim_k(n, i) = prim(n, kb.s - 1, j, i);
+            });
+          }
+          // No barrier required here as we first need to synchronize when calling recon
+
+          for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
+            // Cache next stencil
+            for (auto n = 0; n < nvar; ++n) {
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                prim_kp1(n, i) = prim(n, k + 1, j, i);
+              });
+            }
+            // Sync all threads in the team so that scratch memory is consistent
+            member.team_barrier();
+
+            // reconstruct L/R states at j
+            for (auto n = 0; n < nvar; ++n) {
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                // ql is ql_kp1 and qr is qr_k
+                PLM(prim_km1(n, i), prim_k(n, i), prim_kp1(n, i), wlb(n, i), wr(n, i));
+              });
+            }
+            // Sync all threads in the team so that scratch memory is consistent
+            member.team_barrier();
+
+            if (k > kb.s - 1) {
+              riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
+              member.team_barrier();
+
+              // Passive scalar fluxes
+              for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+                parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                  if (cons.flux(IV3, IDN, k, j, i) >= 0.0) {
+                    cons.flux(IV3, n, k, j, i) = cons.flux(IV3, IDN, k, j, i) * wl(n, i);
+                  } else {
+                    cons.flux(IV3, n, k, j, i) = cons.flux(IV3, IDN, k, j, i) * wr(n, i);
+                  }
+                });
+              }
+              member.team_barrier();
+            }
+            // swap the arrays for the next step
+            auto *tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+
+            tmp = prim_km1.data();
+            prim_km1.assign_data(prim_k.data());
+            prim_k.assign_data(prim_kp1.data());
+            prim_kp1.assign_data(tmp);
           }
         });
   }
@@ -1002,9 +1086,9 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
   std::int64_t num_corrected, num_need_floor;
   // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
-  // of a single cell at the same time. So the neighboring cells need to be rechecked with
-  // the corrected fluxes as the corrected fluxes in one cell may result in the need to
-  // correct all the fluxes of an originally "good" neighboring cell.
+  // of a single cell at the same time. So the neighboring cells need to be rechecked
+  // with the corrected fluxes as the corrected fluxes in one cell may result in the
+  // need to correct all the fluxes of an originally "good" neighboring cell.
   size_t num_attempts = 0;
   do {
     num_corrected = 0;
@@ -1023,9 +1107,9 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
           // In principle, the u_cons.fluxes could be updated in parallel by a different
           // thread resulting in a race conditon here.
-          // However, if the fluxes of a cell have been updated (anywhere) then the entire
-          // kernel will be called again anyway, and, at that point the already fixed
-          // u0_cons.fluxes will automaticlly be used here.
+          // However, if the fluxes of a cell have been updated (anywhere) then the
+          // entire kernel will be called again anyway, and, at that point the already
+          // fixed u0_cons.fluxes will automaticlly be used here.
           Real new_cons[NVAR];
           for (auto v = 0; v < NVAR; v++) {
             new_cons[v] =
@@ -1056,9 +1140,9 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
           // and we updating the i+1 flux here.
           // However, the results are idential because u0_prim is never updated in this
           // kernel so we don't worry about it.
-          // TODO(pgrete) as we need to keep the function signature idential for now (due
-          // to Cuda compiler bug) we could potentially template these function and get
-          // rid of the `if constexpr`
+          // TODO(pgrete) as we need to keep the function signature idential for now
+          // (due to Cuda compiler bug) we could potentially template these function and
+          // get rid of the `if constexpr`
           riemann.Solve(eos, k, j, i, IV1, u0_prim, u0_cons, c_h);
           riemann.Solve(eos, k, j, i + 1, IV1, u0_prim, u0_cons, c_h);
 
