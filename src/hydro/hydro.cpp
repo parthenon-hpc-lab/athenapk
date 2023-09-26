@@ -161,14 +161,6 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  // if (enable_cooling == Cooling::tabular) {
-  //   const TabularCooling &tabular_cooling =
-  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-  //   tabular_cooling.SrcTerm(md, tm.dt);
-  // }
   if (ProblemSourceFirstOrder != nullptr) {
     ProblemSourceFirstOrder(md, tm, tm.dt);
   }
@@ -176,17 +168,6 @@ TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
 }
 
 TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm) {
-  // auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  // if (enable_cooling == Cooling::tabular) {
-  //   const TabularCooling &tabular_cooling =
-  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-  //   tabular_cooling.SrcTerm(md, 0.5 * tm.dt);
-  // }
-
   if (ProblemSourceStrangSplit != nullptr) {
     ProblemSourceStrangSplit(md, tm, tm.dt);
   }
