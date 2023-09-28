@@ -64,13 +64,21 @@ void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
   auto hydro_pkg = pmesh->block_list[0]->packages.Get("Hydro");
   const auto num_partitions = pmesh->DefaultNumPartitions();
 
-  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) &&
-      (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
+  if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) {
     auto dt_diff = std::numeric_limits<Real>::max();
-    for (auto i = 0; i < num_partitions; i++) {
-      auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+    if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
+      for (auto i = 0; i < num_partitions; i++) {
+        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
 
-      dt_diff = std::min(dt_diff, EstimateConductionTimestep(md.get()));
+        dt_diff = std::min(dt_diff, EstimateConductionTimestep(md.get()));
+      }
+    }
+    if (hydro_pkg->Param<Viscosity>("viscosity") != Viscosity::none) {
+      for (auto i = 0; i < num_partitions; i++) {
+        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+
+        dt_diff = std::min(dt_diff, EstimateViscosityTimestep(md.get()));
+      }
     }
 #ifdef MPI_PARALLEL
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &dt_diff, 1, MPI_PARTHENON_REAL,
@@ -537,6 +545,57 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     pkg->AddParam<>("conduction", conduction);
 
+    auto viscosity = Viscosity::none;
+    auto viscosity_str = pin->GetOrAddString("diffusion", "viscosity", "none");
+    if (viscosity_str == "isotropic") {
+      viscosity = Viscosity::isotropic;
+    } else if (viscosity_str == "anisotropic") {
+      viscosity = Viscosity::anisotropic;
+    } else if (viscosity_str != "none") {
+      PARTHENON_FAIL(
+          "Unknown viscosity method. Options are: none, isotropic, anisotropic");
+    }
+    // If viscosity is enabled, process supported coefficients
+    if (viscosity != Viscosity::none) {
+      auto viscosity_coeff_str =
+          pin->GetOrAddString("diffusion", "viscosity_coeff", "none");
+      auto viscosity_coeff = ViscosityCoeff::none;
+
+      if (viscosity_coeff_str == "spitzer") {
+        if (!pkg->AllParams().hasKey("mbar")) {
+          PARTHENON_FAIL("Spitzer viscosity requires units and gas composition. "
+                         "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
+                         "the input file.");
+        }
+        viscosity_coeff = ViscosityCoeff::spitzer;
+
+        // TODO(pgrete) fix coeff
+        Real spitzer_coeff =
+            pin->GetOrAddReal("diffusion", "spitzer_visc_in_erg_by_s_K_cm", 4.6e-7);
+        // Convert to code units. No temp conversion as [T_phys] = [T_code].
+        auto units = pkg->Param<Units>("units");
+        spitzer_coeff *= units.erg() / (units.s() * units.cm());
+
+        const auto mbar = pkg->Param<Real>("mbar");
+        auto mom_diff =
+            MomentumDiffusivity(viscosity, viscosity_coeff, spitzer_coeff, mbar,
+                                units.electron_mass(), units.k_boltzmann());
+        pkg->AddParam<>("mom_diff", mom_diff);
+
+      } else if (viscosity_coeff_str == "fixed") {
+        viscosity_coeff = ViscosityCoeff::fixed;
+        Real mom_diff_coeff_code = pin->GetReal("diffusion", "mom_diff_coeff_code");
+        auto mom_diff = MomentumDiffusivity(viscosity, viscosity_coeff,
+                                            mom_diff_coeff_code, 0.0, 0.0, 0.0);
+        pkg->AddParam<>("mom_diff", mom_diff);
+
+      } else {
+        PARTHENON_FAIL("Viscosity is enabled but no coefficient is set. Please "
+                       "set diffusion/viscosity_coeff to either 'spitzer' or 'fixed'");
+      }
+    }
+    pkg->AddParam<>("viscosity", viscosity);
+
     auto diffint_str = pin->GetOrAddString("diffusion", "integrator", "none");
     auto diffint = DiffInt::none;
     if (diffint_str == "unsplit") {
@@ -783,9 +842,13 @@ Real EstimateTimestep(MeshData<Real> *md) {
   }
 
   // For RKL2 STS, the diffusive timestep is calculated separately in the driver
-  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) &&
-      (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
-    min_dt = std::min(min_dt, EstimateConductionTimestep(md));
+  if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) {
+    if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
+      min_dt = std::min(min_dt, EstimateConductionTimestep(md));
+    }
+    if (hydro_pkg->Param<Viscosity>("viscosity") != Viscosity::none) {
+      min_dt = std::min(min_dt, EstimateViscosityTimestep(md));
+    }
   }
 
   if (ProblemEstimateTimestep != nullptr) {

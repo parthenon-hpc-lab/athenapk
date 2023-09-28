@@ -7,9 +7,10 @@ add_executable(
         eos/adiabatic_glmmhd.cpp
         units.hpp
         eos/adiabatic_hydro.cpp
+        hydro/diffusion/conduction.cpp
         hydro/diffusion/diffusion.cpp
         hydro/diffusion/diffusion.hpp
-        hydro/diffusion/conduction.cpp
+        hydro/diffusion/viscosity.cpp
         hydro/hydro_driver.cpp
         hydro/hydro.cpp
         hydro/glmmhd/dedner_source.cpp
