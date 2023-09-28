@@ -27,10 +27,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto &mbd = pmb->meshblock_data.Get();
   auto &u = mbd->Get("cons").data;
 
-  Real gm1 = pin->GetReal("hydro", "gamma") - 1.0;
+  auto gamma = pin->GetReal("hydro", "gamma");
+  auto gm1 = gamma - 1.0;
   Real v1 = 0., v2 = 0., v3 = 0.;
   Real d0 = 1.;
-  Real p0 = 1.;
+  Real p0 = d0 / gamma; // i.e., c_s = 1
   auto amp = pin->GetOrAddReal("problem/visc", "amp", 1.e-6);
   auto t0 = pin->GetOrAddReal("problem/visc", "t0", 0.5);
   auto nu_iso = pin->GetReal("diffusion", "mom_diff_coeff_code");

@@ -1,0 +1,67 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem   = Thermal diffusion setup
+
+<job>
+problem_id = visc
+
+<problem/visc>
+t0 = 0.5      # Temporal offset for initial Gaussian profile
+amp = 1e-6    # Amplitude of Gaussian profile
+
+<parthenon/mesh>
+refinement = none
+nghost = 2
+
+nx1 = 256
+x1min = -6.0
+x1max = 6.0
+ix1_bc = outflow
+ox1_bc = outflow
+
+nx2 = 1
+x2min = -1.0
+x2max = 1.0
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 1
+x3min = -1.0
+x3max = 1.0
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1=32
+nx2=1 
+nx3=1
+
+<parthenon/time>
+integrator = rk2
+cfl = 0.8
+tlim = 2.0
+nlim = -1
+
+<hydro>
+fluid = euler
+riemann = none
+eos = adiabatic
+reconstruction = dc
+gamma = 1.4
+calc_dt_hytp = true  # need in combination with rkl2_max_dt_ratio to limit number of stages in RKL2
+
+<diffusion>
+integrator = unsplit
+viscosity = isotropic
+viscosity_coeff = fixed
+mom_diff_coeff_code = 0.25
+rkl2_max_dt_ratio = 200.0
+
+<parthenon/output0>
+file_type = hdf5
+dt = 2.0
+variables = prim
+id = prim

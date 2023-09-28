@@ -295,6 +295,4 @@ void MomentumDiffFluxIsoFixed(MeshData<Real> *md) {
 //! TODO(pgrete) Calculate thermal conduction, general case, i.e., anisotropic and/or with
 //! varying (incl. saturated) coefficient
 
-void MomentumDiffFluxGeneral(MeshData<Real> *md) {
-  PARTHENON_THROW("Needs impl.");
-}
+void MomentumDiffFluxGeneral(MeshData<Real> *md) { PARTHENON_THROW("Needs impl."); }
