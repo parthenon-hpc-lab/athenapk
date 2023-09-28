@@ -74,6 +74,8 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = advection::ProblemGenerator;
   } else if (problem == "orszag_tang") {
     pman.app_input->ProblemGenerator = orszag_tang::ProblemGenerator;
+  } else if (problem == "visc") {
+    pman.app_input->ProblemGenerator = visc::ProblemGenerator;
   } else if (problem == "diffusion") {
     pman.app_input->ProblemGenerator = diffusion::ProblemGenerator;
   } else if (problem == "field_loop") {
