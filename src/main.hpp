@@ -39,6 +39,8 @@ enum class Conduction { none, isotropic, anisotropic };
 enum class ConductionCoeff { none, fixed, spitzer };
 enum class Viscosity { none, isotropic, anisotropic };
 enum class ViscosityCoeff { none, fixed, spitzer };
+enum class Resistivity { none, isotropic };
+enum class ResistivityCoeff { none, fixed, spitzer };
 enum class DiffInt { none, unsplit, rkl2 };
 
 enum class Hst { idx, ekin, emag, divb };

@@ -80,6 +80,13 @@ void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
         dt_diff = std::min(dt_diff, EstimateViscosityTimestep(md.get()));
       }
     }
+    if (hydro_pkg->Param<Resistivity>("resistivity") != Resistivity::none) {
+      for (auto i = 0; i < num_partitions; i++) {
+        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+
+        dt_diff = std::min(dt_diff, EstimateResistivityTimestep(md.get()));
+      }
+    }
 #ifdef MPI_PARALLEL
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &dt_diff, 1, MPI_PARTHENON_REAL,
                                       MPI_MIN, MPI_COMM_WORLD));
@@ -596,6 +603,54 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     pkg->AddParam<>("viscosity", viscosity);
 
+    auto resistivity = Resistivity::none;
+    auto resistivity_str = pin->GetOrAddString("diffusion", "resistivity", "none");
+    if (resistivity_str == "isotropic") {
+      resistivity = Resistivity::isotropic;
+    } else if (resistivity_str != "none") {
+      PARTHENON_FAIL("Unknown resistivity method. Options are: none, isotropic");
+    }
+    // If resistivity is enabled, process supported coefficients
+    if (resistivity != Resistivity::none) {
+      auto resistivity_coeff_str =
+          pin->GetOrAddString("diffusion", "resistivity_coeff", "none");
+      auto resistivity_coeff = ResistivityCoeff::none;
+
+      if (resistivity_coeff_str == "spitzer") {
+        if (!pkg->AllParams().hasKey("mbar")) {
+          PARTHENON_FAIL("Spitzer resistivity requires units and gas composition. "
+                         "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
+                         "the input file.");
+        }
+        resistivity_coeff = ResistivityCoeff::spitzer;
+
+        // TODO(pgrete) fix coeff
+        Real spitzer_coeff =
+            pin->GetOrAddReal("diffusion", "spitzer_resist_in_erg_by_s_K_cm", 4.6e-7);
+        // Convert to code units. No temp conversion as [T_phys] = [T_code].
+        auto units = pkg->Param<Units>("units");
+        spitzer_coeff *= units.erg() / (units.s() * units.cm());
+
+        const auto mbar = pkg->Param<Real>("mbar");
+        auto ohm_diff =
+            OhmicDiffusivity(resistivity, resistivity_coeff, spitzer_coeff, mbar,
+                             units.electron_mass(), units.k_boltzmann());
+        pkg->AddParam<>("ohm_diff", ohm_diff);
+
+      } else if (resistivity_coeff_str == "fixed") {
+        resistivity_coeff = ResistivityCoeff::fixed;
+        Real ohm_diff_coeff_code = pin->GetReal("diffusion", "ohm_diff_coeff_code");
+        auto ohm_diff = OhmicDiffusivity(resistivity, resistivity_coeff,
+                                         ohm_diff_coeff_code, 0.0, 0.0, 0.0);
+        pkg->AddParam<>("ohm_diff", ohm_diff);
+
+      } else {
+        PARTHENON_FAIL("Resistivity is enabled but no coefficient is set. Please "
+                       "set diffusion/resistivity_coeff to either 'spitzer' or 'fixed'");
+      }
+    }
+    pkg->AddParam<>("resistivity", resistivity);
+
     auto diffint_str = pin->GetOrAddString("diffusion", "integrator", "none");
     auto diffint = DiffInt::none;
     if (diffint_str == "unsplit") {
@@ -848,6 +903,9 @@ Real EstimateTimestep(MeshData<Real> *md) {
     }
     if (hydro_pkg->Param<Viscosity>("viscosity") != Viscosity::none) {
       min_dt = std::min(min_dt, EstimateViscosityTimestep(md));
+    }
+    if (hydro_pkg->Param<Resistivity>("resistivity") != Resistivity::none) {
+      min_dt = std::min(min_dt, EstimateResistivityTimestep(md));
     }
   }
 

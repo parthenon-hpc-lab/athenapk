@@ -10,6 +10,7 @@ add_executable(
         hydro/diffusion/conduction.cpp
         hydro/diffusion/diffusion.cpp
         hydro/diffusion/diffusion.hpp
+        hydro/diffusion/resistivity.cpp
         hydro/diffusion/viscosity.cpp
         hydro/hydro_driver.cpp
         hydro/hydro.cpp

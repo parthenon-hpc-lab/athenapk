@@ -38,5 +38,16 @@ TaskStatus CalcDiffFluxes(StateDescriptor *hydro_pkg, MeshData<Real> *md) {
       MomentumDiffFluxGeneral(md);
     }
   }
+  const auto &resistivity = hydro_pkg->Param<Resistivity>("resistivity");
+  if (resistivity != Resistivity::none) {
+    const auto &ohm_diff = hydro_pkg->Param<OhmicDiffusivity>("ohm_diff");
+
+    if (resistivity == Resistivity::isotropic &&
+        ohm_diff.GetCoeffType() == ResistivityCoeff::fixed) {
+      OhmicDiffFluxIsoFixed(md);
+    } else {
+      OhmicDiffFluxGeneral(md);
+    }
+  }
   return TaskStatus::complete;
 }
