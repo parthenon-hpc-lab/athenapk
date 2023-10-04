@@ -1,16 +1,17 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2023, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 <comment>
 problem   = Thermal diffusion setup
 
 <job>
-problem_id = visc
+problem_id = diffusion
 
-<problem/visc>
+<problem/diffusion>
 t0 = 0.5      # Temporal offset for initial Gaussian profile
 amp = 1e-6    # Amplitude of Gaussian profile
+iprob = 30
 
 <parthenon/mesh>
 refinement = none

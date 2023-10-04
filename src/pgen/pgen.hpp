@@ -67,12 +67,6 @@ using namespace parthenon::driver::prelude;
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 } // namespace orszag_tang
 
-namespace visc {
-using namespace parthenon::driver::prelude;
-
-void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
-} // namespace visc
-
 namespace diffusion {
 using namespace parthenon::driver::prelude;
 
