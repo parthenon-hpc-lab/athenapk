@@ -49,8 +49,8 @@ setup_test_both("aniso_therm_cond_ring_multid" "--driver ${PROJECT_BINARY_DIR}/b
 setup_test_both("aniso_therm_cond_gauss_conv" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/diffusion.in --num_steps 24" "convergence")
 
-setup_test_both("viscosity" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/viscosity.in --num_steps 6" "convergence")
+setup_test_both("diffusion" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/diffusion.in --num_steps 12" "convergence")
 
 setup_test_both("field_loop" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/field_loop.in --num_steps 12" "convergence")

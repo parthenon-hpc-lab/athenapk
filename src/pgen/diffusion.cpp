@@ -33,13 +33,13 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   const auto iprob = pin->GetInteger("problem/diffusion", "iprob");
   PARTHENON_REQUIRE_THROWS(mhd_enabled || !(iprob == 0 || iprob == 1 || iprob == 2 ||
-                                            iprob == 10 || iprob == 20),
+                                            iprob == 10 || iprob == 20 || iprob == 40),
                            "Selected iprob for diffusion pgen requires MHD enabled.")
   Real t0 = 0.5;
   Real diff_coeff = 0.0;
   Real amp = 1e-6;
   // Get common parameters for Gaussian profile
-  if ((iprob == 10) || (iprob == 30)) {
+  if ((iprob == 10) || (iprob == 30) || (iprob == 40)) {
     t0 = pin->GetOrAddReal("problem/diffusion", "t0", t0);
     amp = pin->GetOrAddReal("problem/diffusion", "amp", amp);
   }
@@ -49,6 +49,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
     // Viscous diffusion of 1D Gaussian
   } else if (iprob == 30) {
     diff_coeff = pin->GetReal("diffusion", "mom_diff_coeff_code");
+    // Ohmic diffusion of 1D Gaussian
+  } else if (iprob == 40) {
+    diff_coeff = pin->GetReal("diffusion", "ohm_diff_coeff_code");
   }
 
   auto &coords = pmb->coords;
@@ -132,6 +135,12 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           u(IM2, k, j, i) =
               u(IDN, k, j, i) * amp /
               std::pow(std::sqrt(4. * M_PI * diff_coeff * t0), 1.0) *
+              std::exp(-(std::pow(coords.Xc<1>(i), 2.)) / (4. * diff_coeff * t0));
+          eint = 1.0 / (gamma * (gamma - 1.0)); // c_s = 1 everywhere
+          // Ohmic diffusion of 1D Gaussian
+        } else if (iprob == 40) {
+          u(IB2, k, j, i) =
+              amp / std::pow(std::sqrt(4. * M_PI * diff_coeff * t0), 1.0) *
               std::exp(-(std::pow(coords.Xc<1>(i), 2.)) / (4. * diff_coeff * t0));
           eint = 1.0 / (gamma * (gamma - 1.0)); // c_s = 1 everywhere
         }
