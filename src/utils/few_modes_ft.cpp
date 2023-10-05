@@ -152,7 +152,7 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
   auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
 
   // var_hat_
-  std::cout << "writing var_hat...\n";
+  //std::cout << "writing var_hat...\n";
   for (int i = 0; i < 3; i++) {
     for (int m = 0; m < num_modes; m++) {
       Real real = var_hat_host(i, m).real();
@@ -161,12 +161,12 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
                    "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_r", real);
       pin->SetReal("few_modes_ft",
                    "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_i", imag);
-      std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
+      //std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
     }
   }
 
   // var_hat_new_
-  std::cout << "writing var_hat_new...\n";
+  //std::cout << "writing var_hat_new...\n";
   for (int i = 0; i < 3; i++) {
     for (int m = 0; m < num_modes; m++) {
       Real real_new = var_hat_host(i, m).real();
@@ -177,7 +177,7 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
       pin->SetReal("few_modes_ft",
                    "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
                    imag_new);
-      std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new << "\n";
+      //std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new << "\n";
     }
   }
 
@@ -186,7 +186,7 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
     std::ostringstream oss;
     oss << rng_;
     pin->SetString("few_modes_ft", "state_rng", oss.str());
-    std::cout << "rng state: " << rng_ << "\n";
+    //std::cout << "rng state: " << rng_ << "\n";
   }
 
   // store state of distribution
@@ -194,7 +194,7 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
     std::ostringstream oss;
     oss << dist_;
     pin->SetString("few_modes_ft", "state_dist", oss.str());
-    std::cout << "dist state: " << dist_ << "\n";
+    //std::cout << "dist state: " << dist_ << "\n";
   }
 }
 
