@@ -70,49 +70,6 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
                std::vector<int>({2, num_modes, nx3 + ng_tot}), prefix + "_phases_k");
   pkg->AddField(prefix + "_phases_k", m);
 
-  bool is_restart = pin->DoesParameterExist("few_modes_ft", "var_hat_0_0_r");
-
-  // Variable (e.g., acceleration field for turbulence driver) in Fourier space using
-  // complex to real transform.
-  var_hat_ = ParArray2D<Complex>(prefix + "_var_hat", 3, num_modes);
-  var_hat_new_ = ParArray2D<Complex>(prefix + "_var_hat_new", 3, num_modes);
-
-  if (is_restart) {
-    std::cout << "restoring acceleration field...\n";
-    // Restore acceleration field in Fourier space
-    auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
-    auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
-    for (int i = 0; i < 3; i++) {
-      for (int m = 0; m < num_modes; m++) {
-        // read var_hat
-        std::cout << "reading var_hat...\n";
-        {
-          auto real = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
-                                                       std::to_string(m) + "_r");
-          auto imag = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
-                                                       std::to_string(m) + "_i");
-          std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
-          var_hat_host(i, m) = Complex(real, imag);
-        }
-        // read var_hat_new
-        std::cout << "reading var_hat_new...\n";
-        {
-          auto real_new =
-              pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
-                                               std::to_string(m) + "_r");
-          auto imag_new =
-              pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
-                                               std::to_string(m) + "_i");
-          std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new
-                    << "\n";
-          var_hat_new_host(i, m) = Complex(real_new, imag_new);
-        }
-      }
-    }
-    Kokkos::deep_copy(var_hat_, var_hat_host);
-    Kokkos::deep_copy(var_hat_new_, var_hat_new_host);
-  }
-
   PARTHENON_REQUIRE((sol_weight == -1.0) || (sol_weight >= 0.0 && sol_weight <= 1.0),
                     "sol_weight for projection in few modes fft module needs to be "
                     "between 0.0 and 1.0 or set to -1.0 (to disable projection).")
@@ -122,18 +79,62 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
       "random_num", 3, num_modes, 2);
   random_num_host_ = Kokkos::create_mirror_view(random_num_);
 
+  // Variable (e.g., acceleration field for turbulence driver) in Fourier space using
+  // complex to real transform.
+  var_hat_ = ParArray2D<Complex>(prefix + "_var_hat", 3, num_modes);
+  var_hat_new_ = ParArray2D<Complex>(prefix + "_var_hat_new", 3, num_modes);
+
+  bool is_restart = pin->DoesParameterExist("few_modes_ft", "var_hat_0_0_r");
   if (is_restart) {
+    // Restore acceleration field in Fourier space
+    std::cout << "restoring acceleration field...\n\n";
+
+    // read var_hat
+    std::cout << "reading var_hat...\n";
+    auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
+    for (int i = 0; i < 3; i++) {
+      for (int m = 0; m < num_modes; m++) {
+        auto real = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
+                                                     std::to_string(m) + "_r");
+        auto imag = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
+                                                     std::to_string(m) + "_i");
+        std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
+        var_hat_host(i, m) = Complex(real, imag);
+      }
+    }
+    Kokkos::deep_copy(var_hat_, var_hat_host);
+
+    // read var_hat_new
+    std::cout << "reading var_hat_new...\n";
+    auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
+    for (int i = 0; i < 3; i++) {
+      for (int m = 0; m < num_modes; m++) {
+        auto real_new = pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) +
+                                                         "_" + std::to_string(m) + "_r");
+        auto imag_new = pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) +
+                                                         "_" + std::to_string(m) + "_i");
+        std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new
+                  << "\n";
+        var_hat_new_host(i, m) = Complex(real_new, imag_new);
+      }
+    }
+    Kokkos::deep_copy(var_hat_new_, var_hat_new_host);
+
     // Restore rng state
     {
       std::istringstream iss(pin->GetString("few_modes_ft", "state_rng"));
       iss >> rng_;
+      std::cout << "rng state: " << rng_ << "\n";
     }
+
     // Restore dist
     {
       std::istringstream iss(pin->GetString("few_modes_ft", "state_dist"));
       iss >> dist_;
+      std::cout << "dist state: " << dist_ << "\n";
     }
   } else {
+    // this is NOT a restart
     rng_.seed(rseed);
     dist_ = std::uniform_real_distribution<>(-1.0, 1.0);
   }
@@ -150,46 +151,50 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
   auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
   auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
 
+  // var_hat_
+  std::cout << "writing var_hat...\n";
   for (int i = 0; i < 3; i++) {
     for (int m = 0; m < num_modes; m++) {
-      // var_hat_
-      std::cout << "writing var_hat...\n";
-      {
-        Real real = var_hat_host(i, m).real();
-        Real imag = var_hat_host(i, m).imag();
-        pin->SetReal("few_modes_ft",
-                     "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
-                     real);
-        pin->SetReal("few_modes_ft",
-                     "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
-                     imag);
-        std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
-      }
-      // var_hat_new_
-      std::cout << "writing var_hat_new...\n";
-      {
-        Real real_new = var_hat_host(i, m).real();
-        Real imag_new = var_hat_host(i, m).imag();
-        pin->SetReal("few_modes_ft",
-                     "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
-                     real_new);
-        pin->SetReal("few_modes_ft",
-                     "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
-                     imag_new);
-      }
+      Real real = var_hat_host(i, m).real();
+      Real imag = var_hat_host(i, m).imag();
+      pin->SetReal("few_modes_ft",
+                   "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_r", real);
+      pin->SetReal("few_modes_ft",
+                   "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_i", imag);
+      std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
     }
   }
+
+  // var_hat_new_
+  std::cout << "writing var_hat_new...\n";
+  for (int i = 0; i < 3; i++) {
+    for (int m = 0; m < num_modes; m++) {
+      Real real_new = var_hat_host(i, m).real();
+      Real imag_new = var_hat_host(i, m).imag();
+      pin->SetReal("few_modes_ft",
+                   "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
+                   real_new);
+      pin->SetReal("few_modes_ft",
+                   "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
+                   imag_new);
+      std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new << "\n";
+    }
+  }
+
   // store state of random number gen
   {
     std::ostringstream oss;
     oss << rng_;
     pin->SetString("few_modes_ft", "state_rng", oss.str());
+    std::cout << "rng state: " << rng_ << "\n";
   }
+
   // store state of distribution
   {
     std::ostringstream oss;
     oss << dist_;
     pin->SetString("few_modes_ft", "state_dist", oss.str());
+    std::cout << "dist state: " << dist_ << "\n";
   }
 }
 
