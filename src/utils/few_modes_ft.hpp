@@ -51,6 +51,7 @@ class FewModesFT {
   int GetNumModes() { return num_modes_; }
   void SetPhases(MeshBlock *pmb, ParameterInput *pin);
   void Generate(MeshData<Real> *md, const Real dt, const std::string &var_name);
+  void SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin);
   void RestoreRNG(std::istringstream &iss) { iss >> rng_; }
   void RestoreDist(std::istringstream &iss) { iss >> dist_; }
   std::string GetRNGState() {

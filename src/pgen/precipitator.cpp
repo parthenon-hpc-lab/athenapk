@@ -676,6 +676,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // setup velocity perturbations
   const auto sigma_v = pin->GetOrAddReal("precipitator/driving", "sigma_v", 0.0);
   hydro_pkg->AddParam<>("sigma_v", sigma_v);
+
   if (sigma_v > 0) {
     auto k_peak_v = pin->GetReal("precipitator/driving", "k_peak");
     auto num_modes_v = pin->GetOrAddInteger("precipitator/driving", "num_modes", 40);
@@ -683,15 +684,15 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
     uint32_t rseed_v = pin->GetOrAddInteger("precipitator/driving", "rseed", 1);
     auto t_corr = pin->GetOrAddReal("precipitator/driving", "t_corr", 1.0);
 
-    auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v, rseed_v);
-    auto few_modes_ft = FewModesFT(pin, hydro_pkg, "precipitator_perturb_v", num_modes_v,
-                                   k_vec_v, k_peak_v, sol_weight_v, t_corr, rseed_v);
-    hydro_pkg->AddParam<>("precipitator/few_modes_ft_v", few_modes_ft);
-
     // Add vector field for velocity perturbations
     Metadata m_perturb({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
                        std::vector<int>({3}));
     hydro_pkg->AddField("tmp_perturb", m_perturb);
+
+    auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v, rseed_v);
+    auto few_modes_ft = FewModesFT(pin, hydro_pkg, "precipitator_perturb_v", num_modes_v,
+                                   k_vec_v, k_peak_v, sol_weight_v, t_corr, rseed_v);
+    hydro_pkg->AddParam<>("precipitator/few_modes_ft_v", few_modes_ft);
   }
 
   if (parthenon::Globals::my_rank == 0) {
@@ -875,6 +876,12 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
   const Real gam = pin->GetReal("hydro", "gamma");
+
+  const auto sigma_v = pkg->Param<Real>("sigma_v");
+  if (sigma_v > 0) {
+    auto few_modes_ft = pkg->Param<FewModesFT>("precipitator/few_modes_ft_v");
+    few_modes_ft.SaveStateBeforeOutput(mesh, pin);
+  }
 
   const Units units(pin);
   const Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");

@@ -59,6 +59,7 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   const auto nx2 = pin->GetInteger("parthenon/meshblock", "nx2");
   const auto nx3 = pin->GetInteger("parthenon/meshblock", "nx3");
   const auto ng_tot = fill_ghosts_ ? 2 * parthenon::Globals::nghost : 0;
+
   auto m = Metadata({Metadata::None, Metadata::Derived, Metadata::OneCopy},
                     std::vector<int>({2, num_modes, nx1 + ng_tot}), prefix + "_phases_i");
   pkg->AddField(prefix + "_phases_i", m);
@@ -69,10 +70,48 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
                std::vector<int>({2, num_modes, nx3 + ng_tot}), prefix + "_phases_k");
   pkg->AddField(prefix + "_phases_k", m);
 
+  bool is_restart = pin->DoesParameterExist("few_modes_ft", "var_hat_0_0_r");
+
   // Variable (e.g., acceleration field for turbulence driver) in Fourier space using
   // complex to real transform.
   var_hat_ = ParArray2D<Complex>(prefix + "_var_hat", 3, num_modes);
   var_hat_new_ = ParArray2D<Complex>(prefix + "_var_hat_new", 3, num_modes);
+
+  if (is_restart) {
+    std::cout << "restoring acceleration field...\n";
+    // Restore acceleration field in Fourier space
+    auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
+    auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
+    for (int i = 0; i < 3; i++) {
+      for (int m = 0; m < num_modes; m++) {
+        // read var_hat
+        std::cout << "reading var_hat...\n";
+        {
+          auto real = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
+                                                       std::to_string(m) + "_r");
+          auto imag = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
+                                                       std::to_string(m) + "_i");
+          std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
+          var_hat_host(i, m) = Complex(real, imag);
+        }
+        // read var_hat_new
+        std::cout << "reading var_hat_new...\n";
+        {
+          auto real_new =
+              pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
+                                               std::to_string(m) + "_r");
+          auto imag_new =
+              pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
+                                               std::to_string(m) + "_i");
+          std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new
+                    << "\n";
+          var_hat_new_host(i, m) = Complex(real_new, imag_new);
+        }
+      }
+    }
+    Kokkos::deep_copy(var_hat_, var_hat_host);
+    Kokkos::deep_copy(var_hat_new_, var_hat_new_host);
+  }
 
   PARTHENON_REQUIRE((sol_weight == -1.0) || (sol_weight >= 0.0 && sol_weight <= 1.0),
                     "sol_weight for projection in few modes fft module needs to be "
@@ -83,8 +122,75 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
       "random_num", 3, num_modes, 2);
   random_num_host_ = Kokkos::create_mirror_view(random_num_);
 
-  rng_.seed(rseed);
-  dist_ = std::uniform_real_distribution<>(-1.0, 1.0);
+  if (is_restart) {
+    // Restore rng state
+    {
+      std::istringstream iss(pin->GetString("few_modes_ft", "state_rng"));
+      iss >> rng_;
+    }
+    // Restore dist
+    {
+      std::istringstream iss(pin->GetString("few_modes_ft", "state_dist"));
+      iss >> dist_;
+    }
+  } else {
+    rng_.seed(rseed);
+    dist_ = std::uniform_real_distribution<>(-1.0, 1.0);
+  }
+}
+
+void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
+  // save state before output
+  auto md = mesh->mesh_data.Get();
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  auto num_modes = pin->GetInteger("precipitator/driving", "num_modes");
+
+  // Save acceleration field in Fourier space
+  auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
+  auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
+
+  for (int i = 0; i < 3; i++) {
+    for (int m = 0; m < num_modes; m++) {
+      // var_hat_
+      std::cout << "writing var_hat...\n";
+      {
+        Real real = var_hat_host(i, m).real();
+        Real imag = var_hat_host(i, m).imag();
+        pin->SetReal("few_modes_ft",
+                     "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
+                     real);
+        pin->SetReal("few_modes_ft",
+                     "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
+                     imag);
+        std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
+      }
+      // var_hat_new_
+      std::cout << "writing var_hat_new...\n";
+      {
+        Real real_new = var_hat_host(i, m).real();
+        Real imag_new = var_hat_host(i, m).imag();
+        pin->SetReal("few_modes_ft",
+                     "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
+                     real_new);
+        pin->SetReal("few_modes_ft",
+                     "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
+                     imag_new);
+      }
+    }
+  }
+  // store state of random number gen
+  {
+    std::ostringstream oss;
+    oss << rng_;
+    pin->SetString("few_modes_ft", "state_rng", oss.str());
+  }
+  // store state of distribution
+  {
+    std::ostringstream oss;
+    oss << dist_;
+    pin->SetString("few_modes_ft", "state_dist", oss.str());
+  }
 }
 
 void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
@@ -93,14 +199,14 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   // The following restriction could technically be lifted if the turbulence driver is
   // directly embedded in the hydro driver rather than a user defined source as well as
-  // fixing the pack_size=-1 when using the Mesh- (not MeshBlock-)based problem generator.
-  // The restriction stems from requiring a collective MPI comm to normalize the
-  // acceleration and magnetic field, respectively. Note, that the restriction does not
-  // apply here, but for the ProblemGenerator() and Driving() function below. The check is
-  // just added here for convenience as this function is called during problem
-  // initializtion. From my (pgrete) point of view, it's currently cleaner to keep things
-  // separate and not touch the main driver at the expense of using one pack per rank --
-  // which is typically fastest on devices anyway.
+  // fixing the pack_size=-1 when using the Mesh- (not MeshBlock-)based problem
+  // generator. The restriction stems from requiring a collective MPI comm to normalize
+  // the acceleration and magnetic field, respectively. Note, that the restriction does
+  // not apply here, but for the ProblemGenerator() and Driving() function below. The
+  // check is just added here for convenience as this function is called during problem
+  // initializtion. From my (pgrete) point of view, it's currently cleaner to keep
+  // things separate and not touch the main driver at the expense of using one pack per
+  // rank -- which is typically fastest on devices anyway.
   const auto pack_size = pin->GetInteger("parthenon/mesh", "pack_size");
   PARTHENON_REQUIRE_THROWS(pack_size == -1,
                            "Few modes FT currently needs parthenon/mesh/pack_size=-1 "
@@ -112,8 +218,9 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   // Adjust (logical) grid size at levels other than the root level.
   // This is required for simulation with mesh refinement so that the phases calculated
-  // below take the logical grid size into account. For example, the local phases at level
-  // 1 should be calculated assuming a grid that is twice as large as the root grid.
+  // below take the logical grid size into account. For example, the local phases at
+  // level 1 should be calculated assuming a grid that is twice as large as the root
+  // grid.
   const auto root_level = pm->GetRootLevel();
   auto gnx1 = pm->mesh_size.nx1 * std::pow(2, pmb->loc.level - root_level);
   auto gnx2 = pm->mesh_size.nx2 * std::pow(2, pmb->loc.level - root_level);
@@ -278,8 +385,8 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
           kmag = std::sqrt(kx * kx + ky * ky + kz * kz);
 
           // setting kmag to 1 as a "continue" doesn't work within the parallel_for
-          // construct and it doesn't affect anything (there should never be power in the
-          // k=0 mode)
+          // construct and it doesn't affect anything (there should never be power in
+          // the k=0 mode)
           if (kmag == 0.) kmag = 1.;
 
           // make it a unit vector
