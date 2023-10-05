@@ -13,12 +13,6 @@
             x: 1.0
             y: 0.0
             z: 0.0
-   contour_pl:
-     f2:
-       type: "contour"
-       params: 
-         field: "drho_over_rho"
-         iso_values: [-1.0, -0.1, -0.01, 0.0, 0.01, 0.1, 1.0]
 - 
   action: "add_scenes"
   scenes:
@@ -61,21 +55,3 @@
          - "dT_over_T"
          - "dP_over_P"
          - "dEdot_over_Edot"
-    # contour_extract: 
-    #   type: "relay"
-    #   pipeline: "contour_pl"
-    #   params: 
-    #     path: "contour"
-    #     protocol: "blueprint/mesh/hdf5"
-    #     num_files: 1
-    #     fields:
-    #      - "density"
-    #      - "entropy"
-    #      - "temperature"
-    #      - "mach_sonic"
-    #      - "mean_Edot"
-    #      - "drho_over_rho"
-    #      - "dK_over_K"
-    #      - "dT_over_T"
-    #      - "dP_over_P"
-    #      - "dEdot_over_Edot"
