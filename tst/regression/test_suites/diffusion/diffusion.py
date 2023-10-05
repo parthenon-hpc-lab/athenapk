@@ -24,7 +24,7 @@ diff_cfgs = ["visc", "ohm"]
 int_cfgs = ["unsplit", "rkl2"]
 res_cfgs = [256, 512, 1024]
 tlim = 2.0
-nu = 0.25
+diff_coeff = 0.25
 
 all_cfgs = list(itertools.product(diff_cfgs, res_cfgs, int_cfgs))
 
@@ -79,9 +79,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"diffusion/viscosity={viscosity_}",
             f"diffusion/resistivity={resistivity_}",
             # we can set both as their activity is controlled separately
-            f"diffusion/mom_diff_coeff_code={nu}",
-            f"diffusion/ohm_diff_coeff_code={nu}",
+            f"diffusion/mom_diff_coeff_code={diff_coeff}",
+            f"diffusion/ohm_diff_coeff_code={diff_coeff}",
             f"diffusion/integrator={int_cfg}",
+            f"diffusion/rkl2_max_dt_ratio=200",
         ]
 
         return parameters
@@ -104,8 +105,8 @@ class TestCase(utils.test_case.TestCaseAbs):
         def get_ref(x):
             return (
                 1e-6
-                / np.sqrt(4.0 * np.pi * nu * (0.5 + tlim))
-                * np.exp(-(x**2.0) / (4.0 * nu * (0.5 + tlim)))
+                / np.sqrt(4.0 * np.pi * diff_coeff * (0.5 + tlim))
+                * np.exp(-(x**2.0) / (4.0 * diff_coeff * (0.5 + tlim)))
             )
 
         num_diff = len(diff_cfgs)

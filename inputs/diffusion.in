@@ -70,7 +70,7 @@ mom_diff_coeff_code = 0.25
 resistivity = isotropic     # none (disabled) or isotropic
 resistivity_coeff = fixed
 ohm_diff_coeff_code = 0.25
-rkl2_max_dt_ratio = 200.0
+rkl2_max_dt_ratio = 400.0
 
 <parthenon/output0>
 file_type = hdf5

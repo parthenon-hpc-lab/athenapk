@@ -665,6 +665,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     if (diffint != DiffInt::none) {
       pkg->AddParam<Real>("dt_diff", 0.0, true); // diffusive timestep constraint
+      // As in Athena++ a cfl safety factor is also applied to the theoretical limit.
+      // By default it is equal to the hyperbolic cfl.
+      auto cfl_diff = pin->GetOrAddReal("diffusion", "cfl", pkg->Param<Real>("cfl"));
+      pkg->AddParam<>("cfl_diff", cfl_diff);
     }
     pkg->AddParam<>("diffint", diffint);
 

@@ -88,7 +88,8 @@ Real EstimateViscosityTimestep(MeshData<Real> *md) {
     PARTHENON_THROW("Needs impl.");
   }
 
-  return fac * min_dt_visc;
+  const auto &cfl_diff = hydro_pkg->Param<Real>("cfl_diff");
+  return cfl_diff * fac * min_dt_visc;
 }
 
 //---------------------------------------------------------------------------------------
