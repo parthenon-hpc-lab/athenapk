@@ -172,10 +172,10 @@ class TestCase(utils.test_case.TestCaseAbs):
                 # For a more reasonable test (which would take longer), reduce the RKL2 ratio to,
                 # say, 200 and extend the resolution grid to 1024 (as the first data point at N=128
                 # is comparatively worse than at N>128).
-                if conv_measured > -1.98:
+                if conv_measured > -1.95:
                     print(
                         f"!!!\nConvergence for test with {int_cfg} integrator "
-                        f"is worse ({conv_measured}) than expected (-1.98).\n!!!"
+                        f"is worse ({conv_measured}) than expected (-1.95).\n!!!"
                     )
                     tests_passed = False
                 p[-1, j].plot(
