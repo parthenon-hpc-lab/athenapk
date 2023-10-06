@@ -35,7 +35,6 @@ ref_res = 64
 
 class TestCase(utils.test_case.TestCaseAbs):
     def Prepare(self, parameters, step):
-
         assert parameters.num_ranks <= 4, "Use <= 4 ranks for diffusion test."
 
         # 2D reference case again
@@ -88,6 +87,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/time/tlim=200.0",
             "parthenon/output0/dt=200.0",
             f"parthenon/output0/id={step}",
+            "diffusion/integrator=unsplit",
         ]
 
         return parameters
