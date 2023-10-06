@@ -59,7 +59,6 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   const auto nx2 = pin->GetInteger("parthenon/meshblock", "nx2");
   const auto nx3 = pin->GetInteger("parthenon/meshblock", "nx3");
   const auto ng_tot = fill_ghosts_ ? 2 * parthenon::Globals::nghost : 0;
-
   auto m = Metadata({Metadata::None, Metadata::Derived, Metadata::OneCopy},
                     std::vector<int>({2, num_modes, nx1 + ng_tot}), prefix + "_phases_i");
   pkg->AddField(prefix + "_phases_i", m);
@@ -70,6 +69,11 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
                std::vector<int>({2, num_modes, nx3 + ng_tot}), prefix + "_phases_k");
   pkg->AddField(prefix + "_phases_k", m);
 
+  // Variable (e.g., acceleration field for turbulence driver) in Fourier space using
+  // complex to real transform.
+  var_hat_ = ParArray2D<Complex>(prefix + "_var_hat", 3, num_modes);
+  var_hat_new_ = ParArray2D<Complex>(prefix + "_var_hat_new", 3, num_modes);
+
   PARTHENON_REQUIRE((sol_weight == -1.0) || (sol_weight >= 0.0 && sol_weight <= 1.0),
                     "sol_weight for projection in few modes fft module needs to be "
                     "between 0.0 and 1.0 or set to -1.0 (to disable projection).")
@@ -78,11 +82,6 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   random_num_ = Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::DevMemSpace>(
       "random_num", 3, num_modes, 2);
   random_num_host_ = Kokkos::create_mirror_view(random_num_);
-
-  // Variable (e.g., acceleration field for turbulence driver) in Fourier space using
-  // complex to real transform.
-  var_hat_ = ParArray2D<Complex>(prefix + "_var_hat", 3, num_modes);
-  var_hat_new_ = ParArray2D<Complex>(prefix + "_var_hat_new", 3, num_modes);
 
   bool is_restart = pin->DoesParameterExist("few_modes_ft", "var_hat_0_0_r");
   if (is_restart) {
@@ -204,14 +203,14 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   // The following restriction could technically be lifted if the turbulence driver is
   // directly embedded in the hydro driver rather than a user defined source as well as
-  // fixing the pack_size=-1 when using the Mesh- (not MeshBlock-)based problem
-  // generator. The restriction stems from requiring a collective MPI comm to normalize
-  // the acceleration and magnetic field, respectively. Note, that the restriction does
-  // not apply here, but for the ProblemGenerator() and Driving() function below. The
-  // check is just added here for convenience as this function is called during problem
-  // initializtion. From my (pgrete) point of view, it's currently cleaner to keep
-  // things separate and not touch the main driver at the expense of using one pack per
-  // rank -- which is typically fastest on devices anyway.
+  // fixing the pack_size=-1 when using the Mesh- (not MeshBlock-)based problem generator.
+  // The restriction stems from requiring a collective MPI comm to normalize the
+  // acceleration and magnetic field, respectively. Note, that the restriction does not
+  // apply here, but for the ProblemGenerator() and Driving() function below. The check is
+  // just added here for convenience as this function is called during problem
+  // initializtion. From my (pgrete) point of view, it's currently cleaner to keep things
+  // separate and not touch the main driver at the expense of using one pack per rank --
+  // which is typically fastest on devices anyway.
   const auto pack_size = pin->GetInteger("parthenon/mesh", "pack_size");
   PARTHENON_REQUIRE_THROWS(pack_size == -1,
                            "Few modes FT currently needs parthenon/mesh/pack_size=-1 "
@@ -223,9 +222,8 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   // Adjust (logical) grid size at levels other than the root level.
   // This is required for simulation with mesh refinement so that the phases calculated
-  // below take the logical grid size into account. For example, the local phases at
-  // level 1 should be calculated assuming a grid that is twice as large as the root
-  // grid.
+  // below take the logical grid size into account. For example, the local phases at level
+  // 1 should be calculated assuming a grid that is twice as large as the root grid.
   const auto root_level = pm->GetRootLevel();
   auto gnx1 = pm->mesh_size.nx1 * std::pow(2, pmb->loc.level - root_level);
   auto gnx2 = pm->mesh_size.nx2 * std::pow(2, pmb->loc.level - root_level);
@@ -390,8 +388,8 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
           kmag = std::sqrt(kx * kx + ky * ky + kz * kz);
 
           // setting kmag to 1 as a "continue" doesn't work within the parallel_for
-          // construct and it doesn't affect anything (there should never be power in
-          // the k=0 mode)
+          // construct and it doesn't affect anything (there should never be power in the
+          // k=0 mode)
           if (kmag == 0.) kmag = 1.;
 
           // make it a unit vector

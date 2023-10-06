@@ -86,7 +86,7 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceFirstOrder = rand_blast::RandomBlasts;
 #if 0
   } else if (problem == "cluster") {
-    pman.app_input->ProblemGenerator = cluster::ProblemGenerator;
+    pman.app_input->MeshProblemGenerator = cluster::ProblemGenerator;
     pman.app_input->MeshBlockUserWorkBeforeOutput = cluster::UserWorkBeforeOutput;
     Hydro::ProblemInitPackageData = cluster::ProblemInitPackageData;
     Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;
@@ -130,10 +130,6 @@ int main(int argc, char *argv[]) {
 
     // This line actually runs the simulation
     driver.Execute();
-  }
-  // very ugly cleanup...
-  if (problem == "turbulence") {
-    turbulence::Cleanup();
   }
 
   // call MPI_Finalize and Kokkos::finalize if necessary

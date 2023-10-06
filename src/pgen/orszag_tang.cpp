@@ -1,6 +1,7 @@
 
+//========================================================================================
 // AthenaPK - a performance portable block structured AMR MHD code
-// Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
 //========================================================================================
 //! \file orszag_tang.cpp
@@ -41,11 +42,15 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       "ProblemGenerator: Orszag-Tang", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int k, const int j, const int i) {
         u(IDN, k, j, i) = d0;
+        // Note the different signs in this pgen compared to the the eqn mentioned in the
+        // original paper (and other codes).
+        // They are related to our domain going from -0.5 to 0.5 (for symmetry reason)
+        // rather than 0  to 2pi (i.e., the sign for single wave sinus is flipped).
         u(IM1, k, j, i) = d0 * v0 * std::sin(2.0 * M_PI * coords.Xc<2>(j));
         u(IM2, k, j, i) = -d0 * v0 * std::sin(2.0 * M_PI * coords.Xc<1>(i));
         u(IM3, k, j, i) = 0.0;
 
-        u(IB1, k, j, i) = -B0 * std::sin(2.0 * M_PI * coords.Xc<2>(j));
+        u(IB1, k, j, i) = B0 * std::sin(2.0 * M_PI * coords.Xc<2>(j));
         u(IB2, k, j, i) = B0 * std::sin(4.0 * M_PI * coords.Xc<1>(i));
         u(IB3, k, j, i) = 0.0;
 
