@@ -723,9 +723,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                                       MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
 
-    const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
-    const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
-    const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
+    const auto Lx = pmesh->mesh_size.xmax(parthenon::X1DIR) - pmesh->mesh_size.xmin(parthenon::X1DIR);
+    const auto Ly = pmesh->mesh_size.xmax(parthenon::X2DIR) - pmesh->mesh_size.xmin(parthenon::X2DIR);
+    const auto Lz = pmesh->mesh_size.xmax(parthenon::X3DIR) - pmesh->mesh_size.xmin(parthenon::X3DIR);
     auto v_norm = std::sqrt(v2_sum / (Lx * Ly * Lz) / (SQR(sigma_v)));
 
     pmb->par_for(
@@ -801,9 +801,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                                       MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
 
-    const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
-    const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
-    const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
+    const auto Lx = pmesh->mesh_size.xmax(parthenon::X1DIR) - pmesh->mesh_size.xmin(parthenon::X1DIR);
+    const auto Ly = pmesh->mesh_size.xmax(parthenon::X2DIR) - pmesh->mesh_size.xmin(parthenon::X2DIR);
+    const auto Lz = pmesh->mesh_size.xmax(parthenon::X3DIR) - pmesh->mesh_size.xmin(parthenon::X3DIR);
     auto b_norm = std::sqrt(b2_sum / (Lx * Ly * Lz) / (SQR(sigma_b)));
 
     pmb->par_for(

@@ -26,15 +26,15 @@ void ComputeAvgProfile1D(parthenon::ParArray1D<parthenon::Real> &profile_dev,
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto pkg = pmb->packages.Get("Hydro");
   auto pm = md->GetParentPointer();
-  const parthenon::Real x3min = pm->mesh_size.x3min;
-  const parthenon::Real Lz = pm->mesh_size.x3max - pm->mesh_size.x3min;
+  const parthenon::Real x3min = pm->mesh_size.xmin(parthenon::X3DIR);
+  const parthenon::Real Lz = pm->mesh_size.xmax(parthenon::X3DIR) - pm->mesh_size.xmin(parthenon::X3DIR);
   const size_t size = profile_dev.size();
   const int max_idx = size - 1;
   const parthenon::Real dz_hist = Lz / size;
 
   // normalize result
-  const parthenon::Real Lx = pm->mesh_size.x1max - pm->mesh_size.x1min;
-  const parthenon::Real Ly = pm->mesh_size.x2max - pm->mesh_size.x2min;
+  const parthenon::Real Lx = pm->mesh_size.xmax(parthenon::X1DIR) - pm->mesh_size.xmin(parthenon::X1DIR);
+  const parthenon::Real Ly = pm->mesh_size.xmax(parthenon::X2DIR) - pm->mesh_size.xmin(parthenon::X2DIR);
   const parthenon::Real histVolume = Lx * Ly * dz_hist;
 
   PARTHENON_REQUIRE(REDUCTION_ARRAY_SIZE == profile_dev.size(),

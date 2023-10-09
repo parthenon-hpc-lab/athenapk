@@ -213,8 +213,8 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
   }
 
   // write errors
-  std::fprintf(pfile, "%d  %d", mesh->mesh_size.nx1, mesh->mesh_size.nx2);
-  std::fprintf(pfile, "  %d  %d  %e", mesh->mesh_size.nx3, tm.ncycle, rms_err);
+  std::fprintf(pfile, "%d  %d", mesh->mesh_size.nx(parthenon::X1DIR), mesh->mesh_size.nx(parthenon::X2DIR));
+  std::fprintf(pfile, "  %d  %d  %e", mesh->mesh_size.nx(parthenon::X3DIR), tm.ncycle, rms_err);
   std::fprintf(pfile, "  %e  %e  %e  %e", err[IDN], err[IM1], err[IM2], err[IM3]);
   std::fprintf(pfile, "  %e", err[IEN]);
   std::fprintf(pfile, "  %e  %e  %e", err[IB1], err[IB2], err[IB3]);

@@ -68,8 +68,8 @@ auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
   // get profiles and bins
   PinnedArray1D<Real> profile_reduce_zbins("Bin centers", REDUCTION_ARRAY_SIZE);
 
-  const Real x3min = md->GetParentPointer()->mesh_size.x3min;
-  const Real x3max = md->GetParentPointer()->mesh_size.x3max;
+  const Real x3min = md->GetParentPointer()->mesh_size.xmin(parthenon::X3DIR);
+  const Real x3max = md->GetParentPointer()->mesh_size.xmax(parthenon::X3DIR);
   const Real dz_hist = (x3max - x3min) / REDUCTION_ARRAY_SIZE;
   for (int i = 0; i < REDUCTION_ARRAY_SIZE; ++i) {
     profile_reduce_zbins(i) = dz_hist * (Real(i) + 0.5) + x3min;
@@ -103,8 +103,8 @@ void WriteProfileToFile(parthenon::ParArray1D<Real> &profile_reduce_dev,
 
   // get bins
   PinnedArray1D<Real> profile_bins("Bin centers", REDUCTION_ARRAY_SIZE);
-  const Real x3min = md->GetParentPointer()->mesh_size.x3min;
-  const Real x3max = md->GetParentPointer()->mesh_size.x3max;
+  const Real x3min = md->GetParentPointer()->mesh_size.xmin(parthenon::X3DIR);
+  const Real x3max = md->GetParentPointer()->mesh_size.xmax(parthenon::X3DIR);
   const Real dz_hist = (x3max - x3min) / REDUCTION_ARRAY_SIZE;
   for (int i = 0; i < REDUCTION_ARRAY_SIZE; ++i) {
     profile_bins(i) = dz_hist * (Real(i) + 0.5) + x3min;
@@ -273,9 +273,9 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
   const auto pmesh = md->GetMeshPointer();
-  const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
-  const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
-  const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
+  const auto Lx = pmesh->mesh_size.xmax(parthenon::X1DIR) - pmesh->mesh_size.xmin(parthenon::X1DIR);
+  const auto Ly = pmesh->mesh_size.xmax(parthenon::X2DIR) - pmesh->mesh_size.xmin(parthenon::X2DIR);
+  const auto Lz = pmesh->mesh_size.xmax(parthenon::X3DIR) - pmesh->mesh_size.xmin(parthenon::X3DIR);
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
