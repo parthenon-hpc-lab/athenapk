@@ -106,6 +106,7 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
       Kokkos::deep_copy(var_hat_, var_hat_host);
     }
 
+#if 0
     // read var_hat_new
     {
       std::cout << "reading var_hat_new...\n";
@@ -125,6 +126,7 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
       }
       Kokkos::deep_copy(var_hat_new_, var_hat_new_host);
     }
+#endif
 
     // read rng state
     {
@@ -174,6 +176,7 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
     }
   }
 
+#if 0
   // var_hat_new_
   {
     auto var_hat_new_host = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_new_);
@@ -194,6 +197,7 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
       }
     }
   }
+#endif
 
   // save rng
   {
