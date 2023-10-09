@@ -147,7 +147,7 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
   auto num_modes = pin->GetInteger("precipitator/driving", "num_modes");
 
   // Save acceleration field in Fourier space
-  auto var_hat_host = Kokkos::create_mirror_view_and_copy(var_hat_);
+  auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
   auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
 
   Kokkos::deep_copy(var_hat_host, var_hat_);  // copy to host
