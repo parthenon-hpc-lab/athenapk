@@ -90,49 +90,56 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
     std::cout << "restoring acceleration field...\n\n";
 
     // read var_hat
-    std::cout << "reading var_hat...\n";
-    auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
-    for (int i = 0; i < 3; i++) {
-      for (int m = 0; m < num_modes; m++) {
-        auto real = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
-                                                     std::to_string(m) + "_r");
-        auto imag = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
-                                                     std::to_string(m) + "_i");
-        std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
-        var_hat_host(i, m) = Complex(real, imag);
+    {
+      std::cout << "reading var_hat...\n";
+      auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
+      for (int i = 0; i < 3; i++) {
+        for (int m = 0; m < num_modes; m++) {
+          auto real = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
+                                                       std::to_string(m) + "_r");
+          auto imag = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
+                                                       std::to_string(m) + "_i");
+          std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
+          var_hat_host(i, m) = Complex(real, imag);
+        }
       }
+      Kokkos::deep_copy(var_hat_, var_hat_host);
     }
-    Kokkos::deep_copy(var_hat_, var_hat_host);
 
     // read var_hat_new
-    std::cout << "reading var_hat_new...\n";
-    auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
-    for (int i = 0; i < 3; i++) {
-      for (int m = 0; m < num_modes; m++) {
-        auto real_new = pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) +
-                                                         "_" + std::to_string(m) + "_r");
-        auto imag_new = pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) +
-                                                         "_" + std::to_string(m) + "_i");
-        std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new
-                  << "\n";
-        var_hat_new_host(i, m) = Complex(real_new, imag_new);
+    {
+      std::cout << "reading var_hat_new...\n";
+      auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
+      for (int i = 0; i < 3; i++) {
+        for (int m = 0; m < num_modes; m++) {
+          auto real_new =
+              pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
+                                               std::to_string(m) + "_r");
+          auto imag_new =
+              pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
+                                               std::to_string(m) + "_i");
+          std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new
+                    << "\n";
+          var_hat_new_host(i, m) = Complex(real_new, imag_new);
+        }
       }
+      Kokkos::deep_copy(var_hat_new_, var_hat_new_host);
     }
-    Kokkos::deep_copy(var_hat_new_, var_hat_new_host);
 
-    // Restore rng state
+    // read rng state
     {
       std::istringstream iss(pin->GetString("few_modes_ft", "state_rng"));
       iss >> rng_;
       std::cout << "rng state: " << rng_ << "\n";
     }
 
-    // Restore dist
+    // read dist
     {
       std::istringstream iss(pin->GetString("few_modes_ft", "state_dist"));
       iss >> dist_;
       std::cout << "dist state: " << dist_ << "\n";
     }
+
   } else {
     // this is NOT a restart
     rng_.seed(rseed);
@@ -141,63 +148,67 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
 }
 
 void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
-  // save state before output
+  // Save acceleration field in Fourier space
   auto md = mesh->mesh_data.Get();
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
   auto num_modes = pin->GetInteger("precipitator/driving", "num_modes");
 
-  // Save acceleration field in Fourier space
-  auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
-  auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
-
-  Kokkos::deep_copy(var_hat_host, var_hat_);  // copy to host
-  Kokkos::deep_copy(var_hat_new_host, var_hat_new_); // copy to host
-
   // var_hat_
-  //std::cout << "writing var_hat...\n";
-  for (int i = 0; i < 3; i++) {
-    for (int m = 0; m < num_modes; m++) {
-      Real real = var_hat_host(i, m).real();
-      Real imag = var_hat_host(i, m).imag();
-      pin->SetReal("few_modes_ft",
-                   "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_r", real);
-      pin->SetReal("few_modes_ft",
-                   "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_i", imag);
-      //std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
+  {
+    auto var_hat_host = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_);
+    // std::cout << "writing var_hat...\n";
+
+    for (int i = 0; i < 3; i++) {
+      for (int m = 0; m < num_modes; m++) {
+        Real real = var_hat_host(i, m).real();
+        Real imag = var_hat_host(i, m).imag();
+        pin->SetReal("few_modes_ft",
+                     "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
+                     real);
+        pin->SetReal("few_modes_ft",
+                     "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
+                     imag);
+        // std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
+      }
     }
   }
 
   // var_hat_new_
-  //std::cout << "writing var_hat_new...\n";
-  for (int i = 0; i < 3; i++) {
-    for (int m = 0; m < num_modes; m++) {
-      Real real_new = var_hat_host(i, m).real();
-      Real imag_new = var_hat_host(i, m).imag();
-      pin->SetReal("few_modes_ft",
-                   "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
-                   real_new);
-      pin->SetReal("few_modes_ft",
-                   "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
-                   imag_new);
-      //std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new << "\n";
+  {
+    auto var_hat_new_host = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_new_);
+    // std::cout << "writing var_hat_new...\n";
+
+    for (int i = 0; i < 3; i++) {
+      for (int m = 0; m < num_modes; m++) {
+        Real real_new = var_hat_new_host(i, m).real();
+        Real imag_new = var_hat_new_host(i, m).imag();
+        pin->SetReal("few_modes_ft",
+                     "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
+                     real_new);
+        pin->SetReal("few_modes_ft",
+                     "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
+                     imag_new);
+        // std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new <<
+        // "\n";
+      }
     }
   }
 
-  // store state of random number gen
+  // save rng
   {
     std::ostringstream oss;
     oss << rng_;
     pin->SetString("few_modes_ft", "state_rng", oss.str());
-    //std::cout << "rng state: " << rng_ << "\n";
+    // std::cout << "rng state: " << rng_ << "\n";
   }
 
-  // store state of distribution
+  // save dist
   {
     std::ostringstream oss;
     oss << dist_;
     pin->SetString("few_modes_ft", "state_dist", oss.str());
-    //std::cout << "dist state: " << dist_ << "\n";
+    // std::cout << "dist state: " << dist_ << "\n";
   }
 }
 
@@ -229,9 +240,12 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   // below take the logical grid size into account. For example, the local phases at level
   // 1 should be calculated assuming a grid that is twice as large as the root grid.
   const auto root_level = pm->GetRootLevel();
-  auto gnx1 = pm->mesh_size.nx(parthenon::X1DIR) * std::pow(2, pmb->loc.level() - root_level);
-  auto gnx2 = pm->mesh_size.nx(parthenon::X2DIR) * std::pow(2, pmb->loc.level() - root_level);
-  auto gnx3 = pm->mesh_size.nx(parthenon::X3DIR) * std::pow(2, pmb->loc.level() - root_level);
+  auto gnx1 =
+      pm->mesh_size.nx(parthenon::X1DIR) * std::pow(2, pmb->loc.level() - root_level);
+  auto gnx2 =
+      pm->mesh_size.nx(parthenon::X2DIR) * std::pow(2, pmb->loc.level() - root_level);
+  auto gnx3 =
+      pm->mesh_size.nx(parthenon::X3DIR) * std::pow(2, pmb->loc.level() - root_level);
 
   // Restriction should also be easily fixed, just need to double check transforms and
   // volume weighting everywhere
