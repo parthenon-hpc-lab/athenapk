@@ -150,6 +150,9 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
   auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
   auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
 
+  Kokkos::deep_copy(var_hat_host, var_hat_);  // copy to host
+  Kokkos::deep_copy(var_hat_new_host, var_hat_new_); // copy to host
+
   // var_hat_
   //std::cout << "writing var_hat...\n";
   for (int i = 0; i < 3; i++) {
