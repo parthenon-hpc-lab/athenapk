@@ -9,7 +9,7 @@
 // Setups up an idealized galaxy cluster with an ACCEPT-like entropy profile in
 // hydrostatic equilbrium with an NFW+BCG+SMBH gravitational profile,
 // optionally with an initial magnetic tower field. Includes AGN feedback, AGN
-// triggering via cold gas, simple SNIA Feedback(TODO)
+// triggering via cold gas, simple SNIA Feedback, and simple stellar feedback
 //========================================================================================
 
 // C headers
@@ -31,6 +31,8 @@
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
+#include "parthenon_array_generic.hpp"
+#include "utils/error_checking.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -47,13 +49,14 @@
 // Cluster headers
 #include "cluster/agn_feedback.hpp"
 #include "cluster/agn_triggering.hpp"
+#include "cluster/cluster_clips.hpp"
 #include "cluster/cluster_gravity.hpp"
+#include "cluster/cluster_reductions.hpp"
 #include "cluster/entropy_profiles.hpp"
 #include "cluster/hydrostatic_equilibrium_sphere.hpp"
 #include "cluster/magnetic_tower.hpp"
 #include "cluster/snia_feedback.hpp"
-#include "parthenon_array_generic.hpp"
-#include "utils/error_checking.hpp"
+#include "cluster/stellar_feedback.hpp"
 
 namespace cluster {
 using namespace parthenon::driver::prelude;
@@ -61,6 +64,7 @@ using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
 using utils::few_modes_ft_log::FewModesFTLog;
 
+<<<<<<< HEAD
 template <class EOS>
 void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
                        const Real beta_dt, const EOS eos) {
@@ -110,7 +114,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
             const int gjs = 0;
             const int gis = 0;
               
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, gks, gjs, gis); // Three last parameters are just passive here
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i); // Three last parameters are just passive here
 
             if (dfloor > 0) {
               const Real rho = prim(IDN, k, j, i);
@@ -182,8 +186,12 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
   }
 }
 
-void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
-                    const Real beta_dt) {
+//void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+//                    const Real beta_dt) {
+
+void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                           const Real beta_dt) {
+
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
@@ -203,9 +211,16 @@ void ClusterSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
   snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
-
-  ApplyClusterClips(md, tm, beta_dt);
 };
+void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                         const Real dt) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
+  stellar_feedback.FeedbackSrcTerm(md, dt, tm);
+
+  ApplyClusterClips(md, tm, dt);
+}
 
 Real ClusterEstimateTimestep(MeshData<Real> *md) {
   Real min_dt = std::numeric_limits<Real>::max();
@@ -355,6 +370,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   SNIAFeedback snia_feedback(pin, hydro_pkg);
 
   /************************************************************
+   * Read Stellar Feedback
+   ************************************************************/
+
+  StellarFeedback stellar_feedback(pin, hydro_pkg);
+
+  /************************************************************
    * Read Clips  (ceilings and floors)
    ************************************************************/
 
@@ -387,6 +408,63 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddParam("cluster_vceil", vceil);
   hydro_pkg->AddParam("cluster_vAceil", vAceil);
   hydro_pkg->AddParam("cluster_clip_r", clip_r);
+
+  /************************************************************
+   * Start running reductions into history outputs for clips, stellar mass, cold
+   * gas, and AGN extent
+   ************************************************************/
+
+  /* FIXME(forrestglines) This implementation with a reduction into Params might
+   be broken in several ways.
+    1. Each reduction in params is Rank local. Multiple meshblocks packs per
+    rank adding to these params is not thread-safe
+    2. These Params are not carried over between restarts. If a restart dump is
+    made and a history output is not, then the mass/energy between the last
+    history output and the restart dump is lost
+  */
+  std::string reduction_strs[] = {"stellar_mass", "added_dfloor_mass",
+                                  "removed_eceil_energy", "removed_vceil_energy",
+                                  "added_vAceil_mass"};
+
+  // Add a param for each reduction, then add it as a summation reduction for
+  // history outputs
+  auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
+
+  for (auto reduction_str : reduction_strs) {
+    hydro_pkg->AddParam(reduction_str, 0.0, true);
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::sum,
+        [reduction_str](MeshData<Real> *md) {
+          auto pmb = md->GetBlockData(0)->GetBlockPointer();
+          auto hydro_pkg = pmb->packages.Get("Hydro");
+          const Real reduction = hydro_pkg->Param<Real>(reduction_str);
+          // Reset the running count for this reduction between history outputs
+          hydro_pkg->UpdateParam(reduction_str, 0.0);
+          return reduction;
+        },
+        reduction_str));
+  }
+
+  // Add history reduction for total cold gas using stellar mass threshold
+  const Real cold_thresh =
+      pin->GetOrAddReal("problem/cluster/reductions", "cold_temp_thresh", 0.0);
+  if (cold_thresh > 0) {
+    hydro_pkg->AddParam("reduction_cold_threshold", cold_thresh);
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::sum, LocalReduceColdGas, "cold_mass"));
+  }
+  const Real agn_tracer_thresh =
+      pin->GetOrAddReal("problem/cluster/reductions", "agn_tracer_thresh", -1.0);
+  if (agn_tracer_thresh >= 0) {
+    PARTHENON_REQUIRE(
+        pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false),
+        "AGN Tracer must be enabled to reduce AGN tracer extent");
+    hydro_pkg->AddParam("reduction_agn_tracer_threshold", agn_tracer_thresh);
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::max, LocalReduceAGNExtent, "agn_extent"));
+  }
+
+  hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
   /************************************************************
    * Add derived fields
@@ -460,7 +538,20 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
   if (sigma_v != 0.0) {
     // peak of init vel perturb
-    auto k_peak_v = pin->GetReal("problem/cluster/init_perturb", "k_peak_v");
+    auto l_peak_v = pin->GetOrAddReal("problem/cluster/init_perturb", "l_peak_v", -1.0);
+    auto k_peak_v = pin->GetOrAddReal("problem/cluster/init_perturb", "k_peak_v", -1.0);
+
+    PARTHENON_REQUIRE_THROWS((l_peak_v > 0.0 && k_peak_v <= 0.0) ||
+                                 (k_peak_v > 0.0 && l_peak_v <= 0.0),
+                             "Setting initial velocity perturbation requires a single "
+                             "length scale by either setting l_peak_v or k_peak_v.");
+    // Set peak wavemode as required by few_modes_fft when not directly given
+    if (l_peak_v > 0) {
+      const auto Lx = pin->GetReal("parthenon/mesh", "x1max") -
+                      pin->GetReal("parthenon/mesh", "x1min");
+      // Note that this assumes a cubic box
+      k_peak_v = Lx / l_peak_v;
+    }
     auto num_modes_v =
         pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_v", 40);
     auto sol_weight_v =
@@ -492,8 +583,20 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     PARTHENON_REQUIRE_THROWS(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd,
                              "Requested initial magnetic field perturbations but not "
                              "solving the MHD equations.")
-    // peak of init vel perturb
-    auto k_peak_b = pin->GetReal("problem/cluster/init_perturb", "k_peak_b");
+    // peak of init magnetic field perturb
+    auto l_peak_b = pin->GetOrAddReal("problem/cluster/init_perturb", "l_peak_b", -1.0);
+    auto k_peak_b = pin->GetOrAddReal("problem/cluster/init_perturb", "k_peak_b", -1.0);
+    PARTHENON_REQUIRE_THROWS((l_peak_b > 0.0 && k_peak_b <= 0.0) ||
+                                 (k_peak_b > 0.0 && l_peak_b <= 0.0),
+                             "Setting initial B perturbation requires a single "
+                             "length scale by either setting l_peak_b or k_peak_b.");
+    // Set peak wavemode as required by few_modes_fft when not directly given
+    if (l_peak_b > 0) {
+      const auto Lx = pin->GetReal("parthenon/mesh", "x1max") -
+                      pin->GetReal("parthenon/mesh", "x1min");
+      // Note that this assumes a cubic box
+      k_peak_b = Lx / l_peak_b;
+    }
     auto num_modes_b =
         pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_b", 40);
     uint32_t rseed_b = pin->GetOrAddInteger("problem/cluster/init_perturb", "rseed_b", 2);
