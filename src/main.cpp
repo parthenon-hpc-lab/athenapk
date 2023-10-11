@@ -2,6 +2,7 @@
 // Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE");
 
+#include <fenv.h>
 #include <sstream>
 
 // Parthenon headers
@@ -25,6 +26,83 @@ std::function<AmrTag(MeshBlockData<Real> *mbd)> ProblemCheckRefinementBlock = nu
 } // namespace Hydro
 
 int main(int argc, char *argv[]) {
+  // FPE handling (borrowed from AMReX)
+  {
+    using SignalHandler = void (*)(int);
+    SignalHandler prev_handler_sigfpe = SIG_ERR; // NOLINT(performance-no-int-to-ptr)
+    SignalHandler prev_handler_sigill = SIG_ERR; // NOLINT(performance-no-int-to-ptr)
+#if defined(__linux__)
+    int prev_fpe_excepts = 0;
+    int curr_fpe_excepts = 0;
+#elif defined(__APPLE__) && defined(__x86_64__)
+    unsigned int prev_fpe_mask = 0u;
+    unsigned int curr_fpe_excepts = 0u;
+#endif
+
+    prev_handler_sigfpe = SIG_ERR; // NOLINT(performance-no-int-to-ptr)
+    {
+      int invalid = 1, divbyzero = 1, overflow = 1;
+
+#if defined(__linux__)
+      curr_fpe_excepts = 0;
+      if (invalid) {
+        curr_fpe_excepts |= FE_INVALID;
+      }
+      if (divbyzero) {
+        curr_fpe_excepts |= FE_DIVBYZERO;
+      }
+      if (overflow) {
+        curr_fpe_excepts |= FE_OVERFLOW;
+      }
+      prev_fpe_excepts = fegetexcept();
+      if (curr_fpe_excepts != 0) {
+        feenableexcept(curr_fpe_excepts); // trap floating point exceptions
+        // prev_handler_sigfpe = std::signal(SIGFPE, BLBackTrace::handler);
+      }
+
+#elif defined(__APPLE__) && defined(__x86_64__)
+      prev_fpe_mask = _MM_GET_EXCEPTION_MASK();
+      curr_fpe_excepts = 0u;
+      if (invalid) {
+        curr_fpe_excepts |= _MM_MASK_INVALID;
+      }
+      if (divbyzero) {
+        curr_fpe_excepts |= _MM_MASK_DIV_ZERO;
+      }
+      if (overflow) {
+        curr_fpe_excepts |= _MM_MASK_OVERFLOW;
+      }
+      if (curr_fpe_excepts != 0u) {
+        _MM_SET_EXCEPTION_MASK(prev_fpe_mask & ~curr_fpe_excepts);
+        // prev_handler_sigfpe = std::signal(SIGFPE, BLBackTrace::handler);
+      }
+#endif
+    }
+
+    prev_handler_sigill = SIG_ERR; // NOLINT(performance-no-int-to-ptr)
+    {
+#if defined(__APPLE__) && defined(__aarch64__)
+      int invalid = 1, divbyzero = 1, overflow = 1;
+
+      fenv_t env;
+      fegetenv(&env);
+      if (invalid) {
+        env.__fpcr |= __fpcr_trap_invalid;
+      }
+      if (divbyzero) {
+        env.__fpcr |= __fpcr_trap_divbyzero;
+      }
+      if (overflow) {
+        env.__fpcr |= __fpcr_trap_overflow;
+      }
+      fesetenv(&env);
+      // SIGILL ref: https://developer.apple.com/forums/thread/689159
+#endif
+      // prev_handler_sigill = std::signal(SIGILL, BLBackTrace::handler);
+    }
+  }
+
+  // begin main()
   using parthenon::ParthenonManager;
   using parthenon::ParthenonStatus;
   ParthenonManager pman;
