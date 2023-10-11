@@ -42,7 +42,6 @@
 #include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
 #include "../utils/few_modes_ft.hpp"
-#include "../utils/few_modes_ft_lognormal.hpp"
 
 // Cluster headers
 #include "cluster/agn_feedback.hpp"
@@ -59,7 +58,6 @@ namespace cluster {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
-using utils::few_modes_ft_log::FewModesFTLog;
 
 template <class EOS>
 void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
@@ -416,47 +414,25 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     // plasma beta
     hydro_pkg->AddField("plasma_beta", m);
   }
+    
+    
+    
+    
+    
+    
+    
+  /************************************************************
+   * Read Density perturbation
+   ************************************************************/
+    
+  //const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
+  //hydro_pkg->AddParam<>("init_perturb_rho", init_perturb_rho);
+
   
   /************************************************************
    * Read Velocity perturbation
    ************************************************************/
-  
-  const auto mu_rho = pin->GetOrAddReal("problem/cluster/init_perturb", "mu_rho", 0.0); // Mean density of perturbations
-  
-  if (mu_rho != 0.0) {
     
-    auto k_min_rho     = pin->GetReal("problem/cluster/init_perturb", "k_min_rho"); // Minimum wavenumber of perturbation
-    auto num_modes_rho =
-        pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_rho", 40);
-    auto sol_weight_rho =
-        pin->GetOrAddReal("problem/cluster/init_perturb", "sol_weight_rho", 1.0);
-    uint32_t rseed_rho  = pin->GetOrAddInteger("problem/cluster/init_perturb", "rseed_rho", 1);
-    
-    // Computing the kmax ie. the Nyquist limit
-    auto grid_ni = pin->GetOrAddInteger("parthenon/mesh", "nx1", 64); // Assuming cubic grid with equal size in each axis
-    auto k_max_rho = grid_ni / 2;
-    
-    const auto t_corr_rho = 1e-10;
-    auto k_vec_rho = utils::few_modes_ft_log::MakeRandomModesLog(num_modes_rho, k_min_rho, k_max_rho, rseed_rho); // Generating random modes
-    
-    auto few_modes_ft_rho = FewModesFTLog(pin, hydro_pkg, "cluster_perturb_rho", num_modes_rho,
-                                   k_vec_rho, k_min_rho, k_max_rho, sol_weight_rho, t_corr_rho, rseed_rho);
-    
-    hydro_pkg->AddParam<>("cluster/few_modes_ft_rho", few_modes_ft_rho);
-    
-    // Add field for initial perturation (must not need to be consistent but defining it
-    // this way is easier for now)
-    Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
-               std::vector<int>({3}));
-    hydro_pkg->AddField("tmp_perturb_rho", m);
-    
-  }
-  
-  /************************************************************
-   * Read Velocity perturbation
-   ************************************************************/
-  
-  
   const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
   if (sigma_v != 0.0) {
     // peak of init vel perturb
@@ -482,11 +458,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
                std::vector<int>({3}));
     hydro_pkg->AddField("tmp_perturb", m);
   }
-    
-  /************************************************************
-   * Read Magnetic field perturbation
-   ************************************************************/  
-  
   const auto sigma_b = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_b", 0.0);
   if (sigma_b != 0.0) {
     PARTHENON_REQUIRE_THROWS(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd,
@@ -718,8 +689,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
     } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
   }
-   
-   /************************************************************
+
+    /************************************************************
    * Initial parameters
    ************************************************************/    
   
@@ -733,63 +704,20 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
   const auto num_blocks = md->NumBlocks();    
   
-  
-  /************************************************************
-   * Set initial density perturbations (read from HDF5 file)
+    /************************************************************
+   * Set initial density perturbations
    ************************************************************/
   
   const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
   const bool full_box         = pin->GetOrAddBoolean("problem/cluster/init_perturb", "full_box", true);
   const Real thickness_ism    = pin->GetOrAddReal("problem/cluster/init_perturb", "thickness_ism", 0.0);
   const bool overpressure_ring = pin->GetOrAddBoolean("problem/cluster/init_perturb", "overpressure_ring", false);
-  const bool spherical_collapse  = pin->GetOrAddBoolean("problem/cluster/init_perturb", "spherical_collapse", false);
-  const bool numerical_diffusion = pin->GetOrAddBoolean("problem/cluster/init_perturb", "numerical_diffusion", false);
+  const bool spherical_collapse = pin->GetOrAddBoolean("problem/cluster/init_perturb", "spherical_collapse", false);
   
   hydro_pkg->AddParam<>("init_perturb_rho", init_perturb_rho);
   
   Real passive_scalar = 0.0; // Not useful here
   
-  // Numerical diffusion problem
-    
-  if (numerical_diffusion == true) {
-      
-    pmb->par_reduce(
-        "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-          
-          auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
-          
-          const auto gis = pmbb->loc.lx1 * pmb->block_size.nx1;
-          const auto gjs = pmbb->loc.lx2 * pmb->block_size.nx2;
-          const auto gks = pmbb->loc.lx3 * pmb->block_size.nx3;
-          
-          const auto &coords = cons.GetCoords(b);
-          const auto &u = cons(b);
-          
-          const Real x = coords.Xc<1>(i);
-          const Real y = coords.Xc<2>(j);
-          const Real z = coords.Xc<3>(k);
-          const Real background_density  = pin->GetOrAddReal("problem/cluster/init_perturb", "background_density", 3);
-          const Real foreground_density  = pin->GetOrAddReal("problem/cluster/init_perturb", "foreground_density", 150);
-          
-          // Setting density for the left side of the box
-          if (x <= 0) {
-            
-            u(IDN, k, j, i) = background_density;
-            
-          }
-          
-          else {
-            
-            u(IDN, k, j, i) = foreground_density;  
-            
-          }
-                  
-        },
-        passive_scalar);
-      
-  }
-    
   // Spherical collapse test with an initial overdensity
   
   if (spherical_collapse == true) {
@@ -830,7 +758,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         passive_scalar);
         
   }
-  
+    
   /* -------------- Setting up a clumpy atmosphere --------------
   
   1) Extract the values of the density from an input hdf5 file using H5Easy
@@ -842,19 +770,23 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   
   if (init_perturb_rho == true) {
     
-    auto filename_rho = pin->GetOrAddString("problem/cluster/init_perturb", "init_perturb_rho_file","none");  
-    auto grid_size    = pin->GetOrAddInteger("parthenon/mesh","nx1",256);
+    auto init_perturb_rho_file = pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_file");
+    auto init_perturb_rho_keys = pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_keys");
     
+    hydro_pkg->AddParam<>("cluster/init_perturb_rho_file", init_perturb_rho_file);
+    hydro_pkg->AddParam<>("cluster/init_perturb_rho_keys", init_perturb_rho_keys);    
+    
+    std::cout << "Setting density perturbation";
+    
+    // Read HDF5 file containing the density
+    std::string filename_rho = "/work/bbd0833/test/rho.h5";
     std::string keys_rho = "data";
     H5Easy::File file(filename_rho, HighFive::File::ReadOnly);
     auto rho_init = H5Easy::load<std::array<std::array<std::array<float, 256>, 256>, 256>>(file, keys_rho);
     
-    //std::vector<double> rho_init(grid_size * grid_size * grid_size);
-    //std::vector<double> rho_init(grid_size * grid_size * grid_size) = H5Easy::load(file, keys_rho);
-    
     Real passive_scalar = 0.0; // Useless
     
-    std::cout << "Entering initialisation of rho field";
+    std::cout << "entering initialisation of rho field";
     
     pmb->par_reduce(
         "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -935,57 +867,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         passive_scalar);
   
   }
-    
-  /************************************************************
-   * Setting up a perturbed density field (hardcoded version)
-   ************************************************************/
-  
-  const auto mu_rho = pin->GetOrAddReal("problem/cluster/init_perturb", "mu_rho", 0.0);
-      
-  if (mu_rho != 0.0) {
-    
-    std::cout << "Entering rho perturbation mode \n" ;
-    
-    auto few_modes_ft_rho = hydro_pkg->Param<FewModesFTLog>("cluster/few_modes_ft_rho");
-      
-    std::cout << "few_modes_ft_rho defined \n" ;
-    
-    // Init phases on all blocks
-    for (int b = 0; b < md->NumBlocks(); b++) {
-      auto pmb = md->GetBlockData(b)->GetBlockPointer();
-      few_modes_ft_rho.SetPhases(pmb.get(), pin);
-
-    }
-      
-    std::cout << "Phase is set on each block \n" ;
-    
-    // As for t_corr in few_modes_ft, the choice for dt is
-    // in principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
-    // the perturbation (and is normalized in the following to get the desired sigma_v)
-    //const Real dt = 1.0;
-    //few_modes_ft_rho.Generate(md, dt, "tmp_perturb_rho");
-    
-    //Real v2_sum_rho = 0.0; // used for normalization
-    
-    //auto perturb_pack_rho = md->PackVariables(std::vector<std::string>{"tmp_perturb_rho"});
-    
-    //pmb->par_reduce(
-    //    "Init sigma_v", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-    //    KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-    //      const auto &coords = cons.GetCoords(b);
-    //      const auto &u = cons(b);
-            
-    //      u(IDN, k, j, i) = 1000 + perturb_pack_rho(b, 0, k, j, i);
-    //      std::cout << "Rho value:" << perturb_pack_rho(b, 0, k, j, i) << "\n" ;
-    //    },
-    //    v2_sum_rho);
-
-//#ifdef MPI_PARALLEL
-    //PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &v2_sum_rho, 1, MPI_PARTHENON_REAL,
-    //                                  MPI_SUM, MPI_COMM_WORLD));
-//#endif // MPI_PARALLEL
-    
-  }
   
   /************************************************************
    * Set initial velocity perturbations (requires no other velocities for now)
@@ -1057,7 +938,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               u(IDN, k, j, i);
         });
   }
-  
+
   /************************************************************
    * Set initial magnetic field perturbations (resets magnetic field field)
    ************************************************************/

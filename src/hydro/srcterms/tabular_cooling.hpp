@@ -155,19 +155,19 @@ class CoolingTableObj {
       log_lambda = 0.5 * log_temp - 0.5 * log_temp_final_ + log_lambdas_(n_temp_ - 1);
     } else {
       // Inside table, interpolate assuming log spaced temperatures
-
+      
       // Determine where temp is in the table
       const unsigned int i_temp =
           static_cast<unsigned int>((log_temp - log_temp_start_) / d_log_temp_);
       const Real log_temp_i = log_temp_start_ + d_log_temp_ * i_temp;
-
+      
       // log_temp should be between log_temps[i_temp] and log_temps[i_temp+1]
       PARTHENON_REQUIRE(log_temp >= log_temp_i && log_temp <= log_temp_i + d_log_temp_,
                         "FATAL ERROR in [CoolingTable::DeDt]: Failed to find log_temp");
-
+      
       const Real log_lambda_i = log_lambdas_(i_temp);
       const Real log_lambda_ip1 = log_lambdas_(i_temp + 1);
-
+      
       // Linearly interpolate lambda at log_temp
       log_lambda = log_lambda_i + (log_temp - log_temp_i) *
                                       (log_lambda_ip1 - log_lambda_i) / d_log_temp_;
@@ -181,7 +181,7 @@ class CoolingTableObj {
     
     return de_dt;
   }
-
+  
   KOKKOS_INLINE_FUNCTION parthenon::Real DeDt(const parthenon::Real &e,
                                               const parthenon::Real &rho) const {
     bool is_valid = true;
