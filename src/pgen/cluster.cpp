@@ -735,9 +735,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           
           auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
           
-          const auto gis = pmbb->loc.lx1 * pmb->block_size.nx1;
-          const auto gjs = pmbb->loc.lx2 * pmb->block_size.nx2;
-          const auto gks = pmbb->loc.lx3 * pmb->block_size.nx3;
+          const auto gis = pmbb->loc.lx1() * pmb->block_size.nx1;
+          const auto gjs = pmbb->loc.lx2() * pmb->block_size.nx2;
+          const auto gks = pmbb->loc.lx3() * pmb->block_size.nx3;
           
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
@@ -797,9 +797,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           
           auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
           
-          const auto gis = pmbb->loc.lx1 * pmb->block_size.nx1;
-          const auto gjs = pmbb->loc.lx2 * pmb->block_size.nx2;
-          const auto gks = pmbb->loc.lx3 * pmb->block_size.nx3;
+          const auto gis = pmbb->loc.lx1() * pmb->block_size.nx1;
+          const auto gjs = pmbb->loc.lx2() * pmb->block_size.nx2;
+          const auto gks = pmbb->loc.lx3() * pmb->block_size.nx3;
           
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
