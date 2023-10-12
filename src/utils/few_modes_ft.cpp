@@ -115,9 +115,9 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   // below take the logical grid size into account. For example, the local phases at level
   // 1 should be calculated assuming a grid that is twice as large as the root grid.
   const auto root_level = pm->GetRootLevel();
-  auto gnx1 = pm->mesh_size.nx1 * std::pow(2, pmb->loc.level() - root_level);
-  auto gnx2 = pm->mesh_size.nx2 * std::pow(2, pmb->loc.level() - root_level);
-  auto gnx3 = pm->mesh_size.nx3 * std::pow(2, pmb->loc.level() - root_level);
+  auto gnx1 = pm->mesh_size.nx1 * std::pow(2, pmb->loc.level - root_level);
+  auto gnx2 = pm->mesh_size.nx2 * std::pow(2, pmb->loc.level - root_level);
+  auto gnx3 = pm->mesh_size.nx3 * std::pow(2, pmb->loc.level - root_level);
 
   // Restriction should also be easily fixed, just need to double check transforms and
   // volume weighting everywhere
@@ -130,9 +130,9 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   const auto nx2 = pmb->block_size.nx2;
   const auto nx3 = pmb->block_size.nx3;
 
-  const auto gis = pmb->loc.lx1() * pmb->block_size.nx1;
-  const auto gjs = pmb->loc.lx2() * pmb->block_size.nx2;
-  const auto gks = pmb->loc.lx3() * pmb->block_size.nx3;
+  const auto gis = pmb->loc.lx1 * pmb->block_size.nx1;
+  const auto gjs = pmb->loc.lx2 * pmb->block_size.nx2;
+  const auto gks = pmb->loc.lx3 * pmb->block_size.nx3;
 
   // make local ref to capure in lambda
   const auto num_modes = num_modes_;

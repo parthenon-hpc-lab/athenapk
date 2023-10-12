@@ -114,7 +114,7 @@ void SNIAFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         cons(IEN, k, j, i) += snia_energy_density;
         AddDensityToConsAtFixedVel(snia_mass_density, cons, prim, k, j, i);
 
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i,0,0,0);
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
       });
 }
 

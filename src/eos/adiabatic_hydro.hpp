@@ -51,7 +51,7 @@ class AdiabaticHydroEOS : public EquationOfState {
   template <typename View4D>
   KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro,
                                          const int &nscalars, const int &k, const int &j,
-                                         const int &i, const int &gks, const int &gjs, const int &gis) const {
+                                         const int &i) const {
     
     Real gm1 = GetGamma() - 1.0;
     auto density_floor_ = GetDensityFloor();
@@ -72,10 +72,6 @@ class AdiabaticHydroEOS : public EquationOfState {
     Real &w_vy = prim(IV2, k, j, i);
     Real &w_vz = prim(IV3, k, j, i);
     Real &w_p = prim(IPR, k, j, i);
-    
-    if (u_d <= 0.0) {std::cout << "(k,j,i)=(" << k << "," << j << "," << i << ") \n" ;
-                     std::cout << "(gks,gjs,gis)=(" << gks << "," << gjs << "," << gis << ") \n" ;
-                   }
       
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
@@ -113,21 +109,7 @@ class AdiabaticHydroEOS : public EquationOfState {
     
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.
-    
-    // Trying to understand why negative pressure appear in tests
-    
-    if (w_p <= 0.0) {std::cout << "w_p = gm1 * (u_e - e_k)";
-                    std::cout << "w_p=" << w_p << "\n" ;
-                    std::cout << "gm1=" << gm1 << "\n" ;
-                    std::cout << "u_e=" << u_e << "\n" ;
-                    std::cout << "e_k=" << e_k << "\n" ;
-                    std::cout << "(k,j,i)=(" << k << "," << j << "," << i << ") \n" ;
-                    std::cout << "(gks,gjs,gis)=(" << gks << "," << gjs << "," << gis << ") \n" ;
-                   }
-    
-    //if (pressure_floor_ < 0.0) {std::cout << "pressure_floor_" << pressure_floor_ << "\n" ;}
-    //if (e_floor_ < 0.0) {std::cout << "e_floor_" << e_floor_ << "\n" ;}
-    
+        
     // The first argument check whether one of the conditions is true
     // By default, floors are deactivated, ie. pressure floor and e_floor
     // are -1. The code will eventually crash when w_p turns < 0.

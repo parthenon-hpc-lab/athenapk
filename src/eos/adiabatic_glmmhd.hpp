@@ -61,7 +61,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
   template <typename View4D>
   KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro,
                                          const int &nscalars, const int &k, const int &j,
-                                         const int &i, const int &gks, const int &gjs, const int &gis) const {
+                                         const int &i) const {
     auto gam = GetGamma();
     auto gm1 = gam - 1.0;
     auto density_floor_ = GetDensityFloor();

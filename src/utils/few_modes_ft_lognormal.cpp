@@ -33,8 +33,10 @@ FewModesFTLog::FewModesFTLog(parthenon::ParameterInput *pin, parthenon::StateDes
                        std::string prefix, int num_modes, ParArray2D<Real> k_vec,
                        Real k_min, Real k_max, Real sol_weight, Real t_corr, uint32_t rseed,
                        bool fill_ghosts)
-    : prefix_(prefix), num_modes_(num_modes), k_min_(k_min), k_max_(k_max),
+    : prefix_(prefix), num_modes_(num_modes), k_vec_(k_vec), k_min_(k_min), k_max_(k_max),
       t_corr_(t_corr), fill_ghosts_(fill_ghosts) {
+  
+  //std::cout << "FewModesFTLog: k_vec_(0,0)=" <<         
   
   if ((num_modes > 100) && (parthenon::Globals::my_rank == 0)) {
     std::cout << "### WARNING using more than 100 explicit modes will significantly "
@@ -49,11 +51,13 @@ FewModesFTLog::FewModesFTLog(parthenon::ParameterInput *pin, parthenon::StateDes
   // Need to make this comparison on the host as (for some reason) an extended cuda device
   // lambda cannot live in the constructor of an object.
   auto k_vec_host = k_vec.GetHostMirrorAndCopy();
+  
   for (int i = 0; i < num_modes; i++) {
+      
     PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) <= gnx1 / 2, "k_vec x1 mode too large");
     PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) <= gnx2 / 2, "k_vec x2 mode too large");
     PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) <= gnx3 / 2, "k_vec x3 mode too large");
-  }
+  } 
   
   const auto nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
   const auto nx2 = pin->GetInteger("parthenon/meshblock", "nx2");
@@ -88,6 +92,7 @@ FewModesFTLog::FewModesFTLog(parthenon::ParameterInput *pin, parthenon::StateDes
 }
 
 void FewModesFTLog::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
+  
   auto pm = pmb->pmy_mesh;
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
@@ -102,8 +107,6 @@ void FewModesFTLog::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   // separate and not touch the main driver at the expense of using one pack per rank --
   // which is typically fastest on devices anyway.
     
-  std::cout << "Entering SetPhases routine \n" ;
-
   const auto pack_size = pin->GetInteger("parthenon/mesh", "pack_size");
   PARTHENON_REQUIRE_THROWS(pack_size == -1,
                            "Few modes FT currently needs parthenon/mesh/pack_size=-1 "
@@ -140,8 +143,6 @@ void FewModesFTLog::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   // make local ref to capure in lambda
   const auto num_modes = num_modes_;
   auto &k_vec = k_vec_;
-  
-  std::cout << "SetPhases: k_vec(0,0) = " << k_vec(0,0) ;
     
   Complex I(0.0, 1.0);
 
@@ -150,8 +151,6 @@ void FewModesFTLog::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto &phases_j = base->Get(prefix_ + "_phases_j").data;
   auto &phases_k = base->Get(prefix_ + "_phases_k").data;
   
-  std::cout << "SetPhases: all constants defined, starting the real shit \n" ;
-  
   const auto ng = fill_ghosts_ ? parthenon::Globals::nghost : 0;
   pmb->par_for(
       "FMFT: calc phases_i", 0, nx1 - 1 + 2 * ng, KOKKOS_LAMBDA(int i) {
@@ -159,22 +158,13 @@ void FewModesFTLog::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
         Real w_kx;
         Complex phase;
         
-        std::cout << "SetPhases: first loop \n" ;
-        
         for (int m = 0; m < num_modes; m++) {
           
-          std::cout << "SetPhases: entering for loop on modes \n" ;
-          
-          std::cout << "SetPhases: defining w_kx \n" ;
-          std::cout << "SetPhases: k_vec(0, m)" << k_vec(0, m) << "\n" ;
-          std::cout << "gnx1:" << static_cast<Real>(gnx1) << " \n" ;
           
           w_kx = k_vec(0, m) * 2. * M_PI / static_cast<Real>(gnx1);
           
-          std::cout << "SetPhases: w_kx defined \n" ;
-          
           // adjust phase factor to Complex->Real IFT: u_hat*(k) = u_hat(-k)
-          std::cout << "SetPhases: about to compute phase \n" ;
+
           if (k_vec(0, m) == 0.0) {
             phase = 0.5 * Kokkos::exp(I * w_kx * gi);
           } else {
@@ -183,7 +173,6 @@ void FewModesFTLog::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
           phases_i(i, m, 0) = phase.real();
           phases_i(i, m, 1) = phase.imag();
             
-          std::cout << "SetPhases: phases computed \n" ;
         }
       });
 
@@ -382,19 +371,37 @@ ParArray2D<Real> MakeRandomModesLog(const int num_modes, const Real k_min, const
   
   std::mt19937 rng;
   rng.seed(rseed);
-  std::uniform_int_distribution<> dist(-k_high, k_high); // Function to be used to define size of the 
+  std::uniform_real_distribution<> dist(-k_high, k_high);
+  std::uniform_real_distribution<> distlog(std::log10(k_low), std::log10(k_high));
   
   int n_mode = 0;
   int n_attempt = 0;
   constexpr int max_attempts = 1000000;
-  Real kx1, kx2, kx3, k_mag, ampl;
+  Real kx1, kx2, kx3, skx1, skx2, skx3, lkx1, lkx2, lkx3, k_mag, ampl;
   bool mode_exists = false;
   while (n_mode < num_modes && n_attempt < max_attempts) {
     n_attempt += 1;
-
-    kx1 = dist(rng);
-    kx2 = dist(rng);
-    kx3 = dist(rng);
+    
+    skx1 = dist(rng);
+    skx2 = dist(rng);
+    skx3 = dist(rng);
+    
+    skx1 = skx1 / std::abs(skx1);
+    skx2 = skx2 / std::abs(skx2);
+    skx3 = skx3 / std::abs(skx3);
+      
+    lkx1 = distlog(rng);
+    lkx2 = distlog(rng);
+    lkx3 = distlog(rng);
+    
+    //kx1  = skx1 * std::floor(std::pow(10,lkx1));
+    //kx2  = skx2 * std::floor(std::pow(10,lkx2));
+    //kx3  = skx3 * std::floor(std::pow(10,lkx3));
+      
+    kx1  = std::floor(std::pow(10,lkx1));
+    kx2  = std::floor(std::pow(10,lkx2));
+    kx3  = std::floor(std::pow(10,lkx3));
+    
     k_mag = std::sqrt(SQR(kx1) + SQR(kx2) + SQR(kx3));
 
     // Expected amplitude of the spectral function. If this is changed, it also needs to
