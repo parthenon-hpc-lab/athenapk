@@ -644,7 +644,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               A(2, k, j, i) += m_cross_r_z / (4 * M_PI * r3);
             });
       }
-
+      
       /************************************************************
        * Apply the potential to the conserved variables
        ************************************************************/
@@ -652,6 +652,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyMagneticPotential",
           parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
           KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+            
             u(IB1, k, j, i) =
                 (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
                 (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
@@ -665,7 +666,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IEN, k, j, i) += 0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) +
                                       SQR(u(IB3, k, j, i)));
           });
-
+      
       /************************************************************
        * Add uniform magnetic field to the conserved variables
        ************************************************************/
@@ -681,7 +682,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               const Real bx_i = u(IB1, k, j, i);
               const Real by_i = u(IB2, k, j, i);
               const Real bz_i = u(IB3, k, j, i);
-
+              
               u(IB1, k, j, i) += bx;
               u(IB2, k, j, i) += by;
               u(IB3, k, j, i) += bz;
@@ -905,8 +906,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
           
-          u(IDN, k, j, i) = background_rho + mu_rho * std::abs(perturb_pack_rho(b, 0, k, j, i));
-          std::cout << "Rho value:" << perturb_pack_rho(b, 0, k, j, i) << "\n" ;
+          u(IDN, k, j, i) = background_rho + mu_rho * std::pow(10,perturb_pack_rho(b, 0, k, j, i));
+
         },
         v2_sum_rho);
 
@@ -992,6 +993,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
    * Set initial magnetic field perturbations (resets magnetic field field)
    ************************************************************/
   const auto sigma_b = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_b", 0.0);
+  
   if (sigma_b != 0.0) {
     auto few_modes_ft = hydro_pkg->Param<FewModesFT>("cluster/few_modes_ft_b");
     // Init phases on all blocks
@@ -1008,60 +1010,85 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     Real b2_sum = 0.0; // used for normalization
 
     auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
-
+    
+    // Defining a new table that will contains the values of the perturbed magnetic field, and magnetic energy
+    parthenon::ParArray5D<Real> dB("turbulent magnetic field", num_blocks, 4,
+                                  pmb->cellbounds.ncellsk(IndexDomain::entire),
+                                  pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                  pmb->cellbounds.ncellsi(IndexDomain::entire));
+      
+      
     pmb->par_reduce(
         "Init sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+          
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
-          // The following restriction could be lifted, but requires refactoring of the
-          // logic for the normalization/reduction below
-          PARTHENON_REQUIRE(
-              u(IB1, k, j, i) == 0.0 && u(IB2, k, j, i) == 0.0 && u(IB3, k, j, i) == 0.0,
-              "Found existing non-zero B when setting magnetic field perturbations.");
-          u(IB1, k, j, i) =
-              (perturb_pack(b, 2, k, j + 1, i) - perturb_pack(b, 2, k, j - 1, i)) /
+          
+          // Normalization condition here, which we want to lift. To do so, we'll need
+          // to copy the values of the magnetic field into a new array, which we will 
+          // use to store the perturbed magnetic field and then rescale it, until values
+          // are added to u = cons(b)
+          
+          //PARTHENON_REQUIRE(
+          //    u(IB1, k, j, i) == 0.0 && u(IB2, k, j, i) == 0.0 && u(IB3, k, j, i) == 0.0,
+          //    "Found existing non-zero B when setting magnetic field perturbations.");
+          
+          Real gradBx,gradBy,gradBz;
+          
+          gradBx = (perturb_pack(b, 2, k, j + 1, i) - perturb_pack(b, 2, k, j - 1, i)) /
                   coords.Dxc<2>(j) / 2.0 -
               (perturb_pack(b, 1, k + 1, j, i) - perturb_pack(b, 1, k - 1, j, i)) /
-                  coords.Dxc<3>(k) / 2.0;
-          u(IB2, k, j, i) =
-              (perturb_pack(b, 0, k + 1, j, i) - perturb_pack(b, 0, k - 1, j, i)) /
+                  coords.Dxc<3>(k) / 2.0 ;
+          
+          gradBy = (perturb_pack(b, 0, k + 1, j, i) - perturb_pack(b, 0, k - 1, j, i)) /
                   coords.Dxc<3>(k) / 2.0 -
               (perturb_pack(b, 2, k, j, i + 1) - perturb_pack(b, 2, k, j, i - 1)) /
-                  coords.Dxc<1>(i) / 2.0;
-          u(IB3, k, j, i) =
-              (perturb_pack(b, 1, k, j, i + 1) - perturb_pack(b, 1, k, j, i - 1)) /
+                  coords.Dxc<1>(i) / 2.0 ;
+          
+          gradBz = (perturb_pack(b, 1, k, j, i + 1) - perturb_pack(b, 1, k, j, i - 1)) /
                   coords.Dxc<1>(i) / 2.0 -
               (perturb_pack(b, 0, k, j + 1, i) - perturb_pack(b, 0, k, j - 1, i)) /
-                  coords.Dxc<2>(j) / 2.0;
-
+                  coords.Dxc<2>(j) / 2.0 ;
+          
+          dB(b,0, k, j, i) = gradBx;
+          dB(b,1, k, j, i) = gradBy;
+          dB(b,2, k, j, i) = gradBz;
+          
           // No need to touch the energy yet as we'll normalize later
-          lsum += (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i))) *
+          lsum += (SQR(gradBx) + SQR(gradBy) + SQR(gradBz)) *
                   coords.CellVolume(k, j, i);
         },
         b2_sum);
-
+    
 #ifdef MPI_PARALLEL
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &b2_sum, 1, MPI_PARTHENON_REAL,
                                       MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
-
+    
     const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
     const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
     const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
     auto b_norm = std::sqrt(b2_sum / (Lx * Ly * Lz) / (SQR(sigma_b)));
-
+    
     pmb->par_for(
         "Norm sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           const auto &u = cons(b);
-
-          u(IB1, k, j, i) /= b_norm;
-          u(IB2, k, j, i) /= b_norm;
-          u(IB3, k, j, i) /= b_norm;
-
-          u(IEN, k, j, i) +=
-              0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
+            
+          dB(b, 0, k, j, i) /= b_norm;
+          dB(b, 1, k, j, i) /= b_norm;
+          dB(b, 2, k, j, i) /= b_norm;
+          
+          dB(b, 3, k, j, i) +=
+              0.5 * (SQR(dB(b, 0, k, j, i)) + SQR(dB(b, 1, k, j, i)) + SQR(dB(b, 2, k, j, i)));
+          
+          // Updating the MHD vector
+          
+          u(IB1, k, j, i) += dB(b, 0, k, j, i);
+          u(IB2, k, j, i) += dB(b, 1, k, j, i);
+          u(IB3, k, j, i) += dB(b, 2, k, j, i);
+          u(IEN, k, j, i) += dB(b, 3, k, j, i);
         });
   }
 }

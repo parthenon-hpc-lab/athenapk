@@ -389,18 +389,18 @@ ParArray2D<Real> MakeRandomModesLog(const int num_modes, const Real k_min, const
     skx1 = skx1 / std::abs(skx1);
     skx2 = skx2 / std::abs(skx2);
     skx3 = skx3 / std::abs(skx3);
-      
+    
     lkx1 = distlog(rng);
     lkx2 = distlog(rng);
     lkx3 = distlog(rng);
     
-    //kx1  = skx1 * std::floor(std::pow(10,lkx1));
-    //kx2  = skx2 * std::floor(std::pow(10,lkx2));
-    //kx3  = skx3 * std::floor(std::pow(10,lkx3));
+    kx1  = skx1 * std::floor(std::pow(10,lkx1));
+    kx2  = skx2 * std::floor(std::pow(10,lkx2));
+    kx3  = skx3 * std::floor(std::pow(10,lkx3));
       
-    kx1  = std::floor(std::pow(10,lkx1));
-    kx2  = std::floor(std::pow(10,lkx2));
-    kx3  = std::floor(std::pow(10,lkx3));
+    //kx1  = std::floor(std::pow(10,lkx1));
+    //kx2  = std::floor(std::pow(10,lkx2));
+    //kx3  = std::floor(std::pow(10,lkx3));
     
     k_mag = std::sqrt(SQR(kx1) + SQR(kx2) + SQR(kx3));
 
