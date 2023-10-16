@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
 
     prev_handler_sigfpe = SIG_ERR; // NOLINT(performance-no-int-to-ptr)
     {
-      int invalid = 1, divbyzero = 1, overflow = 1;
+      int invalid = 0, divbyzero = 0, overflow = 0;
 
 #if defined(__linux__)
       curr_fpe_excepts = 0;
@@ -82,7 +82,7 @@ int main(int argc, char *argv[]) {
     prev_handler_sigill = SIG_ERR; // NOLINT(performance-no-int-to-ptr)
     {
 #if defined(__APPLE__) && defined(__aarch64__)
-      int invalid = 1, divbyzero = 1, overflow = 1;
+      int invalid = 0, divbyzero = 0, overflow = 0;
 
       fenv_t env;
       fegetenv(&env);
