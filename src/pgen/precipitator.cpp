@@ -27,6 +27,7 @@
 #include <Kokkos_Random.hpp>
 
 // Parthenon headers
+#include "basic_types.hpp"
 #include "config.hpp"
 #include "coordinates/coordinates.hpp"
 #include "defs.hpp"
@@ -97,7 +98,8 @@ auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
 }
 
 void WriteProfileToFile(parthenon::ParArray1D<Real> &profile_reduce_dev,
-                        parthenon::MeshData<Real> *md, const std::string &filename) {
+                        parthenon::MeshData<Real> *md, const parthenon::SimTime &time,
+                        const std::string &filename) {
   // get MonotoneInterpolator for 1D profile
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
 
@@ -115,13 +117,17 @@ void WriteProfileToFile(parthenon::ParArray1D<Real> &profile_reduce_dev,
   PARTHENON_REQUIRE(profile_bins.size() == profile.size(),
                     "bins must have the same size as profile!");
 
-  // write CSV file (only on rank 0)
   if (parthenon::Globals::my_rank == 0) {
+    // open CSV file (only on rank 0)
     std::ofstream csvfile;
     csvfile.open(filename);
     csvfile.precision(17);
 
+    // write header
+    csvfile << "# time = " << time.time << "\n";
     csvfile << "# bin_value profile_value\n";
+
+    // write data
     for (size_t i = 0; i < profile.size(); ++i) {
       csvfile << profile_bins(i) << " ";
       csvfile << profile(i) << "\n";
@@ -273,9 +279,12 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
   const auto pmesh = md->GetMeshPointer();
-  const auto Lx = pmesh->mesh_size.xmax(parthenon::X1DIR) - pmesh->mesh_size.xmin(parthenon::X1DIR);
-  const auto Ly = pmesh->mesh_size.xmax(parthenon::X2DIR) - pmesh->mesh_size.xmin(parthenon::X2DIR);
-  const auto Lz = pmesh->mesh_size.xmax(parthenon::X3DIR) - pmesh->mesh_size.xmin(parthenon::X3DIR);
+  const auto Lx =
+      pmesh->mesh_size.xmax(parthenon::X1DIR) - pmesh->mesh_size.xmin(parthenon::X1DIR);
+  const auto Ly =
+      pmesh->mesh_size.xmax(parthenon::X2DIR) - pmesh->mesh_size.xmin(parthenon::X2DIR);
+  const auto Lz =
+      pmesh->mesh_size.xmax(parthenon::X3DIR) - pmesh->mesh_size.xmin(parthenon::X3DIR);
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -1050,7 +1059,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
 
   static int noutputs = 0;
   if (parthenon::Globals::my_rank == 0) {
-    std::cout << "noutputs = " << noutputs << "\n";
+    std::cout << "writing profiles (noutputs = " << noutputs << ")...\n";
   }
 
   parthenon::ParArray1D<Real> drho_rms("rms_drho", REDUCTION_ARRAY_SIZE);
@@ -1091,7 +1100,6 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
         return var(0, k, j, i);
       });
 
-  // save rms profiles to file
   auto filename = [=](const char *basename, unsigned int ncycles) {
     std::ostringstream count_str;
     count_str << basename;
@@ -1099,11 +1107,18 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     return count_str.str();
   };
 
-  WriteProfileToFile(drho_rms, md.get(), filename("drho_rms", noutputs));
-  WriteProfileToFile(dP_rms, md.get(), filename("dP_rms", noutputs));
-  WriteProfileToFile(dK_rms, md.get(), filename("dK_rms", noutputs));
-  WriteProfileToFile(dT_rms, md.get(), filename("dT_rms", noutputs));
-  WriteProfileToFile(mach_rms, md.get(), filename("mach_rms", noutputs));
+  // save rms profiles to file
+  WriteProfileToFile(drho_rms, md.get(), time, filename("drho_rms", noutputs));
+  WriteProfileToFile(dP_rms, md.get(), time, filename("dP_rms", noutputs));
+  WriteProfileToFile(dK_rms, md.get(), time, filename("dK_rms", noutputs));
+  WriteProfileToFile(dT_rms, md.get(), time, filename("dT_rms", noutputs));
+  WriteProfileToFile(mach_rms, md.get(), time, filename("mach_rms", noutputs));
+
+  // save avg profiles to file
+  WriteProfileToFile(rho_mean, md.get(), time, filename("rho_avg", noutputs));
+  WriteProfileToFile(P_mean, md.get(), time, filename("P_avg", noutputs));
+  WriteProfileToFile(K_mean, md.get(), time, filename("K_avg", noutputs));
+  WriteProfileToFile(T_mean, md.get(), time, filename("T_avg", noutputs));
 
   ++noutputs;
 }
