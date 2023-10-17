@@ -78,13 +78,9 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
   magnetic_tower.FixedFieldSrcTerm(md, beta_dt, tm);
 
-  // const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
-  // snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
+  const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
+  snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
 
-  // ApplyClusterClips(md, tm, beta_dt);
-
-  const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
-  stellar_feedback.FeedbackSrcTerm(md, beta_dt, tm);
 };
 void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                          const Real dt) {
