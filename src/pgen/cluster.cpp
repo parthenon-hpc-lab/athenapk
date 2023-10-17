@@ -25,6 +25,7 @@
 #include <string>    // c_str()
 
 // Parthenon headers
+#include "Kokkos_MathematicalFunctions.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
@@ -80,7 +81,6 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
   snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
-
 };
 void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                          const Real dt) {
@@ -360,6 +360,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 
     // plasma beta
     hydro_pkg->AddField("plasma_beta", m);
+
+    // plasma beta
+    hydro_pkg->AddField("B_mag", m);
   }
 
   /************************************************************
@@ -885,6 +888,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   if (pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     auto &plasma_beta = data->Get("plasma_beta").data;
     auto &mach_alfven = data->Get("mach_alfven").data;
+    auto &b_mag = data->Get("B_mag").data;
 
     pmb->par_for(
         "Cluster::UserWorkBeforeOutput::MHD", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -896,6 +900,8 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           const Real By = prim(IB2, k, j, i);
           const Real Bz = prim(IB3, k, j, i);
           const Real B2 = (SQR(Bx) + SQR(By) + SQR(Bz));
+
+          b_mag(k, j, i) = Kokkos::sqrt(B2);
 
           // compute Alfven mach number
           const Real v_A = std::sqrt(B2 / rho);
