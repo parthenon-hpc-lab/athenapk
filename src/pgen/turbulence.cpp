@@ -14,6 +14,7 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "defs.hpp"
 #include "globals.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/mesh.hpp"
@@ -36,6 +37,9 @@ namespace turbulence {
 using namespace parthenon::package::prelude;
 using parthenon::DevMemSpace;
 using parthenon::ParArray2D;
+using parthenon::X1DIR;
+using parthenon::X2DIR;
+using parthenon::X3DIR;
 using utils::few_modes_ft::Complex;
 using utils::few_modes_ft::FewModesFT;
 
@@ -579,9 +583,12 @@ void Rescale(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
                                     MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
 
-  const auto Lx = pmb->pmy_mesh->mesh_size.x1max - pmb->pmy_mesh->mesh_size.x1min;
-  const auto Ly = pmb->pmy_mesh->mesh_size.x2max - pmb->pmy_mesh->mesh_size.x2min;
-  const auto Lz = pmb->pmy_mesh->mesh_size.x3max - pmb->pmy_mesh->mesh_size.x3min;
+  const auto Lx =
+      pmb->pmy_mesh->mesh_size.xmax(X1DIR) - pmb->pmy_mesh->mesh_size.xmin(X1DIR);
+  const auto Ly =
+      pmb->pmy_mesh->mesh_size.xmax(X2DIR) - pmb->pmy_mesh->mesh_size.xmin(X2DIR);
+  const auto Lz =
+      pmb->pmy_mesh->mesh_size.xmax(X3DIR) - pmb->pmy_mesh->mesh_size.xmin(X3DIR);
   auto norm = SQR(rescale_to_rms_Ms) / (Ms2_sum / (Lx * Ly * Lz));
 
   pmb->par_for(
@@ -648,12 +655,18 @@ void InjectBlob(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)
 
     const auto *const error_msg =
         "Blob bounds crossing domain bounds currently not supported.";
-    PARTHENON_REQUIRE_THROWS(loc_x + radius < pmb->pmy_mesh->mesh_size.x1max, error_msg)
-    PARTHENON_REQUIRE_THROWS(loc_x - radius > pmb->pmy_mesh->mesh_size.x1min, error_msg)
-    PARTHENON_REQUIRE_THROWS(loc_y + radius < pmb->pmy_mesh->mesh_size.x2max, error_msg)
-    PARTHENON_REQUIRE_THROWS(loc_y - radius > pmb->pmy_mesh->mesh_size.x2min, error_msg)
-    PARTHENON_REQUIRE_THROWS(loc_z + radius < pmb->pmy_mesh->mesh_size.x3max, error_msg)
-    PARTHENON_REQUIRE_THROWS(loc_z - radius > pmb->pmy_mesh->mesh_size.x3min, error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_x + radius < pmb->pmy_mesh->mesh_size.xmax(X1DIR),
+                             error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_x - radius > pmb->pmy_mesh->mesh_size.xmin(X1DIR),
+                             error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_y + radius < pmb->pmy_mesh->mesh_size.xmax(X2DIR),
+                             error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_y - radius > pmb->pmy_mesh->mesh_size.xmin(X2DIR),
+                             error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_z + radius < pmb->pmy_mesh->mesh_size.xmax(X3DIR),
+                             error_msg)
+    PARTHENON_REQUIRE_THROWS(loc_z - radius > pmb->pmy_mesh->mesh_size.xmin(X3DIR),
+                             error_msg)
 
     IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
     IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -692,7 +705,7 @@ void InjectBlob(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)
             // adjust momentum (so that the velocity remains constant)
             cons(IM1, k, j, i) *= chi;
             cons(IM2, k, j, i) *= chi;
-            cons(IM2, k, j, i) *= chi;
+            cons(IM3, k, j, i) *= chi;
             // adjust total energy density (using original rho_e translates to an increase
             // of 1/chi in temperature)
             cons(IEN, k, j, i) = kin_en_density * chi + rho_e;
