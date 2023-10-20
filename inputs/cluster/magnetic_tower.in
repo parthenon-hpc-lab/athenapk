@@ -110,7 +110,7 @@ thermal_fraction = 0
 
 <problem/cluster/magnetic_tower>
 potential_type = li
-alpha = 20
+li_alpha = 20
 l_scale = 0.01
 initial_field = 0.12431560000204142
 fixed_field_rate = 12.431560000204144

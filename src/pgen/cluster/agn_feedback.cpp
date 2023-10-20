@@ -390,7 +390,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           // Apply velocity ceiling
           const Real v2 =
               SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) + SQR(prim(IV3, k, j, i));
-          if (v2 > vceil2) {
+          if (vceil2 > 0 && v2 > vceil2) {
             // Fix the velocity to the velocity ceiling
             const Real v = sqrt(v2);
             cons(IM1, k, j, i) *= vceil / v;
@@ -406,7 +406,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
           // Apply  internal energy ceiling as a pressure ceiling
           const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
-          if (internal_e > eceil) {
+          if (eceil > 0 && internal_e > eceil) {
             cons(IEN, k, j, i) -= prim(IDN, k, j, i) * (internal_e - eceil);
             prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
           }

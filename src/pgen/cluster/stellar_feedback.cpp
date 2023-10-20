@@ -33,21 +33,32 @@ StellarFeedback::StellarFeedback(parthenon::ParameterInput *pin,
                                  parthenon::StateDescriptor *hydro_pkg)
     : stellar_radius_(
           pin->GetOrAddReal("problem/cluster/stellar_feedback", "stellar_radius", 0.0)),
+      exclusion_radius_(
+          pin->GetOrAddReal("problem/cluster/stellar_feedback", "exclusion_radius", 0.0)),
       efficiency_(
           pin->GetOrAddReal("problem/cluster/stellar_feedback", "efficiency", 0.0)),
       number_density_threshold_(pin->GetOrAddReal("problem/cluster/stellar_feedback",
                                                   "number_density_threshold", 0.0)),
       temperatue_threshold_(pin->GetOrAddReal("problem/cluster/stellar_feedback",
                                               "temperature_threshold", 0.0)) {
-  if (stellar_radius_ == 0.0 && efficiency_ == 0.0 && number_density_threshold_ == 0.0 &&
-      temperatue_threshold_ == 0.0) {
+  if (stellar_radius_ == 0.0 && exclusion_radius_ == 0.0 && efficiency_ == 0.0 &&
+      number_density_threshold_ == 0.0 && temperatue_threshold_ == 0.0) {
     disabled_ = true;
   } else {
     disabled_ = false;
   }
-  PARTHENON_REQUIRE(disabled_ || (stellar_radius_ != 0.0 && efficiency_ != 0.00 &&
-                                  number_density_threshold_ != 0.0 &&
-                                  temperatue_threshold_ != 0.0),
+
+  if (!disabled_ && exclusion_radius_ == 0.0) {
+    // If exclusion_radius_ is not specified, use AGN triggering accretion radius.
+    // If both are zero, the PARTHENON_REQUIRE will fail
+    exclusion_radius_ =
+        pin->GetOrAddReal("problem/cluster/agn_triggering", "accretion_radius", 0);
+  }
+
+  PARTHENON_REQUIRE(disabled_ ||
+                        (stellar_radius_ != 0.0 && exclusion_radius_ != 0.0 &&
+                         efficiency_ != 0.00 && number_density_threshold_ != 0.0 &&
+                         temperatue_threshold_ != 0.0),
                     "Enabling stellar feedback requires setting all parameters.");
 
   hydro_pkg->AddParam<StellarFeedback>("stellar_feedback", *this);
@@ -98,6 +109,7 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   const auto mass_to_energy = efficiency_ * SQR(units.speed_of_light());
   const auto stellar_radius = stellar_radius_;
+  const auto exclusion_radius = exclusion_radius_;
   const auto temperature_threshold = temperatue_threshold_;
   const auto number_density_threshold = number_density_threshold_;
 
@@ -105,11 +117,17 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   ////////////////////////////////////////////////////////////////////////////////
 
-  // Constant volumetric heating
-  parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "StellarFeedback::FeedbackSrcTerm", parthenon::DevExecSpace(),
-      0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+  Real stellar_mass = 0.0;
+
+  // Constant volumetric heating, reduce mass removed
+  Kokkos::parallel_reduce(
+      "StellarFeedback::FeedbackSrcTerm",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
+                    Real &stellar_mass_team) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
@@ -119,7 +137,7 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         const auto z = coords.Xc<3>(k);
 
         const auto r = sqrt(x * x + y * y + z * z);
-        if (r > stellar_radius) {
+        if (r > stellar_radius || r <= exclusion_radius) {
           return;
         }
 
@@ -135,19 +153,24 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
         // All conditions to convert mass to energy are met
         const auto cell_delta_rho = number_density_threshold * mbar - prim(IDN, k, j, i);
+        stellar_mass_team -= cell_delta_rho * coords.CellVolume(k, j, i);
 
         // First remove density at fixed temperature
         AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), k, j,
                                        i);
         //  Then add thermal energy
         const auto cell_delta_energy_density = -mass_to_energy * cell_delta_rho;
-        PARTHENON_REQUIRE(cell_delta_energy_density > 0.0,
-                          "Sanity check failed. Added thermal energy should be positive.")
+        PARTHENON_REQUIRE(
+            cell_delta_energy_density > 0.0,
+            "Sanity check failed. Added thermal energy should be positive.");
         cons(IEN, k, j, i) += cell_delta_energy_density;
 
         // Update prims
         eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-      });
+      },
+      stellar_mass);
+  hydro_pkg->UpdateParam(
+      "stellar_mass", stellar_mass + hydro_pkg->Param<parthenon::Real>("stellar_mass"));
 }
 
 } // namespace cluster
