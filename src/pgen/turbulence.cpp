@@ -16,6 +16,7 @@
 #include "basic_types.hpp"
 #include "defs.hpp"
 #include "globals.hpp"
+#include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/mesh.hpp"
 #include <iomanip>
@@ -119,14 +120,22 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   }
   pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
+  // Add a temperature field for easier access within Ascent and history files
+  auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  if (pin->GetOrAddBoolean("problem/turbulence", "calc_temperature", false)) {
+    PARTHENON_REQUIRE_THROWS(pkg->AllParams().hasKey("mbar_over_kb"),
+                             "Using temperature fields requires units or mbar_over_kb.");
+    pkg->AddField("temperature", m);
+  }
+
   // Step 2. Add appropriate fields required by this pgen
   // Using OneCopy here to save memory. We typically don't need to update/evolve the
   // acceleration field for various stages in a cycle as the "model" error of the
   // turbulence driver is larger than the numerical one any way. This may need to be
   // changed if an "as close as possible" comparison between methods/codes is the goal and
   // not turbulence from a physical point of view.
-  Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
-             std::vector<int>({3}));
+  m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+               std::vector<int>({3}));
   pkg->AddField("acc", m);
 
   auto num_modes =
@@ -758,6 +767,28 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   // store state of distribution
   auto state_dist = few_modes_ft.GetDistState();
   pin->SetString("problem/turbulence", "state_dist", state_dist);
+
+  if (pin->GetOrAddBoolean("problem/turbulence", "calc_temperature", false)) {
+    auto &data = pmb->meshblock_data.Get();
+    auto const &prim = data->Get("prim").data;
+    auto &temperature = data->Get("temperature").data;
+
+    // for computing temperature from primitives
+    auto units = hydro_pkg->Param<Units>("units");
+    auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+
+    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+    pmb->par_for(
+        "Turbulence::UserWorkBeforeOutput calc temperature", kb.s, kb.e, jb.s, jb.e, ib.s,
+        ib.e, KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          const Real rho = prim(IDN, k, j, i);
+          const Real P = prim(IPR, k, j, i);
+          // compute temperature
+          temperature(k, j, i) = mbar_over_kb * P / rho;
+        });
+  }
 }
 
 } // namespace turbulence
