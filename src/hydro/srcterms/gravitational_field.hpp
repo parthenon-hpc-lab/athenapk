@@ -29,6 +29,9 @@ void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
   using parthenon::Real;
+  //FIXME(forrestglines): This only accounts for Cartesian coordinate systems
+  //and neglects source terms adaptations for other systems. See pgen/disk.cpp
+  //for a point mass gravitational field
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});

@@ -36,6 +36,18 @@ template<class Coords>
 KOKKOS_INLINE_FUNCTION
 void GetCylCoord(const Coords& coords,Real &rad,Real &phi,Real &z,int i,int j,int k); 
 
+template<class Coords>
+KOKKOS_INLINE_FUNCTION
+Real CoordSrc1(const Coords& coords, const int i); 
+
+template<class Coords>
+KOKKOS_INLINE_FUNCTION
+Real PhySrc1(const Coords& coords, const int i); 
+
+template<class Coords>
+KOKKOS_INLINE_FUNCTION
+Real PhySrc2(const Coords& coords, const int i); 
+
 KOKKOS_INLINE_FUNCTION
 Real DenProfileCyl(const Real rad, const Real phi, const Real z);
 
@@ -91,7 +103,6 @@ class StratifiedDisk{
       vel = std::sqrt(gm0_/rad)*std::sqrt(vel);
       return vel;
     }
-  private:
     // problem parameters which are useful to make global to this file
     Real gm0_, r0_, rho0_, dslope_, p0_over_rho0_, pslope_;
     Real dfloor_;
@@ -130,6 +141,71 @@ void GetCylCoord(const UniformSpherical& coords,Real &rad,Real &phi,Real &z,int 
   z=coords.Xc<X1DIR>(i)*std::cos(coords.Xc<X2DIR>(j));
 }
 
+template<>
+KOKKOS_INLINE_FUNCTION
+Real CoordSrc1(const UniformCylindrical& coords, const int i){
+  return coords.Dxf<1,1>(i)/coords.Coord_vol_i_(i);
+}
+
+template<>
+KOKKOS_INLINE_FUNCTION
+Real PhySrc1(const UniformCylindrical& coords, const int i){
+  return 1./( coords.Xc<1>(i)*coords.Xf<1>(i) );
+}
+
+template<>
+KOKKOS_INLINE_FUNCTION
+Real PhySrc2(const UniformCylindrical& coords, const int i){
+  return 1./( coords.Xc<1>(i)*coords.Xf<1>(i+1) );
+}
+
+
+
+
+template <class Coords>
+void PointMassSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                    const Real beta_dt_) {
+  using parthenon::IndexDomain;
+  using parthenon::IndexRange;
+  using parthenon::Real;
+
+  // Grab some necessary variables
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &cons_pack = md->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  const Real beta_dt = beta_dt_;
+  const Real gm0 = sd.gm0_;
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "PointMassSrcTerm", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+        auto &cons = cons_pack(b);
+        auto &prim = prim_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
+
+        Real rm = coords.Xf<1>(i);
+        Real rp = coords.Xf<1>(i+1);
+        Real xc = coords.Xc<1>(i);
+
+        Real den = prim(IDN,k,j,i);
+        Real src = beta_dt*den*CoordSrc1(coords,i)*gm0/coords.Xc<1>(i);
+        cons(IM1,k,j,i) -= src;
+        cons(IEN,k,j,i) -=
+            beta_dt*0.5*(PhySrc1(coords,i)*cons.flux(X1DIR,IDN,k,j,i)*gm0
+                        +PhySrc2(coords,i)*cons.flux(X1DIR,IDN,k,j,i+1)*gm0);
+      });
+}
+
+void DiskUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                    const Real beta_dt) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  PointMassSrcTerm<parthenon::Coordinates_t>(md, tm, beta_dt);
+}
 
 //========================================================================================
 //! \fn void InitUserMeshData(ParameterInput *pin)
@@ -187,7 +263,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
         u(IDN,k,j,i) = den;
         u(IM1,k,j,i) = 0.0;
-        if ( std::is_same<decltype(coords),parthenon::UniformCylindrical>::value ){
+        if (std::is_same<parthenon::Coordinates_t,parthenon::UniformCylindrical>::value ){
           u(IM2,k,j,i) = den*vel;
           u(IM3,k,j,i) = 0.0;
         } else {
@@ -199,6 +275,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IEN,k,j,i) = p_over_rho*u(IDN,k,j,i)/gamma_m1;
         u(IEN,k,j,i) += 0.5*(SQR(u(IM1,k,j,i))+SQR(u(IM2,k,j,i))
                                      + SQR(u(IM3,k,j,i)))/u(IDN,k,j,i);
+
       }
     }
   }
@@ -221,8 +298,7 @@ void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>>
 
   const auto sd_ = sd;
   const auto gamma_m1_ = gamma_m1;
-  
-  if (std::is_same<parthenon::Coordinates_t,parthenon::UniformCylindrical>::value ){
+  if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformCylindrical>::value ){
     pmb->par_for_bndry(
       "DiskBoundary::UniformCylindrical", nb, domain, parthenon::TopologicalElement::CC,
       coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
@@ -243,6 +319,7 @@ void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>>
     pmb->par_for_bndry(
       "DiskBoundary::UniformSpherical", nb, domain, parthenon::TopologicalElement::CC,
       coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
+        PARTHENON_FAIL("NOT YET IMPLEMENTED (BLAME FORREST)");
         const auto &coords = cons.GetCoords();
         Real rad,phi,z;
         GetCylCoord(coords,rad,phi,z,i,j,k);

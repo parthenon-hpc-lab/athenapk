@@ -101,6 +101,7 @@ int main(int argc, char *argv[]) {
   } else if (problem == "disk") {
     pman.app_input->InitUserMeshData = disk::InitUserMeshData;
     pman.app_input->ProblemGenerator = disk::ProblemGenerator;
+    Hydro::ProblemSourceUnsplit = disk::DiskUnsplitSrcTerm;
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x1] =
         []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
           disk::DiskBoundary(IndexDomain::inner_x1,mbd,coarse);
@@ -108,14 +109,6 @@ int main(int argc, char *argv[]) {
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x1] =
         []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
           disk::DiskBoundary(IndexDomain::outer_x1,mbd,coarse);
-        };
-    pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x2] =
-        []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
-          disk::DiskBoundary(IndexDomain::inner_x2,mbd,coarse);
-        };
-    pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x2] =
-        []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
-          disk::DiskBoundary(IndexDomain::outer_x2,mbd,coarse);
         };
     pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x3] =
         []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){

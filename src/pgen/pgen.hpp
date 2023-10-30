@@ -126,6 +126,7 @@ using namespace parthenon::driver::prelude;
 
 void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void DiskUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_dt);
 void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
 } // namespace disk
 

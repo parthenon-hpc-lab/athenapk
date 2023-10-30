@@ -33,7 +33,7 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   }
 
   const int ndim = pmb->pmy_mesh->ndim;
-  const auto mhd_enabled = hydro_pkg->Param<bool>("mhd_enabled");
+  const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
   //const auto &viscosity  = hydro_pkg->Param<Viscosity>("viscosity");
 
   using parthenon::IndexDomain;
@@ -54,7 +54,7 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   //const to &visflx_pack = md->PackVariables(std::vector<std::string>{"visflx"});
 
-  if ( std::is_same<decltype(coords0),parthenon::UniformCylindrical>::value ){
+  if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformCylindrical>::value ){
     parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "GeometricSrcTerm::UniformCylindrical", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -63,17 +63,11 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
-
-        const Real rp = coords.Xf<X1DIR>(i + 1);
-        const Real rm = coords.Xf<X1DIR>(i);
-        // coord_src1 ~= <1/r> (yes?)
-        const Real coord_src1 = coords.Dxf<X1DIR>(i)/( 0.5*(SQR(rp) - SQR(rm)) );
-
         // Skinner & Ostriker 2010 Eq. 11a 
         // src_r = <M_phiphi><1/r>
         //M_phiphi = rho * v_phi^2 - B_phi^2 + P + |B|^2/2
         //P* = P + |B|^2/2
-        Real m_pp = prim(IDN, k, j, i) * prim(IV2, k, j, i) * prim(IV2, k, j, i);
+        Real m_pp = prim(IDN, k, j, i) * SQR(prim(IV2, k, j, i) );
         m_pp += prim(IPR, k, j, i); // for adiabatic case
         if (mhd_enabled) {
           //|B|^2/2 - B_phi^2 
@@ -89,14 +83,17 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         //}
         // }
 
-        cons(IM1, k, j, i) += beta_dt * m_pp * coord_src1;
+        cons(IM1, k, j, i) += beta_dt * m_pp * coords.CoordSrc1i(i);
+
+        const Real x_i = coords.Xf<1>(i);
+        const Real x_ip1 = coords.Xf<1>(i+1);
 
         // Stone et. al. 2020 Eq. 18
-        const Real coord_src2 = coord_src1 / (rp + rm);
-        cons(IM2, k, j, i) -= beta_dt * coord_src2 *
-          (rm * cons.flux(X1DIR, IM2, k, j, i) +
-           rp * cons.flux(X1DIR, IM2, k, j, i + 1));
-            });
+        cons(IM2, k, j, i) -= beta_dt * coords.CoordSrc2i(i) *
+          (x_i   * cons.flux(X1DIR, IM2, k, j, i) +
+           x_ip1 * cons.flux(X1DIR, IM2, k, j, i + 1));
+
+        });
   } else {
     /*
     parthenon::par_for(

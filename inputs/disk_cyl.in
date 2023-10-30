@@ -22,38 +22,44 @@ ox1_bc = user
 nx2 = 256
 x2min = 0.0
 x2max = 6.2831853071795862
-ix2_bc = user
-ox2_bc = user
+ix2_bc = periodic 
+ox2_bc = periodic 
 
 nx3 = 1
 x3min = -0.5
 x3max = 0.5
-ix2_bc = user
-ox2_bc = user
+ix3_bc = user
+ox3_bc = user
 
 <parthenon/meshblock>
 nx1 = 64
-nx2 = 64
+nx2 = 256
 nx3 = 1
 
 <parthenon/output0>
 file_type = hdf5
-dt = 0.025
+dt          = 6.28    # time increment between outputs
 variables = prim
 id = prim
+use_final_label = false
+
+<parthenon/output1>
+file_type = hst
+dt          = 0.628    # time increment between outputs
+use_final_label = false
 
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
 tlim = 628.
-nlim = -1
+#nlim = 1
 
 <hydro>
 fluid = euler
 eos = adiabatic
 riemann = hlle
 reconstruction = plm
-gamma = 1.4
+gamma           = 1.66666667 # gamma = C_p/C_v
 
 <problem/disk>
 GM          = 1.0
