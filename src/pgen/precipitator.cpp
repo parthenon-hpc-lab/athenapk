@@ -583,6 +583,13 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
    * Initialize the hydrostatic profile
    ************************************************************/
   const auto &filename = pin->GetString("precipitator", "hse_profile_filename");
+  const auto &uniform_init = pin->GetInteger("precipitator", "uniform_init");
+  hydro_pkg->AddParam<>("uniform_init", uniform_init);
+  if (uniform_init == 1) {
+    const auto &uniform_init_height = pin->GetReal("precipitator", "uniform_init_height");
+    hydro_pkg->AddParam<>("uniform_init_height", uniform_init_height);
+  }
+
   const PrecipitatorProfile P_rho_profile(filename);
   hydro_pkg->AddParam<>("precipitator_profile", P_rho_profile);
 
@@ -738,6 +745,13 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real gam = pin->GetReal("hydro", "gamma");
   const Real gm1 = (gam - 1.0);
 
+  // do uniform init?
+  const auto &uniform_init = hydro_pkg->Param<int>("uniform_init");
+  Real uniform_init_height = NAN;
+  if (uniform_init == 1) {
+    uniform_init_height = hydro_pkg->Param<Real>("uniform_init_height");
+  }
+
   // Get HSE profile and parameters
   const auto &P_rho_profile =
       hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
@@ -797,16 +811,25 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
   auto [ibp, jbp, kbp] = GetPhysicalZones(pmb, pmb->cellbounds);
 
-  parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "SetGravPotentialCells", parthenon::DevExecSpace(), 0, 0,
-      kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
-      KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
-        // Calculate height
-        const Real zcen = coords.Xc<3>(k);
-        const Real zcen_cgs = std::abs(zcen) * code_length_cgs;
-        const Real phi_i = P_rho_profile.phi(zcen_cgs);
-        grav_phi(0, k, j, i) = phi_i / code_potential_cgs;
-      });
+  if (uniform_init == 1) { // no gravity
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "SetGravPotentialCells", parthenon::DevExecSpace(), 0, 0,
+        kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
+        KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+          grav_phi(0, k, j, i) = 0;
+        });
+  } else { // with gravity
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "SetGravPotentialCells", parthenon::DevExecSpace(), 0, 0,
+        kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
+        KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+          // Calculate height
+          const Real zcen = coords.Xc<3>(k);
+          const Real zcen_cgs = std::abs(zcen) * code_length_cgs;
+          const Real phi_i = P_rho_profile.phi(zcen_cgs);
+          grav_phi(0, k, j, i) = phi_i / code_potential_cgs;
+        });
+  }
 
   // ensure that the gravitational potential is reflected at x3-boundaries
   ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi, false);
@@ -818,40 +841,62 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   IndexRange jbe = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
   IndexRange kbe = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
-  parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "SetGravPotentialFaces", parthenon::DevExecSpace(), 0, 0,
-      kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
-      KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
-        // Calculate height
-        const Real zmin_cgs = std::abs(coords.Xf<3>(k)) * code_length_cgs;
-        const Real phi_iminus = P_rho_profile.phi(zmin_cgs) / code_potential_cgs;
-        grav_phi_zface(0, k, j, i) = phi_iminus;
-      });
+  if (uniform_init == 1) { // no gravity
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "SetGravPotentialFaces", parthenon::DevExecSpace(), 0, 0,
+        kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
+        KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+          grav_phi_zface(0, k, j, i) = 0;
+        });
+  } else {  // with gravity
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "SetGravPotentialFaces", parthenon::DevExecSpace(), 0, 0,
+        kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
+        KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+          // Calculate height
+          const Real zmin_cgs = std::abs(coords.Xf<3>(k)) * code_length_cgs;
+          const Real phi_iminus = P_rho_profile.phi(zmin_cgs) / code_potential_cgs;
+          grav_phi_zface(0, k, j, i) = phi_iminus;
+        });
+  }
 
   auto pressure_hse = rc->PackVariables(std::vector<std::string>{"pressure_hse"});
   auto density_hse = rc->PackVariables(std::vector<std::string>{"density_hse"});
 
-  parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "SetHydrostaticProfileCells", parthenon::DevExecSpace(), 0, 0,
-      kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
-      KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
-        // Calculate height
-        const Real zcen = coords.Xc<3>(k);
-        const Real zmin = std::abs(zcen) - 0.5 * dx3;
-        const Real zmax = std::abs(zcen) + 0.5 * dx3;
-        const Real zmin_cgs = zmin * code_length_cgs;
-        const Real zmax_cgs = zmax * code_length_cgs;
-        const Real dz_cgs = dx3 * code_length_cgs;
+  if (uniform_init == 1) {
+    // initialize to uniform density and pressure, no gravity
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "SetHydrostaticProfileCells", parthenon::DevExecSpace(), 0,
+        0, kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
+        KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+          auto p_hse = [=](Real z) { return P_rho_profile.P(z); };
+          auto rho_hse = [=](Real z) { return P_rho_profile.rho(z); };
+          pressure_hse(0, k, j, i) = p_hse(uniform_init_height) / code_pressure_cgs;
+          density_hse(0, k, j, i) = rho_hse(uniform_init_height) / code_density_cgs;
+        });
+  } else {
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "SetHydrostaticProfileCells", parthenon::DevExecSpace(), 0,
+        0, kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
+        KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+          // Calculate height
+          const Real zcen = coords.Xc<3>(k);
+          const Real zmin = std::abs(zcen) - 0.5 * dx3;
+          const Real zmax = std::abs(zcen) + 0.5 * dx3;
+          const Real zmin_cgs = zmin * code_length_cgs;
+          const Real zmax_cgs = zmax * code_length_cgs;
+          const Real dz_cgs = dx3 * code_length_cgs;
 
-        parthenon::math::quadrature::gauss<Real, 7> quad;
-        auto p_hse = [=](Real z) { return P_rho_profile.P(z); };
-        auto rho_hse = [=](Real z) { return P_rho_profile.rho(z); };
-        const Real P_hse_avg = quad.integrate(p_hse, zmin_cgs, zmax_cgs) / dz_cgs;
-        const Real rho_hse_avg = quad.integrate(rho_hse, zmin_cgs, zmax_cgs) / dz_cgs;
+          parthenon::math::quadrature::gauss<Real, 7> quad;
+          auto p_hse = [=](Real z) { return P_rho_profile.P(z); };
+          auto rho_hse = [=](Real z) { return P_rho_profile.rho(z); };
+          const Real P_hse_avg = quad.integrate(p_hse, zmin_cgs, zmax_cgs) / dz_cgs;
+          const Real rho_hse_avg = quad.integrate(rho_hse, zmin_cgs, zmax_cgs) / dz_cgs;
 
-        pressure_hse(0, k, j, i) = P_hse_avg / code_pressure_cgs;
-        density_hse(0, k, j, i) = rho_hse_avg / code_density_cgs;
-      });
+          pressure_hse(0, k, j, i) = P_hse_avg / code_pressure_cgs;
+          density_hse(0, k, j, i) = rho_hse_avg / code_density_cgs;
+        });
+  }
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetInitialConditions", parthenon::DevExecSpace(), 0, 0, kb.s,
