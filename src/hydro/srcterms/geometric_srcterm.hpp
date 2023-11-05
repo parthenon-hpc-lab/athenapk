@@ -85,8 +85,8 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
         cons(IM1, k, j, i) += beta_dt * m_pp * coords.CoordSrc1i(i);
 
-        const Real x_i = coords.Xf<1>(i);
-        const Real x_ip1 = coords.Xf<1>(i+1);
+        const Real x_i   = coords.Xf<X1DIR>(i);
+        const Real x_ip1 = coords.Xf<X1DIR>(i+1);
 
         // Stone et. al. 2020 Eq. 18
         cons(IM2, k, j, i) -= beta_dt * coords.CoordSrc2i(i) *
@@ -94,8 +94,7 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
            x_ip1 * cons.flux(X1DIR, IM2, k, j, i + 1));
 
         });
-  } else {
-    /*
+  } else if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformSpherical>::value ){
     parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "GeometricSrcTerm", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -103,10 +102,10 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           auto &cons = cons_pack(b);
           auto &prim = prim_pack(b);
           const auto &coords = cons_pack.GetCoords(b);
-          const Real rp = coords.x1f(i + 1);
-          const Real rm = coords.x1f(i);
-          const Real coord_src1_r = coords.coord_src1_i(i);
-          const Real coord_src2_r = coords.coord_src2_i(i);
+          const Real rp = coords.Xf<X1DIR>(i + 1);
+          const Real rm = coords.Xf<X1DIR>(i);
+          const Real coord_src1_r = coords.CoordSrc1i(i);
+          const Real coord_src2_r = coords.CoordSrc2i(i);
 
           Real m_ii =
             prim(IDN, k, j, i) * (SQR(prim(IM2, k, j, i)) + SQR(prim(IM3, k, j, i)));
@@ -135,9 +134,9 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             (rm * rm * cons.flux(X1DIR, IM3, k, j, i) +
              rp * rp * cons.flux(X1DIR, IM3, k, j, i + 1));
 
-          const Real sp = coords.coord_area2_j(j+1); //sin(coords.x2f(j + 1));
-          const Real sm = coords.coord_area2_j(j  ); //sin(coords.x2f(j));
-          const Real cmMcp = coords.coord_area1_j(j); //dcos(theta));
+          const Real sp = sin(coords.Xf<X2DIR>(j + 1));
+          const Real sm = sin(coords.Xf<X2DIR>(j));
+          const Real cmMcp = abs( cos(coords.Xf<X2DIR>(j)) - cos(coords.Xf<X2DIR>(j+1)));
 
           const Real coord_src1_t = (sp - sm) / cmMcp;
           const Real coord_src2_t = coord_src1_t / (sm + sp);
@@ -176,7 +175,6 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             cons(IM3, k, j, i) -= beta_dt * coord_src1_r * coord_src1_t * m_ph;
           }
       });
-      */
   }
 }
 

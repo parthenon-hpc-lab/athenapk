@@ -159,7 +159,25 @@ Real PhySrc2(const UniformCylindrical& coords, const int i){
   return 1./( coords.Xc<1>(i)*coords.Xf<1>(i+1) );
 }
 
+template<>
+KOKKOS_INLINE_FUNCTION
+Real CoordSrc1(const UniformSpherical& coords, const int i){
+  const Real rm = coords.Xf<1>(i);
+  const Real rp = coords.Xf<1>(i+1);
+  return (0.5*(SQR(rp) - SQR(rm)))/( ONE_3RD*( std::pow(rp,3) - std::pow(rm,3)) );
+}
 
+template<>
+KOKKOS_INLINE_FUNCTION
+Real PhySrc1(const UniformSpherical& coords, const int i){
+  return 1./( SQR(coords.Xc<1>(i)) );
+}
+
+template<>
+KOKKOS_INLINE_FUNCTION
+Real PhySrc2(const UniformSpherical& coords, const int i){
+  return 1./( SQR(coords.Xc<1>(i)) );
+}
 
 
 template <class Coords>
@@ -263,12 +281,15 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
         u(IDN,k,j,i) = den;
         u(IM1,k,j,i) = 0.0;
-        if (std::is_same<parthenon::Coordinates_t,parthenon::UniformCylindrical>::value ){
+        if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformCylindrical>::value ){
           u(IM2,k,j,i) = den*vel;
           u(IM3,k,j,i) = 0.0;
-        } else {
+        } else if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformSpherical>::value ){
           u(IM2,k,j,i) = 0.0;
           u(IM3,k,j,i) = den*vel;
+        } else {
+          //fixme (forrestglines) Add name of coordinate system to error message
+          PARTHENON_FAIL("DiskBounday: Coordinate system no implemented");
         }
 
         Real p_over_rho = sd.PoverRho(rad,phi,z);
@@ -315,11 +336,10 @@ void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>>
         cons(IEN,k,j,i) =  rho*( 0.5*SQR(vel) + sd_.PoverRho(rad, phi, z)/gamma_m1_);
 
       });
-  } else {
+  } else if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformSpherical>::value ){
     pmb->par_for_bndry(
       "DiskBoundary::UniformSpherical", nb, domain, parthenon::TopologicalElement::CC,
       coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
-        PARTHENON_FAIL("NOT YET IMPLEMENTED (BLAME FORREST)");
         const auto &coords = cons.GetCoords();
         Real rad,phi,z;
         GetCylCoord(coords,rad,phi,z,i,j,k);
@@ -333,6 +353,9 @@ void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>>
         cons(IEN,k,j,i) =  rho*( 0.5*SQR(vel) + sd_.PoverRho(rad, phi, z)/gamma_m1_);
 
       });
+  } else {
+    //fixme (forrestglines) Add name of coordinate system to error message
+    PARTHENON_FAIL("DiskBounday: Coordinate system no implemented");
   }
 }
 

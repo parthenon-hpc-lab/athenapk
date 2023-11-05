@@ -110,14 +110,27 @@ int main(int argc, char *argv[]) {
         []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
           disk::DiskBoundary(IndexDomain::outer_x1,mbd,coarse);
         };
-    pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x3] =
-        []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
-          disk::DiskBoundary(IndexDomain::inner_x3,mbd,coarse);
-        };
-    pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x3] =
-        []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
-          disk::DiskBoundary(IndexDomain::outer_x3,mbd,coarse);
-        };
+    if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformCylindrical>::value ){
+      //Fixed z-boundary 
+      pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x3] =
+          []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
+            disk::DiskBoundary(IndexDomain::inner_x3,mbd,coarse);
+          };
+      pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x3] =
+          []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
+            disk::DiskBoundary(IndexDomain::outer_x3,mbd,coarse);
+          };
+    } else if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformSpherical>::value ){
+      //Fixed theta-boundary
+      pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x2] =
+          []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
+            disk::DiskBoundary(IndexDomain::inner_x2,mbd,coarse);
+          };
+      pman.app_input->boundary_conditions[parthenon::BoundaryFace::outer_x2] =
+          []( std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse){
+            disk::DiskBoundary(IndexDomain::outer_x2,mbd,coarse);
+          };
+    }
   }
   else {
     // parthenon throw error message for the invalid problem
