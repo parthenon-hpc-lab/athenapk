@@ -27,9 +27,13 @@ class AGNFeedback {
  public:
   const parthenon::Real fixed_power_;
   parthenon::Real thermal_fraction_, kinetic_fraction_, magnetic_fraction_;
+  parthenon::Real thermal_mass_fraction_, kinetic_mass_fraction_, magnetic_mass_fraction_;
 
   // Efficiency converting mass to energy
   const parthenon::Real efficiency_;
+
+  // Velocity and temperature ceilings
+  parthenon::Real vceil_, eceil_;
 
   // Thermal Heating Parameters
   const parthenon::Real thermal_radius_;
@@ -38,7 +42,12 @@ class AGNFeedback {
   const parthenon::Real kinetic_jet_radius_, kinetic_jet_thickness_, kinetic_jet_offset_;
   parthenon::Real kinetic_jet_velocity_, kinetic_jet_temperature_, kinetic_jet_e_;
 
+  // enable passive scalar to trace AGN material
+  const bool enable_tracer_;
+
   const bool disabled_;
+
+  const bool enable_magnetic_tower_mass_injection_;
 
   AGNFeedback(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
 

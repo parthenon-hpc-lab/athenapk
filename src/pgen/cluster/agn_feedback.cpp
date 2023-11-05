@@ -17,7 +17,7 @@
 #include <parameter_input.hpp>
 #include <parthenon/package.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../eos/adiabatic_hydro.hpp"
 #include "../../main.hpp"
@@ -26,6 +26,7 @@
 #include "agn_triggering.hpp"
 #include "cluster_utils.hpp"
 #include "magnetic_tower.hpp"
+#include "utils/error_checking.hpp"
 
 namespace cluster {
 using namespace parthenon;
@@ -33,6 +34,8 @@ using namespace parthenon;
 AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                          parthenon::StateDescriptor *hydro_pkg)
     : fixed_power_(pin->GetOrAddReal("problem/cluster/agn_feedback", "fixed_power", 0.0)),
+      vceil_(pin->GetOrAddReal("problem/cluster/agn_feedback", "vceil",
+                               std::numeric_limits<Real>::infinity())),
       efficiency_(pin->GetOrAddReal("problem/cluster/agn_feedback", "efficiency", 1e-3)),
       thermal_fraction_(
           pin->GetOrAddReal("problem/cluster/agn_feedback", "thermal_fraction", 0.0)),
@@ -48,7 +51,11 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                                                "kinetic_jet_thickness", 0.02)),
       kinetic_jet_offset_(
           pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_jet_offset", 0.02)),
-      disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)) {
+      enable_tracer_(
+          pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false)),
+      disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)),
+      enable_magnetic_tower_mass_injection_(pin->GetOrAddBoolean(
+          "problem/cluster/agn_feedback", "enable_magnetic_tower_mass_injection", true)) {
 
   // Normalize the thermal, kinetic, and magnetic fractions to sum to 1.0
   const Real total_frac = thermal_fraction_ + kinetic_fraction_ + magnetic_fraction_;
@@ -61,6 +68,18 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
   PARTHENON_REQUIRE(thermal_fraction_ >= 0 && kinetic_fraction_ >= 0 &&
                         magnetic_fraction_ >= 0,
                     "AGN feedback energy fractions must be non-negative.");
+
+  // Normalize the thermal, kinetic, and magnetic mass fractions to sum to 1.0
+  if (enable_magnetic_tower_mass_injection_) {
+    thermal_mass_fraction_ = thermal_fraction_;
+    kinetic_mass_fraction_ = kinetic_fraction_;
+    magnetic_mass_fraction_ = magnetic_fraction_;
+  } else {
+    const auto total_mass_frac = thermal_fraction_ + kinetic_fraction_;
+    thermal_mass_fraction_ = thermal_fraction_ / total_mass_frac;
+    kinetic_mass_fraction_ = kinetic_fraction_ / total_mass_frac;
+    magnetic_mass_fraction_ = 0.0;
+  }
 
   /////////////////////////////////////////////////////
   // Read in or calculate jet velocity and temperature. Either and or both can
@@ -119,7 +138,8 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                                              (1 - efficiency_) * kinetic_jet_e_))) <
           10 * std::numeric_limits<Real>::epsilon(),
       "Specified kinetic jet velocity and temperature are incompatible with mass to "
-      "energy conversion efficiency. Choose either velocity or temperature.");
+      "energy conversion efficiency. Either the specified velocity, temperature, or "
+      "efficiency are incompatible");
 
   PARTHENON_REQUIRE(kinetic_jet_velocity_ <=
                         units.speed_of_light() * sqrt(2 * efficiency_),
@@ -133,6 +153,11 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                     "Kinetic jet velocity must be non-negative");
   PARTHENON_REQUIRE(kinetic_jet_temperature_ >= 0,
                     "Kinetic jet temperature must be non-negative");
+
+  // Compute the internal energy ceiling from the temperature ceiling
+  const Real tceil = pin->GetOrAddReal("problem/cluster/agn_feedback", "Tceil",
+                                       std::numeric_limits<Real>::infinity());
+  eceil_ = tceil / mbar_gm1_over_kb;
 
   // Add user history output variable for AGN power
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
@@ -151,6 +176,10 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
         "agn_feedback_power"));
   }
   hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
+
+  // Double check that tracers are also enabled in fluid solver
+  PARTHENON_REQUIRE_THROWS(!enable_tracer_ || hydro_pkg->Param<int>("nscalars") == 1,
+                           "Enabling tracer for AGN feedback requires hydro/nscalars=1");
 
   hydro_pkg->AddParam<>("agn_feedback", *this);
 }
@@ -239,7 +268,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
       thermal_fraction_ * power * thermal_scaling_factor * beta_dt;
   // Amount of density to dump in each cell
   const Real thermal_density =
-      thermal_fraction_ * mass_rate * thermal_scaling_factor * beta_dt;
+      thermal_mass_fraction_ * mass_rate * thermal_scaling_factor * beta_dt;
 
   ////////////////////////////////////////////////////////////////////////////////
   // Kinetic Jet Quantities
@@ -257,19 +286,23 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   // Amount of density to dump in each cell
   const Real jet_density =
-      kinetic_fraction_ * mass_rate * kinetic_scaling_factor * beta_dt;
+      kinetic_mass_fraction_ * mass_rate * kinetic_scaling_factor * beta_dt;
 
   // Velocity of added gas
   const Real jet_velocity = kinetic_jet_velocity_;
-#ifndef NDEBUG
   const Real jet_specific_internal_e = kinetic_jet_e_;
-#endif
 
   // Amount of momentum density ( density * velocity) to dump in each cell
   const Real jet_momentum = jet_density * jet_velocity;
 
   // Amount of total energy to dump in each cell
   const Real jet_feedback = kinetic_fraction_ * power * kinetic_scaling_factor * beta_dt;
+
+  const Real vceil = vceil_;
+  const Real vceil2 = SQR(vceil);
+  const Real eceil = eceil_;
+  const Real gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
+  const auto enable_tracer = enable_tracer_;
   ////////////////////////////////////////////////////////////////////////////////
 
   const parthenon::Real time = tm.time;
@@ -278,7 +311,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory");
   const JetCoords jet_coords = jet_coords_factory.CreateJetCoords(time);
 
-  // Constant volumetric heating
+  // Appy kinietic jet and thermal feedback
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HydroAGNFeedback::FeedbackSrcTerm",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
@@ -321,17 +354,15 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
             const Real sign_jet = (h > 0) ? 1 : -1; // Above or below jet-disk
 
-        ///////////////////////////////////////////////////////////////////
-        //  We add the kinetic jet with a fixed jet velocity and specific
-        //  internal energy/temperature of the added gas. The density,
-        //  momentum, and total energy added depend on the triggered power.
-        ///////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////
+            //  We add the kinetic jet with a fixed jet velocity and specific
+            //  internal energy/temperature of the added gas. The density,
+            //  momentum, and total energy added depend on the triggered power.
+            ///////////////////////////////////////////////////////////////////
 
-#ifndef NDEBUG
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             const Real old_specific_internal_e =
                 prim(IPR, k, j, i) / (prim(IDN, k, j, i) * (eos.GetGamma() - 1.));
-#endif
 
             cons(IDN, k, j, i) += jet_density;
             cons(IM1, k, j, i) += jet_momentum * sign_jet * jet_axis_x;
@@ -339,27 +370,58 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             cons(IM3, k, j, i) += jet_momentum * sign_jet * jet_axis_z;
             cons(IEN, k, j, i) += jet_feedback;
 
-#ifndef NDEBUG
+            // Reset tracer to one for the entire material in the jet launching region as
+            // we cannot distinguish between original material in a cell and new jet
+            // material in the evolution of the jet. Eventually, we're just interested in
+            // stuff that came from here.
+            if (enable_tracer) {
+              cons(nhydro, k, j, i) = 1.0 * cons(IDN, k, j, i);
+            }
+
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             const Real new_specific_internal_e =
                 prim(IPR, k, j, i) / (prim(IDN, k, j, i) * (eos.GetGamma() - 1.));
-            PARTHENON_DEBUG_REQUIRE(
+            PARTHENON_REQUIRE(
                 new_specific_internal_e > jet_specific_internal_e ||
                     new_specific_internal_e > old_specific_internal_e,
                 "Kinetic injection leads to temperature below jet and existing gas");
-#endif
+          }
+
+          // Apply velocity ceiling
+          const Real v2 =
+              SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) + SQR(prim(IV3, k, j, i));
+          if (vceil2 > 0 && v2 > vceil2) {
+            // Fix the velocity to the velocity ceiling
+            const Real v = sqrt(v2);
+            cons(IM1, k, j, i) *= vceil / v;
+            cons(IM2, k, j, i) *= vceil / v;
+            cons(IM3, k, j, i) *= vceil / v;
+            prim(IV1, k, j, i) *= vceil / v;
+            prim(IV2, k, j, i) *= vceil / v;
+            prim(IV3, k, j, i) *= vceil / v;
+
+            // Remove kinetic energy
+            cons(IEN, k, j, i) -= 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
+          }
+
+          // Apply  internal energy ceiling as a pressure ceiling
+          const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
+          if (eceil > 0 && internal_e > eceil) {
+            cons(IEN, k, j, i) -= prim(IDN, k, j, i) * (internal_e - eceil);
+            prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
           }
         }
+
         eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-        PARTHENON_DEBUG_REQUIRE(prim(IPR, k, j, i) > 0,
-                                "Kinetic injection leads to negative pressure");
+        PARTHENON_REQUIRE(prim(IPR, k, j, i) > 0,
+                          "Kinetic injection leads to negative pressure");
       });
 
   // Apply magnetic tower feedback
   const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
 
   const Real magnetic_power = power * magnetic_fraction_;
-  const Real magnetic_mass_rate = mass_rate * magnetic_fraction_;
+  const Real magnetic_mass_rate = mass_rate * magnetic_mass_fraction_;
   magnetic_tower.PowerSrcTerm(magnetic_power, magnetic_mass_rate, md, beta_dt, tm);
 }
 

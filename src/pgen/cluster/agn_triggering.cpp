@@ -7,6 +7,7 @@
 //  \brief  Class for computing AGN triggering from Bondi-like and cold gas accretion
 
 #include <cmath>
+#include <fstream> // for ofstream
 #include <limits>
 
 // Parthenon headers
