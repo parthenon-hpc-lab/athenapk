@@ -317,28 +317,38 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
 #endif // MPI_PARALLEL
     auto v_norm = std::sqrt(v2_sum / (Lx * Ly * Lz) / (SQR(sigma_v)));
 
+    auto turbHeat_pack = md->PackVariables(std::vector<std::string>{"turbulent_heating"});
+
     pmb->par_for(
         "apply_perturb_v", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          const auto &u = cons(b);
           // compute delta_v
           const Real dv_x = perturb_pack(b, 0, k, j, i) / v_norm;
           const Real dv_y = perturb_pack(b, 1, k, j, i) / v_norm;
           const Real dv_z = perturb_pack(b, 2, k, j, i) / v_norm;
+
           // compute old kinetic energy
+          const auto &u = cons(b);
           const Real rho = u(IDN, k, j, i);
           const Real KE_old =
               0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
               rho;
+
           // update momentum components
           u(IM1, k, j, i) += rho * dv_x;
           u(IM2, k, j, i) += rho * dv_y;
           u(IM3, k, j, i) += rho * dv_z;
+
           // compute new kinetic energy
           const Real KE_new =
               0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
               rho;
           const Real dE = KE_new - KE_old;
+
+          // save work done in derived var (== a \dot v)
+          const auto &turbHeat = turbHeat_pack(b);
+          turbHeat(0, k, j, i) = dE / dt;
+
           // update total energy
           u(IEN, k, j, i) += dE;
         });
@@ -538,6 +548,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add Mach number field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("mach_sonic", m);
+  // add turbulent heating field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("turbulent_heating", m);
 
   // add \delta \rho / \bar \rho field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
@@ -848,7 +861,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
           grav_phi_zface(0, k, j, i) = 0;
         });
-  } else {  // with gravity
+  } else { // with gravity
     parthenon::par_for(
         DEFAULT_LOOP_PATTERN, "SetGravPotentialFaces", parthenon::DevExecSpace(), 0, 0,
         kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
@@ -943,14 +956,24 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
   const Real mmw = mu * units.atomic_mass_unit(); // mean molecular weight
   const Real kboltz = units.k_boltzmann();
+  const Real velocity_unit = units.code_length_cgs() / units.code_time_cgs();
+  const Real Edot_unit = units.code_energy_cgs() / units.code_time_cgs();
 
   // perform reductions to compute average vertical profiles
   parthenon::ParArray1D<Real> rho_mean("rho_mean", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> P_mean("P_mean", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> K_mean("K_mean", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> T_mean("T_mean", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> heatFlux_mean("scaledHeatFlux_mean",
+                                            REDUCTION_ARRAY_SIZE); // rho * v_z * T
+  parthenon::ParArray1D<Real> massFlux_mean("massFlux_mean",
+                                            REDUCTION_ARRAY_SIZE); // rho * v_z
+  parthenon::ParArray1D<Real> turbHeat_mean("turbHeat_mean",
+                                            REDUCTION_ARRAY_SIZE); // a \dot v
 
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &turbHeat_pack =
+      md->PackVariables(std::vector<std::string>{"turbulent_heating"});
 
   auto f_rho = KOKKOS_LAMBDA(int b, int k, int j, int i) {
     auto &prim = prim_pack(b);
@@ -974,11 +997,37 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     const Real T = P / (kboltz * rho / mmw);
     return T;
   };
+  auto f_heatFlux_cgs = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &prim = prim_pack(b);
+    const Real rho = prim(IDN, k, j, i);
+    const Real vz = prim(IV3, k, j, i);
+    const Real P = prim(IPR, k, j, i);
+    const Real T = P / (kboltz * rho / mmw); // K
+    const Real n_cgs = rho / mmw; // cm^-3
+    const Real vz_cgs = vz / velocity_unit; // cm/s
+    return n_cgs * vz_cgs * T;
+  };
+  auto f_massFlux_cgs = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &prim = prim_pack(b);
+    const Real rho = prim(IDN, k, j, i);
+    const Real vz = prim(IV3, k, j, i);
+    const Real n_cgs = rho / mmw; // cm^-3
+    const Real vz_cgs = vz / velocity_unit; // cm/s
+    return n_cgs * vz_cgs;
+  };
+  auto f_turbWork_cgs = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &turbHeat = turbHeat_pack(b);
+    const Real dE_dt = turbHeat(0, k, j, i);
+    return dE_dt / Edot_unit; // ergs/s
+  };
 
   ComputeAvgProfile1D(rho_mean, md.get(), f_rho);
   ComputeAvgProfile1D(P_mean, md.get(), f_P);
   ComputeAvgProfile1D(K_mean, md.get(), f_K);
   ComputeAvgProfile1D(T_mean, md.get(), f_T);
+  ComputeAvgProfile1D(heatFlux_mean, md.get(), f_heatFlux_cgs);
+  ComputeAvgProfile1D(massFlux_mean, md.get(), f_massFlux_cgs);
+  ComputeAvgProfile1D(turbHeat_mean, md.get(), f_turbWork_cgs);
 
   // compute interpolants
   MonotoneInterpolator<PinnedArray1D<Real>> rhoMeanInterp =
@@ -1035,7 +1084,8 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           const Real vx = prim(IV1, k, j, i);
           const Real vy = prim(IV2, k, j, i);
           const Real vz = prim(IV3, k, j, i);
-          const Real v_mag = std::sqrt(SQR(vx) + SQR(vy) + SQR(vz));
+          const Real v_sq = SQR(vx) + SQR(vy) + SQR(vz);
+          const Real v_mag = std::sqrt(v_sq);
           const Real M_s = v_mag / c_s;
 
           drho(k, j, i) = (rho - rho_bar) / rho_bar;
@@ -1164,6 +1214,22 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   WriteProfileToFile(P_mean, md.get(), time, filename("P_avg", noutputs));
   WriteProfileToFile(K_mean, md.get(), time, filename("K_avg", noutputs));
   WriteProfileToFile(T_mean, md.get(), time, filename("T_avg", noutputs));
+  WriteProfileToFile(heatFlux_mean, md.get(), time, filename("heatFlux_avg", noutputs));
+  WriteProfileToFile(massFlux_mean, md.get(), time, filename("massFlux_avg", noutputs));
+  WriteProfileToFile(turbHeat_mean, md.get(), time, filename("turbHeat_avg", noutputs));
+
+  const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
+  if (enable_cooling == Cooling::tabular) {
+    parthenon::ParArray1D<Real> *coolEdot_mean =
+        pkg->MutableParam<parthenon::ParArray1D<Real>>("profile_reduce");
+    parthenon::ParArray1D<Real> coolEdot_cgs_mean("coolEdot_cgs_mean", REDUCTION_ARRAY_SIZE);
+    for (int i = 0; i < REDUCTION_ARRAY_SIZE; ++i) {
+      coolEdot_cgs_mean(i) = (*coolEdot_mean)(i) / Edot_unit;
+    }
+    
+    WriteProfileToFile(coolEdot_cgs_mean, md.get(), time,
+                       filename("coolEdot_avg", noutputs));
+  }
 
   ++noutputs;
 }

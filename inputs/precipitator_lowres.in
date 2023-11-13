@@ -6,26 +6,26 @@ problem_id = precipitator   # problem ID: basename of output filenames
 
 <parthenon/output1>
 file_type  = hst       # History data dump
-dt         = 5.0       # time increment between outputs
+dt         = 20.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = prim, drho_over_rho, dP_over_P, dK_over_K, dT_over_T, entropy, temperature     # Variables to be output
-dt         = 100.0        # Time increment between outputs
+dt         = 500.0        # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/output3>
 file_type  = rst        # Binary data dump
-dt         = 1000.0        # time increment between outputs
+dt         = 2000.0        # time increment between outputs
 id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 5.0
+dt           = 20.0
 actions_file = inputs/precipitator_no_binning.yaml
 
 <parthenon/time>
-cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
 tlim       = 1.0e4      # time limit
 integrator  = rk2       # time integration algorithm
@@ -88,9 +88,10 @@ lambda_units_cgs = 1
 cfl = 1.0
 
 <precipitator>
-hse_profile_filename = ./inputs/tabulated_hse_tc_tff_8.0.txt
+hse_profile_filename = ./inputs/tabulated_hse_tc_tff_0.5.txt
+uniform_init = 0
 enable_heating = magic   # magic
-epsilon_heating = 1.0
+epsilon_heating = 0.97
 numHist = 64
 h_smooth_heatcool_kpc = 20.
 
@@ -101,9 +102,9 @@ perturb_kz = 32
 perturb_exponent = 1    # P(k) ~ k^{-2}
 
 <precipitator/driving>
-sigma_v = 0.001   # kpc Myr^{-1}
+sigma_v = 0.0001   # kpc Myr^{-1}
 k_peak = 2
 num_modes = 40
 sol_weight = 1.0
 rseed = 42
-t_corr = 10.0   # Myr
+t_corr = 500.0   # Myr
