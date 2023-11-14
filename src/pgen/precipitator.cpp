@@ -956,8 +956,10 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
   const Real mmw = mu * units.atomic_mass_unit(); // mean molecular weight
   const Real kboltz = units.k_boltzmann();
+  const Real mass_unit = units.code_mass_cgs();
   const Real velocity_unit = units.code_length_cgs() / units.code_time_cgs();
-  const Real Edot_unit = units.code_energy_cgs() / units.code_time_cgs();
+  const Real vol_unit = std::pow(units.code_length_cgs(), 3);
+  const Real Edot_unit = units.code_energy_cgs() / (vol_unit * units.code_time_cgs());
 
   // perform reductions to compute average vertical profiles
   parthenon::ParArray1D<Real> rho_mean("rho_mean", REDUCTION_ARRAY_SIZE);
@@ -1003,22 +1005,22 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     const Real vz = prim(IV3, k, j, i);
     const Real P = prim(IPR, k, j, i);
     const Real T = P / (kboltz * rho / mmw); // K
-    const Real n_cgs = rho / mmw; // cm^-3
-    const Real vz_cgs = vz / velocity_unit; // cm/s
-    return n_cgs * vz_cgs * T;
+    const Real n_cgs = (rho / mmw) / vol_unit; // cm^-3
+    const Real vz_cgs = vz * velocity_unit; // cm/s
+    return vz_cgs * (n_cgs * T);
   };
   auto f_massFlux_cgs = KOKKOS_LAMBDA(int b, int k, int j, int i) {
     auto &prim = prim_pack(b);
     const Real rho = prim(IDN, k, j, i);
     const Real vz = prim(IV3, k, j, i);
-    const Real n_cgs = rho / mmw; // cm^-3
-    const Real vz_cgs = vz / velocity_unit; // cm/s
-    return n_cgs * vz_cgs;
+    const Real n_cgs = (rho / mmw) / vol_unit; // cm^-3
+    const Real vz_cgs = vz * velocity_unit; // cm/s
+    return vz_cgs * n_cgs;
   };
   auto f_turbWork_cgs = KOKKOS_LAMBDA(int b, int k, int j, int i) {
     auto &turbHeat = turbHeat_pack(b);
     const Real dE_dt = turbHeat(0, k, j, i);
-    return dE_dt / Edot_unit; // ergs/s
+    return dE_dt * Edot_unit; // ergs/s/cm^3
   };
 
   ComputeAvgProfile1D(rho_mean, md.get(), f_rho);
@@ -1224,9 +1226,9 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
         pkg->MutableParam<parthenon::ParArray1D<Real>>("profile_reduce");
     parthenon::ParArray1D<Real> coolEdot_cgs_mean("coolEdot_cgs_mean", REDUCTION_ARRAY_SIZE);
     for (int i = 0; i < REDUCTION_ARRAY_SIZE; ++i) {
-      coolEdot_cgs_mean(i) = (*coolEdot_mean)(i) / Edot_unit;
+      coolEdot_cgs_mean(i) = (*coolEdot_mean)(i) * Edot_unit;
     }
-    
+
     WriteProfileToFile(coolEdot_cgs_mean, md.get(), time,
                        filename("coolEdot_avg", noutputs));
   }
