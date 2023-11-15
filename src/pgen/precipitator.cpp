@@ -1010,9 +1010,9 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     const Real rho = prim(IDN, k, j, i);
     const Real vz = prim(IV3, k, j, i);
     const Real P = prim(IPR, k, j, i);
-    const Real T = P / (kboltz * rho / mmw); // K
+    const Real T = P / (kboltz * rho / mmw);   // K
     const Real n_cgs = (rho / mmw) / vol_unit; // cm^-3
-    const Real vz_cgs = vz * velocity_unit; // cm/s
+    const Real vz_cgs = vz * velocity_unit;    // cm/s
     return vz_cgs * (n_cgs * T);
   };
   auto f_massFlux_cgs = KOKKOS_LAMBDA(int b, int k, int j, int i) {
@@ -1020,7 +1020,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     const Real rho = prim(IDN, k, j, i);
     const Real vz = prim(IV3, k, j, i);
     const Real n_cgs = (rho / mmw) / vol_unit; // cm^-3
-    const Real vz_cgs = vz * velocity_unit; // cm/s
+    const Real vz_cgs = vz * velocity_unit;    // cm/s
     return vz_cgs * n_cgs;
   };
   auto f_turbWork_cgs = KOKKOS_LAMBDA(int b, int k, int j, int i) {
@@ -1228,15 +1228,22 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
 
   const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
   if (enable_cooling == Cooling::tabular) {
-    parthenon::ParArray1D<Real> *coolEdot_mean =
+    parthenon::ParArray1D<Real> *profile_reduce_dev =
         pkg->MutableParam<parthenon::ParArray1D<Real>>("profile_reduce");
-    parthenon::ParArray1D<Real> coolEdot_cgs_mean("coolEdot_cgs_mean", REDUCTION_ARRAY_SIZE);
+    parthenon::ParArray1D<Real> coolEdot_cgs("coolEdot_cgs_mean", REDUCTION_ARRAY_SIZE);
+
+    // get profile from device
+    auto profile_reduce = profile_reduce_dev->GetHostMirrorAndCopy();
+    auto coolEdot_cgs_host = coolEdot_cgs.GetHostMirrorAndCopy();
+
     for (int i = 0; i < REDUCTION_ARRAY_SIZE; ++i) {
-      coolEdot_cgs_mean(i) = (*coolEdot_mean)(i) * Edot_unit;
+      coolEdot_cgs_host(i) = profile_reduce(i) * Edot_unit;
     }
 
-    WriteProfileToFile(coolEdot_cgs_mean, md.get(), time,
-                       filename("coolEdot_avg", noutputs));
+    // copy to device
+    coolEdot_cgs.DeepCopy(coolEdot_cgs_host);
+
+    WriteProfileToFile(coolEdot_cgs, md.get(), time, filename("coolEdot_avg", noutputs));
   }
 
   ++noutputs;
