@@ -290,6 +290,7 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
   const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");
+  const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
 
   if (sigma_v > 0) {
     // generate perturbations
@@ -334,10 +335,15 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
               0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
               rho;
 
+          // artificially limit work in precipitator midplane
+          const auto &coords = perturb_pack.GetCoords(b);
+          const Real z = coords.Xc<3>(k);
+          const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
+
           // update momentum components
-          u(IM1, k, j, i) += rho * dv_x;
-          u(IM2, k, j, i) += rho * dv_y;
-          u(IM3, k, j, i) += rho * dv_z;
+          u(IM1, k, j, i) += rho * (taper_fac * dv_x);
+          u(IM2, k, j, i) += rho * (taper_fac * dv_y);
+          u(IM3, k, j, i) += rho * (taper_fac * dv_z);
 
           // compute new kinetic energy
           const Real KE_new =
