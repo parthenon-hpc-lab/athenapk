@@ -83,22 +83,17 @@ void ComputeIDsAndFlags_(Mesh *pm, std::vector<int> &data) {
 }
 // TODO(JMM): Should this live in the base class or output_utils?
 // TODO(pgete): yes, as they can be reused
-void ComputeCoords_(Mesh *pm, bool face, const IndexRange &ib, const IndexRange &jb,
-                    const IndexRange &kb, std::vector<Real> &x, std::vector<Real> &y,
-                    std::vector<Real> &z) {
-  std::size_t idx_x = 0, idx_y = 0, idx_z = 0;
+void ComputeBlockCenterCoords_(Mesh *pm, const IndexRange &ib, const IndexRange &jb,
+                               const IndexRange &kb, std::vector<Real> &x,
+                               std::vector<Real> &y, std::vector<Real> &z) {
+  std::size_t idx = 0;
 
   // note relies on casting of bool to int
   for (auto &pmb : pm->block_list) {
-    for (int i = ib.s; i <= ib.e + face; ++i) {
-      x[idx_x++] = face ? pmb->coords.Xf<1>(i) : pmb->coords.Xc<1>(i);
-    }
-    for (int j = jb.s; j <= jb.e + face; ++j) {
-      y[idx_y++] = face ? pmb->coords.Xf<2>(j) : pmb->coords.Xc<2>(j);
-    }
-    for (int k = kb.s; k <= kb.e + face; ++k) {
-      z[idx_z++] = face ? pmb->coords.Xf<3>(k) : pmb->coords.Xc<3>(k);
-    }
+    x[idx] = (pmb->coords.Xf<1>(ib.e + 1) + pmb->coords.Xf<1>(ib.s)) / 2.0;
+    y[idx] = (pmb->coords.Xf<2>(jb.e + 1) + pmb->coords.Xf<2>(jb.s)) / 2.0;
+    z[idx] = (pmb->coords.Xf<3>(kb.e + 1) + pmb->coords.Xf<3>(kb.s)) / 2.0;
+    idx += 1;
   }
 }
 } // namespace UserOutputHelper
@@ -115,7 +110,6 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
 
   // writes all graphics variables to hdf file
   // HDF5 structures
-  // Also writes companion xdmf file
 
   const int max_blocks_global = pm->nbtotal;
   const int num_blocks_local = static_cast<int>(pm->block_list.size());
@@ -139,7 +133,7 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
 
   // open HDF5 file
   // Define output filename
-  std::string filename = "bla"; // GenerateFilename_(pin, tm, signal);
+  std::string filename = GenerateFilename_(pin, tm, signal);
 
   // set file access property list
   H5P const acc_file = H5P::FromHIDCheck(HDF5::GenerateFileAccessProps());
@@ -320,26 +314,26 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
 
   // Write mesh coordinates to file
   Kokkos::Profiling::pushRegion("write mesh coords");
-  for (const bool face : {true, false}) {
-    const H5G gLocations = MakeGroup(file, face ? "/Locations" : "/VolumeLocations");
+  {
+    const H5G gLocations = MakeGroup(file, "/VolumeLocations");
 
     // write X coordinates
-    std::vector<Real> loc_x((nx1 + face) * num_blocks_local);
-    std::vector<Real> loc_y((nx2 + face) * num_blocks_local);
-    std::vector<Real> loc_z((nx3 + face) * num_blocks_local);
+    std::vector<Real> loc_x(num_blocks_local);
+    std::vector<Real> loc_y(num_blocks_local);
+    std::vector<Real> loc_z(num_blocks_local);
 
-    UserOutputHelper::ComputeCoords_(pm, face, out_ib, out_jb, out_kb, loc_x, loc_y,
-                                     loc_z);
+    UserOutputHelper::ComputeBlockCenterCoords_(pm, out_ib, out_jb, out_kb, loc_x, loc_y,
+                                                loc_z);
 
-    local_count[1] = global_count[1] = nx1 + face;
+    local_count[1] = global_count[1] = 1;
     HDF5Write2D(gLocations, "x", loc_x.data(), p_loc_offset, p_loc_cnt, p_glob_cnt,
                 pl_xfer);
 
-    local_count[1] = global_count[1] = nx2 + face;
+    local_count[1] = global_count[1] = 1;
     HDF5Write2D(gLocations, "y", loc_y.data(), p_loc_offset, p_loc_cnt, p_glob_cnt,
                 pl_xfer);
 
-    local_count[1] = global_count[1] = nx3 + face;
+    local_count[1] = global_count[1] = 1;
     HDF5Write2D(gLocations, "z", loc_z.data(), p_loc_offset, p_loc_cnt, p_glob_cnt,
                 pl_xfer);
   }
@@ -388,7 +382,7 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
 
   auto get_vars = [=](const std::shared_ptr<MeshBlock> pmb) {
     auto &var_vec = pmb->meshblock_data.Get()->GetVariableVector();
-      return GetAnyVariables(var_vec, output_params.variables);
+    return GetAnyVariables(var_vec, output_params.variables);
   };
 
   // get list of all vars, just use the first block since the list is the same for all
@@ -628,30 +622,11 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
   HDF5WriteAttribute("ComponentNames", component_names, info_group);
   HDF5WriteAttribute("OutputDatasetNames", var_names, info_group);
 
-  // write SparseInfo and SparseFields (we can't write a zero-size dataset, so only write
-  // this if we have sparse fields)
-  if (num_sparse > 0) {
-    Kokkos::Profiling::pushRegion("write sparse info");
-    local_count[1] = global_count[1] = num_sparse;
-
-    HDF5Write2D(file, "SparseInfo", sparse_allocated.get(), p_loc_offset, p_loc_cnt,
-                p_glob_cnt, pl_xfer);
-
-    // write names of sparse fields as attribute, first convert to vector of const char*
-    std::vector<const char *> names(num_sparse);
-    for (size_t i = 0; i < num_sparse; ++i)
-      names[i] = sparse_names[i].c_str();
-
-    const H5D dset = H5D::FromHIDCheck(H5Dopen2(file, "SparseInfo", H5P_DEFAULT));
-    HDF5WriteAttribute("SparseFields", names, dset);
-    Kokkos::Profiling::popRegion(); // write sparse info
-  }                                 // SparseInfo and SparseFields sections
-
-  Kokkos::Profiling::popRegion(); // WriteOutputFile???Prec
+  Kokkos::Profiling::popRegion(); // WriteOutputFile
 }
 
 std::string UserOutput::GenerateFilename_(ParameterInput *pin, SimTime *tm,
-                                           const SignalHandler::OutputSignal signal) {
+                                          const SignalHandler::OutputSignal signal) {
   using namespace HDF5;
 
   auto filename = std::string(output_params.file_basename);
