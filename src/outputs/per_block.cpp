@@ -23,6 +23,7 @@
 #include "utils/error_checking.hpp"
 #include <cmath>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Only proceed if HDF5 output enabled
@@ -380,81 +381,111 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
   // -------------------------------------------------------------------------------- //
   Kokkos::Profiling::pushRegion("write all variable data");
   {
-    const std::string stat_name = "stat_name";
+    struct Stats {
+      const std::string name;
+      const std::string field_name;
+      Kokkos::Array<int, 3> field_components{};
+      Stats(std::string name_, std::string field_name_,
+            Kokkos::Array<int, 3> field_components_)
+          : name(std::move(name_)), field_name(std::move(field_name_)),
+            field_components(field_components_) {}
+      Stats(std::string name_, std::string field_name_, int field_component_)
+          : name(std::move(name_)), field_name(std::move(field_name_)) {
+        field_components[0] = field_component_;
+        field_components[1] = -1;
+        field_components[2] = -1;
+      }
+    };
+
+    std::vector<Stats> stats;
+    stats.emplace_back(Stats("vel_mag", "prim", {IV1, IV2, IV3}));
+    stats.emplace_back(Stats("rho", "prim", 0));
+    stats.emplace_back(Stats("vx", "prim", 1));
+
     const std::vector<std::string> stat_types = {
         "min", "max", "absmin", "absmax", "mean", "rms", "stddev", "skew", "kurt"};
     const H5G gLocations = MakeGroup(file, "/stats");
     std::vector<Real> stat_results(num_blocks_local * stat_types.size());
     local_count[1] = global_count[1] = stat_types.size();
 
-    size_t b = 0;
-    for (auto &pmb : pm->block_list) {
-      const auto offset = stat_types.size() * b;
-      const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-      const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-      const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+    for (const auto &stat : stats) {
+      size_t b = 0;
+      for (auto &pmb : pm->block_list) {
+        const auto offset = stat_types.size() * b;
+        const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+        const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+        const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-      // TODO(pgrete) consider using new packing machinery here for cleaner interface
-      const auto prim = pmb->meshblock_data.Get()->Get("prim").data;
+        // TODO(pgrete) consider using new packing machinery here for cleaner interface
+        const auto data = pmb->meshblock_data.Get()->Get(stat.field_name).data;
 
-      //  Central moments about the origin (or non-central moments)
-      Real muprime1, muprime2, muprime3, muprime4;
+        const auto components = stat.field_components;
 
-      Kokkos::parallel_reduce(
-          "CalcVelStats",
-          Kokkos::MDRangePolicy<Kokkos::Rank<3>>(DevExecSpace(), {kb.s, jb.s, ib.s},
-                                                 {kb.e + 1, jb.e + 1, ib.e + 1},
-                                                 {1, 1, ib.e + 1 - ib.s}),
-          KOKKOS_LAMBDA(const int &k, const int &j, const int &i, Real &lmin, Real &lmax,
-                        Real &labsmin, Real &labsmax, Real &lsum1, Real &lsum2,
-                        Real &lsum3, Real &lsum4) {
-            const auto vel =
-                Kokkos::sqrt(SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) +
-                             SQR(prim(IV3, k, j, i)));
+        //  Central moments about the origin (or non-central moments)
+        Real muprime1, muprime2, muprime3, muprime4;
 
-            lmin = std::min(vel, lmin);
-            lmax = std::max(vel, lmax);
-            // not quite necessary for the velocity *magnitude*
-            labsmin = std::min(Kokkos::abs(vel), labsmin);
-            labsmax = std::max(Kokkos::abs(vel), labsmax);
+        Kokkos::parallel_reduce(
+            "CalcStats",
+            Kokkos::MDRangePolicy<Kokkos::Rank<3>>(DevExecSpace(), {kb.s, jb.s, ib.s},
+                                                   {kb.e + 1, jb.e + 1, ib.e + 1},
+                                                   {1, 1, ib.e + 1 - ib.s}),
+            KOKKOS_LAMBDA(const int &k, const int &j, const int &i, Real &lmin,
+                          Real &lmax, Real &labsmin, Real &labsmax, Real &lsum1,
+                          Real &lsum2, Real &lsum3, Real &lsum4) {
+              Real val;
+              // check the desired field is a scalar
+              if (components[1] == -1) {
+                val = data(components[0], k, j, i);
+                // else is a vector
+              } else {
+                val = Kokkos::sqrt(SQR(data(components[0], k, j, i)) +
+                                   SQR(data(components[1], k, j, i)) +
+                                   SQR(data(components[2], k, j, i)));
+              }
 
-            lsum1 += vel;
-            lsum2 += vel * vel;
-            lsum3 += vel * vel * vel;
-            lsum4 += vel * vel * vel * vel;
-          },
-          Kokkos::Min<Real>(stat_results[offset + 0]),
-          Kokkos::Max<Real>(stat_results[offset + 1]),
-          Kokkos::Min<Real>(stat_results[offset + 2]),
-          Kokkos::Max<Real>(stat_results[offset + 3]), Kokkos::Sum<Real>(muprime1),
-          Kokkos::Sum<Real>(muprime2), Kokkos::Sum<Real>(muprime3),
-          Kokkos::Sum<Real>(muprime4));
+              lmin = std::min(val, lmin);
+              lmax = std::max(val, lmax);
+              // not quite necessary for the velocity *magnitude*
+              labsmin = std::min(Kokkos::abs(val), labsmin);
+              labsmax = std::max(Kokkos::abs(val), labsmax);
 
-      muprime1 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
-      muprime2 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
-      muprime3 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
-      muprime4 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
+              lsum1 += val;
+              lsum2 += val * val;
+              lsum3 += val * val * val;
+              lsum4 += val * val * val * val;
+            },
+            Kokkos::Min<Real>(stat_results[offset + 0]),
+            Kokkos::Max<Real>(stat_results[offset + 1]),
+            Kokkos::Min<Real>(stat_results[offset + 2]),
+            Kokkos::Max<Real>(stat_results[offset + 3]), Kokkos::Sum<Real>(muprime1),
+            Kokkos::Sum<Real>(muprime2), Kokkos::Sum<Real>(muprime3),
+            Kokkos::Sum<Real>(muprime4));
 
-      // Central moments about the mean.
-      // Being verbose here for better readibility
-      const auto mu = muprime1;            // expected value or mean
-      const auto mu2 = muprime2 - SQR(mu); // variance
-      const auto mu3 = muprime3 - 3.0 * mu * muprime2 + 2 * std::pow(mu, 3.0);
-      const auto mu4 =
-          muprime4 - 4 * mu * muprime3 + 6 * SQR(mu) * muprime2 - 3 * std::pow(mu, 4.0);
+        muprime1 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
+        muprime2 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
+        muprime3 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
+        muprime4 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
 
-      stat_results[offset + 4] = mu;                  // mean
-      stat_results[offset + 5] = std::sqrt(muprime2); // rms
-      const auto stddev = std::sqrt(mu2);             // standard deviation
-      stat_results[offset + 6] = stddev;
-      stat_results[offset + 7] = mu3 / std::pow(stddev, 3.0); // skewness
-      stat_results[offset + 8] = mu4 / std::pow(stddev, 4.0); // kurtosis
+        // Central moments about the mean.
+        // Being verbose here for better readibility
+        const auto mu = muprime1;            // expected value or mean
+        const auto mu2 = muprime2 - SQR(mu); // variance
+        const auto mu3 = muprime3 - 3.0 * mu * muprime2 + 2 * std::pow(mu, 3.0);
+        const auto mu4 =
+            muprime4 - 4 * mu * muprime3 + 6 * SQR(mu) * muprime2 - 3 * std::pow(mu, 4.0);
 
-      b++;
+        stat_results[offset + 4] = mu;                  // mean
+        stat_results[offset + 5] = std::sqrt(muprime2); // rms
+        const auto stddev = std::sqrt(mu2);             // standard deviation
+        stat_results[offset + 6] = stddev;
+        stat_results[offset + 7] = mu3 / std::pow(stddev, 3.0); // skewness
+        stat_results[offset + 8] = mu4 / std::pow(stddev, 4.0); // kurtosis
+
+        b++;
+      }
+      HDF5Write2D(gLocations, stat.name, stat_results.data(), p_loc_offset, p_loc_cnt,
+                  p_glob_cnt, pl_xfer);
     }
-
-    HDF5Write2D(gLocations, stat_name.c_str(), stat_results.data(), p_loc_offset,
-                p_loc_cnt, p_glob_cnt, pl_xfer);
   }
   Kokkos::Profiling::popRegion(); // write all variable data
 
