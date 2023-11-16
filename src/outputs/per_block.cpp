@@ -421,17 +421,17 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
 
         const auto components = stat.field_components;
 
-        //  Central moments about the origin (or non-central moments)
-        Real muprime1, muprime2, muprime3, muprime4;
+        Real mu; // expected value or mean
+        Real rms;
 
         Kokkos::parallel_reduce(
-            "CalcStats",
+            "CalcStatsMean",
             Kokkos::MDRangePolicy<Kokkos::Rank<3>>(DevExecSpace(), {kb.s, jb.s, ib.s},
                                                    {kb.e + 1, jb.e + 1, ib.e + 1},
                                                    {1, 1, ib.e + 1 - ib.s}),
             KOKKOS_LAMBDA(const int &k, const int &j, const int &i, Real &lmin,
                           Real &lmax, Real &labsmin, Real &labsmax, Real &lsum1,
-                          Real &lsum2, Real &lsum3, Real &lsum4) {
+                          Real &lsum2) {
               Real val;
               // check the desired field is a scalar
               if (components[1] == -1) {
@@ -450,33 +450,50 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
               labsmax = std::max(Kokkos::abs(val), labsmax);
 
               lsum1 += val;
-              lsum2 += val * val;
-              lsum3 += val * val * val;
-              lsum4 += val * val * val * val;
+              lsum2 += SQR(val);
             },
             Kokkos::Min<Real>(stat_results[offset + 0]),
             Kokkos::Max<Real>(stat_results[offset + 1]),
             Kokkos::Min<Real>(stat_results[offset + 2]),
-            Kokkos::Max<Real>(stat_results[offset + 3]), Kokkos::Sum<Real>(muprime1),
-            Kokkos::Sum<Real>(muprime2), Kokkos::Sum<Real>(muprime3),
-            Kokkos::Sum<Real>(muprime4));
+            Kokkos::Max<Real>(stat_results[offset + 3]), Kokkos::Sum<Real>(mu),
+            Kokkos::Sum<Real>(rms));
 
-        muprime1 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
-        muprime2 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
-        muprime3 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
-        muprime4 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
+        mu /= pmb->cellbounds.GetTotal(IndexDomain::interior);
+        rms = std::sqrt(rms / pmb->cellbounds.GetTotal(IndexDomain::interior));
 
-        // Central moments about the mean.
-        // Being verbose here for better readibility
-        const auto mu = muprime1;            // expected value or mean
-        const auto mu2 = muprime2 - SQR(mu); // variance
-        const auto mu3 = muprime3 - 3.0 * mu * muprime2 + 2 * std::pow(mu, 3.0);
-        const auto mu4 =
-            muprime4 - 4 * mu * muprime3 + 6 * SQR(mu) * muprime2 - 3 * std::pow(mu, 4.0);
+        // n-th moments about the mean or central moments
+        Real mu2, mu3, mu4;
+        Kokkos::parallel_reduce(
+            "CalcStatsHigherOrder",
+            Kokkos::MDRangePolicy<Kokkos::Rank<3>>(DevExecSpace(), {kb.s, jb.s, ib.s},
+                                                   {kb.e + 1, jb.e + 1, ib.e + 1},
+                                                   {1, 1, ib.e + 1 - ib.s}),
+            KOKKOS_LAMBDA(const int &k, const int &j, const int &i, Real &lsum2,
+                          Real &lsum3, Real &lsum4) {
+              Real val;
+              // check the desired field is a scalar
+              if (components[1] == -1) {
+                val = data(components[0], k, j, i);
+                // else is a vector
+              } else {
+                val = Kokkos::sqrt(SQR(data(components[0], k, j, i)) +
+                                   SQR(data(components[1], k, j, i)) +
+                                   SQR(data(components[2], k, j, i)));
+              }
 
-        stat_results[offset + 4] = mu;                  // mean
-        stat_results[offset + 5] = std::sqrt(muprime2); // rms
-        const auto stddev = std::sqrt(mu2);             // standard deviation
+              lsum2 += SQR(val - mu);
+              lsum3 += Kokkos::pow(val - mu, 3.0);
+              lsum4 += Kokkos::pow(val - mu, 4.0);
+            },
+            Kokkos::Sum<Real>(mu2), Kokkos::Sum<Real>(mu3), Kokkos::Sum<Real>(mu4));
+
+        mu2 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
+        mu3 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
+        mu4 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
+
+        stat_results[offset + 4] = mu;      // mean
+        stat_results[offset + 5] = rms;     // rms
+        const auto stddev = std::sqrt(mu2); // standard deviation
         stat_results[offset + 6] = stddev;
         stat_results[offset + 7] = mu3 / std::pow(stddev, 3.0); // skewness
         stat_results[offset + 8] = mu4 / std::pow(stddev, 4.0); // kurtosis
