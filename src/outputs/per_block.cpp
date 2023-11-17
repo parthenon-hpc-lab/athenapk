@@ -381,16 +381,25 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
   // -------------------------------------------------------------------------------- //
   Kokkos::Profiling::pushRegion("write all variable data");
   {
+    PARTHENON_REQUIRE_THROWS(
+        typeid(Coordinates_t) == typeid(UniformCartesian),
+        "Stats in per-block output currently assume uniform coordinates. Cell volumes "
+        "should properly taken into account for other coordinate systems.");
+
+    enum class Weight { None, Mass };
     struct Stats {
       const std::string name;
       const std::string field_name;
       Kokkos::Array<int, 3> field_components{};
+      Weight weight;
+
       Stats(std::string name_, std::string field_name_,
-            Kokkos::Array<int, 3> field_components_)
+            Kokkos::Array<int, 3> field_components_, Weight weight_ = Weight::None)
           : name(std::move(name_)), field_name(std::move(field_name_)),
-            field_components(field_components_) {}
-      Stats(std::string name_, std::string field_name_, int field_component_)
-          : name(std::move(name_)), field_name(std::move(field_name_)) {
+            field_components(field_components_), weight(weight_) {}
+      Stats(std::string name_, std::string field_name_, int field_component_,
+            Weight weight_ = Weight::None)
+          : name(std::move(name_)), field_name(std::move(field_name_)), weight(weight_) {
         field_components[0] = field_component_;
         field_components[1] = -1;
         field_components[2] = -1;
@@ -399,6 +408,7 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
 
     std::vector<Stats> stats;
     stats.emplace_back(Stats("vel_mag", "prim", {IV1, IV2, IV3}));
+    stats.emplace_back(Stats("vel_mag_mw", "prim", {IV1, IV2, IV3}, Weight::Mass));
     stats.emplace_back(Stats("rho", "prim", 0));
     stats.emplace_back(Stats("vx", "prim", 1));
 
@@ -418,11 +428,14 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
 
         // TODO(pgrete) consider using new packing machinery here for cleaner interface
         const auto data = pmb->meshblock_data.Get()->Get(stat.field_name).data;
+        const auto prim = pmb->meshblock_data.Get()->Get("prim").data;
 
         const auto components = stat.field_components;
+        const auto weight = stat.weight;
 
         Real mu; // expected value or mean
         Real rms;
+        Real total_weight;
 
         Kokkos::parallel_reduce(
             "CalcStatsMean",
@@ -431,7 +444,7 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
                                                    {1, 1, ib.e + 1 - ib.s}),
             KOKKOS_LAMBDA(const int &k, const int &j, const int &i, Real &lmin,
                           Real &lmax, Real &labsmin, Real &labsmax, Real &lsum1,
-                          Real &lsum2) {
+                          Real &lsum2, Real &lsumweight) {
               Real val;
               // check the desired field is a scalar
               if (components[1] == -1) {
@@ -449,17 +462,26 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
               labsmin = std::min(Kokkos::abs(val), labsmin);
               labsmax = std::max(Kokkos::abs(val), labsmax);
 
-              lsum1 += val;
-              lsum2 += SQR(val);
+              Real w = 1.0;
+              if (weight == Weight::Mass) {
+                w = prim(IDN, k, j, i);
+                lsumweight += w;
+              }
+              lsum1 += val * w;
+              lsum2 += SQR(val) * w;
             },
             Kokkos::Min<Real>(stat_results[offset + 0]),
             Kokkos::Max<Real>(stat_results[offset + 1]),
             Kokkos::Min<Real>(stat_results[offset + 2]),
             Kokkos::Max<Real>(stat_results[offset + 3]), Kokkos::Sum<Real>(mu),
-            Kokkos::Sum<Real>(rms));
+            Kokkos::Sum<Real>(rms), Kokkos::Sum<Real>(total_weight));
 
-        mu /= pmb->cellbounds.GetTotal(IndexDomain::interior);
-        rms = std::sqrt(rms / pmb->cellbounds.GetTotal(IndexDomain::interior));
+        auto norm = weight == Weight::None
+                        ? pmb->cellbounds.GetTotal(IndexDomain::interior)
+                        : total_weight;
+
+        mu /= norm;
+        rms = std::sqrt(rms / norm);
 
         // n-th moments about the mean or central moments
         Real mu2, mu3, mu4;
@@ -481,15 +503,21 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
                                    SQR(data(components[2], k, j, i)));
               }
 
-              lsum2 += SQR(val - mu);
-              lsum3 += Kokkos::pow(val - mu, 3.0);
-              lsum4 += Kokkos::pow(val - mu, 4.0);
+              Real w = 1.0;
+              if (weight == Weight::Mass) {
+                w = prim(IDN, k, j, i);
+                // no need to calculate the total weight, as it's the same as in the
+                // previous loop
+              }
+              lsum2 += SQR(val - mu) * w;
+              lsum3 += Kokkos::pow(val - mu, 3.0) * w;
+              lsum4 += Kokkos::pow(val - mu, 4.0) * w;
             },
             Kokkos::Sum<Real>(mu2), Kokkos::Sum<Real>(mu3), Kokkos::Sum<Real>(mu4));
 
-        mu2 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
-        mu3 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
-        mu4 /= pmb->cellbounds.GetTotal(IndexDomain::interior);
+        mu2 /= norm;
+        mu3 /= norm;
+        mu4 /= norm;
 
         stat_results[offset + 4] = mu;      // mean
         stat_results[offset + 5] = rms;     // rms
