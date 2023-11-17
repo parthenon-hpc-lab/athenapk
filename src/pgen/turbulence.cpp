@@ -46,7 +46,7 @@ using utils::few_modes_ft::FewModesFT;
 
 // TODO(?) until we are able to process multiple variables in a single hst function call
 // we'll use this enum to identify the various vars.
-enum class HstQuan { Ms, Ma, pb };
+enum class HstQuan { Ms, Ma, pb, DeltaEcool };
 
 // Compute the local sum of either the sonic Mach number,
 // alfvenic Mach number, or plasma beta as specified by `hst_quan`.
@@ -55,6 +55,14 @@ Real TurbulenceHst(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto gamma = hydro_pkg->Param<Real>("AdiabaticIndex");
+
+  if (hst_quan == HstQuan::DeltaEcool &&
+      hydro_pkg->AllParams().hasKey("cooling/total_deltaE_this_cycle")) {
+    return hydro_pkg->Param<Real>("cooling/total_deltaE_this_cycle");
+  } else {
+    return 0;
+  }
+
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
 
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -112,6 +120,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
                                                     TurbulenceHst<HstQuan::Ms>, "Ms"));
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                                    TurbulenceHst<HstQuan::DeltaEcool>,
+                                                    "DeltaEcool"));
   if (fluid == Fluid::glmmhd) {
     hst_vars.emplace_back(parthenon::HistoryOutputVar(
         parthenon::UserHistoryOperation::sum, TurbulenceHst<HstQuan::Ma>, "Ma"));

@@ -410,7 +410,6 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
     stats.emplace_back(Stats("vel_mag", "prim", {IV1, IV2, IV3}));
     stats.emplace_back(Stats("vel_mag_mw", "prim", {IV1, IV2, IV3}, Weight::Mass));
     stats.emplace_back(Stats("rho", "prim", 0));
-    stats.emplace_back(Stats("vx", "prim", 1));
 
     const std::vector<std::string> stat_types = {
         "min", "max", "absmin", "absmax", "mean", "rms", "stddev", "skew", "kurt"};
