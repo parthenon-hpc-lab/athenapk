@@ -515,6 +515,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
                   "hydrostatic_equilibirum_sphere");
 
+      ib.s -= 1;
+      ib.e += 1;
+      jb.s -= 1;
+      jb.e += 1;
+      kb.s -= 1;
+      kb.e += 1;
       const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
 
       // initialize conserved variables
@@ -533,11 +539,18 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
             // Fill conserved states, 0 initial velocity
             u(IDN, k, j, i) = rho_r;
+            // u(IDN, k, j, i) = 1/(1+r);
             u(IM1, k, j, i) = 0.0;
             u(IM2, k, j, i) = 0.0;
             u(IM3, k, j, i) = 0.0;
             u(IEN, k, j, i) = P_r / gm1;
           });
+      ib.s += 1;
+      ib.e -= 1;
+      jb.s += 1;
+      jb.e -= 1;
+      kb.s += 1;
+      kb.e -= 1;
     }
 
     if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
@@ -745,7 +758,21 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     Real b2_sum = 0.0; // used for normalization
 
     auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
+    pmb->par_for(
+        "apply weight sigma_b", 0, num_blocks - 1, 0, 2, kb.s - 1, kb.e + 1, jb.s - 1,
+        jb.e + 1, ib.s - 1, ib.e + 1,
+        KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+          const auto &coords = cons.GetCoords(b);
+          const auto &u = cons(b);
+          const Real x = coords.Xc<1>(i);
+          const Real y = coords.Xc<2>(j);
+          const Real z = coords.Xc<3>(k);
 
+          const Real r = pow(SQR(x) + SQR(y) + SQR(z), 1. / 2);
+
+          // perturb_pack(b,n,k,j,i) *= 1/(1+r);
+          perturb_pack(b, n, k, j, i) *= u(IDN, k, j, i);
+        });
     pmb->par_reduce(
         "Init sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
