@@ -377,9 +377,9 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
   }
 
   // -------------------------------------------------------------------------------- //
-  //   WRITING VARIABLES DATA                                                         //
+  //   WRITING STATISTICS                                                             //
   // -------------------------------------------------------------------------------- //
-  Kokkos::Profiling::pushRegion("write all variable data");
+  Kokkos::Profiling::pushRegion("write all stats data");
   {
     PARTHENON_REQUIRE_THROWS(
         typeid(Coordinates_t) == typeid(UniformCartesian),
@@ -409,10 +409,12 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
     std::vector<Stats> stats;
     stats.emplace_back(Stats("vel_mag", "prim", {IV1, IV2, IV3}));
     stats.emplace_back(Stats("vel_mag_mw", "prim", {IV1, IV2, IV3}, Weight::Mass));
-    stats.emplace_back(Stats("rho", "prim", 0));
+    stats.emplace_back(Stats("rho", "prim", IDN));
+    stats.emplace_back(Stats("pressure", "prim", IPR));
 
     const std::vector<std::string> stat_types = {
-        "min", "max", "absmin", "absmax", "mean", "rms", "stddev", "skew", "kurt"};
+        "min", "max",    "absmin", "absmax", "mean",
+        "rms", "stddev", "skew",   "kurt",   "total_weight"};
     const H5G gLocations = MakeGroup(file, "/stats");
     std::vector<Real> stat_results(num_blocks_local * stat_types.size());
     local_count[1] = global_count[1] = stat_types.size();
@@ -524,6 +526,7 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
         stat_results[offset + 6] = stddev;
         stat_results[offset + 7] = mu3 / std::pow(stddev, 3.0); // skewness
         stat_results[offset + 8] = mu4 / std::pow(stddev, 4.0); // kurtosis
+        stat_results[offset + 9] = norm; // total_weight used for normalization
 
         b++;
       }
@@ -531,13 +534,7 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
                   p_glob_cnt, pl_xfer);
     }
   }
-  Kokkos::Profiling::popRegion(); // write all variable data
-
-  // names of variables
-  std::vector<std::string> var_names;
-  var_names.reserve(5);
-
-  HDF5WriteAttribute("OutputDatasetNames", var_names, info_group);
+  Kokkos::Profiling::popRegion(); // write all stats data
 
   Kokkos::Profiling::popRegion(); // WriteOutputFile
 }
