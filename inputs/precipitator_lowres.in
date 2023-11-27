@@ -71,7 +71,7 @@ scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 He_mass_fraction = 0.25
 dfloor = 0.     # Msun kpc^{-3}
-Tfloor = 1.0e5  # K
+Tfloor = 1.5e6  # K
 
 <units>
 code_length_cgs = 3.086e21      # kpc
@@ -88,12 +88,12 @@ lambda_units_cgs = 1
 cfl = 1.0
 
 <precipitator>
-hse_profile_filename = ./inputs/tabulated_hse_tc_tff_0.5.txt
+hse_profile_filename = ./inputs/hse_alpha_0_tc_tff_2.0.txt
 uniform_init = 0
 enable_heating = magic   # magic
 epsilon_heating = 0.97
 numHist = 64
-h_smooth_heatcool_kpc = 20.
+h_smooth_heatcool_kpc = 5.0
 
 perturb_sin_drho_over_rho = 0.0
 perturb_kx = 16
@@ -103,6 +103,7 @@ perturb_exponent = 1    # P(k) ~ k^{-2}
 
 <precipitator/driving>
 sigma_v = 0.0001   # kpc Myr^{-1}
+#sigma_v = 0
 k_peak = 2
 num_modes = 40
 sol_weight = 1.0
