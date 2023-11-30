@@ -732,8 +732,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
    ************************************************************/
   
   const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
-  const Real thickness_ism    = pin->GetOrAddReal("problem/cluster/init_perturb", "thickness_ism", 0.0);
-  const bool spherical_collapse  = pin->GetOrAddBoolean("problem/cluster/init_perturb", "spherical_collapse", false);
   
   hydro_pkg->AddParam<>("init_perturb_rho", init_perturb_rho);
   
@@ -752,7 +750,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     
     auto filename_rho = pin->GetOrAddString("problem/cluster/init_perturb", "init_perturb_rho_file","none");  
     const Real perturb_amplitude = pin->GetOrAddReal("problem/cluster/init_perturb", "perturb_amplitude", 1);
-    const Real thickness_ism     = pin->GetOrAddReal("problem/cluster/init_perturb", "thickness_ism", 0.01);
     const Real box_size_over_two = pin->GetOrAddReal("parthenon/mesh", "x1max", 0.250);
     
     std::string keys_rho = "data";
