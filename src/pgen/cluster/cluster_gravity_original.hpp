@@ -17,7 +17,7 @@
 namespace cluster {
 
 // Types of BCG's
-enum class BCG {NONE, HERNQUIST, ISOTHERMAL};
+enum class BCG { NONE, HERNQUIST };
 // Hernquiest BCG: Hernquist 1990 DOI:10.1086/168845
 
 /************************************************************
@@ -34,7 +34,6 @@ class ClusterGravity {
   // NFW Parameters
   parthenon::Real r_nfw_s_;
   // G , Mass, and Constants rolled into one
-  parthenon::Real gravitationnal_const_;
   parthenon::Real g_const_nfw_;
   parthenon::Real rho_const_nfw_;
 
@@ -42,7 +41,6 @@ class ClusterGravity {
   parthenon::Real alpha_bcg_s_;
   parthenon::Real beta_bcg_s_;
   parthenon::Real r_bcg_s_;
-  parthenon::Real T_bcg_s_;
   // G , Mass, and Constants rolled into one
   parthenon::Real g_const_bcg_;
   parthenon::Real rho_const_bcg_;
@@ -118,9 +116,7 @@ class ClusterGravity {
   // calculate the BCG density profile
   ClusterGravity(parthenon::ParameterInput *pin) {
     Units units(pin);
-    
-    gravitationnal_const_ = units.gravitational_constant();
-    
+
     // Determine which element to include
     include_nfw_g_ =
         pin->GetOrAddBoolean("problem/cluster/gravity", "include_nfw_g", false);
@@ -130,17 +126,13 @@ class ClusterGravity {
       which_bcg_g_ = BCG::NONE;
     } else if (which_bcg_g_str == "HERNQUIST") {
       which_bcg_g_ = BCG::HERNQUIST;
-    } else if (which_bcg_g_str == "ISOTHERMAL") {
-      which_bcg_g_ = BCG::ISOTHERMAL;
-    }
-      
-      else {
+    } else {
       std::stringstream msg;
       msg << "### FATAL ERROR in function [InitUserMeshData]" << std::endl
           << "Unknown BCG type " << which_bcg_g_str << std::endl;
       PARTHENON_FAIL(msg);
     }
-    
+
     include_smbh_g_ =
         pin->GetOrAddBoolean("problem/cluster/gravity", "include_smbh_g", false);
 
@@ -149,9 +141,7 @@ class ClusterGravity {
         "problem/cluster", "hubble_parameter", 70 * units.km_s() / units.mpc());
     const parthenon::Real rho_crit = 3 * hubble_parameter * hubble_parameter /
                                      (8 * M_PI * units.gravitational_constant());
-    
-    const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-    const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+
     const parthenon::Real M_nfw_200 =
         pin->GetOrAddReal("problem/cluster/gravity", "m_nfw_200", 8.5e14 * units.msun());
     const parthenon::Real c_nfw =
@@ -161,23 +151,12 @@ class ClusterGravity {
     
     // Initialize the BCG Profile
     alpha_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "alpha_bcg_s", 0.1);
-    beta_bcg_s_  = pin->GetOrAddReal("problem/cluster/gravity", "beta_bcg_s", 1.43);
+    beta_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "beta_bcg_s", 1.43);
     const parthenon::Real M_bcg_s =
         pin->GetOrAddReal("problem/cluster/gravity", "m_bcg_s", 7.5e10 * units.msun());
     r_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "r_bcg_s", 4 * units.kpc());
-    T_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "T_bcg_s", 10000); // Temperature in the isothermal case
-    
-    if (which_bcg_g_str == "ISOTHERMAL") {
-      
-      g_const_bcg_ = 2 * units.k_boltzmann() * T_bcg_s_ / (mu * units.mh());
-      
-    }
-    
-    else {
-    
-      g_const_bcg_ = calc_g_const_bcg(units.gravitational_constant(), which_bcg_g_, M_bcg_s,
-                                      r_bcg_s_, alpha_bcg_s_, beta_bcg_s_);
-    }
+    g_const_bcg_ = calc_g_const_bcg(units.gravitational_constant(), which_bcg_g_, M_bcg_s,
+                                    r_bcg_s_, alpha_bcg_s_, beta_bcg_s_);
     
     const parthenon::Real m_smbh =
         pin->GetOrAddReal("problem/cluster/gravity", "m_smbh", 3.4e8 * units.msun());
@@ -205,23 +184,21 @@ class ClusterGravity {
     if (include_nfw_g_) {
       g_r += g_const_nfw_ * (log(1 + r / r_nfw_s_) - r / (r + r_nfw_s_)) / r2;
     }
-    
+
     // Add BCG gravity
     switch (which_bcg_g_) {
     case BCG::NONE:
       break;
     case BCG::HERNQUIST:
       g_r += g_const_bcg_ / ((1 + r / r_bcg_s_) * (1 + r / r_bcg_s_));
-    case BCG::ISOTHERMAL:
-      g_r += g_const_bcg_ / r;
       break;
     }
-    
+
     // Add SMBH, point mass gravity
     if (include_smbh_g_) {
       g_r += g_const_smbh_ / r2;
     }
-    
+
     return g_r;
   }
   // Inline functions to compute density
@@ -244,8 +221,6 @@ class ClusterGravity {
     case BCG::HERNQUIST:
       rho += rho_const_bcg_ / (r * pow(r + r_bcg_s_, 3));
       break;
-    case BCG::ISOTHERMAL:
-      rho += g_const_bcg_ * 1 / (4 * M_PI * gravitationnal_const_ * r * r);
     }
 
     // SMBH, point mass gravity -- density is not defined. Throw an error

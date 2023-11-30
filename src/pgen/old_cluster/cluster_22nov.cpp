@@ -515,6 +515,13 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   // Defining a table within which the values of the hydrostatic density profile will be stored
   auto pmc = md->GetBlockData(0)->GetBlockPointer();
   const auto grid_size  = pin->GetOrAddInteger("problem/cluster/mesh", "nx1", 256);
+  
+  parthenon::ParArray4D<Real> hydrostatic_rho("hydrostatic_rho",grid_size + 4,grid_size + 4,grid_size + 4);
+  
+  //parthenon::ParArray4D<Real> hydrostatic_rho("hydrostatic_rho", md->NumBlocks(),
+  //                                pmc->cellbounds.ncellsk(IndexDomain::entire),
+  //                                pmc->cellbounds.ncellsj(IndexDomain::entire),
+  //                                pmc->cellbounds.ncellsi(IndexDomain::entire));
     
   for (int b = 0; b < md->NumBlocks(); b++) {
     
@@ -530,6 +537,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     IndexRange jb  = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
     IndexRange kb  = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
     
+    IndexRange ib_entire = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+    IndexRange jb_entire = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+    IndexRange kb_entire = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+    
     // Initialize the conserved variables
     auto &u = pmb->meshblock_data.Get()->Get("cons").data;
     auto &coords = pmb->coords;
@@ -542,6 +553,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
      * Initialize the initial hydro state
      ************************************************************/
     const auto &init_uniform_gas     = hydro_pkg->Param<bool>("init_uniform_gas");
+    const auto isothermal_sphere     = pin->GetOrAddBoolean("problem/cluster/gravity", "isothermal_sphere", false);
+    const auto isothermal_hernquist  = pin->GetOrAddBoolean("problem/cluster/gravity", "isothermal_hernquist", false);
     
     if (init_uniform_gas) {
       const Real rho = hydro_pkg->Param<Real>("uniform_gas_rho");
@@ -565,9 +578,83 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IM3, k, j, i) = Mz;
             u(IEN, k, j, i) = E;
           });
-        
-    } else {
     
+      // end if(init_uniform_gas)
+    } else if (isothermal_sphere) {
+      
+      const Real T_bcg_s      = pin->GetOrAddReal("problem/cluster/gravity", "T_bcg_s", 10000);
+      const Real r_smoothing  = pin->GetOrAddReal("problem/cluster/gravity", "g_smoothing_radius", 1e-6);
+      const Real mu           = hydro_pkg->Param<Real>("mu");
+      const Real prefactor    = 2 * units.k_boltzmann() * T_bcg_s / (mu * units.mh());
+      const Real grav_const   = units.gravitational_constant();
+      
+      std::cout << "Entering isothermal sphere generation \n" ;
+      
+      // Generating the profile
+      parthenon::par_for(
+          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::IsothermalSphere",
+          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+            
+            // Calculate radius
+            const Real r = sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) +
+                                coords.Xc<2>(j) * coords.Xc<2>(j) +
+                                coords.Xc<3>(k) * coords.Xc<3>(k));
+            
+            const Real r_effective = std::max(r_smoothing,r);
+            
+            const Real rho_r = prefactor * 1 / (4 * M_PI * grav_const * r_effective * r_effective);
+            const Real P_r   = (prefactor/2) * rho_r;
+            
+            // Fill conserved states, 0 initial velocity
+            u(IDN, k, j, i) = rho_r;
+            u(IM1, k, j, i) = 0.0;
+            u(IM2, k, j, i) = 0.0;
+            u(IM3, k, j, i) = 0.0;
+            u(IEN, k, j, i) = P_r / gm1;
+            
+          });
+      
+    } else if (isothermal_hernquist) {
+      
+      const Real T_bcg_s      = pin->GetOrAddReal("problem/cluster/gravity", "T_bcg_s", 10000);
+      const Real m_bcg_s      = pin->GetOrAddReal("problem/cluster/gravity", "m_bcg_s", 7.5e10 * units.msun());
+      const Real r_bcg_s      = pin->GetOrAddReal("problem/cluster/gravity", "r_bcg_s", 4 * units.kpc());
+      const Real r_smoothing  = pin->GetOrAddReal("problem/cluster/gravity", "g_smoothing_radius", 0.0);
+      const Real mu           = hydro_pkg->Param<Real>("mu");
+      const Real rho_0        = pin->GetOrAddReal("problem/cluster/gravity", "rho_0", 1e3);
+      const Real grav_const   = units.gravitational_constant();
+      
+      // Generating the profile
+      parthenon::par_for(
+          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::IsothermalSphere",
+          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+            
+            // Calculate radius
+            const Real r = sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) +
+                                coords.Xc<2>(j) * coords.Xc<2>(j) +
+                                coords.Xc<3>(k) * coords.Xc<3>(k));
+            
+            const Real r_effective = std::max(r_smoothing,r);
+            
+            const Real phi_r = - grav_const * m_bcg_s / (r_effective + r_bcg_s);
+            const Real rho_r = rho_0 * std::exp( - mu * units.mh() / (units.k_boltzmann() * T_bcg_s) * phi_r);
+            const Real P_r   = units.k_boltzmann() * T_bcg_s / (mu * units.mh()) * rho_r;
+            
+            // Fill conserved states, 0 initial velocity
+            u(IDN, k, j, i) = rho_r;
+            u(IM1, k, j, i) = 0.0;
+            u(IM2, k, j, i) = 0.0;
+            u(IM3, k, j, i) = 0.0;
+            u(IEN, k, j, i) = P_r / gm1;
+            
+          });
+      
+    }
+    
+    else {
+      
       /************************************************************
        * Initialize a HydrostaticEquilibriumSphere
        ************************************************************/
@@ -576,7 +663,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
                   "hydrostatic_equilibirum_sphere");
       
-      const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
+      const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib_entire, jb_entire, kb_entire, coords);
       
       // initialize conserved variables
       parthenon::par_for(
@@ -599,8 +686,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IM2, k, j, i) = 0.0;
             u(IM3, k, j, i) = 0.0;
             u(IEN, k, j, i) = P_r / gm1;
-                        
+            
+            // Updating hydrostatic_rho table
+            hydrostatic_rho(gks + k, gjs + j, gis + i) = rho_r;
+            
           });
+      
     }
     
     if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
@@ -722,6 +813,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   
+  IndexRange ib_entire = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb_entire = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb_entire = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+  
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
   auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
@@ -732,12 +827,53 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
    ************************************************************/
   
   const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
+  const bool full_box         = pin->GetOrAddBoolean("problem/cluster/init_perturb", "full_box", true);
   const Real thickness_ism    = pin->GetOrAddReal("problem/cluster/init_perturb", "thickness_ism", 0.0);
   const bool spherical_collapse  = pin->GetOrAddBoolean("problem/cluster/init_perturb", "spherical_collapse", false);
   
   hydro_pkg->AddParam<>("init_perturb_rho", init_perturb_rho);
   
   Real passive_scalar = 0.0; // Not useful here
+  
+  // Spherical collapse test with an initial overdensity
+  
+  if (spherical_collapse == true) {
+    
+    // Create an homogeneous sphere of a density superior or inferior to the background density
+    
+    pmb->par_reduce(
+        "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+          
+          auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
+          
+          const auto gis = pmbb->loc.lx1() * pmb->block_size.nx1;
+          const auto gjs = pmbb->loc.lx2() * pmb->block_size.nx2;
+          const auto gks = pmbb->loc.lx3() * pmb->block_size.nx3;
+          
+          const auto &coords = cons.GetCoords(b);
+          const auto &u = cons(b);
+          
+          const Real x = coords.Xc<1>(i);
+          const Real y = coords.Xc<2>(j);
+          const Real z = coords.Xc<3>(k);
+          const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z)); // Computing radius
+          const Real overdensity_radius  = pin->GetOrAddReal("problem/cluster/init_perturb", "overdensity_radius", 0.01);
+          const Real background_density  = pin->GetOrAddReal("problem/cluster/init_perturb", "background_density", 3);
+          const Real foreground_density  = pin->GetOrAddReal("problem/cluster/init_perturb", "foreground_density", 150);
+          
+          // Setting an initial 
+          u(IDN, k, j, i) = background_density;
+          
+          // For any cell at a radius less then overdensity radius, set the density to foreground_density
+          if (r < overdensity_radius){
+              u(IDN, k, j, i) = foreground_density;   
+          }
+          
+        },
+        passive_scalar);
+        
+  }
   
   /* -------------- Setting up a clumpy atmosphere --------------
   
@@ -751,14 +887,15 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   if (init_perturb_rho == true) {
     
     auto filename_rho = pin->GetOrAddString("problem/cluster/init_perturb", "init_perturb_rho_file","none");  
+    
+    const Real r_smoothing       = pin->GetOrAddReal("problem/cluster/gravity", "g_smoothing_radius", 1e-6);
     const Real perturb_amplitude = pin->GetOrAddReal("problem/cluster/init_perturb", "perturb_amplitude", 1);
     const Real thickness_ism     = pin->GetOrAddReal("problem/cluster/init_perturb", "thickness_ism", 0.01);
-    const Real box_size_over_two = pin->GetOrAddReal("parthenon/mesh", "x1max", 0.250);
     
     std::string keys_rho = "data";
     H5Easy::File file(filename_rho, HighFive::File::ReadOnly);
     
-    const int rho_init_size = 512;
+    const int rho_init_size = 260;
     auto rho_init = H5Easy::load<std::array<std::array<std::array<float, rho_init_size>, rho_init_size>, rho_init_size>>(file, keys_rho);
     
     Real passive_scalar = 0.0; // Useless
@@ -771,21 +908,20 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           
           auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
           
+          const auto gis = pmbb->loc.lx1() * pmb->block_size.nx1;
+          const auto gjs = pmbb->loc.lx2() * pmb->block_size.nx2;
+          const auto gks = pmbb->loc.lx3() * pmb->block_size.nx3;
+          
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
           
-          const Real x = coords.Xc<1>(i);
-          const Real y = coords.Xc<2>(j);
-          const Real z = coords.Xc<3>(k);
-          
-          // Getting the corresponding index in the 
-          const Real rho_init_index_x = floor((x + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
-          const Real rho_init_index_y = floor((y + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
-          const Real rho_init_index_z = floor((z + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
-          
           // Case where the box is filled with perturbations of equal mean amplitude
+          if (full_box){
+              
+              u(IDN, k, j, i)                            += perturb_amplitude * rho_init[gks + k][gjs + j][gis + i] * (u(IDN, k, j, i) / 29.6);
+              hydrostatic_rho(gks + k, gjs + j, gis + i) += perturb_amplitude * rho_init[gks + k][gjs + j][gis + i] * (u(IDN, k, j, i) / 29.6);
+          }
           
-          u(IDN, k, j, i) += perturb_amplitude * rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z] * (u(IDN, k, j, i) / 29.6);
         
         },
         passive_scalar);
@@ -869,8 +1005,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
    ************************************************************/
   const auto sigma_b       = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_b", 0.0);
   const auto alpha_b       = pin->GetOrAddReal("problem/cluster/init_perturb", "alpha_b", 2.0/3.0);
-  const auto r_scale       = pin->GetOrAddReal("problem/cluster/init_perturb", "r_scale", 0.1);
-    
+  const auto density_scale = pin->GetOrAddReal("problem/cluster/init_perturb", "density_scale", 29.6);
+  const auto standard_B    = pin->GetOrAddBoolean("problem/cluster/init_perturb", "standard_B", true);
+  const auto r_smoothing   = pin->GetOrAddReal("problem/cluster/gravity", "g_smoothing_radius", 5e-3);
+  
   if (sigma_b != 0.0) {
     auto few_modes_ft = hydro_pkg->Param<FewModesFT>("cluster/few_modes_ft_b");
     // Init phases on all blocks
@@ -889,6 +1027,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     
     auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
     
+    // Defining a new table that will contains the values of the perturbed magnetic field, and magnetic energy
+    parthenon::ParArray5D<Real> dB("turbulent magnetic field", num_blocks, 4,
+                                  pmb->cellbounds.ncellsk(IndexDomain::entire),
+                                  pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                  pmb->cellbounds.ncellsi(IndexDomain::entire));
+    
     // Modifying the magnetic potential so that it follows the rho profile
     pmb->par_for(
         "Init sigma_b", 0, num_blocks - 1, kb.s-1, kb.e+1, jb.s-1, jb.e+1, ib.s-1, ib.e+1,
@@ -896,31 +1040,39 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
-            
-          const Real x = coords.Xc<1>(i);
-          const Real y = coords.Xc<2>(j);
-          const Real z = coords.Xc<3>(k);
-            
-          const Real r = sqrt(SQR(x) + SQR(y) + SQR(z));
           
-          auto pmb = md->GetBlockData(b)->GetBlockPointer();
+          auto     pmb = md->GetBlockData(b)->GetBlockPointer();
           const auto gis = pmb->loc.lx1() * pmb->block_size.nx1;
           const auto gjs = pmb->loc.lx2() * pmb->block_size.nx2;
           const auto gks = pmb->loc.lx3() * pmb->block_size.nx3;  
-            
-          perturb_pack(b, 0, k, j, i) *= 1 / (1 + (r / r_scale));
-          perturb_pack(b, 1, k, j, i) *= 1 / (1 + (r / r_scale));
-          perturb_pack(b, 2, k, j, i) *= 1 / (1 + (r / r_scale));
+          
+          //perturb_pack(b, 0, k, j, i) *= std::pow(u(IDN, k, j, i),alpha_b);
+          //perturb_pack(b, 1, k, j, i) *= std::pow(u(IDN, k, j, i),alpha_b);
+          //perturb_pack(b, 2, k, j, i) *= std::pow(u(IDN, k, j, i),alpha_b);
+          
+          perturb_pack(b, 0, k, j, i) *= std::pow(hydrostatic_rho(gks + k, gjs + j, gis + i),alpha_b);
+          perturb_pack(b, 1, k, j, i) *= std::pow(hydrostatic_rho(gks + k, gjs + j, gis + i),alpha_b);
+          perturb_pack(b, 2, k, j, i) *= std::pow(hydrostatic_rho(gks + k, gjs + j, gis + i),alpha_b);
+          
+          //perturb_pack(b, 0, k, j, i) *= std::pow(hydrostatic_rho(b, k, j, i),alpha_b);
+          //perturb_pack(b, 1, k, j, i) *= std::pow(hydrostatic_rho(b, k, j, i),alpha_b);
+          //perturb_pack(b, 2, k, j, i) *= std::pow(hydrostatic_rho(b, k, j, i),alpha_b);
           
     });
     
-    pmb->par_reduce(
+    if (standard_B){
+      
+      std::cout << "Entering standard B" << std::endl;
+      
+      pmb->par_reduce(
         "Init sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
+          
           // The following restriction could be lifted, but requires refactoring of the
           // logic for the normalization/reduction below
+          
           PARTHENON_REQUIRE(
               u(IB1, k, j, i) == 0.0 && u(IB2, k, j, i) == 0.0 && u(IB3, k, j, i) == 0.0,
               "Found existing non-zero B when setting magnetic field perturbations.");
@@ -939,35 +1091,110 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                   coords.Dxc<1>(i) / 2.0 -
               (perturb_pack(b, 0, k, j + 1, i) - perturb_pack(b, 0, k, j - 1, i)) /
                   coords.Dxc<2>(j) / 2.0;
-
+          
           // No need to touch the energy yet as we'll normalize later
           lsum += (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i))) *
                   coords.CellVolume(k, j, i);
         },
         b2_sum);
+      
+    } else {
+    
+    pmb->par_reduce(
+        "Init sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+          
+          const auto &coords = cons.GetCoords(b);
+          const auto &u = cons(b);
+          
+          // First, needs to rescale the perturb_pack, ie. the magnetic field potential
+          Real perturb2_k_jp_i,perturb2_k_jm_i,perturb1_kp_j_i,perturb1_km_j_i;
+          Real perturb0_kp_j_i,perturb0_km_j_i,perturb2_k_j_ip,perturb2_k_j_im;
+          Real perturb1_k_j_ip,perturb1_k_j_im,perturb0_k_jp_i,perturb0_k_jm_i;    
+          
+          perturb2_k_jp_i = perturb_pack(b, 2, k, j + 1, i);
+          perturb2_k_jm_i = perturb_pack(b, 2, k, j - 1, i);
+          perturb1_kp_j_i = perturb_pack(b, 1, k + 1, j, i);
+          perturb1_km_j_i = perturb_pack(b, 1, k - 1, j, i);
+          perturb0_kp_j_i = perturb_pack(b, 0, k + 1, j, i);
+          perturb0_km_j_i = perturb_pack(b, 0, k - 1, j, i);
+          perturb2_k_j_ip = perturb_pack(b, 2, k, j, i + 1);
+          perturb2_k_j_im = perturb_pack(b, 2, k, j, i - 1);
+          perturb1_k_j_ip = perturb_pack(b, 1, k, j, i + 1);
+          perturb1_k_j_im = perturb_pack(b, 1, k, j, i - 1);
+          perturb0_k_jp_i = perturb_pack(b, 0, k, j + 1, i);
+          perturb0_k_jm_i = perturb_pack(b, 0, k, j - 1, i);
+          
+          // Then, compute the curl of the magnetic field
+          
+          Real curlBx,curlBy,curlBz;
+          
+          curlBx = (perturb2_k_jp_i - perturb2_k_jm_i) / coords.Dxc<2>(j) / 2.0 -
+                   (perturb1_kp_j_i - perturb1_km_j_i) / coords.Dxc<3>(k) / 2.0 ;
+          curlBy = (perturb0_kp_j_i - perturb0_km_j_i) / coords.Dxc<3>(k) / 2.0 -
+                   (perturb2_k_j_ip - perturb2_k_j_im) / coords.Dxc<1>(i) / 2.0 ;
+          curlBz = (perturb1_k_j_ip - perturb1_k_j_im) / coords.Dxc<1>(i) / 2.0 -
+                   (perturb0_k_jp_i - perturb0_k_jm_i) / coords.Dxc<2>(j) / 2.0 ;
+          
+          dB(b, 0, k, j, i) = curlBx;
+          dB(b, 1, k, j, i) = curlBy;
+          dB(b, 2, k, j, i) = curlBz;
+          
+          lsum += (SQR(curlBx) + SQR(curlBy) + SQR(curlBz)) * coords.CellVolume(k, j, i);
+          
+        },
+        b2_sum);
+    }
     
 #ifdef MPI_PARALLEL
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &b2_sum, 1, MPI_PARTHENON_REAL,
                                       MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
-
+    const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
     const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
     const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
     const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
     auto b_norm = std::sqrt(b2_sum / (Lx * Ly * Lz) / (SQR(sigma_b)));
-
+    
+    if (standard_B){
+      
+      pmb->par_for(
+        "Norm sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto &u = cons(b);
+          
+          u(IB1, k, j, i) /= b_norm;
+          u(IB2, k, j, i) /= b_norm;
+          u(IB3, k, j, i) /= b_norm;
+          
+          u(IEN, k, j, i) +=
+              0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
+        });
+    
+    } else {
+    
     pmb->par_for(
         "Norm sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           const auto &u = cons(b);
-
-          u(IB1, k, j, i) /= b_norm;
-          u(IB2, k, j, i) /= b_norm;
-          u(IB3, k, j, i) /= b_norm;
-
-          u(IEN, k, j, i) +=
-              0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
+          
+          dB(b, 0, k, j, i) /= b_norm;
+          dB(b, 1, k, j, i) /= b_norm;
+          dB(b, 2, k, j, i) /= b_norm;
+          
+          // Computing energy
+          dB(b, 3, k, j, i) +=
+              0.5 * (SQR(dB(b, 0, k, j, i)) + SQR(dB(b, 1, k, j, i)) + SQR(dB(b, 2, k, j, i)));
+          
+          // Updating the MHD vector
+          
+          u(IB1, k, j, i) += dB(b, 0, k, j, i);
+          u(IB2, k, j, i) += dB(b, 1, k, j, i);
+          u(IB3, k, j, i) += dB(b, 2, k, j, i);
+          u(IEN, k, j, i) += dB(b, 3, k, j, i);
+          
         });
+    }
   }
 }
 

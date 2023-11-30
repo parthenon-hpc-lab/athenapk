@@ -382,6 +382,18 @@ ParArray2D<Real> MakeRandomModesLog(const int num_modes, const Real k_min, const
   while (n_mode < num_modes && n_attempt < max_attempts) {
     n_attempt += 1;
     
+    // =============================
+    // Uniformly taken in lin scaled  
+    // =============================
+    
+    //kx1 = dist(rng);
+    //kx2 = dist(rng);
+    //kx3 = dist(rng);
+    
+    // =============================
+    // Uniformly taken in log scaled  
+    // =============================
+    
     skx1 = dist(rng);
     skx2 = dist(rng);
     skx3 = dist(rng);
@@ -397,16 +409,12 @@ ParArray2D<Real> MakeRandomModesLog(const int num_modes, const Real k_min, const
     kx1  = skx1 * std::floor(std::pow(10,lkx1));
     kx2  = skx2 * std::floor(std::pow(10,lkx2));
     kx3  = skx3 * std::floor(std::pow(10,lkx3));
-      
-    //kx1  = std::floor(std::pow(10,lkx1));
-    //kx2  = std::floor(std::pow(10,lkx2));
-    //kx3  = std::floor(std::pow(10,lkx3));
     
     k_mag = std::sqrt(SQR(kx1) + SQR(kx2) + SQR(kx3));
-
+    
     // Expected amplitude of the spectral function. If this is changed, it also needs to
     // be changed in the FMFT class (or abstracted).
-    ampl = std::pow((k_mag / k_low), -5./3.);
+    ampl = std::pow((k_mag / k_high), -5./3.);
 
     // Check is mode was already picked by chance
     mode_exists = false;

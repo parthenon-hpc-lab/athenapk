@@ -57,8 +57,8 @@ TabularCooling::TabularCooling(ParameterInput *pin,
   } else if (integrator_str == "rk45") {
     std::cout << "Cooling integrator is rk45\n";
     integrator_ = CoolIntegrator::rk45;
-  } else if (integrator_str == "townsend\n") {
-    std::cout << "Cooling integrator is Townsend";
+  } else if (integrator_str == "townsend") {
+    std::cout << "Cooling integrator is Townsend\n";
     integrator_ = CoolIntegrator::townsend;
   } else {
     integrator_ = CoolIntegrator::undefined;
@@ -226,7 +226,7 @@ TabularCooling::TabularCooling(ParameterInput *pin,
   if (integrator_ == CoolIntegrator::townsend) {
     lambdas_ = ParArray1D<Real>("lambdas_", n_temp_);
     temps_ = ParArray1D<Real>("temps_", n_temp_);
-
+    
     // Read log_lambdas in host_lambdas, changing to code units along the way
     auto host_lambdas = Kokkos::create_mirror_view(lambdas_);
     auto host_temps = Kokkos::create_mirror_view(temps_);
@@ -238,7 +238,7 @@ TabularCooling::TabularCooling(ParameterInput *pin,
     // Copy host_lambdas into device memory
     Kokkos::deep_copy(lambdas_, host_lambdas);
     Kokkos::deep_copy(temps_, host_temps);
-
+    
     // Coeffs are for intervals, i.e., only n_temp_ - 1 entries
     const auto n_bins = n_temp_ - 1;
     townsend_Y_k_ = ParArray1D<Real>("townsend_Y_k_", n_bins);
@@ -504,7 +504,7 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   // Grab member variables for compiler
   const auto dt = dt_; // HACK capturing parameters still broken with Cuda 11.6 ...
-
+  
   const auto units = hydro_pkg->Param<Units>("units");
   const auto gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
   const auto mbar_gm1_over_kb = hydro_pkg->Param<Real>("mbar_over_kb") * gm1;
@@ -515,10 +515,10 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto temps = temps_;
   const auto alpha_k = townsend_alpha_k_;
   const auto Y_k = townsend_Y_k_;
-
+  
   const auto internal_e_floor = T_floor_ / mbar_gm1_over_kb;
   const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
-
+  
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
@@ -527,13 +527,13 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
-
+  
   const auto nbins = alpha_k.extent_int(0);
-
+  
   // Get reference values
   const auto temp_final = std::pow(10.0, log_temp_final_);
   const auto lambda_final = lambda_final_;
-
+  
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::TownsendSrcTerm", DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,

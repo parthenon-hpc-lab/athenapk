@@ -24,7 +24,6 @@ nlim       = -1         # cycle limit
 tlim       = 1e-3       # time limit
 integrator  = vl2       # time integration algorithm
 
-
 <parthenon/mesh>
 refinement  = static
 nghost = 2
@@ -47,7 +46,6 @@ x3max      = 0.1       # maximum value of X3
 ix3_bc     = outflow   # inner-X3 boundary flag
 ox3_bc     = outflow   # outer-X3 boundary flag
 
-
 <parthenon/static_refinement0>
 x1min = -0.0125
 x1max =  0.0125
@@ -56,7 +54,6 @@ x2max =  0.0125
 x3min = -0.0125
 x3max =  0.0125
 level = 2
-
 
 <parthenon/meshblock>
 nx1        = 32        # Number of zones in X1-direction
@@ -106,7 +103,6 @@ g_smoothing_radius = 1e-6
 #Include gravity as a source term
 gravity_srcterm = true
 
-
 <problem/cluster/entropy_profile>
 #Entropy profile parameters
 k_0 = 8.851337676479303e-121
@@ -115,7 +111,6 @@ r_k = 0.1
 alpha_k = 1.1
 
 <problem/cluster/hydrostatic_equilibrium>
-
 #Fix density at radius to close system of equations
 r_fix = 2.0
 rho_fix = 0.01477557589278723

@@ -61,18 +61,18 @@ class AdiabaticHydroEOS : public EquationOfState {
     auto velocity_ceiling_ = GetVelocityCeiling();
     auto e_ceiling_ = GetInternalECeiling();
     
-    Real &u_d = cons(IDN, k, j, i);
+    Real &u_d  = cons(IDN, k, j, i);
     Real &u_m1 = cons(IM1, k, j, i);
     Real &u_m2 = cons(IM2, k, j, i);
     Real &u_m3 = cons(IM3, k, j, i);
-    Real &u_e = cons(IEN, k, j, i);
-
-    Real &w_d = prim(IDN, k, j, i);
+    Real &u_e  = cons(IEN, k, j, i);
+    
+    Real &w_d  = prim(IDN, k, j, i);
     Real &w_vx = prim(IV1, k, j, i);
     Real &w_vy = prim(IV2, k, j, i);
     Real &w_vz = prim(IV3, k, j, i);
-    Real &w_p = prim(IPR, k, j, i);
-      
+    Real &w_p  = prim(IPR, k, j, i);
+    
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
     PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
@@ -86,7 +86,7 @@ class AdiabaticHydroEOS : public EquationOfState {
     w_vx = u_m1 * di;
     w_vy = u_m2 * di;
     w_vz = u_m3 * di;
-
+    
     Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
     w_p = gm1 * (u_e - e_k);
     
