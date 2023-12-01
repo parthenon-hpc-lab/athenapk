@@ -173,9 +173,9 @@ class CoolingTableObj {
                                       (log_lambda_ip1 - log_lambda_i) / d_log_temp_;
     }
     // Return de/dt
-    const Real lambda = pow(10., log_lambda);
-    const Real gamma  = gamma_units_;
-    const Real de_dt = -lambda * x_H_over_m_h2_ * rho + gamma*pow(x_H_over_m_h2_,0.5);
+    const Real lambda      = pow(10., log_lambda);
+    const Real gamma_heat  = gamma_units_;
+    const Real de_dt       = -lambda * x_H_over_m_h2_ * rho + gamma_heat*pow(x_H_over_m_h2_,0.5);
     //const Real de_dt = -lambda * x_H_over_m_h2_ * rho;
     
     //std::cout << "cool = " << -lambda * x_H_over_m_h2_ * rho << "\t heat = " << gamma*pow(x_H_over_m_h2_,0.5) << "\t e = " << e << "\t rho = " << rho << "\n" ;  

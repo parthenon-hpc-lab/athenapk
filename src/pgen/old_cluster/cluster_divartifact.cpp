@@ -516,12 +516,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto pmc = md->GetBlockData(0)->GetBlockPointer();
   const auto grid_size  = pin->GetOrAddInteger("problem/cluster/mesh", "nx1", 256);
   
-  parthenon::ParArray4D<Real> hydrostatic_rho("hydrostatic_rho",grid_size + 4,grid_size + 4,grid_size + 4);
+  //parthenon::ParArray4D<Real> hydrostatic_rho("hydrostatic_rho",grid_size + 4,grid_size + 4,grid_size + 4);
   
-  //parthenon::ParArray4D<Real> hydrostatic_rho("hydrostatic_rho", md->NumBlocks(),
-  //                                pmc->cellbounds.ncellsk(IndexDomain::entire),
-  //                                pmc->cellbounds.ncellsj(IndexDomain::entire),
-  //                                pmc->cellbounds.ncellsi(IndexDomain::entire));
+  parthenon::ParArray4D<Real> hydrostatic_rho("hydrostatic_rho", md->NumBlocks(),
+                                  pmc->cellbounds.ncellsk(IndexDomain::entire),
+                                  pmc->cellbounds.ncellsj(IndexDomain::entire),
+                                  pmc->cellbounds.ncellsi(IndexDomain::entire));
     
   for (int b = 0; b < md->NumBlocks(); b++) {
     
@@ -668,7 +668,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       // initialize conserved variables
       parthenon::par_for(
           DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
-          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+          parthenon::DevExecSpace(), kb.s-1, kb.e+1, jb.s-1, jb.e+1, ib.s-1, ib.e+1,
           KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
             
             // Calculate radius
@@ -688,7 +688,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IEN, k, j, i) = P_r / gm1;
             
             // Updating hydrostatic_rho table
-            hydrostatic_rho(gks + k, gjs + j, gis + i) = rho_r;
+            hydrostatic_rho(b, k, j, i) = rho_r;
             
           });
       
@@ -1046,9 +1046,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           const auto gjs = pmb->loc.lx2() * pmb->block_size.nx2;
           const auto gks = pmb->loc.lx3() * pmb->block_size.nx3;  
           
-          perturb_pack(b, 0, k, j, i) *= u(IDN, k, j, i);
-          perturb_pack(b, 1, k, j, i) *= u(IDN, k, j, i);
-          perturb_pack(b, 2, k, j, i) *= u(IDN, k, j, i);
+          perturb_pack(b, 0, k, j, i) *= hydrostatic_rho(b, k, j, i);
+          perturb_pack(b, 1, k, j, i) *= hydrostatic_rho(b, k, j, i);
+          perturb_pack(b, 2, k, j, i) *= hydrostatic_rho(b, k, j, i);
           
           //perturb_pack(b, 0, k, j, i) *= std::pow(hydrostatic_rho(gks + k, gjs + j, gis + i),alpha_b);
           //perturb_pack(b, 1, k, j, i) *= std::pow(hydrostatic_rho(gks + k, gjs + j, gis + i),alpha_b);
