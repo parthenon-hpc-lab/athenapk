@@ -143,6 +143,7 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 //  \brief Problem Generator for the cloud in wind setup
 
 void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
+  
   auto hydro_pkg = pmb->packages.Get("Hydro");
   auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -156,9 +157,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
     PARTHENON_FAIL("Requested to initialize magnetic fields by `cloud/plasma_beta > 0`, "
                    "but `hydro/fluid` is not supporting MHD.");
   }
-
+  
   auto steepness = pin->GetOrAddReal("problem/cloud", "cloud_steepness", 10);
-
+  
   // initialize conserved variables
   auto &mbd = pmb->meshblock_data.Get();
   auto &u_dev = mbd->Get("cons").data;
@@ -191,13 +192,13 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IM2, k, j, i) = mom;
         // Can use rhoe_wind here as simulation is setup in pressure equil.
         u(IEN, k, j, i) = rhoe_wind + 0.5 * mom * mom / rho;
-
+        
         if (mhd_enabled) {
           u(IB1, k, j, i) = Bx;
           u(IB2, k, j, i) = By;
           u(IEN, k, j, i) += 0.5 * (Bx * Bx + By * By);
         }
-
+        
         // Init passive scalars
         for (auto n = nhydro; n < nhydro + nscalars; n++) {
           if (rad <= r_cloud) {
@@ -240,13 +241,14 @@ void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
 }
 
 parthenon::AmrTag ProblemCheckRefinementBlock(MeshBlockData<Real> *mbd) {
+  
   auto pmb = mbd->GetBlockPointer();
   auto w = mbd->Get("prim").data;
-
+  
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-
+  
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto nhydro = hydro_pkg->Param<int>("nhydro");
 

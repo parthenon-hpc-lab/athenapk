@@ -77,7 +77,7 @@ class HydrostaticEquilibriumSphere {
     const parthenon::Real n = rho / (mu_ * mh_);
     return n;
   }
-
+  
   // Get electron number density from density
   KOKKOS_INLINE_FUNCTION parthenon::Real ne_from_rho(const parthenon::Real rho) const {
     const parthenon::Real ne = mu_ / mu_e_ * n_from_rho(rho);

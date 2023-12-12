@@ -117,22 +117,22 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 //========================================================================================
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) {
-
+  
   /************************************************************
    * Read Uniform Gas
    ************************************************************/
-
+  
   const bool init_uniform_gas =
       pin->GetOrAddBoolean("problem/cluster/uniform_gas", "init_uniform_gas", false);
   hydro_pkg->AddParam<>("init_uniform_gas", init_uniform_gas);
-
+  
   if (init_uniform_gas) {
     const Real uniform_gas_rho = pin->GetReal("problem/cluster/uniform_gas", "rho");
     const Real uniform_gas_ux = pin->GetReal("problem/cluster/uniform_gas", "ux");
     const Real uniform_gas_uy = pin->GetReal("problem/cluster/uniform_gas", "uy");
     const Real uniform_gas_uz = pin->GetReal("problem/cluster/uniform_gas", "uz");
     const Real uniform_gas_pres = pin->GetReal("problem/cluster/uniform_gas", "pres");
-
+    
     hydro_pkg->AddParam<>("uniform_gas_rho", uniform_gas_rho);
     hydro_pkg->AddParam<>("uniform_gas_ux", uniform_gas_ux);
     hydro_pkg->AddParam<>("uniform_gas_uy", uniform_gas_uy);
@@ -238,15 +238,15 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   /************************************************************
    * Read SNIA Feedback
    ************************************************************/
-
+  
   SNIAFeedback snia_feedback(pin, hydro_pkg);
-
+  
   /************************************************************
    * Read Stellar Feedback
    ************************************************************/
-
+  
   StellarFeedback stellar_feedback(pin, hydro_pkg);
-
+  
   /************************************************************
    * Read Clips  (ceilings and floors)
    ************************************************************/
@@ -297,11 +297,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   std::string reduction_strs[] = {"stellar_mass", "added_dfloor_mass",
                                   "removed_eceil_energy", "removed_vceil_energy",
                                   "added_vAceil_mass"};
-
+  
   // Add a param for each reduction, then add it as a summation reduction for
   // history outputs
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
-
+  
   for (auto reduction_str : reduction_strs) {
     hydro_pkg->AddParam(reduction_str, 0.0, true);
     hst_vars.emplace_back(parthenon::HistoryOutputVar(
@@ -541,7 +541,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     /************************************************************
      * Initialize the initial hydro state
      ************************************************************/
-    const auto &init_uniform_gas     = hydro_pkg->Param<bool>("init_uniform_gas");
+    const auto &init_uniform_gas  = hydro_pkg->Param<bool>("init_uniform_gas");
+    const auto init_perseus       = pin->GetOrAddBoolean("problem/cluster/hydrostatic_equilibrium", "init_perseus", false);
     
     if (init_uniform_gas) {
       const Real rho = hydro_pkg->Param<Real>("uniform_gas_rho");
@@ -565,7 +566,48 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IM3, k, j, i) = Mz;
             u(IEN, k, j, i) = E;
           });
-        
+    
+    } if (init_perseus) {
+      
+      // initialize conserved variables
+      parthenon::par_for(
+          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
+          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+            
+            // Units
+            const Real mh = units.mh();
+            const Real k_boltzmann = units.k_boltzmann();
+            
+            const Real mu   = hydro_pkg->Param<Real>("mu");
+            const Real mu_e = hydro_pkg->Param<Real>("mu_e");
+            
+            // Calculate radius
+            const Real r = sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) +
+                                coords.Xc<2>(j) * coords.Xc<2>(j) +
+                                coords.Xc<3>(k) * coords.Xc<3>(k));
+            
+            const Real re3 = r * 1e3; // Mpc to kpc
+            
+            // Get pressure and density from generated profile
+            const Real ne_r    = 0.0192 * 1 / (1 + std::pow(re3 / 18, 3)) +
+                                  0.046 * 1 / std::pow((1 + std::pow(re3 / 57,  2)),1.8) +
+                                 0.0048 * 1 / std::pow((1 + std::pow(re3 / 200, 2)),0.87); // cgs units (cm-3)
+            const Real T_r     = 8.12e7 * (1 + std::pow(re3 / 71, 3)) / (2.3 + std::pow(re3 / 71, 3)); // K
+            
+            const Real ne_r_cu = ne_r * std::pow(units.cm(),-3); // Code units, Mpc^-3
+            
+            const Real rho_r   = mu_e * mh * ne_r_cu; // From ne_r (conversion)
+            const Real P_r     = k_boltzmann * (mu_e / mu) * ne_r_cu * T_r; // From T_r  (conversion)
+            
+            u(IDN, k, j, i) = rho_r;
+            u(IM1, k, j, i) = 0.0;
+            u(IM2, k, j, i) = 0.0;
+            u(IM3, k, j, i) = 0.0;
+            u(IEN, k, j, i) = P_r / gm1;
+            
+          });
+    
     } else {
     
       /************************************************************
@@ -722,7 +764,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   
-  auto hydro_pkg = pmb->packages.Get("Hydro");
+  auto hydro_pkg   = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
   auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
   const auto num_blocks = md->NumBlocks();   
@@ -732,10 +774,74 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
    ************************************************************/
   
   const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
-  
-  hydro_pkg->AddParam<>("init_perturb_rho", init_perturb_rho);
+  const bool spherical_cloud  = pin->GetOrAddBoolean("problem/cluster/init_perturb",  "spherical_cloud", false);
+  const bool cluster_cloud    = pin->GetOrAddBoolean("problem/cluster/init_perturb",    "cluster_cloud", false);
   
   Real passive_scalar = 0.0; // Not useful here
+  
+  if (cluster_cloud == true) {
+    
+    const Real x_cloud   = pin->GetOrAddReal("problem/cluster/init_perturb",     "x_cloud", 0.0);   // 0.0 pc
+    const Real y_cloud   = pin->GetOrAddReal("problem/cluster/init_perturb",     "y_cloud", 5e-2);  // 100 pc
+    const Real r_cloud   = pin->GetOrAddReal("problem/cluster/init_perturb",     "r_cloud", 1e-4);  // 100 pc
+    const Real rho_cloud = pin->GetOrAddReal("problem/cluster/init_perturb",   "rho_cloud", 150.0); // 1e-24 g/cm^3
+    const Real steepness = pin->GetOrAddReal("problem/cluster/init_perturb", "steep_cloud", 10.0);
+    
+    Real passive_scalar  = 0.0; // Useless
+    
+    /*
+    for (int b = 0; b < md->NumBlocks(); b++) {
+    
+        auto pmb = md->GetBlockData(b)->GetBlockPointer();
+
+        // Initialize the conserved variables
+        auto &u = pmb->meshblock_data.Get()->Get("cons").data;
+        auto &coords = pmb->coords;
+        
+        Real r_min = 1e6;
+        
+        for (int k = kb.s; k <= kb.e; k++) {
+          for (int j = jb.s; j <= jb.e; j++) {
+            for (int i = ib.s; i <= ib.e; i++) {
+            
+            const Real x = coords.Xc<1>(i);
+            const Real y = coords.Xc<2>(j);
+            const Real z = coords.Xc<3>(k);
+            const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
+            
+            if (r < r_min) {r_min = r;}
+            
+            }
+          }
+        }
+        if (r_min < 20 * r_cloud) {std::cout << "Should be refining now" << std::endl;}
+        if (r_min < 20 * r_cloud) {
+            parthenon::AmrTag::refine;
+            parthenon::AmrTag::same;}
+    }
+    */
+    
+    pmb->par_reduce(
+        "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+          
+          auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
+          
+          const auto &coords = cons.GetCoords(b);
+          const auto &u = cons(b);
+          
+          const Real x = coords.Xc<1>(i);
+          const Real y = coords.Xc<2>(j);
+          const Real z = coords.Xc<3>(k);
+          const Real r = std::sqrt(SQR(x - x_cloud) + SQR(y - y_cloud) + SQR(z));
+          
+          Real rho         = rho_cloud * (1.0 - std::tanh(steepness * (r / r_cloud - 1.0)));
+          u(IDN, k, j, i) += rho;
+          
+        },
+        passive_scalar);
+    
+  }
   
   /* -------------- Setting up a clumpy atmosphere --------------
   
@@ -750,7 +856,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     
     auto filename_rho = pin->GetOrAddString("problem/cluster/init_perturb", "init_perturb_rho_file","none");  
     const Real perturb_amplitude = pin->GetOrAddReal("problem/cluster/init_perturb", "perturb_amplitude", 1);
-    const Real box_size_over_two = pin->GetOrAddReal("parthenon/mesh", "x1max", 0.250);
+    const Real box_size_over_two = pin->GetOrAddReal("problem/cluster/init_perturb", "xmax", 0.250);
+    
+    // Loading files  
     
     std::string keys_rho = "data";
     H5Easy::File file(filename_rho, HighFive::File::ReadOnly);
@@ -761,6 +869,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     Real passive_scalar = 0.0; // Useless
     
     std::cout << "Entering initialisation of rho field";
+    
+    // Setting up the perturbations  
     
     pmb->par_reduce(
         "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -775,14 +885,23 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           const Real y = coords.Xc<2>(j);
           const Real z = coords.Xc<3>(k);
           
+          const Real r = sqrt(SQR(x) + SQR(y) + SQR(z));
+          
           // Getting the corresponding index in the 
           const Real rho_init_index_x = floor((x + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
           const Real rho_init_index_y = floor((y + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
           const Real rho_init_index_z = floor((z + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
           
+          //const Real damping = 1 - std::exp(r - box_size_over_two);  
+          
+          if ((rho_init_index_x >= 0) && (rho_init_index_x <= rho_init_size - 1) && (rho_init_index_y >= 0) && (rho_init_index_y <= rho_init_size - 1) && (rho_init_index_z >= 0) && (rho_init_index_z <= rho_init_size - 1)) {
+          
           // Case where the box is filled with perturbations of equal mean amplitude
           
-          u(IDN, k, j, i) += perturb_amplitude * rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z] * (u(IDN, k, j, i) / 29.6);
+          //u(IDN, k, j, i) += perturb_amplitude * rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z] * (u(IDN, k, j, i) / 29.6) * std::max(0.0,damping);
+          u(IDN, k, j, i) += perturb_amplitude * rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z];
+          
+          }
         
         },
         passive_scalar);
@@ -825,10 +944,11 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           PARTHENON_REQUIRE(
               u(IM1, k, j, i) == 0.0 && u(IM2, k, j, i) == 0.0 && u(IM3, k, j, i) == 0.0,
               "Found existing non-zero velocity when setting velocity perturbations.");
-
+          
           u(IM1, k, j, i) = rho * perturb_pack(b, 0, k, j, i);
           u(IM2, k, j, i) = rho * perturb_pack(b, 1, k, j, i);
           u(IM3, k, j, i) = rho * perturb_pack(b, 2, k, j, i);
+          
           // No need to touch the energy yet as we'll normalize later
 
           lsum += (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) *
@@ -887,29 +1007,32 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
     
     // Modifying the magnetic potential so that it follows the rho profile
+    
+    /*
     pmb->par_for(
         "Init sigma_b", 0, num_blocks - 1, kb.s-1, kb.e+1, jb.s-1, jb.e+1, ib.s-1, ib.e+1,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
-            
+          
           const Real x = coords.Xc<1>(i);
           const Real y = coords.Xc<2>(j);
           const Real z = coords.Xc<3>(k);
-            
+          
           const Real r = sqrt(SQR(x) + SQR(y) + SQR(z));
           
           auto pmb = md->GetBlockData(b)->GetBlockPointer();
           const auto gis = pmb->loc.lx1() * pmb->block_size.nx1;
           const auto gjs = pmb->loc.lx2() * pmb->block_size.nx2;
           const auto gks = pmb->loc.lx3() * pmb->block_size.nx3;  
-            
+          
           perturb_pack(b, 0, k, j, i) *= 1 / (1 + (r / r_scale));
           perturb_pack(b, 1, k, j, i) *= 1 / (1 + (r / r_scale));
           perturb_pack(b, 2, k, j, i) *= 1 / (1 + (r / r_scale));
           
     });
+    */
     
     pmb->par_reduce(
         "Init sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -947,12 +1070,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &b2_sum, 1, MPI_PARTHENON_REAL,
                                       MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
-
+    
     const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
     const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
     const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
     auto b_norm = std::sqrt(b2_sum / (Lx * Ly * Lz) / (SQR(sigma_b)));
-
+    
     pmb->par_for(
         "Norm sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {

@@ -17,7 +17,7 @@
 namespace cluster {
 
 // Types of BCG's
-enum class BCG {NONE, HERNQUIST, VAUCOULEURS, ISOTHERMAL};
+enum class BCG {NONE, HERNQUIST, ISOTHERMAL};
 // Hernquiest BCG: Hernquist 1990 DOI:10.1086/168845
 
 /************************************************************
@@ -132,8 +132,6 @@ class ClusterGravity {
       which_bcg_g_ = BCG::HERNQUIST;
     } else if (which_bcg_g_str == "ISOTHERMAL") {
       which_bcg_g_ = BCG::ISOTHERMAL;
-    } else if (which_bcg_g_str == "VAUCOULEURS") {
-      which_bcg_g_ = BCG::VAUCOULEURS;
     }
       
       else {
@@ -174,12 +172,6 @@ class ClusterGravity {
       g_const_bcg_ = 2 * units.k_boltzmann() * T_bcg_s_ / (mu * units.mh());
       
     }
-      
-    if (which_bcg_g_str == "VAUCOULEURS") {
-    
-      g_const_bcg_ = 1;
-    
-    }
     
     else {
     
@@ -199,16 +191,16 @@ class ClusterGravity {
       : ClusterGravity(pin) {
     hydro_pkg->AddParam<>("cluster_gravity", *this);
   }
-    
+
   // Inline functions to compute gravitational acceleration
   KOKKOS_INLINE_FUNCTION parthenon::Real g_from_r(const parthenon::Real r_in) const
       __attribute__((always_inline)) {
-    
+
     const parthenon::Real r = std::max(r_in, smoothing_r_);
     const parthenon::Real r2 = r * r;
-    
+
     parthenon::Real g_r = 0;
-    
+
     // Add NFW gravity
     if (include_nfw_g_) {
       g_r += g_const_nfw_ * (log(1 + r / r_nfw_s_) - r / (r + r_nfw_s_)) / r2;
@@ -222,16 +214,6 @@ class ClusterGravity {
       g_r += g_const_bcg_ / ((1 + r / r_bcg_s_) * (1 + r / r_bcg_s_));
     case BCG::ISOTHERMAL:
       g_r += g_const_bcg_ / r;
-    case BCG::VAUCOULEURS:
-      
-      // From Matthews et al. 2005
-      parthenon::Real vaucouleurs_K1 = std::pow(1e3 * r, 0.5975) / (3.206e-7);
-      parthenon::Real vaucouleurs_K2 = std::pow(1e3 * r, 1.849)  / (1.861e-6);
-      parthenon::Real vaucouleurs_K  = std::pow(std::pow(vaucouleurs_K1, 0.9) + std::pow(vaucouleurs_K2, 0.9),-1/0.9);
-      
-      vaucouleurs_K *= (3.15576e+16 * 3.15576e+16 / 3.085677580962325e+24);
-      g_r += 0.8 * vaucouleurs_K;
-      
       break;
     }
     
