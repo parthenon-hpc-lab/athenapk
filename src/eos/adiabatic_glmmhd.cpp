@@ -51,12 +51,6 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
         auto &prim = prim_pack(b);
         // auto &nu = entropy_pack(b);
 
-        // Getting the global indexing
-
-        auto pmb = md->GetBlockData(b)->GetBlockPointer();
-        auto pm = pmb->pmy_mesh;
-        auto hydro_pkg = pmb->packages.Get("Hydro");
-
         return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
       });
 }
