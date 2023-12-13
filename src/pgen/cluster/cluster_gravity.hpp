@@ -17,7 +17,7 @@
 namespace cluster {
 
 // Types of BCG's
-enum class BCG {NONE, HERNQUIST, VAUCOULEURS, ISOTHERMAL};
+enum class BCG { NONE, HERNQUIST, VAUCOULEURS, ISOTHERMAL };
 // Hernquiest BCG: Hernquist 1990 DOI:10.1086/168845
 
 /************************************************************
@@ -56,7 +56,7 @@ class ClusterGravity {
 
   // Static Helper functions to calculate constants to minimize in-kernel work
   // ie. compute the constants characterizing the profile (M_nfw, etc...)
-  
+
   static parthenon::Real calc_R_nfw_s(const parthenon::Real rho_crit,
                                       const parthenon::Real m_nfw_200,
                                       const parthenon::Real c_nfw) {
@@ -118,9 +118,9 @@ class ClusterGravity {
   // calculate the BCG density profile
   ClusterGravity(parthenon::ParameterInput *pin) {
     Units units(pin);
-    
+
     gravitationnal_const_ = units.gravitational_constant();
-    
+
     // Determine which element to include
     include_nfw_g_ =
         pin->GetOrAddBoolean("problem/cluster/gravity", "include_nfw_g", false);
@@ -135,14 +135,14 @@ class ClusterGravity {
     } else if (which_bcg_g_str == "VAUCOULEURS") {
       which_bcg_g_ = BCG::VAUCOULEURS;
     }
-      
-      else {
+
+    else {
       std::stringstream msg;
       msg << "### FATAL ERROR in function [InitUserMeshData]" << std::endl
           << "Unknown BCG type " << which_bcg_g_str << std::endl;
       PARTHENON_FAIL(msg);
     }
-    
+
     include_smbh_g_ =
         pin->GetOrAddBoolean("problem/cluster/gravity", "include_smbh_g", false);
 
@@ -151,7 +151,7 @@ class ClusterGravity {
         "problem/cluster", "hubble_parameter", 70 * units.km_s() / units.mpc());
     const parthenon::Real rho_crit = 3 * hubble_parameter * hubble_parameter /
                                      (8 * M_PI * units.gravitational_constant());
-    
+
     const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
     const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
     const parthenon::Real M_nfw_200 =
@@ -160,33 +160,33 @@ class ClusterGravity {
         pin->GetOrAddReal("problem/cluster/gravity", "c_nfw", 6.81);
     r_nfw_s_ = calc_R_nfw_s(rho_crit, M_nfw_200, c_nfw);
     g_const_nfw_ = calc_g_const_nfw(units.gravitational_constant(), M_nfw_200, c_nfw);
-    
+
     // Initialize the BCG Profile
     alpha_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "alpha_bcg_s", 0.1);
-    beta_bcg_s_  = pin->GetOrAddReal("problem/cluster/gravity", "beta_bcg_s", 1.43);
+    beta_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "beta_bcg_s", 1.43);
     const parthenon::Real M_bcg_s =
         pin->GetOrAddReal("problem/cluster/gravity", "m_bcg_s", 7.5e10 * units.msun());
     r_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "r_bcg_s", 4 * units.kpc());
-    T_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "T_bcg_s", 10000); // Temperature in the isothermal case
-    
+    T_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "T_bcg_s",
+                                 10000); // Temperature in the isothermal case
+
     if (which_bcg_g_str == "ISOTHERMAL") {
-      
+
       g_const_bcg_ = 2 * units.k_boltzmann() * T_bcg_s_ / (mu * units.mh());
-      
     }
-      
+
     if (which_bcg_g_str == "VAUCOULEURS") {
-    
+
       g_const_bcg_ = 1;
-    
+
     }
-    
+
     else {
-    
-      g_const_bcg_ = calc_g_const_bcg(units.gravitational_constant(), which_bcg_g_, M_bcg_s,
-                                      r_bcg_s_, alpha_bcg_s_, beta_bcg_s_);
+
+      g_const_bcg_ = calc_g_const_bcg(units.gravitational_constant(), which_bcg_g_,
+                                      M_bcg_s, r_bcg_s_, alpha_bcg_s_, beta_bcg_s_);
     }
-    
+
     const parthenon::Real m_smbh =
         pin->GetOrAddReal("problem/cluster/gravity", "m_smbh", 3.4e8 * units.msun());
     g_const_smbh_ = calc_g_const_smbh(units.gravitational_constant(), m_smbh),
@@ -199,21 +199,21 @@ class ClusterGravity {
       : ClusterGravity(pin) {
     hydro_pkg->AddParam<>("cluster_gravity", *this);
   }
-    
+
   // Inline functions to compute gravitational acceleration
   KOKKOS_INLINE_FUNCTION parthenon::Real g_from_r(const parthenon::Real r_in) const
       __attribute__((always_inline)) {
-    
+
     const parthenon::Real r = std::max(r_in, smoothing_r_);
     const parthenon::Real r2 = r * r;
-    
+
     parthenon::Real g_r = 0;
-    
+
     // Add NFW gravity
     if (include_nfw_g_) {
       g_r += g_const_nfw_ * (log(1 + r / r_nfw_s_) - r / (r + r_nfw_s_)) / r2;
     }
-    
+
     // Add BCG gravity
     switch (which_bcg_g_) {
     case BCG::NONE:
@@ -223,23 +223,24 @@ class ClusterGravity {
     case BCG::ISOTHERMAL:
       g_r += g_const_bcg_ / r;
     case BCG::VAUCOULEURS:
-      
+
       // From Matthews et al. 2005
       parthenon::Real vaucouleurs_K1 = std::pow(1e3 * r, 0.5975) / (3.206e-7);
-      parthenon::Real vaucouleurs_K2 = std::pow(1e3 * r, 1.849)  / (1.861e-6);
-      parthenon::Real vaucouleurs_K  = std::pow(std::pow(vaucouleurs_K1, 0.9) + std::pow(vaucouleurs_K2, 0.9),-1/0.9);
-      
+      parthenon::Real vaucouleurs_K2 = std::pow(1e3 * r, 1.849) / (1.861e-6);
+      parthenon::Real vaucouleurs_K = std::pow(
+          std::pow(vaucouleurs_K1, 0.9) + std::pow(vaucouleurs_K2, 0.9), -1 / 0.9);
+
       vaucouleurs_K *= (3.15576e+16 * 3.15576e+16 / 3.085677580962325e+24);
       g_r += 0.8 * vaucouleurs_K;
-      
+
       break;
     }
-    
+
     // Add SMBH, point mass gravity
     if (include_smbh_g_) {
       g_r += g_const_smbh_ / r2;
     }
-    
+
     return g_r;
   }
   // Inline functions to compute density
@@ -249,7 +250,7 @@ class ClusterGravity {
     const parthenon::Real r = std::max(r_in, smoothing_r_);
 
     parthenon::Real rho = 0;
-    
+
     // Add NFW gravity
     if (include_nfw_g_) {
       rho += rho_const_nfw_ / (r * pow(r + r_nfw_s_, 2));

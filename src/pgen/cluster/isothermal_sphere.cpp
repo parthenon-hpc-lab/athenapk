@@ -207,11 +207,11 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
 
   const Real k_fix = entropy_profile_.K_from_r(r_fix_);
   const Real p_fix = P_from_rho_K(rho_fix_, k_fix);
-  
+
   // Integrate P inward from R_fix_
   Real r_i = r_fix_; // Start Ri at R_fix_ first
   Real p_i = p_fix;  // Start with pressure at R_fix_
-  
+
   // Find the index in R right before R_fix_
   int i_fix = static_cast<int>(floor((n_r - 1) / (r_end - r_start) * (r_fix_ - r_start)));
   if (r_fix_ < r(i_fix) - kRTol || r_fix_ > r(i_fix + 1) + kRTol) {

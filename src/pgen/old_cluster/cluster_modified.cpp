@@ -26,7 +26,6 @@
 // #include <H5Cpp.h>   // HDF5
 #include "../../external/HighFive/include/highfive/H5Easy.hpp"
 
-
 // Parthenon headers
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
@@ -279,7 +278,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     hydro_pkg->AddParam<>("dipole_b_field_mz", dipole_b_field_mz);
   }
 
-    
   /************************************************************
    * Read Cluster Gravity Parameters
    ************************************************************/
@@ -407,25 +405,19 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     // plasma beta
     hydro_pkg->AddField("plasma_beta", m);
   }
-    
-    
-    
-    
-    
-    
-    
+
   /************************************************************
    * Read Density perturbation
    ************************************************************/
-    
-  //const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
-  //hydro_pkg->AddParam<>("init_perturb_rho", init_perturb_rho);
 
-  
+  // const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb",
+  // "init_perturb_rho", false); hydro_pkg->AddParam<>("init_perturb_rho",
+  // init_perturb_rho);
+
   /************************************************************
    * Read Velocity perturbation
    ************************************************************/
-    
+
   const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
   if (sigma_v != 0.0) {
     // peak of init vel perturb
@@ -524,14 +516,14 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       const Real uy = hydro_pkg->Param<Real>("uniform_gas_uy");
       const Real uz = hydro_pkg->Param<Real>("uniform_gas_uz");
       const Real pres = hydro_pkg->Param<Real>("uniform_gas_pres");
-      
+
       const Real Mx = rho * ux;
       const Real My = rho * uy;
       const Real Mz = rho * uz;
       const Real E = rho * (0.5 * (ux * ux + uy * uy + uz * uz) + pres / (gm1 * rho));
-      
+
       std::cout << "Setting uniform gas";
-        
+
       parthenon::par_for(
           DEFAULT_LOOP_PATTERN, "Cluster::ProblemGenerator::UniformGas",
           parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -542,7 +534,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IM3, k, j, i) = Mz;
             u(IEN, k, j, i) = E;
           });
-    
+
       // end if(init_uniform_gas)
     } else {
       /************************************************************
@@ -552,9 +544,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           hydro_pkg
               ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
                   "hydrostatic_equilibirum_sphere");
-    
+
       const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
-    
+
       // initialize conserved variables
       parthenon::par_for(
           DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
@@ -684,10 +676,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
   }
 
-    /************************************************************
+  /************************************************************
    * Initial parameters
-   ************************************************************/    
-    
+   ************************************************************/
+
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -695,77 +687,83 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
   auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
-  const auto num_blocks = md->NumBlocks();    
-    
-    /************************************************************
+  const auto num_blocks = md->NumBlocks();
+
+  /************************************************************
    * Set initial density perturbations
    ************************************************************/
-  
-  const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
+
+  const bool init_perturb_rho =
+      pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
   hydro_pkg->AddParam<>("init_perturb_rho", init_perturb_rho);
-  
+
   if (init_perturb_rho == true) {
-    
-    // File load  
-    
-    auto init_perturb_rho_file = pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_file");
-    auto init_perturb_rho_keys = pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_keys");
-    
+
+    // File load
+
+    auto init_perturb_rho_file =
+        pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_file");
+    auto init_perturb_rho_keys =
+        pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_keys");
+
     hydro_pkg->AddParam<>("cluster/init_perturb_rho_file", init_perturb_rho_file);
-    hydro_pkg->AddParam<>("cluster/init_perturb_rho_keys", init_perturb_rho_keys);    
-    
+    hydro_pkg->AddParam<>("cluster/init_perturb_rho_keys", init_perturb_rho_keys);
+
     std::cout << "Setting density perturbation";
-    
+
     // Read HDF5 file containing the density
     std::string filename_rho = "/work/bbd0833/test/rho.h5";
     std::string keys_rho = "data";
     H5Easy::File file(filename_rho, HighFive::File::ReadOnly);
-    auto rho_init = H5Easy::load<std::array<std::array<std::array<float, 64>, 64>, 64>>(file, keys_rho);
-    
+    auto rho_init = H5Easy::load<std::array<std::array<std::array<float, 64>, 64>, 64>>(
+        file, keys_rho);
+
     parthenon::par_for(
-          DEFAULT_LOOP_PATTERN, "Cluster::ProblemGenerator::UniformGas",
-          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-            u(IDN, k, j, i) = rho_init[k-2][j-2][i-2];
-          });
-    
+        DEFAULT_LOOP_PATTERN, "Cluster::ProblemGenerator::UniformGas",
+        parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+          u(IDN, k, j, i) = rho_init[k - 2][j - 2][i - 2];
+        });
+
     /*
-    auto init_perturb_rho_file = pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_file");
-    auto init_perturb_rho_keys = pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_keys");
-    
+    auto init_perturb_rho_file = pin->GetString("problem/cluster/init_perturb",
+    "init_perturb_rho_file"); auto init_perturb_rho_keys =
+    pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_keys");
+
     hydro_pkg->AddParam<>("cluster/init_perturb_rho_file", init_perturb_rho_file);
-    hydro_pkg->AddParam<>("cluster/init_perturb_rho_keys", init_perturb_rho_keys);    
-    
+    hydro_pkg->AddParam<>("cluster/init_perturb_rho_keys", init_perturb_rho_keys);
+
     std::cout << "Setting density perturbation";
-    
+
     // Read HDF5 file containing the density
     std::string filename_rho = "/work/bbd0833/test/rho.h5";
     std::string keys_rho = "data";
     H5Easy::File file(filename_rho, HighFive::File::ReadOnly);
-    auto rho_init = H5Easy::load<std::array<std::array<std::array<float, 64>, 64>, 64>>(file, keys_rho);
-    
+    auto rho_init = H5Easy::load<std::array<std::array<std::array<float, 64>, 64>,
+    64>>(file, keys_rho);
+
     Real passive_scalar = 0.0; // Useless
-    
+
     pmb->par_reduce(
         "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
-          
+
           // Adding the value of the density field
-          
+
           u(IDN, k, j, i) = rho_init[k-2][j-2][i-2];
 
           if (rho_init[k-2][j-2][i-2] < 0.0) {
-    std::cout << "Negative density for rho_init[" << k-2 << "][" << j-2 << "][" << i-2 << "]: " << rho_init[k-2][j-2][i-2] << "\n";}
-            
+    std::cout << "Negative density for rho_init[" << k-2 << "][" << j-2 << "][" << i-2 <<
+    "]: " << rho_init[k-2][j-2][i-2] << "\n";}
+
         },
         passive_scalar);
- 
+
   */
   }
-  
-    
+
   /************************************************************
    * Set initial velocity perturbations (requires no other velocities for now)
    ************************************************************/
@@ -778,7 +776,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     for (int b = 0; b < md->NumBlocks(); b++) {
       auto pmb = md->GetBlockData(b)->GetBlockPointer();
       few_modes_ft.SetPhases(pmb.get(), pin);
-
     }
     // As for t_corr in few_modes_ft, the choice for dt is
     // in principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
@@ -971,15 +968,15 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         // compute temperature
         temperature(k, j, i) = mbar_over_kb * P / rho;
       });
-    
+
   if (pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     auto &cooling_time = data->Get("cooling_time").data;
-    
+
     // get cooling function
     const cooling::TabularCooling &tabular_cooling =
         pkg->Param<cooling::TabularCooling>("tabular_cooling");
     const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
-    
+
     pmb->par_for(
         "Cluster::UserWorkBeforeOutput::CoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {

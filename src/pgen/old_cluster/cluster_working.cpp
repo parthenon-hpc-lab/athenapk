@@ -103,12 +103,13 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
 
           if (r2 < clip_r2) {
             // Cell falls within clipping radius
-              
+
             const int gks = 0;
             const int gjs = 0;
             const int gis = 0;
-              
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, gks, gjs, gis); // Three last parameters are just passive here
+
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, gks, gjs,
+                           gis); // Three last parameters are just passive here
 
             if (dfloor > 0) {
               const Real rho = prim(IDN, k, j, i);
@@ -260,7 +261,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     const Real uniform_b_field_bx = pin->GetReal("problem/cluster/uniform_b_field", "bx");
     const Real uniform_b_field_by = pin->GetReal("problem/cluster/uniform_b_field", "by");
     const Real uniform_b_field_bz = pin->GetReal("problem/cluster/uniform_b_field", "bz");
-    
+
     hydro_pkg->AddParam<>("uniform_b_field_bx", uniform_b_field_bx);
     hydro_pkg->AddParam<>("uniform_b_field_by", uniform_b_field_by);
     hydro_pkg->AddParam<>("uniform_b_field_bz", uniform_b_field_bz);
@@ -283,7 +284,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     hydro_pkg->AddParam<>("dipole_b_field_my", dipole_b_field_my);
     hydro_pkg->AddParam<>("dipole_b_field_mz", dipole_b_field_mz);
   }
-  
+
   /************************************************************
    * Read Cluster Gravity Parameters
    ************************************************************/
@@ -310,9 +311,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 
   HydrostaticEquilibriumSphere hse_sphere(pin, hydro_pkg, cluster_gravity,
                                           entropy_profile);
-  
-   
-   /************************************************************
+
+  /************************************************************
    * Read Precessing Jet Coordinate system
    ************************************************************/
 
@@ -327,7 +327,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   /************************************************************
    * Read AGN Triggering
    ************************************************************/
-  
+
   AGNTriggering agn_triggering(pin, hydro_pkg);
 
   /************************************************************
@@ -336,7 +336,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 
   // Build Magnetic Tower
   MagneticTower magnetic_tower(pin, hydro_pkg);
-  
 
   // Determine if magnetic_tower_power_scaling is needed
   // Is AGN Power and Magnetic fraction non-zero?
@@ -401,7 +400,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddField("mach_sonic", m);
   // temperature
   hydro_pkg->AddField("temperature", m);
-  
+
   if (hydro_pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     // cooling time
     hydro_pkg->AddField("cooling_time", m);
@@ -414,25 +413,19 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     // plasma beta
     hydro_pkg->AddField("plasma_beta", m);
   }
-    
-    
-    
-    
-    
-    
-    
+
   /************************************************************
    * Read Density perturbation
    ************************************************************/
-    
-  //const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
-  //hydro_pkg->AddParam<>("init_perturb_rho", init_perturb_rho);
 
-  
+  // const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb",
+  // "init_perturb_rho", false); hydro_pkg->AddParam<>("init_perturb_rho",
+  // init_perturb_rho);
+
   /************************************************************
    * Read Velocity perturbation
    ************************************************************/
-    
+
   const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
   if (sigma_v != 0.0) {
     // peak of init vel perturb
@@ -490,7 +483,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
       hydro_pkg->AddField("tmp_perturb", m);
     }
   }
-  
 }
 
 //========================================================================================
@@ -532,12 +524,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       const Real uy = hydro_pkg->Param<Real>("uniform_gas_uy");
       const Real uz = hydro_pkg->Param<Real>("uniform_gas_uz");
       const Real pres = hydro_pkg->Param<Real>("uniform_gas_pres");
-      
+
       const Real Mx = rho * ux;
       const Real My = rho * uy;
       const Real Mz = rho * uz;
       const Real E = rho * (0.5 * (ux * ux + uy * uy + uz * uz) + pres / (gm1 * rho));
-        
+
       parthenon::par_for(
           DEFAULT_LOOP_PATTERN, "Cluster::ProblemGenerator::UniformGas",
           parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -548,7 +540,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IM3, k, j, i) = Mz;
             u(IEN, k, j, i) = E;
           });
-    
+
       // end if(init_uniform_gas)
     } else {
       /************************************************************
@@ -558,9 +550,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           hydro_pkg
               ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
                   "hydrostatic_equilibirum_sphere");
-    
+
       const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
-    
+
       // initialize conserved variables
       parthenon::par_for(
           DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
@@ -583,7 +575,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IEN, k, j, i) = P_r / gm1;
           });
     }
-    
+
     if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
       /************************************************************
        * Initialize the initial magnetic field state via a vector potential
@@ -690,197 +682,207 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
   }
 
-    /************************************************************
+  /************************************************************
    * Initial parameters
-   ************************************************************/    
-  
+   ************************************************************/
+
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-  
+
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
   auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
-  const auto num_blocks = md->NumBlocks();    
-  
-    /************************************************************
+  const auto num_blocks = md->NumBlocks();
+
+  /************************************************************
    * Set initial density perturbations
    ************************************************************/
-  
-  const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
-  const bool full_box         = pin->GetOrAddBoolean("problem/cluster/init_perturb", "full_box", true);
-  const Real thickness_ism    = pin->GetOrAddReal("problem/cluster/init_perturb", "thickness_ism", 0.0);
-  const bool overpressure_ring = pin->GetOrAddBoolean("problem/cluster/init_perturb", "overpressure_ring", false);
-  const bool spherical_collapse = pin->GetOrAddBoolean("problem/cluster/init_perturb", "spherical_collapse", false);
-  
+
+  const bool init_perturb_rho =
+      pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
+  const bool full_box =
+      pin->GetOrAddBoolean("problem/cluster/init_perturb", "full_box", true);
+  const Real thickness_ism =
+      pin->GetOrAddReal("problem/cluster/init_perturb", "thickness_ism", 0.0);
+  const bool overpressure_ring =
+      pin->GetOrAddBoolean("problem/cluster/init_perturb", "overpressure_ring", false);
+  const bool spherical_collapse =
+      pin->GetOrAddBoolean("problem/cluster/init_perturb", "spherical_collapse", false);
+
   hydro_pkg->AddParam<>("init_perturb_rho", init_perturb_rho);
-  
+
   Real passive_scalar = 0.0; // Not useful here
-  
+
   // Spherical collapse test with an initial overdensity
-  
+
   if (spherical_collapse == true) {
-    
+
     pmb->par_reduce(
         "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-          
-          auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
-          
+          auto pmbb = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
+
           const auto gis = pmbb->loc.lx1 * pmb->block_size.nx1;
           const auto gjs = pmbb->loc.lx2 * pmb->block_size.nx2;
           const auto gks = pmbb->loc.lx3 * pmb->block_size.nx3;
-          
+
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
-          
+
           const Real x = coords.Xc<1>(i);
           const Real y = coords.Xc<2>(j);
           const Real z = coords.Xc<3>(k);
           const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z)); // Computing radius
-          const Real overdensity_radius = pin->GetOrAddReal("problem/cluster/init_perturb", "overdensity_radius", 0.01);
-          const Real background_density  = pin->GetOrAddReal("problem/cluster/init_perturb", "background_density", 3);
-          const Real foreground_density  = pin->GetOrAddReal("problem/cluster/init_perturb", "foreground_density", 150);
-          
-          // Setting an initial 
+          const Real overdensity_radius = pin->GetOrAddReal(
+              "problem/cluster/init_perturb", "overdensity_radius", 0.01);
+          const Real background_density =
+              pin->GetOrAddReal("problem/cluster/init_perturb", "background_density", 3);
+          const Real foreground_density = pin->GetOrAddReal(
+              "problem/cluster/init_perturb", "foreground_density", 150);
+
+          // Setting an initial
           u(IDN, k, j, i) = background_density;
-          
-          // For any cell at a radius less then overdensity radius, set the density to foreground_density
-          if (r < overdensity_radius){
-              u(IDN, k, j, i) = foreground_density;   
+
+          // For any cell at a radius less then overdensity radius, set the density to
+          // foreground_density
+          if (r < overdensity_radius) {
+            u(IDN, k, j, i) = foreground_density;
           }
-          
-          //u(IDN, k, j, i) += foreground_density * std::exp(- 2 * SQR(r) / SQR(overdensity_radius) ) ;
-          
-        
+
+          // u(IDN, k, j, i) += foreground_density * std::exp(- 2 * SQR(r) /
+          // SQR(overdensity_radius) ) ;
         },
         passive_scalar);
-        
   }
-    
+
   /* -------------- Setting up a clumpy atmosphere --------------
-  
+
   1) Extract the values of the density from an input hdf5 file using H5Easy
   2) Initiate the associated density field
   3) Optionnaly, add some overpressure ring to check behavior (overpressure_ring bool)
   4) Optionnaly, add a central overdensity
-  
+
   */
-  
+
   if (init_perturb_rho == true) {
-    
-    auto init_perturb_rho_file = pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_file");
-    auto init_perturb_rho_keys = pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_keys");
-    
+
+    auto init_perturb_rho_file =
+        pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_file");
+    auto init_perturb_rho_keys =
+        pin->GetString("problem/cluster/init_perturb", "init_perturb_rho_keys");
+
     hydro_pkg->AddParam<>("cluster/init_perturb_rho_file", init_perturb_rho_file);
-    hydro_pkg->AddParam<>("cluster/init_perturb_rho_keys", init_perturb_rho_keys);    
-    
+    hydro_pkg->AddParam<>("cluster/init_perturb_rho_keys", init_perturb_rho_keys);
+
     std::cout << "Setting density perturbation";
-    
+
     // Read HDF5 file containing the density
     std::string filename_rho = "/work/bbd0833/test/rho.h5";
     std::string keys_rho = "data";
     H5Easy::File file(filename_rho, HighFive::File::ReadOnly);
-    auto rho_init = H5Easy::load<std::array<std::array<std::array<float, 256>, 256>, 256>>(file, keys_rho);
-    
+    auto rho_init =
+        H5Easy::load<std::array<std::array<std::array<float, 256>, 256>, 256>>(file,
+                                                                               keys_rho);
+
     Real passive_scalar = 0.0; // Useless
-    
+
     std::cout << "entering initialisation of rho field";
-    
+
     pmb->par_reduce(
         "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-          
-          auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
-          
+          auto pmbb = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
+
           const auto gis = pmbb->loc.lx1 * pmb->block_size.nx1;
           const auto gjs = pmbb->loc.lx2 * pmb->block_size.nx2;
           const auto gks = pmbb->loc.lx3 * pmb->block_size.nx3;
-          
+
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
-          
+
           // Adding the value of the density field
-          if (full_box){
-              
+          if (full_box) {
+
             u(IDN, k, j, i) += rho_init[gks + k - 2][gjs + j - 2][gis + i - 2];
-              
+
           }
-            
+
           else {
-          
-            const Real z  = coords.Xc<3>(k);
-            
+
+            const Real z = coords.Xc<3>(k);
+
             // if (z > -thickness_ism / 2 && z < thickness_ism / 2){
-                
-            u(IDN, k, j, i) += rho_init[gks + k - 2][gjs + j - 2][gis + i - 2] * std::exp(- SQR(z) / SQR(thickness_ism)) ;
-                
-          
+
+            u(IDN, k, j, i) += rho_init[gks + k - 2][gjs + j - 2][gis + i - 2] *
+                               std::exp(-SQR(z) / SQR(thickness_ism));
           }
-          
+
           // Ring of overpressure
           // compute radius
-          if (overpressure_ring){
-              
-              const Real x = coords.Xc<1>(i);
-              const Real y = coords.Xc<2>(j);
-              const Real z = coords.Xc<3>(k);
-              const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z)); // Computing radius
-              const Real width = 0.002;
-              const Real overdensity_radius = pin->GetOrAddReal("problem/cluster/init_perturb", "overdensity_radius", 0.01);
-              
-              if (r > 0 && r < overdensity_radius){
-                  
-                  //u(IEN, k, j, i) *= 100; 
-                  
-                  // Pushing a ring of gas outward (kinetic boost)
-                  const Real u_x = x / r;
-                  const Real u_y = y / r;
-                  const Real u_z = z / r;
-                  
-                  const Real velocity_blast = pin->GetOrAddReal("problem/cluster/init_perturb", "velocity_blast", 0.0);
-                  
-                  //u(IEN, k, j, i) *= 100;
-                  
-                  u(IM1, k, j, i) = u_x * velocity_blast  * u(IDN, k, j, i); // p = (1 Mpc / Gyr) * rho
-                  u(IM2, k, j, i) = u_y * velocity_blast  * u(IDN, k, j, i); // p = (1 Mpc / Gyr) * rho
-                  u(IM3, k, j, i) = u_z * velocity_blast  * u(IDN, k, j, i); // p = (1 Mpc / Gyr) * rho
-                  u(IEN, k, j, i) += 0.5 * u(IDN, k, j, i) * (pow(velocity_blast,2));
-              }
+          if (overpressure_ring) {
+
+            const Real x = coords.Xc<1>(i);
+            const Real y = coords.Xc<2>(j);
+            const Real z = coords.Xc<3>(k);
+            const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z)); // Computing radius
+            const Real width = 0.002;
+            const Real overdensity_radius = pin->GetOrAddReal(
+                "problem/cluster/init_perturb", "overdensity_radius", 0.01);
+
+            if (r > 0 && r < overdensity_radius) {
+
+              // u(IEN, k, j, i) *= 100;
+
+              // Pushing a ring of gas outward (kinetic boost)
+              const Real u_x = x / r;
+              const Real u_y = y / r;
+              const Real u_z = z / r;
+
+              const Real velocity_blast = pin->GetOrAddReal(
+                  "problem/cluster/init_perturb", "velocity_blast", 0.0);
+
+              // u(IEN, k, j, i) *= 100;
+
+              u(IM1, k, j, i) =
+                  u_x * velocity_blast * u(IDN, k, j, i); // p = (1 Mpc / Gyr) * rho
+              u(IM2, k, j, i) =
+                  u_y * velocity_blast * u(IDN, k, j, i); // p = (1 Mpc / Gyr) * rho
+              u(IM3, k, j, i) =
+                  u_z * velocity_blast * u(IDN, k, j, i); // p = (1 Mpc / Gyr) * rho
+              u(IEN, k, j, i) += 0.5 * u(IDN, k, j, i) * (pow(velocity_blast, 2));
+            }
           }
-          
-          if (spherical_collapse){
-          
-              const Real x = coords.Xc<1>(i);
-              const Real y = coords.Xc<2>(j);
-              const Real z = coords.Xc<3>(k);
-              const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z)); // Computing radius
-              const Real overdensity_radius = pin->GetOrAddReal("problem/cluster/init_perturb", "overdensity_radius", 0.01);
-              
-              u(IDN, k, j, i) = 3;
-              u(IDN, k, j, i) *= 50 * std::exp(- 2 * SQR(r) / SQR(overdensity_radius));
-          
+
+          if (spherical_collapse) {
+
+            const Real x = coords.Xc<1>(i);
+            const Real y = coords.Xc<2>(j);
+            const Real z = coords.Xc<3>(k);
+            const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z)); // Computing radius
+            const Real overdensity_radius = pin->GetOrAddReal(
+                "problem/cluster/init_perturb", "overdensity_radius", 0.01);
+
+            u(IDN, k, j, i) = 3;
+            u(IDN, k, j, i) *= 50 * std::exp(-2 * SQR(r) / SQR(overdensity_radius));
           }
-          
         },
         passive_scalar);
-  
   }
-  
+
   /************************************************************
    * Set initial velocity perturbations (requires no other velocities for now)
    ************************************************************/
-  
+
   const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
-  
+
   if (sigma_v != 0.0) {
     auto few_modes_ft = hydro_pkg->Param<FewModesFT>("cluster/few_modes_ft_v");
     // Init phases on all blocks
     for (int b = 0; b < md->NumBlocks(); b++) {
       auto pmb = md->GetBlockData(b)->GetBlockPointer();
       few_modes_ft.SetPhases(pmb.get(), pin);
-
     }
     // As for t_corr in few_modes_ft, the choice for dt is
     // in principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
@@ -1073,15 +1075,15 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         // compute temperature
         temperature(k, j, i) = mbar_over_kb * P / rho;
       });
-    
+
   if (pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     auto &cooling_time = data->Get("cooling_time").data;
-    
+
     // get cooling function
     const cooling::TabularCooling &tabular_cooling =
         pkg->Param<cooling::TabularCooling>("tabular_cooling");
     const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
-    
+
     pmb->par_for(
         "Cluster::UserWorkBeforeOutput::CoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {

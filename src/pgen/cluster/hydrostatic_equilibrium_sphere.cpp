@@ -155,23 +155,23 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
   // Make sure to include R_fix_
   Real r_start = r_fix_;
   Real r_end = r_fix_;
-    
+
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
-        
-        // Integrate from r_start to r_end. If r_fix out of the domain, integrate from r_fix to r_max.
-        // Either:
+
+        // Integrate from r_start to r_end. If r_fix out of the domain, integrate from
+        // r_fix to r_max. Either:
         // ==================== Integration domain ====================
-          
+
         // r_end = r_max --------- r_min ------ r_fix
-        
+
         // or:
-        
+
         // r_end ------------------------------ r_fix --------- r_min.
-        
+
         // ============================================================
-        
+
         const Real r =
             sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
                  coords.Xc<3>(k) * coords.Xc<3>(k));
@@ -180,16 +180,16 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
       }
     }
   }
-  
+
   // Add some room for R_start and R_end
   r_start = std::max(0.0, r_start - r_sampling_ * dr);
   r_end += r_sampling_ * dr;
-  
+
   // Compute number of cells needed
   const auto n_r = static_cast<unsigned int>(ceil((r_end - r_start) / dr));
   // Make R_end  consistent
   r_end = r_start + dr * (n_r - 1);
-  
+
   return generate_P_rho_profile(r_start, r_end, n_r);
 }
 
@@ -200,31 +200,31 @@ template <typename GravitationalField, typename EntropyProfile>
 PRhoProfile<GravitationalField, EntropyProfile>
 HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
     const Real r_start, const Real r_end, const unsigned int n_r) const {
-  
+
   // Array of radii along which to compute the profile
   ParArray1D<parthenon::Real> device_r("PRhoProfile r", n_r);
   auto r = Kokkos::create_mirror_view(device_r);
   const Real dr = (r_end - r_start) / (n_r - 1.0);
-  
+
   // Use a linear R - possibly adapt if using a mesh with logrithmic r
   for (int i = 0; i < n_r; i++) {
     r(i) = r_start + i * dr;
   }
-  
+
   /************************************************************
    * Integrate Pressure inward and outward from virial radius
    ************************************************************/
   // Create array for pressure
   ParArray1D<parthenon::Real> device_p("PRhoProfile p", n_r);
   auto p = Kokkos::create_mirror_view(device_p);
-  
+
   const Real k_fix = entropy_profile_.K_from_r(r_fix_);
   const Real p_fix = P_from_rho_K(rho_fix_, k_fix);
-  
+
   // Integrate P inward from R_fix_
   Real r_i = r_fix_; // Start Ri at R_fix_ first
   Real p_i = p_fix;  // Start with pressure at R_fix_
-  
+
   // Find the index in R right before R_fix_
   int i_fix = static_cast<int>(floor((n_r - 1) / (r_end - r_start) * (r_fix_ - r_start)));
   if (r_fix_ < r(i_fix) - kRTol || r_fix_ > r(i_fix + 1) + kRTol) {

@@ -54,7 +54,7 @@ class ClusterGravity {
 
   // Static Helper functions to calculate constants to minimize in-kernel work
   // ie. compute the constants characterizing the profile (M_nfw, etc...)
-  
+
   static parthenon::Real calc_R_nfw_s(const parthenon::Real rho_crit,
                                       const parthenon::Real m_nfw_200,
                                       const parthenon::Real c_nfw) {
@@ -148,7 +148,7 @@ class ClusterGravity {
         pin->GetOrAddReal("problem/cluster/gravity", "c_nfw", 6.81);
     r_nfw_s_ = calc_R_nfw_s(rho_crit, M_nfw_200, c_nfw);
     g_const_nfw_ = calc_g_const_nfw(units.gravitational_constant(), M_nfw_200, c_nfw);
-    
+
     // Initialize the BCG Profile
     alpha_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "alpha_bcg_s", 0.1);
     beta_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "beta_bcg_s", 1.43);
@@ -157,7 +157,7 @@ class ClusterGravity {
     r_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "r_bcg_s", 4 * units.kpc());
     g_const_bcg_ = calc_g_const_bcg(units.gravitational_constant(), which_bcg_g_, M_bcg_s,
                                     r_bcg_s_, alpha_bcg_s_, beta_bcg_s_);
-    
+
     const parthenon::Real m_smbh =
         pin->GetOrAddReal("problem/cluster/gravity", "m_smbh", 3.4e8 * units.msun());
     g_const_smbh_ = calc_g_const_smbh(units.gravitational_constant(), m_smbh),

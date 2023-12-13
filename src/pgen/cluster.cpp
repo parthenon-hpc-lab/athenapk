@@ -117,22 +117,22 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 //========================================================================================
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) {
-  
+
   /************************************************************
    * Read Uniform Gas
    ************************************************************/
-  
+
   const bool init_uniform_gas =
       pin->GetOrAddBoolean("problem/cluster/uniform_gas", "init_uniform_gas", false);
   hydro_pkg->AddParam<>("init_uniform_gas", init_uniform_gas);
-  
+
   if (init_uniform_gas) {
     const Real uniform_gas_rho = pin->GetReal("problem/cluster/uniform_gas", "rho");
     const Real uniform_gas_ux = pin->GetReal("problem/cluster/uniform_gas", "ux");
     const Real uniform_gas_uy = pin->GetReal("problem/cluster/uniform_gas", "uy");
     const Real uniform_gas_uz = pin->GetReal("problem/cluster/uniform_gas", "uz");
     const Real uniform_gas_pres = pin->GetReal("problem/cluster/uniform_gas", "pres");
-    
+
     hydro_pkg->AddParam<>("uniform_gas_rho", uniform_gas_rho);
     hydro_pkg->AddParam<>("uniform_gas_ux", uniform_gas_ux);
     hydro_pkg->AddParam<>("uniform_gas_uy", uniform_gas_uy);
@@ -152,7 +152,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     const Real uniform_b_field_bx = pin->GetReal("problem/cluster/uniform_b_field", "bx");
     const Real uniform_b_field_by = pin->GetReal("problem/cluster/uniform_b_field", "by");
     const Real uniform_b_field_bz = pin->GetReal("problem/cluster/uniform_b_field", "bz");
-    
+
     hydro_pkg->AddParam<>("uniform_b_field_bx", uniform_b_field_bx);
     hydro_pkg->AddParam<>("uniform_b_field_by", uniform_b_field_by);
     hydro_pkg->AddParam<>("uniform_b_field_bz", uniform_b_field_bz);
@@ -175,49 +175,47 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     hydro_pkg->AddParam<>("dipole_b_field_my", dipole_b_field_my);
     hydro_pkg->AddParam<>("dipole_b_field_mz", dipole_b_field_mz);
   }
-  
+
   /************************************************************
    * Read Cluster Gravity Parameters
    ************************************************************/
-  
+
   // Build cluster_gravity object
   ClusterGravity cluster_gravity(pin, hydro_pkg);
-  
+
   // Include gravity as a source term during evolution
   const bool gravity_srcterm =
       pin->GetBoolean("problem/cluster/gravity", "gravity_srcterm");
   hydro_pkg->AddParam<>("gravity_srcterm", gravity_srcterm);
-  
+
   /************************************************************
    * Read Initial Entropy Profile
    ************************************************************/
-  
+
   // Create hydrostatic sphere with ACCEPT entropy profile
   ACCEPTEntropyProfile entropy_profile(pin);
-  
+
   HydrostaticEquilibriumSphere hse_sphere(pin, hydro_pkg, cluster_gravity,
                                           entropy_profile);
-  
+
   // Create hydrostatic sphere with ISOTHERMAL entropy profile
-  
-  
-  
+
   /************************************************************
-  * Read Precessing Jet Coordinate system
-  ************************************************************/
-  
+   * Read Precessing Jet Coordinate system
+   ************************************************************/
+
   JetCoordsFactory jet_coords_factory(pin, hydro_pkg);
-  
+
   /************************************************************
    * Read AGN Feedback
    ************************************************************/
-  
+
   AGNFeedback agn_feedback(pin, hydro_pkg);
-  
+
   /************************************************************
    * Read AGN Triggering
    ************************************************************/
-  
+
   AGNTriggering agn_triggering(pin, hydro_pkg);
 
   /************************************************************
@@ -226,7 +224,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 
   // Build Magnetic Tower
   MagneticTower magnetic_tower(pin, hydro_pkg);
-  
+
   // Determine if magnetic_tower_power_scaling is needed
   // Is AGN Power and Magnetic fraction non-zero?
   bool magnetic_tower_power_scaling =
@@ -238,15 +236,15 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   /************************************************************
    * Read SNIA Feedback
    ************************************************************/
-  
+
   SNIAFeedback snia_feedback(pin, hydro_pkg);
-  
+
   /************************************************************
    * Read Stellar Feedback
    ************************************************************/
-  
+
   StellarFeedback stellar_feedback(pin, hydro_pkg);
-  
+
   /************************************************************
    * Read Clips  (ceilings and floors)
    ************************************************************/
@@ -280,7 +278,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddParam("cluster_vceil", vceil);
   hydro_pkg->AddParam("cluster_vAceil", vAceil);
   hydro_pkg->AddParam("cluster_clip_r", clip_r);
-  
+
   /************************************************************
    * Start running reductions into history outputs for clips, stellar mass, cold
    * gas, and AGN extent
@@ -297,11 +295,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   std::string reduction_strs[] = {"stellar_mass", "added_dfloor_mass",
                                   "removed_eceil_energy", "removed_vceil_energy",
                                   "added_vAceil_mass"};
-  
+
   // Add a param for each reduction, then add it as a summation reduction for
   // history outputs
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
-  
+
   for (auto reduction_str : reduction_strs) {
     hydro_pkg->AddParam(reduction_str, 0.0, true);
     hst_vars.emplace_back(parthenon::HistoryOutputVar(
@@ -335,16 +333,16 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     hst_vars.emplace_back(parthenon::HistoryOutputVar(
         parthenon::UserHistoryOperation::max, LocalReduceAGNExtent, "agn_extent"));
   }
-  
+
   hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
-  
+
   /************************************************************
    * Add derived fields
    * NOTE: these must be filled in UserWorkBeforeOutput
    ************************************************************/
-  
+
   auto m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  
+
   // log10 of cell-centered radius
   hydro_pkg->AddField("log10_cell_radius", m);
   // entropy
@@ -353,12 +351,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddField("mach_sonic", m);
   // temperature
   hydro_pkg->AddField("temperature", m);
-  
+
   if (hydro_pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     // cooling time
     hydro_pkg->AddField("cooling_time", m);
   }
-  
+
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     // alfven Mach number v_A/c_s
     hydro_pkg->AddField("mach_alfven", m);
@@ -366,46 +364,51 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     // plasma beta
     hydro_pkg->AddField("plasma_beta", m);
   }
-  
+
   /************************************************************
    * Read Density perturbation
    ************************************************************/
-  
-  const auto mu_rho = pin->GetOrAddReal("problem/cluster/init_perturb", "mu_rho", 0.0); // Mean density of perturbations
-  
+
+  const auto mu_rho = pin->GetOrAddReal("problem/cluster/init_perturb", "mu_rho",
+                                        0.0); // Mean density of perturbations
+
   if (mu_rho != 0.0) {
-    
-    auto k_min_rho     = pin->GetReal("problem/cluster/init_perturb", "k_min_rho"); // Minimum wavenumber of perturbation
+
+    auto k_min_rho = pin->GetReal("problem/cluster/init_perturb",
+                                  "k_min_rho"); // Minimum wavenumber of perturbation
     auto num_modes_rho =
         pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_rho", 40);
     auto sol_weight_rho =
         pin->GetOrAddReal("problem/cluster/init_perturb", "sol_weight_rho", 1.0);
-    uint32_t rseed_rho  = pin->GetOrAddInteger("problem/cluster/init_perturb", "rseed_rho", 1);
-    
+    uint32_t rseed_rho =
+        pin->GetOrAddInteger("problem/cluster/init_perturb", "rseed_rho", 1);
+
     // Computing the kmax ie. the Nyquist limit
-    auto grid_ni = pin->GetOrAddInteger("parthenon/mesh", "nx1", 64); // Assuming cubic grid with equal size in each axis
+    auto grid_ni = pin->GetOrAddInteger(
+        "parthenon/mesh", "nx1", 64); // Assuming cubic grid with equal size in each axis
     auto k_max_rho = grid_ni / 2;
-    
+
     const auto t_corr_rho = 1e-10;
-    auto k_vec_rho = utils::few_modes_ft_log::MakeRandomModesLog(num_modes_rho, k_min_rho, k_max_rho, rseed_rho); // Generating random modes
-    
-    auto few_modes_ft_rho = FewModesFTLog(pin, hydro_pkg, "cluster_perturb_rho", num_modes_rho,
-                                   k_vec_rho, k_min_rho, k_max_rho, sol_weight_rho, t_corr_rho, rseed_rho);
-    
+    auto k_vec_rho = utils::few_modes_ft_log::MakeRandomModesLog(
+        num_modes_rho, k_min_rho, k_max_rho, rseed_rho); // Generating random modes
+
+    auto few_modes_ft_rho =
+        FewModesFTLog(pin, hydro_pkg, "cluster_perturb_rho", num_modes_rho, k_vec_rho,
+                      k_min_rho, k_max_rho, sol_weight_rho, t_corr_rho, rseed_rho);
+
     hydro_pkg->AddParam<>("cluster/few_modes_ft_rho", few_modes_ft_rho);
-    
+
     // Add field for initial perturation (must not need to be consistent but defining it
     // this way is easier for now)
     Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
                std::vector<int>({3}));
     hydro_pkg->AddField("tmp_perturb", m);
-    
   }
-  
+
   /************************************************************
    * Read Velocity perturbation
    ************************************************************/
-  
+
   const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
   if (sigma_v != 0.0) {
     // peak of init vel perturb
@@ -423,7 +426,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
       // Note that this assumes a cubic box
       k_peak_v = Lx / l_peak_v;
     }
-    
+
     auto num_modes_v =
         pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_v", 40);
     auto sol_weight_v =
@@ -445,11 +448,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
                std::vector<int>({3}));
     hydro_pkg->AddField("tmp_perturb", m);
   }
-    
+
   /************************************************************
    * Read Magnetic field perturbation
-   ************************************************************/  
-  
+   ************************************************************/
+
   const auto sigma_b = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_b", 0.0);
   if (sigma_b != 0.0) {
     PARTHENON_REQUIRE_THROWS(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd,
@@ -469,7 +472,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
       // Note that this assumes a cubic box
       k_peak_b = Lx / l_peak_b;
     }
-    
+
     auto num_modes_b =
         pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_b", 40);
     uint32_t rseed_b = pin->GetOrAddInteger("problem/cluster/init_perturb", "rseed_b", 2);
@@ -495,7 +498,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
       hydro_pkg->AddField("tmp_perturb", m);
     }
   }
-  
 }
 
 //========================================================================================
@@ -507,55 +509,57 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 //========================================================================================
 
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
-  
+
   // This could be more optimized, but require a refactor of init routines being called.
   // However, given that it's just called during initial setup, this should not be a
   // performance concern.
-  
-  // Defining a table within which the values of the hydrostatic density profile will be stored
+
+  // Defining a table within which the values of the hydrostatic density profile will be
+  // stored
   auto pmc = md->GetBlockData(0)->GetBlockPointer();
-  const auto grid_size  = pin->GetOrAddInteger("problem/cluster/mesh", "nx1", 256);
-    
+  const auto grid_size = pin->GetOrAddInteger("problem/cluster/mesh", "nx1", 256);
+
   for (int b = 0; b < md->NumBlocks(); b++) {
-    
+
     auto pmb = md->GetBlockData(b)->GetBlockPointer();
     auto hydro_pkg = pmb->packages.Get("Hydro");
-    auto units     = hydro_pkg->Param<Units>("units");
-    
+    auto units = hydro_pkg->Param<Units>("units");
+
     const auto gis = pmb->loc.lx1() * pmb->block_size.nx1;
     const auto gjs = pmb->loc.lx2() * pmb->block_size.nx2;
-    const auto gks = pmb->loc.lx3() * pmb->block_size.nx3;  
-    
-    IndexRange ib  = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-    IndexRange jb  = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-    IndexRange kb  = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-    
+    const auto gks = pmb->loc.lx3() * pmb->block_size.nx3;
+
+    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
     // Initialize the conserved variables
     auto &u = pmb->meshblock_data.Get()->Get("cons").data;
     auto &coords = pmb->coords;
-    
+
     // Get Adiabatic Index
     const Real gam = pin->GetReal("hydro", "gamma");
     const Real gm1 = (gam - 1.0);
-    
+
     /************************************************************
      * Initialize the initial hydro state
      ************************************************************/
-    const auto &init_uniform_gas  = hydro_pkg->Param<bool>("init_uniform_gas");
-    const auto init_perseus       = pin->GetOrAddBoolean("problem/cluster/hydrostatic_equilibrium", "init_perseus", false);
-    
+    const auto &init_uniform_gas = hydro_pkg->Param<bool>("init_uniform_gas");
+    const auto init_perseus = pin->GetOrAddBoolean(
+        "problem/cluster/hydrostatic_equilibrium", "init_perseus", false);
+
     if (init_uniform_gas) {
       const Real rho = hydro_pkg->Param<Real>("uniform_gas_rho");
       const Real ux = hydro_pkg->Param<Real>("uniform_gas_ux");
       const Real uy = hydro_pkg->Param<Real>("uniform_gas_uy");
       const Real uz = hydro_pkg->Param<Real>("uniform_gas_uz");
       const Real pres = hydro_pkg->Param<Real>("uniform_gas_pres");
-      
+
       const Real Mx = rho * ux;
       const Real My = rho * uy;
       const Real Mz = rho * uz;
       const Real E = rho * (0.5 * (ux * ux + uy * uy + uz * uz) + pres / (gm1 * rho));
-      
+
       parthenon::par_for(
           DEFAULT_LOOP_PATTERN, "Cluster::ProblemGenerator::UniformGas",
           parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -566,50 +570,52 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IM3, k, j, i) = Mz;
             u(IEN, k, j, i) = E;
           });
-    
-    } if (init_perseus) {
-      
+    }
+    if (init_perseus) {
+
       // initialize conserved variables
       parthenon::par_for(
           DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
           parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
           KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-            
             // Units
             const Real mh = units.mh();
             const Real k_boltzmann = units.k_boltzmann();
-            
-            const Real mu   = hydro_pkg->Param<Real>("mu");
+
+            const Real mu = hydro_pkg->Param<Real>("mu");
             const Real mu_e = hydro_pkg->Param<Real>("mu_e");
-            
+
             // Calculate radius
             const Real r = sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) +
                                 coords.Xc<2>(j) * coords.Xc<2>(j) +
                                 coords.Xc<3>(k) * coords.Xc<3>(k));
-            
+
             const Real re3 = r * 1e3; // Mpc to kpc
-            
+
             // Get pressure and density from generated profile
-            const Real ne_r    = 0.0192 * 1 / (1 + std::pow(re3 / 18, 3)) +
-                                  0.046 * 1 / std::pow((1 + std::pow(re3 / 57,  2)),1.8) +
-                                 0.0048 * 1 / std::pow((1 + std::pow(re3 / 200, 2)),0.87); // cgs units (cm-3)
-            const Real T_r     = 8.12e7 * (1 + std::pow(re3 / 71, 3)) / (2.3 + std::pow(re3 / 71, 3)); // K
-            
-            const Real ne_r_cu = ne_r * std::pow(units.cm(),-3); // Code units, Mpc^-3
-            
-            const Real rho_r   = mu_e * mh * ne_r_cu; // From ne_r (conversion)
-            const Real P_r     = k_boltzmann * (mu_e / mu) * ne_r_cu * T_r; // From T_r  (conversion)
-            
+            const Real ne_r =
+                0.0192 * 1 / (1 + std::pow(re3 / 18, 3)) +
+                0.046 * 1 / std::pow((1 + std::pow(re3 / 57, 2)), 1.8) +
+                0.0048 * 1 /
+                    std::pow((1 + std::pow(re3 / 200, 2)), 0.87); // cgs units (cm-3)
+            const Real T_r =
+                8.12e7 * (1 + std::pow(re3 / 71, 3)) / (2.3 + std::pow(re3 / 71, 3)); // K
+
+            const Real ne_r_cu = ne_r * std::pow(units.cm(), -3); // Code units, Mpc^-3
+
+            const Real rho_r = mu_e * mh * ne_r_cu; // From ne_r (conversion)
+            const Real P_r =
+                k_boltzmann * (mu_e / mu) * ne_r_cu * T_r; // From T_r  (conversion)
+
             u(IDN, k, j, i) = rho_r;
             u(IM1, k, j, i) = 0.0;
             u(IM2, k, j, i) = 0.0;
             u(IM3, k, j, i) = 0.0;
             u(IEN, k, j, i) = P_r / gm1;
-            
           });
-    
+
     } else {
-    
+
       /************************************************************
        * Initialize a HydrostaticEquilibriumSphere
        ************************************************************/
@@ -617,34 +623,32 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           hydro_pkg
               ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
                   "hydrostatic_equilibirum_sphere");
-      
+
       const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
-      
+
       // initialize conserved variables
       parthenon::par_for(
           DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
           parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
           KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-            
             // Calculate radius
             const Real r = sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) +
                                 coords.Xc<2>(j) * coords.Xc<2>(j) +
                                 coords.Xc<3>(k) * coords.Xc<3>(k));
-            
+
             // Get pressure and density from generated profile
-            const Real P_r   = P_rho_profile.P_from_r(r);
+            const Real P_r = P_rho_profile.P_from_r(r);
             const Real rho_r = P_rho_profile.rho_from_r(r);
-            
-            //u(IDN, k, j, i) = rho_r;
+
+            // u(IDN, k, j, i) = rho_r;
             u(IDN, k, j, i) = rho_r;
             u(IM1, k, j, i) = 0.0;
             u(IM2, k, j, i) = 0.0;
             u(IM3, k, j, i) = 0.0;
             u(IEN, k, j, i) = P_r / gm1;
-                        
           });
     }
-    
+
     if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
       /************************************************************
        * Initialize the initial magnetic field state via a vector potential
@@ -652,7 +656,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       parthenon::ParArray4D<Real> A("A", 3, pmb->cellbounds.ncellsk(IndexDomain::entire),
                                     pmb->cellbounds.ncellsj(IndexDomain::entire),
                                     pmb->cellbounds.ncellsi(IndexDomain::entire));
-      
+
       IndexRange a_ib = ib;
       a_ib.s -= 1;
       a_ib.e += 1;
@@ -662,14 +666,14 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       IndexRange a_kb = kb;
       a_kb.s -= 1;
       a_kb.e += 1;
-      
+
       /************************************************************
        * Initialize an initial magnetic tower
        ************************************************************/
       const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
-      
+
       magnetic_tower.AddInitialFieldToPotential(pmb.get(), a_kb, a_jb, a_ib, A);
-      
+
       /************************************************************
        * Add dipole magnetic field to the magnetic potential
        ************************************************************/
@@ -686,22 +690,22 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               const Real x = coords.Xc<1>(i);
               const Real y = coords.Xc<2>(j);
               const Real z = coords.Xc<3>(k);
-              
+
               const Real r3 = pow(SQR(x) + SQR(y) + SQR(z), 3. / 2);
-              
+
               const Real m_cross_r_x = my * z - mz * y;
               const Real m_cross_r_y = mz * x - mx * z;
               const Real m_cross_r_z = mx * y - mx * y;
-              
+
               // To check whether there is some component before initiating perturbations
               std::cout << "A(0, k, j, i)=" << A(0, k, j, i) << std::endl;
-              
+
               A(0, k, j, i) += m_cross_r_x / (4 * M_PI * r3);
               A(1, k, j, i) += m_cross_r_y / (4 * M_PI * r3);
               A(2, k, j, i) += m_cross_r_z / (4 * M_PI * r3);
             });
       }
-      
+
       /************************************************************
        * Apply the potential to the conserved variables
        ************************************************************/
@@ -709,7 +713,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::ApplyMagneticPotential",
           parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
           KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-            
             u(IB1, k, j, i) =
                 (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
                 (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
@@ -723,7 +726,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IEN, k, j, i) += 0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) +
                                       SQR(u(IB3, k, j, i)));
           });
-      
+
       /************************************************************
        * Add uniform magnetic field to the conserved variables
        ************************************************************/
@@ -739,7 +742,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               const Real bx_i = u(IB1, k, j, i);
               const Real by_i = u(IB2, k, j, i);
               const Real bz_i = u(IB3, k, j, i);
-              
+
               u(IB1, k, j, i) += bx;
               u(IB2, k, j, i) += by;
               u(IB3, k, j, i) += bz;
@@ -751,66 +754,74 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             });
         // end if(init_uniform_b_field)
       }
-    
+
     } // END if(hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd)
   }
-   
-   /************************************************************
+
+  /************************************************************
    * Initial parameters
-   ************************************************************/    
-  
+   ************************************************************/
+
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-  
-  auto hydro_pkg   = pmb->packages.Get("Hydro");
+
+  auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
   auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
-  const auto num_blocks = md->NumBlocks();   
-  
+  const auto num_blocks = md->NumBlocks();
+
   /************************************************************
    * Set initial density perturbations (read from HDF5 file)
    ************************************************************/
-  
-  const bool init_perturb_rho = pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
-  const bool spherical_cloud  = pin->GetOrAddBoolean("problem/cluster/init_perturb",  "spherical_cloud", false);
-  const bool cluster_cloud    = pin->GetOrAddBoolean("problem/cluster/init_perturb",    "cluster_cloud", false);
-  
+
+  const bool init_perturb_rho =
+      pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
+  const bool spherical_cloud =
+      pin->GetOrAddBoolean("problem/cluster/init_perturb", "spherical_cloud", false);
+  const bool cluster_cloud =
+      pin->GetOrAddBoolean("problem/cluster/init_perturb", "cluster_cloud", false);
+
   Real passive_scalar = 0.0; // Not useful here
-  
+
   if (cluster_cloud == true) {
-    
-    const Real x_cloud   = pin->GetOrAddReal("problem/cluster/init_perturb",     "x_cloud", 0.0);   // 0.0 pc
-    const Real y_cloud   = pin->GetOrAddReal("problem/cluster/init_perturb",     "y_cloud", 5e-2);  // 100 pc
-    const Real r_cloud   = pin->GetOrAddReal("problem/cluster/init_perturb",     "r_cloud", 1e-4);  // 100 pc
-    const Real rho_cloud = pin->GetOrAddReal("problem/cluster/init_perturb",   "rho_cloud", 150.0); // 1e-24 g/cm^3
-    const Real steepness = pin->GetOrAddReal("problem/cluster/init_perturb", "steep_cloud", 10.0);
-    
-    Real passive_scalar  = 0.0; // Useless
-    
+
+    const Real x_cloud =
+        pin->GetOrAddReal("problem/cluster/init_perturb", "x_cloud", 0.0); // 0.0 pc
+    const Real y_cloud =
+        pin->GetOrAddReal("problem/cluster/init_perturb", "y_cloud", 5e-2); // 100 pc
+    const Real r_cloud =
+        pin->GetOrAddReal("problem/cluster/init_perturb", "r_cloud", 1e-4); // 100 pc
+    const Real rho_cloud = pin->GetOrAddReal("problem/cluster/init_perturb", "rho_cloud",
+                                             150.0); // 1e-24 g/cm^3
+    const Real steepness =
+        pin->GetOrAddReal("problem/cluster/init_perturb", "steep_cloud", 10.0);
+
+    Real passive_scalar = 0.0; // Useless
+
     /*
     for (int b = 0; b < md->NumBlocks(); b++) {
-    
+
         auto pmb = md->GetBlockData(b)->GetBlockPointer();
 
         // Initialize the conserved variables
         auto &u = pmb->meshblock_data.Get()->Get("cons").data;
         auto &coords = pmb->coords;
-        
+
         Real r_min = 1e6;
-        
+
         for (int k = kb.s; k <= kb.e; k++) {
           for (int j = jb.s; j <= jb.e; j++) {
             for (int i = ib.s; i <= ib.e; i++) {
-            
+
             const Real x = coords.Xc<1>(i);
             const Real y = coords.Xc<2>(j);
             const Real z = coords.Xc<3>(k);
             const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
-            
+
             if (r < r_min) {r_min = r;}
-            
+
             }
           }
         }
@@ -820,119 +831,124 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             parthenon::AmrTag::same;}
     }
     */
-    
+
     pmb->par_reduce(
         "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-          
-          auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
-          
+          auto pmbb = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
+
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
-          
+
           const Real x = coords.Xc<1>(i);
           const Real y = coords.Xc<2>(j);
           const Real z = coords.Xc<3>(k);
           const Real r = std::sqrt(SQR(x - x_cloud) + SQR(y - y_cloud) + SQR(z));
-          
-          Real rho         = rho_cloud * (1.0 - std::tanh(steepness * (r / r_cloud - 1.0)));
+
+          Real rho = rho_cloud * (1.0 - std::tanh(steepness * (r / r_cloud - 1.0)));
           u(IDN, k, j, i) += rho;
-          
         },
         passive_scalar);
-    
   }
-  
+
   /* -------------- Setting up a clumpy atmosphere --------------
-  
+
   1) Extract the values of the density from an input hdf5 file using H5Easy
   2) Initiate the associated density field
   3) Optionnaly, add some overpressure ring to check behavior (overpressure_ring bool)
   4) Optionnaly, add a central overdensity
-  
+
   */
-  
+
   if (init_perturb_rho == true) {
-    
-    auto filename_rho = pin->GetOrAddString("problem/cluster/init_perturb", "init_perturb_rho_file","none");  
-    const Real perturb_amplitude = pin->GetOrAddReal("problem/cluster/init_perturb", "perturb_amplitude", 1);
-    const Real box_size_over_two = pin->GetOrAddReal("problem/cluster/init_perturb", "xmax", 0.250);
-    
-    // Loading files  
-    
+
+    auto filename_rho = pin->GetOrAddString("problem/cluster/init_perturb",
+                                            "init_perturb_rho_file", "none");
+    const Real perturb_amplitude =
+        pin->GetOrAddReal("problem/cluster/init_perturb", "perturb_amplitude", 1);
+    const Real box_size_over_two =
+        pin->GetOrAddReal("problem/cluster/init_perturb", "xmax", 0.250);
+
+    // Loading files
+
     std::string keys_rho = "data";
     H5Easy::File file(filename_rho, HighFive::File::ReadOnly);
-    
+
     const int rho_init_size = 512;
-    auto rho_init = H5Easy::load<std::array<std::array<std::array<float, rho_init_size>, rho_init_size>, rho_init_size>>(file, keys_rho);
-    
+    auto rho_init = H5Easy::load<std::array<
+        std::array<std::array<float, rho_init_size>, rho_init_size>, rho_init_size>>(
+        file, keys_rho);
+
     Real passive_scalar = 0.0; // Useless
-    
+
     std::cout << "Entering initialisation of rho field";
-    
-    // Setting up the perturbations  
-    
+
+    // Setting up the perturbations
+
     pmb->par_reduce(
         "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-          
-          auto pmbb  = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
-          
+          auto pmbb = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
+
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
-          
+
           const Real x = coords.Xc<1>(i);
           const Real y = coords.Xc<2>(j);
           const Real z = coords.Xc<3>(k);
-          
+
           const Real r = sqrt(SQR(x) + SQR(y) + SQR(z));
-          
-          // Getting the corresponding index in the 
-          const Real rho_init_index_x = floor((x + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
-          const Real rho_init_index_y = floor((y + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
-          const Real rho_init_index_z = floor((z + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
-          
-          //const Real damping = 1 - std::exp(r - box_size_over_two);  
-          
-          if ((rho_init_index_x >= 0) && (rho_init_index_x <= rho_init_size - 1) && (rho_init_index_y >= 0) && (rho_init_index_y <= rho_init_size - 1) && (rho_init_index_z >= 0) && (rho_init_index_z <= rho_init_size - 1)) {
-          
-          // Case where the box is filled with perturbations of equal mean amplitude
-          
-          //u(IDN, k, j, i) += perturb_amplitude * rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z] * (u(IDN, k, j, i) / 29.6) * std::max(0.0,damping);
-          u(IDN, k, j, i) += perturb_amplitude * rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z];
-          
+
+          // Getting the corresponding index in the
+          const Real rho_init_index_x = floor(
+              (x + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
+          const Real rho_init_index_y = floor(
+              (y + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
+          const Real rho_init_index_z = floor(
+              (z + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
+
+          // const Real damping = 1 - std::exp(r - box_size_over_two);
+
+          if ((rho_init_index_x >= 0) && (rho_init_index_x <= rho_init_size - 1) &&
+              (rho_init_index_y >= 0) && (rho_init_index_y <= rho_init_size - 1) &&
+              (rho_init_index_z >= 0) && (rho_init_index_z <= rho_init_size - 1)) {
+
+            // Case where the box is filled with perturbations of equal mean amplitude
+
+            // u(IDN, k, j, i) += perturb_amplitude *
+            // rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z] * (u(IDN, k,
+            // j, i) / 29.6) * std::max(0.0,damping);
+            u(IDN, k, j, i) +=
+                perturb_amplitude *
+                rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z];
           }
-        
         },
         passive_scalar);
-    
-  
   }
-  
+
   /************************************************************
    * Set initial velocity perturbations (requires no other velocities for now)
    ************************************************************/
-  
+
   const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
-  
+
   if (sigma_v != 0.0) {
     auto few_modes_ft = hydro_pkg->Param<FewModesFT>("cluster/few_modes_ft_v");
     // Init phases on all blocks
     for (int b = 0; b < md->NumBlocks(); b++) {
       auto pmb = md->GetBlockData(b)->GetBlockPointer();
       few_modes_ft.SetPhases(pmb.get(), pin);
-      
     }
     // As for t_corr in few_modes_ft, the choice for dt is
     // in principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
     // the perturbation (and is normalized in the following to get the desired sigma_v)
     const Real dt = 1.0;
     few_modes_ft.Generate(md, dt, "tmp_perturb");
-    
+
     Real v2_sum = 0.0; // used for normalization
-    
+
     auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
-    
+
     pmb->par_reduce(
         "Init sigma_v", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
@@ -944,11 +960,11 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           PARTHENON_REQUIRE(
               u(IM1, k, j, i) == 0.0 && u(IM2, k, j, i) == 0.0 && u(IM3, k, j, i) == 0.0,
               "Found existing non-zero velocity when setting velocity perturbations.");
-          
+
           u(IM1, k, j, i) = rho * perturb_pack(b, 0, k, j, i);
           u(IM2, k, j, i) = rho * perturb_pack(b, 1, k, j, i);
           u(IM3, k, j, i) = rho * perturb_pack(b, 2, k, j, i);
-          
+
           // No need to touch the energy yet as we'll normalize later
 
           lsum += (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) *
@@ -960,12 +976,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &v2_sum, 1, MPI_PARTHENON_REAL,
                                       MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
-    
+
     const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
     const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
     const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
     auto v_norm = std::sqrt(v2_sum / (Lx * Ly * Lz) / (SQR(sigma_v)));
-    
+
     pmb->par_for(
         "Norm sigma_v", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
@@ -980,14 +996,15 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               u(IDN, k, j, i);
         });
   }
-  
+
   /************************************************************
    * Set initial magnetic field perturbations (resets magnetic field field)
    ************************************************************/
-  const auto sigma_b       = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_b", 0.0);
-  const auto alpha_b       = pin->GetOrAddReal("problem/cluster/init_perturb", "alpha_b", 2.0/3.0);
-  const auto r_scale       = pin->GetOrAddReal("problem/cluster/init_perturb", "r_scale", 0.1);
-    
+  const auto sigma_b = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_b", 0.0);
+  const auto alpha_b =
+      pin->GetOrAddReal("problem/cluster/init_perturb", "alpha_b", 2.0 / 3.0);
+  const auto r_scale = pin->GetOrAddReal("problem/cluster/init_perturb", "r_scale", 0.1);
+
   if (sigma_b != 0.0) {
     auto few_modes_ft = hydro_pkg->Param<FewModesFT>("cluster/few_modes_ft_b");
     // Init phases on all blocks
@@ -995,45 +1012,45 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       auto pmb = md->GetBlockData(b)->GetBlockPointer();
       few_modes_ft.SetPhases(pmb.get(), pin);
     }
-    
+
     // As for t_corr in few_modes_ft, the choice for dt is
     // in principle arbitrary because the inital b_hat is 0 and the b_hat_new will contain
     // the perturbation (and is normalized in the following to get the desired sigma_b)
     const Real dt = 1.0;
     few_modes_ft.Generate(md, dt, "tmp_perturb");
-    
+
     Real b2_sum = 0.0; // used for normalization
-    
+
     auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
-    
+
     // Modifying the magnetic potential so that it follows the rho profile
-    
+
     /*
     pmb->par_for(
         "Init sigma_b", 0, num_blocks - 1, kb.s-1, kb.e+1, jb.s-1, jb.e+1, ib.s-1, ib.e+1,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          
+
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
-          
+
           const Real x = coords.Xc<1>(i);
           const Real y = coords.Xc<2>(j);
           const Real z = coords.Xc<3>(k);
-          
+
           const Real r = sqrt(SQR(x) + SQR(y) + SQR(z));
-          
+
           auto pmb = md->GetBlockData(b)->GetBlockPointer();
           const auto gis = pmb->loc.lx1() * pmb->block_size.nx1;
           const auto gjs = pmb->loc.lx2() * pmb->block_size.nx2;
-          const auto gks = pmb->loc.lx3() * pmb->block_size.nx3;  
-          
+          const auto gks = pmb->loc.lx3() * pmb->block_size.nx3;
+
           perturb_pack(b, 0, k, j, i) *= 1 / (1 + (r / r_scale));
           perturb_pack(b, 1, k, j, i) *= 1 / (1 + (r / r_scale));
           perturb_pack(b, 2, k, j, i) *= 1 / (1 + (r / r_scale));
-          
+
     });
     */
-    
+
     pmb->par_reduce(
         "Init sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
@@ -1065,17 +1082,17 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                   coords.CellVolume(k, j, i);
         },
         b2_sum);
-    
+
 #ifdef MPI_PARALLEL
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &b2_sum, 1, MPI_PARTHENON_REAL,
                                       MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
-    
+
     const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
     const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
     const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
     auto b_norm = std::sqrt(b2_sum / (Lx * Ly * Lz) / (SQR(sigma_b)));
-    
+
     pmb->par_for(
         "Norm sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
@@ -1147,15 +1164,15 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         // compute temperature
         temperature(k, j, i) = mbar_over_kb * P / rho;
       });
-    
+
   if (pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     auto &cooling_time = data->Get("cooling_time").data;
-    
+
     // get cooling function
     const cooling::TabularCooling &tabular_cooling =
         pkg->Param<cooling::TabularCooling>("tabular_cooling");
     const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
-    
+
     pmb->par_for(
         "Cluster::UserWorkBeforeOutput::CoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
@@ -1179,11 +1196,11 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
           // get gas properties
           const Real rho = prim(IDN, k, j, i);
-          const Real P   = prim(IPR, k, j, i);
-          const Real Bx  = prim(IB1, k, j, i);
-          const Real By  = prim(IB2, k, j, i);
-          const Real Bz  = prim(IB3, k, j, i);
-          const Real B2  = (SQR(Bx) + SQR(By) + SQR(Bz));
+          const Real P = prim(IPR, k, j, i);
+          const Real Bx = prim(IB1, k, j, i);
+          const Real By = prim(IB2, k, j, i);
+          const Real Bz = prim(IB3, k, j, i);
+          const Real B2 = (SQR(Bx) + SQR(By) + SQR(Bz));
 
           // compute Alfven mach number
           const Real v_A = std::sqrt(B2 / rho);

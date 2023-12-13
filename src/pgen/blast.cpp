@@ -131,16 +131,16 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real drat = pin->GetOrAddReal("problem/blast", "density_ratio", 1.0);
   Real gamma = pin->GetOrAddReal("hydro", "gamma", 5 / 3);
   Real gm1 = gamma - 1.0;
-  
+
   // get coordinates of center of blast, and convert to Cartesian if necessary
   Real x0 = pin->GetOrAddReal("problem/blast", "x1_0", 0.0);
   Real y0 = pin->GetOrAddReal("problem/blast", "x2_0", 0.0);
   Real z0 = pin->GetOrAddReal("problem/blast", "x3_0", 0.0);
-  
+
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-  
+
   // initialize conserved variables
   auto &rc = pmb->meshblock_data.Get();
   auto &u_dev = rc->Get("cons").data;

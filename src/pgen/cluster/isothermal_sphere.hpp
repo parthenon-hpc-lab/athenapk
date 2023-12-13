@@ -32,52 +32,47 @@ class IsothermalSphere {
  private:
   // Graviational field and entropy profile
   const GravitationalField gravitational_field_;
-  
+
   // Physical constants
   parthenon::Real mh_, k_boltzmann_;
 
   // Molecular weights
   parthenon::Real mu_
-  
-  /************************************************************
-   * Functions to build the cluster model
-   *
-   * Using lambda functions to make picking up model parameters seamlessly
-   * Read A_from_B as "A as a function of B"
-   ************************************************************/
 
-  // Get the dP/dr from radius and pressure, which we will     //
-  /************************************************************
-   *  dP_dr_from_r_P_functor
-   *
-   *  Functor class giving dP/dr (r,P)
-   *  which is used to compute the HSE profile
-   ************************************************************/
-   
-   public:
-    KOKKOS_INLINE_FUNCTION parthenon::Real rho_from_r(const parthenon::Real r) const {
+      /************************************************************
+       * Functions to build the cluster model
+       *
+       * Using lambda functions to make picking up model parameters seamlessly
+       * Read A_from_B as "A as a function of B"
+       ************************************************************/
+
+      // Get the dP/dr from radius and pressure, which we will     //
+      /************************************************************
+       *  dP_dr_from_r_P_functor
+       *
+       *  Functor class giving dP/dr (r,P)
+       *  which is used to compute the HSE profile
+       ************************************************************/
+
+      public : KOKKOS_INLINE_FUNCTION parthenon::Real
+               rho_from_r(const parthenon::Real r) const {
     using parthenon::Real;
-   
-   
-    functor(
-        const IsothermalSphere<GravitationalField> &sphere)
-        : sphere_(sphere) {}
+
+    functor(const IsothermalSphere<GravitationalField> &sphere) : sphere_(sphere) {}
     parthenon::Real operator()(const parthenon::Real r) const {
-      
+
       const parthenon::Real rho = sphere_.gravitational_field_.rho_from_r(r);
       return rho;
     }
   };
- 
+
  public:
-  IsothermalSphere(parthenon::ParameterInput *pin,
-                              parthenon::StateDescriptor *hydro_pkg,
-                              GravitationalField gravitational_field);
+  IsothermalSphere(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg,
+                   GravitationalField gravitational_field);
 
   PProfile<GravitationalField>
   generate_P_profile(parthenon::IndexRange ib, parthenon::IndexRange jb,
-                     parthenon::IndexRange kb,
-                     parthenon::UniformCartesian coords) const;
+                     parthenon::IndexRange kb, parthenon::UniformCartesian coords) const;
 };
 
 template <typename GravitationalField>
@@ -88,8 +83,7 @@ class PProfile {
   const IsothermalSphere<GravitationalField> sphere_;
 
  public:
-  PProfile(
-      const IsothermalSphere<GravitationalField> &sphere)
+  PProfile(const IsothermalSphere<GravitationalField> &sphere)
       : r_(r), p_(p), sphere_(sphere), n_r_(r_.extent(0)), r_start_(r_start),
         r_end_(r_end) {}
 

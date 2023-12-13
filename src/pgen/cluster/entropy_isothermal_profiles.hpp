@@ -20,24 +20,21 @@ template <typename GravitationalField>
 class ISOEntropyProfile {
 
  public:
-  
   // Entropy Profile
   parthenon::T_isothermal_;
-  
-  ISOEntropyProfile(parthenon::ParameterInput *pin, GravitationalField gravitational_field) {
-    
+
+  ISOEntropyProfile(parthenon::ParameterInput *pin,
+                    GravitationalField gravitational_field) {
+
     Units units(pin);
-    
-
   }
-  
+
   // Get entropy from radius, using broken power law profile for entropy
-    KOKKOS_INLINE_FUNCTION parthenon::Real K_from_r(const parthenon::Real r) const {
+  KOKKOS_INLINE_FUNCTION parthenon::Real K_from_r(const parthenon::Real r) const {
 
-      const parthenon::Real k = 1;
-      return k; 
+    const parthenon::Real k = 1;
+    return k;
   }
-  
 };
 
 } // namespace cluster

@@ -36,26 +36,26 @@ class HydrostaticEquilibriumSphere {
   // Graviational field and entropy profile
   const GravitationalField gravitational_field_;
   const EntropyProfile entropy_profile_;
-  
+
   // Physical constants
   parthenon::Real mh_, k_boltzmann_;
-  
+
   // Density to fix baryons at a radius (change to temperature?)
   parthenon::Real r_fix_, rho_fix_;
-  
+
   // Molecular weights
   parthenon::Real mu_, mu_e_;
-  
+
   // R mesh sampling parameter
   parthenon::Real r_sampling_;
-  
+
   /************************************************************
    * Functions to build the cluster model
    *
    * Using lambda functions to make picking up model parameters seamlessly
    * Read A_from_B as "A as a function of B"
    ************************************************************/
-  
+
   // Get pressure from density and entropy, using ideal gas law and definition
   // of entropy
   KOKKOS_INLINE_FUNCTION parthenon::Real P_from_rho_K(const parthenon::Real rho,
@@ -63,7 +63,7 @@ class HydrostaticEquilibriumSphere {
     const parthenon::Real p = k * pow(rho / mh_, 5. / 3.) / (mu_ * pow(mu_e_, 2. / 3.));
     return p;
   }
-  
+
   // Get density from pressure and entropy, using ideal gas law and definition
   // of entropy
   KOKKOS_INLINE_FUNCTION parthenon::Real rho_from_P_K(const parthenon::Real p,
@@ -71,13 +71,13 @@ class HydrostaticEquilibriumSphere {
     const parthenon::Real rho = pow(mu_ * p / k, 3. / 5.) * mh_ * pow(mu_e_, 2. / 5);
     return rho;
   }
-  
+
   // Get total number density from density
   KOKKOS_INLINE_FUNCTION parthenon::Real n_from_rho(const parthenon::Real rho) const {
     const parthenon::Real n = rho / (mu_ * mh_);
     return n;
   }
-  
+
   // Get electron number density from density
   KOKKOS_INLINE_FUNCTION parthenon::Real ne_from_rho(const parthenon::Real rho) const {
     const parthenon::Real ne = mu_ / mu_e_ * n_from_rho(rho);
@@ -114,7 +114,7 @@ class HydrostaticEquilibriumSphere {
       return dP_dr;
     }
   };
-  
+
   // Takes one rk4 step from t0 to t1, taking y0 and returning y1, using y'(t) = f(t,y)
   template <typename Function>
   parthenon::Real step_rk4(const parthenon::Real t0, const parthenon::Real t1,
