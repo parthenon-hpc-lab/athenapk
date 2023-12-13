@@ -48,12 +48,6 @@ void AdiabaticHydroEOS::ConservedToPrimitive(MeshData<Real> *md) const {
       DEFAULT_LOOP_PATTERN, "ConservedToPrimitive", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        // Getting the global indexing
-
-        auto pmb = md->GetBlockData(b)->GetBlockPointer();
-        auto pm = pmb->pmy_mesh;
-        auto hydro_pkg = pmb->packages.Get("Hydro");
-
         const auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
 

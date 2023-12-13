@@ -37,21 +37,6 @@ void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-  /*
-  std::cout << "Values of gravitationnal field" << std::endl;
-  std::cout
-    << gravitationalField.g_from_r(1e-4) << ", " << gravitationalField.g_from_r(3.16e-4)
-    << ", " << gravitationalField.g_from_r(1e-3) << ", " <<
-  gravitationalField.g_from_r(3.16e-3)
-    << ", " << gravitationalField.g_from_r(1e-2) << ", " <<
-  gravitationalField.g_from_r(3.16e-2)
-    << ", " << gravitationalField.g_from_r(1e-1) << ", " <<
-  gravitationalField.g_from_r(3.16e-1)
-    << ", " << gravitationalField.g_from_r(1.0)  << ", " <<
-  gravitationalField.g_from_r(3.16)
-    << ", " << gravitationalField.g_from_r(10.0) << std::endl;
-  */
-
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "GravitationalFieldSrcTerm", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,

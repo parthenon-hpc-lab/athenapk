@@ -44,7 +44,6 @@
 #include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
 #include "../utils/few_modes_ft.hpp"
-#include "../utils/few_modes_ft_lognormal.hpp"
 
 // Cluster headers
 #include "cluster/agn_feedback.hpp"
@@ -62,7 +61,6 @@ namespace cluster {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
-using utils::few_modes_ft_log::FewModesFTLog;
 
 void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                            const Real beta_dt) {
@@ -366,46 +364,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   }
 
   /************************************************************
-   * Read Density perturbation
-   ************************************************************/
-
-  const auto mu_rho = pin->GetOrAddReal("problem/cluster/init_perturb", "mu_rho",
-                                        0.0); // Mean density of perturbations
-
-  if (mu_rho != 0.0) {
-
-    auto k_min_rho = pin->GetReal("problem/cluster/init_perturb",
-                                  "k_min_rho"); // Minimum wavenumber of perturbation
-    auto num_modes_rho =
-        pin->GetOrAddInteger("problem/cluster/init_perturb", "num_modes_rho", 40);
-    auto sol_weight_rho =
-        pin->GetOrAddReal("problem/cluster/init_perturb", "sol_weight_rho", 1.0);
-    uint32_t rseed_rho =
-        pin->GetOrAddInteger("problem/cluster/init_perturb", "rseed_rho", 1);
-
-    // Computing the kmax ie. the Nyquist limit
-    auto grid_ni = pin->GetOrAddInteger(
-        "parthenon/mesh", "nx1", 64); // Assuming cubic grid with equal size in each axis
-    auto k_max_rho = grid_ni / 2;
-
-    const auto t_corr_rho = 1e-10;
-    auto k_vec_rho = utils::few_modes_ft_log::MakeRandomModesLog(
-        num_modes_rho, k_min_rho, k_max_rho, rseed_rho); // Generating random modes
-
-    auto few_modes_ft_rho =
-        FewModesFTLog(pin, hydro_pkg, "cluster_perturb_rho", num_modes_rho, k_vec_rho,
-                      k_min_rho, k_max_rho, sol_weight_rho, t_corr_rho, rseed_rho);
-
-    hydro_pkg->AddParam<>("cluster/few_modes_ft_rho", few_modes_ft_rho);
-
-    // Add field for initial perturation (must not need to be consistent but defining it
-    // this way is easier for now)
-    Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
-               std::vector<int>({3}));
-    hydro_pkg->AddField("tmp_perturb", m);
-  }
-
-  /************************************************************
    * Read Velocity perturbation
    ************************************************************/
 
@@ -545,8 +503,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
      * Initialize the initial hydro state
      ************************************************************/
     const auto &init_uniform_gas = hydro_pkg->Param<bool>("init_uniform_gas");
-    const auto init_perseus = pin->GetOrAddBoolean(
-        "problem/cluster/hydrostatic_equilibrium", "init_perseus", false);
 
     if (init_uniform_gas) {
       const Real rho = hydro_pkg->Param<Real>("uniform_gas_rho");
@@ -569,49 +525,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IM2, k, j, i) = My;
             u(IM3, k, j, i) = Mz;
             u(IEN, k, j, i) = E;
-          });
-    }
-    if (init_perseus) {
-
-      // initialize conserved variables
-      parthenon::par_for(
-          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
-          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-            // Units
-            const Real mh = units.mh();
-            const Real k_boltzmann = units.k_boltzmann();
-
-            const Real mu = hydro_pkg->Param<Real>("mu");
-            const Real mu_e = hydro_pkg->Param<Real>("mu_e");
-
-            // Calculate radius
-            const Real r = sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) +
-                                coords.Xc<2>(j) * coords.Xc<2>(j) +
-                                coords.Xc<3>(k) * coords.Xc<3>(k));
-
-            const Real re3 = r * 1e3; // Mpc to kpc
-
-            // Get pressure and density from generated profile
-            const Real ne_r =
-                0.0192 * 1 / (1 + std::pow(re3 / 18, 3)) +
-                0.046 * 1 / std::pow((1 + std::pow(re3 / 57, 2)), 1.8) +
-                0.0048 * 1 /
-                    std::pow((1 + std::pow(re3 / 200, 2)), 0.87); // cgs units (cm-3)
-            const Real T_r =
-                8.12e7 * (1 + std::pow(re3 / 71, 3)) / (2.3 + std::pow(re3 / 71, 3)); // K
-
-            const Real ne_r_cu = ne_r * std::pow(units.cm(), -3); // Code units, Mpc^-3
-
-            const Real rho_r = mu_e * mh * ne_r_cu; // From ne_r (conversion)
-            const Real P_r =
-                k_boltzmann * (mu_e / mu) * ne_r_cu * T_r; // From T_r  (conversion)
-
-            u(IDN, k, j, i) = rho_r;
-            u(IM1, k, j, i) = 0.0;
-            u(IM2, k, j, i) = 0.0;
-            u(IM3, k, j, i) = 0.0;
-            u(IEN, k, j, i) = P_r / gm1;
           });
 
     } else {
@@ -640,7 +553,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             const Real P_r = P_rho_profile.P_from_r(r);
             const Real rho_r = P_rho_profile.rho_from_r(r);
 
-            // u(IDN, k, j, i) = rho_r;
             u(IDN, k, j, i) = rho_r;
             u(IM1, k, j, i) = 0.0;
             u(IM2, k, j, i) = 0.0;
@@ -1001,9 +913,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
    * Set initial magnetic field perturbations (resets magnetic field field)
    ************************************************************/
   const auto sigma_b = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_b", 0.0);
-  const auto alpha_b =
-      pin->GetOrAddReal("problem/cluster/init_perturb", "alpha_b", 2.0 / 3.0);
-  const auto r_scale = pin->GetOrAddReal("problem/cluster/init_perturb", "r_scale", 0.1);
 
   if (sigma_b != 0.0) {
     auto few_modes_ft = hydro_pkg->Param<FewModesFT>("cluster/few_modes_ft_b");

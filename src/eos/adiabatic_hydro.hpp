@@ -114,7 +114,7 @@ class AdiabaticHydroEOS : public EquationOfState {
     // By default, floors are deactivated, ie. pressure floor and e_floor
     // are -1. The code will eventually crash when w_p turns < 0.
     PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
-                      "Wow. Got negative pressure. Consider enabling first-order flux "
+                      "Got negative pressure. Consider enabling first-order flux "
                       "correction or setting a reasonble pressure or temperature floor.");
 
     // Pressure floor (if present) takes precedence over temperature floor
