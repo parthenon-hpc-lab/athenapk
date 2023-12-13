@@ -19,7 +19,6 @@ add_executable(
         refinement/gradient.cpp
         refinement/other.cpp
         utils/few_modes_ft.cpp
-        utils/few_modes_ft_lognormal.cpp
 )
 
 add_subdirectory(pgen)

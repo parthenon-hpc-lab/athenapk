@@ -52,27 +52,27 @@ class AdiabaticHydroEOS : public EquationOfState {
   KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro,
                                          const int &nscalars, const int &k, const int &j,
                                          const int &i) const {
-    
+
     Real gm1 = GetGamma() - 1.0;
     auto density_floor_ = GetDensityFloor();
     auto pressure_floor_ = GetPressureFloor();
     auto e_floor_ = GetInternalEFloor();
-    
+
     auto velocity_ceiling_ = GetVelocityCeiling();
     auto e_ceiling_ = GetInternalECeiling();
-    
-    Real &u_d  = cons(IDN, k, j, i);
+
+    Real &u_d = cons(IDN, k, j, i);
     Real &u_m1 = cons(IM1, k, j, i);
     Real &u_m2 = cons(IM2, k, j, i);
     Real &u_m3 = cons(IM3, k, j, i);
-    Real &u_e  = cons(IEN, k, j, i);
-    
-    Real &w_d  = prim(IDN, k, j, i);
+    Real &u_e = cons(IEN, k, j, i);
+
+    Real &w_d = prim(IDN, k, j, i);
     Real &w_vx = prim(IV1, k, j, i);
     Real &w_vy = prim(IV2, k, j, i);
     Real &w_vz = prim(IV3, k, j, i);
-    Real &w_p  = prim(IPR, k, j, i);
-    
+    Real &w_p = prim(IPR, k, j, i);
+
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
     PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
@@ -86,10 +86,10 @@ class AdiabaticHydroEOS : public EquationOfState {
     w_vx = u_m1 * di;
     w_vy = u_m2 * di;
     w_vz = u_m3 * di;
-    
+
     Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
     w_p = gm1 * (u_e - e_k);
-    
+
     // apply velocity ceiling. By default ceiling is std::numeric_limits<Real>::infinity()
     const Real w_v2 = SQR(w_vx) + SQR(w_vy) + SQR(w_vz);
     if (w_v2 > SQR(velocity_ceiling_)) {
@@ -106,10 +106,10 @@ class AdiabaticHydroEOS : public EquationOfState {
       u_e -= e_k - e_k_new;
       e_k = e_k_new;
     }
-    
+
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.
-        
+
     // The first argument check whether one of the conditions is true
     // By default, floors are deactivated, ie. pressure floor and e_floor
     // are -1. The code will eventually crash when w_p turns < 0.

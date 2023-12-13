@@ -30,10 +30,10 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
         gamma_{gamma} {}
 
   void ConservedToPrimitive(MeshData<Real> *md) const override;
-  
+
   KOKKOS_INLINE_FUNCTION
   Real GetGamma() const { return gamma_; }
-  
+
   //----------------------------------------------------------------------------------------
   // \!fn Real EquationOfState::SoundSpeed(Real prim[NHYDRO])
   // \brief returns adiabatic sound speed given vector of primitive variables
@@ -53,7 +53,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
     return std::sqrt(0.5 * (qsq + std::sqrt(tmp * tmp + 4.0 * asq * ct2)) / d);
   }
   //
-  
+
   //----------------------------------------------------------------------------------------
   // \!fn Real EquationOfState::ConsToPrim(View4D cons, View4D prim, const int& k, const
   // int& j, const int& i) \brief Fills an array of primitives given an array of
@@ -70,51 +70,51 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
 
     auto velocity_ceiling_ = GetVelocityCeiling();
     auto e_ceiling_ = GetInternalECeiling();
-    
-    Real &u_d   = cons(IDN, k, j, i);
-    Real &u_m1  = cons(IM1, k, j, i);
-    Real &u_m2  = cons(IM2, k, j, i);
-    Real &u_m3  = cons(IM3, k, j, i);
-    Real &u_e   = cons(IEN, k, j, i);
-    Real &u_b1  = cons(IB1, k, j, i);
-    Real &u_b2  = cons(IB2, k, j, i);
-    Real &u_b3  = cons(IB3, k, j, i);
+
+    Real &u_d = cons(IDN, k, j, i);
+    Real &u_m1 = cons(IM1, k, j, i);
+    Real &u_m2 = cons(IM2, k, j, i);
+    Real &u_m3 = cons(IM3, k, j, i);
+    Real &u_e = cons(IEN, k, j, i);
+    Real &u_b1 = cons(IB1, k, j, i);
+    Real &u_b2 = cons(IB2, k, j, i);
+    Real &u_b3 = cons(IB3, k, j, i);
     Real &u_psi = cons(IPS, k, j, i);
-    
-    Real &w_d   = prim(IDN, k, j, i);
-    Real &w_vx  = prim(IV1, k, j, i);
-    Real &w_vy  = prim(IV2, k, j, i);
-    Real &w_vz  = prim(IV3, k, j, i);
-    Real &w_p   = prim(IPR, k, j, i);
-    Real &w_Bx  = prim(IB1, k, j, i);
-    Real &w_By  = prim(IB2, k, j, i);
-    Real &w_Bz  = prim(IB3, k, j, i);
+
+    Real &w_d = prim(IDN, k, j, i);
+    Real &w_vx = prim(IV1, k, j, i);
+    Real &w_vy = prim(IV2, k, j, i);
+    Real &w_vz = prim(IV3, k, j, i);
+    Real &w_p = prim(IPR, k, j, i);
+    Real &w_Bx = prim(IB1, k, j, i);
+    Real &w_By = prim(IB2, k, j, i);
+    Real &w_Bz = prim(IB3, k, j, i);
     Real &w_psi = prim(IPS, k, j, i);
-    
+
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
-    //PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
+    // PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
     //                  "Got negative density. Consider enabling first-order flux "
     //                  "correction or setting a reasonable density floor.");
-    
+
     // apply density floor, without changing momentum or energy
     u_d = (u_d > density_floor_) ? u_d : density_floor_;
     w_d = u_d;
-    
+
     Real di = 1.0 / u_d;
     w_vx = u_m1 * di;
     w_vy = u_m2 * di;
     w_vz = u_m3 * di;
-    
+
     w_Bx = u_b1;
     w_By = u_b2;
     w_Bz = u_b3;
     w_psi = u_psi;
-    
+
     Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
     Real e_B = 0.5 * (SQR(u_b1) + SQR(u_b2) + SQR(u_b3));
     w_p = gm1 * (u_e - e_k - e_B);
-    
+
     // apply velocity ceiling. By default ceiling is std::numeric_limits<Real>::infinity()
     const Real w_v2 = SQR(w_vx) + SQR(w_vy) + SQR(w_vz);
     if (w_v2 > SQR(velocity_ceiling_)) {
@@ -131,12 +131,13 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
       u_e -= e_k - e_k_new;
       e_k = e_k_new;
     }
-    
+
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.
-    //PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
+    // PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
     //                  "Got negative pressure. Consider enabling first-order flux "
-    //                  "correction or setting a reasonable pressure or temperature floor.");
+    //                  "correction or setting a reasonable pressure or temperature
+    //                  floor.");
 
     // Pressure floor (if present) takes precedence over temperature floor
     if ((pressure_floor_ > 0.0) && (w_p < pressure_floor_)) {

@@ -108,25 +108,19 @@ class CoolingTableObj {
 
   // (Hydrogen mass fraction / hydrogen atomic mass)^2
   parthenon::Real x_H_over_m_h2_;
-    
-  // Heating constant unit
-  parthenon::Real gamma_units_;  
 
  public:
   CoolingTableObj()
       : log_lambdas_(), log_temp_start_(NAN), log_temp_final_(NAN), d_log_temp_(NAN),
-        n_temp_(0), mbar_gm1_over_k_B_(NAN), x_H_over_m_h2_(NAN), gamma_units_(NAN) {}
+        n_temp_(0), mbar_gm1_over_k_B_(NAN), x_H_over_m_h2_(NAN) {}
   CoolingTableObj(const parthenon::ParArray1D<parthenon::Real> log_lambdas,
                   const parthenon::Real log_temp_start,
                   const parthenon::Real log_temp_final, const parthenon::Real d_log_temp,
-                  const unsigned int n_temp,
-                  const parthenon::Real gamma_units,
-                  const parthenon::Real mbar_over_kb,
+                  const unsigned int n_temp, const parthenon::Real mbar_over_kb,
                   const parthenon::Real adiabatic_index, const parthenon::Real x_H,
                   const Units units)
       : log_lambdas_(log_lambdas), log_temp_start_(log_temp_start),
         log_temp_final_(log_temp_final), d_log_temp_(d_log_temp), n_temp_(n_temp),
-        gamma_units_(gamma_units),
         mbar_gm1_over_k_B_(mbar_over_kb * (adiabatic_index - 1)),
         x_H_over_m_h2_(SQR(x_H / units.mh())) {}
 
@@ -135,12 +129,12 @@ class CoolingTableObj {
   KOKKOS_INLINE_FUNCTION parthenon::Real
   DeDt(const parthenon::Real &e, const parthenon::Real &rho, bool &is_valid) const {
     using namespace parthenon;
-        
+
     if (e < 0 || std::isnan(e)) {
       is_valid = false;
       return 0;
     }
- 
+
     const Real temp = mbar_gm1_over_k_B_ * e;
     const Real log_temp = log10(temp);
     Real log_lambda;
@@ -155,34 +149,29 @@ class CoolingTableObj {
       log_lambda = 0.5 * log_temp - 0.5 * log_temp_final_ + log_lambdas_(n_temp_ - 1);
     } else {
       // Inside table, interpolate assuming log spaced temperatures
-      
+
       // Determine where temp is in the table
       const unsigned int i_temp =
           static_cast<unsigned int>((log_temp - log_temp_start_) / d_log_temp_);
       const Real log_temp_i = log_temp_start_ + d_log_temp_ * i_temp;
-      
+
       // log_temp should be between log_temps[i_temp] and log_temps[i_temp+1]
       PARTHENON_REQUIRE(log_temp >= log_temp_i && log_temp <= log_temp_i + d_log_temp_,
                         "FATAL ERROR in [CoolingTable::DeDt]: Failed to find log_temp");
-      
+
       const Real log_lambda_i = log_lambdas_(i_temp);
       const Real log_lambda_ip1 = log_lambdas_(i_temp + 1);
-      
+
       // Linearly interpolate lambda at log_temp
       log_lambda = log_lambda_i + (log_temp - log_temp_i) *
                                       (log_lambda_ip1 - log_lambda_i) / d_log_temp_;
     }
     // Return de/dt
-    const Real lambda      = pow(10., log_lambda);
-    const Real gamma_heat  = gamma_units_;
-    const Real de_dt       = -lambda * x_H_over_m_h2_ * rho + gamma_heat*pow(x_H_over_m_h2_,0.5);
-    //const Real de_dt = -lambda * x_H_over_m_h2_ * rho;
-    
-    //std::cout << "cool = " << -lambda * x_H_over_m_h2_ * rho << "\t heat = " << gamma*pow(x_H_over_m_h2_,0.5) << "\t e = " << e << "\t rho = " << rho << "\n" ;  
-    
+    const Real lambda = pow(10., log_lambda);
+    const Real de_dt = -lambda * x_H_over_m_h2_ * rho;
     return de_dt;
   }
-  
+
   KOKKOS_INLINE_FUNCTION parthenon::Real DeDt(const parthenon::Real &e,
                                               const parthenon::Real &rho) const {
     bool is_valid = true;
@@ -194,7 +183,7 @@ class TabularCooling {
  private:
   // Defines uniformly spaced log temperature range of the table
   unsigned int n_temp_;
-  parthenon::Real log_temp_start_, log_temp_final_, d_log_temp_, lambda_final_, gamma_units_;
+  parthenon::Real log_temp_start_, log_temp_final_, d_log_temp_, lambda_final_;
 
   // Table of log cooling rates
   // TODO(forrestglines): Make log_lambdas_ explicitly a texture cache array, use CUDA to

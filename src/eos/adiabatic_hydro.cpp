@@ -37,27 +37,26 @@ void AdiabaticHydroEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   auto ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
   auto jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   auto kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
-  
+
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
-  
+
   auto this_on_device = (*this);
-  
+
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ConservedToPrimitive", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        
         // Getting the global indexing
-        
+
         auto pmb = md->GetBlockData(b)->GetBlockPointer();
         auto pm = pmb->pmy_mesh;
         auto hydro_pkg = pmb->packages.Get("Hydro");
-        
+
         const auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        
+
         return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
       });
 }

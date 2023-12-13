@@ -41,7 +41,6 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
 
-
   auto this_on_device = (*this);
 
   parthenon::par_for(
@@ -51,14 +50,12 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
         const auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         // auto &nu = entropy_pack(b);
-          
-        
+
         // Getting the global indexing
-        
+
         auto pmb = md->GetBlockData(b)->GetBlockPointer();
         auto pm = pmb->pmy_mesh;
         auto hydro_pkg = pmb->packages.Get("Hydro");
-
 
         return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
       });
