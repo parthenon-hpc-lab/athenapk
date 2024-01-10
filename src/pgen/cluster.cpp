@@ -521,7 +521,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       jb.e += 1;
       kb.s -= 1;
       kb.e += 1;
-      const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
+      // const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
+      const auto P_rho_profile = he_sphere.generate_P_rho_profile(1e-2, 3, 128);
 
       // initialize conserved variables
       parthenon::par_for(
