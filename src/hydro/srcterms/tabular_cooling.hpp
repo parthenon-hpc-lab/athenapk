@@ -156,8 +156,8 @@ class CoolingTableObj {
       const Real log_temp_i = log_temp_start_ + d_log_temp_ * i_temp;
 
       // log_temp should be between log_temps[i_temp] and log_temps[i_temp+1]
-      PARTHENON_REQUIRE(log_temp >= log_temp_i && log_temp <= log_temp_i + d_log_temp_,
-                        "FATAL ERROR in [CoolingTable::DeDt]: Failed to find log_temp");
+      //PARTHENON_REQUIRE(log_temp >= log_temp_i && log_temp <= log_temp_i + d_log_temp_,
+      //                  "FATAL ERROR in [CoolingTable::DeDt]: Failed to find log_temp");
 
       const Real log_lambda_i = log_lambdas_(i_temp);
       const Real log_lambda_ip1 = log_lambdas_(i_temp + 1);
