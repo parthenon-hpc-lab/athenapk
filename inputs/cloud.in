@@ -80,7 +80,6 @@ code_length_cgs = 3.085677580962325e+18  # 1 pc
 code_mass_cgs = 1.98841586e+33           # 1 M_sun
 code_time_cgs = 3.15576e+13              # 1 Myr
 
-
 <refinement>
 type                         = maxdensity
 maxdensity_refine_above      = 1e-4        # in code units

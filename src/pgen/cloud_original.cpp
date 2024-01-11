@@ -174,16 +174,10 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         const Real x = coords.Xc<1>(i);
         const Real y = coords.Xc<2>(j);
         const Real z = coords.Xc<3>(k);
-        const Real rad  = std::sqrt(SQR(x) + SQR(y) + SQR(z));
-        const Real rad2 = std::sqrt(SQR(x) + SQR(y) + SQR(z-300));
-        const Real rad3 = std::sqrt(SQR(x) + SQR(y) + SQR(z+300));
-        
+        const Real rad = std::sqrt(SQR(x) + SQR(y) + SQR(z));
+
         Real rho = rho_wind + 0.5 * (rho_cloud - rho_wind) *
-                                  (1.0 - std::tanh(steepness * (rad / r_cloud - 1.0)))
-                            + 0.5 * (0.7 * rho_cloud - rho_wind) *
-                                  (1.0 - std::tanh(steepness * (rad2 / (0.8 * r_cloud ) - 1.0)))
-                            + 0.5 * (0.8 * rho_cloud - rho_wind) *
-                                  (1.0 - std::tanh(steepness * (rad3 / (0.7 * r_cloud ) - 1.0)));
+                                  (1.0 - std::tanh(steepness * (rad / r_cloud - 1.0)));
 
         Real mom;
         // Factor 1.3 as used in Grønnow, Tepper-García, & Bland-Hawthorn 2018,

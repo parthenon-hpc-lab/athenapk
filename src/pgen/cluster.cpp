@@ -610,7 +610,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               const Real m_cross_r_z = mx * y - mx * y;
 
               // To check whether there is some component before initiating perturbations
-              std::cout << "A(0, k, j, i)=" << A(0, k, j, i) << std::endl;
 
               A(0, k, j, i) += m_cross_r_x / (4 * M_PI * r3);
               A(1, k, j, i) += m_cross_r_y / (4 * M_PI * r3);
@@ -678,138 +677,89 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
   auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
   const auto num_blocks = md->NumBlocks();
 
-  /************************************************************
-   * Set initial density perturbations (read from HDF5 file)
-   ************************************************************/
-
   const bool init_perturb_rho =
       pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_perturb_rho", false);
-  const bool spherical_cloud =
-      pin->GetOrAddBoolean("problem/cluster/init_perturb", "spherical_cloud", false);
-  const bool cluster_cloud =
-      pin->GetOrAddBoolean("problem/cluster/init_perturb", "cluster_cloud", false);
+  const bool init_cluster_cloud =
+      pin->GetOrAddBoolean("problem/cluster/init_perturb", "init_cluster_cloud", false);
 
-  Real passive_scalar = 0.0; // Not useful here
+  /************************************************************
+   * Single cloud
+   ************************************************************/
 
-  if (cluster_cloud == true) {
+  if (init_cluster_cloud) {
 
-    const Real x_cloud =
-        pin->GetOrAddReal("problem/cluster/init_perturb", "x_cloud", 0.0); // 0.0 pc
+    Real passive_scalar = 0.0; // Not useful here
+
     const Real y_cloud =
-        pin->GetOrAddReal("problem/cluster/init_perturb", "y_cloud", 5e-2); // 100 pc
+        pin->GetOrAddReal("problem/cluster/init_perturb", "y_cloud", 2e-2); // 10 kpc
     const Real r_cloud =
-        pin->GetOrAddReal("problem/cluster/init_perturb", "r_cloud", 1e-4); // 100 pc
-    const Real rho_cloud = pin->GetOrAddReal("problem/cluster/init_perturb", "rho_cloud",
-                                             150.0); // 1e-24 g/cm^3
+        pin->GetOrAddReal("problem/cluster/init_perturb", "r_cloud", 2e-3); //  2 kpc
+    const Real rho_cloud =
+        pin->GetOrAddReal("problem/cluster/init_perturb", "rho_cloud", 750); // 5 cm-3
     const Real steepness =
-        pin->GetOrAddReal("problem/cluster/init_perturb", "steep_cloud", 10.0);
-
-    Real passive_scalar = 0.0; // Useless
-
-    /*
-    for (int b = 0; b < md->NumBlocks(); b++) {
-
-        auto pmb = md->GetBlockData(b)->GetBlockPointer();
-
-        // Initialize the conserved variables
-        auto &u = pmb->meshblock_data.Get()->Get("cons").data;
-        auto &coords = pmb->coords;
-
-        Real r_min = 1e6;
-
-        for (int k = kb.s; k <= kb.e; k++) {
-          for (int j = jb.s; j <= jb.e; j++) {
-            for (int i = ib.s; i <= ib.e; i++) {
-
-            const Real x = coords.Xc<1>(i);
-            const Real y = coords.Xc<2>(j);
-            const Real z = coords.Xc<3>(k);
-            const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
-
-            if (r < r_min) {r_min = r;}
-
-            }
-          }
-        }
-        if (r_min < 20 * r_cloud) {std::cout << "Should be refining now" << std::endl;}
-        if (r_min < 20 * r_cloud) {
-            parthenon::AmrTag::refine;
-            parthenon::AmrTag::same;}
-    }
-    */
+        pin->GetOrAddReal("problem/cluster/init_perturb", "steepness", 10); // 5 cm-3
 
     pmb->par_reduce(
         "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-          auto pmbb = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
-
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
 
           const Real x = coords.Xc<1>(i);
           const Real y = coords.Xc<2>(j);
           const Real z = coords.Xc<3>(k);
-          const Real r = std::sqrt(SQR(x - x_cloud) + SQR(y - y_cloud) + SQR(z));
+          const Real r = std::sqrt(SQR(x) + SQR(y - y_cloud) + SQR(z));
 
-          Real rho = rho_cloud * (1.0 - std::tanh(steepness * (r / r_cloud - 1.0)));
-          u(IDN, k, j, i) += rho;
+          u(IDN, k, j, i) +=
+              rho_cloud * (1.0 - std::tanh(steepness * (r / r_cloud - 1.0)));
         },
         passive_scalar);
   }
 
-  /* -------------- Setting up a clumpy atmosphere --------------
+  /************************************************************
+   * Map overdensites from HDF5 file
+   ************************************************************/
 
-  1) Extract the values of the density from an input hdf5 file using H5Easy
-  2) Initiate the associated density field
-  3) Optionnaly, add some overpressure ring to check behavior (overpressure_ring bool)
-  4) Optionnaly, add a central overdensity
+  if (init_perturb_rho) {
 
-  */
+    Real passive_scalar = 0.0; // Not useful here
 
-  if (init_perturb_rho == true) {
-
+    // Extracting parameters and file names
     auto filename_rho = pin->GetOrAddString("problem/cluster/init_perturb",
                                             "init_perturb_rho_file", "none");
     const Real perturb_amplitude =
         pin->GetOrAddReal("problem/cluster/init_perturb", "perturb_amplitude", 1);
+    const Real perturb_height =
+        pin->GetOrAddReal("problem/cluster/init_perturb", "perturb_height", 2e-3);
     const Real box_size_over_two =
-        pin->GetOrAddReal("problem/cluster/init_perturb", "xmax", 0.250);
+        pin->GetOrAddReal("problem/cluster/init_perturb", "xmax", 0.30);
 
-    // Loading files
-
+    // HDF5 parameters
     std::string keys_rho = "data";
     H5Easy::File file(filename_rho, HighFive::File::ReadOnly);
 
+    // Loading file
     const int rho_init_size = 512;
     auto rho_init = H5Easy::load<std::array<
         std::array<std::array<float, rho_init_size>, rho_init_size>, rho_init_size>>(
         file, keys_rho);
 
-    Real passive_scalar = 0.0; // Useless
-
-    std::cout << "Entering initialisation of rho field";
-
-    // Setting up the perturbations
-
     pmb->par_reduce(
         "Init density field", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-          auto pmbb = md->GetBlockData(b)->GetBlockPointer(); // Meshblock b
-
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
 
           const Real x = coords.Xc<1>(i);
           const Real y = coords.Xc<2>(j);
           const Real z = coords.Xc<3>(k);
-
-          const Real r = sqrt(SQR(x) + SQR(y) + SQR(z));
+          const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
+          const Real height = std::abs(z);
 
           // Getting the corresponding index in the
           const Real rho_init_index_x = floor(
@@ -819,20 +769,15 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           const Real rho_init_index_z = floor(
               (z + box_size_over_two) / (2 * box_size_over_two) * (rho_init_size - 1));
 
-          // const Real damping = 1 - std::exp(r - box_size_over_two);
-
           if ((rho_init_index_x >= 0) && (rho_init_index_x <= rho_init_size - 1) &&
               (rho_init_index_y >= 0) && (rho_init_index_y <= rho_init_size - 1) &&
               (rho_init_index_z >= 0) && (rho_init_index_z <= rho_init_size - 1)) {
 
-            // Case where the box is filled with perturbations of equal mean amplitude
-
-            // u(IDN, k, j, i) += perturb_amplitude *
-            // rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z] * (u(IDN, k,
-            // j, i) / 29.6) * std::max(0.0,damping);
+            // Updating hydrodynamical vector
             u(IDN, k, j, i) +=
                 perturb_amplitude *
-                rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z];
+                rho_init[rho_init_index_x][rho_init_index_y][rho_init_index_z] *
+                std::exp(-std::pow((height / perturb_height), 2));
           }
         },
         passive_scalar);

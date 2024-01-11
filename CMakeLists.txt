@@ -17,8 +17,12 @@ endif()
 
 project(athenaPK LANGUAGES CXX)
 
-# Adding HighFive library
-add_subdirectory(external/HighFive)
+# HighFive Integration
+if(NOT DEFINED HIGHFIVE_USE_BOOST)
+  set(HIGHFIVE_USE_BOOST Off)
+endif()
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/HighFive)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
