@@ -25,6 +25,7 @@
 #include <string>    // c_str()
 
 // Parthenon headers
+#include "Kokkos_MathematicalFunctions.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
@@ -359,6 +360,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 
     // plasma beta
     hydro_pkg->AddField("plasma_beta", m);
+
+    // plasma beta
+    hydro_pkg->AddField("B_mag", m);
   }
 
   /************************************************************
@@ -563,7 +567,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
        ************************************************************/
       const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
 
-      magnetic_tower.AddInitialFieldToPotential(pmb.get(), a_kb, a_jb, a_ib, A);
+      magnetic_tower.AddInitialFieldToPotential(pmb, a_kb, a_jb, a_ib, A);
 
       /************************************************************
        * Add dipole magnetic field to the magnetic potential
@@ -666,7 +670,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     // Init phases on all blocks
     for (int b = 0; b < md->NumBlocks(); b++) {
       auto pmb = md->GetBlockData(b)->GetBlockPointer();
-      few_modes_ft.SetPhases(pmb.get(), pin);
+      few_modes_ft.SetPhases(pmb, pin);
     }
     // As for t_corr in few_modes_ft, the choice for dt is
     // in principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
@@ -705,9 +709,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                                       MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
 
-    const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
-    const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
-    const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
+    const auto Lx = pmesh->mesh_size.xmax(X1DIR) - pmesh->mesh_size.xmin(X1DIR);
+    const auto Ly = pmesh->mesh_size.xmax(X2DIR) - pmesh->mesh_size.xmin(X2DIR);
+    const auto Lz = pmesh->mesh_size.xmax(X3DIR) - pmesh->mesh_size.xmin(X3DIR);
     auto v_norm = std::sqrt(v2_sum / (Lx * Ly * Lz) / (SQR(sigma_v)));
 
     pmb->par_for(
@@ -734,7 +738,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     // Init phases on all blocks
     for (int b = 0; b < md->NumBlocks(); b++) {
       auto pmb = md->GetBlockData(b)->GetBlockPointer();
-      few_modes_ft.SetPhases(pmb.get(), pin);
+      few_modes_ft.SetPhases(pmb, pin);
     }
     // As for t_corr in few_modes_ft, the choice for dt is
     // in principle arbitrary because the inital b_hat is 0 and the b_hat_new will contain
@@ -783,9 +787,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                                       MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
 
-    const auto Lx = pmesh->mesh_size.x1max - pmesh->mesh_size.x1min;
-    const auto Ly = pmesh->mesh_size.x2max - pmesh->mesh_size.x2min;
-    const auto Lz = pmesh->mesh_size.x3max - pmesh->mesh_size.x3min;
+    const auto Lx = pmesh->mesh_size.xmax(X1DIR) - pmesh->mesh_size.xmin(X1DIR);
+    const auto Ly = pmesh->mesh_size.xmax(X2DIR) - pmesh->mesh_size.xmin(X2DIR);
+    const auto Lz = pmesh->mesh_size.xmax(X3DIR) - pmesh->mesh_size.xmin(X3DIR);
     auto b_norm = std::sqrt(b2_sum / (Lx * Ly * Lz) / (SQR(sigma_b)));
 
     pmb->par_for(
@@ -884,6 +888,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   if (pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     auto &plasma_beta = data->Get("plasma_beta").data;
     auto &mach_alfven = data->Get("mach_alfven").data;
+    auto &b_mag = data->Get("B_mag").data;
 
     pmb->par_for(
         "Cluster::UserWorkBeforeOutput::MHD", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -895,6 +900,8 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           const Real By = prim(IB2, k, j, i);
           const Real Bz = prim(IB3, k, j, i);
           const Real B2 = (SQR(Bx) + SQR(By) + SQR(Bz));
+
+          b_mag(k, j, i) = Kokkos::sqrt(B2);
 
           // compute Alfven mach number
           const Real v_A = std::sqrt(B2 / rho);

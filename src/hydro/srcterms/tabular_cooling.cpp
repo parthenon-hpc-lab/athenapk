@@ -22,6 +22,7 @@
 // AthenaPK headers
 #include "../../units.hpp"
 #include "tabular_cooling.hpp"
+
 #include "utils/error_checking.hpp"
 
 namespace cooling {
@@ -264,6 +265,9 @@ TabularCooling::TabularCooling(ParameterInput *pin,
   cooling_table_obj_ = CoolingTableObj(log_lambdas_, log_temp_start_, log_temp_final_,
                                        d_log_temp_, n_temp_, mbar_over_kb,
                                        adiabatic_index, 1.0 - He_mass_fraction, units);
+
+  // Add mutable param to keep track of total energy lost
+  hydro_pkg->AddParam("cooling/total_deltaE_this_cycle", 0.0, true);
 }
 
 void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
@@ -313,12 +317,15 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
-  par_for(
-      DEFAULT_LOOP_PATTERN, "TabularCooling::SubcyclingSplitSrcTerm", DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+  Real total_deltaE = NAN; // Total radiated energy (not a density)
+
+  md->GetBlockData(0)->GetBlockPointer()->par_reduce(
+      "TabularCooling::SubcyclingSplitSrcTerm", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e,
+      jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i, Real &ledot) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
         // Need to use `cons` here as prim may still contain state at t_0;
         const Real rho = cons(IDN, k, j, i);
         // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
@@ -470,11 +477,20 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         internal_e = (internal_e > internal_e_floor) ? internal_e : internal_e_floor;
 
         // Remove the cooling from the total energy density
-        cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
+        const auto edotdensity = rho * (internal_e - internal_e_initial);
+        cons(IEN, k, j, i) += edotdensity;
+        ledot = edotdensity * coords.CellVolume(k, j, i);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
         prim(IPR, k, j, i) = rho * internal_e * gm1;
-      });
+      },
+      Kokkos::Sum<Real>(total_deltaE));
+
+  // Updating current value as routine might be called multiple times (e.g. Strang split)
+  auto total_deltaE_this_cycle =
+      hydro_pkg->Param<Real>("cooling/total_deltaE_this_cycle");
+  hydro_pkg->UpdateParam("cooling/total_deltaE_this_cycle",
+                         total_deltaE_this_cycle + total_deltaE);
 }
 
 void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
@@ -514,12 +530,15 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto temp_final = std::pow(10.0, log_temp_final_);
   const auto lambda_final = lambda_final_;
 
-  par_for(
-      DEFAULT_LOOP_PATTERN, "TabularCooling::TownsendSrcTerm", DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+  Real total_deltaE = NAN; // Total radiated energy (not a density)
+
+  md->GetBlockData(0)->GetBlockPointer()->par_reduce(
+      "TabularCooling::TownsendSrcTerm", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s,
+      jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i, Real &ledot) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
         // Need to use `cons` here as prim may still contain state at t_0;
         const auto rho = cons(IDN, k, j, i);
         // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
@@ -587,11 +606,20 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         const auto internal_e_new = temp_new > temp_cool_floor
                                         ? temp_new / mbar_gm1_over_kb
                                         : temp_cool_floor / mbar_gm1_over_kb;
-        cons(IEN, k, j, i) += rho * (internal_e_new - internal_e);
+        const auto edotdensity = rho * (internal_e_new - internal_e);
+        cons(IEN, k, j, i) += edotdensity;
+        ledot = edotdensity * coords.CellVolume(k, j, i);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
         prim(IPR, k, j, i) = rho * internal_e_new * gm1;
-      });
+      },
+      Kokkos::Sum<Real>(total_deltaE));
+
+  // Updating current value as routine might be called multiple times (e.g. Strang split)
+  auto total_deltaE_this_cycle =
+      hydro_pkg->Param<Real>("cooling/total_deltaE_this_cycle");
+  hydro_pkg->UpdateParam("cooling/total_deltaE_this_cycle",
+                         total_deltaE_this_cycle + total_deltaE);
 }
 
 Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {

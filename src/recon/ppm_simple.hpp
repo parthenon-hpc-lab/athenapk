@@ -180,16 +180,43 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
     parthenon::par_for_inner(member, il, iu, [&](const int i) {
       if constexpr (XNDIR == parthenon::X1DIR) {
         // ql is ql_ip1 and qr is qr_i
-        PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
-            q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+        if (n == 4) {
+          PPM(q(n, k, j, i - 2) / q(0, k, j, i - 2),
+              q(n, k, j, i - 1) / q(0, k, j, i - 1), q(n, k, j, i) / q(0, k, j, i),
+              q(n, k, j, i + 1) / q(0, k, j, i + 1),
+              q(n, k, j, i + 2) / q(0, k, j, i + 2), ql(n, i + 1), qr(n, i));
+          ql(n, i + 1) *= q(0, k, j, i);
+          qr(n, i) *= q(0, k, j, i);
+        } else {
+          PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+              q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+        }
       } else if constexpr (XNDIR == parthenon::X2DIR) {
         // ql is ql_jp1 and qr is qr_j
-        PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
-            q(n, k, j + 2, i), ql(n, i), qr(n, i));
+        if (n == 4) {
+          PPM(q(n, k, j - 2, i) / q(0, k, j - 2, i),
+              q(n, k, j - 1, i) / q(0, k, j - 1, i), q(n, k, j, i) / q(0, k, j, i),
+              q(n, k, j + 1, i) / q(0, k, j + 1, i),
+              q(n, k, j + 2, i) / q(0, k, j + 2, i), ql(n, i), qr(n, i));
+          ql(n, i) *= q(0, k, j, i);
+          qr(n, i) *= q(0, k, j, i);
+        } else {
+          PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+              q(n, k, j + 2, i), ql(n, i), qr(n, i));
+        }
       } else if constexpr (XNDIR == parthenon::X3DIR) {
         // ql is ql_kp1 and qr is qr_k
-        PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
-            q(n, k + 2, j, i), ql(n, i), qr(n, i));
+        if (n == 4) {
+          PPM(q(n, k - 2, j, i) / q(0, k - 2, j, i),
+              q(n, k - 1, j, i) / q(0, k - 1, j, i), q(n, k, j, i) / q(0, k, j, i),
+              q(n, k + 1, j, i) / q(0, k + 1, j, i),
+              q(n, k + 2, j, i) / q(0, k + 2, j, i), ql(n, i), qr(n, i));
+          ql(n, i) *= q(0, k, j, i);
+          qr(n, i) *= q(0, k, j, i);
+        } else {
+          PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
+              q(n, k + 2, j, i), ql(n, i), qr(n, i));
+        }
       } else {
         PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
       }
