@@ -16,7 +16,7 @@ add_executable(
         hydro/srcterms/gravitational_field.hpp
         hydro/srcterms/tabular_cooling.hpp
         hydro/srcterms/tabular_cooling.cpp
-        outputs/per_block.cpp
+        #outputs/per_block.cpp
         refinement/gradient.cpp
         refinement/other.cpp
         utils/few_modes_ft.cpp
