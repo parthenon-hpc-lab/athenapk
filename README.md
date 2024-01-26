@@ -2,9 +2,9 @@
 
 AthenaPK: a performance portable version based on [Athena++](https://github.com/PrincetonUniversity/athena),  [Parthenon](https://github.com/parthenon-hpc-lab/parthenon) and [Kokkos](https://github.com/kokkos/kokkos).
 
-## Current state of the code
+## Overview
 
-For this reason, it is highly recommended to only use AthenaPK with the Kokkos and Parthenon versions that are provided by the submodules (see [building](#building)) and to build everything (AthenaPK, Parthenon, and Kokkos) together from source.
+It is highly recommended to only use AthenaPK with the Kokkos and Parthenon versions that are provided by the submodules (see [building](#building)) and to build everything (AthenaPK, Parthenon, and Kokkos) together from source.
 Neither other versions or nor using preinstalled Parthenon/Kokkos libraries have been tested.
 
 Current features include
@@ -76,19 +76,22 @@ Obtain all (AthenaPK, Parthenon, and Kokkos) sources
 Most of the general build instructions and options for Parthenon (see [here](https://parthenon-hpc-lab.github.io/parthenon/develop/src/building.html)) also apply to AthenaPK.
 The following examples are a few standard cases.
 
-Most simple configuration (only CPU, no MPI, no HDF5).
+Most simple configuration (only CPU, no MPI).
 The `Kokkos_ARCH_...` parameter should be adjusted to match the target machine where AthenaPK will be executed.
 A full list of architecture keywords is available on the [Kokkos wiki](https://kokkos.github.io/kokkos-core-wiki/keywords.html#architecture-keywords).
 
-
-    # configure with enabling Broadwell architecture (AVX2) instructions
-    cmake -S. -Bbuild-host -DKokkos_ARCH_BDW=ON -DPARTHENON_DISABLE_MPI=ON -DPARTHENON_DISABLE_HDF5=ON
+    # configure with enabling Intel Broadwell or similar architecture (AVX2) instructions
+    cmake -S. -Bbuild-host -DKokkos_ARCH_BDW=ON -DPARTHENON_DISABLE_MPI=ON
     # now build with
     cd build-host && make
     # or alternatively
     cmake --build build-host
 
-An Intel Skylake system (AVX512 instructions) with NVidia Volta V100 GPUs and with MPI and HDF5 enabled (the latter is the default option, so they don't need to be specified)
+If `cmake` has troubling finding the HDF5 library (which is required for writing analysis outputs or
+restartings simulation) an additional hint to the location of the library can be provided via
+`-DHDF5_ROOT=/path/to/local/hdf5` on the first `cmake` command for configuration.
+
+An Intel Skylake system (AVX512 instructions) with NVidia Volta V100 GPUs and with MPI enabled (the latter is the default option, so they don't need to be specified)
 
     cmake -S. -Bbuild-gpu -DKokkos_ARCH_SKX=ON -DKokkos_ENABLE_CUDA=ON -DKokkos_ARCH_VOLTA70=ON
     # now build with
