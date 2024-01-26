@@ -30,6 +30,7 @@
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "outputs/outputs.hpp"
+#include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
@@ -102,13 +103,16 @@ Real HydroHst(MeshData<Real> *md) {
             divb += (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
                     coords.Dxc<3>(k, j, i);
           }
-          lsum += 0.5 *
-                  (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) + SQR(coords.Dxc<2>(k, j, i)) +
-                             SQR(coords.Dxc<3>(k, j, i)))) *
-                  std::abs(divb) /
-                  std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
-                            SQR(cons(IB3, k, j, i))) *
-                  coords.CellVolume(k, j, i);
+
+          Real abs_b = std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                                 SQR(cons(IB3, k, j, i)));
+
+          lsum += (abs_b != 0) ? 0.5 *
+                                     (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) +
+                                                SQR(coords.Dxc<2>(k, j, i)) +
+                                                SQR(coords.Dxc<3>(k, j, i)))) *
+                                     std::abs(divb) / abs_b * coords.CellVolume(k, j, i)
+                               : 0; // Add zero when abs_b ==0
         }
       },
       sum);
@@ -139,6 +143,14 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     hydro_pkg->Param<GLMMHD::SourceFun_t>("glmmhd_source")(md, beta_dt);
   }
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+
+  if (enable_cooling == Cooling::tabular) {
+    const TabularCooling &tabular_cooling =
+        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    tabular_cooling.SrcTerm(md, beta_dt);
+  }
   if (ProblemSourceUnsplit != nullptr) {
     ProblemSourceUnsplit(md, tm, beta_dt);
   }
@@ -149,14 +161,6 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  if (enable_cooling == Cooling::tabular) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-    tabular_cooling.SrcTerm(md, tm.dt);
-  }
   if (ProblemSourceFirstOrder != nullptr) {
     ProblemSourceFirstOrder(md, tm, tm.dt);
   }
@@ -164,17 +168,6 @@ TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
 }
 
 TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm) {
-  // auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  // if (enable_cooling == Cooling::tabular) {
-  //   const TabularCooling &tabular_cooling =
-  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-  //   tabular_cooling.SrcTerm(md, 0.5 * tm.dt);
-  // }
-
   if (ProblemSourceStrangSplit != nullptr) {
     ProblemSourceStrangSplit(md, tm, tm.dt);
   }
@@ -382,10 +375,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   auto first_order_flux_correct =
       pin->GetOrAddBoolean("hydro", "first_order_flux_correct", false);
-  if (first_order_flux_correct && integrator != Integrator::vl2) {
-    PARTHENON_FAIL("Please use 'vl2' integrator with first order flux correction. Other "
-                   "integrators have not been tested.")
-  }
   pkg->AddParam<>("first_order_flux_correct", first_order_flux_correct);
   if (first_order_flux_correct) {
     if (fluid == Fluid::euler) {
@@ -411,7 +400,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       auto units = pkg->Param<Units>("units");
       const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
       const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+      const auto mu_e = 1 / (He_mass_fraction * 2. / 4. + (1 - He_mass_fraction));
       pkg->AddParam<>("mu", mu);
+      pkg->AddParam<>("mu_e", mu_e);
       pkg->AddParam<>("He_mass_fraction", He_mass_fraction);
       // Following convention in the astro community, we're using mh as unit for the mean
       // molecular weight
@@ -432,6 +423,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       }
       auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
       efloor = Tfloor / mbar_over_kb / (gamma - 1.0);
+    }
+
+    // By default disable ceilings by setting to infinity
+    Real vceil =
+        pin->GetOrAddReal("hydro", "vceil", std::numeric_limits<Real>::infinity());
+    Real Tceil =
+        pin->GetOrAddReal("hydro", "Tceil", std::numeric_limits<Real>::infinity());
+    Real eceil = Tceil;
+    if (eceil < std::numeric_limits<Real>::infinity()) {
+      if (!pkg->AllParams().hasKey("mbar_over_kb")) {
+        PARTHENON_FAIL("Temperature ceiling requires units and gas composition. "
+                       "Either set a 'units' block and the 'hydro/He_mass_fraction' in "
+                       "input file or use a pressure floor "
+                       "(defined code units) instead.");
+      }
+      auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
+      eceil = Tceil / mbar_over_kb / (gamma - 1.0);
     }
 
     auto conduction = Conduction::none;
@@ -467,12 +475,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     pkg->AddParam<>("conduction", conduction);
 
     if (fluid == Fluid::euler) {
-      AdiabaticHydroEOS eos(pfloor, dfloor, efloor, gamma);
+      AdiabaticHydroEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::euler>;
     } else if (fluid == Fluid::glmmhd) {
-      AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, gamma);
+      AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticGLMMHDEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::glmmhd>;
@@ -498,7 +506,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("enable_cooling", cooling);
 
   if (cooling == Cooling::tabular) {
-    TabularCooling tabular_cooling(pin);
+    TabularCooling tabular_cooling(pin, pkg);
     pkg->AddParam<>("tabular_cooling", tabular_cooling);
   }
 
@@ -542,6 +550,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   Metadata m(
       {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
       std::vector<int>({nhydro + nscalars}), cons_labels);
+  m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
+                          parthenon::refinement_ops::RestrictAverage>();
   pkg->AddField("cons", m);
 
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro + nscalars}),
@@ -956,7 +966,13 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 // (multiple calls) versus extra memory usage is.
 template <Fluid fluid>
 TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
-                                 const Real gam0, const Real gam1, const Real beta_dt) {
+                                 const Real gam0_, const Real gam1_,
+                                 const Real beta_dt_) {
+  // Work around for CUDA <=11.6
+  const Real gam0 = gam0_;
+  const Real gam1 = gam1_;
+  const Real beta_dt = beta_dt_;
+
   auto pmb = u0_data->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -964,6 +980,7 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto u0_cons_pack = u0_data->PackVariablesAndFluxes(flags_ind);
+  auto const &u0_prim_pack = u0_data->PackVariables(std::vector<std::string>{"prim"});
   auto u1_cons_pack = u1_data->PackVariablesAndFluxes(flags_ind);
   auto pkg = pmb->packages.Get("Hydro");
 
@@ -976,14 +993,6 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
   if (fluid == Fluid::glmmhd) {
     c_h = pkg->Param<Real>("c_h");
   }
-  // Using "u1_prim" as "u0_prim" here because all current integrators start with copying
-  // the initial state to the "u0" register, see conditional for `stage == 1` in the
-  // hydro_driver where normally only "cons" is copied but in case for flux correction
-  // "prim", too. This means both during stage 1 and during stage 2 `u1` holds the
-  // original data at the beginning of the timestep. For flux correction we want to make a
-  // full (dt) low order update using the original data and thus use the "prim" data from
-  // u1 here.
-  auto const &u0_prim_pack = u1_data->PackVariables(std::vector<std::string>{"prim"});
 
   const int ndim = pmb->pmy_mesh->ndim;
 

@@ -1,6 +1,9 @@
-
+################################################################################
+# Input file for testing hydrostatic equilbrium setup for galaxy cluster-like
+# objects 
+################################################################################
 <comment>
-problem   = Isolated galaxy cluster
+problem   = Galaxy Cluster Hydrostatic Equilibrium Test
 
 <job>
 problem_id = cluster   # problem ID: basename of output filenames
@@ -20,7 +23,6 @@ cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = -1         # cycle limit
 tlim       = 1e-3       # time limit
 integrator  = vl2       # time integration algorithm
-perf_cycle_offset  = 10 # interval for stdout summary info
 
 
 <parthenon/mesh>
@@ -66,19 +68,21 @@ gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
 riemann = hlle
 reconstruction = plm
-use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 He_mass_fraction = 0.25
 
 <units>
 #Units parameters
-code_length_cgs = 3.085677580962325e+24
-code_mass_cgs = 1.98841586e+47
-code_time_cgs = 3.15576e+16
+#Note: All other parameters for the cluster are in terms of these units
+code_length_cgs = 3.085677580962325e+24 # 1 Mpc in cm
+code_mass_cgs = 1.98841586e+47          # 1e14 Msun in g
+code_time_cgs = 3.15576e+16             # 1 Gyr in s
 
 <problem/cluster>
 hubble_parameter = 0.0715898515654728
+
+<problem/cluster/gravity>
 
 #Which gravitational fields to include
 include_nfw_g = True
@@ -87,14 +91,14 @@ include_smbh_g = True
 
 #NFW parameters
 c_nfw = 6.0
-M_nfw_200 = 10.000000000000002
+m_nfw_200 = 10.0
 
 #BCG parameters
-M_bcg_s = 0.0010000000000000002
-R_bcg_s = 0.004
+m_bcg_s = 0.001
+r_bcg_s = 0.004
 
 #SMBH parameters
-M_smbh = 1.0000000000000002e-06
+m_smbh = 1.0e-06
 
 #Smooth gravity at origin, for numerical reasons
 g_smoothing_radius = 1e-6
@@ -102,18 +106,24 @@ g_smoothing_radius = 1e-6
 #Include gravity as a source term
 gravity_srcterm = true
 
+
+<problem/cluster/entropy_profile>
 #Entropy profile parameters
-K_0 = 8.851337676479303e-121
-K_100 = 1.3277006514718954e-119
-R_K = 0.1
-alpha_K = 1.1
+k_0 = 8.851337676479303e-121
+k_100 = 1.3277006514718954e-119
+r_k = 0.1
+alpha_k = 1.1
+
+<problem/cluster/hydrostatic_equilibrium>
 
 #Fix density at radius to close system of equations
-R_fix = 2.0
+r_fix = 2.0
 rho_fix = 0.01477557589278723
 
 #Building the radii at which to sample initial rho,P
-R_sampling = 4.0
-max_dR = 0.001
+r_sampling = 4.0
 
 test_he_sphere = true
+
+<problem/cluster/snia_feedback>
+disabled               = True

@@ -33,12 +33,16 @@ sys.dont_write_bytecode = True
 
 class TestCase(utils.test_case.TestCaseAbs):
     def __init__(self):
-
         # Define cluster parameters
         # Setup units
         unyt.define_unit("code_length", (1, "Mpc"))
         unyt.define_unit("code_mass", (1e14, "Msun"))
         unyt.define_unit("code_time", (1, "Gyr"))
+        unyt.define_unit("code_velocity", (1, "code_length/code_time"))
+        unyt.define_unit(
+            "code_magnetic",
+            (np.sqrt(4 * np.pi), "(code_mass/code_length)**0.5/code_time"),
+        )
         self.code_length = unyt.unyt_quantity(1, "code_length")
         self.code_mass = unyt.unyt_quantity(1, "code_mass")
         self.code_time = unyt.unyt_quantity(1, "code_time")
@@ -59,14 +63,14 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # NFW parameters
         self.c_nfw = 6.0
-        self.M_nfw_200 = unyt.unyt_quantity(1e15, "Msun")
+        self.m_nfw_200 = unyt.unyt_quantity(1e15, "Msun")
 
         # BCG parameters
-        self.M_bcg_s = unyt.unyt_quantity(1e11, "Msun")
-        self.R_bcg_s = unyt.unyt_quantity(4, "kpc")
+        self.m_bcg_s = unyt.unyt_quantity(1e11, "Msun")
+        self.r_bcg_s = unyt.unyt_quantity(4, "kpc")
 
         # SMBH parameters
-        self.M_smbh = unyt.unyt_quantity(1e8, "Msun")
+        self.m_smbh = unyt.unyt_quantity(1e8, "Msun")
 
         # Smooth gravity at origin, for numerical reasons
         self.g_smoothing_radius = unyt.unyt_quantity(0.0, "code_length")
@@ -91,6 +95,18 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.R_max = unyt.unyt_quantity(5e3, "kpc")
 
         self.norm_tol = 1e-3
+
+        self.sigma_v = unyt.unyt_quantity(75.0, "km/s")
+        char_v_lengthscale = unyt.unyt_quantity(100.0, "kpc")
+        # Note that the box scale is set in the input file directly (-0.1 to 0.1),
+        # so if the input file changes, the following line should change, too.
+        l_box = 0.2 * self.code_length
+        self.k_peak_v = l_box / char_v_lengthscale
+
+        self.sigma_b = unyt.unyt_quantity(1e-8, "G")
+        # using a different one than for the velocity
+        char_b_lengthscale = unyt.unyt_quantity(50.0, "kpc")
+        self.k_peak_b = l_box / char_b_lengthscale
 
     def Prepare(self, parameters, step):
         """
@@ -124,46 +140,132 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"units/code_mass_cgs={self.code_mass.in_units('g').v}",
             f"units/code_time_cgs={self.code_time.in_units('s').v}",
             f"problem/cluster/hubble_parameter={self.hubble_parameter.in_units('1/code_time').v}",
-            f"problem/cluster/include_nfw_g={self.include_nfw_g}",
-            f"problem/cluster/which_bcg_g={self.which_bcg_g}",
-            f"problem/cluster/include_smbh_g={self.include_smbh_g}",
-            f"problem/cluster/c_nfw={self.c_nfw}",
-            f"problem/cluster/M_nfw_200={self.M_nfw_200.in_units('code_mass').v}",
-            f"problem/cluster/M_bcg_s={self.M_bcg_s.in_units('code_mass').v}",
-            f"problem/cluster/R_bcg_s={self.R_bcg_s.in_units('code_length').v}",
-            f"problem/cluster/M_smbh={self.M_smbh.in_units('code_mass').v}",
-            f"problem/cluster/g_smoothing_radius={self.g_smoothing_radius.in_units('code_length').v}",
-            f"problem/cluster/K_0={self.K_0.in_units('code_length**4*code_mass/code_time**2').v}",
-            f"problem/cluster/K_100={self.K_100.in_units('code_length**4*code_mass/code_time**2').v}",
-            f"problem/cluster/R_K={self.R_K.in_units('code_length').v}",
-            f"problem/cluster/alpha_K={self.alpha_K}",
-            f"problem/cluster/R_fix={self.R_fix.in_units('code_length').v}",
-            f"problem/cluster/rho_fix={self.rho_fix.in_units('code_mass/code_length**3').v}",
-            f"problem/cluster/R_sampling={self.R_sampling}",
-            f"problem/cluster/max_dR={self.max_dR}",
+            f"problem/cluster/gravity/include_nfw_g={self.include_nfw_g}",
+            f"problem/cluster/gravity/which_bcg_g={self.which_bcg_g}",
+            f"problem/cluster/gravity/include_smbh_g={self.include_smbh_g}",
+            f"problem/cluster/gravity/c_nfw={self.c_nfw}",
+            f"problem/cluster/gravity/m_nfw_200={self.m_nfw_200.in_units('code_mass').v}",
+            f"problem/cluster/gravity/m_bcg_s={self.m_bcg_s.in_units('code_mass').v}",
+            f"problem/cluster/gravity/r_bcg_s={self.r_bcg_s.in_units('code_length').v}",
+            f"problem/cluster/gravity/m_smbh={self.m_smbh.in_units('code_mass').v}",
+            f"problem/cluster/gravity/g_smoothing_radius={self.g_smoothing_radius.in_units('code_length').v}",
+            f"problem/cluster/entropy_profile/k_0={self.K_0.in_units('code_length**4*code_mass/code_time**2').v}",
+            f"problem/cluster/entropy_profile/k_100={self.K_100.in_units('code_length**4*code_mass/code_time**2').v}",
+            f"problem/cluster/entropy_profile/r_k={self.R_K.in_units('code_length').v}",
+            f"problem/cluster/entropy_profile/alpha_k={self.alpha_K}",
+            f"problem/cluster/hydrostatic_equilibrium/r_fix={self.R_fix.in_units('code_length').v}",
+            f"problem/cluster/hydrostatic_equilibrium/rho_fix={self.rho_fix.in_units('code_mass/code_length**3').v}",
+            f"problem/cluster/hydrostatic_equilibrium/r_sampling={self.R_sampling}",
+            f"hydro/fluid={'euler' if step == 2 else 'glmmhd'}",
+            f"problem/cluster/init_perturb/sigma_v={0.0 if step == 2 else self.sigma_v.in_units('code_velocity').v}",
+            f"problem/cluster/init_perturb/k_peak_v={0.0 if step == 2 else self.k_peak_v.v}",
+            f"problem/cluster/init_perturb/sigma_b={0.0 if step == 2 else self.sigma_b.in_units('code_magnetic').v}",
+            f"problem/cluster/init_perturb/k_peak_b={0.0 if step == 2 else self.k_peak_b.v}",
+            f"parthenon/output2/id={'prim' if step == 2 else 'prim_perturb'}",
+            f"parthenon/time/nlim={-1 if step == 2 else 1}",
         ]
 
         return parameters
 
     def Analyse(self, parameters):
-        """
-        Analyze the output and determine if the test passes.
+        analyze_status = self.AnalyseHSE(parameters)
+        analyze_status &= self.AnalyseInitPert(parameters)
+        return analyze_status
 
-        This function is called after the driver has been executed. It is
-        responsible for reading whatever data it needs and making a judgment
-        about whether or not the test passes. It takes no inputs. Output should
-        be True (test passes) or False (test fails).
+    def AnalyseInitPert(self, parameters):
+        analyze_status = True
+        sys.path.insert(
+            1,
+            parameters.parthenon_path
+            + "/scripts/python/packages/parthenon_tools/parthenon_tools",
+        )
 
-        The parameters that are passed in provide the paths to relevant
-        locations and commands. Of particular importance is the path to the
-        output folder. All files from a drivers run should appear in and output
-        folder located in
-        parthenon/tst/regression/test_suites/test_name/output.
+        try:
+            import phdf
+        except ModuleNotFoundError:
+            print("Couldn't find module to load Parthenon hdf5 files.")
+            return False
 
-        It is possible in this function to read any of the output files such as
-        hdf5 output and compare them to expected quantities.
+        data_file = phdf.phdf(
+            f"{parameters.output_path}/parthenon.prim_perturb.00000.phdf"
+        )
+        dx = data_file.xf[:, 1:] - data_file.xf[:, :-1]
+        dy = data_file.yf[:, 1:] - data_file.yf[:, :-1]
+        dz = data_file.zf[:, 1:] - data_file.zf[:, :-1]
 
-        """
+        # create array of volume with (block, k, j, i) indices
+        cell_vol = np.empty(
+            (
+                data_file.x.shape[0],
+                data_file.z.shape[1],
+                data_file.y.shape[1],
+                data_file.x.shape[1],
+            )
+        )
+        for block in range(dx.shape[0]):
+            dz3d, dy3d, dx3d = np.meshgrid(
+                dz[block], dy[block], dx[block], indexing="ij"
+            )
+            cell_vol[block, :, :, :] = dx3d * dy3d * dz3d
+
+        # flatten array as prim var are also flattended
+        cell_vol = cell_vol.ravel()
+
+        prim = data_file.Get("prim")
+
+        # FIXME: For now this is hard coded - a component mapping should be done by phdf
+        prim_col_dict = {
+            "velocity_1": 1,
+            "velocity_2": 2,
+            "velocity_3": 3,
+            "magnetic_field_1": 5,
+            "magnetic_field_2": 6,
+            "magnetic_field_3": 7,
+        }
+
+        vx = prim[prim_col_dict["velocity_1"]]
+        vy = prim[prim_col_dict["velocity_2"]]
+        vz = prim[prim_col_dict["velocity_3"]]
+
+        # volume weighted rms velocity
+        rms_v = np.sqrt(
+            np.sum((vx**2 + vy**2 + vz**2) * cell_vol) / np.sum(cell_vol)
+        )
+
+        sigma_v_match = np.isclose(
+            rms_v, self.sigma_v.in_units("code_velocity").v, rtol=1e-14, atol=1e-14
+        )
+
+        if not sigma_v_match:
+            analyze_status = False
+            print(
+                f"ERROR: velocity perturbations don't match\n"
+                f"Expected {self.sigma_v.in_units('code_velocity')} but got {rms_v}\n"
+            )
+
+        bx = prim[prim_col_dict["magnetic_field_1"]]
+        by = prim[prim_col_dict["magnetic_field_2"]]
+        bz = prim[prim_col_dict["magnetic_field_3"]]
+
+        # volume weighted rms magnetic field
+        rms_b = np.sqrt(
+            np.sum((bx**2 + by**2 + bz**2) * cell_vol) / np.sum(cell_vol)
+        )
+
+        sigma_b_match = np.isclose(
+            rms_b, self.sigma_b.in_units("code_magnetic").v, rtol=1e-14, atol=1e-14
+        )
+
+        if not sigma_b_match:
+            analyze_status = False
+            print(
+                f"ERROR: magnetic field perturbations don't match\n"
+                f"Expected {self.sigma_b.in_units('code_magnetic')} but got {rms_b}\n"
+            )
+
+        return analyze_status
+
+    def AnalyseHSE(self, parameters):
         analyze_status = True
 
         self.Yp = self.He_mass_fraction
@@ -187,7 +289,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             / (np.log(1 + self.c_nfw) - self.c_nfw / (1 + self.c_nfw))
         )
         self.R_nfw_s = (
-            self.M_nfw_200
+            self.m_nfw_200
             / (
                 4
                 * np.pi
@@ -228,25 +330,25 @@ class TestCase(utils.test_case.TestCaseAbs):
         def g_nfw_from_r(r):
             return (
                 self.G
-                * self.M_nfw_200
+                * self.m_nfw_200
                 / (np.log(1 + self.c_nfw) - self.c_nfw / (1 + self.c_nfw))
                 * (np.log(1 + r / self.R_nfw_s) - r / (r + self.R_nfw_s))
                 / r**2
             )
 
         def g_bcg_hernquist_from_r(r):
-            # M_bcg = 8*self.M_bcg_s*(r/self.R_bcg_s)**2/( 2*( 1 + r/self.R_bcg_s)**2)
-            # return G*M_bcg/r**2
+            # m_bcg = 8*self.m_bcg_s*(r/self.r_bcg_s)**2/( 2*( 1 + r/self.r_bcg_s)**2)
+            # return G*m_bcg/r**2
             g = (
                 self.G
-                * self.M_bcg_s
-                / (self.R_bcg_s**2)
-                / (2 * (1 + r / self.R_bcg_s) ** 2)
+                * self.m_bcg_s
+                / (self.r_bcg_s**2)
+                / (2 * (1 + r / self.r_bcg_s) ** 2)
             )
             return g
 
         def g_smbh_from_r(r):
-            return self.G * self.M_smbh / r**2
+            return self.G * self.m_smbh / r**2
 
         def g_from_r(r, include_gs):
             g = unyt.unyt_array(np.zeros_like(r), "code_length*code_time**-2")
