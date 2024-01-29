@@ -67,7 +67,7 @@ class MagneticTowerObj {
       // Compute the potential in jet cylindrical coordinates
       a_r = 0.0;
       a_theta = 0.0;
-      if (fabs(h) >= 0.001 && fabs(h) <= offset_ + thickness_) {
+      if (fabs(h) >= offset_ && fabs(h) <= offset_ + thickness_) {
         a_h = field_ * l_scale_ * exp_r2_h2;
       } else {
         a_h = 0.0;
@@ -110,7 +110,7 @@ class MagneticTowerObj {
       const parthenon::Real exp_r2_h2 = exp(-pow(r / l_scale_, 2));
       // Compute the field in jet cylindrical coordinates
       b_r = 0.0;
-      if (fabs(h) >= 0.001 && fabs(h) <= offset_ + thickness_) {
+      if (fabs(h) >= offset_ && fabs(h) <= offset_ + thickness_) {
         b_theta = 2.0 * field_ * r / l_scale_ * exp_r2_h2;
       } else {
         b_theta = 0.0;
