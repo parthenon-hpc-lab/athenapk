@@ -12,6 +12,7 @@
 #include <parthenon/parthenon.hpp>
 
 using parthenon::ScratchPad2D;
+using parthenon::ScratchPad3D;
 //----------------------------------------------------------------------------------------
 //! \fn PLM()
 //  \brief Reconstructs linear slope in cell i to compute ql(i+1) and qr(i). Works for
@@ -63,9 +64,30 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
         // ql is ql_kp1 and qr is qr_k
         PLM(q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i), ql(n, i), qr(n, i));
       } else {
-        PARTHENON_FAIL("Unknow direction for PLM reconstruction.")
+        PARTHENON_FAIL("Unknown direction for PLM reconstruction.")
       }
     });
+  }
+}
+
+template <Reconstruction recon, int XNDIR>
+KOKKOS_INLINE_FUNCTION typename std::enable_if<recon == Reconstruction::plm, void>::type
+Reconstruct(const int n, const int j, const int i, 
+      const parthenon::ScratchPad3D<Real> &q, ScratchPad3D<Real> &ql,
+            ScratchPad3D<Real> &qr) {
+  if constexpr (XNDIR == parthenon::X1DIR) {
+    // ql is ql_ip1 and qr is qr_i
+    PLM(q(n, j, i-1), q(n, j, i), q(n, j, i+1), ql(n, j, i), qr(n, j, i));
+  } else if constexpr (XNDIR == parthenon::X2DIR) {
+    // ql is ql_jp1 and qr is qr_j
+    //PLM(q(n, j - 1, i), q(n, j, i), q(n, j + 1, i), ql(n, j, i), qr(n, j, i));
+    PLM(q(n, j, i), q(n, j+1, i), q(n, j + 2, i), ql(n, j, i), qr(n, j, i));
+  } else if constexpr (XNDIR == parthenon::X3DIR) {
+    // ql is ql_kp1 and qr is qr_k
+    //FIXME Watchout for indexing in q, ql, qr -- they're different sizes!
+    PLM(q(n, j, i), q(n, j+1, i), q(n, j + 2, i), ql(n, j, i), qr(n, j, i));
+  } else {
+    PARTHENON_FAIL("Unknow direction for PLM reconstruction.")
   }
 }
 

@@ -848,7 +848,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
-    if (pmb->block_size.nx3 == 1) // 2D
+    if (pmb->block_size.nx3 == 1) // 2D                                                                        
       kl = kb.s, ku = kb.e;
     else // 3D
       kl = kb.s - 1, ku = kb.e + 1;
@@ -940,6 +940,236 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             wl.assign_data(wlb.data());
             wlb.assign_data(tmp);
           }
+        });
+  }
+
+  const auto &conduction = pkg->Param<Conduction>("conduction");
+  if (conduction != Conduction::none) {
+    ThermalFluxAniso(md.get());
+  }
+
+  return TaskStatus::complete;
+}
+
+// Calculate fluxes using scratch pad memory, i.e., over cached pencils in i-dir.
+template<>  //forrestglines:: Specialize for testing
+TaskStatus CalculateFluxes<Fluid::euler, Reconstruction::plm, RiemannSolver::hlle>
+    (std::shared_ptr<MeshData<Real>> &md) {
+  auto const fluid = Fluid::euler;
+  auto const recon = Reconstruction::plm;
+  auto const rsolver = RiemannSolver::hlle;
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  int il, iu, jl, ju, kl, ku;
+  jl = jb.s, ju = jb.e, kl = kb.s, ku = kb.e;
+  // TODO(pgrete): are these looop limits are likely too large for 2nd order
+  if (pmb->block_size.nx2 > 1) {
+    if (pmb->block_size.nx3 == 1) // 2D
+      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s, ku = kb.e;
+    else // 3D
+      jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
+  }
+
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto cons_in = md->PackVariablesAndFluxes(flags_ind);
+  auto pkg = pmb->packages.Get("Hydro");
+  const auto nhydro = pkg->Param<int>("nhydro");
+  const auto nscalars = pkg->Param<int>("nscalars");
+
+  const auto &eos =
+      pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
+                                           AdiabaticGLMMHDEOS>::type>("eos");
+
+  auto num_scratch_vars = nhydro + nscalars;
+
+  // Hyperbolic divergence cleaning speed for GLM MHD
+  Real c_h = 0.0;
+  if (fluid == Fluid::glmmhd) {
+    c_h = pkg->Param<Real>("c_h");
+  }
+
+  auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
+
+  const int scratch_level =
+      pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
+  const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
+
+  size_t scratch_size_in_bytes =
+      parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 2;
+
+  auto riemann = Riemann<fluid, rsolver>();
+
+  parthenon::par_for_outer(
+      DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
+      scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
+      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
+        const auto &prim = prim_in(b);
+        auto &cons = cons_in(b);
+        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                         num_scratch_vars, nx1);
+        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                         num_scratch_vars, nx1);
+        // get reconstructed state on faces
+        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        // Sync all threads in the team so that scratch memory is consistent
+        member.team_barrier();
+
+        riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
+        member.team_barrier();
+
+        // Passive scalar fluxes
+        for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+          parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
+            if (cons.flux(IV1, IDN, k, j, i) >= 0.0) {
+              cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wl(n, i);
+            } else {
+              cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wr(n, i);
+            }
+          });
+        }
+      });
+
+  //--------------------------------------------------------------------------------------
+  // j-direction
+  if (pmb->pmy_mesh->ndim >= 2) {
+    scratch_size_in_bytes =
+        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
+    // set the loop limits
+    il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
+    if (pmb->block_size.nx3 == 1) // 2D
+      kl = kb.s, ku = kb.e;
+    else // 3D
+      kl = kb.s - 1, ku = kb.e + 1;
+
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
+        scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
+          const auto &prim = prim_in(b);
+          auto &cons = cons_in(b);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
+          for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
+            // reconstruct L/R states at j
+            Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
+            // Sync all threads in the team so that scratch memory is consistent
+            member.team_barrier();
+
+            if (j > jb.s - 1) {
+              riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
+              member.team_barrier();
+
+              // Passive scalar fluxes
+              for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+                parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                  if (cons.flux(IV2, IDN, k, j, i) >= 0.0) {
+                    cons.flux(IV2, n, k, j, i) = cons.flux(IV2, IDN, k, j, i) * wl(n, i);
+                  } else {
+                    cons.flux(IV2, n, k, j, i) = cons.flux(IV2, IDN, k, j, i) * wr(n, i);
+                  }
+                });
+              }
+              member.team_barrier();
+            }
+
+            // swap the arrays for the next step
+            auto *tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+          }
+        });
+  }
+  //--------------------------------------------------------------------------------------
+  // k-direction
+  if (pmb->pmy_mesh->ndim >= 3) {
+    // set the loop limits
+    il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
+
+    const int tile_width = 16; //TODO(forrestglines): Magic number, set to cache line size for NVIDIA in doubles
+    const int tile_height = 8; //TODO(forrestglines): Choose tile_height based on width/NHYDRO/shared mem
+
+    constexpr const int tile_ghosts =  0*(recon == Reconstruction::dc)
+                                      +1*(recon == Reconstruction::limo3 || recon == Reconstruction::plm || recon == Reconstruction::weno3)
+                                      +2*(recon == Reconstruction::ppm || recon == Reconstruction::wenoz);
+    
+    const int tile_entire_height = tile_height + tile_ghosts*2;
+
+    //TODO(forrestglines): could reduce first shmem to 1 var
+    scratch_size_in_bytes = 
+           parthenon::ScratchPad3D<Real>::shmem_size(num_scratch_vars, tile_entire_height, tile_width)
+        +2*parthenon::ScratchPad3D<Real>::shmem_size(num_scratch_vars, tile_height, tile_width);
+
+    //TODO(forrestglines):Are these number of tiles right?
+    const int n_k_tiles = static_cast<int>(ceil(static_cast<Real>(kb.e + 1 - kb.s)/tile_height));
+    const int n_i_tiles = static_cast<int>(ceil(static_cast<Real>(ib.e + 1 - ib.s)/tile_width));
+
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
+        scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju, 0 , n_k_tiles-1, 0, n_i_tiles-1,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j, const int k_tile, const int i_tile) {
+          const auto &prim = prim_in(b);
+          auto &cons = cons_in(b);
+
+          //TODO(Are these ends correct?)
+          //Determine the start and end of the tile in k
+          const int k_tile_s = kb.s + tile_height*k_tile;
+          const int k_tile_e = std::min(kb.s + tile_height*(k_tile+1) -1,kb.e);
+
+          //Determine the start and end of the tile in i
+          const int i_tile_s = il + tile_width*i_tile;
+          const int i_tile_e = std::min(il + tile_width*(i_tile+1) - 1,iu);
+
+          //Load a tile of prim into scratch memory
+          parthenon::ScratchPad3D<Real> q(member.team_scratch(scratch_level),
+                                           num_scratch_vars, tile_entire_height, tile_width);
+          parthenon::par_for_inner(parthenon::inner_loop_pattern_ttr_tag, member, 0, num_scratch_vars-1,
+            0, tile_entire_height-1, 
+            0, tile_width-1, [&](const int n, const int k_in_tile, const int i_in_tile) {
+              const int k = k_tile_s - tile_ghosts + k_in_tile;
+              const int i = i_tile_s + i_in_tile;
+              q(n, k_in_tile, i_in_tile) = cons(n, k, j, i);
+          });
+          member.team_barrier();
+
+          //Perform reconstruction on the primitives in scratch memory
+          //FIXME: Does tileheight need to be one bigger to account for extra computation?
+          parthenon::ScratchPad3D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, tile_height, tile_width);
+          parthenon::ScratchPad3D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, tile_height, tile_width);
+          parthenon::par_for_inner(parthenon::inner_loop_pattern_ttr_tag,member,
+            0, num_scratch_vars-1,
+            0, tile_height-1,
+            0, tile_width-1, [&](const int n, const int k_in_tile, const int i_in_tile) {
+
+            Reconstruct<recon, X3DIR>(n, k_in_tile, i_in_tile, q, wl, wr);
+          });
+          member.team_barrier();
+
+          //Solve the Riemann problem
+          parthenon::par_for_inner(parthenon::inner_loop_pattern_ttr_tag,member,
+            0, tile_height-1, 
+            0, tile_width-1, [&](const int k_in_tile, const int i_in_tile) {
+              const int k = k_tile_s + k_in_tile;
+              const int i = i_tile_s + i_in_tile;
+
+              //Reconstruction
+              riemann.Solve(k, j, i, k_in_tile, i_in_tile, IV3, wl, wr, cons, eos, c_h);
+
+              for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+                if (cons.flux(IV3, IDN, k, j, i) >= 0.0) {
+                  cons.flux(IV3, n, k, j, i) = cons.flux(IV3, IDN, k, j, i) * wl(n, k_in_tile, i_in_tile);
+                } else {
+                  cons.flux(IV3, n, k, j, i) = cons.flux(IV3, IDN, k, j, i) * wr(n, k_in_tile, i_in_tile);
+                }
+              }
+          });
         });
   }
 
