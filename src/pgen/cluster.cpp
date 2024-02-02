@@ -746,6 +746,22 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
     auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
 
+    pmb->par_for(
+        "apply weight sigma_b", 0, num_blocks - 1, 0, 2, kb.s - 1, kb.e + 1, jb.s - 1,
+        jb.e + 1, ib.s - 1, ib.e + 1,
+        KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+        
+          const auto &coords = cons.GetCoords(b);
+          const auto &u = cons(b);
+          const Real x = coords.Xc<1>(i);
+          const Real y = coords.Xc<2>(j);
+          const Real z = coords.Xc<3>(k);
+          const Real r = pow(SQR(x) + SQR(y) + SQR(z), 1. / 2.);
+          const Real b_weigth = (1.01*std::exp(-std::pow(r,0.55)/1.4e-1) + 5e-7/std::pow(r,1.2)) * (1/1.49);
+          perturb_pack(b, n, k, j, i) *= std::pow(b_weigth,2./3.);
+          
+        });  
+    
     pmb->par_reduce(
         "Init sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
