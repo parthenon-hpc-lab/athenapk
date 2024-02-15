@@ -36,15 +36,15 @@ perf_cycle_offset  = 10 # interval for stdout summary info
 refinement  = static
 nghost = 4
 
-nx1        = 128       # Number of zones in X1-direction
-x1min      = -100.       # minimum value of X1
-x1max      = 100.0       # maximum value of X1
+nx1        = 64       # Number of zones in X1-direction
+x1min      = -50.       # minimum value of X1
+x1max      = 50.0       # maximum value of X1
 ix1_bc     = periodic   # inner-X1 boundary flag
 ox1_bc     = periodic   # outer-X1 boundary flag
 
-nx2        = 128       # Number of zones in X2-direction
-x2min      = -100.0       # minimum value of X2
-x2max      = 100.0       # maximum value of X2
+nx2        = 64       # Number of zones in X2-direction
+x2min      = -50.0       # minimum value of X2
+x2max      = 50.0       # maximum value of X2
 ix2_bc     = periodic   # inner-X2 boundary flag
 ox2_bc     = periodic   # outer-X2 boundary flag
 
@@ -88,7 +88,7 @@ lambda_units_cgs = 1
 cfl = 1.0
 
 <precipitator>
-hse_profile_filename = ./inputs/hse_alpha_0_tc_tff_0.05.txt
+hse_profile_filename = ./inputs/hse_alpha_0_tc_tff_0.1.txt
 uniform_init = 0
 enable_heating = magic   # magic
 epsilon_heating = 0.97
