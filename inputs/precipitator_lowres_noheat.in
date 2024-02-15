@@ -6,7 +6,7 @@ problem_id = precipitator   # problem ID: basename of output filenames
 
 <parthenon/output1>
 file_type  = hst       # History data dump
-dt         = 50.0       # time increment between outputs
+dt         = 20.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
@@ -21,7 +21,7 @@ id         = restart
 
 <parthenon/output4>
 file_type    = ascent
-dt           = 50.0
+dt           = 20.0
 actions_file = inputs/precipitator_no_binning.yaml
 
 <parthenon/time>
@@ -36,15 +36,15 @@ perf_cycle_offset  = 10 # interval for stdout summary info
 refinement  = static
 nghost = 4
 
-nx1        = 128       # Number of zones in X1-direction
-x1min      = -100.       # minimum value of X1
-x1max      = 100.0       # maximum value of X1
+nx1        = 64       # Number of zones in X1-direction
+x1min      = -50.       # minimum value of X1
+x1max      = 50.0       # maximum value of X1
 ix1_bc     = periodic   # inner-X1 boundary flag
 ox1_bc     = periodic   # outer-X1 boundary flag
 
-nx2        = 128       # Number of zones in X2-direction
-x2min      = -100.0       # minimum value of X2
-x2max      = 100.0       # maximum value of X2
+nx2        = 64       # Number of zones in X2-direction
+x2min      = -50.0       # minimum value of X2
+x2max      = 50.0       # maximum value of X2
 ix2_bc     = periodic   # inner-X2 boundary flag
 ox2_bc     = periodic   # outer-X2 boundary flag
 
@@ -71,7 +71,7 @@ scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 He_mass_fraction = 0.25
 dfloor = 0.     # Msun kpc^{-3}
-Tfloor = 1.0e6  # K
+Tfloor = 1.5e6  # K
 
 <units>
 code_length_cgs = 3.086e21      # kpc
@@ -88,22 +88,21 @@ lambda_units_cgs = 1
 cfl = 1.0
 
 <precipitator>
-hse_profile_filename = ./inputs/hse_alpha_0_tc_tff_0.05.txt
+hse_profile_filename = ./inputs/hse_alpha_0_tc_tff_2.0.txt
 uniform_init = 0
-enable_heating = magic   # magic
+enable_heating = none   # no magic heating
 epsilon_heating = 0.97
 numHist = 64
 h_smooth_heatcool_kpc = 5.0
 
-perturb_sin_drho_over_rho = 0.01
+perturb_sin_drho_over_rho = 0 # no perturb
 perturb_kx = 16
 perturb_ky = 16
 perturb_kz = 32
 perturb_exponent = 1    # P(k) ~ k^{-2}
 
 <precipitator/driving>
-#sigma_v = 0.0001   # kpc Myr^{-1}
-sigma_v = 0
+sigma_v = 0  # no driving
 k_peak = 2
 num_modes = 40
 sol_weight = 1.0

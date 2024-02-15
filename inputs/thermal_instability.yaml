@@ -22,8 +22,6 @@
           type: "pseudocolor"
           field: "drho_over_rho"
           pipeline: "x_slice_pl"
-          #min_value: -0.5
-          #max_value: 0.5
       renders:
         r1:
           image_prefix: "drho%05d"
@@ -32,7 +30,7 @@
             position: [207.84609691, 0.0, 0.0]
             look_at: [0.0, 0.0, 0.0]
             up: [0.0, 0.0, 1.0]
-            zoom: 1.0
+            zoom: 2.0
             fov: 60
 -
   action: "add_extracts"
