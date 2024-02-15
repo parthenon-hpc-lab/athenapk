@@ -10,7 +10,7 @@ dt         = 50.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
-variables  = prim, drho_over_rho, dP_over_P, dK_over_K, dT_over_T, entropy, temperature     # Variables to be output
+variables  = prim, drho_over_rho, dP_over_P, dK_over_K, dT_over_T, entropy, temperature, tcool_over_tff, dv_x, dv_y, dv_z
 dt         = 500.0        # Time increment between outputs
 id         = prim      # Name to append to output
 

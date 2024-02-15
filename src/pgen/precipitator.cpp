@@ -557,6 +557,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add turbulent heating field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("turbulent_heating", m);
+  // add t_cool/t_ff field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("tcool_over_tff", m);
 
   // add \delta \rho / \bar \rho field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
@@ -573,6 +576,16 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add \delta Edot / \bar Edot field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("dEdot_over_Edot", m);
+
+  // add \delta vx field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("dv_x", m);
+  // add \delta vy field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("dv_y", m);
+  // add \delta vz field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("dv_z", m);
 
   const Units units(pin);
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
@@ -978,6 +991,10 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
                                             REDUCTION_ARRAY_SIZE); // rho * v_z
   parthenon::ParArray1D<Real> turbHeat_mean("turbHeat_mean",
                                             REDUCTION_ARRAY_SIZE); // a \dot v
+  
+  parthenon::ParArray1D<Real> v1_mean("v1_mean", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> v2_mean("v2_mean", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> v3_mean("v3_mean", REDUCTION_ARRAY_SIZE);
 
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &turbHeat_pack =
@@ -1029,6 +1046,19 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     return dE_dt * Edot_unit; // ergs/s/cm^3
   };
 
+  auto f_v1 = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &prim = prim_pack(b);
+    return prim(IV1, k, j, i); // vx
+  };
+  auto f_v2 = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &prim = prim_pack(b);
+    return prim(IV2, k, j, i); // vy
+  };
+  auto f_v3 = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &prim = prim_pack(b);
+    return prim(IV3, k, j, i); // vz
+  };
+
   ComputeAvgProfile1D(rho_mean, md.get(), f_rho);
   ComputeAvgProfile1D(P_mean, md.get(), f_P);
   ComputeAvgProfile1D(K_mean, md.get(), f_K);
@@ -1036,6 +1066,9 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   ComputeAvgProfile1D(heatFlux_mean, md.get(), f_heatFlux_cgs);
   ComputeAvgProfile1D(massFlux_mean, md.get(), f_massFlux_cgs);
   ComputeAvgProfile1D(turbHeat_mean, md.get(), f_turbWork_cgs);
+  ComputeAvgProfile1D(v1_mean, md.get(), f_v1);
+  ComputeAvgProfile1D(v2_mean, md.get(), f_v2);
+  ComputeAvgProfile1D(v3_mean, md.get(), f_v3);
 
   // compute interpolants
   MonotoneInterpolator<PinnedArray1D<Real>> rhoMeanInterp =
@@ -1046,6 +1079,13 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
       GetInterpolantFromProfile(K_mean, md.get());
   MonotoneInterpolator<PinnedArray1D<Real>> TMeanInterp =
       GetInterpolantFromProfile(T_mean, md.get());
+
+  MonotoneInterpolator<PinnedArray1D<Real>> V1MeanInterp =
+      GetInterpolantFromProfile(v1_mean, md.get());
+  MonotoneInterpolator<PinnedArray1D<Real>> V2MeanInterp =
+      GetInterpolantFromProfile(v2_mean, md.get());
+  MonotoneInterpolator<PinnedArray1D<Real>> V3MeanInterp =
+      GetInterpolantFromProfile(v3_mean, md.get());
 
   // fill derived fields
   for (auto &pmb : mesh->block_list) {
@@ -1061,10 +1101,17 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     auto &dK = data->Get("dK_over_K").data;
     auto &dT = data->Get("dT_over_T").data;
 
+    auto &dv_x = data->Get("dv_x").data;
+    auto &dv_y = data->Get("dv_y").data;
+    auto &dv_z = data->Get("dv_z").data;
+
     auto &coords = pmb->coords;
     IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
     IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
     IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+    Real dx1 = coords.CellWidth<X1DIR>(ib.s, jb.s, kb.s);
+    Real dx2 = coords.CellWidth<X2DIR>(ib.s, jb.s, kb.s);
+    Real dx3 = coords.CellWidth<X3DIR>(ib.s, jb.s, kb.s);
 
     pmb->par_for(
         "FillDerived", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -1073,6 +1120,9 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           Real P_bar = NAN;
           Real K_bar = NAN;
           Real T_bar = NAN;
+          Real v1_bar = NAN;
+          Real v2_bar = NAN;
+          Real v3_bar = NAN;
 
           const Real z = coords.Xc<3>(k);
           if ((z >= rhoMeanInterp.min()) && (z <= rhoMeanInterp.max())) {
@@ -1080,6 +1130,9 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
             P_bar = PMeanInterp(z);
             K_bar = KMeanInterp(z);
             T_bar = TMeanInterp(z);
+            v1_bar = V1MeanInterp(z);
+            v2_bar = V2MeanInterp(z);
+            v3_bar = V3MeanInterp(z);
           }
 
           // get local density, pressure, entropy
@@ -1089,12 +1142,14 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           const Real T = P / (kboltz * rho / mmw);
           const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
 
-          const Real vx = prim(IV1, k, j, i);
-          const Real vy = prim(IV2, k, j, i);
-          const Real vz = prim(IV3, k, j, i);
-          const Real v_sq = SQR(vx) + SQR(vy) + SQR(vz);
-          const Real v_mag = std::sqrt(v_sq);
-          const Real M_s = v_mag / c_s;
+          const Real v1 = prim(IV1, k, j, i);
+          const Real v2 = prim(IV2, k, j, i);
+          const Real v3 = prim(IV3, k, j, i);
+
+          const Real dv1 = prim(IV1, k, j, i) - v1_bar;
+          const Real dv2 = prim(IV2, k, j, i) - v2_bar;
+          const Real dv3 = prim(IV3, k, j, i) - v3_bar;
+          const Real M_s = std::sqrt(dv1 * dv1 + dv2 * dv2 + dv3 * dv3) / c_s;
 
           drho(k, j, i) = (rho - rho_bar) / rho_bar;
           dP(k, j, i) = (P - P_bar) / P_bar;
@@ -1103,15 +1158,20 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           entropy(k, j, i) = K;
           temperature(k, j, i) = T;
           mach_sonic(k, j, i) = M_s;
+          dv_x(k, j, i) = dv1 * velocity_unit * 1.0e-5; // km/s
+          dv_y(k, j, i) = dv2 * velocity_unit * 1.0e-5; // km/s
+          dv_z(k, j, i) = dv3 * velocity_unit * 1.0e-5; // km/s
         });
 
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
+    auto const &grav_phi_zface = data->Get("grav_phi_zface").data;
 
     // fill cooling time
     if (enable_cooling == Cooling::tabular) {
       const Real gm1 = (gam - 1.0);
       auto &dEdot = data->Get("dEdot_over_Edot").data;
       auto &meanEdot = data->Get("mean_Edot").data;
+      auto &tcool_over_tff = data->Get("tcool_over_tff").data;
 
       // compute interpolant
       auto pkg = pmb->packages.Get("Hydro");
@@ -1145,7 +1205,23 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
 
             // compute instantaneous Edot
             const Real edot_tabulated = cooling_table_obj.DeDt(eint, rho);
-            const Real Edot = taper_fac * rho * edot_tabulated;
+            const Real edot = taper_fac * edot_tabulated;
+            const Real Edot = rho * edot;
+
+            // compute local t_cool
+            const Real t_cool = std::abs(eint / edot);
+
+            // compute potential at center and faces
+            const Real phi_zminus = grav_phi_zface(0, k, j, i);
+            const Real phi_zplus = grav_phi_zface(0, k + 1, j, i);
+            const Real g_z = -(phi_zplus - phi_zminus) / dx3;
+
+            // compute local t_ff
+            const Real t_ff =
+                (z != 0.) ? std::sqrt(2.0 * std::abs(z) / std::abs(g_z)) : 0;
+
+            // compute local tcool/tff
+            const Real local_tc_tff = t_cool / t_ff;
 
             Real mean_Edot = 0;
             if ((z >= interpProfile.min()) && (z <= interpProfile.max())) {
@@ -1154,9 +1230,19 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
 
             dEdot(k, j, i) = (mean_Edot != 0) ? ((Edot - mean_Edot) / mean_Edot) : NAN;
             meanEdot(k, j, i) = mean_Edot;
+            tcool_over_tff(k, j, i) = local_tc_tff;
           });
     } // end fill cooling time
   }   // end fill derived fields
+
+  // compute mean tc_tff profile
+  const auto &tc_tff_pack = md->PackVariables(std::vector<std::string>{"tcool_over_tff"});
+  parthenon::ParArray1D<Real> tc_tff_mean("tc_tff_mean", REDUCTION_ARRAY_SIZE);
+  auto f_tc_tff = KOKKOS_LAMBDA(int b, int k, int j, int i) {
+    auto &tc_tff = tc_tff_pack(b);
+    return tc_tff(0, k, j, i);
+  };
+  ComputeAvgProfile1D(tc_tff_mean, md.get(), f_tc_tff);
 
   // write rms profiles to disk
 
@@ -1170,12 +1256,17 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   parthenon::ParArray1D<Real> dK_rms("rms_dK", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> dT_rms("rms_dT", REDUCTION_ARRAY_SIZE);
   parthenon::ParArray1D<Real> mach_rms("rms_mach", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> dv_xy_rms("rms_dv_xy", REDUCTION_ARRAY_SIZE);
+  parthenon::ParArray1D<Real> dv_z_rms("rms_dv_z", REDUCTION_ARRAY_SIZE);
 
   const auto &drho = md->PackVariables(std::vector<std::string>{"drho_over_rho"});
   const auto &dP = md->PackVariables(std::vector<std::string>{"dP_over_P"});
   const auto &dK = md->PackVariables(std::vector<std::string>{"dK_over_K"});
   const auto &dT = md->PackVariables(std::vector<std::string>{"dT_over_T"});
   const auto &mach_sonic = md->PackVariables(std::vector<std::string>{"mach_sonic"});
+  const auto &dv_x = md->PackVariables(std::vector<std::string>{"dv_x"});
+  const auto &dv_y = md->PackVariables(std::vector<std::string>{"dv_y"});
+  const auto &dv_z = md->PackVariables(std::vector<std::string>{"dv_z"});
 
   ComputeRmsProfile1D(
       drho_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
@@ -1202,6 +1293,20 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
         auto const &var = mach_sonic(b);
         return var(0, k, j, i);
       });
+  ComputeRmsProfile1D(
+      dv_xy_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
+        auto const &dv_x_var = dv_x(b);
+        auto const &dv_y_var = dv_y(b);
+        const Real dv1 = dv_x_var(0, k, j, i);
+        const Real dv2 = dv_y_var(0, k, j, i);
+        const Real dv_parallel = std::sqrt(dv1*dv1 + dv2*dv2);
+        return dv_parallel;
+      });
+  ComputeRmsProfile1D(
+      dv_z_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
+        auto const &var = dv_z(b);
+        return var(0, k, j, i);
+      });
 
   auto filename = [=](const char *basename, unsigned int ncycles) {
     std::ostringstream count_str;
@@ -1210,12 +1315,15 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     return count_str.str();
   };
 
-  // save rms profiles to file
+  // save rms profiles to files
+  
   WriteProfileToFile(drho_rms, md.get(), time, filename("drho_rms", noutputs));
   WriteProfileToFile(dP_rms, md.get(), time, filename("dP_rms", noutputs));
   WriteProfileToFile(dK_rms, md.get(), time, filename("dK_rms", noutputs));
   WriteProfileToFile(dT_rms, md.get(), time, filename("dT_rms", noutputs));
   WriteProfileToFile(mach_rms, md.get(), time, filename("mach_rms", noutputs));
+  WriteProfileToFile(dv_xy_rms, md.get(), time, filename("dv_xy_rms", noutputs));
+  WriteProfileToFile(dv_z_rms, md.get(), time, filename("dv_z_rms", noutputs));
 
   // save avg profiles to file
   WriteProfileToFile(rho_mean, md.get(), time, filename("rho_avg", noutputs));
@@ -1225,6 +1333,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   WriteProfileToFile(heatFlux_mean, md.get(), time, filename("heatFlux_avg", noutputs));
   WriteProfileToFile(massFlux_mean, md.get(), time, filename("massFlux_avg", noutputs));
   WriteProfileToFile(turbHeat_mean, md.get(), time, filename("turbHeat_avg", noutputs));
+  WriteProfileToFile(tc_tff_mean, md.get(), time, filename("tc_tff_avg", noutputs));
 
   const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
   if (enable_cooling == Cooling::tabular) {
