@@ -88,7 +88,7 @@ lambda_units_cgs = 1
 cfl = 1.0
 
 <precipitator>
-hse_profile_filename = ./inputs/hse_alpha_0_tc_tff_0.1.txt
+hse_profile_filename = ./inputs/profile_tc_tff_3.0.txt
 uniform_init = 0
 enable_heating = magic   # magic
 epsilon_heating = 0.97
