@@ -17,10 +17,8 @@
 #include <cstdio>    // fopen(), fprintf(), freopen()
 #include <iomanip>   // setw
 #include <iostream>  // endl
-#include <limits>
 #include <memory>
 #include <sstream>   // stringstream
-#include <stdexcept> // runtime_error
 #include <string>    // c_str()
 
 // Kokkos headers
@@ -29,7 +27,6 @@
 // Parthenon headers
 #include "basic_types.hpp"
 #include "config.hpp"
-#include "coordinates/coordinates.hpp"
 #include "defs.hpp"
 #include "globals.hpp"
 #include "interface/variable_pack.hpp"
