@@ -413,7 +413,7 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
     stats.emplace_back(Stats("pressure", "prim", IPR));
     if (pin->GetOrAddBoolean("problem/turbulence", "calc_vorticity_mag", false)) {
       stats.emplace_back(Stats("vort_mag", "vorticity_mag", 0));
-      stats.emplace_back(Stats("vort_mag_mw", "vorticity_mag", 0), Weight::Mass);
+      stats.emplace_back(Stats("vort_mag_mw", "vorticity_mag", 0, Weight::Mass));
     }
 
     const std::vector<std::string> stat_types = {
