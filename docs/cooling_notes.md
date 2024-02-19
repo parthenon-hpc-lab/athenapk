@@ -75,7 +75,7 @@ The difference in neglecting metals in the mass budget in computing $n_H$ is onl
 
 The Schure table in the GitHub repository uses the $n_H n_e$ convention, rather than the $n_H^2$ convention. This causes an error in the cooling rate of $n_e / n_H$, or about 20 percent for temperatures above $10^{5.5}$ K.
 
-Above $\sim 10^4$ K, there is a percent-level error in the mean molecular weight due to neglecting the metal contribution to the electron fraction. *Users should be aware that at low absolute electron fraction, metals contribute a substantial proportion of the metals, so this approximation is no longer valid below $\sim 10^4$ K.* The temperature is computed as:
+Above $\sim 10^4$ K, there is a percent-level error in the mean molecular weight due to neglecting the metal contribution to the electron fraction. *Users should be aware that at low absolute electron fraction, metals contribute a substantial proportion of the electrons, so this approximation is no longer valid below $\sim 10^4$ K.* The temperature is computed as:
 
 $$ T = \left( \frac{\rho}{\mu m_H} \right)^{-1} \left( \frac{P}{k_B} \right) \, ,$$
 where the dimensionless mean molecular weight $\mu$ is computed assuming a zero metallicity gas:
