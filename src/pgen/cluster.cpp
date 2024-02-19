@@ -572,7 +572,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
        ************************************************************/
       const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
 
-      magnetic_tower.AddInitialFieldToPotential(pmb.get(), a_kb, a_jb, a_ib, A);
+      magnetic_tower.AddInitialFieldToPotential(pmb, a_kb, a_jb, a_ib, A);
 
       /************************************************************
        * Add dipole magnetic field to the magnetic potential
@@ -675,7 +675,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     // Init phases on all blocks
     for (int b = 0; b < md->NumBlocks(); b++) {
       auto pmb = md->GetBlockData(b)->GetBlockPointer();
-      few_modes_ft.SetPhases(pmb.get(), pin);
+      few_modes_ft.SetPhases(pmb, pin);
     }
     // As for t_corr in few_modes_ft, the choice for dt is
     // in principle arbitrary because the inital v_hat is 0 and the v_hat_new will contain
@@ -743,7 +743,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     // Init phases on all blocks
     for (int b = 0; b < md->NumBlocks(); b++) {
       auto pmb = md->GetBlockData(b)->GetBlockPointer();
-      few_modes_ft.SetPhases(pmb.get(), pin);
+      few_modes_ft.SetPhases(pmb, pin);
     }
     // As for t_corr in few_modes_ft, the choice for dt is
     // in principle arbitrary because the inital b_hat is 0 and the b_hat_new will contain
