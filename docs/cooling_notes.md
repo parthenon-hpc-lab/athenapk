@@ -66,26 +66,37 @@ This convention is adopted by Dalgarno and McCray (1972) (their equation 24), an
 ### AthenaPK implementation
 
 This is the convention adopted by AthenaPK, except $n_H$ is computed assuming zero metals in the mass budget:
+
 $$ x_H = 1 - Y \, , $$
+
 $$ n_H = X_H \rho / m_H  = (1 - Y) \rho / m_H \, .$$
 
 The difference in neglecting metals in the mass budget in computing $n_H$ is only a $\sim 2$ percent effect on $n_H$ (since metals are 2 percent by mass for solar metallicity) and a $\sim 4$ percent effect on the source term.
 
-The Schure table in the GitHub repository uses the using the $n_H n_e$ convention, rather than the $n_H^2$ convention. This causes an error in the cooling rate of $n_e / n_H$, or about 20 percent for temperatures above $10^{5.5}$ K.
+The Schure table in the GitHub repository uses the $n_H n_e$ convention, rather than the $n_H^2$ convention. This causes an error in the cooling rate of $n_e / n_H$, or about 20 percent for temperatures above $10^{5.5}$ K.
 
 Above $\sim 10^4$ K, there is a percent-level error in the mean molecular weight due to neglecting the metal contribution to the electron fraction. *Users should be aware that at low absolute electron fraction, metals contribute a substantial proportion of the metals, so this approximation is no longer valid below $\sim 10^4$ K.* The temperature is computed as:
+
 $$ T = \left( \frac{\rho}{\mu m_H} \right)^{-1} \left( \frac{P}{k_B} \right) \, ,$$
 where the dimensionless mean molecular weight $\mu$ is computed assuming a zero metallicity gas:
+
 $$ \mu = \left( \frac{3}{4} Y + 2(1 - Y) \right)^{-1} = \left( 2 - \frac{5}{4} Y \right)^{-1} \, ,$$
+
 where $Y$ is the Helium mass fraction.
 
 For a more precise calculation of $\mu$ assuming a scaled-solar composition of metals, we have:
+
 $$ \mu = \left( 1 - x_e \right) \left( X + \frac{Y}{4} + \frac{Z}{\bar A} \right)^{-1} \, , $$
+
 where $\bar A$ is the mass-weighted mean atomic weight of metals:
+
 $$ \bar A = 16 \, .$$
 
 Additionally, for full ionization for all species, we have:
-$$ x_e = \frac{X + 2 Y (m_H/m_{He}) + (\bar A/2) Z (m_H/m_{\bar Z})}{2 X + 3 Y (m_H/m_{He}) + (1 + \bar A/2) Z (m_H/m_{\bar Z})} \approx \frac{X + Y/2 + Z/2}{2 X + 3 Y/4 + (1/{\bar A} + 1/2) Z}$$
+
+$$ x_e = \frac{X + 2 Y (m_H/m_{He}) + (\bar A/2) Z (m_H/m_{\bar Z})}{2 X + 3 Y (m_H/m_{He}) + (1 + \bar A/2) 
+Z (m_H/m_{\bar Z})} \approx \frac{X + Y/2 + Z/2}{2 X + 3 Y/4 + (1/{\bar A} + 1/2) Z}$$
+
 
 For $Y = 0.24$ and $Z = 0.02$, the mean molecular weight for complete ionization is $\mu \approx 0.60$ (if $Z = 0$, then this yields $\mu \approx 0.59$).
 
