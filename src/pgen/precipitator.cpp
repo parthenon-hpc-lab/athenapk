@@ -736,7 +736,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
     auto t_corr = pin->GetOrAddReal("precipitator/driving", "t_corr", 1.0);
 
     const auto f_v = pin->GetOrAddReal("precipitator/driving", "vertical_weight", 0.5);
-    hydro_pkg->AddParam<>("vertical_fraction", f_v);
+    hydro_pkg->AddParam<>("vertical_weight", f_v);
 
     // Add vector field for velocity perturbations
     Metadata m_perturb({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
