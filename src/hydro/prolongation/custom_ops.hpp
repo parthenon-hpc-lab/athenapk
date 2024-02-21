@@ -81,34 +81,40 @@ struct ProlongateCellMinModMultiD {
 
     Real dx1fm = 0;
     Real dx1fp = 0;
+    [[maybe_unused]] Real gx1m = 0, gx1p = 0;
     Real gx1c = 0;
     if constexpr (INCLUDE_X1) {
       Real dx1m, dx1p;
       GetGridSpacings<1, el>(coords, coarse_coords, cib, ib, i, fi, &dx1m, &dx1p, &dx1fm,
                              &dx1fp);
-      gx1c = GradMinMod(fc, coarse(element_idx, l, m, n, k, j, i - 1),
-                        coarse(element_idx, l, m, n, k, j, i + 1), dx1m, dx1p);
+      gx1c =
+          GradMinMod(fc, coarse(element_idx, l, m, n, k, j, i - 1),
+                     coarse(element_idx, l, m, n, k, j, i + 1), dx1m, dx1p, gx1m, gx1p);
     }
 
     Real dx2fm = 0;
     Real dx2fp = 0;
+    [[maybe_unused]] Real gx2m = 0, gx2p = 0;
     Real gx2c = 0;
     if constexpr (INCLUDE_X2) {
       Real dx2m, dx2p;
       GetGridSpacings<2, el>(coords, coarse_coords, cjb, jb, j, fj, &dx2m, &dx2p, &dx2fm,
                              &dx2fp);
-      gx2c = GradMinMod(fc, coarse(element_idx, l, m, n, k, j - 1, i),
-                        coarse(element_idx, l, m, n, k, j + 1, i), dx2m, dx2p);
+      gx2c =
+          GradMinMod(fc, coarse(element_idx, l, m, n, k, j - 1, i),
+                     coarse(element_idx, l, m, n, k, j + 1, i), dx2m, dx2p, gx2m, gx2p);
     }
     Real dx3fm = 0;
     Real dx3fp = 0;
+    [[maybe_unused]] Real gx3m = 0, gx3p = 0;
     Real gx3c = 0;
     if constexpr (INCLUDE_X3) {
       Real dx3m, dx3p;
       GetGridSpacings<3, el>(coords, coarse_coords, ckb, kb, k, fk, &dx3m, &dx3p, &dx3fm,
                              &dx3fp);
-      gx3c = GradMinMod(fc, coarse(element_idx, l, m, n, k - 1, j, i),
-                        coarse(element_idx, l, m, n, k + 1, j, i), dx3m, dx3p);
+      gx3c =
+          GradMinMod(fc, coarse(element_idx, l, m, n, k - 1, j, i),
+                     coarse(element_idx, l, m, n, k + 1, j, i), dx3m, dx3p, gx3m, dx3p);
     }
 
     // Max. expected total difference. (dx#fm/p are positive by construction)
