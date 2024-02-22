@@ -492,7 +492,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
 }
 
 void ReflectingInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-  std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
+  MeshBlock *pmb = mbd->GetBlockPointer();
   auto cons_pack = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
 
   // loop over vars in cons_pack
@@ -503,13 +503,13 @@ void ReflectingInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
       is_normal_dir = true;
     }
     IndexRange nv{n, n};
-    ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb.get(), cons_pack, nv,
-                                                   is_normal_dir, coarse);
+    ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, cons_pack, nv, is_normal_dir,
+                                                   coarse);
   }
 }
 
 void ReflectingOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-  std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
+  MeshBlock *pmb = mbd->GetBlockPointer();
   auto cons_pack = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
 
   // loop over vars in cons_pack
@@ -520,8 +520,8 @@ void ReflectingOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
       is_normal_dir = true;
     }
     IndexRange nv{n, n};
-    ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb.get(), cons_pack, nv,
-                                                   is_normal_dir, coarse);
+    ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, cons_pack, nv, is_normal_dir,
+                                                   coarse);
   }
 }
 
