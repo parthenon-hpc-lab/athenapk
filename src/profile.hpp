@@ -27,14 +27,17 @@ void ComputeAvgProfile1D(parthenon::ParArray1D<parthenon::Real> &profile_dev,
   auto pkg = pmb->packages.Get("Hydro");
   auto pm = md->GetParentPointer();
   const parthenon::Real x3min = pm->mesh_size.xmin(parthenon::X3DIR);
-  const parthenon::Real Lz = pm->mesh_size.xmax(parthenon::X3DIR) - pm->mesh_size.xmin(parthenon::X3DIR);
+  const parthenon::Real Lz =
+      pm->mesh_size.xmax(parthenon::X3DIR) - pm->mesh_size.xmin(parthenon::X3DIR);
   const size_t size = profile_dev.size();
   const int max_idx = size - 1;
   const parthenon::Real dz_hist = Lz / size;
 
   // normalize result
-  const parthenon::Real Lx = pm->mesh_size.xmax(parthenon::X1DIR) - pm->mesh_size.xmin(parthenon::X1DIR);
-  const parthenon::Real Ly = pm->mesh_size.xmax(parthenon::X2DIR) - pm->mesh_size.xmin(parthenon::X2DIR);
+  const parthenon::Real Lx =
+      pm->mesh_size.xmax(parthenon::X1DIR) - pm->mesh_size.xmin(parthenon::X1DIR);
+  const parthenon::Real Ly =
+      pm->mesh_size.xmax(parthenon::X2DIR) - pm->mesh_size.xmin(parthenon::X2DIR);
   const parthenon::Real histVolume = Lx * Ly * dz_hist;
 
   PARTHENON_REQUIRE(REDUCTION_ARRAY_SIZE == profile_dev.size(),
@@ -92,8 +95,7 @@ void ComputeRmsProfile1D(parthenon::ParArray1D<parthenon::Real> &profile_dev,
 
   // compute <F^2>
   ComputeAvgProfile1D(
-      profile_dev, md,
-      KOKKOS_LAMBDA(int b, int k, int j, int i) {
+      profile_dev, md, KOKKOS_LAMBDA(int b, int k, int j, int i) {
         const parthenon::Real val = F(b, k, j, i);
         return val * val;
       });

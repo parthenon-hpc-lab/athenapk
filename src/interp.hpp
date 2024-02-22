@@ -90,7 +90,7 @@ MonotoneInterpolator<VectorContainer>::MonotoneInterpolator(
   // adjust slopes to satisfy monotonicity constraints
   for (int i = 0; i < (x_vec.size() - 1); ++i) {
     const Real delta_i = dright(i);
-    
+
     if (delta_i == 0) {
       // delta_i == 0
       d_vec_[i] = 0;

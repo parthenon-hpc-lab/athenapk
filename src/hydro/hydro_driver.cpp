@@ -129,7 +129,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 #endif
-  
+
   for (int i = 0; i < blocks.size(); i++) {
     auto &pmb = blocks[i];
     // Using "base" as u0, which already exists (and returned by using plain Get())
@@ -234,7 +234,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 #endif
   }
 #endif
-  
+
   // First add split sources before the main time integration
   if (stage == 1) {
     TaskRegion &strang_init_region = tc.AddRegion(num_partitions);

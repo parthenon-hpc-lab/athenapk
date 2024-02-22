@@ -158,7 +158,8 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
 
   // var_hat_
   {
-    auto var_hat_host = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_);
+    auto var_hat_host =
+        Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_);
     // std::cout << "writing var_hat...\n";
 
     for (int i = 0; i < 3; i++) {

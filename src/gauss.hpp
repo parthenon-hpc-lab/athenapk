@@ -755,7 +755,8 @@ class gauss
   }
 
   template <class F>
-  KOKKOS_FORCEINLINE_FUNCTION static auto integrate(F f, Real a, Real b, Real *pL1 = nullptr)
+  KOKKOS_FORCEINLINE_FUNCTION static auto integrate(F f, Real a, Real b,
+                                                    Real *pL1 = nullptr)
       -> decltype(std::declval<F>()(std::declval<Real>())) {
     using K = decltype(f(a));
 
@@ -806,7 +807,7 @@ class gauss
           return K(0);
         }
         if (b < a) { // we can't inline this function on GPU if we recurse
-          //return -integrate(f, b, a, pL1);
+          // return -integrate(f, b, a, pL1);
           return std::numeric_limits<K>::signaling_NaN();
         }
         Real avg = 0.5 * (a + b);
