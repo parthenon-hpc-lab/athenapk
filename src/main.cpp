@@ -167,7 +167,8 @@ int main(int argc, char *argv[]) {
     pman.app_input->MeshProblemGenerator = cluster::ProblemGenerator;
     pman.app_input->MeshBlockUserWorkBeforeOutput = cluster::UserWorkBeforeOutput;
     Hydro::ProblemInitPackageData = cluster::ProblemInitPackageData;
-    Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;
+    Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
+    Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
 #endif
   } else if (problem == "precipitator") {

@@ -217,10 +217,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   const auto gm1 = pin->GetReal("hydro", "gamma") - 1.0;
   const auto p0 = pin->GetReal("problem/turbulence", "p0");
   const auto rho0 = pin->GetReal("problem/turbulence", "rho0");
-  const auto x3min = pmesh->mesh_size.xmin(parthenon::X3DIR);
-  const auto Lx = pmesh->mesh_size.xmax(parthenon::X1DIR) - pmesh->mesh_size.xmin(parthenon::X1DIR);
-  const auto Ly = pmesh->mesh_size.xmax(parthenon::X2DIR) - pmesh->mesh_size.xmin(parthenon::X2DIR);
-  const auto Lz = pmesh->mesh_size.xmax(parthenon::X3DIR) - pmesh->mesh_size.xmin(parthenon::X3DIR);
+  const auto x3min = pmesh->mesh_size.xmin(X3DIR);
+  const auto Lx = pmesh->mesh_size.xmax(X1DIR) - pmesh->mesh_size.xmin(X1DIR);
+  const auto Ly = pmesh->mesh_size.xmax(X2DIR) - pmesh->mesh_size.xmin(X2DIR);
+  const auto Lz = pmesh->mesh_size.xmax(X3DIR) - pmesh->mesh_size.xmin(X3DIR);
   const auto kz = 2.0 * M_PI / Lz;
 
   // already pack data here to get easy access to coords in kernels
@@ -402,9 +402,12 @@ void Perturb(MeshData<Real> *md, const Real dt) {
                                     MPI_SUM, MPI_COMM_WORLD));
 #endif // MPI_PARALLEL
 
-  const auto Lx = pmb->pmy_mesh->mesh_size.xmax(parthenon::X1DIR) - pmb->pmy_mesh->mesh_size.xmin(parthenon::X1DIR);
-  const auto Ly = pmb->pmy_mesh->mesh_size.xmax(parthenon::X2DIR) - pmb->pmy_mesh->mesh_size.xmin(parthenon::X2DIR);
-  const auto Lz = pmb->pmy_mesh->mesh_size.xmax(parthenon::X3DIR) - pmb->pmy_mesh->mesh_size.xmin(parthenon::X3DIR);
+  const auto Lx =
+      pmb->pmy_mesh->mesh_size.xmax(X1DIR) - pmb->pmy_mesh->mesh_size.xmin(X1DIR);
+  const auto Ly =
+      pmb->pmy_mesh->mesh_size.xmax(X2DIR) - pmb->pmy_mesh->mesh_size.xmin(X2DIR);
+  const auto Lz =
+      pmb->pmy_mesh->mesh_size.xmax(X3DIR) - pmb->pmy_mesh->mesh_size.xmin(X3DIR);
   const auto accel_rms = hydro_pkg->Param<Real>("turbulence/accel_rms");
   auto norm = accel_rms / std::sqrt(sums[0] / (Lx * Ly * Lz));
 

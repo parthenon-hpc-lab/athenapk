@@ -31,6 +31,7 @@
 #include "hydro.hpp"
 #include "kokkos_abstraction.hpp"
 #include "outputs/outputs.hpp"
+#include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
@@ -144,6 +145,14 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     hydro_pkg->Param<GLMMHD::SourceFun_t>("glmmhd_source")(md, beta_dt);
   }
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+
+  if (enable_cooling == Cooling::tabular) {
+    const TabularCooling &tabular_cooling =
+        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    tabular_cooling.SrcTerm(md, beta_dt);
+  }
   if (ProblemSourceUnsplit != nullptr) {
     ProblemSourceUnsplit(md, tm, beta_dt);
   }
@@ -154,14 +163,6 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  if (enable_cooling == Cooling::tabular) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-    tabular_cooling.SrcTerm(md, tm.dt);
-  }
   if (ProblemSourceFirstOrder != nullptr) {
     ProblemSourceFirstOrder(md, tm, tm.dt);
   }
@@ -169,17 +170,6 @@ TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
 }
 
 TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm) {
-  // auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  // if (enable_cooling == Cooling::tabular) {
-  //   const TabularCooling &tabular_cooling =
-  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-  //   tabular_cooling.SrcTerm(md, 0.5 * tm.dt);
-  // }
-
   if (ProblemSourceStrangSplit != nullptr) {
     ProblemSourceStrangSplit(md, tm, tm.dt);
   }
@@ -570,6 +560,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   Metadata m(
       {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
       std::vector<int>({nhydro + nscalars}), cons_labels);
+  m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
+                          parthenon::refinement_ops::RestrictAverage>();
   pkg->AddField("cons", m);
 
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro + nscalars}),
@@ -793,8 +785,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   int il, iu, jl, ju, kl, ku;
   jl = jb.s, ju = jb.e, kl = kb.s, ku = kb.e;
   // TODO(pgrete): are these looop limits are likely too large for 2nd order
-  if (pmb->block_size.nx(parthenon::X2DIR) > 1) {
-    if (pmb->block_size.nx(parthenon::X3DIR) == 1) // 2D
+  if (pmb->block_size.nx(X2DIR) > 1) {
+    if (pmb->block_size.nx(X3DIR) == 1) // 2D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s, ku = kb.e;
     else // 3D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
@@ -879,7 +871,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
-    if (pmb->block_size.nx(parthenon::X3DIR) == 1) // 2D
+    if (pmb->block_size.nx(X3DIR) == 1) // 2D
       kl = kb.s, ku = kb.e;
     else // 3D
       kl = kb.s - 1, ku = kb.e + 1;

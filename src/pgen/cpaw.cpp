@@ -34,6 +34,8 @@
 
 namespace cpaw {
 using namespace parthenon::driver::prelude;
+using namespace parthenon::package::prelude;
+
 // Parameters which define initial solution -- made global so that they can be shared
 // with functions A1,2,3 which compute vector potentials
 Real den, pres, gm1, b_par, b_perp, v_perp, v_par;
@@ -213,8 +215,8 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
   }
 
   // write errors
-  std::fprintf(pfile, "%d  %d", mesh->mesh_size.nx(parthenon::X1DIR), mesh->mesh_size.nx(parthenon::X2DIR));
-  std::fprintf(pfile, "  %d  %d  %e", mesh->mesh_size.nx(parthenon::X3DIR), tm.ncycle, rms_err);
+  std::fprintf(pfile, "%d  %d", mesh->mesh_size.nx(X1DIR), mesh->mesh_size.nx(X2DIR));
+  std::fprintf(pfile, "  %d  %d  %e", mesh->mesh_size.nx(X3DIR), tm.ncycle, rms_err);
   std::fprintf(pfile, "  %e  %e  %e  %e", err[IDN], err[IM1], err[IM2], err[IM3]);
   std::fprintf(pfile, "  %e", err[IEN]);
   std::fprintf(pfile, "  %e  %e  %e", err[IB1], err[IB2], err[IB3]);

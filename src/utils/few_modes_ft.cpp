@@ -235,21 +235,18 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
                            "Few modes FT currently needs parthenon/mesh/pack_size=-1 "
                            "to work because of global reductions.")
 
-  auto Lx1 = pm->mesh_size.xmax(parthenon::X1DIR) - pm->mesh_size.xmin(parthenon::X1DIR);
-  auto Lx2 = pm->mesh_size.xmax(parthenon::X2DIR) - pm->mesh_size.xmin(parthenon::X2DIR);
-  auto Lx3 = pm->mesh_size.xmax(parthenon::X3DIR) - pm->mesh_size.xmin(parthenon::X3DIR);
+  const auto Lx1 = pm->mesh_size.xmax(X1DIR) - pm->mesh_size.xmin(X1DIR);
+  const auto Lx2 = pm->mesh_size.xmax(X2DIR) - pm->mesh_size.xmin(X2DIR);
+  const auto Lx3 = pm->mesh_size.xmax(X3DIR) - pm->mesh_size.xmin(X3DIR);
 
   // Adjust (logical) grid size at levels other than the root level.
   // This is required for simulation with mesh refinement so that the phases calculated
   // below take the logical grid size into account. For example, the local phases at level
   // 1 should be calculated assuming a grid that is twice as large as the root grid.
   const auto root_level = pm->GetRootLevel();
-  auto gnx1 =
-      pm->mesh_size.nx(parthenon::X1DIR) * std::pow(2, pmb->loc.level() - root_level);
-  auto gnx2 =
-      pm->mesh_size.nx(parthenon::X2DIR) * std::pow(2, pmb->loc.level() - root_level);
-  auto gnx3 =
-      pm->mesh_size.nx(parthenon::X3DIR) * std::pow(2, pmb->loc.level() - root_level);
+  auto gnx1 = pm->mesh_size.nx(X1DIR) * std::pow(2, pmb->loc.level() - root_level);
+  auto gnx2 = pm->mesh_size.nx(X2DIR) * std::pow(2, pmb->loc.level() - root_level);
+  auto gnx3 = pm->mesh_size.nx(X3DIR) * std::pow(2, pmb->loc.level() - root_level);
 
   // Restriction should also be easily fixed, just need to double check transforms and
   // volume weighting everywhere
@@ -260,13 +257,13 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
                            "dx/dy/dz. Remove this warning at your own risk.")
 #endif
 
-  const auto nx1 = pmb->block_size.nx(parthenon::X1DIR);
-  const auto nx2 = pmb->block_size.nx(parthenon::X2DIR);
-  const auto nx3 = pmb->block_size.nx(parthenon::X3DIR);
+  const auto nx1 = pmb->block_size.nx(X1DIR);
+  const auto nx2 = pmb->block_size.nx(X2DIR);
+  const auto nx3 = pmb->block_size.nx(X3DIR);
 
-  const auto gis = pmb->loc.lx1() * pmb->block_size.nx(parthenon::X1DIR);
-  const auto gjs = pmb->loc.lx2() * pmb->block_size.nx(parthenon::X2DIR);
-  const auto gks = pmb->loc.lx3() * pmb->block_size.nx(parthenon::X3DIR);
+  const auto gis = pmb->loc.lx1() * pmb->block_size.nx(X1DIR);
+  const auto gjs = pmb->loc.lx2() * pmb->block_size.nx(X2DIR);
+  const auto gks = pmb->loc.lx3() * pmb->block_size.nx(X3DIR);
 
   // make local ref to capure in lambda
   const auto num_modes = num_modes_;

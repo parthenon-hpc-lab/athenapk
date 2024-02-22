@@ -32,6 +32,7 @@
 
 namespace linear_wave {
 using namespace parthenon::driver::prelude;
+using namespace parthenon::package::prelude;
 
 // TODO(pgrete) temp fix to address removal in Parthenon. Update when merging with MHD
 constexpr int NWAVE = 5;
@@ -280,9 +281,9 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
   if (parthenon::Globals::my_rank == 0) {
     // normalize errors by number of cells
     const auto mesh_size = mesh->mesh_size;
-    const auto vol = (mesh_size.xmax(parthenon::X1DIR) - mesh_size.xmin(parthenon::X1DIR)) *
-                     (mesh_size.xmax(parthenon::X2DIR) - mesh_size.xmin(parthenon::X2DIR)) *
-                     (mesh_size.xmax(parthenon::X3DIR) - mesh_size.xmin(parthenon::X3DIR));
+    const auto vol = (mesh_size.xmax(X1DIR) - mesh_size.xmin(X1DIR)) *
+                     (mesh_size.xmax(X2DIR) - mesh_size.xmin(X2DIR)) *
+                     (mesh_size.xmax(X3DIR) - mesh_size.xmin(X3DIR));
     for (int i = 0; i < (NHYDRO + NFIELD); ++i)
       l1_err[i] = l1_err[i] / vol;
     // compute rms error
@@ -320,8 +321,8 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     }
 
     // write errors
-    std::fprintf(pfile, "%d  %d", mesh_size.nx(parthenon::X1DIR), mesh_size.nx(parthenon::X2DIR));
-    std::fprintf(pfile, "  %d  %d", mesh_size.nx(parthenon::X3DIR), tm.ncycle);
+    std::fprintf(pfile, "%d  %d", mesh_size.nx(X1DIR), mesh_size.nx(X2DIR));
+    std::fprintf(pfile, "  %d  %d", mesh_size.nx(X2DIR), tm.ncycle);
     std::fprintf(pfile, "  %e  %e", rms_err, l1_err[IDN]);
     std::fprintf(pfile, "  %e  %e  %e", l1_err[IM1], l1_err[IM2], l1_err[IM3]);
     std::fprintf(pfile, "  %e", l1_err[IEN]);

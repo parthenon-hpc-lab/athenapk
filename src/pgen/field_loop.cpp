@@ -135,13 +135,16 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   int iprob = pin->GetInteger("problem/field_loop", "iprob");
   Real ang_2, cos_a2(0.0), sin_a2(0.0), lambda(0.0);
 
-  Real x1size = pmb->pmy_mesh->mesh_size.xmax(parthenon::X1DIR) - pmb->pmy_mesh->mesh_size.xmin(parthenon::X1DIR);
-  Real x2size = pmb->pmy_mesh->mesh_size.xmax(parthenon::X2DIR) - pmb->pmy_mesh->mesh_size.xmin(parthenon::X2DIR);
+  Real x1size =
+      pmb->pmy_mesh->mesh_size.xmax(X1DIR) - pmb->pmy_mesh->mesh_size.xmin(X1DIR);
+  Real x2size =
+      pmb->pmy_mesh->mesh_size.xmax(X2DIR) - pmb->pmy_mesh->mesh_size.xmin(X2DIR);
 
   const bool two_d = pmb->pmy_mesh->ndim < 3;
   // for 2D sim set x3size to zero so that v_z is 0 below
   Real x3size =
-      two_d ? 0 : pmb->pmy_mesh->mesh_size.xmax(parthenon::X3DIR) - pmb->pmy_mesh->mesh_size.xmin(parthenon::X3DIR);
+      two_d ? 0
+            : pmb->pmy_mesh->mesh_size.xmax(X3DIR) - pmb->pmy_mesh->mesh_size.xmin(X3DIR);
 
   // For (iprob=4) -- rotated cylinder in 3D -- set up rotation angle and wavelength
   if (iprob == 4) {

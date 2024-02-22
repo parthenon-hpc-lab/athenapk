@@ -76,14 +76,14 @@ $$
     \frac{3 H_0^2}{8 \pi G}.
 $$
 
-Parameters for the HERNQUIST BCG are controlled via:
+Parameters for the `HERNQUIST` BCG are controlled via:
 ```
 <problem/cluster/gravity>
 
 m_bcg_s = 0.001 # in code_mass
 r_bcg_s = 0.004 # in code_length
 ```
-where a HERNQUIST profile adds a gravitational acceleration defined by
+where a `HERNQUIST` profile adds a gravitational acceleration defined by
 
 $$
  g_{BCG}(r) = G \frac{ M_{BCG} }{R_{BCG}^2} \frac{1}{\left( 1 + \frac{r}{R_{BCG}}\right)^2}
@@ -183,14 +183,16 @@ Pertubations are controlled by the following parameters:
 <problem/cluster/init_perturb>
 # for the velocity field
 sigma_v = 0.0      # volume weighted RMS |v| in code velocity; default: 0.0 (disabled)
-k_peak_v = ???     # wavenumber in normalized units where the velocity spectrum peaks. No default value.
+l_peak_v = ???     # lengthscale (in code length units) where the velocity spectrum peaks. No default value.
+k_peak_v = ???     # (exclusive alternative to l_peak_v): wavenumber in normalized units where the velocity spectrum peaks. No default value.
 num_modes_v = 40   # (optional) number of wavemodes in spectral space; default: 40
 sol_weight_v = 1.0 # (optional) power in solenoidal (rotational) modes of the perturbation. Range between 0 (fully compressive) and 1.0 (default, fully solenoidal).
 rseed_v = 1        # (optional) integer seed for RNG for wavenumbers and amplitudes
 
 # for the magnetic field
 sigma_b = 0.0      # volume weighted RMS |B| in code magnetic; default: 0.0 (disabled)
-k_peak_b = ???     # wavenumber in normalized units where the magnetic field spectrum peaks. No default value.
+l_peak_b = ???     # lengthscale (in code length units) where the magnetic field spectrum peaks. No default value.
+k_peak_b = ???     # (exclusive alternative to l_peak_b): wavenumber in normalized units where the magnetic field spectrum peaks. No default value.
 num_modes_b = 40   # (optional) number of wavemodes in spectral space; default: 40
 rseed_b = 2        # (optional) integer seed for RNG for wavenumbers and amplitudes
 ```
@@ -214,7 +216,7 @@ triggering_mode = COLD_GAS # or NONE, BOOSTED_BONDI, BONDI_SCHAYE
 ```
 where `triggering_mode=NONE` will disable AGN triggering. 
 
-With BOOSTED_BONDI accretion, the mass rate of accretion follows
+With `BOOSTED_BONDI` accretion, the mass rate of accretion follows
 
 $$
 \dot{M} = \alpha \frac { 2 \pi G^2 M^2_{SMBH} \hat {\rho} } {
@@ -233,7 +235,7 @@ m_smbh = 1.0e-06 # in code_mass
 accretion_radius = 0.001 # in code_length
 bondi_alpha= 100.0 # unitless
 ```
-With BONDI_SCHAYE accretion, the `$\alpha$` used for BOOSTED_BONDI accretion is modified to depend on the number density following:
+With `BONDI_SCHAYE` accretion, the $\alpha$ used for `BOOSTED_BONDI` accretion is modified to depend on the number density following:
 
 $$
 \alpha =
@@ -250,7 +252,7 @@ bondi_n0= 2.9379989445851786e+72 # in 1/code_length**3
 bondi_beta= 2.0 # unitless
 ```
 
-With both BOOSTED_BONDI and BONDI_SCHAYE accretion, mass is removed from each
+With both `BOOSTED_BONDI` and `BONDI_SCHAYE` accretion, mass is removed from each
 cell within the accretion zone at a mass weighted rate. E.g. the mass in each
 cell within the accretion region changes by
 ```
@@ -262,7 +264,7 @@ unchanged. Thus velocities and temperatures will increase where mass is
 removed.
 
 
-With COLD_GAS accretion, the accretion rate becomes the total mass within the accretion zone equal to or
+With `COLD_GAS` accretion, the accretion rate becomes the total mass within the accretion zone equal to or
 below a defined cold temperature threshold divided by a defined accretion
 timescale. The temperature threshold and accretion timescale are defined by
 ```
@@ -306,6 +308,8 @@ kinetic_fraction = 0.3333
 ```
 These values are automatically normalized to sum to 1.0 at run time.
 
+### Thermal feedback
+
 Thermal feedback is deposited at a flat power density within a sphere of defined radius
 ```
 <problem/cluster/agn_feedback>
@@ -317,6 +321,8 @@ feedback, e.g.
 ```
 thermal_injected_mass = mdot * (1 - efficiency) * normalized_thermal_fraction;
 ```
+
+### Kinetic feedback
 
 Kinetic feedback is deposited into two disks along the axis of the jet within a
 defined radius, thickness of each disk, and an offset above and below the plane
@@ -354,13 +360,17 @@ velocity $v_{jet}$ can be set via
 kinetic_jet_temperature = 1e7 # K
 ```
 However, $T_{jet}$ and $v_{jet}$ must be non-negative and fulfill
+
 $$
-v_{jet} = \sqrt{ 2 \left ( \epsilon c^2 - (1 - \epsilon) \frac{k_B T_{jet}}{ \mu m_h \left( \gamma - 1 \right} \right ) }
+v_{jet} = \sqrt{ 2 \left ( \epsilon c^2 - (1 - \epsilon) \frac{k_B T_{jet}}{ \mu m_h \left( \gamma - 1 \right) } \right ) }
 $$
+
 to ensure that the sum of rest mass energy, thermal energy, and kinetic energy of the new gas sums to $\dot{M} c^2$. Note that these equations places limits  on $T_{jet}$ and $v_{jet}$, specifically
+
 $$
-v_{jet} \leq c \sqrt{ 2 \epsilon } \qquad \text{and} \qquad \frac{k_B T_{jet}}{ \mu m_h \left( \gamma - 1 \right} \leq c^2 \frac{ \epsilon}{1 - \epsilon}
+v_{jet} \leq c \sqrt{ 2 \epsilon } \qquad \text{and} \qquad \frac{k_B T_{jet}}{ \mu m_h \left( \gamma - 1 \right) } \leq c^2 \frac{ \epsilon}{1 - \epsilon}
 $$
+
 If the above equations are not satified then an exception will be thrown at
 initialization. If neither $T_{jet}$ nor $v_{jet}$ are specified, then
 $v_{jet}$ will be computed assuming $T_{jet}=0$ and a warning will be given
@@ -381,14 +391,51 @@ energy density; changes in kinetic energy density will depend on the velocity
 of the ambient gas. Temperature will also change but should always increase
 with kinetic jet feedback.
 
-Magnetic feedback is injected following  ([Hui 2006](doi.org/10.1086/501499))
+#### Tracing jet material
+
+Material launched by the kinetic jet component can be traced by setting
+```
+<problem/cluster/agn_feedback>
+enable_tracer = true   # disabled by default
+```
+
+At the moment, this also requires to enable a single passive scalar by setting
+```
+<hydro>
+nscalars = 1
+```
+This may change in the future as the current implementation restricts the
+passive scalar use to tracing jet material.
+This is a design decision motivated by simplicity and not for technical
+reasons (KISS!).
+
+Note that all material launched from within the jet region is traced, i.e.,
+passive scalar concentration does not differentiate between original cell
+material and mass added through the kinetic jet feedback mechanism.
+
+
+### Magnetic feedback
+
+Multiple options exists to inject magnetic fields:
+- a simple field loop (donut) configuration (better suited for kinetically dominated jets at larger scales)
+- a more complex pinching tower model (particularly suited for magnetically dominated jets at small scales)
+
+The option is controlled by the following parameter
+```
+<problem/cluster/magnetic_tower>
+potential_type = li # alternative: "donut"
+```
+
+#### Pinching magnetic tower
+
+Magnetic feedback is injected following  ([Li 2006](doi.org/10.1086/501499))
 where the injected magnetic field follows 
 
 $$
 \begin{align}
-\mathcal{B}_r      &=\mathcal{B}_0 2 \frac{h r}{\ell^2} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
-\mathcal{B}_\theta &=\mathcal{B}_0 \alpha \frac{r}{\ell} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right ) } \\\\
-\mathcal{B}_h      &=\mathcal{B}_0 2 \left( 1 - \frac{r^2}{\ell^2} \right ) \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
+\mathcal{B}\_r      &= \mathcal{B}\_0 2 \frac{h r}{\ell^2} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\
+\mathcal{B}\_\theta &= \mathcal{B}\_0 \alpha \frac{r}{\ell} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right ) } \\
+\mathcal{B}\_h      &= \mathcal{B}\_0 2 \left( 1 - \frac{r^2}{\ell^2} \right ) \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )}
 \end{align}
 $$
 
@@ -396,16 +443,17 @@ which has  the corresponding vector potential field
 
 $$
 \begin{align}
-\mathcal{A}_r &= 0 \\\\
-\mathcal{A}_{\theta} &= \mathcal{B}_0 \ell \frac{r}{\ell} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
-\mathcal{A}_h &= \mathcal{B}_0 \ell \frac{\alpha}{2}\exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )}
+\mathcal{A}\_r &= 0 \\
+\mathcal{A}\_{\theta} &= \mathcal{B}\_0 \ell \frac{r}{\ell} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\
+\mathcal{A}\_h &= \mathcal{B}\_0 \ell \frac{\alpha}{2}\exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )}
 \end{align}
 $$
 
 The parameters $\alpha$ and $\ell$ can be changed with
 ```
 <problem/cluster/magnetic_tower>
-alpha = 20
+potential_type = li
+li_alpha = 20
 l_scale = 0.001
 ```
 When injected as a fraction of 
@@ -419,7 +467,7 @@ $$
 where $\dot{\rho}_B$ is set to
 
 $$
-\dot{\rho}_B = \frac{3 \pi}{2} \frac{\dot{M} \left ( 1 - \epsilon \right ) f_{magnetic}}{\ell^3}
+\dot{\rho}_B = \frac{3 \pi}{2} \frac{\dot{M} \left ( 1 - \epsilon \right ) f\_\mathrm{magnetic}}{\ell^3}
 $$
 
 so that the total mass injected matches the accreted mass propotioned to magnetic feedback.
@@ -429,9 +477,54 @@ so that the total mass injected matches the accreted mass propotioned to magneti
 l_mass_scale = 0.001
 ```
 
-A magnetic tower can also be inserted at runtime and injected at a fixed
+Mass injection by the tower is enabled by default.
+It can be disabled by setting
+```
+<problem/cluster/agn_feedback>
+enable_magnetic_tower_mass_injection = false
+```
+In this case, the injected mass through kinetic and thermal feedback
+according to their ratio.
+
+#### Simple field loop (donut) feedback
+
+Magnetic energy is injected according to the following simple potential
+
+$$
+A_h(r, \theta, h) = B_0 L \exp^\left ( -r^2/L^2 \right) \qquad \mathrm{for} \qquad h_\mathrm{offset} \leq |h| \leq h_\mathrm{offset} + h_\mathrm{thickness}
+$$
+
+resultig in a magnetic field configuration of
+
+$$
+B_\theta(r, \theta, h) = 2 B_0 r /L \exp^\left ( -r^2/L^2 \right) \qquad \mathrm{for} \qquad h_\mathrm{offset} \leq |h| \leq h_\mathrm{offset} + h_\mathrm{thickness}
+$$
+
+with all other components being zero.
+
+
+```
+<problem/cluster/magnetic_tower>
+potential_type = donut
+l_scale = 0.0005         # in code length
+donut_offset = 0.001     # in code length
+donut_thickness = 0.0001 # in code length
+```
+
+It is recommended to match the donut thickness to the thickness of the kinetic jet launching region
+and to choose a lengthscale that is half the jet launching radius.
+This results in almost all injected fields being confined to the launching region (and thus being
+carried along with a dominant jet).
+
+Mass feedback for the donut model is currently identical to the Li tower above
+(and, thus, the parameters above pertaining to the mass injection equally apply here).
+
+#### Fixed magnetic feedback
+
+Magnetic feedback can also be inserted at runtime and injected at a fixed
 increase in magnetic field, and additional mass can be injected at a fixed
 rate.
+This works for all magnetic vector potentials.
 ```
 <problem/cluster/magnetic_tower>
 initial_field = 0.12431560000204142
@@ -454,3 +547,27 @@ where `power_per_bcg_mass` and `mass_rate_per_bcg_mass` is the power and mass
 per time respectively injected per BCG mass at a given radius. This SNIA
 feedback is otherwise fixed in time, spherically symmetric, and dependant on
 the BCG specified in `<problem/cluster/gravity>`.
+
+## Stellar feedback
+
+Cold, dense, potentially magnetically supported gas may accumulate in a small
+disk-like structure around the AGN depending on the specific setup.
+In reality, this gas would form stars.
+
+In absence of star particles (or similar) in the current setup, we use a simple
+formulation to convert some fraction of this gas to thermal energy.
+More specifically, gas within a given radius, above a critical number density
+and below a temperature threshold, will be converted to thermal energy with a
+given efficiency.
+The parameters can be set as follows (numerical values here just for illustration purpose -- by default they are all 0, i.e., stellar feedback is disabled).
+
+```
+<problem/cluster/stellar_feedback>
+stellar_radius = 0.025 # in code length
+efficiency = 5e-6
+number_density_threshold = 2.93799894e+74 # in code_length**-3
+temperature_threshold = 2e4 # in K
+```
+
+Note that all parameters need to be specified explicitly for the feedback to work
+(i.e., no hidden default values).
