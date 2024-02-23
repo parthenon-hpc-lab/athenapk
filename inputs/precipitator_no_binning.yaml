@@ -92,6 +92,8 @@
           type: "pseudocolor"
           field: "log10_T"
           pipeline: "x_slice_log10_T_pl"
+          min_value: 6.0
+          max_value: 8.0
       renders:
         r1:
           image_prefix: "temp_%05d"
