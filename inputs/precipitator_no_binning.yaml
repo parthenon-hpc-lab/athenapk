@@ -30,6 +30,23 @@
         params: 
           field: "tcool_over_tff"
           output_name: "log10_tc_tff"
+    x_slice_log10_T_pl:
+      f1: 
+        type: "slice"
+        params:
+          point:
+            x: 0.0
+            y: 0.0
+            z: 0.0
+          normal:
+            x: 1.0
+            y: 0.0
+            z: 0.0
+      f2:
+        type: "log10"
+        params: 
+          field: "temperature"
+          output_name: "log10_T"
 - 
   action: "add_scenes"
   scenes:
@@ -69,6 +86,22 @@
             up: [0.0, 0.0, 1.0]
             zoom: 1.0
             fov: 60
+    temperature: 
+      plots:
+        p1: 
+          type: "pseudocolor"
+          field: "log10_T"
+          pipeline: "x_slice_log10_T_pl"
+      renders:
+        r1:
+          image_prefix: "temp_%05d"
+          annotations: "true"
+          camera:
+            position: [207.84609691, 0.0, 0.0]
+            look_at: [0.0, 0.0, 0.0]
+            up: [0.0, 0.0, 1.0]
+            zoom: 1.0
+            fov: 60
 -
   action: "add_extracts"
   extracts: 
@@ -84,13 +117,11 @@
          - "entropy"
          - "temperature"
          - "mach_sonic"
-         - "mean_Edot"
          - "tcool_over_tff"
          - "drho_over_rho"
          - "dK_over_K"
          - "dT_over_T"
          - "dP_over_P"
-         - "dEdot_over_Edot"
          - "dv_x"
          - "dv_y"
          - "dv_z"

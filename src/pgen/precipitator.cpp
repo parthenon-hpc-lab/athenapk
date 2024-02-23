@@ -428,66 +428,69 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
 }
 
 void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
-  // add 'magic' heating source term using operator splitting
+  // add feedback control loop source term using operator splitting
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const Real gam = pkg->Param<Real>("gamma");
+  const Real gm1 = (gam - 1.0);
 
-  // compute vertical dE/dt profile
-  parthenon::ParArray1D<Real> *pview_reduce =
-      pkg->MutableParam<parthenon::ParArray1D<Real>>("profile_reduce");
+  auto units = pkg->Param<Units>("units");
+  const Real He_mass_fraction = pkg->Param<Real>("He_mass_fraction");
+  const Real H_mass_fraction = 1.0 - He_mass_fraction;
+  const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+  const Real mmw = mu * units.atomic_mass_unit(); // mean molecular weight
+  const Real kboltz = units.k_boltzmann();
+  const Real c_v = (kboltz / mmw) / gm1;
 
-  const Real gam = pkg->Param<AdiabaticHydroEOS>("eos").GetGamma();
-  const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
-  const cooling::TabularCooling &tabular_cooling =
-      pkg->Param<cooling::TabularCooling>("tabular_cooling");
-  const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
-
+  // compute vertical temperature profile
+  parthenon::ParArray1D<Real> T_profile("T_profile", REDUCTION_ARRAY_SIZE);
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
 
   ComputeAvgProfile1D(
-      *pview_reduce, md, KOKKOS_LAMBDA(int b, int k, int j, int i) {
+      T_profile, md, KOKKOS_LAMBDA(int b, int k, int j, int i) {
         auto &prim = prim_pack(b);
-        const auto &coords = prim_pack.GetCoords(b);
-
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
-        const Real eint = P / (rho * (gam - 1.0)); // specific internal energy
-
-        // artificially limit temperature change in precipitator midplane
-        const Real z = coords.Xc<3>(k);
-        const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
-
-        // compute instantaneous Edot
-        const Real edot_tabulated = cooling_table_obj.DeDt(eint, rho);
-        const Real Edot = taper_fac * rho * edot_tabulated;
-        return Edot;
+        const Real T = P / (kboltz * rho / mmw); // temperature (K)
+        return T;
       });
 
   // compute interpolant
   MonotoneInterpolator<PinnedArray1D<Real>> interpProfile =
-      GetInterpolantFromProfile(*pview_reduce, md);
+      GetInterpolantFromProfile(T_profile, md);
 
-  const Real epsilon = pkg->Param<Real>("epsilon_heating"); // heating efficiency
-  auto units = pkg->Param<Units>("units");
+  const Real T_target = pkg->Param<Real>("PI_controller_temperature"); // feedback loop target temperature
+  const Real K_p = pkg->Param<Real>("PI_controller_Kp"); // K_p feedback loop constant
+  //const Real K_i = pkg->Param<Real>("PI_controller_Ki"); // K_i feedback loop constant
+
+  // get 'smoothing' height for heating/cooling
+  const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
+
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
+  // TODO(bwibking): compute PI error integral
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "HeatSource", parthenon::DevExecSpace(), 0,
+      DEFAULT_LOOP_PATTERN, "PIControllerThermostat", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        auto &cons = cons_pack(b);
+        // interpolate T profile at z
         const auto &coords = cons_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
+        const Real T = interpProfile(z);
 
-        // interpolate dE(z)/dt profile at z
-        const Real dE_dt_interp = interpProfile(z);
-        // compute heating source term
-        const Real dE = -dt * epsilon * dE_dt_interp;
+        // compute feedback control error in temperature units
+        const Real error = T - T_target;
+
+        // compute feedback control source term
+        auto &cons = cons_pack(b);
+        const Real rho = cons(IDN, k, j, i);
+        const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
+        const Real dE_dt = -taper_fac * (rho * c_v) * (K_p * error);
 
         // update total energy
-        cons(IEN, k, j, i) += dE;
+        cons(IEN, k, j, i) += dt * dE_dt;
       });
 }
 
@@ -551,9 +554,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add temperature field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("temperature", m);
-  // add \bar Edot field
-  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("mean_Edot", m);
   // add Mach number field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("mach_sonic", m);
@@ -576,9 +576,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add \delta T / \bar T field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("dT_over_T", m);
-  // add \delta Edot / \bar Edot field
-  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("dEdot_over_Edot", m);
 
   // add \delta vx field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
@@ -604,15 +601,18 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real gam = pin->GetReal("hydro", "gamma");
   hydro_pkg->AddParam("gamma", gam); // adiabatic index
 
-  const Real epsilon = pin->GetReal("precipitator", "epsilon_heating"); // dimensionless
-  hydro_pkg->AddParam<Real>("epsilon_heating", epsilon); // heating efficiency
-
   /************************************************************
    * Initialize magic heating
    ************************************************************/
 
-  parthenon::ParArray1D<Real> profile_reduce("Edot_heating", REDUCTION_ARRAY_SIZE);
-  pkg->AddParam("profile_reduce", profile_reduce, true);
+  //parthenon::ParArray1D<Real> PI_error_integral("PI_error_integral", REDUCTION_ARRAY_SIZE);
+  //pkg->AddParam("PI_error_integral", PI_error_integral, true);
+
+  const Real PI_target_T = pin->GetReal("precipitator", "thermostat_temperature");
+  pkg->AddParam("PI_controller_temperature", PI_target_T); // feedback loop target temperature
+
+  const Real PI_Kp = pin->GetReal("precipitator", "thermostat_Kp");
+  pkg->AddParam("PI_controller_Kp", PI_Kp); // K_p feedback loop constant
 
   /************************************************************
    * Initialize the hydrostatic profile
@@ -1175,18 +1175,10 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     // fill cooling time
     if (enable_cooling == Cooling::tabular) {
       const Real gm1 = (gam - 1.0);
-      auto &dEdot = data->Get("dEdot_over_Edot").data;
-      auto &meanEdot = data->Get("mean_Edot").data;
       auto &tcool_over_tff = data->Get("tcool_over_tff").data;
 
-      // compute interpolant
-      auto pkg = pmb->packages.Get("Hydro");
-      parthenon::ParArray1D<Real> *pview_reduce =
-          pkg->MutableParam<parthenon::ParArray1D<Real>>("profile_reduce");
-      MonotoneInterpolator<PinnedArray1D<Real>> interpProfile =
-          GetInterpolantFromProfile(*pview_reduce, md.get());
-
       // get cooling function
+      auto pkg = pmb->packages.Get("Hydro");
       const cooling::TabularCooling &tabular_cooling =
           pkg->Param<cooling::TabularCooling>("tabular_cooling");
       const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
@@ -1212,7 +1204,6 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
             // compute instantaneous Edot
             const Real edot_tabulated = cooling_table_obj.DeDt(eint, rho);
             const Real edot = taper_fac * edot_tabulated;
-            const Real Edot = rho * edot;
 
             // compute local t_cool
             const Real t_cool = std::abs(eint / edot);
@@ -1228,14 +1219,6 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
 
             // compute local tcool/tff
             const Real local_tc_tff = t_cool / t_ff;
-
-            Real mean_Edot = 0;
-            if ((z >= interpProfile.min()) && (z <= interpProfile.max())) {
-              mean_Edot = interpProfile(z);
-            }
-
-            dEdot(k, j, i) = (mean_Edot != 0) ? ((Edot - mean_Edot) / mean_Edot) : NAN;
-            meanEdot(k, j, i) = mean_Edot;
             tcool_over_tff(k, j, i) = local_tc_tff;
           });
     } // end fill cooling time
@@ -1340,26 +1323,6 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   WriteProfileToFile(massFlux_mean, md.get(), time, filename("massFlux_avg", noutputs));
   WriteProfileToFile(turbHeat_mean, md.get(), time, filename("turbHeat_avg", noutputs));
   WriteProfileToFile(tc_tff_mean, md.get(), time, filename("tc_tff_avg", noutputs));
-
-  const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
-  if (enable_cooling == Cooling::tabular) {
-    parthenon::ParArray1D<Real> *profile_reduce_dev =
-        pkg->MutableParam<parthenon::ParArray1D<Real>>("profile_reduce");
-    parthenon::ParArray1D<Real> coolEdot_cgs("coolEdot_cgs_mean", REDUCTION_ARRAY_SIZE);
-
-    // get profile from device
-    auto profile_reduce = profile_reduce_dev->GetHostMirrorAndCopy();
-    auto coolEdot_cgs_host = coolEdot_cgs.GetHostMirrorAndCopy();
-
-    for (int i = 0; i < REDUCTION_ARRAY_SIZE; ++i) {
-      coolEdot_cgs_host(i) = profile_reduce(i) * Edot_unit;
-    }
-
-    // copy to device
-    coolEdot_cgs.DeepCopy(coolEdot_cgs_host);
-
-    WriteProfileToFile(coolEdot_cgs, md.get(), time, filename("coolEdot_avg", noutputs));
-  }
 
   ++noutputs;
 }
