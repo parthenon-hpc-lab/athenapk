@@ -458,9 +458,10 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   MonotoneInterpolator<PinnedArray1D<Real>> interpProfile =
       GetInterpolantFromProfile(T_profile, md);
 
-  const Real T_target = pkg->Param<Real>("PI_controller_temperature"); // feedback loop target temperature
+  const Real T_target =
+      pkg->Param<Real>("PI_controller_temperature"); // feedback loop target temperature
   const Real K_p = pkg->Param<Real>("PI_controller_Kp"); // K_p feedback loop constant
-  //const Real K_i = pkg->Param<Real>("PI_controller_Ki"); // K_i feedback loop constant
+  // const Real K_i = pkg->Param<Real>("PI_controller_Ki"); // K_i feedback loop constant
 
   // get 'smoothing' height for heating/cooling
   const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
@@ -605,11 +606,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
    * Initialize magic heating
    ************************************************************/
 
-  //parthenon::ParArray1D<Real> PI_error_integral("PI_error_integral", REDUCTION_ARRAY_SIZE);
-  //pkg->AddParam("PI_error_integral", PI_error_integral, true);
+  // parthenon::ParArray1D<Real> PI_error_integral("PI_error_integral",
+  // REDUCTION_ARRAY_SIZE); pkg->AddParam("PI_error_integral", PI_error_integral, true);
 
   const Real PI_target_T = pin->GetReal("precipitator", "thermostat_temperature");
-  pkg->AddParam("PI_controller_temperature", PI_target_T); // feedback loop target temperature
+  pkg->AddParam("PI_controller_temperature",
+                PI_target_T); // feedback loop target temperature
 
   const Real PI_Kp = pin->GetReal("precipitator", "thermostat_Kp");
   pkg->AddParam("PI_controller_Kp", PI_Kp); // K_p feedback loop constant
