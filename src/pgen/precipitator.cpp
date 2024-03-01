@@ -460,11 +460,20 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
 
   const Real T_target =
       pkg->Param<Real>("PI_controller_temperature"); // feedback loop target temperature
-  const Real K_p = pkg->Param<Real>("PI_controller_Kp"); // K_p feedback loop constant
-  // const Real K_i = pkg->Param<Real>("PI_controller_Ki"); // K_i feedback loop constant
+  const Real K_p = pkg->Param<Real>("PI_controller_Kp"); // K_p feedback loop constant [dimensionless]
+  // const Real K_i = pkg->Param<Real>("PI_controller_Ki"); // K_i feedback loop constant [dimensionless]
 
   // get 'smoothing' height for heating/cooling
   const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
+
+  // get background profile (code units)
+  auto pressure_hse = md->PackVariables(std::vector<std::string>{"pressure_hse"});
+  auto density_hse = md->PackVariables(std::vector<std::string>{"density_hse"});
+
+  // get cooling rates
+  const cooling::TabularCooling &tabular_cooling =
+      pkg->Param<cooling::TabularCooling>("tabular_cooling");
+  const auto cooling_table_obj = tabular_cooling.GetCoolingTableObj();
 
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
@@ -481,6 +490,15 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
         const Real z = coords.Xc<3>(k);
         const Real T = interpProfile(z);
 
+        // get t_cool for background profile
+        const auto &P_bg_arr = pressure_hse(b);
+        const auto &rho_bg_arr = density_hse(b);
+        const Real P_bg = P_bg_arr(0, k, j, i);
+        const Real rho_bg = rho_bg_arr(0, k, j, i);
+        const Real eint_bg = P_bg / (gm1 * rho_bg);
+        const Real edot_bg = cooling_table_obj.DeDt(eint_bg, rho_bg);
+        const Real inv_t_cool = 1.0 / std::abs(eint_bg / edot_bg);
+
         // compute feedback control error in temperature units
         const Real error = T - T_target;
 
@@ -488,7 +506,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
         auto &cons = cons_pack(b);
         const Real rho = cons(IDN, k, j, i);
         const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
-        const Real dE_dt = -taper_fac * (rho * c_v) * (K_p * error);
+        const Real dE_dt = -taper_fac * (rho * c_v) * (K_p * inv_t_cool * error);
 
         // update total energy
         cons(IEN, k, j, i) += dt * dE_dt;
@@ -614,7 +632,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
                 PI_target_T); // feedback loop target temperature
 
   const Real PI_Kp = pin->GetReal("precipitator", "thermostat_Kp");
-  pkg->AddParam("PI_controller_Kp", PI_Kp); // K_p feedback loop constant
+  pkg->AddParam("PI_controller_Kp", PI_Kp); // K_p feedback loop constant [dimensionless]
 
   /************************************************************
    * Initialize the hydrostatic profile
