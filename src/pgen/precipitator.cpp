@@ -441,27 +441,40 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   const Real kboltz = units.k_boltzmann();
   const Real c_v = (kboltz / mmw) / gm1;
 
-  // compute vertical temperature profile
-  parthenon::ParArray1D<Real> T_profile("T_profile", REDUCTION_ARRAY_SIZE);
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  // compute feedback control error e(z, t)
+  parthenon::ParArray1D<Real> error_profile("error_profile", REDUCTION_ARRAY_SIZE);
+  auto error_integral_profile =
+      pkg->Param<parthenon::ParArray1D<Real>>("PI_error_integral");
+  const Real T_target = pkg->Param<Real>("PI_controller_temperature");
 
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   ComputeAvgProfile1D(
-      T_profile, md, KOKKOS_LAMBDA(int b, int k, int j, int i) {
+      error_profile, md, KOKKOS_LAMBDA(int b, int k, int j, int i) {
         auto &prim = prim_pack(b);
         const Real rho = prim(IDN, k, j, i);
         const Real P = prim(IPR, k, j, i);
         const Real T = P / (kboltz * rho / mmw); // temperature (K)
-        return T;
+        // compute feedback control error in temperature units
+        const Real error = T - T_target;
+        return error;
       });
+
+  // Add error to integral: error_integral_profile += dt * error_profile;
+  auto error_profile_h = error_profile.GetHostMirrorAndCopy();
+  auto error_integral_profile_h = error_integral_profile.GetHostMirrorAndCopy();
+  for (int i = 0; i < error_profile_h.size(); ++i) {
+    error_integral_profile_h(i) = dt * error_profile_h(i);
+  }
+  error_integral_profile.DeepCopy(error_integral_profile_h);
 
   // compute interpolant
   MonotoneInterpolator<PinnedArray1D<Real>> interpProfile =
-      GetInterpolantFromProfile(T_profile, md);
+      GetInterpolantFromProfile(error_profile, md);
+  MonotoneInterpolator<PinnedArray1D<Real>> interpIntegralProfile =
+      GetInterpolantFromProfile(error_integral_profile, md);
 
-  const Real T_target =
-      pkg->Param<Real>("PI_controller_temperature"); // feedback loop target temperature
-  const Real K_p = pkg->Param<Real>("PI_controller_Kp"); // K_p feedback loop constant [dimensionless]
-  // const Real K_i = pkg->Param<Real>("PI_controller_Ki"); // K_i feedback loop constant [dimensionless]
+  const Real K_p = pkg->Param<Real>("PI_controller_Kp");
+  const Real K_i = pkg->Param<Real>("PI_controller_Ki");
 
   // get 'smoothing' height for heating/cooling
   const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
@@ -480,17 +493,17 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-  // TODO(bwibking): compute PI error integral
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "PIControllerThermostat", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        // interpolate T profile at z
+        // interpolate error profile at z
         const auto &coords = cons_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
-        const Real T = interpProfile(z);
+        const Real err = interpProfile(z);
+        const Real err_int = interpIntegralProfile(z);
 
-        // get t_cool for background profile
+        // get 1/t_cool for background profile
         const auto &P_bg_arr = pressure_hse(b);
         const auto &rho_bg_arr = density_hse(b);
         const Real P_bg = P_bg_arr(0, k, j, i);
@@ -499,14 +512,12 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
         const Real edot_bg = cooling_table_obj.DeDt(eint_bg, rho_bg);
         const Real inv_t_cool = 1.0 / std::abs(eint_bg / edot_bg);
 
-        // compute feedback control error in temperature units
-        const Real error = T - T_target;
-
         // compute feedback control source term
         auto &cons = cons_pack(b);
         const Real rho = cons(IDN, k, j, i);
         const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
-        const Real dE_dt = -taper_fac * (rho * c_v) * (K_p * inv_t_cool * error);
+        const Real dE_dt =
+            -taper_fac * (rho * c_v) * inv_t_cool * (K_p * err + K_i * err_int);
 
         // update total energy
         cons(IEN, k, j, i) += dt * dE_dt;
@@ -624,15 +635,22 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
    * Initialize magic heating
    ************************************************************/
 
-  // parthenon::ParArray1D<Real> PI_error_integral("PI_error_integral",
-  // REDUCTION_ARRAY_SIZE); pkg->AddParam("PI_error_integral", PI_error_integral, true);
+  // store PI error integral over time
+  parthenon::ParArray1D<Real> PI_error_integral("PI_error_integral",
+                                                REDUCTION_ARRAY_SIZE);
+  pkg->AddParam("PI_error_integral", PI_error_integral, true);
 
+  // feedback loop target temperature
   const Real PI_target_T = pin->GetReal("precipitator", "thermostat_temperature");
-  pkg->AddParam("PI_controller_temperature",
-                PI_target_T); // feedback loop target temperature
+  pkg->AddParam("PI_controller_temperature", PI_target_T);
 
+  // K_p feedback loop constant [dimensionless]
   const Real PI_Kp = pin->GetReal("precipitator", "thermostat_Kp");
-  pkg->AddParam("PI_controller_Kp", PI_Kp); // K_p feedback loop constant [dimensionless]
+  pkg->AddParam("PI_controller_Kp", PI_Kp);
+
+  // K_i feedback loop constant [dimensionless)
+  const Real PI_Ki = pin->GetReal("precipitator", "thermostat_Ki");
+  pkg->AddParam("PI_controller_Ki", PI_Ki);
 
   /************************************************************
    * Initialize the hydrostatic profile
