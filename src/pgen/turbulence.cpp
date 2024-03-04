@@ -26,6 +26,7 @@
 
 // AthenaPK headers
 #include "../main.hpp"
+#include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
 
@@ -333,6 +334,59 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
         }
       });
+
+  /* tracer init section */
+  auto tracer_pkg = pmb->packages.Get("tracers");
+  if (tracer_pkg->Param<bool>("enabled")) {
+
+    for (int b = 0; b < md->NumBlocks(); b++) {
+      pmb = md->GetBlockData(0)->GetBlockPointer();
+      auto &sd = pmb->swarm_data.Get();
+      auto &swarm = pmb->swarm_data.Get()->Get("tracers");
+      auto rng_pool = tracer_pkg->Param<RNGPool>("rng_pool");
+
+      const Real &x_min = pmb->coords.Xf<1>(ib.s);
+      const Real &y_min = pmb->coords.Xf<2>(jb.s);
+      const Real &z_min = pmb->coords.Xf<3>(kb.s);
+      const Real &x_max = pmb->coords.Xf<1>(ib.e + 1);
+      const Real &y_max = pmb->coords.Xf<2>(jb.e + 1);
+      const Real &z_max = pmb->coords.Xf<3>(kb.e + 1);
+
+      // as for num_tracers on each block... will get too many on multiple blocks
+      // TODO: distribute amongst blocks.
+      const auto num_tracers_total = tracer_pkg->Param<int>("num_tracers");
+      const int number_block = num_tracers_total;
+
+      ParArrayND<int> new_indices;
+      swarm->AddEmptyParticles(number_block, new_indices);
+
+      auto &x = swarm->Get<Real>("x").Get();
+      auto &y = swarm->Get<Real>("y").Get();
+      auto &z = swarm->Get<Real>("z").Get();
+      auto &id = swarm->Get<int>("id").Get();
+
+      auto swarm_d = swarm->GetDeviceContext();
+
+      const int gid = pmb->gid;
+      const int max_active_index = swarm->GetMaxActiveIndex();
+      pmb->par_for(
+          "ProblemGenerator::Turbulence::DistributeTracers", 0, max_active_index,
+          KOKKOS_LAMBDA(const int n) {
+            if (swarm_d.IsActive(n)) {
+              auto rng_gen = rng_pool.get_state();
+
+              x(n) = x_min + rng_gen.drand() * (x_max - x_min);
+              y(n) = y_min + rng_gen.drand() * (y_max - y_min);
+              z(n) = z_min + rng_gen.drand() * (z_max - z_min);
+              id(n) = num_tracers_total * gid + n;
+
+              bool on_current_mesh_block = true;
+              swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_current_mesh_block);
+              rng_pool.free_state(rng_gen);
+            }
+          });
+    }
+  }
 }
 
 //----------------------------------------------------------------------------------------
@@ -476,6 +530,13 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   // store state of distribution
   auto state_dist = few_modes_ft.GetDistState();
   pin->SetString("problem/turbulence", "state_dist", state_dist);
+
+  // TODO(pgrete) move this to a more central location in the driver
+  auto tracer_pkg = pmb->packages.Get("tracers");
+  if (tracer_pkg->Param<bool>("enabled")) {
+    auto &mbd = pmb->meshblock_data.Get();
+    Tracers::FillTracers(mbd.get());
+  }
 }
 
 } // namespace turbulence
