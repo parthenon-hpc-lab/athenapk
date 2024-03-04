@@ -791,8 +791,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
     // when only v_z is desired, ensure that always k_z == 0
     const bool xy_modes_only = vertical_driving_only;
-    auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v,
-                                                        xy_modes_only, rseed_v);
+    auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v, rseed_v,
+                                                        vertical_driving_only);
 
     auto few_modes_ft = FewModesFT(pin, hydro_pkg, "precipitator_perturb_v", num_modes_v,
                                    k_vec_v, k_peak_v, sol_weight_v, t_corr, rseed_v);
