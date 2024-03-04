@@ -288,11 +288,6 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
 
   const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");
 
-  // vertical_weight == 0.0 (purely horizontal accelerations, i.e. dv_z == 0.0)
-  // vertical_weight == 0.5 ("natural" weight, equal <dv_x^2> == <dv_y^2> == <dv_z^2>)
-  // vertical_weight == 1.0 (purely vertical accelerations, i.e. dv_x == dv_y == 0.0)
-  const auto f_v = hydro_pkg->Param<Real>("vertical_weight");
-
   const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
 
   if (sigma_v > 0) {
@@ -308,9 +303,9 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
         "normalize_perturb_v", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
           const auto &coords = cons.GetCoords(b);
-          const Real dv_x = std::sqrt(1. - f_v) * perturb_pack(b, 0, k, j, i);
-          const Real dv_y = std::sqrt(1. - f_v) * perturb_pack(b, 1, k, j, i);
-          const Real dv_z = std::sqrt(f_v) * perturb_pack(b, 2, k, j, i);
+          const Real dv_x = perturb_pack(b, 0, k, j, i);
+          const Real dv_y = perturb_pack(b, 1, k, j, i);
+          const Real dv_z = perturb_pack(b, 2, k, j, i);
           lsum += (SQR(dv_x) + SQR(dv_y) + SQR(dv_z)) * coords.CellVolume(k, j, i);
         },
         v2_sum);
@@ -327,9 +322,9 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
         "apply_perturb_v", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           // compute delta_v
-          const Real dv_x = std::sqrt(1. - f_v) * perturb_pack(b, 0, k, j, i) / v_norm;
-          const Real dv_y = std::sqrt(1. - f_v) * perturb_pack(b, 1, k, j, i) / v_norm;
-          const Real dv_z = std::sqrt(f_v) * perturb_pack(b, 2, k, j, i) / v_norm;
+          const Real dv_x = perturb_pack(b, 0, k, j, i) / v_norm;
+          const Real dv_y = perturb_pack(b, 1, k, j, i) / v_norm;
+          const Real dv_z = perturb_pack(b, 2, k, j, i) / v_norm;
 
           // compute old kinetic energy
           const auto &u = cons(b);
@@ -774,15 +769,13 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
     uint32_t rseed_v = pin->GetOrAddInteger("precipitator/driving", "rseed", 1);
     auto t_corr = pin->GetOrAddReal("precipitator/driving", "t_corr", 1.0);
 
-    const auto f_v = pin->GetOrAddReal("precipitator/driving", "vertical_weight", 0.5);
-    hydro_pkg->AddParam<>("vertical_weight", f_v);
-
     // Add vector field for velocity perturbations
     Metadata m_perturb({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
                        std::vector<int>({3}));
     hydro_pkg->AddField("tmp_perturb", m_perturb);
 
     auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v, rseed_v);
+    
     auto few_modes_ft = FewModesFT(pin, hydro_pkg, "precipitator_perturb_v", num_modes_v,
                                    k_vec_v, k_peak_v, sol_weight_v, t_corr, rseed_v);
     hydro_pkg->AddParam<>("precipitator/few_modes_ft_v", few_modes_ft);
