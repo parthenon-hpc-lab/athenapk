@@ -709,7 +709,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
         kz_max, -ky_max, ky_max, -kx_max, kx_max,
         KOKKOS_LAMBDA(const int, const int kz, const int ky, const int kx) {
           if (kx != 0 || ky != 0 || kz != 0) {
-            //printf("[GenerateModes] kx, ky, kz = (%d, %d, %d)\n", kx, ky, kz);
+            // printf("[GenerateModes] kx, ky, kz = (%d, %d, %d)\n", kx, ky, kz);
             // normalize power spectrum
             const Real kmag = std::sqrt(kx * kx + ky * ky + kz * kz);
             const Real dkx = 2. * M_PI / L;
