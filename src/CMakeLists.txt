@@ -18,6 +18,8 @@ add_executable(
         hydro/srcterms/tabular_cooling.cpp
         refinement/gradient.cpp
         refinement/other.cpp
+        tracers/tracers.hpp
+        tracers/tracers.cpp
         utils/few_modes_ft.cpp
 )
 
