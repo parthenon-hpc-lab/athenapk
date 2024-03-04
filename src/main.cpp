@@ -162,7 +162,6 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = rand_blast::ProblemGenerator;
     Hydro::ProblemInitPackageData = rand_blast::ProblemInitPackageData;
     Hydro::ProblemSourceFirstOrder = rand_blast::RandomBlasts;
-#if 0
   } else if (problem == "cluster") {
     pman.app_input->MeshProblemGenerator = cluster::ProblemGenerator;
     pman.app_input->MeshBlockUserWorkBeforeOutput = cluster::UserWorkBeforeOutput;
@@ -170,7 +169,6 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
     Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
-#endif
   } else if (problem == "precipitator") {
     Hydro::ProblemInitPackageData = precipitator::ProblemInitPackageData;
     pman.app_input->ProblemGenerator = precipitator::ProblemGenerator;
