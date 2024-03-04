@@ -19,6 +19,7 @@
 #include "../eos/adiabatic_hydro.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
+#include "../tracers/tracers.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
@@ -380,6 +381,36 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     if (stage == integrator->nstages) {
       auto new_dt = tl.AddTask(
           fill_derived, parthenon::Update::EstimateTimestep<MeshData<Real>>, mu0.get());
+    }
+  }
+  auto tracers_pkg = pmesh->packages.Get("tracers");
+  // First order operator split tracer advection
+  if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
+    const std::string swarm_name = "tracers";
+    TaskRegion &sync_region_tr = tc.AddRegion(1);
+    {
+      for (auto &pmb : blocks) {
+        auto &tl = sync_region_tr[0];
+        auto &sd = pmb->swarm_data.Get();
+        auto reset_comms =
+            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+      }
+    }
+
+    TaskRegion &async_region_tr = tc.AddRegion(blocks.size());
+    for (int n = 0; n < blocks.size(); n++) {
+      auto &tl = async_region_tr[n];
+      auto &pmb = blocks[n];
+      auto &sd = pmb->swarm_data.Get();
+      auto &mbd0 = pmb->meshblock_data.Get("base");
+      auto tracer_advect =
+          tl.AddTask(none, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
+
+      auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
+                             BoundaryCommSubset::all);
+
+      auto receive =
+          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
     }
   }
 
