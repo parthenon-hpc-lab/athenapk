@@ -287,7 +287,7 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
   const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");
-  const auto vertical_driving_only = hydro_pkg->Param<bool>("xy_modes_only");
+  const auto vertical_driving_only = hydro_pkg->Param<bool>("vertical_driving_only");
 
   const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
 
@@ -774,7 +774,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   if (sigma_v > 0) {
     auto k_peak_v = pin->GetReal("precipitator/driving", "k_peak");
-    // NOTE: in 2D, there are only 12 modes.
+    // NOTE: in 2D, there are only 12 modes when k_peak == 2
     auto num_modes_v = pin->GetOrAddInteger("precipitator/driving", "num_modes", 40);
     auto sol_weight_v = pin->GetOrAddReal("precipitator/driving", "sol_weight", 1.0);
     uint32_t rseed_v = pin->GetOrAddInteger("precipitator/driving", "rseed", 1);
@@ -785,10 +785,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
                        std::vector<int>({3}));
     hydro_pkg->AddField("tmp_perturb", m_perturb);
 
-    auto xy_modes_only =
-        pin->GetOrAddBoolean("precipitator/driving", "xy_modes_only", false);
-    hydro_pkg->AddParam("xy_modes_only", xy_modes_only);
+    auto vertical_driving_only =
+        pin->GetOrAddBoolean("precipitator/driving", "vertical_driving_only", false);
+    hydro_pkg->AddParam("vertical_driving_only", vertical_driving_only);
 
+    // when only v_z is desired, ensure that always k_z == 0
+    const bool xy_modes_only = vertical_driving_only;
     auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v,
                                                         xy_modes_only, rseed_v);
 
