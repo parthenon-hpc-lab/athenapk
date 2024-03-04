@@ -331,8 +331,8 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
           Real dv_x = 0;
           Real dv_y = 0;
           if (!vertical_driving_only) {
-            dv_x = perturb_pack(b, 0, k, j, i);
-            dv_y = perturb_pack(b, 1, k, j, i);
+            dv_x = perturb_pack(b, 0, k, j, i) / v_norm;
+            dv_y = perturb_pack(b, 1, k, j, i) / v_norm;
           }
           const Real dv_z = perturb_pack(b, 2, k, j, i) / v_norm;
 
