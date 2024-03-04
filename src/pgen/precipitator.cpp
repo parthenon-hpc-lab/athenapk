@@ -1248,7 +1248,10 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
 
             // compute potential at center and faces
             const Real phi_zminus = grav_phi_zface(0, k, j, i);
-            const Real phi_zplus = grav_phi_zface(0, k + 1, j, i);
+            Real phi_zplus = NAN;
+            if (k < kb.e) {
+              phi_zplus = grav_phi_zface(0, k + 1, j, i);
+            }
             const Real g_z = -(phi_zplus - phi_zminus) / dx3;
 
             // compute local t_ff
