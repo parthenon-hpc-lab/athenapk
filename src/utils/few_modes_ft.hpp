@@ -67,6 +67,6 @@ class FewModesFT {
 };
 
 // Creates a random set of wave vectors with k_mag within k_peak/2 and 2*k_peak
-ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak, uint32_t rseed);
+ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak, uint32_t rseed, const bool xy_modes_only = false);
 
 } // namespace utils::few_modes_ft

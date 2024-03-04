@@ -287,6 +287,7 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
   const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");
+  const auto vertical_driving_only = hydro_pkg->Param<bool>("xy_modes_only");
 
   const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
 
@@ -303,9 +304,14 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
         "normalize_perturb_v", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
           const auto &coords = cons.GetCoords(b);
-          const Real dv_x = perturb_pack(b, 0, k, j, i);
-          const Real dv_y = perturb_pack(b, 1, k, j, i);
+          Real dv_x = 0;
+          Real dv_y = 0;
+          if (!vertical_driving_only) {
+            dv_x = perturb_pack(b, 0, k, j, i);
+            dv_y = perturb_pack(b, 1, k, j, i);
+          }
           const Real dv_z = perturb_pack(b, 2, k, j, i);
+
           lsum += (SQR(dv_x) + SQR(dv_y) + SQR(dv_z)) * coords.CellVolume(k, j, i);
         },
         v2_sum);
@@ -322,8 +328,12 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
         "apply_perturb_v", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           // compute delta_v
-          const Real dv_x = perturb_pack(b, 0, k, j, i) / v_norm;
-          const Real dv_y = perturb_pack(b, 1, k, j, i) / v_norm;
+          Real dv_x = 0;
+          Real dv_y = 0;
+          if (!vertical_driving_only) {
+            dv_x = perturb_pack(b, 0, k, j, i);
+            dv_y = perturb_pack(b, 1, k, j, i);
+          }
           const Real dv_z = perturb_pack(b, 2, k, j, i) / v_norm;
 
           // compute old kinetic energy
@@ -764,6 +774,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   if (sigma_v > 0) {
     auto k_peak_v = pin->GetReal("precipitator/driving", "k_peak");
+    // NOTE: in 2D, there are only 12 modes.
     auto num_modes_v = pin->GetOrAddInteger("precipitator/driving", "num_modes", 40);
     auto sol_weight_v = pin->GetOrAddReal("precipitator/driving", "sol_weight", 1.0);
     uint32_t rseed_v = pin->GetOrAddInteger("precipitator/driving", "rseed", 1);
@@ -774,8 +785,13 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
                        std::vector<int>({3}));
     hydro_pkg->AddField("tmp_perturb", m_perturb);
 
-    auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v, rseed_v);
-    
+    auto xy_modes_only =
+        pin->GetOrAddBoolean("precipitator/driving", "xy_modes_only", false);
+    hydro_pkg->AddParam("xy_modes_only", xy_modes_only);
+
+    auto k_vec_v = utils::few_modes_ft::MakeRandomModes(num_modes_v, k_peak_v,
+                                                        xy_modes_only, rseed_v);
+
     auto few_modes_ft = FewModesFT(pin, hydro_pkg, "precipitator_perturb_v", num_modes_v,
                                    k_vec_v, k_peak_v, sol_weight_v, t_corr, rseed_v);
     hydro_pkg->AddParam<>("precipitator/few_modes_ft_v", few_modes_ft);

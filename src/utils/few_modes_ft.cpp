@@ -9,7 +9,6 @@
 
 // C++ headers
 #include <random>
-#include <utility>
 
 // Parthenon headers
 #include "basic_types.hpp"
@@ -21,7 +20,6 @@
 #include "mesh/meshblock_pack.hpp"
 
 // AthenaPK headers
-#include "../main.hpp"
 #include "few_modes_ft.hpp"
 #include "utils/error_checking.hpp"
 
@@ -51,9 +49,9 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   // lambda cannot live in the constructor of an object.
   auto k_vec_host = k_vec.GetHostMirrorAndCopy();
   for (int i = 0; i < num_modes; i++) {
-    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) <= gnx1 / 2, "k_vec x1 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) <= gnx2 / 2, "k_vec x2 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) <= gnx3 / 2, "k_vec x3 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) <= static_cast<Real>(gnx1) / 2, "k_vec x1 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) <= static_cast<Real>(gnx2) / 2, "k_vec x2 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) <= static_cast<Real>(gnx3) / 2, "k_vec x3 mode too large");
   }
 
   const auto nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
@@ -482,7 +480,7 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
 
 // Creates a random set of wave vectors with k_mag within k_peak/2 and 2*k_peak
 ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
-                                 uint32_t rseed = 31224) {
+                                 uint32_t rseed = 31224, const bool xy_modes_only) {
   auto k_vec = parthenon::ParArray2D<Real>("k_vec", 3, num_modes);
   auto k_vec_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), k_vec);
 
@@ -495,15 +493,22 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
 
   int n_mode = 0;
   int n_attempt = 0;
-  constexpr int max_attempts = 1000000;
-  Real kx1, kx2, kx3, k_mag, ampl;
+  constexpr int max_attempts = 1e6;
+  Real kx1 = NAN;
+  Real kx2 = NAN;
+  Real kx3 = 0.;
+  Real k_mag = NAN;
+  Real ampl = NAN;
+
   bool mode_exists = false;
   while (n_mode < num_modes && n_attempt < max_attempts) {
     n_attempt += 1;
 
     kx1 = dist(rng);
     kx2 = dist(rng);
-    kx3 = dist(rng);
+    if (!xy_modes_only) {
+      kx3 = dist(rng);
+    }
     k_mag = std::sqrt(SQR(kx1) + SQR(kx2) + SQR(kx3));
 
     // Expected amplitude of the spectral function. If this is changed, it also needs to
@@ -528,6 +533,17 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
     k_vec_h(2, n_mode) = kx3;
     n_mode++;
   }
+
+#if 0
+  // print modes
+  for (int n = 0; n < n_mode; ++n) {
+    std::cout << "k_vec_h(0, " << n << ") = " << k_vec_h(0, n) << "\n";
+    std::cout << "k_vec_h(1, " << n << ") = " << k_vec_h(1, n) << "\n";
+    std::cout << "k_vec_h(2, " << n << ") = " << k_vec_h(2, n) << "\n";
+    std::cout << "\n";
+  }
+#endif
+
   PARTHENON_REQUIRE_THROWS(
       n_attempt < max_attempts,
       "Cluster init did not succeed in calculating perturbation modes.")
