@@ -89,7 +89,7 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
 
     // read var_hat
     {
-      std::cout << "reading var_hat...\n";
+      //std::cout << "reading var_hat...\n";
       auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
       for (int i = 0; i < 3; i++) {
         for (int m = 0; m < num_modes; m++) {
@@ -97,17 +97,16 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
                                                        std::to_string(m) + "_r");
           auto imag = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
                                                        std::to_string(m) + "_i");
-          std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
+          //std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
           var_hat_host(i, m) = Complex(real, imag);
         }
       }
       Kokkos::deep_copy(var_hat_, var_hat_host);
     }
 
-#if 0
     // read var_hat_new
     {
-      std::cout << "reading var_hat_new...\n";
+      //std::cout << "reading var_hat_new...\n";
       auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
       for (int i = 0; i < 3; i++) {
         for (int m = 0; m < num_modes; m++) {
@@ -117,27 +116,26 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
           auto imag_new =
               pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
                                                std::to_string(m) + "_i");
-          std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new
-                    << "\n";
+          //std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new
+          //          << "\n";
           var_hat_new_host(i, m) = Complex(real_new, imag_new);
         }
       }
       Kokkos::deep_copy(var_hat_new_, var_hat_new_host);
     }
-#endif
 
     // read rng state
     {
       std::istringstream iss(pin->GetString("few_modes_ft", "state_rng"));
       iss >> rng_;
-      std::cout << "rng state: " << rng_ << "\n";
+      //std::cout << "rng state: " << rng_ << "\n";
     }
 
     // read dist
     {
       std::istringstream iss(pin->GetString("few_modes_ft", "state_dist"));
       iss >> dist_;
-      std::cout << "dist state: " << dist_ << "\n";
+      //std::cout << "dist state: " << dist_ << "\n";
     }
 
   } else {
@@ -175,7 +173,6 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
     }
   }
 
-#if 0
   // var_hat_new_
   {
     auto var_hat_new_host = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_new_);
@@ -196,7 +193,6 @@ void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
       }
     }
   }
-#endif
 
   // save rng
   {
