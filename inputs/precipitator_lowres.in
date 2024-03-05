@@ -70,8 +70,8 @@ use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 He_mass_fraction = 0.25
-dfloor = 0.     # Msun kpc^{-3}
-Tfloor = 1.0e6  # K
+dfloor = 14780.21   # Msun kpc^{-3} [== 1e-27 g/cc]
+Tfloor = 1.0e6      # K
 
 <units>
 code_length_cgs = 3.086e21      # kpc
