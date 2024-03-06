@@ -20,6 +20,7 @@
 
 #include "tracers.hpp"
 #include "../main.hpp"
+#include "basic_types.hpp"
 #include "utils/error_checking.hpp"
 
 namespace Tracers {
@@ -126,7 +127,7 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
  * Registered Quantities (in addition to t, x, y, z):
  * rho, vel, B
  **/
-void FillTracers(MeshBlockData<Real> *mbd) {
+TaskStatus FillTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
   auto *pmb = mbd->GetParentPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
@@ -184,6 +185,7 @@ void FillTracers(MeshBlockData<Real> *mbd) {
           swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unsed_tmp);
         }
       });
+  return TaskStatus::complete;
 
 } // FillTracers
 
