@@ -33,8 +33,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   Params &params = tracer_pkg->AllParams();
 
-  const int num_tracers = pin->GetOrAddInteger("tracers", "num_tracers", 0);
-  params.Add("num_tracers", num_tracers);
+  const auto num_tracers_per_cell =
+      pin->GetOrAddReal("tracers", "num_tracers_per_cell", 0.0);
+  PARTHENON_REQUIRE_THROWS(num_tracers_per_cell >= 0.0,
+                           "What's a negative number of particles per cell?!");
+  params.Add("num_tracers_per_cell", num_tracers_per_cell);
 
   // Initialize random number generator pool
   int rng_seed = pin->GetOrAddInteger("tracers", "rng_seed", time(NULL));
@@ -57,12 +60,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   tracer_pkg->AddSwarmValue("vel_y", swarm_name, real_swarmvalue_metadata);
   // TODO(pgrete) check proper handling of <3D sims
   tracer_pkg->AddSwarmValue("vel_z", swarm_name, real_swarmvalue_metadata);
+  PARTHENON_REQUIRE_THROWS(pin->GetInteger("parthenon/mesh", "nx3") > 1,
+                           "Tracers/swarms currently only supported/tested in 3D.");
 
   // TODO(pgrete) this should be safe because we call this package init after the hydro
   // one, but we should check if there's direct way to access Params of other packages.
   const bool mhd = pin->GetString("hydro", "fluid") == "glmmhd";
 
-  PARTHENON_REQUIRE_THROWS(pin->GetString("parthenon/mesh", "refinement") == "none",
+  PARTHENON_REQUIRE_THROWS(pin->GetOrAddString("parthenon/mesh", "refinement", "none") ==
+                               "none",
                            "Tracers/swarms currently only supported on uniform meshes.");
 
   if (mhd) {
@@ -78,8 +84,6 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
   auto *pmb = mbd->GetParentPointer();
   auto &sd = pmb->swarm_data.Get();
   auto &swarm = sd->Get("tracers");
-
-  const auto ndim = pmb->pmy_mesh->ndim;
 
   auto &x = swarm->Get<Real>("x").Get();
   auto &y = swarm->Get<Real>("y").Get();
