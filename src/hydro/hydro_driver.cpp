@@ -12,6 +12,7 @@
 
 // Parthenon headers
 #include "amr_criteria/refinement_package.hpp"
+#include "basic_types.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include <parthenon/parthenon.hpp>
@@ -411,6 +412,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
       auto receive =
           tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+
+      auto fill = tl.AddTask(receive, Tracers::FillTracers, mbd0.get(), tm);
     }
   }
 

@@ -535,13 +535,6 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   // store state of distribution
   auto state_dist = few_modes_ft.GetDistState();
   pin->SetString("problem/turbulence", "state_dist", state_dist);
-
-  // TODO(pgrete) move this to a more central location in the driver
-  auto tracer_pkg = pmb->packages.Get("tracers");
-  if (tracer_pkg->Param<bool>("enabled")) {
-    auto &mbd = pmb->meshblock_data.Get();
-    Tracers::FillTracers(mbd.get());
-  }
 }
 
 } // namespace turbulence
