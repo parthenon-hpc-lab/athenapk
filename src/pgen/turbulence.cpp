@@ -340,7 +340,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   if (tracer_pkg->Param<bool>("enabled")) {
 
     for (int b = 0; b < md->NumBlocks(); b++) {
-      pmb = md->GetBlockData(0)->GetBlockPointer();
+      pmb = md->GetBlockData(b)->GetBlockPointer();
       auto &sd = pmb->swarm_data.Get();
       auto &swarm = pmb->swarm_data.Get()->Get("tracers");
       auto rng_pool = tracer_pkg->Param<RNGPool>("rng_pool");
