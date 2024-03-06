@@ -80,8 +80,31 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
 
   // MARCUS AND EVAN LOOK
-  tracer_pkg->AddSwarmValue("lnrho_0", swarm_name, real_swarmvalue_metadata);
-
+  tracer_pkg->AddSwarmValue("s_0", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_1", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_2", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_4", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_8", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_16", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_32", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_64", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_128", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_256", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_512", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("s_1024", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_0", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_1", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_2", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_4", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_8", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_16", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_32", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_64", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_128", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_256", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_512", swarm_name, real_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot_1024", swarm_name, real_swarmvalue_metadata);
+  
   return tracer_pkg;
 } // Initialize
 
@@ -161,8 +184,32 @@ TaskStatus FillTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto &pressure = swarm->Get<Real>("pressure").Get();
   // MARCUS AND EVAN LOOK
   const auto current_cycle = tm.ncycle;
-  auto &lnrho_0 = swarm->Get<Real>("lnrho_0").Get();
+  auto &s_0 = swarm->Get<Real>("s_0").Get();
+  auto &s_1 = swarm->Get<Real>("s_1").Get();
+  auto &s_2 = swarm->Get<Real>("s_2").Get();
+  auto &s_4 = swarm->Get<Real>("s_4").Get();
+  auto &s_8 = swarm->Get<Real>("s_8").Get();
+  auto &s_16 = swarm->Get<Real>("s_16").Get();
+  auto &s_32 = swarm->Get<Real>("s_32").Get();
+  auto &s_64 = swarm->Get<Real>("s_64").Get();
+  auto &s_128 = swarm->Get<Real>("s_128").Get();
+  auto &s_256 = swarm->Get<Real>("s_256").Get();
+  auto &s_512 = swarm->Get<Real>("s_512").Get();
+  auto &s_1024 = swarm->Get<Real>("s_1024").Get();
 
+  auto &sdot_0 = swarm->Get<Real>("sdot_0").Get();
+  auto &sdot_1 = swarm->Get<Real>("sdot_1").Get();
+  auto &sdot_2 = swarm->Get<Real>("sdot_2").Get();
+  auto &sdot_4 = swarm->Get<Real>("sdot_4").Get();
+  auto &sdot_8 = swarm->Get<Real>("sdot_8").Get();
+  auto &sdot_16 = swarm->Get<Real>("sdot_16").Get();
+  auto &sdot_32 = swarm->Get<Real>("sdot_32").Get();
+  auto &sdot_64 = swarm->Get<Real>("sdot_64").Get();
+  auto &sdot_128 = swarm->Get<Real>("sdot_128").Get();
+  auto &sdot_256 = swarm->Get<Real>("sdot_256").Get();
+  auto &sdot_512 = swarm->Get<Real>("sdot_512").Get();
+  auto &sdot_1024 = swarm->Get<Real>("sdot_1024").Get();
+  
   // Get hydro/mhd fluid vars
   const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
 
@@ -188,11 +235,61 @@ TaskStatus FillTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             B_z(n) = prim_pack(IB3, k, j, i);
           }
 
-          // MARCUS AND EVAN LOOK
-          if (current_cycle % 1 == 0) {
-            lnrho_0(n) = Kokkos::log(prim_pack(IDN, k, j, i));
-          }
+          // MARCUS AND EVAN LOOK  
+          // Q: DO WE HAVE TO INITIALISE S_0?
 
+         if (current_cycle % 1024 == 0) {
+             s_1024(n) =  s_512(n)
+             sdot_1024(n) =  sdot_512(n)
+    
+         }
+         if (current_cycle % 512 == 0) {
+             s_512(n) =  s_256(n)
+             sdot_512(n) =  sdot_256(n)
+         }
+         if (current_cycle % 256 == 0) {
+             s_256(n) =  s_128(n)
+             sdot_256(n) =  sdot_128(n)
+         }
+         if (current_cycle % 128 == 0) {
+             s_128(n) =  s_64(n)
+             sdot_128(n) =  sdot_64(n)  
+    
+         }
+         if (current_cycle % 64 == 0) {
+             s_64(n) =  s_32(n)
+             sdot_64(n) =  sdot_32(n)
+         }
+         if (current_cycle % 32 == 0) {
+             s_32(n) =  s_16(n)
+             sdot_32(n) =  sdot_16(n)
+         }
+         if (current_cycle % 16 == 0) {
+             s_16(n) =  s_8(n)
+             sdot_16(n) =  sdot_8(n)
+         }
+         if (current_cycle % 8 == 0) {
+             s_8(n) =  s_4(n)
+             sdot_8(n) =  sdot_4(n)
+         }
+         if (current_cycle % 4 == 0) {
+             s_4(n) =  s_2(n)
+             sdot_4(n) =  sdot_2(n)
+         }
+         if (current_cycle % 2 == 0) {
+             s_2(n) =  s_1(n)
+             sdot_2(n) =  sdot_1(n)
+    
+             // t2 = t1 here we build up our arrays of the previous times
+          }
+          if (current_cycle % 1 == 0) {
+             s_1(n) =  s_0(n)
+             sdot_1(n) =  sdot_0(n)
+             // t1 = t0 here we build up our arrays of the previous times
+          }
+          s_0(n) = Kokkos::log(prim_pack(IDN, k, j, i));
+          sdot_0(n) = (s_0(n)-s_1(n))/ DELTAT ;
+    
           bool unsed_tmp = true;
           swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unsed_tmp);
         }
