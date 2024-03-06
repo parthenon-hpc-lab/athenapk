@@ -22,6 +22,7 @@
 #include "../main.hpp"
 #include "basic_types.hpp"
 #include "utils/error_checking.hpp"
+#include <cmath>
 
 namespace Tracers {
 using namespace parthenon::package::prelude;
@@ -77,6 +78,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     tracer_pkg->AddSwarmValue("B_y", swarm_name, real_swarmvalue_metadata);
     tracer_pkg->AddSwarmValue("B_z", swarm_name, real_swarmvalue_metadata);
   }
+
+  // MARCUS AND EVAN LOOK
+  tracer_pkg->AddSwarmValue("lnrho_0", swarm_name, real_swarmvalue_metadata);
 
   return tracer_pkg;
 } // Initialize
@@ -155,6 +159,9 @@ TaskStatus FillTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   }
   auto &rho = swarm->Get<Real>("rho").Get();
   auto &pressure = swarm->Get<Real>("pressure").Get();
+  // MARCUS AND EVAN LOOK
+  const auto current_cycle = tm.ncycle;
+  auto &lnrho_0 = swarm->Get<Real>("lnrho_0").Get();
 
   // Get hydro/mhd fluid vars
   const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
@@ -179,6 +186,11 @@ TaskStatus FillTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             B_x(n) = prim_pack(IB1, k, j, i);
             B_y(n) = prim_pack(IB2, k, j, i);
             B_z(n) = prim_pack(IB3, k, j, i);
+          }
+
+          // MARCUS AND EVAN LOOK
+          if (current_cycle % 1 == 0) {
+            lnrho_0(n) = Kokkos::log(prim_pack(IDN, k, j, i));
           }
 
           bool unsed_tmp = true;
