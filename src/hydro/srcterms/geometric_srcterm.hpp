@@ -4,7 +4,19 @@
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file geometric_srcterm.hpp
-//  \brief Defines geometric SrcTerm for cylindrical and spherical grid
+//  \brief Defines geometric source terms for cylindrical and spherical grid
+//
+//  The cylindrical source term heavily borrows from the
+//  Cylindrical::AddCoordTermsDivergence  in Athena++ in
+//  src/coordinates/cylindrical.cpp
+//  
+//  The spherical source term heavily borrows from the 
+//  SphericalPolar::AddCoordTermsDivergence  in Athena++ in
+//  src/coordinates/spherical_polar.cpp
+//
+//  REFERENCES:
+//  - Skinner and Ostriker 2010 : doi.org/10.1088/0067-0049/188/1/290
+//  - Stone 2020 : doi.org/10.3847/1538-4365/ab929b
 //========================================================================================
 #ifndef HYDRO_SRCTERMS_GEOMETRIC_HPP_
 #define HYDRO_SRCTERMS_GEOMETRIC_HPP_

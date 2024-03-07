@@ -6,6 +6,8 @@
 //! \file disk.cpp
 //! \brief Initializes stratified Keplerian accretion disk in cylindrical and
 //! spherical polar coordinates.  Initial conditions are in vertical hydrostatic eqm.
+//! 
+//! Heavily borrows from the disk problem in Athena++ in src/pgen/disk.cpp
 
 // C++ headers
 #include <cmath>     // sqrt, atan2

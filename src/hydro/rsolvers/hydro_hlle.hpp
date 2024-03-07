@@ -65,33 +65,7 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
       wri[IV3] = wr(ivz, i);
       wri[IPR] = wr(IPR, i);
 
-      /*
-      //--- Step 2.  Compute middle state estimates with PVRS (Toro 10.5.2)
-      Real al, ar, el, er;
-      Real cl = eos.SoundSpeed(wli);
-      Real cr = eos.SoundSpeed(wri);
-      el = wli[IPR] * igm1 +
-           0.5 * wli[IDN] * (SQR(wli[IV1]) + SQR(wli[IV2]) + SQR(wli[IV3]));
-      er = wri[IPR] * igm1 +
-           0.5 * wri[IDN] * (SQR(wri[IV1]) + SQR(wri[IV2]) + SQR(wri[IV3]));
-      Real rhoa = .5 * (wli[IDN] + wri[IDN]); // average density
-      Real ca = .5 * (cl + cr);               // average sound speed
-      Real pmid = .5 * (wli[IPR] + wri[IPR] + (wli[IV1] - wri[IV1]) * rhoa * ca);
-
-      //--- Step 3.  Compute sound speed in L,R
-      Real ql, qr;
-      ql = (pmid <= wli[IPR])
-               ? 1.0
-               : (1.0 + (gamma + 1) / std::sqrt(2 * gamma) * (pmid / wli[IPR] - 1.0));
-      qr = (pmid <= wri[IPR])
-               ? 1.0
-               : (1.0 + (gamma + 1) / std::sqrt(2 * gamma) * (pmid / wri[IPR] - 1.0));
-
-      //--- Step 4. Compute the max/min wave speeds based on L/R states
-
-      al = wli[IV1] - cl * ql;
-      ar = wri[IV1] + cr * qr;*/
-
+      // Changes from Upstream Public AthenaPK to compute wavespeeds from Roe-averaged states
       //--- Step 2.  Compute Roe-averaged state
       Real sqrtdl = std::sqrt(wli[IDN]);
       Real sqrtdr = std::sqrt(wri[IDN]);

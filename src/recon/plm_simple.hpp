@@ -7,7 +7,7 @@
 #define RECONSTRUCT_PLM_SIMPLE_HPP_
 //! \file plm.cpp
 //  \brief  piecewise linear reconstruction implemented as inline functions
-//  This version only works with uniform mesh spacing
+//  This version only works with uniform coordinate systems.
 
 #include <parthenon/parthenon.hpp>
 
@@ -40,6 +40,9 @@ void PLM(const Real &q_im1, const Real &q_i, const Real &q_ip1, Real &ql_ip1,
   qr_i = q_i - dqm;
 }
 
+
+// Curvilinear PLM reconstruction which heavily borrows from Athena++'s
+// Reconstruction::PiecewiseLinearX functions in src/reconstruct/plm_simple.cpp
 KOKKOS_INLINE_FUNCTION
 void PLM(const Real &q_im1, const Real &q_i, const Real &q_ip1, Real &ql_ip1,
          Real &qr_i,
