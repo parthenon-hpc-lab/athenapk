@@ -18,12 +18,15 @@
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
 
-#include "tracers.hpp"
+#include <cmath>
+#include <string>
+#include <vector>
+
 #include "../main.hpp"
 #include "basic_types.hpp"
 #include "interface/metadata.hpp"
+#include "tracers.hpp"
 #include "utils/error_checking.hpp"
-#include <cmath>
 
 namespace Tracers {
 using namespace parthenon::package::prelude;
@@ -50,10 +53,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   // Add swarm of tracers
   std::string swarm_name = "tracers";
+  // TODO(pgrete) Check where metadata, e.g., for restart is required (i.e., at the swarm
+  // or variable level).
   Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
   tracer_pkg->AddSwarm(swarm_name, swarm_metadata);
   Metadata real_swarmvalue_metadata({Metadata::Real});
-  tracer_pkg->AddSwarmValue("id", swarm_name, Metadata({Metadata::Integer}));
+  tracer_pkg->AddSwarmValue("id", swarm_name,
+                            Metadata({Metadata::Integer, Metadata::Restart}));
 
   // TODO(pgrete) Add CheckDesired/required for vars
   // thermo variables
@@ -80,12 +86,22 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     tracer_pkg->AddSwarmValue("B_z", swarm_name, real_swarmvalue_metadata);
   }
 
+  // TODO(pgrete) this should eventually moved to a more pgen/user specific place
   // MARCUS AND EVAN LOOK
+  // Number of lookback times to be stored (in powers of 2,
+  // i.e., 12 allows to go from 0, 2^0 = 1, 2^1 = 2, 2^2 = 4, ..., 2^10 = 1024 cycles)
+  const int n_lookback = 12; // could even be made an input parameter if required/desired
+                             // (though it should probably not be changeable for restarts)
+  tracer_pkg->AddParam("n_lookback", n_lookback);
   // Using a vector to reduce code duplication.
   Metadata vreal_swarmvalue_metadata(
-      {Metadata::Real, Metadata::Vector, Metadata::Restart}, std::vector<int>{12});
+      {Metadata::Real, Metadata::Vector, Metadata::Restart},
+      std::vector<int>{n_lookback});
   tracer_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
   tracer_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
+  // Timestamps for the lookback entries
+  tracer_pkg->AddParam<>("t_lookback", std::vector<Real>(n_lookback),
+                         Params::Mutability::Restart);
 
   return tracer_pkg;
 } // Initialize
@@ -139,10 +155,10 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
 TaskStatus FillTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
   auto *pmb = mbd->GetParentPointer();
-  auto hydro_pkg = pmb->packages.Get("Hydro");
   auto &sd = pmb->swarm_data.Get();
   auto &swarm = sd->Get("tracers");
 
+  auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
 
   // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
@@ -167,8 +183,31 @@ TaskStatus FillTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   // MARCUS AND EVAN LOOK
   const auto current_cycle = tm.ncycle;
   const auto dt = tm.dt;
+
   auto &s = swarm->Get<Real>("s").Get();
   auto &sdot = swarm->Get<Real>("sdot").Get();
+
+  auto tracers_pkg = pmb->packages.Get("tracers");
+  const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
+  // Params (which is storing t_lookback) is shared across all blocks. Thus, we make sure
+  // to just call it once (for the first block with global id 0).
+  if (pmb->gid == 0) {
+    // Note, that this is a standard vector, so it cannot be used in the kernel (but also
+    // don't need to be used as can directly update it)
+    auto t_lookback = tracers_pkg->Param<std::vector<Real>>("t_lookback");
+    auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
+    auto idx = n_lookback - 1;
+    while (dncycle > 0) {
+      if (current_cycle % dncycle == 0) {
+        t_lookback[idx] = t_lookback[idx - 1];
+      }
+      dncycle /= 2;
+      idx -= 1;
+    }
+    t_lookback[0] = tm.time;
+    // Write data back to Params dict
+    tracers_pkg->UpdateParam("t_lookback", t_lookback);
+  }
 
   // Get hydro/mhd fluid vars
   const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
@@ -198,9 +237,8 @@ TaskStatus FillTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
           // MARCUS AND EVAN LOOK
           // Q: DO WE HAVE TO INITIALISE S_0?
           // PG: It's default intiialized to zero, so probably not.
-
-          int dncycle = 1024;
-          int s_idx = 11;
+          auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
+          auto s_idx = n_lookback - 1;
           while (dncycle > 0) {
             if (current_cycle % dncycle == 0) {
               s(s_idx, n) = s(s_idx - 1, n);
