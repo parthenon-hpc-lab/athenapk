@@ -563,8 +563,9 @@ Kokkos::parallel_reduce(
       \\ PHILLIP Here we are trying to do a reduction over all the particles that gives the average 
       \\ N is the number of particles
       Kokkos::Add<Real>(correlation_s,correlation_sdot);
-      correlation_s=correlation_s/N, correlation_sdot=correlation_sdot/N;)
+      correlation_s=correlation_s, correlation_sdot=correlation_sdot)
 
-
+      tracers_pkg->UpdateParam("correlation_s", correlation_s);
+      tracers_pkg->UpdateParam("correlation_sdot", correlation_sdot);
 
 } // namespace turbulence
