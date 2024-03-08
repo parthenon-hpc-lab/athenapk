@@ -102,6 +102,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // Timestamps for the lookback entries
   tracer_pkg->AddParam<>("t_lookback", std::vector<Real>(n_lookback),
                          Params::Mutability::Restart);
+  tracer_pkg->AddParam<>("correlation_s", std::vector<Real>(n_lookback),
+                         Params::Mutability::Restart);
+  tracer_pkg->AddParam<>("correlation_sdot", std::vector<Real>(n_lookback),
+                         Params::Mutability::Restart);
 
   return tracer_pkg;
 } // Initialize
