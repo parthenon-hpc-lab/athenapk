@@ -565,7 +565,7 @@ Kokkos::parallel_reduce(
       Kokkos::Add<Real>(correlation_s,correlation_sdot);
       correlation_s=correlation_s, correlation_sdot=correlation_sdot)
 
-      tracers_pkg->UpdateParam("correlation_s", correlation_s);
-      tracers_pkg->UpdateParam("correlation_sdot", correlation_sdot);
+      tracers_pkg->UpdateParam("correlation_s", correlation_s/N);
+      tracers_pkg->UpdateParam("correlation_sdot", correlation_sdot/N);
 
 } // namespace turbulence
