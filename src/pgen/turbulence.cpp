@@ -542,8 +542,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
 \\
 auto correlation_s = tracers_pkg->Param<std::vector<Real>>("correlation_s");
 auto correlation_sdot = tracers_pkg->Param<std::vector<Real>>("correlation_sdot");
+
 Kokkos::parallel_reduce(
-      "",
+      "Correlation",
       Kokkos::MDRangePolicy<Kokkos::Rank<1>>(n),
       \\ PHILIPP Here is our attempt to create a kokkos lambda that returns the correlations of s and sdot for a single particle
       KOKKOS_LAMBDA(const int n, Real &corr_s, Real &corr_sdot) {
@@ -558,12 +559,11 @@ Kokkos::parallel_reduce(
         for (i = 0; i < idx; i++) {
           corr_s[i]   =s(0, n)   *s(i,n);  \\PHILIPP: HOW DO YOU DO THIS INDEXING?
           corr_sdot[i]=sdot(0, n)*sdot(i,n);
-        }      
       },
-      \\ PHILLIP Here we are trying to do a reduction over all the particles that gives the average  
-      Kokkos::Add<Real>(correlation_s,correlation_sdot));
-      correlation_s=correlation_s/N;
-      correlation_sdot=correlation_sdot/N;
+      \\ PHILLIP Here we are trying to do a reduction over all the particles that gives the average 
+      \\ N is the number of particles
+      Kokkos::Add<Real>(correlation_s,correlation_sdot);
+      correlation_s=correlation_s/N, correlation_sdot=correlation_sdot/N;)
 
 
 
