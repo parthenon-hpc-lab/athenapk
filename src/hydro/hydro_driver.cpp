@@ -24,6 +24,7 @@
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
+#include "utils/error_checking.hpp"
 
 using namespace parthenon::driver::prelude;
 
@@ -412,8 +413,17 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
       auto receive =
           tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
-
-      auto fill = tl.AddTask(receive, Tracers::FillTracers, mbd0.get(), tm);
+    }
+    // TODO(pgrete) Fix/cleanup once we got swarm packs.
+    // We need just a single region with a single task in order to be able to use plain
+    // reductions.
+    PARTHENON_REQUIRE_THROWS(num_partitions == 1,
+                             "Only pack_size=-1 currently supported for tracers.")
+    TaskRegion &single_tasklist_per_pack_region_4 = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = single_tasklist_per_pack_region_4[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto fill = tl.AddTask(none, Tracers::FillTracers, mu0.get(), tm);
     }
   }
 
