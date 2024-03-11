@@ -1,4 +1,3 @@
-
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
 // Copyright (c) 2024, Athena-Parthenon Collaboration. All rights reserved.
@@ -23,23 +22,28 @@
 #ifndef UTILS_INTERPOLATION_HPP_
 #define UTILS_INTERPOLATION_HPP_
 
-// Spiner includes
-#include <spiner/interpolation.hpp>
-
 // Parthenon includes
+#include "utils/error_checking.hpp"
 #include <coordinates/coordinates.hpp>
 #include <kokkos_abstraction.hpp>
 #include <parthenon/package.hpp>
 
-// Phoebus includes
-#include "phoebus_utils/grid_utils.hpp"
-#include "phoebus_utils/robust.hpp"
+#include "robust.hpp"
 
 namespace interpolation {
 
 using namespace parthenon::package::prelude;
 using parthenon::Coordinates_t;
-using weights_t = Spiner::weights_t<Real>;
+
+// From https://github.com/lanl/spiner/blob/main/spiner/regular_grid_1d.hpp
+// a poor-man's std::pair
+struct weights_t {
+  Real first, second;
+  KOKKOS_INLINE_FUNCTION Real &operator[](const int i) {
+    assert(0 <= i && i <= 1);
+    return i == 0 ? first : second;
+  }
+};
 
 /// Base class for providing interpolation methods on uniformly spaced data.
 /// Constructor is provided with spacing, number of support points, and desired
@@ -133,7 +137,10 @@ template <int DIR>
 KOKKOS_INLINE_FUNCTION void GetWeights(const Real x, const int nx,
                                        const Coordinates_t &coords, int &ix,
                                        weights_t &w) {
-  const Real min = Coordinates::GetXv<DIR>(0, coords);
+  PARTHENON_DEBUG_REQUIRE(
+      typeid(Coordinates_t) == typeid(UniformCartesian),
+      "Interpolation routines currently only work for UniformCartesian");
+  const Real min = coords.Xc<DIR>(0); // assume uniform Cartesian
   const Real dx = coords.CellWidthFA(DIR);
   ix = std::min(std::max(0, static_cast<int>(robust::ratio(x - min, dx))), nx - 2);
   const Real floor = min + ix * dx;
@@ -235,4 +242,4 @@ KOKKOS_INLINE_FUNCTION Real Do(int b, const Real X1, const Real X2, const Real X
 // Convenience Namespace Alias
 namespace LCInterp = interpolation::Cent::Linear;
 
-#endif // PHOEBUS_UTILS_PHOEBUS_INTERPOLATION_HPP_
+#endif // UTILS_INTERPOLATION_HPP_
