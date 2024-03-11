@@ -3,7 +3,7 @@
 // Copyright (c) 2024, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-// Tracer implementation refacored from https://github.com/lanl/phoebus
+// Tracer implementation refactored from https://github.com/lanl/phoebus
 //========================================================================================
 // © 2021-2023. Triad National Security, LLC. All rights reserved.
 // This program was produced under U.S. Government contract
@@ -263,7 +263,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
             // correlations
             for (s_idx = 0; s_idx < n_lookback; s_idx++) {
               Kokkos::atomic_add(&corr(0, s_idx), s(0, n) * s(s_idx, n));
-              Kokkos::atomic_add(&corr(1, s_idx), sdot(0, n) * s(s_idx, n));
+              Kokkos::atomic_add(&corr(1, s_idx), sdot(0, n) * sdot(s_idx, n));
             }
           }
         });
