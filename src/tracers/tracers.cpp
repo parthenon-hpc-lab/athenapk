@@ -102,10 +102,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // Timestamps for the lookback entries
   tracer_pkg->AddParam<>("t_lookback", std::vector<Real>(n_lookback),
                          Params::Mutability::Restart);
-  tracer_pkg->AddParam<>("correlation_s", std::vector<Real>(n_lookback),
-                         Params::Mutability::Restart);
-  tracer_pkg->AddParam<>("correlation_sdot", std::vector<Real>(n_lookback),
-                         Params::Mutability::Restart);
 
   return tracer_pkg;
 } // Initialize
@@ -143,6 +139,9 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
           y(n) += prim_pack(IV2, k, j, i) * dt;
           z(n) += prim_pack(IV3, k, j, i) * dt;
 
+          // The following call is required as it updates the internal block id following
+          // the advection. The internal id is used in the subsequent task to communicate
+          // particles.
           bool unused_temp = true;
           swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
         }
@@ -157,15 +156,37 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
  * rho, vel, B
  **/
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
-  // Get hydro/mhd fluid vars
+  const auto current_cycle = tm.ncycle;
+  const auto dt = tm.dt;
+
+  auto hydro_pkg = md->GetParentPointer()->packages.Get("Hydro");
+  const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
+
+  auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
+  const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
+  // Params (which is storing t_lookback) is shared across all blocks so we update it
+  // outside the block loop. Note, that this is a standard vector, so it cannot be used in
+  // the kernel (but also don't need to be used as can directly update it)
+  auto t_lookback = tracers_pkg->Param<std::vector<Real>>("t_lookback");
+  auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
+  auto idx = n_lookback - 1;
+  while (dncycle > 0) {
+    if (current_cycle % dncycle == 0) {
+      t_lookback[idx] = t_lookback[idx - 1];
+    }
+    dncycle /= 2;
+    idx -= 1;
+  }
+  t_lookback[0] = tm.time;
+  // Write data back to Params dict
+  tracers_pkg->UpdateParam("t_lookback", t_lookback);
+
+  // Get hydro/mhd fluid vars over all blocks
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
     auto &sd = pmb->swarm_data.Get();
     auto &swarm = sd->Get("tracers");
-
-    auto hydro_pkg = pmb->packages.Get("Hydro");
-    const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
 
     // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
     // pull swarm vars
@@ -187,33 +208,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
     auto &rho = swarm->Get<Real>("rho").Get();
     auto &pressure = swarm->Get<Real>("pressure").Get();
     // MARCUS AND EVAN LOOK
-    const auto current_cycle = tm.ncycle;
-    const auto dt = tm.dt;
-
     auto &s = swarm->Get<Real>("s").Get();
     auto &sdot = swarm->Get<Real>("sdot").Get();
-
-    auto tracers_pkg = pmb->packages.Get("tracers");
-    const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
-    // Params (which is storing t_lookback) is shared across all blocks. Thus, we make
-    // sure to just call it once (for the first block with global id 0).
-    if (pmb->gid == 0) {
-      // Note, that this is a standard vector, so it cannot be used in the kernel (but
-      // also don't need to be used as can directly update it)
-      auto t_lookback = tracers_pkg->Param<std::vector<Real>>("t_lookback");
-      auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
-      auto idx = n_lookback - 1;
-      while (dncycle > 0) {
-        if (current_cycle % dncycle == 0) {
-          t_lookback[idx] = t_lookback[idx - 1];
-        }
-        dncycle /= 2;
-        idx -= 1;
-      }
-      t_lookback[0] = tm.time;
-      // Write data back to Params dict
-      tracers_pkg->UpdateParam("t_lookback", t_lookback);
-    }
 
     auto swarm_d = swarm->GetDeviceContext();
 
@@ -253,14 +249,42 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
             }
             s(0, n) = Kokkos::log(prim(IDN, k, j, i));
             sdot(0, n) = (s(0, n) - s(1, n)) / dt;
-
-            bool unsed_tmp = true;
-            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unsed_tmp);
           }
         });
+#if 0
+\\
+\\ COMPUTE THE AVERAGE OVER PRODUCTS OF S VALUES
+\\ PHILIPP: PLEASE FIX THIS
+\\
+auto correlation_s = tracers_pkg->Param<std::vector<Real>>("correlation_s");
+auto correlation_sdot = tracers_pkg->Param<std::vector<Real>>("correlation_sdot");
+
+Kokkos::parallel_reduce(
+      "Correlation",
+      Kokkos::MDRangePolicy<Kokkos::Rank<1>>(n),
+      \\ PHILIPP Here is our attempt to create a kokkos lambda that returns the correlations of s and sdot for a single particle
+      KOKKOS_LAMBDA(const int n, Real &corr_s, Real &corr_sdot) {
+        auto tracers_pkg = pmb->packages.Get("tracers");
+        const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
+        auto idx = n_lookback - 1;
+        auto &s = swarm->Get<Real>("s").Get();
+        auto &sdot = swarm->Get<Real>("sdot").Get();
+        auto corr_s;
+        auto corr_sdot;
+        
+        for (i = 0; i < idx; i++) {
+          corr_s[i]   =s(0, n)   *s(i,n);  \\PHILIPP: HOW DO YOU DO THIS INDEXING?
+          corr_sdot[i]=sdot(0, n)*sdot(i,n);
+      },
+      \\ PHILLIP Here we are trying to do a reduction over all the particles that gives the average 
+      \\ N is the number of particles
+      Kokkos::Add<Real>(correlation_s,correlation_sdot);
+      correlation_s=correlation_s, correlation_sdot=correlation_sdot)
+
+      tracers_pkg->UpdateParam("correlation_s", correlation_s/N);
+      tracers_pkg->UpdateParam("correlation_sdot", correlation_sdot/N);
+#endif
   }
   return TaskStatus::complete;
-
 } // FillTracers
-
 } // namespace Tracers

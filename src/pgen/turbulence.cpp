@@ -536,36 +536,4 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
   auto state_dist = few_modes_ft.GetDistState();
   pin->SetString("problem/turbulence", "state_dist", state_dist);
 }
-\\
-\\ COMPUTE THE AVERAGE OVER PRODUCTS OF S VALUES
-\\ PHILIPP: PLEASE FIX THIS
-\\
-auto correlation_s = tracers_pkg->Param<std::vector<Real>>("correlation_s");
-auto correlation_sdot = tracers_pkg->Param<std::vector<Real>>("correlation_sdot");
-
-Kokkos::parallel_reduce(
-      "Correlation",
-      Kokkos::MDRangePolicy<Kokkos::Rank<1>>(n),
-      \\ PHILIPP Here is our attempt to create a kokkos lambda that returns the correlations of s and sdot for a single particle
-      KOKKOS_LAMBDA(const int n, Real &corr_s, Real &corr_sdot) {
-        auto tracers_pkg = pmb->packages.Get("tracers");
-        const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
-        auto idx = n_lookback - 1;
-        auto &s = swarm->Get<Real>("s").Get();
-        auto &sdot = swarm->Get<Real>("sdot").Get();
-        auto corr_s;
-        auto corr_sdot;
-        
-        for (i = 0; i < idx; i++) {
-          corr_s[i]   =s(0, n)   *s(i,n);  \\PHILIPP: HOW DO YOU DO THIS INDEXING?
-          corr_sdot[i]=sdot(0, n)*sdot(i,n);
-      },
-      \\ PHILLIP Here we are trying to do a reduction over all the particles that gives the average 
-      \\ N is the number of particles
-      Kokkos::Add<Real>(correlation_s,correlation_sdot);
-      correlation_s=correlation_s, correlation_sdot=correlation_sdot)
-
-      tracers_pkg->UpdateParam("correlation_s", correlation_s/N);
-      tracers_pkg->UpdateParam("correlation_sdot", correlation_sdot/N);
-
 } // namespace turbulence
