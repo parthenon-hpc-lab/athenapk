@@ -30,6 +30,7 @@
 #include "parthenon_array_generic.hpp"
 #include "tracers.hpp"
 #include "utils/error_checking.hpp"
+#include "../utils/interpolation.hpp"
 
 namespace Tracers {
 using namespace parthenon::package::prelude;
