@@ -24,13 +24,13 @@
 #include <vector>
 
 #include "../main.hpp"
+#include "../utils/interpolation.hpp"
 #include "basic_types.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
 #include "tracers.hpp"
 #include "utils/error_checking.hpp"
-#include "../utils/interpolation.hpp"
 
 namespace Tracers {
 using namespace parthenon::package::prelude;
@@ -227,21 +227,20 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
     const int max_active_index = swarm->GetMaxActiveIndex();
     pmb->par_for(
         "Fill Tracers", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
-          const auto prim = prim_pack(b);
           if (swarm_d.IsActive(n)) {
             int k, j, i;
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
             // TODO(pgrete) Interpolate
-            rho(n) = prim(IDN, k, j, i);
-            vel_x(n) = prim(IV1, k, j, i);
-            vel_y(n) = prim(IV2, k, j, i);
-            vel_z(n) = prim(IV3, k, j, i);
-            pressure(n) = prim(IPR, k, j, i);
+            rho(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IDN);
+            vel_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV1);
+            vel_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV2);
+            vel_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV3);
+            pressure(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IPR);
             if (mhd) {
-              B_x(n) = prim(IB1, k, j, i);
-              B_y(n) = prim(IB2, k, j, i);
-              B_z(n) = prim(IB3, k, j, i);
+              B_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB1);
+              B_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB2);
+              B_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB3);
             }
 
             // MARCUS AND EVAN LOOK
@@ -257,7 +256,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
               dncycle /= 2;
               s_idx -= 1;
             }
-            s(0, n) = Kokkos::log(prim(IDN, k, j, i));
+            s(0, n) = Kokkos::log(rho(n));
             sdot(0, n) = (s(0, n) - s(1, n)) / dt;
 
             // Now that all s and sdot entries are updated, we calculate the (mean)
