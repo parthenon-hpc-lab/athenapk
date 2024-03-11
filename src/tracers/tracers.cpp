@@ -19,12 +19,15 @@
 // publicly, and to permit others to do so.
 
 #include <cmath>
+#include <fstream>
 #include <string>
 #include <vector>
 
 #include "../main.hpp"
 #include "basic_types.hpp"
 #include "interface/metadata.hpp"
+#include "kokkos_abstraction.hpp"
+#include "parthenon_array_generic.hpp"
 #include "tracers.hpp"
 #include "utils/error_checking.hpp"
 
@@ -265,7 +268,56 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
           }
         });
     num_particles_total += swarm->GetNumActive();
+  } // loop over all blocks on this rank (this MeshData container)
+
+  // Results still live in device memory. Copy to host for global reduction and output.
+  auto corr_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), corr);
+#ifdef MPI_PARALLEL
+  if (parthenon::Globals::my_rank == 0) {
+    PARTHENON_MPI_CHECK(MPI_Reduce(MPI_IN_PLACE, corr_h.data(), corr_h.GetSize(),
+                                   MPI_PARTHENON_REAL, MPI_SUM, 0, MPI_COMM_WORLD));
+    PARTHENON_MPI_CHECK(MPI_Reduce(MPI_IN_PLACE, &num_particles_total, 1, MPI_INT64_T,
+                                   MPI_SUM, 0, MPI_COMM_WORLD));
+  } else {
+    PARTHENON_MPI_CHECK(MPI_Reduce(corr_h.data(), corr_h.data(), corr_h.GetSize(),
+                                   MPI_PARTHENON_REAL, MPI_SUM, 0, MPI_COMM_WORLD));
+    PARTHENON_MPI_CHECK(MPI_Reduce(&num_particles_total, &num_particles_total, 1,
+                                   MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD));
   }
+#endif
+  if (parthenon::Globals::my_rank == 0) {
+    // Turn sum into mean
+    for (int i = 0; i < n_lookback; i++) {
+      corr_h(0, i) /= static_cast<Real>(num_particles_total);
+      corr_h(1, i) /= static_cast<Real>(num_particles_total);
+    }
+
+    // and write data
+    std::ofstream outfile;
+    const std::string fname("correlations.csv");
+    // On startup, write header
+    if (current_cycle == 0) {
+      outfile.open(fname, std::ofstream::out);
+      outfile << "# Hello world\n";
+    } else {
+      outfile.open(fname, std::ofstream::out | std::ofstream::app);
+    }
+
+    outfile << tm.ncycle << "," << tm.time;
+
+    for (int j = 0; j < 2; j++) {
+      for (int i = 0; i < n_lookback; i++) {
+        outfile << "," << corr_h(j, i);
+      }
+    }
+    for (int i = 0; i < n_lookback; i++) {
+      outfile << "," << t_lookback[i];
+    }
+    outfile << std::endl;
+
+    outfile.close();
+  }
+
   return TaskStatus::complete;
 } // FillTracers
 } // namespace Tracers
