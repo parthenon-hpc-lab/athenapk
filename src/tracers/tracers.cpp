@@ -118,6 +118,9 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
   auto &x = swarm->Get<Real>("x").Get();
   auto &y = swarm->Get<Real>("y").Get();
   auto &z = swarm->Get<Real>("z").Get();
+  auto &vel_x = swarm->Get<Real>("vel_x").Get();
+  auto &vel_y = swarm->Get<Real>("vel_y").Get();
+  auto &vel_z = swarm->Get<Real>("vel_z").Get();
 
   auto swarm_d = swarm->GetDeviceContext();
 
@@ -131,17 +134,25 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
           int k, j, i;
           swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-          // Predictor/corrector will first make sense with non constant interpolation
-          // TODO(pgrete) add non-cnonst interpolation
-          // predictor
-          // const Real kx = x(n) + 0.5 * dt * rhs1;
-          // const Real ky = y(n) + 0.5 * dt * rhs2;
-          // const Real kz = z(n) + 0.5 * dt * rhs3;
+          // RK2/Heun's method (as the default in Flash)
+          // https://flash.rochester.edu/site/flashcode/user_support/flash4_ug_4p62/node130.html#SECTION06813000000000000000
+          // Intermediate position and velocities
+          // x^{*,n+1} = x^n + dt * v^n
+          const auto x_star = x(n) + dt * vel_x(n);
+          const auto y_star = y(n) + dt * vel_y(n);
+          const auto z_star = z(n) + dt * vel_z(n);
 
-          // corrector
-          x(n) += prim_pack(IV1, k, j, i) * dt;
-          y(n) += prim_pack(IV2, k, j, i) * dt;
-          z(n) += prim_pack(IV3, k, j, i) * dt;
+          // v^{*,n+1} = v(x^{*,n+1}, t^{n+1})
+          // First parameter b=0 assume to operate on a pack of a single block and needs
+          // to be updated if this becomes a MeshData function
+          const auto vel_x_star = LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV1);
+          const auto vel_y_star = LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV2);
+          const auto vel_z_star = LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV3);
+
+          // Full update using mean velocity
+          x(n) += dt * 0.5 * (vel_x(n) + vel_x_star);
+          y(n) += dt * 0.5 * (vel_y(n) + vel_y_star);
+          z(n) += dt * 0.5 * (vel_z(n) + vel_z_star);
 
           // The following call is required as it updates the internal block id following
           // the advection. The internal id is used in the subsequent task to communicate
