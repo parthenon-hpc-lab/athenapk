@@ -156,108 +156,109 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
  * Registered Quantities (in addition to t, x, y, z):
  * rho, vel, B
  **/
-TaskStatus FillTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
-
-  auto *pmb = mbd->GetParentPointer();
-  auto &sd = pmb->swarm_data.Get();
-  auto &swarm = sd->Get("tracers");
-
-  auto hydro_pkg = pmb->packages.Get("Hydro");
-  const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
-
-  // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
-  // pull swarm vars
-  auto &x = swarm->Get<Real>("x").Get();
-  auto &y = swarm->Get<Real>("y").Get();
-  auto &z = swarm->Get<Real>("z").Get();
-  auto &vel_x = swarm->Get<Real>("vel_x").Get();
-  auto &vel_y = swarm->Get<Real>("vel_y").Get();
-  auto &vel_z = swarm->Get<Real>("vel_z").Get();
-  // Assign some (definitely existing) default var
-  auto B_x = vel_x.Get();
-  auto B_y = vel_x.Get();
-  auto B_z = vel_x.Get();
-  if (mhd) {
-    B_x = swarm->Get<Real>("B_x").Get();
-    B_y = swarm->Get<Real>("B_y").Get();
-    B_z = swarm->Get<Real>("B_z").Get();
-  }
-  auto &rho = swarm->Get<Real>("rho").Get();
-  auto &pressure = swarm->Get<Real>("pressure").Get();
-  // MARCUS AND EVAN LOOK
-  const auto current_cycle = tm.ncycle;
-  const auto dt = tm.dt;
-
-  auto &s = swarm->Get<Real>("s").Get();
-  auto &sdot = swarm->Get<Real>("sdot").Get();
-
-  auto tracers_pkg = pmb->packages.Get("tracers");
-  const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
-  // Params (which is storing t_lookback) is shared across all blocks. Thus, we make sure
-  // to just call it once (for the first block with global id 0).
-  if (pmb->gid == 0) {
-    // Note, that this is a standard vector, so it cannot be used in the kernel (but also
-    // don't need to be used as can directly update it)
-    auto t_lookback = tracers_pkg->Param<std::vector<Real>>("t_lookback");
-    auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
-    auto idx = n_lookback - 1;
-    while (dncycle > 0) {
-      if (current_cycle % dncycle == 0) {
-        t_lookback[idx] = t_lookback[idx - 1];
-      }
-      dncycle /= 2;
-      idx -= 1;
-    }
-    t_lookback[0] = tm.time;
-    // Write data back to Params dict
-    tracers_pkg->UpdateParam("t_lookback", t_lookback);
-  }
-
+TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   // Get hydro/mhd fluid vars
-  const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  for (int b = 0; b < md->NumBlocks(); b++) {
+    auto *pmb = md->GetBlockData(b)->GetBlockPointer();
+    auto &sd = pmb->swarm_data.Get();
+    auto &swarm = sd->Get("tracers");
 
-  auto swarm_d = swarm->GetDeviceContext();
+    auto hydro_pkg = pmb->packages.Get("Hydro");
+    const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
 
-  // update loop.
-  const int max_active_index = swarm->GetMaxActiveIndex();
-  pmb->par_for(
-      "Fill Tracers", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
-        if (swarm_d.IsActive(n)) {
-          int k, j, i;
-          swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+    // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
+    // pull swarm vars
+    auto &x = swarm->Get<Real>("x").Get();
+    auto &y = swarm->Get<Real>("y").Get();
+    auto &z = swarm->Get<Real>("z").Get();
+    auto &vel_x = swarm->Get<Real>("vel_x").Get();
+    auto &vel_y = swarm->Get<Real>("vel_y").Get();
+    auto &vel_z = swarm->Get<Real>("vel_z").Get();
+    // Assign some (definitely existing) default var
+    auto B_x = vel_x.Get();
+    auto B_y = vel_x.Get();
+    auto B_z = vel_x.Get();
+    if (mhd) {
+      B_x = swarm->Get<Real>("B_x").Get();
+      B_y = swarm->Get<Real>("B_y").Get();
+      B_z = swarm->Get<Real>("B_z").Get();
+    }
+    auto &rho = swarm->Get<Real>("rho").Get();
+    auto &pressure = swarm->Get<Real>("pressure").Get();
+    // MARCUS AND EVAN LOOK
+    const auto current_cycle = tm.ncycle;
+    const auto dt = tm.dt;
 
-          // TODO(pgrete) Interpolate
-          rho(n) = prim_pack(IDN, k, j, i);
-          vel_x(n) = prim_pack(IV1, k, j, i);
-          vel_y(n) = prim_pack(IV2, k, j, i);
-          vel_z(n) = prim_pack(IV3, k, j, i);
-          pressure(n) = prim_pack(IPR, k, j, i);
-          if (mhd) {
-            B_x(n) = prim_pack(IB1, k, j, i);
-            B_y(n) = prim_pack(IB2, k, j, i);
-            B_z(n) = prim_pack(IB3, k, j, i);
-          }
+    auto &s = swarm->Get<Real>("s").Get();
+    auto &sdot = swarm->Get<Real>("sdot").Get();
 
-          // MARCUS AND EVAN LOOK
-          // Q: DO WE HAVE TO INITIALISE S_0?
-          // PG: It's default intiialized to zero, so probably not.
-          auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
-          auto s_idx = n_lookback - 1;
-          while (dncycle > 0) {
-            if (current_cycle % dncycle == 0) {
-              s(s_idx, n) = s(s_idx - 1, n);
-              sdot(s_idx, n) = sdot(s_idx - 1, n);
-            }
-            dncycle /= 2;
-            s_idx -= 1;
-          }
-          s(0, n) = Kokkos::log(prim_pack(IDN, k, j, i));
-          sdot(0, n) = (s(0, n) - s(1, n)) / dt;
-
-          bool unsed_tmp = true;
-          swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unsed_tmp);
+    auto tracers_pkg = pmb->packages.Get("tracers");
+    const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
+    // Params (which is storing t_lookback) is shared across all blocks. Thus, we make
+    // sure to just call it once (for the first block with global id 0).
+    if (pmb->gid == 0) {
+      // Note, that this is a standard vector, so it cannot be used in the kernel (but
+      // also don't need to be used as can directly update it)
+      auto t_lookback = tracers_pkg->Param<std::vector<Real>>("t_lookback");
+      auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
+      auto idx = n_lookback - 1;
+      while (dncycle > 0) {
+        if (current_cycle % dncycle == 0) {
+          t_lookback[idx] = t_lookback[idx - 1];
         }
-      });
+        dncycle /= 2;
+        idx -= 1;
+      }
+      t_lookback[0] = tm.time;
+      // Write data back to Params dict
+      tracers_pkg->UpdateParam("t_lookback", t_lookback);
+    }
+
+    auto swarm_d = swarm->GetDeviceContext();
+
+    // update loop.
+    const int max_active_index = swarm->GetMaxActiveIndex();
+    pmb->par_for(
+        "Fill Tracers", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+          const auto prim = prim_pack(b);
+          if (swarm_d.IsActive(n)) {
+            int k, j, i;
+            swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+
+            // TODO(pgrete) Interpolate
+            rho(n) = prim(IDN, k, j, i);
+            vel_x(n) = prim(IV1, k, j, i);
+            vel_y(n) = prim(IV2, k, j, i);
+            vel_z(n) = prim(IV3, k, j, i);
+            pressure(n) = prim(IPR, k, j, i);
+            if (mhd) {
+              B_x(n) = prim(IB1, k, j, i);
+              B_y(n) = prim(IB2, k, j, i);
+              B_z(n) = prim(IB3, k, j, i);
+            }
+
+            // MARCUS AND EVAN LOOK
+            // Q: DO WE HAVE TO INITIALISE S_0?
+            // PG: It's default intiialized to zero, so probably not.
+            auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
+            auto s_idx = n_lookback - 1;
+            while (dncycle > 0) {
+              if (current_cycle % dncycle == 0) {
+                s(s_idx, n) = s(s_idx - 1, n);
+                sdot(s_idx, n) = sdot(s_idx - 1, n);
+              }
+              dncycle /= 2;
+              s_idx -= 1;
+            }
+            s(0, n) = Kokkos::log(prim(IDN, k, j, i));
+            sdot(0, n) = (s(0, n) - s(1, n)) / dt;
+
+            bool unsed_tmp = true;
+            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unsed_tmp);
+          }
+        });
+  }
   return TaskStatus::complete;
 
 } // FillTracers

@@ -39,7 +39,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt);
 
-TaskStatus FillTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
 
 } // namespace Tracers
 
