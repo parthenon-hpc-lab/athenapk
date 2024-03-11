@@ -181,6 +181,12 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   // Write data back to Params dict
   tracers_pkg->UpdateParam("t_lookback", t_lookback);
 
+  // TODO(pgrete) Benchmark atomic and potentially update to proper reduction instead of
+  // atomics.
+  //  Used for the parallel reduction. Could be reused but this way it's initalized to 0.
+  parthenon::ParArray2D<Real> corr("tracer correlations", 2, n_lookback);
+  int64_t num_particles_total = 0;
+
   // Get hydro/mhd fluid vars over all blocks
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   for (int b = 0; b < md->NumBlocks(); b++) {
@@ -207,7 +213,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
     }
     auto &rho = swarm->Get<Real>("rho").Get();
     auto &pressure = swarm->Get<Real>("pressure").Get();
-    // MARCUS AND EVAN LOOK
+
     auto &s = swarm->Get<Real>("s").Get();
     auto &sdot = swarm->Get<Real>("sdot").Get();
 
@@ -249,41 +255,16 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
             }
             s(0, n) = Kokkos::log(prim(IDN, k, j, i));
             sdot(0, n) = (s(0, n) - s(1, n)) / dt;
+
+            // Now that all s and sdot entries are updated, we calculate the (mean)
+            // correlations
+            for (s_idx = 0; s_idx < n_lookback; s_idx++) {
+              Kokkos::atomic_add(&corr(0, s_idx), s(0, n) * s(s_idx, n));
+              Kokkos::atomic_add(&corr(1, s_idx), sdot(0, n) * s(s_idx, n));
+            }
           }
         });
-#if 0
-\\
-\\ COMPUTE THE AVERAGE OVER PRODUCTS OF S VALUES
-\\ PHILIPP: PLEASE FIX THIS
-\\
-auto correlation_s = tracers_pkg->Param<std::vector<Real>>("correlation_s");
-auto correlation_sdot = tracers_pkg->Param<std::vector<Real>>("correlation_sdot");
-
-Kokkos::parallel_reduce(
-      "Correlation",
-      Kokkos::MDRangePolicy<Kokkos::Rank<1>>(n),
-      \\ PHILIPP Here is our attempt to create a kokkos lambda that returns the correlations of s and sdot for a single particle
-      KOKKOS_LAMBDA(const int n, Real &corr_s, Real &corr_sdot) {
-        auto tracers_pkg = pmb->packages.Get("tracers");
-        const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
-        auto idx = n_lookback - 1;
-        auto &s = swarm->Get<Real>("s").Get();
-        auto &sdot = swarm->Get<Real>("sdot").Get();
-        auto corr_s;
-        auto corr_sdot;
-        
-        for (i = 0; i < idx; i++) {
-          corr_s[i]   =s(0, n)   *s(i,n);  \\PHILIPP: HOW DO YOU DO THIS INDEXING?
-          corr_sdot[i]=sdot(0, n)*sdot(i,n);
-      },
-      \\ PHILLIP Here we are trying to do a reduction over all the particles that gives the average 
-      \\ N is the number of particles
-      Kokkos::Add<Real>(correlation_s,correlation_sdot);
-      correlation_s=correlation_s, correlation_sdot=correlation_sdot)
-
-      tracers_pkg->UpdateParam("correlation_s", correlation_s/N);
-      tracers_pkg->UpdateParam("correlation_sdot", correlation_sdot/N);
-#endif
+    num_particles_total += swarm->GetNumActive();
   }
   return TaskStatus::complete;
 } // FillTracers
