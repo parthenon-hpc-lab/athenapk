@@ -309,7 +309,13 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
     // On startup, write header
     if (current_cycle == 0) {
       outfile.open(fname, std::ofstream::out);
-      outfile << "# Hello world\n";
+      outfile << "# cycle, time";
+      for (const auto &var : {"corr_s", "corr_sdot", "t_lookback"}) {
+        for (int i = 0; i < n_lookback; i++) {
+          outfile << ", " << var << "[" << i << "]";
+        }
+        outfile << std::endl;
+      }
     } else {
       outfile.open(fname, std::ofstream::out | std::ofstream::app);
     }
