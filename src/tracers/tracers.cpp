@@ -199,7 +199,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   // TODO(pgrete) Benchmark atomic and potentially update to proper reduction instead of
   // atomics.
   //  Used for the parallel reduction. Could be reused but this way it's initalized to 0.
-  parthenon::ParArray2D<Real> corr("tracer correlations", 2, n_lookback);
+  // n_lookback + 1 as it also carries <s> and <sdot>
+  parthenon::ParArray2D<Real> corr("tracer correlations", 2, n_lookback + 1);
   int64_t num_particles_total = 0;
 
   // Get hydro/mhd fluid vars over all blocks
@@ -276,6 +277,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
               Kokkos::atomic_add(&corr(0, s_idx), s(0, n) * s(s_idx, n));
               Kokkos::atomic_add(&corr(1, s_idx), sdot(0, n) * sdot(s_idx, n));
             }
+            Kokkos::atomic_add(&corr(0, n_lookback), s(0, n));
+            Kokkos::atomic_add(&corr(1, n_lookback), sdot(0, n));
           }
         });
     num_particles_total += swarm->GetNumActive();
@@ -298,7 +301,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 #endif
   if (parthenon::Globals::my_rank == 0) {
     // Turn sum into mean
-    for (int i = 0; i < n_lookback; i++) {
+    for (int i = 0; i < n_lookback + 1; i++) {
       corr_h(0, i) /= static_cast<Real>(num_particles_total);
       corr_h(1, i) /= static_cast<Real>(num_particles_total);
     }
@@ -309,7 +312,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
     // On startup, write header
     if (current_cycle == 0) {
       outfile.open(fname, std::ofstream::out);
-      outfile << "# cycle, time";
+      outfile << "# cycle, time, s, sdot";
       for (const auto &var : {"corr_s", "corr_sdot", "t_lookback"}) {
         for (int i = 0; i < n_lookback; i++) {
           outfile << ", " << var << "[" << i << "]";
@@ -322,6 +325,10 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
     outfile << tm.ncycle << "," << tm.time;
 
+    // <s> and <sdot>
+    outfile << "," << corr_h(0, n_lookback);
+    outfile << "," << corr_h(1, n_lookback);
+    // <corr(s)> and <corr(sdot)>
     for (int j = 0; j < 2; j++) {
       for (int i = 0; i < n_lookback; i++) {
         outfile << "," << corr_h(j, i);
