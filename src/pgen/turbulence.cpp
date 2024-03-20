@@ -60,8 +60,6 @@ Real TurbulenceHst(MeshData<Real> *md) {
   if (hst_quan == HstQuan::DeltaEcool &&
       hydro_pkg->AllParams().hasKey("cooling/total_deltaE_this_cycle")) {
     return hydro_pkg->Param<Real>("cooling/total_deltaE_this_cycle");
-  } else {
-    return 0;
   }
 
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
@@ -121,9 +119,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
                                                     TurbulenceHst<HstQuan::Ms>, "Ms"));
-  hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
-                                                    TurbulenceHst<HstQuan::DeltaEcool>,
-                                                    "DeltaEcool"));
+  if (pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
+    hst_vars.emplace_back(
+        parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                    TurbulenceHst<HstQuan::DeltaEcool>, "DeltaEcool"));
+  }
   if (fluid == Fluid::glmmhd) {
     hst_vars.emplace_back(parthenon::HistoryOutputVar(
         parthenon::UserHistoryOperation::sum, TurbulenceHst<HstQuan::Ma>, "Ma"));
