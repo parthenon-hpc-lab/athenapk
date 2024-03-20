@@ -138,6 +138,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
                              "Using temperature fields requires units or mbar_over_kb.");
     pkg->AddField("temperature", m);
   }
+  if (pin->GetOrAddBoolean("problem/turbulence", "calc_vorticity_mag", false)) {
+    pkg->AddField("vorticity_mag", m);
+  }
 
   // Step 2. Add appropriate fields required by this pgen
   // Using OneCopy here to save memory. We typically don't need to update/evolve the
@@ -798,6 +801,36 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
           const Real P = prim(IPR, k, j, i);
           // compute temperature
           temperature(k, j, i) = mbar_over_kb * P / rho;
+        });
+  }
+  if (pin->GetOrAddBoolean("problem/turbulence", "calc_vorticity_mag", false)) {
+    auto &data = pmb->meshblock_data.Get();
+    auto const &prim = data->Get("prim").data;
+    auto &vorticity_mag = data->Get("vorticity_mag").data;
+    const auto &coords = pmb->coords;
+
+    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+    // Loop bounds are adjusted below to take the derivative stencil into account.
+    // We chose to extend the calculation to the ghost zones (rather than the center
+    // only), because ghost cells are not exchanged again prior to output.
+    // So this allows, additional derived fields to use the vorticity magnitude in the
+    // ghost zones except for the outermost layer.
+    pmb->par_for(
+        "Turbulence::UserWorkBeforeOutput calc vorticity", kb.s + 1, kb.e - 1, jb.s + 1,
+        jb.e - 1, ib.s + 1, ib.e - 1,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          const auto vort_x =
+              (prim(IV3, k, j + 1, i) - prim(IV3, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+              (prim(IV2, k + 1, j, i) - prim(IV2, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
+          const auto vort_y =
+              (prim(IV1, k + 1, j, i) - prim(IV1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+              (prim(IV3, k, j, i + 1) - prim(IV3, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
+          const auto vort_z =
+              (prim(IV2, k, j, i + 1) - prim(IV2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+              (prim(IV1, k, j + 1, i) - prim(IV1, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
+          vorticity_mag(k, j, i) = Kokkos::sqrt(SQR(vort_x) + SQR(vort_y) + SQR(vort_z));
         });
   }
 }
