@@ -52,6 +52,9 @@
 
 namespace parthenon {
 namespace UserOutputHelper {
+// TODO(pgrete) temp location here. Move to a better one.
+enum class Weight { None, Mass };
+
 // TODO(JMM): Should this live in the base class or output_utils?
 // TODO(pgete): yes, as they can be reused
 void ComputeXminBlocks_(Mesh *pm, std::vector<Real> &data) {
@@ -381,12 +384,12 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
   // -------------------------------------------------------------------------------- //
   Kokkos::Profiling::pushRegion("write all stats data");
   {
+    using UserOutputHelper::Weight;
     PARTHENON_REQUIRE_THROWS(
         typeid(Coordinates_t) == typeid(UniformCartesian),
         "Stats in per-block output currently assume uniform coordinates. Cell volumes "
         "should properly taken into account for other coordinate systems.");
 
-    enum class Weight { None, Mass };
     struct Stats {
       const std::string name;
       const std::string field_name;
