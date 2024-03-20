@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2020-2023, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2020-2024, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
@@ -12,6 +12,7 @@
 
 // Parthenon headers
 #include "amr_criteria/refinement_package.hpp"
+#include "basic_types.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include <parthenon/parthenon.hpp>
@@ -19,10 +20,12 @@
 #include "../eos/adiabatic_hydro.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
+#include "../tracers/tracers.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
+#include "utils/error_checking.hpp"
 
 using namespace parthenon::driver::prelude;
 
@@ -591,11 +594,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
-
-    const auto any = parthenon::BoundaryType::any;
-    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
-    auto start_flxcor_recv =
-        tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
+    tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
@@ -616,9 +615,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
     auto send_flx =
         tl.AddTask(first_order_flux_correct, parthenon::LoadAndSendFluxCorrections, mu0);
-    auto recv_flx = tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, mu0);
-    auto set_flx = tl.AddTask(recv_flx | first_order_flux_correct,
-                              parthenon::SetFluxCorrections, mu0);
+    auto recv_flx =
+        tl.AddTask(first_order_flux_correct, parthenon::ReceiveFluxCorrections, mu0);
+    auto set_flx = tl.AddTask(recv_flx, parthenon::SetFluxCorrections, mu0);
 
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(
@@ -650,12 +649,27 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(source_split_strang_final, AddSplitSourcesFirstOrder, mu0.get(), tm);
     }
 
-    // Update ghost cells (local and non local), prolongate and apply bound cond.
+    // Update ghost cells (local and non local)
     // TODO(someone) experiment with split (local/nonlocal) comms with respect to
     // performance for various tests (static, amr, block sizes) and then decide on the
     // best impl. Go with default call (split local/nonlocal) for now.
-    parthenon::AddBoundaryExchangeTasks(source_split_first_order | start_bnd, tl, mu0,
+    parthenon::AddBoundaryExchangeTasks(source_split_first_order, tl, mu0,
                                         pmesh->multilevel);
+  }
+
+  TaskRegion &async_region_3 = tc.AddRegion(num_task_lists_executed_independently);
+  for (int i = 0; i < blocks.size(); i++) {
+    auto &tl = async_region_3[i];
+    auto &u0 = blocks[i]->meshblock_data.Get("base");
+    auto prolongBound = none;
+    // Currently taken care of by AddBoundaryExchangeTasks above.
+    // Needs to be reintroduced once we reintroduce split (local/nonlocal) communication.
+    // if (pmesh->multilevel) {
+    //  prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, u0);
+    //}
+
+    // set physical boundaries
+    auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, u0);
   }
 
   // Single task in single (serial) region to reset global vars used in reductions in the
@@ -692,6 +706,48 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
       auto new_dt = tl.AddTask(none, parthenon::Update::EstimateTimestep<MeshData<Real>>,
                                mu0.get());
+    }
+  }
+
+  auto tracers_pkg = pmesh->packages.Get("tracers");
+  // First order operator split tracer advection
+  if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
+    const std::string swarm_name = "tracers";
+    TaskRegion &sync_region_tr = tc.AddRegion(1);
+    {
+      for (auto &pmb : blocks) {
+        auto &tl = sync_region_tr[0];
+        auto &sd = pmb->swarm_data.Get();
+        auto reset_comms =
+            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+      }
+    }
+
+    TaskRegion &async_region_tr = tc.AddRegion(blocks.size());
+    for (int n = 0; n < blocks.size(); n++) {
+      auto &tl = async_region_tr[n];
+      auto &pmb = blocks[n];
+      auto &sd = pmb->swarm_data.Get();
+      auto &mbd0 = pmb->meshblock_data.Get("base");
+      auto tracer_advect =
+          tl.AddTask(none, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
+
+      auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
+                             BoundaryCommSubset::all);
+
+      auto receive =
+          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+    }
+    // TODO(pgrete) Fix/cleanup once we got swarm packs.
+    // We need just a single region with a single task in order to be able to use plain
+    // reductions.
+    PARTHENON_REQUIRE_THROWS(num_partitions == 1,
+                             "Only pack_size=-1 currently supported for tracers.")
+    TaskRegion &single_tasklist_per_pack_region_4 = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = single_tasklist_per_pack_region_4[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto fill = tl.AddTask(none, Tracers::FillTracers, mu0.get(), tm);
     }
   }
 

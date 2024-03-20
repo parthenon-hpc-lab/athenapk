@@ -24,6 +24,7 @@
 #include "../recon/weno3_simple.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
+#include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "defs.hpp"
 #include "diffusion/diffusion.hpp"
@@ -52,6 +53,7 @@ using parthenon::HistoryOutputVar;
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
+  packages.Add(Tracers::Initialize(pin.get()));
   return packages;
 }
 
