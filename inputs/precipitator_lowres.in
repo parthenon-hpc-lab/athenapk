@@ -93,7 +93,6 @@ uniform_init = 0
 enable_heating = magic   # magic
 thermostat_temperature = 1.0e7  # K
 thermostat_Kp = 10.0      # time constant (inverse cooling times)
-thermostat_Ki = 10.0      # time constant (inverse cooling times)
 numHist = 64
 h_smooth_heatcool_kpc = 5.0
 
