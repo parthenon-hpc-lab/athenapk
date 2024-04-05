@@ -291,6 +291,9 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
 
   const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
 
+  // the maximum height at which to drive turbulence
+  const Real max_height_driving = hydro_pkg->Param<Real>("max_height_driving");
+
   if (sigma_v > 0) {
     // generate perturbations
     auto few_modes_ft = hydro_pkg->Param<FewModesFT>("precipitator/few_modes_ft_v");
@@ -346,7 +349,12 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
           // artificially limit work in precipitator midplane
           const auto &coords = perturb_pack.GetCoords(b);
           const Real z = coords.Xc<3>(k);
-          const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
+          Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
+
+          // don't drive near boundaries
+          if (std::abs(z) > max_height_driving) {
+            taper_fac = 0;
+          }
 
           // update momentum components
           u(IM1, k, j, i) += rho * (taper_fac * dv_x);
@@ -448,7 +456,8 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
 
   // compute feedback control error e(z, t)
   parthenon::ParArray1D<Real> error_profile("error_profile", REDUCTION_ARRAY_SIZE);
-  //auto error_integral_profile = pkg->Param<parthenon::ParArray1D<Real>>("PI_error_integral");
+  // auto error_integral_profile =
+  // pkg->Param<parthenon::ParArray1D<Real>>("PI_error_integral");
   const Real T_target = pkg->Param<Real>("PI_controller_temperature");
 
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -476,11 +485,11 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   // compute interpolant
   MonotoneInterpolator<PinnedArray1D<Real>> interpProfile =
       GetInterpolantFromProfile(error_profile, md);
-  //MonotoneInterpolator<PinnedArray1D<Real>> interpIntegralProfile =
-  //    GetInterpolantFromProfile(error_integral_profile, md);
+  // MonotoneInterpolator<PinnedArray1D<Real>> interpIntegralProfile =
+  //     GetInterpolantFromProfile(error_integral_profile, md);
 
   const Real K_p = pkg->Param<Real>("PI_controller_Kp");
-  //const Real K_i = pkg->Param<Real>("PI_controller_Ki");
+  // const Real K_i = pkg->Param<Real>("PI_controller_Ki");
 
   // get 'smoothing' height for heating/cooling
   const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
@@ -507,7 +516,7 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
         const auto &coords = cons_pack.GetCoords(b);
         const Real z = coords.Xc<3>(k);
         const Real err = interpProfile(z);
-        //const Real err_int = interpIntegralProfile(z);
+        // const Real err_int = interpIntegralProfile(z);
 
         // get 1/t_cool for background profile
         const auto &P_bg_arr = pressure_hse(b);
@@ -522,7 +531,8 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
         auto &cons = cons_pack(b);
         const Real rho = cons(IDN, k, j, i);
         const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
-        //const Real dE_dt = -taper_fac * (rho * c_v) * inv_t_cool * (K_p * err + K_i * err_int);
+        // const Real dE_dt = -taper_fac * (rho * c_v) * inv_t_cool * (K_p * err + K_i *
+        // err_int);
         const Real dE_dt = -taper_fac * (rho * c_v) * inv_t_cool * (K_p * err);
 
         // update total energy
@@ -639,7 +649,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real L = std::min({x1max - x1min, x2max - x2min, x3max - x3min});
 
   const Real gam = pin->GetReal("hydro", "gamma");
-  hydro_pkg->AddParam("gamma", gam, parthenon::Params::Mutability::Restart); // adiabatic index
+  hydro_pkg->AddParam("gamma", gam,
+                      parthenon::Params::Mutability::Restart); // adiabatic index
 
   /************************************************************
    * Initialize magic heating
@@ -648,11 +659,13 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // store PI error integral over time
   parthenon::ParArray1D<Real> PI_error_integral("PI_error_integral",
                                                 REDUCTION_ARRAY_SIZE);
-  pkg->AddParam("PI_error_integral", PI_error_integral, parthenon::Params::Mutability::Restart);
+  pkg->AddParam("PI_error_integral", PI_error_integral,
+                parthenon::Params::Mutability::Restart);
 
   // feedback loop target temperature
   const Real PI_target_T = pin->GetReal("precipitator", "thermostat_temperature");
-  pkg->AddParam("PI_controller_temperature", PI_target_T, parthenon::Params::Mutability::Restart);
+  pkg->AddParam("PI_controller_temperature", PI_target_T,
+                parthenon::Params::Mutability::Restart);
 
   // K_p feedback loop constant [dimensionless]
   const Real PI_Kp = pin->GetReal("precipitator", "thermostat_Kp");
@@ -669,25 +682,30 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
    ************************************************************/
   const auto &filename = pin->GetString("precipitator", "hse_profile_filename");
   const auto &uniform_init = pin->GetInteger("precipitator", "uniform_init");
-  hydro_pkg->AddParam<>("uniform_init", uniform_init, parthenon::Params::Mutability::Restart);
+  hydro_pkg->AddParam<>("uniform_init", uniform_init,
+                        parthenon::Params::Mutability::Restart);
   if (uniform_init == 1) {
     const auto &uniform_init_height = pin->GetReal("precipitator", "uniform_init_height");
-    hydro_pkg->AddParam<>("uniform_init_height", uniform_init_height, parthenon::Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("uniform_init_height", uniform_init_height,
+                          parthenon::Params::Mutability::Restart);
   }
 
   const PrecipitatorProfile P_rho_profile(filename);
-  hydro_pkg->AddParam<>("precipitator_profile", P_rho_profile, parthenon::Params::Mutability::Restart);
+  hydro_pkg->AddParam<>("precipitator_profile", P_rho_profile,
+                        parthenon::Params::Mutability::Restart);
 
   const auto enable_heating_str =
       pin->GetOrAddString("precipitator", "enable_heating", "none");
-  hydro_pkg->AddParam<>("enable_heating", enable_heating_str, parthenon::Params::Mutability::Restart);
+  hydro_pkg->AddParam<>("enable_heating", enable_heating_str,
+                        parthenon::Params::Mutability::Restart);
 
   // read smoothing height for heating/cooling
   const Real h_smooth_heatcool =
       pin->GetReal("precipitator", "h_smooth_heatcool_kpc") * units.kpc();
 
-  hydro_pkg->AddParam<Real>("h_smooth_heatcool",
-                            h_smooth_heatcool, parthenon::Params::Mutability::Restart); // smoothing scale (code units)
+  hydro_pkg->AddParam<Real>(
+      "h_smooth_heatcool", h_smooth_heatcool,
+      parthenon::Params::Mutability::Restart); // smoothing scale (code units)
 
   // read perturbation parameters
   const int kx_max = pin->GetInteger("precipitator", "perturb_kx");
@@ -699,8 +717,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   hydro_pkg->AddParam<int>("perturb_kx", kx_max, parthenon::Params::Mutability::Restart);
   hydro_pkg->AddParam<int>("perturb_ky", ky_max, parthenon::Params::Mutability::Restart);
   hydro_pkg->AddParam<int>("perturb_kz", kz_max, parthenon::Params::Mutability::Restart);
-  hydro_pkg->AddParam<int>("perturb_exponent", expo, parthenon::Params::Mutability::Restart);
-  hydro_pkg->AddParam<Real>("perturb_amplitude", amp, parthenon::Params::Mutability::Restart);
+  hydro_pkg->AddParam<int>("perturb_exponent", expo,
+                           parthenon::Params::Mutability::Restart);
+  hydro_pkg->AddParam<Real>("perturb_amplitude", amp,
+                            parthenon::Params::Mutability::Restart);
 
   // density perturbations
   if (amp > 0.) {
@@ -780,6 +800,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   hydro_pkg->AddParam<>("sigma_v", sigma_v, parthenon::Params::Mutability::Restart);
 
   if (sigma_v > 0) {
+    // the maximum height at which to drive turbulence
+    const Real max_height_driving = pin->GetReal("precipitator/driving", "max_height");
+    hydro_pkg->AddParam<Real>("max_height_driving", max_height_driving,
+                              parthenon::Params::Mutability::Restart);
+
     auto k_peak_v = pin->GetReal("precipitator/driving", "k_peak");
     // NOTE: in 2D, there are only 12 modes when k_peak == 2
     auto num_modes_v = pin->GetOrAddInteger("precipitator/driving", "num_modes", 40);
@@ -794,7 +819,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
     auto vertical_driving_only =
         pin->GetOrAddBoolean("precipitator/driving", "vertical_driving_only", false);
-    hydro_pkg->AddParam("vertical_driving_only", vertical_driving_only, parthenon::Params::Mutability::Restart);
+    hydro_pkg->AddParam("vertical_driving_only", vertical_driving_only,
+                        parthenon::Params::Mutability::Restart);
 
     // when only v_z is desired, ensure that always k_z == 0
     const bool xy_modes_only = vertical_driving_only;
@@ -803,7 +829,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
     auto few_modes_ft = FewModesFT(pin, hydro_pkg, "precipitator_perturb_v", num_modes_v,
                                    k_vec_v, k_peak_v, sol_weight_v, t_corr, rseed_v);
-    hydro_pkg->AddParam<>("precipitator/few_modes_ft_v", few_modes_ft, parthenon::Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("precipitator/few_modes_ft_v", few_modes_ft,
+                          parthenon::Params::Mutability::Restart);
   }
 
   if (parthenon::Globals::my_rank == 0) {
