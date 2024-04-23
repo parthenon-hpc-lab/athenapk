@@ -46,6 +46,8 @@ using namespace parthenon::package::prelude;
 
 namespace blast {
 
+Real jet_vel, jet_dens, jet_width, jet_pres, pa, da;
+
 // image dimensions
 int img_nx1 = 0;
 int img_nx2 = 0;
@@ -125,12 +127,17 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real rout = pin->GetReal("problem/blast", "radius_outer");
   Real rin = pin->GetOrAddReal("problem/blast", "radius_inner", rout);
-  Real pa = pin->GetOrAddReal("problem/blast", "pressure_ambient", 1.0);
-  Real da = pin->GetOrAddReal("problem/blast", "density_ambient", 1.0);
+  pa = pin->GetOrAddReal("problem/blast", "pressure_ambient", 1.0);
+  da = pin->GetOrAddReal("problem/blast", "density_ambient", 1.0);
   Real prat = pin->GetReal("problem/blast", "pressure_ratio");
   Real drat = pin->GetOrAddReal("problem/blast", "density_ratio", 1.0);
   Real gamma = pin->GetOrAddReal("hydro", "gamma", 5 / 3);
   Real gm1 = gamma - 1.0;
+
+  Real jet_dens = pin->GetOrAddReal("problem/blast", "jet_density", da * drat);
+  Real jet_vel = pin->GetOrAddReal("problem/blast", "jet_velocity", 0.0);
+  Real jet_width = pin->GetOrAddReal("problem/blast", "jet_width", 0.2);
+  Real jet_pres = pin->GetOrAddReal("problem/blast", "jet_pressure", pa);
 
   // get coordinates of center of blast, and convert to Cartesian if necessary
   Real x0 = pin->GetOrAddReal("problem/blast", "x1_0", 0.0);
@@ -205,4 +212,32 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) {
   image_data = {};
 }
+
+void InflowJetX1(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
+  auto pmb = mbd->GetBlockPointer();
+  auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
+  // TODO(pgrete) Add par_for_bndry to Parthenon without requiring nb
+  const auto nb = IndexRange{0, 0};
+  const auto jet_dens_ = jet_dens;
+  const auto jet_vel_ = jet_vel;
+  const auto jet_width_ = jet_width;
+  // TODO(pgrete) fix me
+  const auto jet_rhoe_ = jet_pres / (5. / 3. - 1);
+  const auto coords = pmb->coords;
+  const auto da_ = da;
+  const auto pa_ = pa;
+  pmb->par_for_bndry(
+      "InflowWindX1", nb, IndexDomain::inner_x2, parthenon::TopologicalElement::CC,
+      coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
+        if (std::abs(coords.Xc<parthenon::X1DIR>(i)) < jet_width_ / 2.) {
+          cons(IDN, k, j, i) = jet_dens_;
+          cons(IM2, k, j, i) = jet_dens_ * jet_vel_;
+          cons(IEN, k, j, i) = jet_rhoe_ + 0.5 * jet_dens_ * jet_vel_ * jet_vel_;
+        } else {
+          cons(IDN, k, j, i) = da_;
+          cons(IEN, k, j, i) = pa_ / (5. / 3. - 1.);
+        };
+      });
+}
+
 } // namespace blast

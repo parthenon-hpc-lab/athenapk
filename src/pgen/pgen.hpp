@@ -53,6 +53,7 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
                        parthenon::SimTime &tm);
+void InflowJetX1(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse);
 } // namespace blast
 
 namespace advection {
