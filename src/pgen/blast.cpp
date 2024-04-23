@@ -134,10 +134,10 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real gamma = pin->GetOrAddReal("hydro", "gamma", 5 / 3);
   Real gm1 = gamma - 1.0;
 
-  Real jet_dens = pin->GetOrAddReal("problem/blast", "jet_density", da * drat);
-  Real jet_vel = pin->GetOrAddReal("problem/blast", "jet_velocity", 0.0);
-  Real jet_width = pin->GetOrAddReal("problem/blast", "jet_width", 0.2);
-  Real jet_pres = pin->GetOrAddReal("problem/blast", "jet_pressure", pa);
+  jet_dens = pin->GetOrAddReal("problem/blast", "jet_density", da * drat);
+  jet_vel = pin->GetOrAddReal("problem/blast", "jet_velocity", 0.0);
+  jet_width = pin->GetOrAddReal("problem/blast", "jet_width", 0.2);
+  jet_pres = pin->GetOrAddReal("problem/blast", "jet_pressure", pa);
 
   // get coordinates of center of blast, and convert to Cartesian if necessary
   Real x0 = pin->GetOrAddReal("problem/blast", "x1_0", 0.0);
@@ -147,6 +147,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
 
   // initialize conserved variables
   auto &rc = pmb->meshblock_data.Get();
@@ -158,6 +161,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
+        Real tracer = 0;
         Real den = da;
         Real pres = pa;
         Real x = coords.Xc<1>(i);
@@ -175,6 +179,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
           if (image_data(y_idx, x_idx) != 0) {
             den = drat * da;
+            tracer = den;
             // pres = prat * pa;
           }
         } else {
@@ -202,6 +207,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IM2, k, j, i) = 0.0;
         u(IM3, k, j, i) = 0.0;
         u(IEN, k, j, i) = pres / gm1;
+        // TODO(pgrete) add saftey check for nscalars
+        // Offset by 1 here to separate jet tracer and obstacle tracer
+        u(nhydro + 1, k, j, i) = tracer;
       }
     }
   }
@@ -226,6 +234,8 @@ void InflowJetX1(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   const auto coords = pmb->coords;
   const auto da_ = da;
   const auto pa_ = pa;
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
   pmb->par_for_bndry(
       "InflowWindX1", nb, IndexDomain::inner_x2, parthenon::TopologicalElement::CC,
       coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
@@ -233,10 +243,12 @@ void InflowJetX1(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
           cons(IDN, k, j, i) = jet_dens_;
           cons(IM2, k, j, i) = jet_dens_ * jet_vel_;
           cons(IEN, k, j, i) = jet_rhoe_ + 0.5 * jet_dens_ * jet_vel_ * jet_vel_;
+          // TODO(pgrete) add saftey check for nscalars
+          cons(nhydro, k, j, i) = 1.0 * jet_dens_;
         } else {
           cons(IDN, k, j, i) = da_;
           cons(IEN, k, j, i) = pa_ / (5. / 3. - 1.);
-        };
+        }
       });
 }
 
