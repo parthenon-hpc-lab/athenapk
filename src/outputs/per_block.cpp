@@ -104,6 +104,26 @@ void ComputeBlockCenterCoords_(Mesh *pm, const IndexRange &ib, const IndexRange 
     idx += 1;
   }
 }
+enum class Weight { None, Mass };
+struct Stats {
+  const std::string name;
+  const std::string field_name;
+  Kokkos::Array<int, 3> field_components{};
+  Weight weight;
+
+  Stats(std::string name_, std::string field_name_,
+        Kokkos::Array<int, 3> field_components_, Weight weight_ = Weight::None)
+      : name(std::move(name_)), field_name(std::move(field_name_)),
+        field_components(field_components_), weight(weight_) {}
+  Stats(std::string name_, std::string field_name_, int field_component_,
+        Weight weight_ = Weight::None)
+      : name(std::move(name_)), field_name(std::move(field_name_)), weight(weight_) {
+    field_components[0] = field_component_;
+    field_components[1] = -1;
+    field_components[2] = -1;
+  }
+};
+
 } // namespace UserOutputHelper
 //----------------------------------------------------------------------------------------
 //! \fn void PHDF5Output:::WriteOutputFileImpl(Mesh *pm, ParameterInput *pin, bool flag)
@@ -386,26 +406,8 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
         "Stats in per-block output currently assume uniform coordinates. Cell volumes "
         "should properly taken into account for other coordinate systems.");
 
-    enum class Weight { None, Mass };
-    struct Stats {
-      const std::string name;
-      const std::string field_name;
-      Kokkos::Array<int, 3> field_components{};
-      Weight weight;
-
-      Stats(std::string name_, std::string field_name_,
-            Kokkos::Array<int, 3> field_components_, Weight weight_ = Weight::None)
-          : name(std::move(name_)), field_name(std::move(field_name_)),
-            field_components(field_components_), weight(weight_) {}
-      Stats(std::string name_, std::string field_name_, int field_component_,
-            Weight weight_ = Weight::None)
-          : name(std::move(name_)), field_name(std::move(field_name_)), weight(weight_) {
-        field_components[0] = field_component_;
-        field_components[1] = -1;
-        field_components[2] = -1;
-      }
-    };
-
+    using UserOutputHelper::Stats;
+    using UserOutputHelper::Weight;
     std::vector<Stats> stats;
     stats.emplace_back(Stats("vel_mag", "prim", {IV1, IV2, IV3}));
     stats.emplace_back(Stats("vel_mag_mw", "prim", {IV1, IV2, IV3}, Weight::Mass));
