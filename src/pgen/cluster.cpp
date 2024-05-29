@@ -812,7 +812,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   }
 }
 
-void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
+                          const parthenon::SimTime & /*tm*/) {
   // get hydro
   auto pkg = pmb->packages.Get("Hydro");
   const Real gam = pin->GetReal("hydro", "gamma");
