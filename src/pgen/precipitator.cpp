@@ -326,6 +326,9 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
     auto v_norm = std::sqrt(v2_sum / (Lx * Ly * Lz) / (SQR(sigma_v)));
 
     auto turbHeat_pack = md->PackVariables(std::vector<std::string>{"turbulent_heating"});
+    auto accel_x_pack = md->PackVariables(std::vector<std::string>{"accel_x"});
+    auto accel_y_pack = md->PackVariables(std::vector<std::string>{"accel_y"});
+    auto accel_z_pack = md->PackVariables(std::vector<std::string>{"accel_z"});
 
     pmb->par_for(
         "apply_perturb_v", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -338,6 +341,14 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
             dv_y = perturb_pack(b, 1, k, j, i) / v_norm;
           }
           const Real dv_z = perturb_pack(b, 2, k, j, i) / v_norm;
+
+          // save normalized acceleration field
+          const auto &accel_x = accel_x_pack(b);
+          const auto &accel_y = accel_y_pack(b);
+          const auto &accel_z = accel_z_pack(b);
+          accel_x(0, k, j, i) = dv_x;
+          accel_y(0, k, j, i) = dv_y;
+          accel_z(0, k, j, i) = dv_z;
 
           // compute old kinetic energy
           const auto &u = cons(b);
@@ -636,6 +647,17 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add \delta vz field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("dv_z", m);
+
+  // add accel_x field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("accel_x", m);
+  // add accel_y field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("accel_y", m);
+  // add accel_z field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("accel_z", m);
+
 
   const Units units(pin);
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
