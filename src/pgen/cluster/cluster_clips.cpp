@@ -70,6 +70,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
     const Real vAceil2 = SQR(vAceil);
     const Real gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
 
+    const bool magnetic_fields = (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd);
     Real added_dfloor_mass = 0.0, removed_vceil_energy = 0.0, added_vAceil_mass = 0.0,
          removed_eceil_energy = 0.0;
 
@@ -123,7 +124,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
               }
             }
 
-            if (vAceil2 < std::numeric_limits<Real>::infinity()) {
+            if (magnetic_fields && vAceil2 < std::numeric_limits<Real>::infinity()) {
               // Apply Alfven velocity ceiling by raising density
               const Real rho = prim(IDN, k, j, i);
               const Real B2 = (SQR(prim(IB1, k, j, i)) + SQR(prim(IB2, k, j, i)) +

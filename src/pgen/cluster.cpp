@@ -348,6 +348,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddField("mach_sonic", m);
   // temperature
   hydro_pkg->AddField("temperature", m);
+  // radial velocity
+  hydro_pkg->AddField("v_r", m);
+
+  // spherical theta
+  hydro_pkg->AddField("theta_sph", m);
 
   if (hydro_pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     // cooling time
@@ -808,7 +813,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 }
 
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
-                          const parthenon::SimTime &) {
+                          const parthenon::SimTime & /*tm*/) {
   // get hydro
   auto pkg = pmb->packages.Get("Hydro");
   const Real gam = pin->GetReal("hydro", "gamma");
@@ -823,6 +828,8 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
   auto &entropy = data->Get("entropy").data;
   auto &mach_sonic = data->Get("mach_sonic").data;
   auto &temperature = data->Get("temperature").data;
+  auto &v_r = data->Get("v_r").data;
+  auto &theta_sph = data->Get("theta_sph").data;
 
   // for computing temperature from primitives
   auto units = pkg->Param<Units>("units");
@@ -849,8 +856,12 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
         const Real x = coords.Xc<1>(i);
         const Real y = coords.Xc<2>(j);
         const Real z = coords.Xc<3>(k);
-        const Real r2 = SQR(x) + SQR(y) + SQR(z);
-        log10_radius(k, j, i) = 0.5 * std::log10(r2);
+        const Real r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
+        log10_radius(k, j, i) = std::log10(r);
+
+        v_r(k, j, i) = ((v1 * x) + (v2 * y) + (v3 * z)) / r;
+
+        theta_sph(k, j, i) = std::acos(z / r);
 
         // compute entropy
         const Real K = P / std::pow(rho / mbar, gam);

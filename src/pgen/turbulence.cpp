@@ -756,7 +756,7 @@ void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
 }
 
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
-                          const parthenon::SimTime &) {
+                          const parthenon::SimTime & /*tm*/) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
   // Store (common) acceleration field in spectral space

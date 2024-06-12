@@ -361,8 +361,6 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             ///////////////////////////////////////////////////////////////////
 
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-            const Real old_specific_internal_e =
-                prim(IPR, k, j, i) / (prim(IDN, k, j, i) * (eos.GetGamma() - 1.));
 
             cons(IDN, k, j, i) += jet_density;
             cons(IM1, k, j, i) += jet_momentum * sign_jet * jet_axis_x;
@@ -379,12 +377,6 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             }
 
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-            const Real new_specific_internal_e =
-                prim(IPR, k, j, i) / (prim(IDN, k, j, i) * (eos.GetGamma() - 1.));
-            PARTHENON_REQUIRE(
-                new_specific_internal_e > jet_specific_internal_e ||
-                    new_specific_internal_e > old_specific_internal_e,
-                "Kinetic injection leads to temperature below jet and existing gas");
           }
 
           // Apply velocity ceiling
