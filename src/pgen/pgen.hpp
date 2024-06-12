@@ -6,6 +6,7 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include "basic_types.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -117,7 +118,7 @@ using namespace parthenon::driver::prelude;
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void InitUserMeshData(ParameterInput *pin);
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md);
-void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin);
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin, parthenon::SimTime const &t);
 void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                            const Real beta_dt);
 void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
@@ -138,7 +139,7 @@ void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt);
 void SetPhases(MeshBlock *pmb, ParameterInput *pin);
-void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin);
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin, parthenon::SimTime const &t);
 void Cleanup();
 } // namespace turbulence
 
