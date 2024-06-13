@@ -296,8 +296,8 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
 
   if (sigma_v > 0) {
     // generate perturbations
-    auto few_modes_ft = hydro_pkg->Param<FewModesFT>("precipitator/few_modes_ft_v");
-    few_modes_ft.Generate(md, dt, "tmp_perturb");
+    auto *few_modes_ft = hydro_pkg->MutableParam<FewModesFT>("precipitator/few_modes_ft_v");
+    few_modes_ft->Generate(md, dt, "tmp_perturb");
 
     // normalize perturbations
     Real v2_sum{};
@@ -704,12 +704,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
    ************************************************************/
   const auto &filename = pin->GetString("precipitator", "hse_profile_filename");
   const auto &uniform_init = pin->GetInteger("precipitator", "uniform_init");
-  hydro_pkg->AddParam<>("uniform_init", uniform_init,
-                        parthenon::Params::Mutability::Restart);
+  hydro_pkg->AddParam<>("uniform_init", uniform_init);
   if (uniform_init == 1) {
     const auto &uniform_init_height = pin->GetReal("precipitator", "uniform_init_height");
-    hydro_pkg->AddParam<>("uniform_init_height", uniform_init_height,
-                          parthenon::Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("uniform_init_height", uniform_init_height);
   }
 
   const PrecipitatorProfile P_rho_profile(filename);
@@ -718,16 +716,14 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   const auto enable_heating_str =
       pin->GetOrAddString("precipitator", "enable_heating", "none");
-  hydro_pkg->AddParam<>("enable_heating", enable_heating_str,
-                        parthenon::Params::Mutability::Restart);
+  hydro_pkg->AddParam<>("enable_heating", enable_heating_str);
 
   // read smoothing height for heating/cooling
   const Real h_smooth_heatcool =
       pin->GetReal("precipitator", "h_smooth_heatcool_kpc") * units.kpc();
 
   hydro_pkg->AddParam<Real>(
-      "h_smooth_heatcool", h_smooth_heatcool,
-      parthenon::Params::Mutability::Restart); // smoothing scale (code units)
+      "h_smooth_heatcool", h_smooth_heatcool); // smoothing scale (code units)
 
   // read perturbation parameters
   const int kx_max = pin->GetInteger("precipitator", "perturb_kx");
@@ -736,13 +732,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const int expo = pin->GetInteger("precipitator", "perturb_exponent");
   const Real amp = pin->GetReal("precipitator", "perturb_sin_drho_over_rho");
 
-  hydro_pkg->AddParam<int>("perturb_kx", kx_max, parthenon::Params::Mutability::Restart);
-  hydro_pkg->AddParam<int>("perturb_ky", ky_max, parthenon::Params::Mutability::Restart);
-  hydro_pkg->AddParam<int>("perturb_kz", kz_max, parthenon::Params::Mutability::Restart);
-  hydro_pkg->AddParam<int>("perturb_exponent", expo,
-                           parthenon::Params::Mutability::Restart);
-  hydro_pkg->AddParam<Real>("perturb_amplitude", amp,
-                            parthenon::Params::Mutability::Restart);
+  hydro_pkg->AddParam<int>("perturb_kx", kx_max);
+  hydro_pkg->AddParam<int>("perturb_ky", ky_max);
+  hydro_pkg->AddParam<int>("perturb_kz", kz_max);
+  hydro_pkg->AddParam<int>("perturb_exponent", expo);
+  hydro_pkg->AddParam<Real>("perturb_amplitude", amp);
 
   // density perturbations
   if (amp > 0.) {
@@ -819,7 +813,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   // setup velocity perturbations
   const auto sigma_v = pin->GetOrAddReal("precipitator/driving", "sigma_v", 0.0);
-  hydro_pkg->AddParam<>("sigma_v", sigma_v, parthenon::Params::Mutability::Restart);
+  hydro_pkg->AddParam<>("sigma_v", sigma_v);
 
   if (sigma_v > 0) {
     // the maximum height at which to drive turbulence
@@ -897,14 +891,14 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   }
 
   // Get HSE profile and parameters
-  const auto &P_rho_profile =
-      hydro_pkg->Param<PrecipitatorProfile>("precipitator_profile");
+  const auto *P_rho_profile =
+      hydro_pkg->MutableParam<PrecipitatorProfile>("precipitator_profile");
 
   // Initialize phase factors for velocity perturbations
   const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");
   if (sigma_v > 0) {
-    auto few_modes_ft = hydro_pkg->Param<FewModesFT>("precipitator/few_modes_ft_v");
-    few_modes_ft.SetPhases(pmb, pin);
+    auto *few_modes_ft = hydro_pkg->MutableParam<FewModesFT>("precipitator/few_modes_ft_v");
+    few_modes_ft->SetPhases(pmb, pin);
   }
 
   // Get (density) perturbation parameters
@@ -970,7 +964,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           // Calculate height
           const Real zcen = coords.Xc<3>(k);
           const Real zcen_cgs = std::abs(zcen) * code_length_cgs;
-          const Real phi_i = P_rho_profile.phi(zcen_cgs);
+          const Real phi_i = P_rho_profile->phi(zcen_cgs);
           grav_phi(0, k, j, i) = phi_i / code_potential_cgs;
         });
   }
@@ -999,7 +993,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
           // Calculate height
           const Real zmin_cgs = std::abs(coords.Xf<3>(k)) * code_length_cgs;
-          const Real phi_iminus = P_rho_profile.phi(zmin_cgs) / code_potential_cgs;
+          const Real phi_iminus = P_rho_profile->phi(zmin_cgs) / code_potential_cgs;
           grav_phi_zface(0, k, j, i) = phi_iminus;
         });
   }
@@ -1013,8 +1007,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         DEFAULT_LOOP_PATTERN, "SetHydrostaticProfileCells", parthenon::DevExecSpace(), 0,
         0, kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
         KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
-          auto p_hse = [=](Real z) { return P_rho_profile.P(z); };
-          auto rho_hse = [=](Real z) { return P_rho_profile.rho(z); };
+          auto p_hse = [=](Real z) { return P_rho_profile->P(z); };
+          auto rho_hse = [=](Real z) { return P_rho_profile->rho(z); };
           pressure_hse(0, k, j, i) = p_hse(uniform_init_height) / code_pressure_cgs;
           density_hse(0, k, j, i) = rho_hse(uniform_init_height) / code_density_cgs;
         });
@@ -1032,8 +1026,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           const Real dz_cgs = dx3 * code_length_cgs;
 
           parthenon::math::quadrature::gauss<Real, 7> quad;
-          auto p_hse = [=](Real z) { return P_rho_profile.P(z); };
-          auto rho_hse = [=](Real z) { return P_rho_profile.rho(z); };
+          auto p_hse = [=](Real z) { return P_rho_profile->P(z); };
+          auto rho_hse = [=](Real z) { return P_rho_profile->rho(z); };
           const Real P_hse_avg = quad.integrate(p_hse, zmin_cgs, zmax_cgs) / dz_cgs;
           const Real rho_hse_avg = quad.integrate(rho_hse, zmin_cgs, zmax_cgs) / dz_cgs;
 
@@ -1077,8 +1071,8 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
 
   const auto sigma_v = pkg->Param<Real>("sigma_v");
   if (sigma_v > 0) {
-    auto few_modes_ft = pkg->Param<FewModesFT>("precipitator/few_modes_ft_v");
-    few_modes_ft.SaveStateBeforeOutput(mesh, pin);
+    auto *few_modes_ft = pkg->MutableParam<FewModesFT>("precipitator/few_modes_ft_v");
+    few_modes_ft->SaveStateBeforeOutput(mesh, pin);
   }
 
   const Units units(pin);

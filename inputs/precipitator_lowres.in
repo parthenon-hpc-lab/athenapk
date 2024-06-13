@@ -11,12 +11,12 @@ dt         = 50.0       # time increment between outputs
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = prim, drho_over_rho, dP_over_P, dK_over_K, dT_over_T, entropy, temperature, tcool_over_tff, dv_x, dv_y, dv_z, accel_x, accel_y, accel_z
-dt         = 100.0        # Time increment between outputs
+dt         = 50.0        # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/output3>
 file_type  = rst        # Binary data dump
-dt         = 2000.0        # time increment between outputs
+dt         = 250.0        # time increment between outputs
 id         = restart
 
 <parthenon/time>
@@ -107,5 +107,5 @@ num_modes = 12
 vertical_driving_only = true
 sol_weight = 1.0
 rseed = 42
-t_corr = 50.0   # Myr
+t_corr = 500.0   # Myr
 max_height = 80.0 # kpc
