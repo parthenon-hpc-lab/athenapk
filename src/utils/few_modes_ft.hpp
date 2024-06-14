@@ -47,6 +47,10 @@ class FewModesFT {
              std::string prefix, int num_modes, ParArray2D<Real> k_vec, Real k_peak,
              Real sol_weight, Real t_corr, uint32_t rseed, bool fill_ghosts = false);
 
+  // prevent objects from being copied (this prevents user error)
+  FewModesFT(FewModesFT const &) = delete;
+  FewModesFT &operator=(FewModesFT const &) = delete;
+
   ParArray2D<Complex> GetVarHat() { return var_hat_; }
   int GetNumModes() { return num_modes_; }
   void SetPhases(MeshBlock *pmb, ParameterInput *pin);
