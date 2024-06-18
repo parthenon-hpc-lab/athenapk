@@ -113,8 +113,10 @@ void ApplyBC(parthenon::MeshBlock *pmb, parthenon::VariablePack<Real> &q,
   // used for reflections
   const int offset = 2 * ref + (INNER ? -1 : 1);
 
+  // only used for fine fields
+  const bool fine = false;
   pmb->par_for_bndry(
-      label, nvar, domain, parthenon::TopologicalElement::CC, coarse,
+      label, nvar, domain, parthenon::TopologicalElement::CC, coarse, fine,
       KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
         if (!q.IsAllocated(l)) return;
         if (TYPE == BCType::Reflect) {
