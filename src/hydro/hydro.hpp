@@ -13,6 +13,17 @@
 
 using namespace parthenon::package::prelude;
 
+#if defined(KOKKOS_ENABLE_CUDA)
+using PinnedMemSpace = Kokkos::CudaHostPinnedSpace::memory_space;
+#elif defined(KOKKOS_ENABLE_HIP)
+using PinnedMemSpace = Kokkos::Experimental::HipHostPinnedSpace::memory_space;
+#else
+using PinnedMemSpace = Kokkos::DefaultExecutionSpace::memory_space;
+#endif
+
+template <typename T>
+using PinnedArray1D = Kokkos::View<T *, parthenon::LayoutWrapper, PinnedMemSpace>;
+
 namespace Hydro {
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin);

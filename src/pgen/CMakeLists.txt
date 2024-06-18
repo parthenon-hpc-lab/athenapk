@@ -21,6 +21,7 @@ target_sources(athenaPK PRIVATE
     linear_wave.cpp
     linear_wave_mhd.cpp
     orszag_tang.cpp
+    precipitator.cpp
     rand_blast.cpp
     sod.cpp
     turbulence.cpp

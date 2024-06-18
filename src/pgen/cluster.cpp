@@ -26,6 +26,7 @@
 
 // Parthenon headers
 #include "Kokkos_MathematicalFunctions.hpp"
+#include "basic_types.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
@@ -812,7 +813,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   }
 }
 
-void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin, parthenon::SimTime const & t) {
   // get hydro
   auto pkg = pmb->packages.Get("Hydro");
   const Real gam = pin->GetReal("hydro", "gamma");
