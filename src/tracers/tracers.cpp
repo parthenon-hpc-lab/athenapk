@@ -94,7 +94,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // MARCUS AND EVAN LOOK
   // Number of lookback times to be stored (in powers of 2,
   // i.e., 12 allows to go from 0, 2^0 = 1, 2^1 = 2, 2^2 = 4, ..., 2^10 = 1024 cycles)
-  const int n_lookback = 12; // could even be made an input parameter if required/desired
+  const int n_lookback = 14; // could even be made an input parameter if required/desired
                              // (though it should probably not be changeable for restarts)
   tracer_pkg->AddParam("n_lookback", n_lookback);
   // Using a vector to reduce code duplication.
