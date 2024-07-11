@@ -222,9 +222,10 @@ void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   const auto rhoe_wind_ = rhoe_wind;
   const auto Bx_ = Bx;
   const auto By_ = By;
+  const bool fine = false;
   pmb->par_for_bndry(
       "InflowWindX2", nb, IndexDomain::inner_x2, parthenon::TopologicalElement::CC,
-      coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
+      coarse, fine, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         cons(IDN, k, j, i) = rho_wind_;
         cons(IM2, k, j, i) = mom_wind_;
         cons(IEN, k, j, i) = rhoe_wind_ + 0.5 * mom_wind_ * mom_wind_ / rho_wind_;
