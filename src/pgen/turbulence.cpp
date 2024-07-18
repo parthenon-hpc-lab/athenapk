@@ -440,8 +440,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
     for (int b = 0; b < md->NumBlocks(); b++) {
       pmb = md->GetBlockData(b)->GetBlockPointer();
-      auto &sd = pmb->swarm_data.Get();
-      auto &swarm = pmb->swarm_data.Get()->Get("tracers");
+      auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get("tracers");
       auto rng_pool = tracer_pkg->Param<RNGPool>("rng_pool");
 
       const Real &x_min = pmb->coords.Xf<1>(ib.s);
@@ -814,7 +813,8 @@ void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
   InjectBlob(md, tm, dt);
 }
 
-void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin) {
+void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
+                          const parthenon::SimTime & /*tm*/) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
   // Store (common) acceleration field in spectral space

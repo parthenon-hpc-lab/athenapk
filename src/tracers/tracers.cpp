@@ -112,8 +112,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
   auto *pmb = mbd->GetParentPointer();
-  auto &sd = pmb->swarm_data.Get();
-  auto &swarm = sd->Get("tracers");
+  auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get("tracers");
 
   auto &x = swarm->Get<Real>("x").Get();
   auto &y = swarm->Get<Real>("y").Get();
@@ -207,8 +206,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
-    auto &sd = pmb->swarm_data.Get();
-    auto &swarm = sd->Get("tracers");
+    auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get("tracers");
 
     // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
     // pull swarm vars
