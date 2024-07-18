@@ -459,9 +459,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       // Create new particles and get accessor
       auto new_particles_context = swarm->AddEmptyParticles(num_tracers_per_block);
 
-      auto &x = swarm->Get<Real>("x").Get();
-      auto &y = swarm->Get<Real>("y").Get();
-      auto &z = swarm->Get<Real>("z").Get();
+      auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
+      auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
+      auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
       auto &id = swarm->Get<int>("id").Get();
 
       auto swarm_d = swarm->GetDeviceContext();
