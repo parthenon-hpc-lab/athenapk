@@ -115,9 +115,9 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
   auto &sd = pmb->swarm_data.Get();
   auto &swarm = sd->Get("tracers");
 
-  auto &x = swarm->Get<Real>("x").Get();
-  auto &y = swarm->Get<Real>("y").Get();
-  auto &z = swarm->Get<Real>("z").Get();
+  auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
+  auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
+  auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
   auto &vel_x = swarm->Get<Real>("vel_x").Get();
   auto &vel_y = swarm->Get<Real>("vel_y").Get();
   auto &vel_z = swarm->Get<Real>("vel_z").Get();
@@ -212,9 +212,9 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
     // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
     // pull swarm vars
-    auto &x = swarm->Get<Real>("x").Get();
-    auto &y = swarm->Get<Real>("y").Get();
-    auto &z = swarm->Get<Real>("z").Get();
+    auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
+    auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
+    auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
     auto &vel_x = swarm->Get<Real>("vel_x").Get();
     auto &vel_y = swarm->Get<Real>("vel_y").Get();
     auto &vel_z = swarm->Get<Real>("vel_z").Get();
