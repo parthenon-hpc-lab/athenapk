@@ -121,10 +121,10 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   // Restriction should also be easily fixed, just need to double check transforms and
   // volume weighting everywhere
-  PARTHENON_REQUIRE_THROWS(((gnx1 == gnx2) && (gnx2 == gnx3)) &&
-                               ((Lx1 == Lx2) && (Lx2 == Lx3)),
-                           "FMFT has only been tested with cubic meshes and constant "
-                           "dx/dy/dz. Remove this warning at your own risk.")
+  // PARTHENON_REQUIRE_THROWS(((gnx1 == gnx2) && (gnx2 == gnx3)) &&
+  //  ((Lx1 == Lx2) && (Lx2 == Lx3)),
+  //  "FMFT has only been tested with cubic meshes and constant "
+  //  "dx/dy/dz. Remove this warning at your own risk.")
 
   const auto nx1 = pmb->block_size.nx(X1DIR);
   const auto nx2 = pmb->block_size.nx(X2DIR);
