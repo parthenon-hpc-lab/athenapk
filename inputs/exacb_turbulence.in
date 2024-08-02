@@ -7,37 +7,37 @@ problem_id = turbulence
 
 <parthenon/time>
 cfl = 0.3               # The Courant, Friedrichs, & Lewy (CFL) Number
-nlim       = 100000     # cycle limit
+nlim       = __NLIM__   # cycle limit
 tlim       = 5.0        # time limit
 integrator  = vl2       # time integration algorithm
 ncycle_out_mesh = -500  # print mesh structure every 500 cyles and on refinement
 
 <parthenon/mesh>
 nghost     = 3
-nx1        = 64         # Number of zones in X1-direction
+nx1        = __MX1__    # Number of zones in X1-direction
 x1min      = 0.0        # minimum value of X1
-x1max      = 1.0        # maximum value of X1
+x1max      = __X1MAX__  # maximum value of X1
 ix1_bc     = periodic   # inner-X1 boundary flag
 ox1_bc     = periodic   # outer-X1 boundary flag
 
-nx2        = 64         # Number of zones in X2-direction
+nx2        = __MX2__    # Number of zones in X2-direction
 x2min      = 0.0        # minimum value of X2
-x2max      = 1.0        # maximum value of X2
+x2max      = __X2MAX__  # maximum value of X2
 ix2_bc     = periodic   # inner-X2 boundary flag
 ox2_bc     = periodic   # outer-X2 boundary flag
 
-nx3        = 64         # Number of zones in X3-direction
+nx3        = __MX3__    # Number of zones in X3-direction
 x3min      = 0.0        # minimum value of X3
-x3max      = 1.0        # maximum value of X3
+x3max      = __X3MAX__  # maximum value of X3
 ix3_bc     = periodic   # inner-X3 boundary flag
 ox3_bc     = periodic   # outer-X3 boundary flag
 
 pack_size = -1          # pack all blocks in a single pack (currently required)
 
 <parthenon/meshblock>
-nx1        = 64
-nx2        = 32
-nx3        = 32
+nx1        = __MB1__
+nx2        = __MB2__
+nx3        = __MB3__
 
 <hydro>
 fluid = glmmhd
