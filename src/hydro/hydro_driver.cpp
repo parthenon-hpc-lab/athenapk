@@ -538,11 +538,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 #endif
   }
 
-  // Reset per cycle cooling logger
-  if (stage == 1 && hydro_pkg->AllParams().hasKey("cooling/total_deltaE_this_cycle")) {
-    hydro_pkg->UpdateParam("cooling/total_deltaE_this_cycle", 0.0);
-  }
-
   // First add split sources before the main time integration
   if (stage == 1) {
     const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
