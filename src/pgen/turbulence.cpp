@@ -47,7 +47,7 @@ using utils::few_modes_ft::FewModesFT;
 
 // TODO(?) until we are able to process multiple variables in a single hst function call
 // we'll use this enum to identify the various vars.
-enum class HstQuan { Ms, Ma, pb, DeltaEcool };
+enum class HstQuan { Ms, Ma, pb, DeltaEcool, temperature };
 
 // Compute the local sum of either the sonic Mach number,
 // alfvenic Mach number, or plasma beta as specified by `hst_quan`.
@@ -65,6 +65,10 @@ Real TurbulenceHst(MeshData<Real> *md) {
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
 
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  MeshBlockPack<VariablePack<Real>> temp_pack;
+  if (hst_quan == HstQuan::temperature) {
+    temp_pack = md->PackVariables(std::vector<std::string>{"temperature"});
+  }
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -79,6 +83,9 @@ Real TurbulenceHst(MeshData<Real> *md) {
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
         const auto &prim = prim_pack(b);
         const auto &coords = prim_pack.GetCoords(b);
+        if (hst_quan == HstQuan::temperature) {
+          lsum += temp_pack(b, 0, k, j, i) * coords.CellVolume(k, j, i);
+        }
 
         const auto vel2 = (prim(IV1, k, j, i) * prim(IV1, k, j, i) +
                            prim(IV2, k, j, i) * prim(IV2, k, j, i) +
@@ -138,6 +145,11 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
     PARTHENON_REQUIRE_THROWS(pkg->AllParams().hasKey("mbar_over_kb"),
                              "Using temperature fields requires units or mbar_over_kb.");
     pkg->AddField("temperature", m);
+    hst_vars.emplace_back(
+        parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                    TurbulenceHst<HstQuan::temperature>, "temperature"));
+
+    pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
   }
   if (pin->GetOrAddBoolean("problem/turbulence", "calc_vorticity_mag", false)) {
     pkg->AddField("vorticity_mag", m);
