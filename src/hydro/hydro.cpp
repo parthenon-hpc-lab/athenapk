@@ -723,6 +723,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
   pkg->AddParam<>("heating/type", heating_str);
 
+  const auto heating_boost = pin->GetOrAddReal("heating", "boost", 1.0);
+  pkg->AddParam<>("heating/boost", heating_boost);
+
   auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 0);
   pkg->AddParam("scratch_level", scratch_level);
 

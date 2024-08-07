@@ -611,6 +611,7 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                              "Given MPI reduction need to handle one MeshData container "
                              "per rank (i.e., pack_size=-1).");
 
+    const auto heating_boost = hydro_pkg->Param<Real>("heating/boost");
     // this this is becoming more complex (or in other parts of the code), introduce enum
     // classes
     int heating_type = -1;
@@ -636,11 +637,11 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           if (heating_type == 1) {
             // TODO(pgrete) this indirectly is 1/dv * deltaE * dV/V
             // but V = 1 for standard turb driver and dv is cancelled
-            cons(IEN, k, j, i) -= total_deltaE;
+            cons(IEN, k, j, i) -= heating_boost * total_deltaE;
           } else if (heating_type == 2) {
             // TODO(pgrete) this indirectly is 1/dv * deltaE * m/M
             // but M = 1 for standard turb driver
-            cons(IEN, k, j, i) -= rho * total_deltaE;
+            cons(IEN, k, j, i) -= heating_boost * rho * total_deltaE;
           }
           // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
           // function could be useful.
