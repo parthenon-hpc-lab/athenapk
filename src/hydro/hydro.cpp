@@ -710,6 +710,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     pkg->AddParam<>("tabular_cooling", tabular_cooling);
   }
 
+  const auto heating_str = pin->GetOrAddString("heating", "type", "none");
+  if (heating_str != "none") {
+    PARTHENON_REQUIRE_THROWS(
+        heating_str == "volumetric" || heating_str == "mass-weighted",
+        "Only 'volumetric' or 'mass-weighted' heating is currently supported.");
+    PARTHENON_REQUIRE_THROWS(cooling == Cooling::tabular,
+                             "Magic heating only works with tabular cooling.");
+    PARTHENON_REQUIRE_THROWS(
+        pin->GetString("cooling", "integrator") == "townsend",
+        "Magic heating only inmplemented for Townsend cooling integrator.");
+  }
+  pkg->AddParam<>("heating/type", heating_str);
+
   auto scratch_level = pin->GetOrAddInteger("hydro", "scratch_level", 0);
   pkg->AddParam("scratch_level", scratch_level);
 

@@ -18,6 +18,7 @@
 #include <globals.hpp>
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
+#include <string>
 
 // AthenaPK headers
 #include "../../units.hpp"
@@ -314,8 +315,6 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
-  Real total_deltaE = NAN; // Total radiated energy (not a density)
-
   md->GetBlockData(0)->GetBlockPointer()->par_for(
       "TabularCooling::SubcyclingSplitSrcTerm", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e,
       jb.s, jb.e, ib.s, ib.e,
@@ -603,6 +602,60 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         prim(IPR, k, j, i) = rho * internal_e_new * gm1;
       },
       Kokkos::Sum<Real>(total_deltaE));
+
+  const auto magic_heating = hydro_pkg->Param<std::string>("heating/type");
+
+  if (magic_heating != "none") {
+    PARTHENON_REQUIRE_THROWS(md->GetAllBlockData().size() ==
+                                 md->GetMeshPointer()->GetNumMeshBlocksThisRank(),
+                             "Given MPI reduction need to handle one MeshData container "
+                             "per rank (i.e., pack_size=-1).");
+
+    // this this is becoming more complex (or in other parts of the code), introduce enum
+    // classes
+    int heating_type = -1;
+    if (magic_heating == "volumetric") {
+      heating_type = 1;
+    } else if (magic_heating == "mass-weighted") {
+      heating_type = 2;
+    } else {
+      PARTHENON_FAIL("Unknown heating type.");
+    }
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &total_deltaE, 1, MPI_PARTHENON_REAL,
+                                      MPI_SUM, MPI_COMM_WORLD));
+    md->GetBlockData(0)->GetBlockPointer()->par_for(
+        "TabularCooling::MagicHeating", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s,
+        jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+          auto &cons = cons_pack(b);
+          auto &prim = prim_pack(b);
+          const auto &coords = cons_pack.GetCoords(b);
+
+          const auto rho = cons(IDN, k, j, i);
+
+          if (heating_type == 1) {
+            // TODO(pgrete) this indirectly is 1/dv * deltaE * dV/V
+            // but V = 1 for standard turb driver and dv is cancelled
+            cons(IEN, k, j, i) -= total_deltaE;
+          } else if (heating_type == 2) {
+            // TODO(pgrete) this indirectly is 1/dv * deltaE * m/M
+            // but M = 1 for standard turb driver
+            cons(IEN, k, j, i) -= rho * total_deltaE;
+          }
+          // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
+          // function could be useful.
+          auto internal_rhoe = cons(IEN, k, j, i) -
+                               0.5 *
+                                   (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                    SQR(cons(IM3, k, j, i))) /
+                                   rho;
+          if (mhd_enabled) {
+            internal_rhoe -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                                    SQR(cons(IB3, k, j, i)));
+          }
+          prim(IPR, k, j, i) = internal_rhoe * gm1;
+        });
+  }
 }
 
 Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
