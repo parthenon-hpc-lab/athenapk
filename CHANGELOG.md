@@ -3,6 +3,7 @@
 ## Current develop (i.e., `main` branch)
 
 ### Added (new features/APIs/variables/...)
+- [[PR 1]](https://github.com/parthenon-hpc-lab/athenapk/pull/1) Add isotropic thermal conduction and RKL2 supertimestepping
 
 ### Changed (changing behavior/API/variables/...)
 - [[PR 84]](https://github.com/parthenon-hpc-lab/athenapk/pull/84) Bump Parthenon to latest develop (2024-02-15)
