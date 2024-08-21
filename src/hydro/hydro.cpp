@@ -503,6 +503,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         }
         conduction_coeff = ConductionCoeff::spitzer;
 
+        // Default value assume fully ionized hydrogen plasma with Coulomb logarithm of 40
+        // to approximate ICM conditions, i.e., 1.84e-5/ln Lambda = 4.6e-7.
         Real spitzer_coeff =
             pin->GetOrAddReal("diffusion", "spitzer_cond_in_erg_by_s_K_cm", 4.6e-7);
         // Convert to code units. No temp conversion as [T_phys] = [T_code].
@@ -516,6 +518,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         pkg->AddParam<>("thermal_diff", thermal_diff);
 
         const auto mu = pkg->Param<Real>("mu");
+        // 6.86 again assumes a fully ionized hydrogen plasma in agreement with
+        // the assumptions above (technically this means mu = 0.5) and can be derived
+        // from eq (7) in CM77 assuming T_e = T_i.
         conduction_sat_prefac = 6.86 * std::sqrt(mu) * conduction_sat_phi;
 
       } else if (conduction_coeff_str == "fixed") {
@@ -525,6 +530,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         auto thermal_diff = ThermalDiffusivity(conduction, conduction_coeff,
                                                thermal_diff_coeff_code, 0.0, 0.0, 0.0);
         pkg->AddParam<>("thermal_diff", thermal_diff);
+        // 5.0 prefactor comes from eq (8) in Cowie & McKee 1977
+        // https://doi.org/10.1086/154911
         conduction_sat_prefac = 5.0 * conduction_sat_phi;
 
       } else {
