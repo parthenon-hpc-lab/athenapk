@@ -19,8 +19,6 @@
 
 using namespace parthenon::package::prelude;
 
-// TODO(pgrete) Calculate the thermal *diffusivity*, \chi, in code units as the energy
-// flux itself is calculated from -\chi \rho \nabla (p/\rho).
 KOKKOS_INLINE_FUNCTION
 Real OhmicDiffusivity::Get(const Real pres, const Real rho) const {
   if (resistivity_coeff_type_ == ResistivityCoeff::fixed) {
@@ -28,7 +26,7 @@ Real OhmicDiffusivity::Get(const Real pres, const Real rho) const {
   } else if (resistivity_coeff_type_ == ResistivityCoeff::spitzer) {
     PARTHENON_FAIL("needs impl");
   } else {
-    return 0.0;
+    PARTHENON_FAIL("Unknown Resistivity coeff");
   }
 }
 
@@ -237,7 +235,7 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
 }
 
 //---------------------------------------------------------------------------------------
-//! TODO(pgrete) Calculate thermal conduction, general case, i.e., anisotropic and/or with
-//! varying (incl. saturated) coefficient
+//! TODO(pgrete) Calculate Ohmic diffusion, general case, e.g., with varying (Spitzer)
+//! coefficient
 
 void OhmicDiffFluxGeneral(MeshData<Real> *md) { PARTHENON_THROW("Needs impl."); }

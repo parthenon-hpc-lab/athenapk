@@ -563,11 +563,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     auto viscosity_str = pin->GetOrAddString("diffusion", "viscosity", "none");
     if (viscosity_str == "isotropic") {
       viscosity = Viscosity::isotropic;
-    } else if (viscosity_str == "anisotropic") {
-      viscosity = Viscosity::anisotropic;
     } else if (viscosity_str != "none") {
-      PARTHENON_FAIL(
-          "Unknown viscosity method. Options are: none, isotropic, anisotropic");
+      PARTHENON_FAIL("Unknown viscosity method. Options are: none, isotropic");
     }
     // If viscosity is enabled, process supported coefficients
     if (viscosity != Viscosity::none) {
@@ -575,28 +572,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
           pin->GetOrAddString("diffusion", "viscosity_coeff", "none");
       auto viscosity_coeff = ViscosityCoeff::none;
 
-      if (viscosity_coeff_str == "spitzer") {
-        if (!pkg->AllParams().hasKey("mbar")) {
-          PARTHENON_FAIL("Spitzer viscosity requires units and gas composition. "
-                         "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
-                         "the input file.");
-        }
-        viscosity_coeff = ViscosityCoeff::spitzer;
-
-        // TODO(pgrete) fix coeff
-        Real spitzer_coeff =
-            pin->GetOrAddReal("diffusion", "spitzer_visc_in_erg_by_s_K_cm", 4.6e-7);
-        // Convert to code units. No temp conversion as [T_phys] = [T_code].
-        auto units = pkg->Param<Units>("units");
-        spitzer_coeff *= units.erg() / (units.s() * units.cm());
-
-        const auto mbar = pkg->Param<Real>("mbar");
-        auto mom_diff =
-            MomentumDiffusivity(viscosity, viscosity_coeff, spitzer_coeff, mbar,
-                                units.electron_mass(), units.k_boltzmann());
-        pkg->AddParam<>("mom_diff", mom_diff);
-
-      } else if (viscosity_coeff_str == "fixed") {
+      if (viscosity_coeff_str == "fixed") {
         viscosity_coeff = ViscosityCoeff::fixed;
         Real mom_diff_coeff_code = pin->GetReal("diffusion", "mom_diff_coeff_code");
         auto mom_diff = MomentumDiffusivity(viscosity, viscosity_coeff,
@@ -605,7 +581,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
       } else {
         PARTHENON_FAIL("Viscosity is enabled but no coefficient is set. Please "
-                       "set diffusion/viscosity_coeff to either 'spitzer' or 'fixed'");
+                       "set diffusion/viscosity_coeff to 'fixed' and "
+                       "diffusion/mom_diff_coeff_code to the desired value.");
       }
     }
     pkg->AddParam<>("viscosity", viscosity);
@@ -624,25 +601,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       auto resistivity_coeff = ResistivityCoeff::none;
 
       if (resistivity_coeff_str == "spitzer") {
-        if (!pkg->AllParams().hasKey("mbar")) {
-          PARTHENON_FAIL("Spitzer resistivity requires units and gas composition. "
-                         "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
-                         "the input file.");
-        }
-        resistivity_coeff = ResistivityCoeff::spitzer;
-
-        // TODO(pgrete) fix coeff
-        Real spitzer_coeff =
-            pin->GetOrAddReal("diffusion", "spitzer_resist_in_erg_by_s_K_cm", 4.6e-7);
-        // Convert to code units. No temp conversion as [T_phys] = [T_code].
-        auto units = pkg->Param<Units>("units");
-        spitzer_coeff *= units.erg() / (units.s() * units.cm());
-
-        const auto mbar = pkg->Param<Real>("mbar");
-        auto ohm_diff =
-            OhmicDiffusivity(resistivity, resistivity_coeff, spitzer_coeff, mbar,
-                             units.electron_mass(), units.k_boltzmann());
-        pkg->AddParam<>("ohm_diff", ohm_diff);
+        // If this is implemented, check how the Spitzer coeff for thermal conduction is
+        // handled.
+        PARTHENON_FAIL("needs impl");
 
       } else if (resistivity_coeff_str == "fixed") {
         resistivity_coeff = ResistivityCoeff::fixed;
@@ -653,7 +614,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
       } else {
         PARTHENON_FAIL("Resistivity is enabled but no coefficient is set. Please "
-                       "set diffusion/resistivity_coeff to either 'spitzer' or 'fixed'");
+                       "set diffusion/resistivity_coeff to 'fixed' and "
+                       "diffusion/ohm_diff_coeff_code to the desired value.");
       }
     }
     pkg->AddParam<>("resistivity", resistivity);
