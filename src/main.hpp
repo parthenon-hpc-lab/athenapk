@@ -1,5 +1,5 @@
 // AthenaPK - a performance portable block structured AMR MHD code
-// Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2020-2024, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
 
 #ifndef MAIN_HPP_
