@@ -589,10 +589,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
     auto resistivity = Resistivity::none;
     auto resistivity_str = pin->GetOrAddString("diffusion", "resistivity", "none");
-    if (resistivity_str == "isotropic") {
-      resistivity = Resistivity::isotropic;
+    if (resistivity_str == "ohmic") {
+      resistivity = Resistivity::ohmic;
     } else if (resistivity_str != "none") {
-      PARTHENON_FAIL("Unknown resistivity method. Options are: none, isotropic");
+      PARTHENON_FAIL("Unknown resistivity method. Options are: none, ohmic");
     }
     // If resistivity is enabled, process supported coefficients
     if (resistivity != Resistivity::none) {

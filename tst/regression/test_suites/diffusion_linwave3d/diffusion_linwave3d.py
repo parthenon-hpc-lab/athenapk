@@ -80,7 +80,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             "diffusion/viscosity=isotropic",
             "diffusion/viscosity_coeff=fixed",
             f"diffusion/mom_diff_coeff_code={_nu}",
-            "diffusion/resistivity=isotropic",
+            "diffusion/resistivity=ohmic",
             "diffusion/resistivity_coeff=fixed",
             f"diffusion/ohm_diff_coeff_code={_eta}",
         ]

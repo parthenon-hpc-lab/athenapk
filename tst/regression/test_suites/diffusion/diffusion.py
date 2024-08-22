@@ -51,7 +51,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             fluid_ = "glmmhd"
             iprob_ = 40
             viscosity_ = "none"
-            resistivity_ = "isotropic"
+            resistivity_ = "ohmic"
 
         parameters.driver_cmd_line_args = [
             "parthenon/mesh/nx1=%d" % res,

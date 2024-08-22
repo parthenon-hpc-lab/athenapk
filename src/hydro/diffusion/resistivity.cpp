@@ -52,14 +52,14 @@ Real EstimateResistivityTimestep(MeshData<Real> *md) {
   const auto gm1 = hydro_pkg->Param<Real>("AdiabaticIndex");
   const auto &ohm_diff = hydro_pkg->Param<OhmicDiffusivity>("ohm_diff");
 
-  if (ohm_diff.GetType() == Resistivity::isotropic &&
+  if (ohm_diff.GetType() == Resistivity::ohmic &&
       ohm_diff.GetCoeffType() == ResistivityCoeff::fixed) {
     // TODO(pgrete): once mindx is properly calculated before this loop, we can get rid of
     // it entirely.
     // Using 0.0 as parameters rho and p as they're not used anyway for a fixed coeff.
     const auto ohm_diff_coeff = ohm_diff.Get(0.0, 0.0);
     Kokkos::parallel_reduce(
-        "EstimateResistivityTimestep (iso fixed)",
+        "EstimateResistivityTimestep (ohmic fixed)",
         Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
             DevExecSpace(), {0, kb.s, jb.s, ib.s},
             {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
@@ -109,7 +109,7 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
   const auto eta = ohm_diff.Get(0.0, 0.0);
 
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "Resist. X1 fluxes (iso)", DevExecSpace(), 0,
+      DEFAULT_LOOP_PATTERN, "Resist. X1 fluxes (ohmic)", DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = prim_pack.GetCoords(b);
@@ -154,7 +154,7 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
   }
 
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "Resist. X2 fluxes (iso)", parthenon::DevExecSpace(), 0,
+      DEFAULT_LOOP_PATTERN, "Resist. X2 fluxes (ohmic)", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e + 1, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = prim_pack.GetCoords(b);
@@ -197,7 +197,7 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
   }
 
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "Resist. X3 fluxes (iso)", parthenon::DevExecSpace(), 0,
+      DEFAULT_LOOP_PATTERN, "Resist. X3 fluxes (ohmic)", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = prim_pack.GetCoords(b);

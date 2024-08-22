@@ -69,6 +69,62 @@ conserved to primitive conversion if both are defined.
 
 #### Diffusive processes
 
+Diffusive processes in AthenaPK can be configured in the `<diffusion>` block of the input file.
+```
+<diffusion>
+integrator = unsplit       # alternatively: rkl2
+#rkl2_max_dt_ratio = 100.0 # limits the ratio between the parabolic and hyperbolic timesteps
+#cfl = 1.0                 # Additional safety factor applied to diffusive timestep constraint. Default to hyperbolic cfl.
+
+conduction = anisotropic               # none (disabled), or isotropic, or anisotropic
+conduction_coeff = fixed               # alternative: spitzer
+thermal_diff_coeff_code = 0.01         # fixed coefficent in code units
+#spitzer_cond_in_erg_by_s_K_cm = 4.6e7 # spitzer coefficient in cgs units (requires definition of a unit system)
+#conduction_sat_phi = 0.3              # fudge factor to account for uncertainties in saturated fluxes
+
+
+viscosity = none            # none (disabled) or isotropic
+viscosity_coeff = fixed
+mom_diff_coeff_code = 0.25  # fixed coefficent in code units
+
+resistivity = none          # none (disabled) or ohmic
+resistivity_coeff = fixed
+ohm_diff_coeff_code = 0.25  # fixed coefficent in code units
+```
+(An)isotropic thermal conduction (with fixed or Spitzer coefficient), and isotropic viscosity and
+resistivity with fixed coefficient are currently implemented.
+They can be integrated in an unsplit manner or operator split using a second-order accurate RKL2
+supertimestepping algorithm.
+More details are described in the following.
+
+#### Integrators
+
+Diffusive processes can be integrated in either an unsplit
+fashion (`diffusion/integrator=unsplit`) or operator split using a second-order accurate
+RKL2 super timestepping algorithm (`diffusion/integrator=rkl2`) following [^M+14].
+
+In the unsplit case, the diffusive processes are included at the end of every stage in
+the main integration loop and the global timestep is limited accordingly.
+A separate CFL can be set for the diffusive processes via `diffusion/cfl=...`, which
+defaults to the hyperbolic value if not set.
+
+In the RKL2 case, the global timestep is not limited by the diffusive processes by default.
+However, as reported by [^V+17] a large number of stages
+($`s \approx \sqrt(\Delta t_{hyp}/\Delta t_{par}) \geq 20`$) in the supertimestepping
+(in combination with anisotropic, limited diffusion) may lead to a loss in accuracy, which
+is why the difference between hyperbolic and parabolic timesteps can be limited by
+`diffusion/rkl2_max_dt_ratio=...` and a warning is shown if the ratio is above 400.
+Note that if this limit is enforced the `dt=` shown on the terminal might not be the actual
+`dt` taken in the code as the limit is currently enforced only after the output
+has been printed.
+
+[^M+14]:
+    C. D. Meyer, D. S. Balsara, and T. D. Aslam, “A stabilized Runge–Kutta–Legendre method for explicit super-time-stepping of parabolic and mixed equations,” Journal of Computational Physics, vol. 257, pp. 594–626, 2014, doi: https://doi.org/10.1016/j.jcp.2013.08.021.
+
+[^V+17]:
+    B. Vaidya, D. Prasad, A. Mignone, P. Sharma, and L. Rickler, “Scalable explicit implementation of anisotropic diffusion with Runge–Kutta–Legendre super-time stepping,” Monthly Notices of the Royal Astronomical Society, vol. 472, no. 3, pp. 3147–3160, 2017, doi: 10.1093/mnras/stx2176.
+
+
 ##### Isotropic (hydro and MHD) and anisotropic thermal conduction (only MHD)
 In the presence of magnetic fields thermal conduction is becoming anisotropic with the flux along
 the local magnetic field direction typically being much stronger than the flux perpendicular to the magnetic field.
@@ -139,6 +195,29 @@ Default value corresponds to the typical value used in literature and goes back 
 
 [^BM82]:
     S. A. Balbus and C. F. McKee, “The evaporation of spherical clouds in a hot gas. III - Suprathermal evaporation,” , vol. 252, pp. 529–552, Jan. 1982, doi: https://doi.org/10.1086/159581
+
+#### Viscosity/Momentum diffusion
+
+Only isotropic viscosity with a (spatially and temporally) fixed coefficient in code units
+is currently implemented.
+To enable set (in the `<diffusion>` block)
+```
+viscosity = isotropic
+viscosity_coeff = fixed
+mom_diff_coeff_code = 0.25  # fixed coefficent in code units
+```
+
+#### Resistivity/Ohmic diffusion
+
+Only resistivity with a (spatially and temporally) fixed coefficient in code units
+is currently implemented.
+To enable set (in the `<diffusion>` block)
+```
+resistivity = ohmic
+resistivity_coeff = fixed
+ohm_diff_coeff_code = 0.25  # fixed coefficent in code units
+```
+
 
 ### Additional MHD options in `<hydro>` block
 
