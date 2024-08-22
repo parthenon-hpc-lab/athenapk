@@ -106,18 +106,18 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
                            "Few modes FT currently needs parthenon/mesh/pack_size=-1 "
                            "to work because of global reductions.")
 
-  auto Lx1 = pm->mesh_size.x1max - pm->mesh_size.x1min;
-  auto Lx2 = pm->mesh_size.x2max - pm->mesh_size.x2min;
-  auto Lx3 = pm->mesh_size.x3max - pm->mesh_size.x3min;
+  const auto Lx1 = pm->mesh_size.xmax(X1DIR) - pm->mesh_size.xmin(X1DIR);
+  const auto Lx2 = pm->mesh_size.xmax(X2DIR) - pm->mesh_size.xmin(X2DIR);
+  const auto Lx3 = pm->mesh_size.xmax(X3DIR) - pm->mesh_size.xmin(X3DIR);
 
   // Adjust (logical) grid size at levels other than the root level.
   // This is required for simulation with mesh refinement so that the phases calculated
   // below take the logical grid size into account. For example, the local phases at level
   // 1 should be calculated assuming a grid that is twice as large as the root grid.
   const auto root_level = pm->GetRootLevel();
-  auto gnx1 = pm->mesh_size.nx1 * std::pow(2, pmb->loc.level() - root_level);
-  auto gnx2 = pm->mesh_size.nx2 * std::pow(2, pmb->loc.level() - root_level);
-  auto gnx3 = pm->mesh_size.nx3 * std::pow(2, pmb->loc.level() - root_level);
+  auto gnx1 = pm->mesh_size.nx(X1DIR) * std::pow(2, pmb->loc.level() - root_level);
+  auto gnx2 = pm->mesh_size.nx(X2DIR) * std::pow(2, pmb->loc.level() - root_level);
+  auto gnx3 = pm->mesh_size.nx(X3DIR) * std::pow(2, pmb->loc.level() - root_level);
 
   // Restriction should also be easily fixed, just need to double check transforms and
   // volume weighting everywhere
@@ -126,13 +126,13 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
                            "FMFT has only been tested with cubic meshes and constant "
                            "dx/dy/dz. Remove this warning at your own risk.")
 
-  const auto nx1 = pmb->block_size.nx1;
-  const auto nx2 = pmb->block_size.nx2;
-  const auto nx3 = pmb->block_size.nx3;
+  const auto nx1 = pmb->block_size.nx(X1DIR);
+  const auto nx2 = pmb->block_size.nx(X2DIR);
+  const auto nx3 = pmb->block_size.nx(X3DIR);
 
-  const auto gis = pmb->loc.lx1() * pmb->block_size.nx1;
-  const auto gjs = pmb->loc.lx2() * pmb->block_size.nx2;
-  const auto gks = pmb->loc.lx3() * pmb->block_size.nx3;
+  const auto gis = pmb->loc.lx1() * pmb->block_size.nx(X1DIR);
+  const auto gjs = pmb->loc.lx2() * pmb->block_size.nx(X2DIR);
+  const auto gks = pmb->loc.lx3() * pmb->block_size.nx(X3DIR);
 
   // make local ref to capure in lambda
   const auto num_modes = num_modes_;
