@@ -69,7 +69,7 @@ conserved to primitive conversion if both are defined.
 
 #### Diffusive processes
 
-##### Isotropic (hydro and MHD )and anisotropic thermal conduction (only MHD)
+##### Isotropic (hydro and MHD) and anisotropic thermal conduction (only MHD)
 In the presence of magnetic fields thermal conduction is becoming anisotropic with the flux along
 the local magnetic field direction typically being much stronger than the flux perpendicular to the magnetic field.
 
@@ -112,7 +112,7 @@ In addition the coefficient (or diffusivity) needs to be set
 Parameter: `conduction_coeff` (string)
 - `spitzer` : Anisotropic thermal conduction with a temperature dependent classic Spitzer thermal conductivity
   $`\kappa (T) = c_\kappa T^{5/2} \mathrm{erg/s/K/cm}`$ and
-  $`c_\kappa`$ being constant prefactor (set via the additional `diffusion/spitzer_cond_in_erg_by_s_K_cm` parameter with a default value of $`4.6\times10^{-7}`$). Note, as indicated by the units in the input parameter name, this kind of thermal conductivity requires a full set of units
+  $`c_\kappa`$ being constant prefactor (set via the additional `diffusion/spitzer_cond_in_erg_by_s_K_cm` parameter with a default value of $`4.6\times10^{-7}`$ which assumes a fully ionized hydrogen plasma [^CM77] with $`\ln \lambda = 40`$ approximating ICM conditions). Note, as indicated by the units in the input parameter name, this kind of thermal conductivity requires a full set of units
   to be defined for the simulation.
 - `fixed` : Contrary to a temperature dependent conductivity, a simple thermal diffusivity can be used instead for which
 the conduction flux is $`\mathbf{F} = - \chi \rho \mathbf{\hat b} (\mathbf{\hat b \cdot \nabla \frac{p_\mathrm{th}}{\rho}})`$

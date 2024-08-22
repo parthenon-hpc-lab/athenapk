@@ -3,6 +3,7 @@
 ## Current develop (i.e., `main` branch)
 
 ### Added (new features/APIs/variables/...)
+- [[PR 89]](https://github.com/parthenon-hpc-lab/athenapk/pull/89) Add viscosity and resistivity
 - [[PR 1]](https://github.com/parthenon-hpc-lab/athenapk/pull/1) Add isotropic thermal conduction and RKL2 supertimestepping
 
 ### Changed (changing behavior/API/variables/...)
