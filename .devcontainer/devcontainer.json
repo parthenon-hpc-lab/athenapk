@@ -1,12 +1,12 @@
 // devcontainer.json
     {
       "name": "athenapk-dev",
-      // (NOTE: using the cloud image is temporarily disabled, since it doesn't exist yet)
-      // "image": "ghcr.io/parthenon-hpc-lab/athenapk:main",
-      "build": {
-        // Path is relative to the devcontainer.json file.
-        "dockerfile": "Dockerfile"
-      },
+      "image": "ghcr.io/parthenon-hpc-lab/cuda11.6-mpi-hdf5-ascent",
+      // disable Dockerfile for now
+      //"build": {
+      //  // Path is relative to the devcontainer.json file.
+      //  "dockerfile": "Dockerfile"
+      //},
       "hostRequirements": {
         "cpus": 4
       },
