@@ -23,7 +23,8 @@
             "ms-azuretools.vscode-docker",
             "swyddfa.esbonio",
             "tomoki1207.pdf",
-            "ms-vscode.cmake-tools"
+            "ms-vscode.cmake-tools",
+            "ms-vsliveshare.vsliveshare"
         ]
         }
       },
