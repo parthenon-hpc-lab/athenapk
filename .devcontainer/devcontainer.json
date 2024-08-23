@@ -28,7 +28,8 @@
         }
       },
       "remoteEnv": {
-        "PATH": "${containerEnv:PATH}:/usr/local/hdf5/parallel/bin"
+        "PATH": "${containerEnv:PATH}:/usr/local/hdf5/parallel/bin",
+        "OMPI_MCA_opal_warn_on_missing_libcuda": "0"
       },
       //"remoteUser": "ubuntu",
       // we need to manually checkout the submodules,
