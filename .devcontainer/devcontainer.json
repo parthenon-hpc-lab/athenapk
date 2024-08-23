@@ -27,7 +27,7 @@
           ]
         }
       },
-      "remoteUser": "ubuntu",
+      //"remoteUser": "ubuntu",
       // we need to manually checkout the submodules,
       // but VSCode may try to configure CMake before they are fully checked-out.
       // workaround TBD
