@@ -53,6 +53,9 @@ This convention is adopted by Schure et al. (2009) in their definition of $\Lamb
 
 This convention is adopted by Gnat and Sternberg (2007) in their definition of $\Lambda$.
 
+The following image illustrates a comparison between different cooling curves in this notation:
+![nHne cooling](./cooling/cooling_curves_nHneLambda.png)
+
 ## $n_H^2 \Lambda$ convention
 
 In this convention, the volumetric cooling rate is given by

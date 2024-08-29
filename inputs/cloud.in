@@ -62,7 +62,7 @@ He_mass_fraction = 0.24
 
 <cooling>
 enable_cooling = none                     # turn on with "tabular"
-table_filename = schure.cooling
+table_filename = updated_schure.cooling
 log_temp_col = 0
 log_lambda_col = 1
 lambda_units_cgs = 1
