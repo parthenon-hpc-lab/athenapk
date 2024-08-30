@@ -25,7 +25,14 @@ if __name__ == "__main__":
 
     ## Gnat and Sternberg (2007) [NOTE: n_H n_e convention for Lambda]
     # Columns: Temperature Lambda(Z=1e-3) Lambda(Z=1e-2) Lambda(Z=1e-1) Lambda(Z=1) Lambda(Z=2)
-    gs_T, gs_LambdaZem3, gs_LambdaZem2, gs_LambdaZem1, gs_LambdaZ1, gs_LambdaZ2 = (
+    (
+        gs_T,
+        gs_LambdaZem3,
+        gs_LambdaZem2,
+        gs_LambdaZem1,
+        gs_LambdaZ1,
+        gs_LambdaZ2
+    ) = (
         np.loadtxt("gnat_sternberg_cie_table.txt", unpack=True, skiprows=23)
     )
     # NOTE: There is not enough information in this table alone to compute n_e!

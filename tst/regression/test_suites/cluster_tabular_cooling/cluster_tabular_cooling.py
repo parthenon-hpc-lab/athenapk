@@ -170,8 +170,6 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/cluster/uniform_gas/uz={self.uniform_gas_uz.in_units('code_length*code_time**-1').v}",
             f"problem/cluster/uniform_gas/pres={self.uniform_gas_pres.in_units('code_mass*code_length**-1*code_time**-2').v}",
             f"cooling/table_filename={table_filename}",
-            f"cooling/log_temp_col=0",
-            f"cooling/log_lambda_col=1",
             f"cooling/lambda_units_cgs=1",
             f"cooling/integrator={integrator}",
             f"cooling/cfl={cooling_cfl}",
