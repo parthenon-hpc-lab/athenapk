@@ -289,8 +289,10 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
   const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");
   const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
 
+#if 0
   // the maximum height at which to drive turbulence
   const Real max_height_driving = hydro_pkg->Param<Real>("max_height_driving");
+#endif
 
   if (sigma_v > 0) {
     // NOTE: this param only exists if sigma_v > 0
@@ -363,10 +365,12 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
           const Real z = coords.Xc<3>(k);
           Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
 
+#if 0
           // don't drive near boundaries
           if (std::abs(z) > max_height_driving) {
             taper_fac = 0;
           }
+#endif
 
           // update momentum components
           u(IM1, k, j, i) += rho * (taper_fac * dv_x);
@@ -817,10 +821,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   hydro_pkg->AddParam<>("sigma_v", sigma_v);
 
   if (sigma_v > 0) {
+#if 0
     // the maximum height at which to drive turbulence
     const Real max_height_driving = pin->GetReal("precipitator/driving", "max_height");
     hydro_pkg->AddParam<Real>("max_height_driving", max_height_driving,
                               parthenon::Params::Mutability::Restart);
+#endif
 
     auto k_peak_v = pin->GetReal("precipitator/driving", "k_peak");
     // NOTE: in 2D, there are only 12 modes when k_peak == 2
