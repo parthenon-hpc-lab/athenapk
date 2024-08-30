@@ -287,14 +287,15 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
   const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");
-  const auto vertical_driving_only = hydro_pkg->Param<bool>("vertical_driving_only");
-
   const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
 
   // the maximum height at which to drive turbulence
   const Real max_height_driving = hydro_pkg->Param<Real>("max_height_driving");
 
   if (sigma_v > 0) {
+    // NOTE: this param only exists if sigma_v > 0
+    const auto vertical_driving_only = hydro_pkg->Param<bool>("vertical_driving_only");
+
     // generate perturbations
     auto *few_modes_ft = hydro_pkg->MutableParam<FewModesFT>("precipitator/few_modes_ft_v");
     few_modes_ft->Generate(md, dt, "tmp_perturb");
