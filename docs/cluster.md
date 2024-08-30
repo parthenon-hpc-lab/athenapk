@@ -76,14 +76,14 @@ $$
     \frac{3 H_0^2}{8 \pi G}.
 $$
 
-Parameters for the HERNQUIST BCG are controlled via:
+Parameters for the `HERNQUIST` BCG are controlled via:
 ```
 <problem/cluster/gravity>
 
 m_bcg_s = 0.001 # in code_mass
 r_bcg_s = 0.004 # in code_length
 ```
-where a HERNQUIST profile adds a gravitational acceleration defined by
+where a `HERNQUIST` profile adds a gravitational acceleration defined by
 
 $$
  g_{BCG}(r) = G \frac{ M_{BCG} }{R_{BCG}^2} \frac{1}{\left( 1 + \frac{r}{R_{BCG}}\right)^2}
@@ -216,7 +216,7 @@ triggering_mode = COLD_GAS # or NONE, BOOSTED_BONDI, BONDI_SCHAYE
 ```
 where `triggering_mode=NONE` will disable AGN triggering. 
 
-With BOOSTED_BONDI accretion, the mass rate of accretion follows
+With `BOOSTED_BONDI` accretion, the mass rate of accretion follows
 
 $$
 \dot{M} = \alpha \frac { 2 \pi G^2 M^2_{SMBH} \hat {\rho} } {
@@ -235,7 +235,7 @@ m_smbh = 1.0e-06 # in code_mass
 accretion_radius = 0.001 # in code_length
 bondi_alpha= 100.0 # unitless
 ```
-With BONDI_SCHAYE accretion, the `$\alpha$` used for BOOSTED_BONDI accretion is modified to depend on the number density following:
+With `BONDI_SCHAYE` accretion, the $\alpha$ used for `BOOSTED_BONDI` accretion is modified to depend on the number density following:
 
 $$
 \alpha =
@@ -252,7 +252,7 @@ bondi_n0= 2.9379989445851786e+72 # in 1/code_length**3
 bondi_beta= 2.0 # unitless
 ```
 
-With both BOOSTED_BONDI and BONDI_SCHAYE accretion, mass is removed from each
+With both `BOOSTED_BONDI` and `BONDI_SCHAYE` accretion, mass is removed from each
 cell within the accretion zone at a mass weighted rate. E.g. the mass in each
 cell within the accretion region changes by
 ```
@@ -264,7 +264,7 @@ unchanged. Thus velocities and temperatures will increase where mass is
 removed.
 
 
-With COLD_GAS accretion, the accretion rate becomes the total mass within the accretion zone equal to or
+With `COLD_GAS` accretion, the accretion rate becomes the total mass within the accretion zone equal to or
 below a defined cold temperature threshold divided by a defined accretion
 timescale. The temperature threshold and accretion timescale are defined by
 ```
@@ -360,13 +360,17 @@ velocity $v_{jet}$ can be set via
 kinetic_jet_temperature = 1e7 # K
 ```
 However, $T_{jet}$ and $v_{jet}$ must be non-negative and fulfill
+
 $$
-v_{jet} = \sqrt{ 2 \left ( \epsilon c^2 - (1 - \epsilon) \frac{k_B T_{jet}}{ \mu m_h \left( \gamma - 1 \right} \right ) }
+v_{jet} = \sqrt{ 2 \left ( \epsilon c^2 - (1 - \epsilon) \frac{k_B T_{jet}}{ \mu m_h \left( \gamma - 1 \right) } \right ) }
 $$
+
 to ensure that the sum of rest mass energy, thermal energy, and kinetic energy of the new gas sums to $\dot{M} c^2$. Note that these equations places limits  on $T_{jet}$ and $v_{jet}$, specifically
+
 $$
-v_{jet} \leq c \sqrt{ 2 \epsilon } \qquad \text{and} \qquad \frac{k_B T_{jet}}{ \mu m_h \left( \gamma - 1 \right} \leq c^2 \frac{ \epsilon}{1 - \epsilon}
+v_{jet} \leq c \sqrt{ 2 \epsilon } \qquad \text{and} \qquad \frac{k_B T_{jet}}{ \mu m_h \left( \gamma - 1 \right) } \leq c^2 \frac{ \epsilon}{1 - \epsilon}
 $$
+
 If the above equations are not satified then an exception will be thrown at
 initialization. If neither $T_{jet}$ nor $v_{jet}$ are specified, then
 $v_{jet}$ will be computed assuming $T_{jet}=0$ and a warning will be given
@@ -429,9 +433,9 @@ where the injected magnetic field follows
 
 $$
 \begin{align}
-\mathcal{B}_r      &=\mathcal{B}_0 2 \frac{h r}{\ell^2} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
-\mathcal{B}_\theta &=\mathcal{B}_0 \alpha \frac{r}{\ell} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right ) } \\\\
-\mathcal{B}_h      &=\mathcal{B}_0 2 \left( 1 - \frac{r^2}{\ell^2} \right ) \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
+\mathcal{B}\_r      &= \mathcal{B}\_0 2 \frac{h r}{\ell^2} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\
+\mathcal{B}\_\theta &= \mathcal{B}\_0 \alpha \frac{r}{\ell} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right ) } \\
+\mathcal{B}\_h      &= \mathcal{B}\_0 2 \left( 1 - \frac{r^2}{\ell^2} \right ) \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )}
 \end{align}
 $$
 
@@ -439,9 +443,9 @@ which has  the corresponding vector potential field
 
 $$
 \begin{align}
-\mathcal{A}_r &= 0 \\\\
-\mathcal{A}_{\theta} &= \mathcal{B}_0 \ell \frac{r}{\ell} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\\\
-\mathcal{A}_h &= \mathcal{B}_0 \ell \frac{\alpha}{2}\exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )}
+\mathcal{A}\_r &= 0 \\
+\mathcal{A}\_{\theta} &= \mathcal{B}\_0 \ell \frac{r}{\ell} \exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )} \\
+\mathcal{A}\_h &= \mathcal{B}\_0 \ell \frac{\alpha}{2}\exp{ \left ( \frac{-r^2 - h^2}{\ell^2} \right )}
 \end{align}
 $$
 
@@ -463,7 +467,7 @@ $$
 where $\dot{\rho}_B$ is set to
 
 $$
-\dot{\rho}_B = \frac{3 \pi}{2} \frac{\dot{M} \left ( 1 - \epsilon \right ) f_{magnetic}}{\ell^3}
+\dot{\rho}_B = \frac{3 \pi}{2} \frac{\dot{M} \left ( 1 - \epsilon \right ) f\_\mathrm{magnetic}}{\ell^3}
 $$
 
 so that the total mass injected matches the accreted mass propotioned to magnetic feedback.
@@ -485,13 +489,17 @@ according to their ratio.
 #### Simple field loop (donut) feedback
 
 Magnetic energy is injected according to the following simple potential
+
 $$
-A_h(r, \theta, h) = B_0 L \exp^\left ( -r^2/L^2 \right)$ for $h_\mathrm{offset} \leq |h| \leq h_\mathrm{offset} + h_\mathrm{thickness}
+A_h(r, \theta, h) = B_0 L \exp^\left ( -r^2/L^2 \right) \qquad \mathrm{for} \qquad h_\mathrm{offset} \leq |h| \leq h_\mathrm{offset} + h_\mathrm{thickness}
 $$
+
 resultig in a magnetic field configuration of
+
 $$
-B_\theta(r, \theta, h) = 2 B_0 r /L \exp^\left ( -r^2/L^2 \right)$ for $h_\mathrm{offset} \leq |h| \leq h_\mathrm{offset} + h_\mathrm{thickness}
+B_\theta(r, \theta, h) = 2 B_0 r /L \exp^\left ( -r^2/L^2 \right) \qquad \mathrm{for} \qquad h_\mathrm{offset} \leq |h| \leq h_\mathrm{offset} + h_\mathrm{thickness}
 $$
+
 with all other components being zero.
 
 
@@ -526,7 +534,7 @@ fixed_mass_rate = 1.0
 
 ## SNIA Feedback
 
-Following [Prasad 2020](doi.org/10.1093/mnras/112.2.195), AthenaPK can inject
+Following [Prasad 2020](https://doi.org/10.3847/1538-4357/abc33c), AthenaPK can inject
 mass and energy from type Ia supernovae following the mass profile of the BCG.
 This SNIA feedback can be configured with
 ```

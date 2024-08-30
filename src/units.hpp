@@ -30,6 +30,7 @@ class Units {
   static constexpr parthenon::Real dyne_cm2_cgs = 1.0;                     // dyne/cm^2
   static constexpr parthenon::Real msun_cgs = 1.98841586e+33;              // g
   static constexpr parthenon::Real atomic_mass_unit_cgs = 1.660538921e-24; // g
+  static constexpr parthenon::Real electron_mass_cgs = 9.1093837015e-28;   // g
   static constexpr parthenon::Real g_cm3_cgs = 1.0;                        // gcm**3
   static constexpr parthenon::Real erg_cgs = 1;                            // erg
   static constexpr parthenon::Real gauss_cgs = 1;                          // gauss
@@ -124,6 +125,7 @@ class Units {
   parthenon::Real atomic_mass_unit() const {
     return atomic_mass_unit_cgs / code_mass_cgs();
   }
+  parthenon::Real electron_mass() const { return electron_mass_cgs / code_mass_cgs(); }
   parthenon::Real mh() const { return mh_cgs / code_mass_cgs(); }
   parthenon::Real erg() const { return erg_cgs / code_energy_cgs(); }
   parthenon::Real gauss() const { return gauss_cgs / code_magnetic_cgs(); }
