@@ -216,15 +216,17 @@ than any other timestep constraint (e.g., the hyperbolic one).
 ### Cooling
 
 Tabular cooling (e.g., for optically thin cooling) is enabled through the `cooling` block in the input file.
+The tabulated table itself is a text file containing (apart from comments) only two columns (two floating
+point numbers per line with the first one being the log10 temperature and the second one the
+log10 cooling rate scaled to a source function with $S_{cool} = n_H^2 \Lambda(T)$).
+
 A possible block might look like:
 
 ```
 <cooling>
-enable_cooling = tabular           # To disable, set to `none`
-table_filename = schure.cooling    # Path to the cooling table (in a text file)
-log_temp_col = 0                   # Column in the file that contains the log10 temperatures
-log_lambda_col = 1                 # Column in the file that contains the cooling rates
-lambda_units_cgs = 1               # Conversion factor of the cooling rate relative to CGS units
+enable_cooling = tabular                # To disable, set to `none`
+table_filename = schure.cooling_1.0Z    # Path to the cooling table (in a text file)
+lambda_units_cgs = 1                    # Conversion factor of the cooling rate relative to CGS units
 
 integrator = townsend              # Other possible options are `rk12` and `rk45` for error bound subcycling
 #max_iter = 100                    # Max number of iteration for subcycling. Unsued for Townsend integrator
@@ -237,3 +239,7 @@ d_log_temp_tol = 1e-8              # Tolerance in cooling table between subseque
 - Cooling is turned off once the temperature reaches the lower end of the cooling table. Within the cooling function, gas does not cool past the cooling table.
 - If the global temperature floor `<hydro/Tfloor>` is higher than the lower end of the cooling table, then the global temperature floor takes precedence.
 - The pressure floor if present is not considered in the cooling function, only the temperature floor `<hydro/Tfloor>`
+
+Finally, a more comprehensive descriptions of various conventions used for cooling
+functions (and the chosen implementation in AthenaPK) can be found in [Cooling Notes](cooling_notes.md)
+and a notebook comparing various cooling tables (and their conversion) in [cooling/cooling.ipynb](cooling/cooling.ipynb).
