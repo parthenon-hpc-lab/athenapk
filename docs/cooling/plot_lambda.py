@@ -31,10 +31,8 @@ if __name__ == "__main__":
         gs_LambdaZem2,
         gs_LambdaZem1,
         gs_LambdaZ1,
-        gs_LambdaZ2
-    ) = (
-        np.loadtxt("gnat_sternberg_cie_table.txt", unpack=True, skiprows=23)
-    )
+        gs_LambdaZ2,
+    ) = np.loadtxt("gnat_sternberg_cie_table.txt", unpack=True, skiprows=23)
     # NOTE: There is not enough information in this table alone to compute n_e!
     #  (The electron fraction must be computed from datafile2a.txt)
 
