@@ -27,6 +27,7 @@ using PinnedArray1D = Kokkos::View<T *, parthenon::LayoutWrapper, PinnedMemSpace
 namespace Hydro {
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin);
+void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 template <Fluid fluid>
