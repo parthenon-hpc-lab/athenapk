@@ -42,7 +42,7 @@ TaskStatus CalcDiffFluxes(StateDescriptor *hydro_pkg, MeshData<Real> *md) {
   if (resistivity != Resistivity::none) {
     const auto &ohm_diff = hydro_pkg->Param<OhmicDiffusivity>("ohm_diff");
 
-    if (resistivity == Resistivity::isotropic &&
+    if (resistivity == Resistivity::ohmic &&
         ohm_diff.GetCoeffType() == ResistivityCoeff::fixed) {
       OhmicDiffFluxIsoFixed(md);
     } else {

@@ -231,7 +231,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
 
   TaskID none(0);
 
-  // Store initial u0 in u1 as "base" will continusouly be updated but initial state Y0 is
+  // Store initial u0 in u1 as "base" will continuously be updated but initial state Y0 is
   // required for each stage.
   TaskRegion &region_copy_out = ptask_coll->AddRegion(blocks.size());
   for (int i = 0; i < blocks.size(); i++) {
@@ -540,6 +540,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
   // First add split sources before the main time integration
   if (stage == 1) {
+    // If any tasks modify the conserved variables before this place, then
+    // the STS tasks should be updated to not assume prim and cons are in sync.
     const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
     if (diffint == DiffInt::rkl2) {
       AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
@@ -690,6 +692,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
   }
   const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
+  // If any tasks modify the conserved variables before this place and after FillDerived,
+  // then the STS tasks should be updated to not assume prim and cons are in sync.
   if (diffint == DiffInt::rkl2 && stage == integrator->nstages) {
     AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
   }

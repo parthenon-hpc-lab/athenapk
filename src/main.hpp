@@ -1,5 +1,5 @@
 // AthenaPK - a performance portable block structured AMR MHD code
-// Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2020-2024, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
 
 #ifndef MAIN_HPP_
@@ -37,9 +37,9 @@ enum class Fluid { undefined, euler, glmmhd };
 enum class Cooling { none, tabular };
 enum class Conduction { none, isotropic, anisotropic };
 enum class ConductionCoeff { none, fixed, spitzer };
-enum class Viscosity { none, isotropic, anisotropic };
-enum class ViscosityCoeff { none, fixed, spitzer };
-enum class Resistivity { none, isotropic };
+enum class Viscosity { none, isotropic };
+enum class ViscosityCoeff { none, fixed };
+enum class Resistivity { none, ohmic };
 enum class ResistivityCoeff { none, fixed, spitzer };
 enum class DiffInt { none, unsplit, rkl2 };
 

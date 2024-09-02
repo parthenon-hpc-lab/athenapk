@@ -23,16 +23,12 @@
 
 using namespace parthenon::package::prelude;
 
-// TODO(pgrete) Calculate the thermal *diffusivity*, \chi, in code units as the energy
-// flux itself is calculated from -\chi \rho \nabla (p/\rho).
 KOKKOS_INLINE_FUNCTION
 Real MomentumDiffusivity::Get(const Real pres, const Real rho) const {
   if (viscosity_coeff_type_ == ViscosityCoeff::fixed) {
     return coeff_;
-  } else if (viscosity_coeff_type_ == ViscosityCoeff::spitzer) {
-    PARTHENON_FAIL("needs impl");
   } else {
-    return 0.0;
+    PARTHENON_FAIL("Unknown viscosity coeff");
   }
 }
 
@@ -293,7 +289,7 @@ void MomentumDiffFluxIsoFixed(MeshData<Real> *md) {
 }
 
 //---------------------------------------------------------------------------------------
-//! TODO(pgrete) Calculate thermal conduction, general case, i.e., anisotropic and/or with
-//! varying (incl. saturated) coefficient
+//! TODO(pgrete) Calculate momentum diffusion, general case, i.e., anisotropic and/or with
+//! varying coefficient
 
 void MomentumDiffFluxGeneral(MeshData<Real> *md) { PARTHENON_THROW("Needs impl."); }

@@ -3,13 +3,17 @@
 ## Current develop (i.e., `main` branch)
 
 ### Added (new features/APIs/variables/...)
+- [[PR 89]](https://github.com/parthenon-hpc-lab/athenapk/pull/89) Add viscosity and resistivity
+- [[PR 1]](https://github.com/parthenon-hpc-lab/athenapk/pull/1) Add isotropic thermal conduction and RKL2 supertimestepping
 
 ### Changed (changing behavior/API/variables/...)
+- [[PR 97]](https://github.com/parthenon-hpc-lab/athenapk/pull/97) Fixed Schure cooling curve. Removed SD one. Added description of cooling function conventions.
 - [[PR 84]](https://github.com/parthenon-hpc-lab/athenapk/pull/84) Bump Parthenon to latest develop (2024-02-15)
 
 ### Fixed (not changing behavior/API/variables/...)
 
 ### Infrastructure
+- [[PR 112]](https://github.com/parthenon-hpc-lab/athenapk/pull/112) Add dev container configuration
 - [[PR 109]](https://github.com/parthenon-hpc-lab/athenapk/pull/109) Bump Parthenon to latest develop (2024-05-29)
 - [[PR 105]](https://github.com/parthenon-hpc-lab/athenapk/pull/105) Bump Parthenon to latest develop (2024-03-13)
 - [[PR 84]](https://github.com/parthenon-hpc-lab/athenapk/pull/84) Added `CHANGELOG.md`
@@ -17,6 +21,11 @@
 ### Removed (removing behavior/API/varaibles/...)
 
 ### Incompatibilities (i.e. breaking changes)
+- [[PR 97]](https://github.com/parthenon-hpc-lab/athenapk/pull/97)
+  - Removes original `schure.cooling` cooling curve as it had unknown origin.
+  - To avoid confusion, only cooling table for a single solar metallicity are supported
+    from now on (i.e., the parameters to specify temperature and lambda columns have been removed).
+  - Added `schure.cooling_#Z` curves (and associated notebook to calculate it from the paper tables).
 - [[PR 109]](https://github.com/parthenon-hpc-lab/athenapk/pull/109) Bump Parthenon to latest develop (2024-05-29)
   - Changed signature of `UserWorkBeforeOutput` to include `SimTime` as last paramter
   - Fixes bitwise idential restarts for AMR simulations (the derefinement counter is now included)
