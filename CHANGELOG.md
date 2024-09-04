@@ -12,6 +12,7 @@
 ### Fixed (not changing behavior/API/variables/...)
 
 ### Infrastructure
+- [[PR 114]](https://github.com/parthenon-hpc-lab/athenapk/pull/109) Bump Parthenon to latest develop (2024-05-29)
 - [[PR 112]](https://github.com/parthenon-hpc-lab/athenapk/pull/112) Add dev container configuration
 - [[PR 105]](https://github.com/parthenon-hpc-lab/athenapk/pull/105) Bump Parthenon to latest develop (2024-03-13)
 - [[PR 84]](https://github.com/parthenon-hpc-lab/athenapk/pull/84) Added `CHANGELOG.md`
@@ -19,6 +20,10 @@
 ### Removed (removing behavior/API/varaibles/...)
 
 ### Incompatibilities (i.e. breaking changes)
+- [[PR 114]](https://github.com/parthenon-hpc-lab/athenapk/pull/109) Bump Parthenon to latest develop (2024-05-29)
+  - Changed signature of `UserWorkBeforeOutput` to include `SimTime` as last paramter
+  - Fixes bitwise idential restarts for AMR simulations (the derefinement counter is now included)
+  - Order of operations in flux-correction has changed (expect round-off error differences to previous results for AMR sims)
 - [[PR 97]](https://github.com/parthenon-hpc-lab/athenapk/pull/97)
   - Removes original `schure.cooling` cooling curve as it had unknown origin.
   - To avoid confusion, only cooling table for a single solar metallicity are supported
