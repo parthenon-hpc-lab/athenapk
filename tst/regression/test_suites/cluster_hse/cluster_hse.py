@@ -220,7 +220,9 @@ class TestCase(utils.test_case.TestCaseAbs):
         pres = components["prim_pressure"].ravel()
 
         # volume weighted rms velocity
-        rms_v = np.sqrt(np.sum((vx**2 + vy**2 + vz**2) * cell_vol) / np.sum(cell_vol))
+        rms_v = np.sqrt(
+            np.sum((vx**2 + vy**2 + vz**2) * cell_vol) / np.sum(cell_vol)
+        )
 
         sigma_v_match = np.isclose(
             rms_v, self.sigma_v.in_units("code_velocity").v, rtol=1e-14, atol=1e-14
@@ -238,7 +240,9 @@ class TestCase(utils.test_case.TestCaseAbs):
         bz = components["prim_magnetic_field_3"].ravel()
 
         # volume weighted rms magnetic field
-        rms_b = np.sqrt(np.sum((bx**2 + by**2 + bz**2) * cell_vol) / np.sum(cell_vol))
+        rms_b = np.sqrt(
+            np.sum((bx**2 + by**2 + bz**2) * cell_vol) / np.sum(cell_vol)
+        )
 
         sigma_b_match = np.isclose(
             rms_b, self.sigma_b.in_units("code_magnetic").v, rtol=1e-14, atol=1e-14
@@ -413,7 +417,9 @@ class TestCase(utils.test_case.TestCaseAbs):
         g = g_from_r(R, self.include_gs)
 
         gs = {include_g: g_from_r(R, (include_g,)) for include_g in self.include_gs}
-        Ms = {include_g: gs[include_g] * R**2 / self.G for include_g in self.include_gs}
+        Ms = {
+            include_g: gs[include_g] * R**2 / self.G for include_g in self.include_gs
+        }
 
         # The analytic pressure and density profiles
         analytic_R = R.in_units("code_length")

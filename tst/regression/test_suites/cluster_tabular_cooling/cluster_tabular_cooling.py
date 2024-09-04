@@ -378,9 +378,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             internal_e = (pres / (rho * (self.adiabatic_index - 1))).mean()
 
             if step <= len(self.integrators_and_max_iters):
-                conv_final_internal_es[self.integrators_and_max_iters[step - 1]] = (
-                    internal_e
-                )
+                conv_final_internal_es[
+                    self.integrators_and_max_iters[step - 1]
+                ] = internal_e
             elif step < self.n_steps:
                 adapt_step = step - len(self.integrators_and_max_iters)
                 integrator = self.integrators[adapt_step - 1]
