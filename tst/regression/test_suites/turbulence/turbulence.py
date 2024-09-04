@@ -40,7 +40,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         success = True
 
-        data_filename = f"{parameters.output_path}/parthenon.hst"
+        data_filename = f"{parameters.output_path}/parthenon.out1.hst"
         data = np.genfromtxt(data_filename)
 
         # Check Ms

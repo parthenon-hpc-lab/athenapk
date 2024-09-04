@@ -135,7 +135,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         for step in range(len(all_cfgs)):
             outname = get_outname(all_cfgs[step])
-            data_filename = f"{parameters.output_path}/{outname}.hst"
+            data_filename = f"{parameters.output_path}/{outname}.out1.hst"
             data = np.genfromtxt(data_filename)
 
             res, method = all_cfgs[step]
