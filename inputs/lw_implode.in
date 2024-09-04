@@ -1,0 +1,70 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2024, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+# Problem generator for square implosion problem
+# REFERENCE: R. Liska & B. Wendroff, SIAM J. Sci. Comput., 25, 995 (2003)
+<comment>
+problem = Liska Wendroff implosion
+
+<job>
+problem_id = lw_implode
+
+<problem/lw_implode>
+# Interior Conditions
+d_in  = 0.125            # density
+p_in  = 0.14             # pressure
+
+# Exterior Conditions
+d_out  = 1.0             # density
+p_out  = 1.0             # pressure
+
+<parthenon/mesh>
+refinement = none
+nghost = 2
+
+nx1 = 200
+x1min = 0.0
+x1max = 0.3
+ix1_bc = reflecting
+ox1_bc = reflecting
+
+nx2 = 200
+x2min = 0.0
+x2max = 0.3
+ix2_bc = reflecting
+ox2_bc = reflecting
+
+nx3 = 1
+x3min = -0.5
+x3max = 0.5
+ix2_bc = periodic
+ox2_bc = periodic
+
+<parthenon/meshblock>
+nx1 = 100
+nx2 = 100
+nx3 = 1
+
+<parthenon/output0>
+file_type = hdf5
+dt = 0.1
+variables = prim
+id = prim
+
+<parthenon/output1>
+file_type = hst
+dt = 0.1
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.4
+tlim = 2.5
+nlim = -1
+
+<hydro>
+fluid = euler
+eos = adiabatic
+riemann = hllc
+reconstruction = plm
+gamma = 1.4

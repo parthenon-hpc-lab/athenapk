@@ -85,6 +85,13 @@ using namespace parthenon::driver::prelude;
 
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 } // namespace kh
+
+namespace lw_implode {
+using namespace parthenon::driver::prelude;
+
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace lw_implode
+
 namespace rand_blast {
 using namespace parthenon::driver::prelude;
 
