@@ -140,8 +140,8 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             res, method = all_cfgs[step]
             row = method_cfgs.index(method)
-            p[row, 0].plot(data[:, 0], data[:, 8] / data[0, 8], label=outname)
-            p[row, 1].plot(data[:, 0], data[:, 10], label=outname)
+            p[row, 0].plot(data[:, 0], data[:, 10] / data[0, 10], label=outname)
+            p[row, 1].plot(data[:, 0], data[:, 12], label=outname)
 
         p[0, 0].set_title("Emag(t)/Emag(0)")
         p[0, 1].set_title("rel DivB")

@@ -56,6 +56,6 @@ jobs:
             build/tst/regression/outputs/aniso_therm_cond_gauss_conv/cond.png
             build/tst/regression/outputs/field_loop/field_loop.png
             build/tst/regression/outputs/riemann_hydro/shock_tube.png
-            build/tst/regression/outputs/turbulence/parthenon.hst
+            build/tst/regression/outputs/turbulence/parthenon.out1.hst
           retention-days: 3
 

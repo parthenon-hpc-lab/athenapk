@@ -211,26 +211,16 @@ class TestCase(utils.test_case.TestCaseAbs):
         # flatten array as prim var are also flattended
         cell_vol = cell_vol.ravel()
 
-        prim = data_file.Get("prim")
-
-        # FIXME: For now this is hard coded - a component mapping should be done by phdf
-        prim_col_dict = {
-            "velocity_1": 1,
-            "velocity_2": 2,
-            "velocity_3": 3,
-            "magnetic_field_1": 5,
-            "magnetic_field_2": 6,
-            "magnetic_field_3": 7,
-        }
-
-        vx = prim[prim_col_dict["velocity_1"]]
-        vy = prim[prim_col_dict["velocity_2"]]
-        vz = prim[prim_col_dict["velocity_3"]]
+        # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+        components = data_file.GetComponents(data.Info["ComponentNames"], flatten=False)
+        rho = components["prim_density"].ravel()
+        vx = components["prim_velocity_1"].ravel()
+        vy = components["prim_velocity_2"].ravel()
+        vz = components["prim_velocity_3"].ravel()
+        pres = components["prim_pressure"].ravel()
 
         # volume weighted rms velocity
-        rms_v = np.sqrt(
-            np.sum((vx**2 + vy**2 + vz**2) * cell_vol) / np.sum(cell_vol)
-        )
+        rms_v = np.sqrt(np.sum((vx**2 + vy**2 + vz**2) * cell_vol) / np.sum(cell_vol))
 
         sigma_v_match = np.isclose(
             rms_v, self.sigma_v.in_units("code_velocity").v, rtol=1e-14, atol=1e-14
@@ -243,14 +233,12 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"Expected {self.sigma_v.in_units('code_velocity')} but got {rms_v}\n"
             )
 
-        bx = prim[prim_col_dict["magnetic_field_1"]]
-        by = prim[prim_col_dict["magnetic_field_2"]]
-        bz = prim[prim_col_dict["magnetic_field_3"]]
+        bx = components["prim_magnetic_field_1"].ravel()
+        by = components["prim_magnetic_field_2"].ravel()
+        bz = components["prim_magnetic_field_3"].ravel()
 
         # volume weighted rms magnetic field
-        rms_b = np.sqrt(
-            np.sum((bx**2 + by**2 + bz**2) * cell_vol) / np.sum(cell_vol)
-        )
+        rms_b = np.sqrt(np.sum((bx**2 + by**2 + bz**2) * cell_vol) / np.sum(cell_vol))
 
         sigma_b_match = np.isclose(
             rms_b, self.sigma_b.in_units("code_magnetic").v, rtol=1e-14, atol=1e-14
@@ -425,9 +413,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         g = g_from_r(R, self.include_gs)
 
         gs = {include_g: g_from_r(R, (include_g,)) for include_g in self.include_gs}
-        Ms = {
-            include_g: gs[include_g] * R**2 / self.G for include_g in self.include_gs
-        }
+        Ms = {include_g: gs[include_g] * R**2 / self.G for include_g in self.include_gs}
 
         # The analytic pressure and density profiles
         analytic_R = R.in_units("code_length")

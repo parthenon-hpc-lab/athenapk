@@ -126,10 +126,13 @@ class TestCase(utils.test_case.TestCaseAbs):
 
             data_filename = f"{parameters.output_path}/parthenon.{step + 1}.final.phdf"
             data_file = phdf.phdf(data_filename)
-            prim = data_file.Get("prim")
-            rho = prim[0]
-            vx = prim[1]
-            pres = prim[4]
+            # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+            components = data_file.GetComponents(
+                data.Info["ComponentNames"], flatten=False
+            )
+            rho = components["prim_density"].ravel()
+            vx = components["prim_velocity_1"].ravel()
+            pres = components["prim_pressure"].ravel()
             zz, yy, xx = data_file.GetVolumeLocations()
 
             label = (

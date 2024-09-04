@@ -137,10 +137,15 @@ class TestCase(utils.test_case.TestCaseAbs):
             outname = get_outname(all_cfgs[step])
             data_filename = f"{parameters.output_path}/parthenon.{outname}.final.phdf"
             data_file = phdf.phdf(data_filename)
-            prim = data_file.Get("prim")
             zz, yy, xx = data_file.GetVolumeLocations()
             mask = yy == yy[0]
-            temp = prim[4][mask]
+            # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+            components = data_file.GetComponents(
+                data.Info["ComponentNames"], flatten=False
+            )
+            temp = components["prim_pressure"].ravel()[
+                mask
+            ]  # because of gamma = 2.0 and rho = 1 -> p = e = T
             x = xx[mask]
             res, field_cfg, int_cfg = all_cfgs[step]
             row = res_cfgs.index(res)
