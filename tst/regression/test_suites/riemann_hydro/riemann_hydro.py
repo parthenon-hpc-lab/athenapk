@@ -58,7 +58,6 @@ all_cfgs = list(itertools.product(method_cfgs, init_cond_cfgs))
 
 class TestCase(utils.test_case.TestCaseAbs):
     def Prepare(self, parameters, step):
-
         method, init_cond = all_cfgs[step - 1]
 
         nx1 = method["nx1"]
@@ -128,7 +127,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             data_file = phdf.phdf(data_filename)
             # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
             components = data_file.GetComponents(
-                data.Info["ComponentNames"], flatten=False
+                data_file.Info["ComponentNames"], flatten=False
             )
             rho = components["prim_density"].ravel()
             vx = components["prim_velocity_1"].ravel()

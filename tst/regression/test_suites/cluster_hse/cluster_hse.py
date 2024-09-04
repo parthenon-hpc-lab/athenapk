@@ -212,7 +212,9 @@ class TestCase(utils.test_case.TestCaseAbs):
         cell_vol = cell_vol.ravel()
 
         # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
-        components = data_file.GetComponents(data.Info["ComponentNames"], flatten=False)
+        components = data_file.GetComponents(
+            data_file.Info["ComponentNames"], flatten=False
+        )
         rho = components["prim_density"].ravel()
         vx = components["prim_velocity_1"].ravel()
         vy = components["prim_velocity_2"].ravel()

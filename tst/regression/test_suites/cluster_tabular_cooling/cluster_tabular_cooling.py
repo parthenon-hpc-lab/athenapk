@@ -312,7 +312,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             data_file = phdf.phdf(data_filename)
             # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
             components = data_file.GetComponents(
-                data.Info["ComponentNames"], flatten=False
+                data_file.Info["ComponentNames"], flatten=False
             )
 
             rho = unyt.unyt_array(
@@ -363,7 +363,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             data_file = phdf.phdf(data_filename)
             # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
             components = data_file.GetComponents(
-                data.Info["ComponentNames"], flatten=False
+                data_file.Info["ComponentNames"], flatten=False
             )
 
             rho = unyt.unyt_array(

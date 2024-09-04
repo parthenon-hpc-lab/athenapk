@@ -22,7 +22,6 @@ sys.dont_write_bytecode = True
 
 class TestCase(utils.test_case.TestCaseAbs):
     def Prepare(self, parameters, step):
-
         parameters.driver_cmd_line_args = [
             "parthenon/output2/dt=-1",
             "parthenon/output3/dt=-1",
@@ -31,7 +30,6 @@ class TestCase(utils.test_case.TestCaseAbs):
         return parameters
 
     def Analyse(self, parameters):
-
         sys.path.insert(
             1,
             parameters.parthenon_path
@@ -45,12 +43,12 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # Check Ms
         if not (data[-1, -3] > 0.45 and data[-1, -3] < 0.50):
-            print("ERROR: Mismatch in Ms")
+            print(f"ERROR: Mismatch in Ms={data[-1, -3]}")
             success = False
 
         # Check Ma
         if not (data[-1, -2] > 12.8 and data[-1, -2] < 13.6):
-            print("ERROR: Mismatch in Ma")
+            print(f"ERROR: Mismatch in Ma={data[-1, -2]}")
             success = False
 
         return success

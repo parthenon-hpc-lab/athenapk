@@ -35,7 +35,6 @@ res_cfgs = [32, 64, 128, 256]
 
 class TestCase(utils.test_case.TestCaseAbs):
     def Prepare(self, parameters, step):
-
         assert parameters.num_ranks <= 4, "Use <= 4 ranks for diffusion test."
 
         res = res_cfgs[step - 1]
@@ -80,7 +79,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             data_file = phdf.phdf(data_filename)
             # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
             components = data_file.GetComponents(
-                data.Info["ComponentNames"], flatten=False
+                data_file.Info["ComponentNames"], flatten=False
             )
             T = components[
                 "prim_pressure"
