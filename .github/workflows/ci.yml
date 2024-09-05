@@ -22,7 +22,7 @@ jobs:
         parallel: ['serial', 'mpi']
     runs-on: [self-hosted, A100]
     container:
-      image: ghcr.io/parthenon-hpc-lab/cuda11.6-mpi-hdf5-ascent
+      image: ghcr.io/parthenon-hpc-lab/cuda12.1
       # map to local user id on CI  machine to allow writing to build cache
       options: --user 1001
     steps:
