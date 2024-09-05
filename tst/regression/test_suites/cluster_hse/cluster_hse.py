@@ -388,11 +388,11 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # Prepare two array of R leading inwards and outwards from the virial radius, to integrate
         R_in = unyt.unyt_array(
-            np.hstack((R[R < self.R_fix], self.R_fix.in_units("code_length"))),
+            np.hstack((R[R < self.R_fix].v, self.R_fix.in_units("code_length").v)),
             "code_length",
         )
         R_out = unyt.unyt_array(
-            np.hstack((self.R_fix.in_units("code_length"), R[R > self.R_fix])),
+            np.hstack((self.R_fix.in_units("code_length").v, R[R > self.R_fix].v)),
             "code_length",
         )
 
@@ -406,7 +406,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         # Put the two pieces of P together
         P = unyt.unyt_array(
             np.hstack(
-                (P_in[:-1].in_units("dyne/cm**2"), P_out[1:].in_units("dyne/cm**2"))
+                (P_in[:-1].in_units("dyne/cm**2").v, P_out[1:].in_units("dyne/cm**2").v)
             ),
             "dyne/cm**2",
         )
@@ -531,7 +531,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # Compare the initial output to the analytic model
         def analytic_gold(Z, Y, X, analytic_var):
-            r = np.sqrt(X**2 + Y**2 + Z**2)
+            r = unyt.unyt_array(np.sqrt(X**2 + Y**2 + Z**2), "code_length")
             analytic_interp = unyt.unyt_array(
                 np.interp(r, analytic_R, analytic_var), analytic_var.units
             )
