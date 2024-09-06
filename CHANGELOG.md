@@ -26,7 +26,7 @@
   - Order of operations in flux-correction has changed (expect round-off error differences to previous results for AMR sims)
   - History outputs now carry the output block number, i.e., a file previously called parthenon.hst might now be called parthenon.out1.hst
   - History outputs now contain two additional columns (cycle number and meshblock counts), which changes/shifts the column indices (hint: use the column headers to parse the contents and do not rely on fixed indices as they may also vary between different pgen due to custom/pgen-dependent content in the history file)
-  - Given the introduction of a forrest of tree (rather than a single tree), the logical locations are each meshblock (`pmb->loc`) are now local to the tree and not global any more. To recover the original global index use `auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);`
+  - Given the introduction of a forest of tree (rather than a single tree), the logical locations are each meshblock (`pmb->loc`) are now local to the tree and not global any more. To recover the original global index use `auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);`
 - [[PR 97]](https://github.com/parthenon-hpc-lab/athenapk/pull/97)
   - Removes original `schure.cooling` cooling curve as it had unknown origin.
   - To avoid confusion, only cooling table for a single solar metallicity are supported
