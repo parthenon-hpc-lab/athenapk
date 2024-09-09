@@ -9,18 +9,15 @@
 
 // C++ headers
 #include <random>
-#include <utility>
 
 // Parthenon headers
 #include "basic_types.hpp"
 #include "config.hpp"
 #include "globals.hpp"
 #include "kokkos_abstraction.hpp"
-#include "mesh/domain.hpp"
 #include "mesh/meshblock_pack.hpp"
 
 // AthenaPK headers
-#include "../main.hpp"
 #include "few_modes_ft.hpp"
 #include "utils/error_checking.hpp"
 
@@ -130,9 +127,12 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   const auto nx2 = pmb->block_size.nx(X2DIR);
   const auto nx3 = pmb->block_size.nx(X3DIR);
 
-  const auto gis = pmb->loc.lx1() * pmb->block_size.nx(X1DIR);
-  const auto gjs = pmb->loc.lx2() * pmb->block_size.nx(X2DIR);
-  const auto gks = pmb->loc.lx3() * pmb->block_size.nx(X3DIR);
+  // Need to use legacy locations (which are global) because locations now are local
+  // to the tree, which results in inconsistencies for meshes with multiple trees.
+  const auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);
+  const auto gis = loc.lx1() * pmb->block_size.nx(X1DIR);
+  const auto gjs = loc.lx2() * pmb->block_size.nx(X2DIR);
+  const auto gks = loc.lx3() * pmb->block_size.nx(X3DIR);
 
   // make local ref to capure in lambda
   const auto num_modes = num_modes_;
