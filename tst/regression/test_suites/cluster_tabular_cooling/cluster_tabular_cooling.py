@@ -310,19 +310,16 @@ class TestCase(utils.test_case.TestCaseAbs):
                 analyze_status = False
 
             data_file = phdf.phdf(data_filename)
-            prim = data_file.Get("prim")
-
-            # FIXME: TODO(forrestglines) For now this is hard coded - a component mapping should be done by phdf
-            prim_col_dict = {
-                "density": 0,
-                "pressure": 4,
-            }
+            # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+            components = data_file.GetComponents(
+                data_file.Info["ComponentNames"], flatten=False
+            )
 
             rho = unyt.unyt_array(
-                prim[prim_col_dict["density"], :], "code_mass*code_length**-3"
+                components["prim_density"].ravel(), "code_mass*code_length**-3"
             )
             pres = unyt.unyt_array(
-                prim[prim_col_dict["pressure"], :],
+                components["prim_pressure"].ravel(),
                 "code_mass*code_length**-1*code_time**-2",
             )
 
@@ -364,19 +361,16 @@ class TestCase(utils.test_case.TestCaseAbs):
                 analyze_status = False
 
             data_file = phdf.phdf(data_filename)
-            prim = data_file.Get("prim")
-
-            # FIXME: TODO(forrestglines) For now this is hard coded - a component mapping should be done by phdf
-            prim_col_dict = {
-                "density": 0,
-                "pressure": 4,
-            }
+            # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+            components = data_file.GetComponents(
+                data_file.Info["ComponentNames"], flatten=False
+            )
 
             rho = unyt.unyt_array(
-                prim[prim_col_dict["density"]], "code_mass*code_length**-3"
+                components["prim_density"].ravel(), "code_mass*code_length**-3"
             )
             pres = unyt.unyt_array(
-                prim[prim_col_dict["pressure"]],
+                components["prim_pressure"].ravel(),
                 "code_mass*code_length**-1*code_time**-2",
             )
 
