@@ -12,7 +12,7 @@
 ### Fixed (not changing behavior/API/variables/...)
 
 ### Infrastructure
-- [[PR 117]](https://github.com/parthenon-hpc-lab/athenapk/pull/117) Update devcontainer.json to latest CI container #117
+- [[PR 117]](https://github.com/parthenon-hpc-lab/athenapk/pull/117) Update devcontainer.json to latest CI container
 - [[PR 114]](https://github.com/parthenon-hpc-lab/athenapk/pull/114) Bump Parthenon 24.08 and Kokkos to 4.4.00
 - [[PR 112]](https://github.com/parthenon-hpc-lab/athenapk/pull/112) Add dev container configuration
 - [[PR 105]](https://github.com/parthenon-hpc-lab/athenapk/pull/105) Bump Parthenon to latest develop (2024-03-13)
