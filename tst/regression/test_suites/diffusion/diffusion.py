@@ -126,18 +126,21 @@ class TestCase(utils.test_case.TestCaseAbs):
                     f"{parameters.output_path}/parthenon.{outname}.final.phdf"
                 )
                 data_file = phdf.phdf(data_filename)
-                prim = data_file.Get("prim")
+                # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+                components = data_file.GetComponents(
+                    data_file.Info["ComponentNames"], flatten=False
+                )
                 zz, yy, xx = data_file.GetVolumeLocations()
                 mask = yy == yy[0]
                 if diff == "visc":
-                    varidx = 2  # m_y component
+                    var_name = "prim_velocity_2"
                 elif diff == "ohm":
-                    varidx = 6  # B_y component
+                    var_name = "magnetic_field_2"
                 else:
                     print("Unknon diffusion type to process test results!")
                     return False
 
-                v2 = prim[varidx][mask]
+                v2 = components[var_name].ravel()[mask]
                 x = xx[mask]
                 row = res_cfgs.index(res)
                 col = int_cfgs.index(int_cfg)
