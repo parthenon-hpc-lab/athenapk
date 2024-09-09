@@ -68,6 +68,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/meshblock/nx3=1",
             f"parthenon/output0/id={outname}",
             f"parthenon/time/tlim={tlim}",
+            # Work around for RKL2 integrator (that, by default, does not limit the
+            # timestep, which in newer versions of Parthenon results in triggering
+            # a fail-safe given the default init value of numeric_limits max.
+            "parthenon/time/dt_ceil=%f" % tlim,
             f"hydro/fluid={fluid_}",
             "hydro/gamma=1.4",
             "hydro/cfl=0.8",
