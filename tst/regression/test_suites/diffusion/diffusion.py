@@ -139,7 +139,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 if diff == "visc":
                     var_name = "prim_velocity_2"
                 elif diff == "ohm":
-                    var_name = "magnetic_field_2"
+                    var_name = "prim_magnetic_field_2"
                 else:
                     print("Unknon diffusion type to process test results!")
                     return False
