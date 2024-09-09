@@ -14,6 +14,9 @@ env:
   CMAKE_BUILD_PARALLEL_LEVEL: 8 # num threads for build
   MACHINE_CFG: external/parthenon/cmake/machinecfg/CI.cmake
   OMPI_MCA_mpi_common_cuda_event_max: 1000
+  # disable CUDA IPC within container entirely as it's causing issue for
+  # unknown reasons, see https://github.com/parthenon-hpc-lab/athenapk/pull/114
+  OMPI_MCA_btl_smcuda_use_cuda_ipc: 0
 
 jobs:
   regression:
