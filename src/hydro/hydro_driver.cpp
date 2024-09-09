@@ -15,8 +15,8 @@
 #include "basic_types.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
-#include <parthenon/parthenon.hpp>
 #include "utils/error_checking.hpp"
+#include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
@@ -705,7 +705,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     {
       for (auto &pmb : blocks) {
         auto &tl = sync_region_tr[0];
-        auto &sd = pmb->swarm_data.Get();
+        auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
         auto reset_comms =
             tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
       }
@@ -715,7 +715,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     for (int n = 0; n < blocks.size(); n++) {
       auto &tl = async_region_tr[n];
       auto &pmb = blocks[n];
-      auto &sd = pmb->swarm_data.Get();
+      auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
       auto &mbd0 = pmb->meshblock_data.Get("base");
       auto tracer_advect =
           tl.AddTask(none, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
