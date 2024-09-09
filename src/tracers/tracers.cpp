@@ -23,17 +23,21 @@
 #include <string>
 #include <vector>
 
-#include "../main.hpp"
-#include "../utils/interpolation.hpp"
+// Parthenon headers
 #include "basic_types.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
-#include "tracers.hpp"
 #include "utils/error_checking.hpp"
+#include "utils/interpolation.hpp"
+
+// AthenaPK headers
+#include "../main.hpp"
+#include "tracers.hpp"
 
 namespace Tracers {
 using namespace parthenon::package::prelude;
+namespace LCInterp = parthenon::interpolation::cent::linear;
 
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto tracer_pkg = std::make_shared<StateDescriptor>("tracers");
