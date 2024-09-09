@@ -98,6 +98,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/output0/id=%s" % outname,
             "hydro/gamma=2.0",
             "parthenon/time/tlim=%f" % tlim,
+            # Work around for RKL2 integrator (that, by default, does not limit the
+            # timestep, which in newer versions of Parthenon results in triggering
+            # a fail-safe given the default init value of numeric_limits max.
+            "parthenon/time/dt_ceil=%f" % tlim,
             "diffusion/conduction=%s" % conduction,
             "diffusion/thermal_diff_coeff_code=0.25",
             "diffusion/integrator=%s" % int_cfg,
@@ -137,10 +141,15 @@ class TestCase(utils.test_case.TestCaseAbs):
             outname = get_outname(all_cfgs[step])
             data_filename = f"{parameters.output_path}/parthenon.{outname}.final.phdf"
             data_file = phdf.phdf(data_filename)
-            prim = data_file.Get("prim")
             zz, yy, xx = data_file.GetVolumeLocations()
             mask = yy == yy[0]
-            temp = prim[4][mask]
+            # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+            components = data_file.GetComponents(
+                data_file.Info["ComponentNames"], flatten=False
+            )
+            temp = components["prim_pressure"].ravel()[
+                mask
+            ]  # because of gamma = 2.0 and rho = 1 -> p = e = T
             x = xx[mask]
             res, field_cfg, int_cfg = all_cfgs[step]
             row = res_cfgs.index(res)
