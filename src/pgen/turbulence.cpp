@@ -341,8 +341,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
     for (int b = 0; b < md->NumBlocks(); b++) {
       pmb = md->GetBlockData(b)->GetBlockPointer();
-      auto &sd = pmb->swarm_data.Get();
-      auto &swarm = pmb->swarm_data.Get()->Get("tracers");
+      auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get("tracers");
       auto rng_pool = tracer_pkg->Param<RNGPool>("rng_pool");
 
       const Real &x_min = pmb->coords.Xf<1>(ib.s);
