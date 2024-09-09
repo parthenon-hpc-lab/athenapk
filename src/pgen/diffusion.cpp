@@ -1,6 +1,6 @@
 
 // AthenaPK - a performance portable block structured AMR MHD code
-// Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2023, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
 
 // Parthenon headers
@@ -27,7 +27,15 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   const auto By = pin->GetOrAddReal("problem/diffusion", "By", 0.0);
 
   const auto iprob = pin->GetInteger("problem/diffusion", "iprob");
-  const auto sigma = pin->GetOrAddReal("problem/diffusion", "sigma", 0.1);
+  Real t0 = 0.5;
+  Real diff_coeff = 0.0;
+  Real amp = 1e-6;
+  // Get parameters for Gaussian profile
+  if (iprob == 10) {
+    diff_coeff = pin->GetReal("diffusion", "thermal_diff_coeff_code");
+    t0 = pin->GetOrAddReal("problem/diffusion", "t0", t0);
+    amp = pin->GetOrAddReal("problem/diffusion", "amp", amp);
+  }
 
   auto &coords = pmb->coords;
 
@@ -64,7 +72,15 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         } else if (iprob == 10) {
           u(IB1, k, j, i) = Bx;
           u(IB2, k, j, i) = By;
-          eint = 1 + std::exp(-SQR(coords.Xc<1>(i) / sigma) / 2.0);
+          // Adjust for anisotropic thermal conduction.
+          // If there's no conduction for the setup (because the field is perp.)
+          // treat as 1 (also in analysis) to prevent division by 0.
+          // Note, this is very constructed and needs to be updated/adjusted for isotropic
+          // conduction, other directions, and Bfield configs with |B| != 1
+          Real eff_diff_coeff = Bx == 0.0 ? diff_coeff : diff_coeff * Bx * Bx;
+          eint = 1 + amp / std::sqrt(4. * M_PI * eff_diff_coeff * t0) *
+                         std::exp(-(std::pow(coords.Xc<1>(i), 2.)) /
+                                  (4. * eff_diff_coeff * t0));
           // Ring diffusion in x1-x2 plane
         } else if (iprob == 20) {
           const auto x = coords.Xc<1>(i);

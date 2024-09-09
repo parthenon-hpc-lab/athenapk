@@ -534,7 +534,7 @@ fixed_mass_rate = 1.0
 
 ## SNIA Feedback
 
-Following [Prasad 2020](doi.org/10.1093/mnras/112.2.195), AthenaPK can inject
+Following [Prasad 2020](https://doi.org/10.3847/1538-4357/abc33c), AthenaPK can inject
 mass and energy from type Ia supernovae following the mass profile of the BCG.
 This SNIA feedback can be configured with
 ```

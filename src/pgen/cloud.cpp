@@ -32,6 +32,7 @@ using namespace parthenon::driver::prelude;
 Real rho_wind, mom_wind, rhoe_wind, r_cloud, rho_cloud;
 Real Bx = 0.0;
 Real By = 0.0;
+Real Bz = 0.0;
 
 //========================================================================================
 //! \fn void InitUserMeshData(Mesh *mesh, ParameterInput *pin)
@@ -77,9 +78,13 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
       By = std::sqrt(2.0 * pressure / plasma_beta);
     } else if (mag_field_angle_str == "transverse") {
       Bx = std::sqrt(2.0 * pressure / plasma_beta);
+    } else if (mag_field_angle_str == "oblique") {
+      const auto B = std::sqrt(2.0 * pressure / plasma_beta);
+      Bx = B / std::sqrt(5.0);
+      Bz = 2 * Bx;
     } else {
       PARTHENON_FAIL("Unsupported problem/cloud/mag_field_angle. Please use either "
-                     "'aligned' or 'transverse'.");
+                     "'aligned', 'transverse', or 'oblique'.");
     }
   }
 
@@ -152,7 +157,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
-  if (((Bx != 0.0) || (By != 0.0)) && !mhd_enabled) {
+  if (((Bx != 0.0) || (By != 0.0) || (Bz != 0.0)) && !mhd_enabled) {
     PARTHENON_FAIL("Requested to initialize magnetic fields by `cloud/plasma_beta > 0`, "
                    "but `hydro/fluid` is not supporting MHD.");
   }
@@ -195,7 +200,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         if (mhd_enabled) {
           u(IB1, k, j, i) = Bx;
           u(IB2, k, j, i) = By;
-          u(IEN, k, j, i) += 0.5 * (Bx * Bx + By * By);
+          u(IB3, k, j, i) = Bz;
+          u(IEN, k, j, i) += 0.5 * (Bx * Bx + By * By + Bz * Bz);
         }
 
         // Init passive scalars
@@ -222,9 +228,11 @@ void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   const auto rhoe_wind_ = rhoe_wind;
   const auto Bx_ = Bx;
   const auto By_ = By;
+  const auto Bz_ = Bz;
+  const bool fine = false;
   pmb->par_for_bndry(
       "InflowWindX2", nb, IndexDomain::inner_x2, parthenon::TopologicalElement::CC,
-      coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
+      coarse, fine, KOKKOS_LAMBDA(const int &, const int &k, const int &j, const int &i) {
         cons(IDN, k, j, i) = rho_wind_;
         cons(IM2, k, j, i) = mom_wind_;
         cons(IEN, k, j, i) = rhoe_wind_ + 0.5 * mom_wind_ * mom_wind_ / rho_wind_;
@@ -235,6 +243,10 @@ void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
         if (By_ != 0.0) {
           cons(IB2, k, j, i) = By_;
           cons(IEN, k, j, i) += 0.5 * By_ * By_;
+        }
+        if (Bz_ != 0.0) {
+          cons(IB3, k, j, i) = Bz_;
+          cons(IEN, k, j, i) += 0.5 * Bz_ * Bz_;
         }
       });
 }

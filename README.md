@@ -14,7 +14,8 @@ Current features include
   - HLLE (hydro and MHD), HLLC (hydro), and HLLD (MHD) Riemann solvers
   - adiabatic equation of state
   - MHD based on hyperbolic divergence cleaning following Dedner+ 2002
-  - anisotropic thermal conduction
+  - isotropic and anisotropic thermal conduction
+  - operator-split, second-order RKL2 supertimestepping for diffusive terms
   - optically thin cooling based on tabulated cooling tables with either Townsend 2009 exact integration or operator-split subcycling
 - static and adaptive mesh refinement
 - problem generators for
