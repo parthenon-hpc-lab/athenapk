@@ -211,21 +211,15 @@ class TestCase(utils.test_case.TestCaseAbs):
         # flatten array as prim var are also flattended
         cell_vol = cell_vol.ravel()
 
-        prim = data_file.Get("prim")
-
-        # FIXME: For now this is hard coded - a component mapping should be done by phdf
-        prim_col_dict = {
-            "velocity_1": 1,
-            "velocity_2": 2,
-            "velocity_3": 3,
-            "magnetic_field_1": 5,
-            "magnetic_field_2": 6,
-            "magnetic_field_3": 7,
-        }
-
-        vx = prim[prim_col_dict["velocity_1"]]
-        vy = prim[prim_col_dict["velocity_2"]]
-        vz = prim[prim_col_dict["velocity_3"]]
+        # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+        components = data_file.GetComponents(
+            data_file.Info["ComponentNames"], flatten=False
+        )
+        rho = components["prim_density"].ravel()
+        vx = components["prim_velocity_1"].ravel()
+        vy = components["prim_velocity_2"].ravel()
+        vz = components["prim_velocity_3"].ravel()
+        pres = components["prim_pressure"].ravel()
 
         # volume weighted rms velocity
         rms_v = np.sqrt(
@@ -243,9 +237,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                 f"Expected {self.sigma_v.in_units('code_velocity')} but got {rms_v}\n"
             )
 
-        bx = prim[prim_col_dict["magnetic_field_1"]]
-        by = prim[prim_col_dict["magnetic_field_2"]]
-        bz = prim[prim_col_dict["magnetic_field_3"]]
+        bx = components["prim_magnetic_field_1"].ravel()
+        by = components["prim_magnetic_field_2"].ravel()
+        bz = components["prim_magnetic_field_3"].ravel()
 
         # volume weighted rms magnetic field
         rms_b = np.sqrt(
@@ -394,11 +388,11 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # Prepare two array of R leading inwards and outwards from the virial radius, to integrate
         R_in = unyt.unyt_array(
-            np.hstack((R[R < self.R_fix], self.R_fix.in_units("code_length"))),
+            np.hstack((R[R < self.R_fix].v, self.R_fix.in_units("code_length").v)),
             "code_length",
         )
         R_out = unyt.unyt_array(
-            np.hstack((self.R_fix.in_units("code_length"), R[R > self.R_fix])),
+            np.hstack((self.R_fix.in_units("code_length").v, R[R > self.R_fix].v)),
             "code_length",
         )
 
@@ -412,7 +406,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         # Put the two pieces of P together
         P = unyt.unyt_array(
             np.hstack(
-                (P_in[:-1].in_units("dyne/cm**2"), P_out[1:].in_units("dyne/cm**2"))
+                (P_in[:-1].in_units("dyne/cm**2").v, P_out[1:].in_units("dyne/cm**2").v)
             ),
             "dyne/cm**2",
         )
@@ -537,7 +531,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # Compare the initial output to the analytic model
         def analytic_gold(Z, Y, X, analytic_var):
-            r = np.sqrt(X**2 + Y**2 + Z**2)
+            r = unyt.unyt_array(np.sqrt(X**2 + Y**2 + Z**2), "code_length")
             analytic_interp = unyt.unyt_array(
                 np.interp(r, analytic_R, analytic_var), analytic_var.units
             )

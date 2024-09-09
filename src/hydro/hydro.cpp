@@ -57,6 +57,35 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   return packages;
 }
 
+// Using this per cycle function to populate various variables in
+// Params that require global reduction *and* need to be set/known when
+// the task list is constructed (versus when the task list is being executed).
+// TODO(next person touching this function): If more/separate feature are required
+// please separate concerns.
+void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
+  auto hydro_pkg = pmesh->block_list[0]->packages.Get("Hydro");
+  const auto num_partitions = pmesh->DefaultNumPartitions();
+
+  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) &&
+      (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
+    auto dt_diff = std::numeric_limits<Real>::max();
+    for (auto i = 0; i < num_partitions; i++) {
+      auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+
+      dt_diff = std::min(dt_diff, EstimateConductionTimestep(md.get()));
+    }
+#ifdef MPI_PARALLEL
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &dt_diff, 1, MPI_PARTHENON_REAL,
+                                      MPI_MIN, MPI_COMM_WORLD));
+#endif
+    hydro_pkg->UpdateParam("dt_diff", dt_diff);
+    const auto max_dt_ratio = hydro_pkg->Param<Real>("rkl2_max_dt_ratio");
+    if (max_dt_ratio > 0.0 && tm.dt / dt_diff > max_dt_ratio) {
+      tm.dt = max_dt_ratio * dt_diff;
+    }
+  }
+}
+
 template <Hst hst, int idx = -1>
 Real HydroHst(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
@@ -406,6 +435,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       pkg->AddParam<>("mu", mu);
       pkg->AddParam<>("mu_e", mu_e);
       pkg->AddParam<>("He_mass_fraction", He_mass_fraction);
+      pkg->AddParam<>("mbar", mu * units.atomic_mass_unit());
       // Following convention in the astro community, we're using mh as unit for the mean
       // molecular weight
       pkg->AddParam<>("mbar_over_kb", mu * units.mh() / units.k_boltzmann());
@@ -446,35 +476,92 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
     auto conduction = Conduction::none;
     auto conduction_str = pin->GetOrAddString("diffusion", "conduction", "none");
-    if (conduction_str == "spitzer") {
-      if (!pkg->AllParams().hasKey("mbar_over_kb")) {
-        PARTHENON_FAIL("Spitzer thermal conduction requires units and gas composition. "
-                       "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
-                       "the input file.");
-      }
-      conduction = Conduction::spitzer;
-
-      Real spitzer_coeff =
-          pin->GetOrAddReal("diffusion", "spitzer_cond_in_erg_by_s_K_cm", 4.6e-7);
-      // Convert to code units. No temp conversion as [T_phys] = [T_code].
-      auto units = pkg->Param<Units>("units");
-      spitzer_coeff *= units.erg() / (units.s() * units.cm());
-
-      auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
-      auto thermal_diff = ThermalDiffusivity(conduction, spitzer_coeff, mbar_over_kb);
-      pkg->AddParam<>("thermal_diff", thermal_diff);
-
-    } else if (conduction_str == "thermal_diff") {
-      conduction = Conduction::thermal_diff;
-      Real thermal_diff_coeff_code = pin->GetReal("diffusion", "thermal_diff_coeff_code");
-      auto thermal_diff = ThermalDiffusivity(conduction, thermal_diff_coeff_code, 0.0);
-      pkg->AddParam<>("thermal_diff", thermal_diff);
-
+    if (conduction_str == "isotropic") {
+      conduction = Conduction::isotropic;
+    } else if (conduction_str == "anisotropic") {
+      conduction = Conduction::anisotropic;
     } else if (conduction_str != "none") {
       PARTHENON_FAIL(
-          "AthenaPK unknown conduction method. Options are: spitzer, thermal_diff");
+          "Unknown conduction method. Options are: none, isotropic, anisotropic");
+    }
+    // If conduction is enabled, process supported coefficients
+    if (conduction != Conduction::none) {
+      auto conduction_coeff_str =
+          pin->GetOrAddString("diffusion", "conduction_coeff", "none");
+      auto conduction_coeff = ConductionCoeff::none;
+
+      // Saturated conduction factor to account for "uncertainty", see
+      // Cowie & McKee 77 and a value of 0.3 is typical chosen (though using "weak
+      // evidence", see Balbus & MacKee 1982 and Max, McKee, and Mead 1980).
+      const auto conduction_sat_phi =
+          pin->GetOrAddReal("diffusion", "conduction_sat_phi", 0.3);
+      Real conduction_sat_prefac = 0.0;
+
+      if (conduction_coeff_str == "spitzer") {
+        if (!pkg->AllParams().hasKey("mbar")) {
+          PARTHENON_FAIL("Spitzer thermal conduction requires units and gas composition. "
+                         "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
+                         "the input file.");
+        }
+        conduction_coeff = ConductionCoeff::spitzer;
+
+        // Default value assume fully ionized hydrogen plasma with Coulomb logarithm of 40
+        // to approximate ICM conditions, i.e., 1.84e-5/ln Lambda = 4.6e-7.
+        Real spitzer_coeff =
+            pin->GetOrAddReal("diffusion", "spitzer_cond_in_erg_by_s_K_cm", 4.6e-7);
+        // Convert to code units. No temp conversion as [T_phys] = [T_code].
+        auto units = pkg->Param<Units>("units");
+        spitzer_coeff *= units.erg() / (units.s() * units.cm());
+
+        const auto mbar = pkg->Param<Real>("mbar");
+        auto thermal_diff =
+            ThermalDiffusivity(conduction, conduction_coeff, spitzer_coeff, mbar,
+                               units.electron_mass(), units.k_boltzmann());
+        pkg->AddParam<>("thermal_diff", thermal_diff);
+
+        const auto mu = pkg->Param<Real>("mu");
+        // 6.86 again assumes a fully ionized hydrogen plasma in agreement with
+        // the assumptions above (technically this means mu = 0.5) and can be derived
+        // from eq (7) in CM77 assuming T_e = T_i.
+        conduction_sat_prefac = 6.86 * std::sqrt(mu) * conduction_sat_phi;
+
+      } else if (conduction_coeff_str == "fixed") {
+        conduction_coeff = ConductionCoeff::fixed;
+        Real thermal_diff_coeff_code =
+            pin->GetReal("diffusion", "thermal_diff_coeff_code");
+        auto thermal_diff = ThermalDiffusivity(conduction, conduction_coeff,
+                                               thermal_diff_coeff_code, 0.0, 0.0, 0.0);
+        pkg->AddParam<>("thermal_diff", thermal_diff);
+        // 5.0 prefactor comes from eq (8) in Cowie & McKee 1977
+        // https://doi.org/10.1086/154911
+        conduction_sat_prefac = 5.0 * conduction_sat_phi;
+
+      } else {
+        PARTHENON_FAIL("Thermal conduction is enabled but no coefficient is set. Please "
+                       "set diffusion/conduction_coeff to either 'spitzer' or 'fixed'");
+      }
+      PARTHENON_REQUIRE(conduction_sat_prefac != 0.0,
+                        "Saturated thermal conduction prefactor uninitialized.");
+      pkg->AddParam<>("conduction_sat_prefac", conduction_sat_prefac);
     }
     pkg->AddParam<>("conduction", conduction);
+
+    auto diffint_str = pin->GetOrAddString("diffusion", "integrator", "none");
+    auto diffint = DiffInt::none;
+    if (diffint_str == "unsplit") {
+      diffint = DiffInt::unsplit;
+    } else if (diffint_str == "rkl2") {
+      diffint = DiffInt::rkl2;
+      auto rkl2_dt_ratio = pin->GetOrAddReal("diffusion", "rkl2_max_dt_ratio", -1.0);
+      pkg->AddParam<>("rkl2_max_dt_ratio", rkl2_dt_ratio);
+    } else if (diffint_str != "none") {
+      PARTHENON_FAIL("AthenaPK unknown integration method for diffusion processes. "
+                     "Options are: none, unsplit, rkl2");
+    }
+    if (diffint != DiffInt::none) {
+      pkg->AddParam<Real>("dt_diff", 0.0, true); // diffusive timestep constraint
+    }
+    pkg->AddParam<>("diffint", diffint);
 
     if (fluid == Fluid::euler) {
       AdiabaticHydroEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
@@ -704,7 +791,9 @@ Real EstimateTimestep(MeshData<Real> *md) {
     min_dt = std::min(min_dt, tabular_cooling.EstimateTimeStep(md));
   }
 
-  if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
+  // For RKL2 STS, the diffusive timestep is calculated separately in the driver
+  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) &&
+      (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
     min_dt = std::min(min_dt, EstimateConductionTimestep(md));
   }
 
@@ -945,9 +1034,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         });
   }
 
-  const auto &conduction = pkg->Param<Conduction>("conduction");
-  if (conduction != Conduction::none) {
-    ThermalFluxAniso(md.get());
+  const auto &diffint = pkg->Param<DiffInt>("diffint");
+  if (diffint == DiffInt::unsplit) {
+    CalcDiffFluxes(pkg.get(), md.get());
   }
 
   return TaskStatus::complete;
