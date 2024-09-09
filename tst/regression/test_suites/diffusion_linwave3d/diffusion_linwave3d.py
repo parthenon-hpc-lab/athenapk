@@ -114,11 +114,11 @@ class TestCase(utils.test_case.TestCaseAbs):
                 "[Decaying 3D Linear Wave]: "
                 "Mesh size {} x {} x {}".format(2 * nx, nx, nx)
             )
-            filename = os.path.join(parameters.output_path, f"{nx}.hst")
+            filename = os.path.join(parameters.output_path, f"{nx}.out2.hst")
             hst_data = np.genfromtxt(filename, names=True, skip_header=1)
 
             tt = hst_data["1time"]
-            max_vy = hst_data["11MaxAbsV2"]
+            max_vy = hst_data["13MaxAbsV2"]
             # estimate the decay rate from simulation, using weighted least-squares (WLS)
             yy = np.log(np.abs(max_vy))
             plt.plot(tt, yy)
