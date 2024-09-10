@@ -72,24 +72,24 @@ conserved to primitive conversion if both are defined.
 Diffusive processes in AthenaPK can be configured in the `<diffusion>` block of the input file.
 ```
 <diffusion>
-integrator = unsplit       # alternatively: rkl2
-#rkl2_max_dt_ratio = 100.0 # limits the ratio between the parabolic and hyperbolic timesteps
-#cfl = 1.0                 # Additional safety factor applied to diffusive timestep constraint. Default to hyperbolic cfl.
+integrator = unsplit       # alternatively: rkl2 (for rkl2 integrator (operator split integrator)
+#rkl2_max_dt_ratio = 100.0 # limits the ratio between the parabolic and hyperbolic timesteps (only used for RKL2 operator split integrator)
+#cfl = 1.0                 # Additional safety factor applied in the caluclation of the diffusive timestep (used in both unsplit and RKL2 integration schemes). Defaults to hyperbolic cfl.
 
 conduction = anisotropic               # none (disabled), or isotropic, or anisotropic
 conduction_coeff = fixed               # alternative: spitzer
-thermal_diff_coeff_code = 0.01         # fixed coefficent in code units
+thermal_diff_coeff_code = 0.01         # fixed coefficent in code units (code_length^2/code_time)
 #spitzer_cond_in_erg_by_s_K_cm = 4.6e7 # spitzer coefficient in cgs units (requires definition of a unit system)
 #conduction_sat_phi = 0.3              # fudge factor to account for uncertainties in saturated fluxes
 
 
 viscosity = none            # none (disabled) or isotropic
 viscosity_coeff = fixed
-mom_diff_coeff_code = 0.25  # fixed coefficent in code units
+mom_diff_coeff_code = 0.25  # fixed coefficent of the kinetmatic viscosity in code units (code_length^2/code_time)
 
 resistivity = none          # none (disabled) or ohmic
 resistivity_coeff = fixed
-ohm_diff_coeff_code = 0.25  # fixed coefficent in code units
+ohm_diff_coeff_code = 0.25  # fixed coefficent of the magnetic (ohmic) diffusivity code units (code_length^2/code_time)
 ```
 (An)isotropic thermal conduction (with fixed or Spitzer coefficient), and isotropic viscosity and
 resistivity with fixed coefficient are currently implemented.
@@ -199,23 +199,23 @@ Default value corresponds to the typical value used in literature and goes back 
 #### Viscosity/Momentum diffusion
 
 Only isotropic viscosity with a (spatially and temporally) fixed coefficient in code units
-is currently implemented.
+(`code_length`^2/`code_time`) is currently implemented.
 To enable set (in the `<diffusion>` block)
 ```
 viscosity = isotropic
 viscosity_coeff = fixed
-mom_diff_coeff_code = 0.25  # fixed coefficent in code units
+mom_diff_coeff_code = 0.25  # fixed coefficent of the kinetmatic viscosity in code units (code_length^2/code_time)
 ```
 
 #### Resistivity/Ohmic diffusion
 
 Only resistivity with a (spatially and temporally) fixed coefficient in code units
-is currently implemented.
+(`code_length`^2/`code_time`)is currently implemented.
 To enable set (in the `<diffusion>` block)
 ```
 resistivity = ohmic
 resistivity_coeff = fixed
-ohm_diff_coeff_code = 0.25  # fixed coefficent in code units
+ohm_diff_coeff_code = 0.25  # fixed coefficent of the magnetic (ohmic) diffusivity code units (code_length^2/code_time)
 ```
 
 
