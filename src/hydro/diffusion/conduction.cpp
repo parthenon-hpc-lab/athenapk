@@ -179,8 +179,8 @@ Real EstimateConductionTimestep(MeshData<Real> *md) {
         },
         Kokkos::Min<Real>(min_dt_cond));
   }
-
-  return fac * min_dt_cond;
+  const auto &cfl_diff = hydro_pkg->Param<Real>("cfl_diff");
+  return cfl_diff * fac * min_dt_cond;
 }
 
 //---------------------------------------------------------------------------------------

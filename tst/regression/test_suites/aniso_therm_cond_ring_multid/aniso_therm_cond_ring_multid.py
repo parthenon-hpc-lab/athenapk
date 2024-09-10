@@ -87,6 +87,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/time/tlim=200.0",
             "parthenon/output0/dt=200.0",
             f"parthenon/output0/id={step}",
+            "diffusion/integrator=unsplit",
         ]
 
         return parameters
