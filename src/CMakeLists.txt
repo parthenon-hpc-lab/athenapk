@@ -4,6 +4,7 @@
 add_executable(
     athenaPK
         main.cpp
+        bc.cpp
         eos/adiabatic_glmmhd.cpp
         units.hpp
         eos/adiabatic_hydro.cpp
