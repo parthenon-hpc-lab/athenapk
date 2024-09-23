@@ -69,7 +69,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     Real a = 0.02;
     Real sigma = 0.2;
     pmb->par_for(
-        "Final norm. and init", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        "KHI: iprob2", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           const auto &u = cons(b);
           const auto &coords = cons.GetCoords(b);
@@ -93,7 +93,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     Real a = 0.01;
     Real sigma = 0.1;
     pmb->par_for(
-        "Final norm. and init", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        "KHI: iprob3", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           const auto &u = cons(b);
           const auto &coords = cons.GetCoords(b);
@@ -135,7 +135,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     Real z2 = 0.5;  // z2' = z2 - 1.0
 
     pmb->par_for(
-        "Final norm. and init", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        "KHI: iprob4", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           const auto &u = cons(b);
           const auto &coords = cons.GetCoords(b);
@@ -211,6 +211,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     //--- iprob=5. Uniform stream with density ratio "drat" located in region -1/4<y<1/4
     // moving at (-vflow) seperated by two resolved slip-surfaces from background medium
     // with d=1 moving at (+vflow), with m=2 perturbation, for the AMR test.
+    // Note that the code below should match what's in the Athena++ method paper (but it
+    // does not match anymore what's implemented in Athena++ itself).
 
     // Read problem parameters
     Real a = pin->GetReal("problem/kh", "a");
@@ -218,21 +220,21 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     Real drat = pin->GetReal("problem/kh", "drat");
     Real amp = pin->GetReal("problem/kh", "amp");
     pmb->par_for(
-        "Final norm. and init", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        "KHI: iprob5", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           const auto &u = cons(b);
           const auto &coords = cons.GetCoords(b);
           Real w = (std::tanh((std::abs(coords.Xc<2>(j)) - 0.25) / a) + 1.0) * 0.5;
           u(IDN, k, j, i) = w + (1.0 - w) * drat;
-          u(IM1, k, j, i) = w * vflow - (1.0 - w) * vflow * drat;
+          u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * (w - 0.5);
           u(IM2, k, j, i) =
-              u(IDN, k, j, i) * amp * std::sin(2.0 * 2.0 * M_PI * coords.Xc<1>(i)) *
+              u(IDN, k, j, i) * amp * std::cos(2.0 * 2.0 * M_PI * coords.Xc<1>(i)) *
               std::exp(-SQR(std::abs(coords.Xc<2>(j)) - 0.25) / (sigma * sigma));
           u(IM3, k, j, i) = 0.0;
           // Pressure scaled to give a sound speed of 1 with gamma=1.4
           u(IEN, k, j, i) =
               2.5 / gm1 +
-              0.25 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
+              0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
         });
   } else {
     PARTHENON_FAIL("Unknow iprob for KHI pgen.")
