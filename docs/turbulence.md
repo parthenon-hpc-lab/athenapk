@@ -47,7 +47,7 @@ k_2_0	= +1
 ...
 ```
 
-Following parameters can be changed to control both the initial state 
+The following parameters can be changed to control both the initial state:
 
 - `rho0` initial mean density
 - `p0` initial mean thermal pressure
@@ -63,7 +63,7 @@ Following parameters can be changed to control both the initial state
     - `z0=0.5` (default)
     - and radius `loop_rad=0.25`
 
-as well as the driving field
+as well as the driving field:
 
 - `kpeak` peak wavenumber of the forcing spectrum. Make sure to update the wavemodes to match `kpeak`, see below.
 - `corr_time` autocorrelation time of the acceleration field (in code units).
@@ -74,10 +74,17 @@ Using delta-in-time forcing, i.e., a very low value, is discouraged, see [Grete 
 https://doi.org/10.1051/0004-6361/200912437).
 - `accel_rms` root mean square value of the acceleration (controls the "strength" of the forcing field)
 - `num_modes` number of wavemodes that are specified in the `<modes>` section of the parameter file.
-In order to generate a full set of modes run the `inputs/generate_fmturb_modes.py` script and replace
+The modes are specified manually as an explicit inverse FT is performed and only modes set are included (all others are assumed to be 0).
+This is done to make the global inverse FT possible without any
+expensive communication between blocks but this becomes excessively
+expensiv for large number of modes.
+Typically using a few tens of modes is a good choice in practice.
+In order to generate a set of modes run the `inputs/generate_fmturb_modes.py` script and replace
 the corresponding parts of the parameter file with the output of the script.
 Within the script, the top three variables (`k_peak`, `k_high`, and `k_low`) need to be adjusted in
 order to generate a complete set (i.e., all) of wavemodes.
+Important, the `k_peak` in the script should match the `k_peak` set
+in the input file.
 Alternatively, wavemodes can be chosen/defined manually, e.g., if not all wavemodes are desired or
 only individual modes should be forced.
 
