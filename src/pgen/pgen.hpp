@@ -84,7 +84,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 namespace kh {
 using namespace parthenon::driver::prelude;
 
-void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md);
 } // namespace kh
 namespace rand_blast {
 using namespace parthenon::driver::prelude;

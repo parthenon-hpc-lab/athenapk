@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = field_loop::ProblemGenerator;
     Hydro::ProblemInitPackageData = field_loop::ProblemInitPackageData;
   } else if (problem == "kh") {
-    pman.app_input->ProblemGenerator = kh::ProblemGenerator;
+    pman.app_input->MeshProblemGenerator = kh::ProblemGenerator;
   } else if (problem == "rand_blast") {
     pman.app_input->ProblemGenerator = rand_blast::ProblemGenerator;
     Hydro::ProblemInitPackageData = rand_blast::ProblemInitPackageData;

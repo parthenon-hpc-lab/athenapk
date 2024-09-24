@@ -32,61 +32,32 @@
 
 // AthenaPK headers
 #include "../main.hpp"
+#include "utils/error_checking.hpp"
 
 namespace kh {
 using namespace parthenon::driver::prelude;
 
 //----------------------------------------------------------------------------------------
-//! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
+//! \fn void Mesh::ProblemGenerator(Mesh *pm, ParameterInput *pin, MeshData<Real> *md)
 //  \brief Problem Generator for the Kelvin-Helmholtz test
 
-void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
+void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto vflow = pin->GetReal("problem/kh", "vflow");
   auto iprob = pin->GetInteger("problem/kh", "iprob");
+  // Get pointer to first block (always exists) for common data like loop bounds
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   auto gam = pin->GetReal("hydro", "gamma");
   auto gm1 = (gam - 1.0);
 
-  // initialize conserved variables
-  auto &rc = pmb->meshblock_data.Get();
-  auto &u_dev = rc->Get("cons").data;
-  auto &coords = pmb->coords;
-  // initializing on host
-  auto u = u_dev.GetHostMirrorAndCopy();
+  // Initialize conserved variables
+  // Get a MeshBlockPack on device with all conserved variables
+  const auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto num_blocks = md->NumBlocks();
 
-  std::mt19937 gen(pmb->gid); // Standard mersenne_twister_engine seeded with gid
-  std::uniform_real_distribution<Real> ran(-0.5, 0.5);
-
-  //--- iprob=1.  Uniform stream with density ratio "drat" located in region -1/4<y<1/4
-  // moving at (-vflow) seperated by two slip-surfaces from background medium with d=1
-  // moving at (+vflow), random perturbations.  This is the classic, unresolved K-H test.
-
-  if (iprob == 1) {
-    // Read problem parameters
-    Real drat = pin->GetReal("problem/kh", "drat");
-    Real amp = pin->GetReal("problem/kh", "amp");
-    for (int k = kb.s; k <= kb.e; k++) {
-      for (int j = jb.s; j <= jb.e; j++) {
-        for (int i = ib.s; i <= ib.e; i++) {
-          u(IDN, k, j, i) = 1.0;
-          u(IM1, k, j, i) = vflow + amp * ran(gen);
-          u(IM2, k, j, i) = amp * ran(gen);
-          u(IM3, k, j, i) = 0.0;
-          if (std::abs(coords.Xc<2>(j)) < 0.25) {
-            u(IDN, k, j, i) = drat;
-            u(IM1, k, j, i) = -drat * (vflow + amp * ran(gen));
-            u(IM2, k, j, i) = drat * amp * ran(gen);
-          }
-          // Pressure scaled to give a sound speed of 1 with gamma=1.4
-          u(IEN, k, j, i) =
-              2.5 / gm1 +
-              0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
-        }
-      }
-    }
-  }
+  //--- iprob=1. This was the classic, unresolved K-H test.
 
   //--- iprob=2. Uniform density medium moving at +/-vflow seperated by a single shear
   // layer with tanh() profile at y=0 with a single mode perturbation, reflecting BCs at
@@ -97,9 +68,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
     Real amp = pin->GetReal("problem/kh", "amp");
     Real a = 0.02;
     Real sigma = 0.2;
-    for (int k = kb.s; k <= kb.e; k++) {
-      for (int j = jb.s; j <= jb.e; j++) {
-        for (int i = ib.s; i <= ib.e; i++) {
+    pmb->par_for(
+        "KHI: iprob2", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto &u = cons(b);
+          const auto &coords = cons.GetCoords(b);
           u(IDN, k, j, i) = 1.0;
           u(IM1, k, j, i) = vflow * std::tanh((coords.Xc<2>(j)) / a);
           u(IM2, k, j, i) = amp * std::cos(2.0 * M_PI * coords.Xc<1>(i)) *
@@ -108,23 +81,22 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           u(IEN, k, j, i) =
               1.0 / gm1 +
               0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
-        }
-      }
-    }
-  }
+        });
 
-  //--- iprob=3.  Test in SR paper (Beckwith & Stone, ApJS 193, 6, 2011).  Gives two
-  // resolved shear layers with tanh() profiles for velocity and density located at
-  // y = +/- 0.5, density one in middle and 0.01 elsewhere, single mode perturbation.
+  } else if (iprob == 3) {
+    //--- iprob=3.  Test in SR paper (Beckwith & Stone, ApJS 193, 6, 2011).  Gives two
+    // resolved shear layers with tanh() profiles for velocity and density located at
+    // y = +/- 0.5, density one in middle and 0.01 elsewhere, single mode perturbation.
 
-  if (iprob == 3) {
     // Read/set problem parameters
     Real amp = pin->GetReal("problem/kh", "amp");
     Real a = 0.01;
     Real sigma = 0.1;
-    for (int k = kb.s; k <= kb.e; k++) {
-      for (int j = jb.s; j <= jb.e; j++) {
-        for (int i = ib.s; i <= ib.e; i++) {
+    pmb->par_for(
+        "KHI: iprob3", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto &u = cons(b);
+          const auto &coords = cons.GetCoords(b);
           u(IDN, k, j, i) =
               0.505 + 0.495 * std::tanh((std::abs(coords.Xc<2>(j)) - 0.5) / a);
           u(IM1, k, j, i) = vflow * std::tanh((std::abs(coords.Xc<2>(j)) - 0.5) / a);
@@ -139,17 +111,15 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
           u(IEN, k, j, i) =
               1.0 / gm1 +
               0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
-        }
-      }
-    }
-  }
+        });
 
-  //--- iprob=4.  "Lecoanet" test, resolved shear layers with tanh() profiles for velocity
-  // and density located at z1=0.5, z2=1.5 two-mode perturbation for fully periodic BCs
+  } else if (iprob == 4) {
+    //--- iprob=4.  "Lecoanet" test, resolved shear layers with tanh() profiles for
+    // velocity
+    // and density located at z1=0.5, z2=1.5 two-mode perturbation for fully periodic BCs
 
-  // To promote symmetry of FP errors about midplanes, rescale z' = z - 1. ; x' = x - 0.5
-  // so that domain x1 = [-0.5, 0.5] and x2 = [-1.0, 1.0] is centered about origin
-  if (iprob == 4) {
+    // To promote symmetry of FP errors about midplanes, rescale z' = z - 1. ; x' = x -
+    // 0.5 so that domain x1 = [-0.5, 0.5] and x2 = [-1.0, 1.0] is centered about origin
     // Read/set problem parameters
     Real amp = pin->GetReal("problem/kh", "amp");
     // unstratified problem is the default
@@ -164,9 +134,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
     Real z1 = -0.5; // z1' = z1 - 1.0
     Real z2 = 0.5;  // z2' = z2 - 1.0
 
-    for (int k = kb.s; k <= kb.e; k++) {
-      for (int j = jb.s; j <= jb.e; j++) {
-        for (int i = ib.s; i <= ib.e; i++) {
+    pmb->par_for(
+        "KHI: iprob4", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto &u = cons(b);
+          const auto &coords = cons.GetCoords(b);
           // Lecoanet (2015) equation 8a)
           Real dens = 1.0 + 0.5 * drho_rho0 *
                                 (std::tanh((coords.Xc<2>(j) - z1) / a) -
@@ -233,40 +205,39 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
               P0 / gm1 +
               0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
                   u(IDN, k, j, i);
-        }
-      }
-    }
-    // copy initialized vars to device
-    u_dev.DeepCopy(u);
-  }
+        });
 
-  //--- iprob=5. Uniform stream with density ratio "drat" located in region -1/4<y<1/4
-  // moving at (-vflow) seperated by two resolved slip-surfaces from background medium
-  // with d=1 moving at (+vflow), with m=2 perturbation, for the AMR test.
+  } else if (iprob == 5) {
+    //--- iprob=5. Uniform stream with density ratio "drat" located in region -1/4<y<1/4
+    // moving at (-vflow) seperated by two resolved slip-surfaces from background medium
+    // with d=1 moving at (+vflow), with m=2 perturbation, for the AMR test.
+    // Note that the code below should match what's in the Athena++ method paper (but it
+    // does not match anymore what's implemented in Athena++ itself).
 
-  if (iprob == 5) {
     // Read problem parameters
     Real a = pin->GetReal("problem/kh", "a");
     Real sigma = pin->GetReal("problem/kh", "sigma");
     Real drat = pin->GetReal("problem/kh", "drat");
     Real amp = pin->GetReal("problem/kh", "amp");
-    for (int k = kb.s; k <= kb.e; k++) {
-      for (int j = jb.s; j <= jb.e; j++) {
-        for (int i = ib.s; i <= ib.e; i++) {
+    pmb->par_for(
+        "KHI: iprob5", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto &u = cons(b);
+          const auto &coords = cons.GetCoords(b);
           Real w = (std::tanh((std::abs(coords.Xc<2>(j)) - 0.25) / a) + 1.0) * 0.5;
           u(IDN, k, j, i) = w + (1.0 - w) * drat;
-          u(IM1, k, j, i) = w * vflow - (1.0 - w) * vflow * drat;
+          u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * (w - 0.5);
           u(IM2, k, j, i) =
-              u(IDN, k, j, i) * amp * std::sin(2.0 * 2.0 * M_PI * coords.Xc<1>(i)) *
+              u(IDN, k, j, i) * amp * std::cos(2.0 * 2.0 * M_PI * coords.Xc<1>(i)) *
               std::exp(-SQR(std::abs(coords.Xc<2>(j)) - 0.25) / (sigma * sigma));
           u(IM3, k, j, i) = 0.0;
           // Pressure scaled to give a sound speed of 1 with gamma=1.4
           u(IEN, k, j, i) =
               2.5 / gm1 +
-              0.25 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
-        }
-      }
-    }
+              0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
+        });
+  } else {
+    PARTHENON_FAIL("Unknow iprob for KHI pgen.")
   }
 }
 

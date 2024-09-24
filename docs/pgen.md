@@ -1,4 +1,4 @@
-# Problem generators
+# Custom problem generators
 
 Different simulation setups in AthenaPK are controlled via the so-called problem generators.
 New problem generators can easily be added and we are happy to accept and merge contibuted problem
