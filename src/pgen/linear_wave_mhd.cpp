@@ -709,4 +709,38 @@ void Eigensystem(const Real d, const Real v1, const Real v2, const Real v3, cons
   left_eigenmatrix[6][6] = left_eigenmatrix[0][6];
 }
 
+// For decaying wave with diffusive processes test problem, dump max V_2
+Real HstMaxV2(MeshData<Real> *md) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  Real max_v2 = 0.0;
+
+  Kokkos::parallel_reduce(
+      "HstMaxV2",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          parthenon::DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmax) {
+        lmax = Kokkos::fmax(lmax, Kokkos::fabs(prim_pack(b, IV2, k, j, i)));
+      },
+      Kokkos::Max<Real>(max_v2));
+
+  return max_v2;
+}
+
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
+  if (pin->GetOrAddBoolean("problem/linear_wave", "dump_max_v2", false)) {
+    auto hst_vars = pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::max, HstMaxV2, "MaxAbsV2"));
+    pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
+  }
+}
 } // namespace linear_wave_mhd

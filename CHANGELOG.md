@@ -3,15 +3,18 @@
 ## Current develop (i.e., `main` branch)
 
 ### Added (new features/APIs/variables/...)
+- [[PR 89]](https://github.com/parthenon-hpc-lab/athenapk/pull/89) Add viscosity and resistivity
 - [[PR 1]](https://github.com/parthenon-hpc-lab/athenapk/pull/1) Add isotropic thermal conduction and RKL2 supertimestepping
 
 ### Changed (changing behavior/API/variables/...)
+- [[PR 119]](https://github.com/parthenon-hpc-lab/athenapk/pull/119) Fixed Athena++ paper test case for KHI pgen. Added turbulence pgen doc.
 - [[PR 97]](https://github.com/parthenon-hpc-lab/athenapk/pull/97) Fixed Schure cooling curve. Removed SD one. Added description of cooling function conventions.
 - [[PR 84]](https://github.com/parthenon-hpc-lab/athenapk/pull/84) Bump Parthenon to latest develop (2024-02-15)
 
 ### Fixed (not changing behavior/API/variables/...)
 
 ### Infrastructure
+- [[PR 117]](https://github.com/parthenon-hpc-lab/athenapk/pull/117) Update devcontainer.json to latest CI container
 - [[PR 114]](https://github.com/parthenon-hpc-lab/athenapk/pull/114) Bump Parthenon 24.08 and Kokkos to 4.4.00
 - [[PR 112]](https://github.com/parthenon-hpc-lab/athenapk/pull/112) Add dev container configuration
 - [[PR 105]](https://github.com/parthenon-hpc-lab/athenapk/pull/105) Bump Parthenon to latest develop (2024-03-13)
