@@ -14,6 +14,9 @@ env:
   CMAKE_BUILD_PARALLEL_LEVEL: 8 # num threads for build
   MACHINE_CFG: external/parthenon/cmake/machinecfg/CI.cmake
   OMPI_MCA_mpi_common_cuda_event_max: 1000
+  # disable CUDA IPC within container entirely as it's causing issue for
+  # unknown reasons, see https://github.com/parthenon-hpc-lab/athenapk/pull/114
+  OMPI_MCA_btl_smcuda_use_cuda_ipc: 0
 
 jobs:
   regression:
@@ -22,9 +25,9 @@ jobs:
         parallel: ['serial', 'mpi']
     runs-on: [self-hosted, A100]
     container:
-      image: ghcr.io/parthenon-hpc-lab/cuda11.6-mpi-hdf5-ascent
+      image: ghcr.io/parthenon-hpc-lab/cuda11.6-noascent
       # map to local user id on CI  machine to allow writing to build cache
-      options: --user 1001
+      options: --user 1001 --cap-add CAP_SYS_PTRACE --shm-size="8g" --ulimit memlock=134217728
     steps:
       - uses: actions/checkout@v3
         with:
@@ -39,7 +42,7 @@ jobs:
           cd build
           # Pick GPU with most available memory
           export CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=memory.free,index --format=csv,nounits,noheader | sort -nr | head -1 | awk '{ print $NF }')
-          ctest -L ${{ matrix.parallel }}
+          ctest -L ${{ matrix.parallel }} --timeout 3600
       - uses: actions/upload-artifact@v3
         if: ${{ always() }}
         with:
@@ -58,6 +61,6 @@ jobs:
             build/tst/regression/outputs/diffusion/visc.png
             build/tst/regression/outputs/field_loop/field_loop.png
             build/tst/regression/outputs/riemann_hydro/shock_tube.png
-            build/tst/regression/outputs/turbulence/parthenon.hst
+            build/tst/regression/outputs/turbulence/parthenon.out1.hst
           retention-days: 3
 

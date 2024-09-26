@@ -26,8 +26,6 @@ add_executable(
         tracers/tracers.hpp
         utils/few_modes_ft.cpp
         utils/few_modes_ft.hpp
-        utils/interpolation.hpp
-        utils/robust.hpp
 )
 
 add_subdirectory(pgen)

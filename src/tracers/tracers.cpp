@@ -23,17 +23,21 @@
 #include <string>
 #include <vector>
 
-#include "../main.hpp"
-#include "../utils/interpolation.hpp"
+// Parthenon headers
 #include "basic_types.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
-#include "tracers.hpp"
 #include "utils/error_checking.hpp"
+#include "utils/interpolation.hpp"
+
+// AthenaPK headers
+#include "../main.hpp"
+#include "tracers.hpp"
 
 namespace Tracers {
 using namespace parthenon::package::prelude;
+namespace LCInterp = parthenon::interpolation::cent::linear;
 
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto tracer_pkg = std::make_shared<StateDescriptor>("tracers");
@@ -80,9 +84,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // one, but we should check if there's direct way to access Params of other packages.
   const bool mhd = pin->GetString("hydro", "fluid") == "glmmhd";
 
-  PARTHENON_REQUIRE_THROWS(pin->GetOrAddString("parthenon/mesh", "refinement", "none") ==
-                               "none",
-                           "Tracers/swarms currently only supported on uniform meshes.");
+  PARTHENON_REQUIRE_THROWS(
+      pin->GetString("parthenon/mesh", "refinement") != "adaptive",
+      "Tracers/swarms currently only supported on non-adaptive meshes.");
 
   if (mhd) {
     tracer_pkg->AddSwarmValue("B_x", swarm_name, real_swarmvalue_metadata);
@@ -112,7 +116,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
   auto *pmb = mbd->GetParentPointer();
-  auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get("tracers");
+  auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+  auto &swarm = sd->Get("tracers");
 
   auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
   auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
@@ -206,7 +211,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
-    auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get("tracers");
+    auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+    auto &swarm = sd->Get("tracers");
 
     // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
     // pull swarm vars

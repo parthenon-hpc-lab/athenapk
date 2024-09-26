@@ -1,6 +1,6 @@
-# ========================================================================================
+========================================================================================
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2023, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2023-2024, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the 3-clause BSD License, see LICENSE file for details
 # ========================================================================================
 
@@ -68,6 +68,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/meshblock/nx3=1",
             f"parthenon/output0/id={outname}",
             f"parthenon/time/tlim={tlim}",
+            # Work around for RKL2 integrator (that, by default, does not limit the
+            # timestep, which in newer versions of Parthenon results in triggering
+            # a fail-safe given the default init value of numeric_limits max.
+            "parthenon/time/dt_ceil=%f" % tlim,
             f"hydro/fluid={fluid_}",
             "hydro/gamma=1.4",
             "hydro/cfl=0.8",
@@ -126,18 +130,21 @@ class TestCase(utils.test_case.TestCaseAbs):
                     f"{parameters.output_path}/parthenon.{outname}.final.phdf"
                 )
                 data_file = phdf.phdf(data_filename)
-                prim = data_file.Get("prim")
+                # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+                components = data_file.GetComponents(
+                    data_file.Info["ComponentNames"], flatten=False
+                )
                 zz, yy, xx = data_file.GetVolumeLocations()
                 mask = yy == yy[0]
                 if diff == "visc":
-                    varidx = 2  # m_y component
+                    var_name = "prim_velocity_2"
                 elif diff == "ohm":
-                    varidx = 6  # B_y component
+                    var_name = "prim_magnetic_field_2"
                 else:
                     print("Unknon diffusion type to process test results!")
                     return False
 
-                v2 = prim[varidx][mask]
+                v2 = components[var_name].ravel()[mask]
                 x = xx[mask]
                 row = res_cfgs.index(res)
                 col = int_cfgs.index(int_cfg)

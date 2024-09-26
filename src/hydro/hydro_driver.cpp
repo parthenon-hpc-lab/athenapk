@@ -15,6 +15,7 @@
 #include "basic_types.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
+#include "utils/error_checking.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
@@ -25,7 +26,6 @@
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
-#include "utils/error_checking.hpp"
 
 using namespace parthenon::driver::prelude;
 

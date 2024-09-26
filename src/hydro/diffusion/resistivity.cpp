@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2023, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file resistivity.cpp
@@ -49,7 +49,6 @@ Real EstimateResistivityTimestep(MeshData<Real> *md) {
     fac = 1.0 / 6.0;
   }
 
-  const auto gm1 = hydro_pkg->Param<Real>("AdiabaticIndex");
   const auto &ohm_diff = hydro_pkg->Param<OhmicDiffusivity>("ohm_diff");
 
   if (ohm_diff.GetType() == Resistivity::ohmic &&
