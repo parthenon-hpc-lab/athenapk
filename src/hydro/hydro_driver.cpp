@@ -591,7 +591,11 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
-    tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
+
+    const auto any = parthenon::BoundaryType::any;
+    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
+    auto start_flxcor_recv =
+        tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
@@ -612,9 +616,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
     auto send_flx =
         tl.AddTask(first_order_flux_correct, parthenon::LoadAndSendFluxCorrections, mu0);
-    auto recv_flx =
-        tl.AddTask(first_order_flux_correct, parthenon::ReceiveFluxCorrections, mu0);
-    auto set_flx = tl.AddTask(recv_flx, parthenon::SetFluxCorrections, mu0);
+    auto recv_flx = tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, mu0);
+    auto set_flx = tl.AddTask(recv_flx | first_order_flux_correct,
+                              parthenon::SetFluxCorrections, mu0);
 
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(
@@ -646,27 +650,12 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(source_split_strang_final, AddSplitSourcesFirstOrder, mu0.get(), tm);
     }
 
-    // Update ghost cells (local and non local)
+    // Update ghost cells (local and non local), prolongate and apply bound cond.
     // TODO(someone) experiment with split (local/nonlocal) comms with respect to
     // performance for various tests (static, amr, block sizes) and then decide on the
     // best impl. Go with default call (split local/nonlocal) for now.
-    parthenon::AddBoundaryExchangeTasks(source_split_first_order, tl, mu0,
+    parthenon::AddBoundaryExchangeTasks(source_split_first_order | start_bnd, tl, mu0,
                                         pmesh->multilevel);
-  }
-
-  TaskRegion &async_region_3 = tc.AddRegion(num_task_lists_executed_independently);
-  for (int i = 0; i < blocks.size(); i++) {
-    auto &tl = async_region_3[i];
-    auto &u0 = blocks[i]->meshblock_data.Get("base");
-    auto prolongBound = none;
-    // Currently taken care of by AddBoundaryExchangeTasks above.
-    // Needs to be reintroduced once we reintroduce split (local/nonlocal) communication.
-    // if (pmesh->multilevel) {
-    //  prolongBound = tl.AddTask(none, parthenon::ProlongateBoundaries, u0);
-    //}
-
-    // set physical boundaries
-    auto set_bc = tl.AddTask(prolongBound, parthenon::ApplyBoundaryConditions, u0);
   }
 
   // Single task in single (serial) region to reset global vars used in reductions in the
