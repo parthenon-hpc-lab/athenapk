@@ -42,7 +42,7 @@ jobs:
           cd build
           # Pick GPU with most available memory
           export CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=memory.free,index --format=csv,nounits,noheader | sort -nr | head -1 | awk '{ print $NF }')
-          ctest -L ${{ matrix.parallel }}
+          ctest -L ${{ matrix.parallel }} --timeout 3600
       - uses: actions/upload-artifact@v3
         if: ${{ always() }}
         with:
@@ -57,6 +57,8 @@ jobs:
             build/tst/regression/outputs/cluster_tabular_cooling/convergence.png
             build/tst/regression/outputs/aniso_therm_cond_ring_conv/ring_convergence.png
             build/tst/regression/outputs/aniso_therm_cond_gauss_conv/cond.png
+            build/tst/regression/outputs/diffusion/ohm.png
+            build/tst/regression/outputs/diffusion/visc.png
             build/tst/regression/outputs/field_loop/field_loop.png
             build/tst/regression/outputs/riemann_hydro/shock_tube.png
             build/tst/regression/outputs/turbulence/parthenon.out1.hst
