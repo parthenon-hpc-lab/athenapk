@@ -35,7 +35,6 @@ res_cfgs = [32, 64, 128, 256]
 
 class TestCase(utils.test_case.TestCaseAbs):
     def Prepare(self, parameters, step):
-
         assert parameters.num_ranks <= 4, "Use <= 4 ranks for diffusion test."
 
         res = res_cfgs[step - 1]
@@ -54,6 +53,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/meshblock/nx3=1",
             "problem/diffusion/iprob=20",
             "parthenon/time/tlim=200.0",
+            # Work around for RKL2 integrator (that, by default, does not limit the
+            # timestep, which in newer versions of Parthenon results in triggering
+            # a fail-safe given the default init value of numeric_limits max.
+            "parthenon/time/dt_ceil=200.0",
             "parthenon/output0/dt=200.0",
             f"parthenon/output0/id={res}",
         ]
@@ -78,8 +81,14 @@ class TestCase(utils.test_case.TestCaseAbs):
         for res in res_cfgs:
             data_filename = f"{parameters.output_path}/parthenon.{res}.final.phdf"
             data_file = phdf.phdf(data_filename)
-            prim = data_file.Get("prim")
-            T = prim[4]  # because of gamma = 2.0 and rho = 1 -> p = e = T
+            # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+            components = data_file.GetComponents(
+                data_file.Info["ComponentNames"], flatten=False
+            )
+            T = components[
+                "prim_pressure"
+            ].ravel()  # because of gamma = 2.0 and rho = 1 -> p = e = T
+
             zz, yy, xx = data_file.GetVolumeLocations()
             r = np.sqrt(xx**2 + yy**2)
 

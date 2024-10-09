@@ -66,13 +66,28 @@ void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
   auto hydro_pkg = pmesh->block_list[0]->packages.Get("Hydro");
   const auto num_partitions = pmesh->DefaultNumPartitions();
 
-  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) &&
-      (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
+  if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) {
     auto dt_diff = std::numeric_limits<Real>::max();
-    for (auto i = 0; i < num_partitions; i++) {
-      auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+    if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
+      for (auto i = 0; i < num_partitions; i++) {
+        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
 
-      dt_diff = std::min(dt_diff, EstimateConductionTimestep(md.get()));
+        dt_diff = std::min(dt_diff, EstimateConductionTimestep(md.get()));
+      }
+    }
+    if (hydro_pkg->Param<Viscosity>("viscosity") != Viscosity::none) {
+      for (auto i = 0; i < num_partitions; i++) {
+        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+
+        dt_diff = std::min(dt_diff, EstimateViscosityTimestep(md.get()));
+      }
+    }
+    if (hydro_pkg->Param<Resistivity>("resistivity") != Resistivity::none) {
+      for (auto i = 0; i < num_partitions; i++) {
+        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+
+        dt_diff = std::min(dt_diff, EstimateResistivityTimestep(md.get()));
+      }
     }
 #ifdef MPI_PARALLEL
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &dt_diff, 1, MPI_PARTHENON_REAL,
@@ -554,6 +569,67 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     pkg->AddParam<>("conduction", conduction);
 
+    auto viscosity = Viscosity::none;
+    auto viscosity_str = pin->GetOrAddString("diffusion", "viscosity", "none");
+    if (viscosity_str == "isotropic") {
+      viscosity = Viscosity::isotropic;
+    } else if (viscosity_str != "none") {
+      PARTHENON_FAIL("Unknown viscosity method. Options are: none, isotropic");
+    }
+    // If viscosity is enabled, process supported coefficients
+    if (viscosity != Viscosity::none) {
+      auto viscosity_coeff_str =
+          pin->GetOrAddString("diffusion", "viscosity_coeff", "none");
+      auto viscosity_coeff = ViscosityCoeff::none;
+
+      if (viscosity_coeff_str == "fixed") {
+        viscosity_coeff = ViscosityCoeff::fixed;
+        Real mom_diff_coeff_code = pin->GetReal("diffusion", "mom_diff_coeff_code");
+        auto mom_diff = MomentumDiffusivity(viscosity, viscosity_coeff,
+                                            mom_diff_coeff_code, 0.0, 0.0, 0.0);
+        pkg->AddParam<>("mom_diff", mom_diff);
+
+      } else {
+        PARTHENON_FAIL("Viscosity is enabled but no coefficient is set. Please "
+                       "set diffusion/viscosity_coeff to 'fixed' and "
+                       "diffusion/mom_diff_coeff_code to the desired value.");
+      }
+    }
+    pkg->AddParam<>("viscosity", viscosity);
+
+    auto resistivity = Resistivity::none;
+    auto resistivity_str = pin->GetOrAddString("diffusion", "resistivity", "none");
+    if (resistivity_str == "ohmic") {
+      resistivity = Resistivity::ohmic;
+    } else if (resistivity_str != "none") {
+      PARTHENON_FAIL("Unknown resistivity method. Options are: none, ohmic");
+    }
+    // If resistivity is enabled, process supported coefficients
+    if (resistivity != Resistivity::none) {
+      auto resistivity_coeff_str =
+          pin->GetOrAddString("diffusion", "resistivity_coeff", "none");
+      auto resistivity_coeff = ResistivityCoeff::none;
+
+      if (resistivity_coeff_str == "spitzer") {
+        // If this is implemented, check how the Spitzer coeff for thermal conduction is
+        // handled.
+        PARTHENON_FAIL("needs impl");
+
+      } else if (resistivity_coeff_str == "fixed") {
+        resistivity_coeff = ResistivityCoeff::fixed;
+        Real ohm_diff_coeff_code = pin->GetReal("diffusion", "ohm_diff_coeff_code");
+        auto ohm_diff = OhmicDiffusivity(resistivity, resistivity_coeff,
+                                         ohm_diff_coeff_code, 0.0, 0.0, 0.0);
+        pkg->AddParam<>("ohm_diff", ohm_diff);
+
+      } else {
+        PARTHENON_FAIL("Resistivity is enabled but no coefficient is set. Please "
+                       "set diffusion/resistivity_coeff to 'fixed' and "
+                       "diffusion/ohm_diff_coeff_code to the desired value.");
+      }
+    }
+    pkg->AddParam<>("resistivity", resistivity);
+
     auto diffint_str = pin->GetOrAddString("diffusion", "integrator", "none");
     auto diffint = DiffInt::none;
     if (diffint_str == "unsplit") {
@@ -568,6 +644,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     if (diffint != DiffInt::none) {
       pkg->AddParam<Real>("dt_diff", 0.0, true); // diffusive timestep constraint
+      // As in Athena++ a cfl safety factor is also applied to the theoretical limit.
+      // By default it is equal to the hyperbolic cfl.
+      auto cfl_diff = pin->GetOrAddReal("diffusion", "cfl", pkg->Param<Real>("cfl"));
+      pkg->AddParam<>("cfl_diff", cfl_diff);
     }
     pkg->AddParam<>("diffint", diffint);
 
@@ -800,9 +880,16 @@ Real EstimateTimestep(MeshData<Real> *md) {
   }
 
   // For RKL2 STS, the diffusive timestep is calculated separately in the driver
-  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) &&
-      (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
-    min_dt = std::min(min_dt, EstimateConductionTimestep(md));
+  if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) {
+    if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
+      min_dt = std::min(min_dt, EstimateConductionTimestep(md));
+    }
+    if (hydro_pkg->Param<Viscosity>("viscosity") != Viscosity::none) {
+      min_dt = std::min(min_dt, EstimateViscosityTimestep(md));
+    }
+    if (hydro_pkg->Param<Resistivity>("resistivity") != Resistivity::none) {
+      min_dt = std::min(min_dt, EstimateResistivityTimestep(md));
+    }
   }
 
   if (ProblemEstimateTimestep != nullptr) {

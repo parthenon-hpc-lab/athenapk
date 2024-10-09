@@ -133,6 +133,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->InitUserMeshData = linear_wave_mhd::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave_mhd::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = linear_wave_mhd::UserWorkAfterLoop;
+    Hydro::ProblemInitPackageData = linear_wave_mhd::ProblemInitPackageData;
   } else if (problem == "cpaw") {
     pman.app_input->InitUserMeshData = cpaw::InitUserMeshData;
     pman.app_input->ProblemGenerator = cpaw::ProblemGenerator;
@@ -158,7 +159,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = field_loop::ProblemGenerator;
     Hydro::ProblemInitPackageData = field_loop::ProblemInitPackageData;
   } else if (problem == "kh") {
-    pman.app_input->ProblemGenerator = kh::ProblemGenerator;
+    pman.app_input->MeshProblemGenerator = kh::ProblemGenerator;
   } else if (problem == "rand_blast") {
     pman.app_input->ProblemGenerator = rand_blast::ProblemGenerator;
     Hydro::ProblemInitPackageData = rand_blast::ProblemInitPackageData;

@@ -33,8 +33,17 @@ TabularCooling::TabularCooling(ParameterInput *pin,
 
   const std::string table_filename = pin->GetString("cooling", "table_filename");
 
-  const int log_temp_col = pin->GetOrAddInteger("cooling", "log_temp_col", 0);
-  const int log_lambda_col = pin->GetOrAddInteger("cooling", "log_lambda_col", 1);
+  // It should be fine to just issue a warning here.
+  // If an original cooling table with two columns was used, the behavior is the same.
+  // If not, then the test below on the number of columns in the file will fail.
+  if (Globals::my_rank == 0 && (pin->DoesParameterExist("cooling", "log_temp_col") ||
+                                pin->DoesParameterExist("cooling", "log_lambda_col"))) {
+    PARTHENON_WARN("\"cooling/log_temp_col\" or \"cooling/log_lambda_col\" found in"
+                   "the parameter input.\n"
+                   "These have been deprecated and only cooling tables for a single "
+                   "metallicity containing the log10 temperature and log10 lambdas are "
+                   "supported.\n");
+  }
 
   const Real lambda_units_cgs = pin->GetReal("cooling", "lambda_units_cgs");
   // Convert erg cm^3/s to code units
@@ -109,16 +118,16 @@ TabularCooling::TabularCooling(ParameterInput *pin,
     std::vector<std::string> line_data{std::istream_iterator<std::string>{iss},
                                        std::istream_iterator<std::string>{}};
     // Check size
-    if (line_data.empty() || line_data.size() <= std::max(log_temp_col, log_lambda_col)) {
+    if (line_data.empty() || line_data.size() != 2) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
-          << "Index " << std::max(log_temp_col, log_lambda_col) << " out of range on \""
-          << line << "\"" << std::endl;
+          << "Expected exactly two columns per line but got: \"" << line << "\""
+          << std::endl;
       PARTHENON_FAIL(msg);
     }
 
     try {
-      const Real log_temp = std::stod(line_data[log_temp_col]);
-      const Real log_lambda = std::stod(line_data[log_lambda_col]);
+      const Real log_temp = std::stod(line_data[0]);
+      const Real log_lambda = std::stod(line_data[1]);
 
       // Add to growing list
       log_temps.push_back(log_temp);
