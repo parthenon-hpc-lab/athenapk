@@ -83,7 +83,7 @@ cfl = 1.0
 
 <precipitator>
 hse_profile_filename = inputs/profile_tc_tff_3.0.txt
-bfield_gauss = 1.0e-6           # 1 uG
+bfield_gauss = 1.0e-8           # 10 nG
 uniform_init = 0
 enable_heating = magic          # options: [magic, none]
 thermostat_temperature = 1.0e7  # K
