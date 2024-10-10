@@ -299,7 +299,8 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
     const auto vertical_driving_only = hydro_pkg->Param<bool>("vertical_driving_only");
 
     // generate perturbations
-    auto *few_modes_ft = hydro_pkg->MutableParam<FewModesFT>("precipitator/few_modes_ft_v");
+    auto *few_modes_ft =
+        hydro_pkg->MutableParam<FewModesFT>("precipitator/few_modes_ft_v");
     few_modes_ft->Generate(md, dt, "tmp_perturb");
 
     // normalize perturbations
@@ -663,7 +664,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("accel_z", m);
 
-
   const Units units(pin);
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
 
@@ -727,8 +727,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real h_smooth_heatcool =
       pin->GetReal("precipitator", "h_smooth_heatcool_kpc") * units.kpc();
 
-  hydro_pkg->AddParam<Real>(
-      "h_smooth_heatcool", h_smooth_heatcool); // smoothing scale (code units)
+  hydro_pkg->AddParam<Real>("h_smooth_heatcool",
+                            h_smooth_heatcool); // smoothing scale (code units)
+
+  // read magnetic field strength
+  const Real bfield_gauss = pin->GetReal("precipitator", "bfield_gauss");
+  hydro_pkg->AddParam<Real>("bfield_gauss", bfield_gauss);
 
   // read perturbation parameters
   const int kx_max = pin->GetInteger("precipitator", "perturb_kx");
@@ -904,7 +908,8 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   // Initialize phase factors for velocity perturbations
   const auto sigma_v = hydro_pkg->Param<Real>("sigma_v");
   if (sigma_v > 0) {
-    auto *few_modes_ft = hydro_pkg->MutableParam<FewModesFT>("precipitator/few_modes_ft_v");
+    auto *few_modes_ft =
+        hydro_pkg->MutableParam<FewModesFT>("precipitator/few_modes_ft_v");
     few_modes_ft->SetPhases(pmb, pin);
   }
 
@@ -946,6 +951,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   const Real code_length_cgs = units.code_length_cgs();
   const Real code_density_cgs = units.code_density_cgs();
   const Real code_pressure_cgs = units.code_pressure_cgs();
+  const Real code_magnetic_cgs = units.code_magnetic_cgs();
   const Real code_time_cgs = units.code_time_cgs();
   const Real code_accel_cgs = code_length_cgs / (code_time_cgs * code_time_cgs);
   const Real code_potential_cgs = code_accel_cgs * code_length_cgs;
@@ -1043,6 +1049,12 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         });
   }
 
+  // set background magnetic field
+  const Real bfield_gauss = hydro_pkg->Param<Real>("bfield_gauss");
+  const double Bx = bfield_gauss / code_magnetic_cgs; // convert to code units
+  const double By = 0;
+  const double Bz = 0;
+
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetInitialConditions", parthenon::DevExecSpace(), 0, 0, kb.s,
       kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -1066,6 +1078,9 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         u_dev(IM2, k, j, i) = 0.0;
         u_dev(IM3, k, j, i) = 0.0;
         u_dev(IEN, k, j, i) = P / gm1;
+        u_dev(IB1, k, j, k) = Bx;
+        u_dev(IB2, k, j, i) = By;
+        u_dev(IB3, k, j, i) = Bz;
       });
 }
 
