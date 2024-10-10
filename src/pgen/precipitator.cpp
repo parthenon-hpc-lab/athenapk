@@ -1078,7 +1078,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         u_dev(IM2, k, j, i) = 0.0;
         u_dev(IM3, k, j, i) = 0.0;
         u_dev(IEN, k, j, i) = P / gm1;
-        u_dev(IB1, k, j, k) = Bx;
+        u_dev(IB1, k, j, i) = Bx;
         u_dev(IB2, k, j, i) = By;
         u_dev(IB3, k, j, i) = Bz;
       });
