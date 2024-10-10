@@ -631,6 +631,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("tcool_over_tff", m);
 
+  // add plasma beta field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("plasma_beta", m);
+ 
   // add \delta \rho / \bar \rho field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("drho_over_rho", m);
@@ -1223,6 +1227,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     auto &entropy = data->Get("entropy").data;
     auto &temperature = data->Get("temperature").data;
     auto &mach_sonic = data->Get("mach_sonic").data;
+    auto &plasma_beta = data->Get("plasma_beta").data;
 
     auto &drho = data->Get("drho_over_rho").data;
     auto &dP = data->Get("dP_over_P").data;
@@ -1270,6 +1275,12 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           const Real T = P / (kboltz * rho / mmw);
           const Real c_s = std::sqrt(gam * P / rho); // ideal gas EOS
 
+          const Real bx = prim(IB1, k, j, i);
+          const Real by = prim(IB2, k, j, i);
+          const Real bz = prim(IB3, k, j, i);
+          const Real P_mag = 0.5 * (SQR(bx) + SQR(by) + SQR(bz));
+          const Real beta = P_mag / P;
+
           const Real v1 = prim(IV1, k, j, i);
           const Real v2 = prim(IV2, k, j, i);
           const Real v3 = prim(IV3, k, j, i);
@@ -1286,6 +1297,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           entropy(k, j, i) = K;
           temperature(k, j, i) = T;
           mach_sonic(k, j, i) = M_s;
+          plasma_beta(k, j, i) = beta;
           dv_x(k, j, i) = dv1 * velocity_unit * 1.0e-5; // km/s
           dv_y(k, j, i) = dv2 * velocity_unit * 1.0e-5; // km/s
           dv_z(k, j, i) = dv3 * velocity_unit * 1.0e-5; // km/s
