@@ -1279,7 +1279,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           const Real by = prim(IB2, k, j, i);
           const Real bz = prim(IB3, k, j, i);
           const Real P_mag = 0.5 * (SQR(bx) + SQR(by) + SQR(bz));
-          const Real beta = P_mag / P;
+          const Real beta = P / P_mag;
 
           const Real v1 = prim(IV1, k, j, i);
           const Real v2 = prim(IV2, k, j, i);
