@@ -9,6 +9,7 @@ build*/
 *.rhdf
 *.hst
 *.xdmf
+*.bp
 
 # Mac OS metadata
 .DS_Store
