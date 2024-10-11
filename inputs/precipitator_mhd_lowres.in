@@ -59,7 +59,7 @@ nx3        = 32        # Number of zones in X3-direction
 fluid = glmmhd
 gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
-riemann = hlld
+riemann = lhlld
 reconstruction = ppm
 first_order_flux_correct = true
 use_scratch = false

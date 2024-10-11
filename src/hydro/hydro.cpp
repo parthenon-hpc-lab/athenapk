@@ -309,6 +309,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     riemann = RiemannSolver::lhllc;
   } else if (riemann_str == "hlld") {
     riemann = RiemannSolver::hlld;
+  } else if (riemann_str == "lhlld") {
+    riemann = RiemannSolver::lhlld;
   } else if (riemann_str == "none") {
     riemann = RiemannSolver::none;
     // If hyperbolic fluxes are disabled, there's no restriction from those
@@ -370,6 +372,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::lhlld>(flux_functions);
   // Add first order recon with LLF fluxes (implemented for testing as tight loop)
   flux_functions[std::make_tuple(Fluid::euler, Reconstruction::dc, RiemannSolver::llf)] =
       Hydro::CalculateFluxesTight<Fluid::euler>;

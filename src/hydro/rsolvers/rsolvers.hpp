@@ -26,6 +26,7 @@ struct Riemann;
 // now include the specializations
 #include "glmmhd_dc_llf.hpp"
 #include "glmmhd_hlld.hpp"
+#include "glmmhd_lhlld.hpp"
 #include "glmmhd_hlle.hpp"
 #include "hydro_dc_llf.hpp"
 #include "hydro_hllc.hpp"
