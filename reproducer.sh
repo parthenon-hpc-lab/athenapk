@@ -2,6 +2,8 @@
 
 set -x
 
+NRANKS=1
+
 # compile
 rm -rf build
 mkdir build
@@ -11,7 +13,7 @@ cmake --build .
 cd ..
 
 # first run
-mpirun -np 8 ./build/bin/athenaPK -i inputs/restart_reproducer.in
+mpirun -np $NRANKS ./build/bin/athenaPK -i inputs/restart_reproducer.in
 
 # move outputs to avoid being overwritten
 mkdir first_run
@@ -19,7 +21,7 @@ mv parthenon.* first_run
 rm *.csv
 
 # restart run
-mpirun -np 8 ./build/bin/athenaPK -r first_run/parthenon.restart.00000.rhdf
+mpirun -np $NRANKS ./build/bin/athenaPK -r first_run/parthenon.restart.00000.rhdf
 
 # clean up
 rm *.csv
