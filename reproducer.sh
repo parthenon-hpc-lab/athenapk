@@ -2,13 +2,14 @@
 
 set -x
 
-NRANKS=1
+NRANKS=8
+BUILD_TYPE=Release
 
 # compile
 rm -rf build
 mkdir build
 cd build
-cmake .. -DPARTHENON_ENABLE_PYTHON_MODULE_CHECK=OFF -DCMAKE_BUILD_TYPE=Debug
+cmake .. -DPARTHENON_ENABLE_PYTHON_MODULE_CHECK=OFF -DCMAKE_BUILD_TYPE=$BUILD_TYPE
 cmake --build .
 cd ..
 
@@ -18,18 +19,21 @@ mpirun -np $NRANKS ./build/bin/athenaPK -i inputs/restart_reproducer.in
 # move outputs to avoid being overwritten
 mkdir first_run
 mv parthenon.* first_run
-rm *.csv
 
 # restart run
 mpirun -np $NRANKS ./build/bin/athenaPK -r first_run/parthenon.restart.00000.rhdf
 
-# clean up
-rm *.csv
+## compare first outputs after restart
+# NOTE: This comparison will fail with Parthenon 24.08 --> current develop (as of 17 Oct 24) !!
+# (Restarting from 00000.rhdf will produce an output numbered 00001.rhdf that is identical to the original 00000 rhdf output.)
 
-# compare restart outputs
-h5diff first_run/parthenon.restart.00000.rhdf parthenon.restart.00001.rhdf
-h5diff first_run/parthenon.restart.00001.rhdf parthenon.restart.00002.rhdf
+echo "Comparing first outputs post-restart..."
+h5diff first_run/parthenon.prim.00001.phdf parthenon.prim.00001.phdf
+h5diff first_run/parthenon.restart.00001.rhdf parthenon.restart.00001.rhdf
 
-# compare snapshot outputs
-h5diff first_run/parthenon.prim.00000.phdf parthenon.prim.00001.phdf
-h5diff first_run/parthenon.prim.00001.phdf parthenon.prim.00002.phdf
+## compare second outputs after restart
+
+echo "\nComparing second outputs after restart..."
+h5diff first_run/parthenon.prim.00002.phdf parthenon.prim.00002.phdf
+h5diff first_run/parthenon.restart.00002.rhdf parthenon.restart.00002.rhdf
+
