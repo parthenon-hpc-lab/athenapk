@@ -212,6 +212,7 @@ TabularCooling::TabularCooling(ParameterInput *pin,
     // Copy host_log_lambdas into device memory
     Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
   }
+
   // Setup Townsend cooling, i.e., precalulcate piecewise powerlaw approx.
   if (integrator_ == CoolIntegrator::townsend) {
     lambdas_ = ParArray1D<Real>("lambdas_", n_temp_);
@@ -322,6 +323,9 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
+  // get 'smoothing' height for heating/cooling
+  const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
+
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::SubcyclingSplitSrcTerm", DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -346,9 +350,14 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
         bool dedt_valid = true;
 
+        // artificially limit temperature change in precipitator midplane
+        const auto &coords = cons_pack.GetCoords(b);
+        const Real z = coords.Xc<3>(k);
+        const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
+
         // Wrap DeDt into a functor for the RKStepper
         auto DeDt_wrapper = [&](const Real t, const Real e, bool &valid) {
-          return cooling_table_obj.DeDt(e, rho, valid);
+          return taper_fac * cooling_table_obj.DeDt(e, rho, valid);
         };
 
         Real sub_t = 0; // current subcycle time
@@ -455,7 +464,8 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
             sub_dt = dt - sub_t;
           } else {
             // Grow the timestep
-            // (or shrink in case d_e_err >= d_e_tol and sub_dt is already at min_sub_dt)
+            // (or shrink in case d_e_err >= d_e_tol and sub_dt is already at
+            // min_sub_dt)
             sub_dt = RKStepper::OptimalStep(sub_dt, d_e_err, d_e_tol);
           }
 
@@ -523,6 +533,9 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto temp_final = std::pow(10.0, log_temp_final_);
   const auto lambda_final = lambda_final_;
 
+  // get 'smoothing' height for heating/cooling
+  const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
+
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::TownsendSrcTerm", DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -549,7 +562,8 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           // Remove the cooling from the total energy density
           cons(IEN, k, j, i) += rho * (internal_e_floor - internal_e);
           // Latter technically not required if no other tasks follows before
-          // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
+          // ConservedToPrim conversion, but keeping it for now (better safe than
+          // sorry).
           prim(IPR, k, j, i) = rho * internal_e_floor * gm1;
           return;
         }
