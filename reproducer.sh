@@ -8,7 +8,7 @@ NRANKS=1
 rm -rf build
 mkdir build
 cd build
-cmake .. -DPARTHENON_ENABLE_PYTHON_MODULE_CHECK=OFF
+cmake .. -DPARTHENON_ENABLE_PYTHON_MODULE_CHECK=OFF -DCMAKE_BUILD_TYPE=Debug
 cmake --build .
 cd ..
 
