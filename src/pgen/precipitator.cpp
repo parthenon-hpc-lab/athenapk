@@ -142,16 +142,18 @@ class PrecipitatorProfile {
   PrecipitatorProfile(std::string const &filename)
       : z_min_(get_zmin(filename)), z_max_(get_zmax(filename)), z_(get_z(filename)),
         rho_(get_rho(filename)), P_(get_P(filename)), phi_(get_phi(filename)),
-        spline_rho_(z_, rho_), spline_P_(z_, P_), spline_phi_(z_, phi_) {}
+        spline_rho_(z_, rho_), spline_P_(z_, P_), spline_phi_(z_, phi_),
+        bfield_(get_bfield(filename)), spline_bfield_(z_, bfield_) {}
 
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION
   PrecipitatorProfile(PrecipitatorProfile const &rhs)
       : z_min_(rhs.z_min_), z_max_(rhs.z_max_), spline_P_(rhs.spline_P_),
-        spline_rho_(rhs.spline_rho_), spline_phi_(rhs.spline_phi_) {}
+        spline_rho_(rhs.spline_rho_), spline_phi_(rhs.spline_phi_), bfield_(rhs.bfield_),
+        spline_bfield_(rhs.spline_bfield_) {}
 
   inline auto readProfile(std::string const &filename)
       -> std::tuple<PinnedArray1D<Real>, PinnedArray1D<Real>, PinnedArray1D<Real>,
-                    PinnedArray1D<Real>> {
+                    PinnedArray1D<Real>, PinnedArray1D<Real>> {
     // read in tabulated profile from text file 'filename'
     std::ifstream fstream(filename, std::ios::in);
     assert(fstream.is_open());
@@ -162,6 +164,7 @@ class PrecipitatorProfile {
     std::vector<Real> rho_vec{};
     std::vector<Real> P_vec{};
     std::vector<Real> phi_vec{};
+    std::vector<Real> bfield_vec{};
 
     for (std::string line; std::getline(fstream, line);) {
       std::istringstream iss(line);
@@ -170,10 +173,13 @@ class PrecipitatorProfile {
       for (Real value = NAN; iss >> value;) {
         values.push_back(value);
       }
+      PARTHENON_REQUIRE(values.size() >= 8, "At least 8 columns are needed in the input file!");
+
       z_vec.push_back(values.at(0));
       rho_vec.push_back(values.at(1));
       P_vec.push_back(values.at(2));
-      phi_vec.push_back(values.at(6)); // phi is last
+      phi_vec.push_back(values.at(6)); // phi is second to last
+      bfield_vec.push_back(values.at(7)); // bfield is last
     }
 
     // copy to a PinnedArray1D<Real>
@@ -181,49 +187,57 @@ class PrecipitatorProfile {
     PinnedArray1D<Real> rho_("rho", rho_vec.size());
     PinnedArray1D<Real> P_("P", P_vec.size());
     PinnedArray1D<Real> phi_("phi", phi_vec.size());
+    PinnedArray1D<Real> bfield_("bfield", bfield_vec.size());
 
     for (int i = 0; i < z_vec.size(); ++i) {
       z_(i) = z_vec.at(i);
       rho_(i) = rho_vec.at(i);
       P_(i) = P_vec.at(i);
       phi_(i) = phi_vec.at(i);
+      bfield_(i) = bfield_vec.at(i);
     }
 
-    return std::make_tuple(z_, rho_, P_, phi_);
+    return std::make_tuple(z_, rho_, P_, phi_, bfield_);
   }
 
   inline Real get_zmin(std::string const &filename) {
-    auto [z, rho, P, phi] = readProfile(filename);
+    auto [z, rho, P, phi, bfield] = readProfile(filename);
     return z[0];
   }
 
   inline Real get_zmax(std::string const &filename) {
-    auto [z, rho, P, phi] = readProfile(filename);
+    auto [z, rho, P, phi, bfield] = readProfile(filename);
     return z[z.size() - 1];
   }
 
   inline PinnedArray1D<Real> get_z(std::string const &filename) {
-    auto [z, rho, P, phi] = readProfile(filename);
+    auto [z, rho, P, phi, bfield] = readProfile(filename);
     return z;
   }
 
   inline PinnedArray1D<Real> get_rho(std::string const &filename) {
-    auto [z, rho, P, phi] = readProfile(filename);
+    auto [z, rho, P, phi, bfield] = readProfile(filename);
     return rho;
   }
 
   inline PinnedArray1D<Real> get_P(std::string const &filename) {
-    auto [z, rho, P, phi] = readProfile(filename);
+    auto [z, rho, P, phi, bfield] = readProfile(filename);
     return P;
   }
 
   inline PinnedArray1D<Real> get_phi(std::string const &filename) {
-    auto [z, rho, P, phi] = readProfile(filename);
+    auto [z, rho, P, phi, bfield] = readProfile(filename);
     return phi;
+  }
+
+  inline PinnedArray1D<Real> get_bfield(std::string const &filename) {
+    auto [z, rho, P, phi, bfield] = readProfile(filename);
+    return bfield;
   }
 
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real min() const { return z_min_; }
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real max() const { return z_max_; }
+
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real rho(Real z) const {
     // interpolate density from tabulated profile
     return spline_rho_(z);
@@ -239,6 +253,11 @@ class PrecipitatorProfile {
     return spline_phi_(z);
   }
 
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real bfield(Real z) const {
+    // interpolate acceleration from tabulated profile
+    return spline_bfield_(z);
+  }
+
  private:
   Real z_min_{};
   Real z_max_{}; // z_min_ and z_max_ are the minimum and maximum values of z
@@ -246,9 +265,11 @@ class PrecipitatorProfile {
   PinnedArray1D<Real> rho_{};
   PinnedArray1D<Real> P_{};
   PinnedArray1D<Real> phi_{};
+  PinnedArray1D<Real> bfield_{};
   MonotoneInterpolator<PinnedArray1D<Real>> spline_rho_;
   MonotoneInterpolator<PinnedArray1D<Real>> spline_P_;
   MonotoneInterpolator<PinnedArray1D<Real>> spline_phi_;
+  MonotoneInterpolator<PinnedArray1D<Real>> spline_bfield_;
 };
 
 void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt) {
@@ -612,6 +633,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   m = Metadata({Metadata::Cell, Metadata::OneCopy, Metadata::Restart},
                std::vector<int>({1}));
   pkg->AddField("density_hse", m);
+  m = Metadata({Metadata::Cell, Metadata::OneCopy, Metadata::Restart},
+               std::vector<int>({1}));
+  pkg->AddField("bfield_hse", m);
 
   /// add derived fields
 
@@ -634,7 +658,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // add plasma beta field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("plasma_beta", m);
- 
+
   // add \delta \rho / \bar \rho field
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("drho_over_rho", m);
@@ -1017,6 +1041,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
 
   auto pressure_hse = rc->PackVariables(std::vector<std::string>{"pressure_hse"});
   auto density_hse = rc->PackVariables(std::vector<std::string>{"density_hse"});
+  auto bfield_hse = rc->PackVariables(std::vector<std::string>{"bfield_hse"});
 
   if (uniform_init == 1) {
     // initialize to uniform density and pressure, no gravity
@@ -1026,8 +1051,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
           auto p_hse = [=](Real z) { return P_rho_profile->P(z); };
           auto rho_hse = [=](Real z) { return P_rho_profile->rho(z); };
+          auto b_hse = [=](Real z) { return P_rho_profile->bfield(z); };
           pressure_hse(0, k, j, i) = p_hse(uniform_init_height) / code_pressure_cgs;
           density_hse(0, k, j, i) = rho_hse(uniform_init_height) / code_density_cgs;
+          bfield_hse(0, k, j, i) = b_hse(uniform_init_height) / code_magnetic_cgs;
         });
   } else {
     parthenon::par_for(
@@ -1045,19 +1072,16 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           parthenon::math::quadrature::gauss<Real, 7> quad;
           auto p_hse = [=](Real z) { return P_rho_profile->P(z); };
           auto rho_hse = [=](Real z) { return P_rho_profile->rho(z); };
+          auto b_hse = [=](Real z) { return P_rho_profile->bfield(z); };
           const Real P_hse_avg = quad.integrate(p_hse, zmin_cgs, zmax_cgs) / dz_cgs;
           const Real rho_hse_avg = quad.integrate(rho_hse, zmin_cgs, zmax_cgs) / dz_cgs;
+          const Real b_hse_avg = quad.integrate(b_hse, zmin_cgs, zmax_cgs) / dz_cgs;
 
           pressure_hse(0, k, j, i) = P_hse_avg / code_pressure_cgs;
           density_hse(0, k, j, i) = rho_hse_avg / code_density_cgs;
+          bfield_hse(0, k, j, i) = b_hse_avg / code_magnetic_cgs;
         });
   }
-
-  // set background magnetic field
-  const Real bfield_gauss = hydro_pkg->Param<Real>("bfield_gauss");
-  const double Bx = bfield_gauss / code_magnetic_cgs; // convert to code units
-  const double By = 0;
-  const double Bz = 0;
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SetInitialConditions", parthenon::DevExecSpace(), 0, 0, kb.s,
@@ -1065,6 +1089,9 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         const Real rho = density_hse(0, k, j, i);
         const Real P = pressure_hse(0, k, j, i);
+        const Real Bx = bfield_hse(0, k, j, i);
+        const Real By = 0;
+        const Real Bz = 0;
 
         Real drho_over_rho = 0.0;
         if (amp > 0.) {
