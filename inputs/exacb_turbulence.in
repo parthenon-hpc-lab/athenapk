@@ -9,7 +9,7 @@ problem_id = turbulence
 cfl = 0.3               # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim       = __NLIM__   # cycle limit
 tlim       = 5.0        # time limit
-integrator  = vl2       # time integration algorithm
+integrator  = rk2       # time integration algorithm
 ncycle_out_mesh = -500  # print mesh structure every 500 cyles and on refinement
 
 <parthenon/mesh>
@@ -45,6 +45,7 @@ eos = adiabatic
 riemann = hlld
 reconstruction = ppm
 gamma           = 1.0001         # gamma = C_p/C_v
+scratch_level  = 1
 
 <problem/turbulence>
 rho0         = 1.0      # initial mean density
