@@ -758,10 +758,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   hydro_pkg->AddParam<Real>("h_smooth_heatcool",
                             h_smooth_heatcool); // smoothing scale (code units)
 
-  // read magnetic field strength
-  const Real bfield_gauss = pin->GetReal("precipitator", "bfield_gauss");
-  hydro_pkg->AddParam<Real>("bfield_gauss", bfield_gauss);
-
   // read perturbation parameters
   const int kx_max = pin->GetInteger("precipitator", "perturb_kx");
   const int ky_max = pin->GetInteger("precipitator", "perturb_ky");
