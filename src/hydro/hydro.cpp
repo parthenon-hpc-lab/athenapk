@@ -29,11 +29,13 @@
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
+#include "kokkos_abstraction.hpp"
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
+#include "utils/reductions.hpp"
 
 using namespace parthenon::package::prelude;
 
@@ -303,8 +305,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     riemann = RiemannSolver::hlle;
   } else if (riemann_str == "hllc") {
     riemann = RiemannSolver::hllc;
+  } else if (riemann_str == "lhllc") {
+    riemann = RiemannSolver::lhllc;
   } else if (riemann_str == "hlld") {
     riemann = RiemannSolver::hlld;
+  } else if (riemann_str == "lhlld") {
+    riemann = RiemannSolver::lhlld;
   } else if (riemann_str == "none") {
     riemann = RiemannSolver::none;
     // If hyperbolic fluxes are disabled, there's no restriction from those
@@ -347,6 +353,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::limo3, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::limo3, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::lhllc>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::none>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
@@ -360,6 +372,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::lhlld>(flux_functions);
   // Add first order recon with LLF fluxes (implemented for testing as tight loop)
   flux_functions[std::make_tuple(Fluid::euler, Reconstruction::dc, RiemannSolver::llf)] =
       Hydro::CalculateFluxesTight<Fluid::euler>;
@@ -957,6 +975,10 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     else // 3D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
   }
+  // get cell sizes
+  const Real dx1 = pmb->coords.CellWidth<X1DIR>();
+  const Real dx2 = pmb->coords.CellWidth<X2DIR>();
+  const Real dx3 = pmb->coords.CellWidth<X3DIR>();
 
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto cons_in = md->PackVariablesAndFluxes(flags_ind);
@@ -976,7 +998,12 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     c_h = pkg->Param<Real>("c_h");
   }
 
-  auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &prim_in = md->PackVariables(std::vector<std::string>({"prim"}));
+
+  // gravitational potential (needed for well-balancing)
+  const auto &phi_in = md->PackVariables(std::vector<std::string>({"grav_phi"}));
+  const auto &phi_zface_in =
+      md->PackVariables(std::vector<std::string>({"grav_phi_zface"}));
 
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
@@ -992,13 +1019,17 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
       scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
         const auto &prim = prim_in(b);
+        const auto &phi = phi_in(b);
+        const auto &phi_zface = phi_zface_in(b);
+
         auto &cons = cons_in(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         // get reconstructed state on faces
-        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr, phi,
+                                  phi_zface);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
@@ -1034,6 +1065,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
           const auto &prim = prim_in(b);
+          const auto &phi = phi_in(b);
+          const auto &phi_zface = phi_zface_in(b);
+
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
@@ -1043,7 +1077,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
                                             num_scratch_vars, nx1);
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
-            Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
+            Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr, phi,
+                                      phi_zface);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
@@ -1082,6 +1117,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
           const auto &prim = prim_in(b);
+          const auto &phi = phi_in(b);
+          const auto &phi_zface = phi_zface_in(b);
+
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
@@ -1091,7 +1129,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
                                             num_scratch_vars, nx1);
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
-            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
+            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr, phi,
+                                      phi_zface);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
