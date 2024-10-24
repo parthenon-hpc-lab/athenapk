@@ -119,9 +119,9 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   // Restriction should also be easily fixed, just need to double check transforms and
   // volume weighting everywhere
   // PARTHENON_REQUIRE_THROWS(((gnx1 == gnx2) && (gnx2 == gnx3)) &&
-  //  ((Lx1 == Lx2) && (Lx2 == Lx3)),
-  //  "FMFT has only been tested with cubic meshes and constant "
-  //  "dx/dy/dz. Remove this warning at your own risk.")
+  //                              ((Lx1 == Lx2) && (Lx2 == Lx3)),
+  //                          "FMFT has only been tested with cubic meshes and constant "
+  //                          "dx/dy/dz. Remove this warning at your own risk.")
 
   const auto nx1 = pmb->block_size.nx(X1DIR);
   const auto nx2 = pmb->block_size.nx(X2DIR);
@@ -329,10 +329,12 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
   // implictly assuming cubic box of size L=1
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "FMFT: Inverse FT", parthenon::DevExecSpace(), 0,
-      md->NumBlocks() - 1, 0, 2, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+      md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         Complex phase, phase_i, phase_j, phase_k;
-        var_pack(b, n, k, j, i) = 0.0;
+        var_pack(b, 0, k, j, i) = 0.0;
+        var_pack(b, 1, k, j, i) = 0.0;
+        var_pack(b, 2, k, j, i) = 0.0;
 
         for (int m = 0; m < num_modes; m++) {
           phase_i =
@@ -342,8 +344,10 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
           phase_k =
               Complex(phases_k(b, 0, k - kb.s, m, 0), phases_k(b, 0, k - kb.s, m, 1));
           phase = phase_i * phase_j * phase_k;
-          var_pack(b, n, k, j, i) += 2. * (var_hat(n, m).real() * phase.real() -
-                                           var_hat(n, m).imag() * phase.imag());
+          for (int n = 0; n <= 2; n++) {
+            var_pack(b, n, k, j, i) += 2. * (var_hat(n, m).real() * phase.real() -
+                                             var_hat(n, m).imag() * phase.imag());
+          }
         }
       });
 }
