@@ -21,19 +21,13 @@ mkdir first_run
 mv parthenon.* first_run
 
 # restart run
-mpirun -np $NRANKS ./build/bin/athenaPK -r first_run/parthenon.restart.00000.rhdf
+mpirun -np $NRANKS ./build/bin/athenaPK -r first_run/parthenon.restart.00001.rhdf
 
 ## compare first outputs after restart
-# NOTE: This comparison will fail with Parthenon 24.08 --> current develop (as of 17 Oct 24) !!
-# (Restarting from 00000.rhdf will produce an output numbered 00001.rhdf that is identical to the original 00000 rhdf output.)
-
-echo "Comparing first outputs post-restart..."
-h5diff first_run/parthenon.prim.00001.phdf parthenon.prim.00001.phdf
-h5diff first_run/parthenon.restart.00001.rhdf parthenon.restart.00001.rhdf
-
-## compare second outputs after restart
 
 echo "\nComparing second outputs after restart..."
 h5diff first_run/parthenon.prim.00002.phdf parthenon.prim.00002.phdf
 h5diff first_run/parthenon.restart.00002.rhdf parthenon.restart.00002.rhdf
 
+## compare with internal tool
+uv run external/parthenon/scripts/python/packages/parthenon_tools/parthenon_tools/phdf_diff.py parthenon.restart.00002.rhdf first_run/parthenon.restart.00002.rhdf
