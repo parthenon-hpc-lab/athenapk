@@ -18,15 +18,13 @@ mv parthenon.* first_run
 rm *.csv
 
 # restart run
-mpirun -np 8 ./build/bin/athenaPK -r first_run/parthenon.restart.00000.rhdf
+mpirun -np 8 ./build/bin/athenaPK -r first_run/parthenon.restart.00001.rhdf
 
 # clean up
 rm *.csv
 
 # compare restart outputs
-h5diff first_run/parthenon.restart.00000.phdf parthenon.restart.00001.phdf
-h5diff first_run/parthenon.restart.00001.phdf parthenon.restart.00002.phdf
+h5diff first_run/parthenon.restart.00002.rhdf parthenon.restart.00002.rhdf
 
 # compare snapshot outputs
-h5diff first_run/parthenon.prim.00000.phdf parthenon.prim.00001.phdf
-h5diff first_run/parthenon.prim.00001.phdf parthenon.prim.00002.phdf
+h5diff first_run/parthenon.prim.00002.phdf parthenon.prim.00002.phdf
