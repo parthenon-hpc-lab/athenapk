@@ -27,4 +27,4 @@ rm *.csv
 h5diff first_run/parthenon.restart.00002.rhdf parthenon.restart.00002.rhdf
 
 # compare with phdf_diff
-uv run external/parthenon/scripts/python/packages/parthenon_tools/parthenon_tools/phdf_diff.py -one parthenon.restart.00002.rhdf first_run/parthenon.restart.00002.rhdf
+uv run external/parthenon/scripts/python/packages/parthenon_tools/parthenon_tools/phdf_diff.py -tol 0 parthenon.restart.00002.rhdf first_run/parthenon.restart.00002.rhdf
