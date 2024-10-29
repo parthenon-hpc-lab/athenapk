@@ -15,9 +15,10 @@ dt         = 50.0     # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/output3>
-file_type  = rst        # Binary data dump
-dt         = 2000.0     # time increment between outputs
-id         = restart
+file_type   = rst        # Binary data dump
+dt          = 2000.0     # time increment between outputs
+id          = restart
+ghost_zones = 1
 
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
