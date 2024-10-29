@@ -17,14 +17,14 @@ mkdir first_run
 mv parthenon.* first_run
 rm *.csv
 
-# restart run from time zero
-mpirun -np 8 ./build/bin/athenaPK -r first_run/parthenon.restart.00000.rhdf
+# restart run
+mpirun -np 8 ./build/bin/athenaPK -r first_run/parthenon.restart.00002.rhdf
 
 # clean up
 rm *.csv
 
-# compare SECOND restart outputs
-h5diff first_run/parthenon.restart.00002.rhdf parthenon.restart.00002.rhdf
+# compare t=0 restart outputs
+h5diff first_run/parthenon.restart.00002.rhdf parthenon.restart.now.rhdf
 
 # compare with phdf_diff
-uv run external/parthenon/scripts/python/packages/parthenon_tools/parthenon_tools/phdf_diff.py -one parthenon.restart.00002.rhdf first_run/parthenon.restart.00002.rhdf
+uv run external/parthenon/scripts/python/packages/parthenon_tools/parthenon_tools/phdf_diff.py --tol 0 first_run/parthenon.restart.00002.rhdf parthenon.restart.now.rhdf

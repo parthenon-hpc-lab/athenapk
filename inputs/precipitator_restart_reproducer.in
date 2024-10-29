@@ -5,19 +5,10 @@ problem   = Precipitator box
 problem_id = precipitator   # problem ID: basename of output filenames
 
 <parthenon/output1>
-file_type  = hst       # History data dump
-dt         = 1.0      # time increment between outputs
-
-<parthenon/output2>
-file_type  = hdf5      # HDF5 data dump
-variables  = prim, drho_over_rho, dP_over_P, dK_over_K, dT_over_T, entropy, temperature, tcool_over_tff, plasma_beta, dv_x, dv_y, dv_z
-dt         = 1.0     # Time increment between outputs
-id         = prim      # Name to append to output
-
-<parthenon/output3>
 file_type  = rst        # Binary data dump
 dt         = 1.0     # time increment between outputs
 id         = restart
+ghost_zones = true
 
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
@@ -25,7 +16,6 @@ nlim       = -1         # cycle limit
 tlim       = 3.0      # time limit
 integrator  = rk2       # time integration algorithm
 perf_cycle_offset  = 10 # interval for stdout summary info
-
 
 <parthenon/mesh>
 refinement  = static
