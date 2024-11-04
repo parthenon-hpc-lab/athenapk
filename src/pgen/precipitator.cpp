@@ -1301,6 +1301,9 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           const Real bx = prim(IB1, k, j, i);
           const Real by = prim(IB2, k, j, i);
           const Real bz = prim(IB3, k, j, i);
+
+          // NOTE: magnetic energy is defined as:
+          // Real e_B = 0.5 * (SQR(u_b1) + SQR(u_b2) + SQR(u_b3));
           const Real P_mag = 0.5 * (SQR(bx) + SQR(by) + SQR(bz));
           const Real beta = P / P_mag;
 
