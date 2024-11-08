@@ -7,6 +7,7 @@
 - [[PR 1]](https://github.com/parthenon-hpc-lab/athenapk/pull/1) Add isotropic thermal conduction and RKL2 supertimestepping
 
 ### Changed (changing behavior/API/variables/...)
+- [[PR 122]](https://github.com/parthenon-hpc-lab/athenapk/pull/122) Fixed sqrt(4pi) factor in CGS Gauss unit and add unit doc
 - [[PR 119]](https://github.com/parthenon-hpc-lab/athenapk/pull/119) Fixed Athena++ paper test case for KHI pgen. Added turbulence pgen doc.
 - [[PR 97]](https://github.com/parthenon-hpc-lab/athenapk/pull/97) Fixed Schure cooling curve. Removed SD one. Added description of cooling function conventions.
 - [[PR 84]](https://github.com/parthenon-hpc-lab/athenapk/pull/84) Bump Parthenon to latest develop (2024-02-15)

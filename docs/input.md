@@ -67,6 +67,10 @@ To control the floors, following parameters can be set in the `<hydro>` block:
 *Note* the pressure floor will take precedence over the temperature floor in the
 conserved to primitive conversion if both are defined.
 
+#### Units
+
+See(here)[units.md].
+
 #### Diffusive processes
 
 Diffusive processes in AthenaPK can be configured in the `<diffusion>` block of the input file.

@@ -131,21 +131,8 @@ the `file_type = hdf5` format, see
 [VisIt](https://wci.llnl.gov/simulation/computer-codes/visit/).
 In ParaView, select the "XDMF Reader" when prompted.
 
-2. With [yt](https://yt-project.org/) -- though currently through a custom frontend
-that is not yet part of the main yt branch and, thus, has to be installed manually, e.g.,
-as follows:
-```bash
-cd ~/src # or any other folder of choice
-git clone https://github.com/forrestglines/yt.git
-cd yt
-git checkout parthenon-frontend
-
-# If you're using conda or virtualenv
-pip install -e .
-# OR alternatively, if you using the plain Python environment
-pip install --user -e .
-```
-Afterwards, `*.phdf` files can be read as usual with `yt.load()`.
+2. With [yt](https://yt-project.org/)
+As of versions >=4.4 `*.phdf` files can be read as usual with `yt.load()`.
 
 3. Using [Ascent](https://github.com/Alpine-DAV/ascent) (for in situ visualization and analysis).
 This requires Ascent to be installed/available at compile time of AthenaPK.
