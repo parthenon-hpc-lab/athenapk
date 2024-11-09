@@ -13,6 +13,7 @@ The documentation currently includes
   - [Notebooks to calculate cooling tables from literature](cooling)
 - [Brief notes on developing code for AthenaPK](development.md)
 - [How to add a custom/user problem generator](pgen.md)
+- [Units](units.md)
 - Detailed descriptions of more complex problem generators
   - [Galaxy Cluster and Cluster-like Problem Setup](cluster.md)
   - [Driven turbulence](turbulence.md)
