@@ -33,6 +33,7 @@
 #include "globals.hpp"
 #include "hydro.hpp"
 #include "outputs/outputs.hpp"
+#include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
@@ -55,6 +56,50 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
   return packages;
+}
+
+// Using this per cycle function to populate various variables in
+// Params that require global reduction *and* need to be set/known when
+// the task list is constructed (versus when the task list is being executed).
+// TODO(next person touching this function): If more/separate feature are required
+// please separate concerns.
+void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
+  auto hydro_pkg = pmesh->block_list[0]->packages.Get("Hydro");
+  const auto num_partitions = pmesh->DefaultNumPartitions();
+
+  if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) {
+    auto dt_diff = std::numeric_limits<Real>::max();
+    if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
+      for (auto i = 0; i < num_partitions; i++) {
+        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+
+        dt_diff = std::min(dt_diff, EstimateConductionTimestep(md.get()));
+      }
+    }
+    if (hydro_pkg->Param<Viscosity>("viscosity") != Viscosity::none) {
+      for (auto i = 0; i < num_partitions; i++) {
+        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+
+        dt_diff = std::min(dt_diff, EstimateViscosityTimestep(md.get()));
+      }
+    }
+    if (hydro_pkg->Param<Resistivity>("resistivity") != Resistivity::none) {
+      for (auto i = 0; i < num_partitions; i++) {
+        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+
+        dt_diff = std::min(dt_diff, EstimateResistivityTimestep(md.get()));
+      }
+    }
+#ifdef MPI_PARALLEL
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &dt_diff, 1, MPI_PARTHENON_REAL,
+                                      MPI_MIN, MPI_COMM_WORLD));
+#endif
+    hydro_pkg->UpdateParam("dt_diff", dt_diff);
+    const auto max_dt_ratio = hydro_pkg->Param<Real>("rkl2_max_dt_ratio");
+    if (max_dt_ratio > 0.0 && tm.dt / dt_diff > max_dt_ratio) {
+      tm.dt = max_dt_ratio * dt_diff;
+    }
+  }
 }
 
 template <Hst hst, int idx = -1>
@@ -145,6 +190,14 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     hydro_pkg->Param<GLMMHD::SourceFun_t>("glmmhd_source")(md, beta_dt);
   }
+  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
+
+  if (enable_cooling == Cooling::tabular) {
+    const TabularCooling &tabular_cooling =
+        hydro_pkg->Param<TabularCooling>("tabular_cooling");
+
+    tabular_cooling.SrcTerm(md, beta_dt);
+  }
   if (ProblemSourceUnsplit != nullptr) {
     ProblemSourceUnsplit(md, tm, beta_dt);
   }
@@ -155,14 +208,6 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  if (enable_cooling == Cooling::tabular) {
-    const TabularCooling &tabular_cooling =
-        hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-    tabular_cooling.SrcTerm(md, tm.dt);
-  }
   if (ProblemSourceFirstOrder != nullptr) {
     ProblemSourceFirstOrder(md, tm, tm.dt);
   }
@@ -170,17 +215,6 @@ TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm) {
 }
 
 TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm) {
-  // auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-
-  // const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
-
-  // if (enable_cooling == Cooling::tabular) {
-  //   const TabularCooling &tabular_cooling =
-  //       hydro_pkg->Param<TabularCooling>("tabular_cooling");
-
-  //   tabular_cooling.SrcTerm(md, 0.5 * tm.dt);
-  // }
-
   if (ProblemSourceStrangSplit != nullptr) {
     ProblemSourceStrangSplit(md, tm, tm.dt);
   }
@@ -391,10 +425,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   auto first_order_flux_correct =
       pin->GetOrAddBoolean("hydro", "first_order_flux_correct", false);
-  if (first_order_flux_correct && integrator != Integrator::vl2) {
-    PARTHENON_FAIL("Please use 'vl2' integrator with first order flux correction. Other "
-                   "integrators have not been tested.")
-  }
   pkg->AddParam<>("first_order_flux_correct", first_order_flux_correct);
   if (first_order_flux_correct) {
     if (fluid == Fluid::euler) {
@@ -424,6 +454,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       pkg->AddParam<>("mu", mu);
       pkg->AddParam<>("mu_e", mu_e);
       pkg->AddParam<>("He_mass_fraction", He_mass_fraction);
+      pkg->AddParam<>("mbar", mu * units.atomic_mass_unit());
       // Following convention in the astro community, we're using mh as unit for the mean
       // molecular weight
       pkg->AddParam<>("mbar_over_kb", mu * units.mh() / units.k_boltzmann());
@@ -445,45 +476,184 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       efloor = Tfloor / mbar_over_kb / (gamma - 1.0);
     }
 
+    // By default disable ceilings by setting to infinity
+    Real vceil =
+        pin->GetOrAddReal("hydro", "vceil", std::numeric_limits<Real>::infinity());
+    Real Tceil =
+        pin->GetOrAddReal("hydro", "Tceil", std::numeric_limits<Real>::infinity());
+    Real eceil = Tceil;
+    if (eceil < std::numeric_limits<Real>::infinity()) {
+      if (!pkg->AllParams().hasKey("mbar_over_kb")) {
+        PARTHENON_FAIL("Temperature ceiling requires units and gas composition. "
+                       "Either set a 'units' block and the 'hydro/He_mass_fraction' in "
+                       "input file or use a pressure floor "
+                       "(defined code units) instead.");
+      }
+      auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
+      eceil = Tceil / mbar_over_kb / (gamma - 1.0);
+    }
+
     auto conduction = Conduction::none;
     auto conduction_str = pin->GetOrAddString("diffusion", "conduction", "none");
-    if (conduction_str == "spitzer") {
-      if (!pkg->AllParams().hasKey("mbar_over_kb")) {
-        PARTHENON_FAIL("Spitzer thermal conduction requires units and gas composition. "
-                       "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
-                       "the input file.");
-      }
-      conduction = Conduction::spitzer;
-
-      Real spitzer_coeff =
-          pin->GetOrAddReal("diffusion", "spitzer_cond_in_erg_by_s_K_cm", 4.6e-7);
-      // Convert to code units. No temp conversion as [T_phys] = [T_code].
-      auto units = pkg->Param<Units>("units");
-      spitzer_coeff *= units.erg() / (units.s() * units.cm());
-
-      auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
-      auto thermal_diff = ThermalDiffusivity(conduction, spitzer_coeff, mbar_over_kb);
-      pkg->AddParam<>("thermal_diff", thermal_diff);
-
-    } else if (conduction_str == "thermal_diff") {
-      conduction = Conduction::thermal_diff;
-      Real thermal_diff_coeff_code = pin->GetReal("diffusion", "thermal_diff_coeff_code");
-      auto thermal_diff = ThermalDiffusivity(conduction, thermal_diff_coeff_code, 0.0);
-      pkg->AddParam<>("thermal_diff", thermal_diff);
-
+    if (conduction_str == "isotropic") {
+      conduction = Conduction::isotropic;
+    } else if (conduction_str == "anisotropic") {
+      conduction = Conduction::anisotropic;
     } else if (conduction_str != "none") {
       PARTHENON_FAIL(
-          "AthenaPK unknown conduction method. Options are: spitzer, thermal_diff");
+          "Unknown conduction method. Options are: none, isotropic, anisotropic");
+    }
+    // If conduction is enabled, process supported coefficients
+    if (conduction != Conduction::none) {
+      auto conduction_coeff_str =
+          pin->GetOrAddString("diffusion", "conduction_coeff", "none");
+      auto conduction_coeff = ConductionCoeff::none;
+
+      // Saturated conduction factor to account for "uncertainty", see
+      // Cowie & McKee 77 and a value of 0.3 is typical chosen (though using "weak
+      // evidence", see Balbus & MacKee 1982 and Max, McKee, and Mead 1980).
+      const auto conduction_sat_phi =
+          pin->GetOrAddReal("diffusion", "conduction_sat_phi", 0.3);
+      Real conduction_sat_prefac = 0.0;
+
+      if (conduction_coeff_str == "spitzer") {
+        if (!pkg->AllParams().hasKey("mbar")) {
+          PARTHENON_FAIL("Spitzer thermal conduction requires units and gas composition. "
+                         "Please set a 'units' block and the 'hydro/He_mass_fraction' in "
+                         "the input file.");
+        }
+        conduction_coeff = ConductionCoeff::spitzer;
+
+        // Default value assume fully ionized hydrogen plasma with Coulomb logarithm of 40
+        // to approximate ICM conditions, i.e., 1.84e-5/ln Lambda = 4.6e-7.
+        Real spitzer_coeff =
+            pin->GetOrAddReal("diffusion", "spitzer_cond_in_erg_by_s_K_cm", 4.6e-7);
+        // Convert to code units. No temp conversion as [T_phys] = [T_code].
+        auto units = pkg->Param<Units>("units");
+        spitzer_coeff *= units.erg() / (units.s() * units.cm());
+
+        const auto mbar = pkg->Param<Real>("mbar");
+        auto thermal_diff =
+            ThermalDiffusivity(conduction, conduction_coeff, spitzer_coeff, mbar,
+                               units.electron_mass(), units.k_boltzmann());
+        pkg->AddParam<>("thermal_diff", thermal_diff);
+
+        const auto mu = pkg->Param<Real>("mu");
+        // 6.86 again assumes a fully ionized hydrogen plasma in agreement with
+        // the assumptions above (technically this means mu = 0.5) and can be derived
+        // from eq (7) in CM77 assuming T_e = T_i.
+        conduction_sat_prefac = 6.86 * std::sqrt(mu) * conduction_sat_phi;
+
+      } else if (conduction_coeff_str == "fixed") {
+        conduction_coeff = ConductionCoeff::fixed;
+        Real thermal_diff_coeff_code =
+            pin->GetReal("diffusion", "thermal_diff_coeff_code");
+        auto thermal_diff = ThermalDiffusivity(conduction, conduction_coeff,
+                                               thermal_diff_coeff_code, 0.0, 0.0, 0.0);
+        pkg->AddParam<>("thermal_diff", thermal_diff);
+        // 5.0 prefactor comes from eq (8) in Cowie & McKee 1977
+        // https://doi.org/10.1086/154911
+        conduction_sat_prefac = 5.0 * conduction_sat_phi;
+
+      } else {
+        PARTHENON_FAIL("Thermal conduction is enabled but no coefficient is set. Please "
+                       "set diffusion/conduction_coeff to either 'spitzer' or 'fixed'");
+      }
+      PARTHENON_REQUIRE(conduction_sat_prefac != 0.0,
+                        "Saturated thermal conduction prefactor uninitialized.");
+      pkg->AddParam<>("conduction_sat_prefac", conduction_sat_prefac);
     }
     pkg->AddParam<>("conduction", conduction);
 
+    auto viscosity = Viscosity::none;
+    auto viscosity_str = pin->GetOrAddString("diffusion", "viscosity", "none");
+    if (viscosity_str == "isotropic") {
+      viscosity = Viscosity::isotropic;
+    } else if (viscosity_str != "none") {
+      PARTHENON_FAIL("Unknown viscosity method. Options are: none, isotropic");
+    }
+    // If viscosity is enabled, process supported coefficients
+    if (viscosity != Viscosity::none) {
+      auto viscosity_coeff_str =
+          pin->GetOrAddString("diffusion", "viscosity_coeff", "none");
+      auto viscosity_coeff = ViscosityCoeff::none;
+
+      if (viscosity_coeff_str == "fixed") {
+        viscosity_coeff = ViscosityCoeff::fixed;
+        Real mom_diff_coeff_code = pin->GetReal("diffusion", "mom_diff_coeff_code");
+        auto mom_diff = MomentumDiffusivity(viscosity, viscosity_coeff,
+                                            mom_diff_coeff_code, 0.0, 0.0, 0.0);
+        pkg->AddParam<>("mom_diff", mom_diff);
+
+      } else {
+        PARTHENON_FAIL("Viscosity is enabled but no coefficient is set. Please "
+                       "set diffusion/viscosity_coeff to 'fixed' and "
+                       "diffusion/mom_diff_coeff_code to the desired value.");
+      }
+    }
+    pkg->AddParam<>("viscosity", viscosity);
+
+    auto resistivity = Resistivity::none;
+    auto resistivity_str = pin->GetOrAddString("diffusion", "resistivity", "none");
+    if (resistivity_str == "ohmic") {
+      resistivity = Resistivity::ohmic;
+    } else if (resistivity_str != "none") {
+      PARTHENON_FAIL("Unknown resistivity method. Options are: none, ohmic");
+    }
+    // If resistivity is enabled, process supported coefficients
+    if (resistivity != Resistivity::none) {
+      auto resistivity_coeff_str =
+          pin->GetOrAddString("diffusion", "resistivity_coeff", "none");
+      auto resistivity_coeff = ResistivityCoeff::none;
+
+      if (resistivity_coeff_str == "spitzer") {
+        // If this is implemented, check how the Spitzer coeff for thermal conduction is
+        // handled.
+        PARTHENON_FAIL("needs impl");
+
+      } else if (resistivity_coeff_str == "fixed") {
+        resistivity_coeff = ResistivityCoeff::fixed;
+        Real ohm_diff_coeff_code = pin->GetReal("diffusion", "ohm_diff_coeff_code");
+        auto ohm_diff = OhmicDiffusivity(resistivity, resistivity_coeff,
+                                         ohm_diff_coeff_code, 0.0, 0.0, 0.0);
+        pkg->AddParam<>("ohm_diff", ohm_diff);
+
+      } else {
+        PARTHENON_FAIL("Resistivity is enabled but no coefficient is set. Please "
+                       "set diffusion/resistivity_coeff to 'fixed' and "
+                       "diffusion/ohm_diff_coeff_code to the desired value.");
+      }
+    }
+    pkg->AddParam<>("resistivity", resistivity);
+
+    auto diffint_str = pin->GetOrAddString("diffusion", "integrator", "none");
+    auto diffint = DiffInt::none;
+    if (diffint_str == "unsplit") {
+      diffint = DiffInt::unsplit;
+    } else if (diffint_str == "rkl2") {
+      diffint = DiffInt::rkl2;
+      auto rkl2_dt_ratio = pin->GetOrAddReal("diffusion", "rkl2_max_dt_ratio", -1.0);
+      pkg->AddParam<>("rkl2_max_dt_ratio", rkl2_dt_ratio);
+    } else if (diffint_str != "none") {
+      PARTHENON_FAIL("AthenaPK unknown integration method for diffusion processes. "
+                     "Options are: none, unsplit, rkl2");
+    }
+    if (diffint != DiffInt::none) {
+      pkg->AddParam<Real>("dt_diff", 0.0, true); // diffusive timestep constraint
+      // As in Athena++ a cfl safety factor is also applied to the theoretical limit.
+      // By default it is equal to the hyperbolic cfl.
+      auto cfl_diff = pin->GetOrAddReal("diffusion", "cfl", pkg->Param<Real>("cfl"));
+      pkg->AddParam<>("cfl_diff", cfl_diff);
+    }
+    pkg->AddParam<>("diffint", diffint);
+
     if (fluid == Fluid::euler) {
-      AdiabaticHydroEOS eos(pfloor, dfloor, efloor, gamma);
+      AdiabaticHydroEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::euler>;
     } else if (fluid == Fluid::glmmhd) {
-      AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, gamma);
+      AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
       pkg->AddParam<>("eos", eos);
       pkg->FillDerivedMesh = ConsToPrim<AdiabaticGLMMHDEOS>;
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::glmmhd>;
@@ -553,6 +723,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   Metadata m(
       {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
       std::vector<int>({nhydro + nscalars}), cons_labels);
+  m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
+                          parthenon::refinement_ops::RestrictAverage>();
   pkg->AddField("cons", m);
 
   m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro + nscalars}),
@@ -758,8 +930,17 @@ Real EstimateTimestep(MeshData<Real> *md) {
     min_dt = std::min(min_dt, tabular_cooling.EstimateTimeStep(md));
   }
 
-  if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
-    min_dt = std::min(min_dt, EstimateConductionTimestep(md));
+  // For RKL2 STS, the diffusive timestep is calculated separately in the driver
+  if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) {
+    if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
+      min_dt = std::min(min_dt, EstimateConductionTimestep(md));
+    }
+    if (hydro_pkg->Param<Viscosity>("viscosity") != Viscosity::none) {
+      min_dt = std::min(min_dt, EstimateViscosityTimestep(md));
+    }
+    if (hydro_pkg->Param<Resistivity>("resistivity") != Resistivity::none) {
+      min_dt = std::min(min_dt, EstimateResistivityTimestep(md));
+    }
   }
 
   if (ProblemEstimateTimestep != nullptr) {
@@ -831,8 +1012,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   int il, iu, jl, ju, kl, ku;
   jl = jb.s, ju = jb.e, kl = kb.s, ku = kb.e;
   // TODO(pgrete): are these looop limits are likely too large for 2nd order
-  if (pmb->block_size.nx2 > 1) {
-    if (pmb->block_size.nx3 == 1) // 2D
+  if (pmb->block_size.nx(X2DIR) > 1) {
+    if (pmb->block_size.nx(X3DIR) == 1) // 2D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s, ku = kb.e;
     else // 3D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
@@ -904,7 +1085,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
-    if (pmb->block_size.nx3 == 1) // 2D
+    if (pmb->block_size.nx(X3DIR) == 1) // 2D
       kl = kb.s, ku = kb.e;
     else // 3D
       kl = kb.s - 1, ku = kb.e + 1;
@@ -999,9 +1180,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         });
   }
 
-  const auto &conduction = pkg->Param<Conduction>("conduction");
-  if (conduction != Conduction::none) {
-    ThermalFluxAniso(md.get());
+  const auto &diffint = pkg->Param<DiffInt>("diffint");
+  if (diffint == DiffInt::unsplit) {
+    CalcDiffFluxes(pkg.get(), md.get());
   }
 
   return TaskStatus::complete;
@@ -1022,7 +1203,13 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 // (multiple calls) versus extra memory usage is.
 template <Fluid fluid>
 TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
-                                 const Real gam0, const Real gam1, const Real beta_dt) {
+                                 const Real gam0_, const Real gam1_,
+                                 const Real beta_dt_) {
+  // Work around for CUDA <=11.6
+  const Real gam0 = gam0_;
+  const Real gam1 = gam1_;
+  const Real beta_dt = beta_dt_;
+
   auto pmb = u0_data->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -1030,6 +1217,7 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto u0_cons_pack = u0_data->PackVariablesAndFluxes(flags_ind);
+  auto const &u0_prim_pack = u0_data->PackVariables(std::vector<std::string>{"prim"});
   auto u1_cons_pack = u1_data->PackVariablesAndFluxes(flags_ind);
   auto pkg = pmb->packages.Get("Hydro");
 
@@ -1042,14 +1230,6 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
   if (fluid == Fluid::glmmhd) {
     c_h = pkg->Param<Real>("c_h");
   }
-  // Using "u1_prim" as "u0_prim" here because all current integrators start with copying
-  // the initial state to the "u0" register, see conditional for `stage == 1` in the
-  // hydro_driver where normally only "cons" is copied but in case for flux correction
-  // "prim", too. This means both during stage 1 and during stage 2 `u1` holds the
-  // original data at the beginning of the timestep. For flux correction we want to make a
-  // full (dt) low order update using the original data and thus use the "prim" data from
-  // u1 here.
-  auto const &u0_prim_pack = u1_data->PackVariables(std::vector<std::string>{"prim"});
 
   const int ndim = pmb->pmy_mesh->ndim;
 

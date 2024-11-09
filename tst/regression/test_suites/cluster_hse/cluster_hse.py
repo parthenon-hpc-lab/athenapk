@@ -33,12 +33,16 @@ sys.dont_write_bytecode = True
 
 class TestCase(utils.test_case.TestCaseAbs):
     def __init__(self):
-
         # Define cluster parameters
         # Setup units
         unyt.define_unit("code_length", (1, "Mpc"))
         unyt.define_unit("code_mass", (1e14, "Msun"))
         unyt.define_unit("code_time", (1, "Gyr"))
+        unyt.define_unit("code_velocity", (1, "code_length/code_time"))
+        unyt.define_unit(
+            "code_magnetic",
+            (np.sqrt(4 * np.pi), "(code_mass/code_length)**0.5/code_time"),
+        )
         self.code_length = unyt.unyt_quantity(1, "code_length")
         self.code_mass = unyt.unyt_quantity(1, "code_mass")
         self.code_time = unyt.unyt_quantity(1, "code_time")
@@ -92,6 +96,18 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         self.norm_tol = 1e-3
 
+        self.sigma_v = unyt.unyt_quantity(75.0, "km/s")
+        char_v_lengthscale = unyt.unyt_quantity(100.0, "kpc")
+        # Note that the box scale is set in the input file directly (-0.1 to 0.1),
+        # so if the input file changes, the following line should change, too.
+        l_box = 0.2 * self.code_length
+        self.k_peak_v = l_box / char_v_lengthscale
+
+        self.sigma_b = unyt.unyt_quantity(1e-8, "G")
+        # using a different one than for the velocity
+        char_b_lengthscale = unyt.unyt_quantity(50.0, "kpc")
+        self.k_peak_b = l_box / char_b_lengthscale
+
     def Prepare(self, parameters, step):
         """
         Any preprocessing that is needed before the drive is run can be done in
@@ -140,29 +156,110 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/cluster/hydrostatic_equilibrium/r_fix={self.R_fix.in_units('code_length').v}",
             f"problem/cluster/hydrostatic_equilibrium/rho_fix={self.rho_fix.in_units('code_mass/code_length**3').v}",
             f"problem/cluster/hydrostatic_equilibrium/r_sampling={self.R_sampling}",
+            f"hydro/fluid={'euler' if step == 2 else 'glmmhd'}",
+            f"problem/cluster/init_perturb/sigma_v={0.0 if step == 2 else self.sigma_v.in_units('code_velocity').v}",
+            f"problem/cluster/init_perturb/k_peak_v={0.0 if step == 2 else self.k_peak_v.v}",
+            f"problem/cluster/init_perturb/sigma_b={0.0 if step == 2 else self.sigma_b.in_units('code_magnetic').v}",
+            f"problem/cluster/init_perturb/k_peak_b={0.0 if step == 2 else self.k_peak_b.v}",
+            f"parthenon/output2/id={'prim' if step == 2 else 'prim_perturb'}",
+            f"parthenon/time/nlim={-1 if step == 2 else 1}",
         ]
 
         return parameters
 
     def Analyse(self, parameters):
-        """
-        Analyze the output and determine if the test passes.
+        analyze_status = self.AnalyseHSE(parameters)
+        analyze_status &= self.AnalyseInitPert(parameters)
+        return analyze_status
 
-        This function is called after the driver has been executed. It is
-        responsible for reading whatever data it needs and making a judgment
-        about whether or not the test passes. It takes no inputs. Output should
-        be True (test passes) or False (test fails).
+    def AnalyseInitPert(self, parameters):
+        analyze_status = True
+        sys.path.insert(
+            1,
+            parameters.parthenon_path
+            + "/scripts/python/packages/parthenon_tools/parthenon_tools",
+        )
 
-        The parameters that are passed in provide the paths to relevant
-        locations and commands. Of particular importance is the path to the
-        output folder. All files from a drivers run should appear in and output
-        folder located in
-        parthenon/tst/regression/test_suites/test_name/output.
+        try:
+            import phdf
+        except ModuleNotFoundError:
+            print("Couldn't find module to load Parthenon hdf5 files.")
+            return False
 
-        It is possible in this function to read any of the output files such as
-        hdf5 output and compare them to expected quantities.
+        data_file = phdf.phdf(
+            f"{parameters.output_path}/parthenon.prim_perturb.00000.phdf"
+        )
+        dx = data_file.xf[:, 1:] - data_file.xf[:, :-1]
+        dy = data_file.yf[:, 1:] - data_file.yf[:, :-1]
+        dz = data_file.zf[:, 1:] - data_file.zf[:, :-1]
 
-        """
+        # create array of volume with (block, k, j, i) indices
+        cell_vol = np.empty(
+            (
+                data_file.x.shape[0],
+                data_file.z.shape[1],
+                data_file.y.shape[1],
+                data_file.x.shape[1],
+            )
+        )
+        for block in range(dx.shape[0]):
+            dz3d, dy3d, dx3d = np.meshgrid(
+                dz[block], dy[block], dx[block], indexing="ij"
+            )
+            cell_vol[block, :, :, :] = dx3d * dy3d * dz3d
+
+        # flatten array as prim var are also flattended
+        cell_vol = cell_vol.ravel()
+
+        # Flatten=true (default) is currently (Sep 24) broken so we manually flatten
+        components = data_file.GetComponents(
+            data_file.Info["ComponentNames"], flatten=False
+        )
+        rho = components["prim_density"].ravel()
+        vx = components["prim_velocity_1"].ravel()
+        vy = components["prim_velocity_2"].ravel()
+        vz = components["prim_velocity_3"].ravel()
+        pres = components["prim_pressure"].ravel()
+
+        # volume weighted rms velocity
+        rms_v = np.sqrt(
+            np.sum((vx**2 + vy**2 + vz**2) * cell_vol) / np.sum(cell_vol)
+        )
+
+        sigma_v_match = np.isclose(
+            rms_v, self.sigma_v.in_units("code_velocity").v, rtol=1e-14, atol=1e-14
+        )
+
+        if not sigma_v_match:
+            analyze_status = False
+            print(
+                f"ERROR: velocity perturbations don't match\n"
+                f"Expected {self.sigma_v.in_units('code_velocity')} but got {rms_v}\n"
+            )
+
+        bx = components["prim_magnetic_field_1"].ravel()
+        by = components["prim_magnetic_field_2"].ravel()
+        bz = components["prim_magnetic_field_3"].ravel()
+
+        # volume weighted rms magnetic field
+        rms_b = np.sqrt(
+            np.sum((bx**2 + by**2 + bz**2) * cell_vol) / np.sum(cell_vol)
+        )
+
+        sigma_b_match = np.isclose(
+            rms_b, self.sigma_b.in_units("code_magnetic").v, rtol=1e-14, atol=1e-14
+        )
+
+        if not sigma_b_match:
+            analyze_status = False
+            print(
+                f"ERROR: magnetic field perturbations don't match\n"
+                f"Expected {self.sigma_b.in_units('code_magnetic')} but got {rms_b}\n"
+            )
+
+        return analyze_status
+
+    def AnalyseHSE(self, parameters):
         analyze_status = True
 
         self.Yp = self.He_mass_fraction
@@ -291,11 +388,11 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # Prepare two array of R leading inwards and outwards from the virial radius, to integrate
         R_in = unyt.unyt_array(
-            np.hstack((R[R < self.R_fix], self.R_fix.in_units("code_length"))),
+            np.hstack((R[R < self.R_fix].v, self.R_fix.in_units("code_length").v)),
             "code_length",
         )
         R_out = unyt.unyt_array(
-            np.hstack((self.R_fix.in_units("code_length"), R[R > self.R_fix])),
+            np.hstack((self.R_fix.in_units("code_length").v, R[R > self.R_fix].v)),
             "code_length",
         )
 
@@ -309,7 +406,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         # Put the two pieces of P together
         P = unyt.unyt_array(
             np.hstack(
-                (P_in[:-1].in_units("dyne/cm**2"), P_out[1:].in_units("dyne/cm**2"))
+                (P_in[:-1].in_units("dyne/cm**2").v, P_out[1:].in_units("dyne/cm**2").v)
             ),
             "dyne/cm**2",
         )
@@ -434,7 +531,7 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # Compare the initial output to the analytic model
         def analytic_gold(Z, Y, X, analytic_var):
-            r = np.sqrt(X**2 + Y**2 + Z**2)
+            r = unyt.unyt_array(np.sqrt(X**2 + Y**2 + Z**2), "code_length")
             analytic_interp = unyt.unyt_array(
                 np.interp(r, analytic_R, analytic_var), analytic_var.units
             )

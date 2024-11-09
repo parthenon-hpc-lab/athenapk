@@ -47,4 +47,4 @@ class SNIAFeedback {
 
 } // namespace cluster
 
-#endif // CLUSTER_SNIAE_FEEDBACK_HPP_
+#endif // CLUSTER_SNIA_FEEDBACK_HPP_

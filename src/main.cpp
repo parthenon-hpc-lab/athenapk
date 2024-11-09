@@ -44,6 +44,7 @@ int main(int argc, char *argv[]) {
 
   // Redefine defaults
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
+  pman.app_input->PreStepMeshUserWorkInLoop = Hydro::PreStepMeshUserWorkInLoop;
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
 
   if (problem == "linear_wave") {
@@ -54,6 +55,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->InitUserMeshData = linear_wave_mhd::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave_mhd::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = linear_wave_mhd::UserWorkAfterLoop;
+    Hydro::ProblemInitPackageData = linear_wave_mhd::ProblemInitPackageData;
   } else if (problem == "cpaw") {
     pman.app_input->InitUserMeshData = cpaw::InitUserMeshData;
     pman.app_input->ProblemGenerator = cpaw::ProblemGenerator;
@@ -79,16 +81,17 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = field_loop::ProblemGenerator;
     Hydro::ProblemInitPackageData = field_loop::ProblemInitPackageData;
   } else if (problem == "kh") {
-    pman.app_input->ProblemGenerator = kh::ProblemGenerator;
+    pman.app_input->MeshProblemGenerator = kh::ProblemGenerator;
   } else if (problem == "rand_blast") {
     pman.app_input->ProblemGenerator = rand_blast::ProblemGenerator;
     Hydro::ProblemInitPackageData = rand_blast::ProblemInitPackageData;
     Hydro::ProblemSourceFirstOrder = rand_blast::RandomBlasts;
   } else if (problem == "cluster") {
-    pman.app_input->ProblemGenerator = cluster::ProblemGenerator;
+    pman.app_input->MeshProblemGenerator = cluster::ProblemGenerator;
     pman.app_input->MeshBlockUserWorkBeforeOutput = cluster::UserWorkBeforeOutput;
     Hydro::ProblemInitPackageData = cluster::ProblemInitPackageData;
-    Hydro::ProblemSourceUnsplit = cluster::ClusterSrcTerm;
+    Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
+    Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
@@ -118,10 +121,6 @@ int main(int argc, char *argv[]) {
 
     // This line actually runs the simulation
     driver.Execute();
-  }
-  // very ugly cleanup...
-  if (problem == "turbulence") {
-    turbulence::Cleanup();
   }
 
   // call MPI_Finalize and Kokkos::finalize if necessary

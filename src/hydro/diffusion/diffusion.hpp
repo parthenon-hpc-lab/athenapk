@@ -69,23 +69,102 @@ KOKKOS_INLINE_FUNCTION Real lim4(const Real A, const Real B, const Real C, const
 
 struct ThermalDiffusivity {
  private:
-  Real mbar_over_kb_;
+  Real mbar_, me_, kb_;
   Conduction conduction_;
+  ConductionCoeff conduction_coeff_type_;
   // "free" coefficient/prefactor. Value depends on conduction is set in the constructor.
   Real coeff_;
 
  public:
   KOKKOS_INLINE_FUNCTION
-  ThermalDiffusivity(Conduction conduction, Real coeff, Real mbar_over_kb)
-      : coeff_(coeff), conduction_(conduction), mbar_over_kb_(mbar_over_kb) {}
+  ThermalDiffusivity(Conduction conduction, ConductionCoeff conduction_coeff_type,
+                     Real coeff, Real mbar, Real me, Real kb)
+      : conduction_(conduction), conduction_coeff_type_(conduction_coeff_type),
+        coeff_(coeff), mbar_(mbar), me_(me), kb_(kb) {}
 
   KOKKOS_INLINE_FUNCTION
-  Real Get(const Real pres, const Real rho, const Real gradTmag) const;
+  Real Get(const Real pres, const Real rho) const;
+
+  KOKKOS_INLINE_FUNCTION
+  Conduction GetType() const { return conduction_; }
+
+  KOKKOS_INLINE_FUNCTION
+  ConductionCoeff GetCoeffType() const { return conduction_coeff_type_; }
 };
 
 Real EstimateConductionTimestep(MeshData<Real> *md);
 
-//! Calculate anisotropic thermal conduction
-void ThermalFluxAniso(MeshData<Real> *md);
+//! Calculate isotropic thermal conduction with fixed coefficient
+void ThermalFluxIsoFixed(MeshData<Real> *md);
+//! Calculate thermal conduction (general case incl. anisotropic and saturated)
+void ThermalFluxGeneral(MeshData<Real> *md);
+
+struct MomentumDiffusivity {
+ private:
+  Real mbar_, me_, kb_;
+  Viscosity viscosity_;
+  ViscosityCoeff viscosity_coeff_type_;
+  // "free" coefficient/prefactor. Value depends on viscosity set in the constructor.
+  Real coeff_;
+
+ public:
+  KOKKOS_INLINE_FUNCTION
+  MomentumDiffusivity(Viscosity viscosity, ViscosityCoeff viscosity_coeff_type,
+                      Real coeff, Real mbar, Real me, Real kb)
+      : viscosity_(viscosity), viscosity_coeff_type_(viscosity_coeff_type), coeff_(coeff),
+        mbar_(mbar), me_(me), kb_(kb) {}
+
+  KOKKOS_INLINE_FUNCTION
+  Real Get(const Real pres, const Real rho) const;
+
+  KOKKOS_INLINE_FUNCTION
+  Viscosity GetType() const { return viscosity_; }
+
+  KOKKOS_INLINE_FUNCTION
+  ViscosityCoeff GetCoeffType() const { return viscosity_coeff_type_; }
+};
+
+Real EstimateViscosityTimestep(MeshData<Real> *md);
+
+//! Calculate isotropic viscosity with fixed coefficient
+void MomentumDiffFluxIsoFixed(MeshData<Real> *md);
+//! Calculate viscosity (general case incl. anisotropic)
+void MomentumDiffFluxGeneral(MeshData<Real> *md);
+
+struct OhmicDiffusivity {
+ private:
+  Real mbar_, me_, kb_;
+  Resistivity resistivity_;
+  ResistivityCoeff resistivity_coeff_type_;
+  // "free" coefficient/prefactor. Value depends on resistivity set in the constructor.
+  Real coeff_;
+
+ public:
+  KOKKOS_INLINE_FUNCTION
+  OhmicDiffusivity(Resistivity resistivity, ResistivityCoeff resistivity_coeff_type,
+                   Real coeff, Real mbar, Real me, Real kb)
+      : resistivity_(resistivity), resistivity_coeff_type_(resistivity_coeff_type),
+        coeff_(coeff), mbar_(mbar), me_(me), kb_(kb) {}
+
+  KOKKOS_INLINE_FUNCTION
+  Real Get(const Real pres, const Real rho) const;
+
+  KOKKOS_INLINE_FUNCTION
+  Resistivity GetType() const { return resistivity_; }
+
+  KOKKOS_INLINE_FUNCTION
+  ResistivityCoeff GetCoeffType() const { return resistivity_coeff_type_; }
+};
+
+Real EstimateResistivityTimestep(MeshData<Real> *md);
+
+//! Calculate isotropic resistivity with fixed coefficient
+void OhmicDiffFluxIsoFixed(MeshData<Real> *md);
+
+//! Calculate resistivity (general case incl. Spitzer)
+void OhmicDiffFluxGeneral(MeshData<Real> *md);
+
+// Calculate all diffusion fluxes, i.e., update the .flux views in md
+TaskStatus CalcDiffFluxes(StateDescriptor *hydro_pkg, MeshData<Real> *md);
 
 #endif //  HYDRO_DIFFUSION_DIFFUSION_HPP_
