@@ -208,7 +208,7 @@ int main(int argc, char *argv[]) {
     Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
 
     // output restart file at t=0
-    driver.pouts->MakeOutputs(pman.pmesh.get(), pman.pinput.get(), &driver.tm, parthenon::SignalHandler::OutputSignal::now);
+    //driver.pouts->MakeOutputs(pman.pmesh.get(), pman.pinput.get(), &driver.tm, parthenon::SignalHandler::OutputSignal::now);
 
     // This line actually runs the simulation
     driver.Execute();

@@ -912,13 +912,19 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
     const Real B_sq = SQR(B1) + SQR(B2) + SQR(B3);
 
     // print sound speed
+    auto units = hydro_pkg->Param<Units>("units");
+    const parthenon::Real code_velocity_cgs = units.code_length_cgs() / units.code_time_cgs();
+    const parthenon::Real code_vel_kms = code_velocity_cgs / 1.0e5;
     const parthenon::Real cs = eos_.SoundSpeed(w);
     const parthenon::Real v_A = std::sqrt(B_sq / props.rho);
     const parthenon::Real v_abs = std::sqrt(SQR(props.v1) + SQR(props.v2) + SQR(props.v3));
 
     // print timestep
     std::cout << "\n----> dt = " << cfl_hyp * min_dt_hyperbolic.value;
-    std::cout << " (c_s = " << cs << ", v_A = " << v_A << ", |v| = " << v_abs << ")\n";
+    std::cout << " (c_s = " << cs * code_vel_kms
+              << " km/s, v_A = " << v_A * code_vel_kms
+              << " km/s, |v| = " << v_abs * code_vel_kms
+              << " km/s)\n";
 
     // find which is largest
     std::vector<parthenon::Real> v{cs, v_A, v_abs};
