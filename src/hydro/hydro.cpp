@@ -879,17 +879,41 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
                 mpi_minloc_valproppair, MPI_COMM_WORLD);
 
   if (parthenon::Globals::my_rank == 0) {
-    // print timestep
-    std::cout << "\n";
-    std::cout << "Hyperbolic dt = " << cfl_hyp * min_dt_hyperbolic.value << "\n";
-
     // print cell properties
     CellPrimValues &props = min_dt_hyperbolic.index;
-    std::cout << "\tprops.rho = " << props.rho << "\n";
-    std::cout << "\tprops.v1 = " << props.v1 << "\n";
-    std::cout << "\tprops.v2 = " << props.v2 << "\n";
-    std::cout << "\tprops.v3 = " << props.v3 << "\n";
-    std::cout << "\tprops.P = " << props.P << "\n";
+
+    Real w[(NHYDRO)];
+    w[IDN] = props.rho;
+    w[IV1] = props.v1;
+    w[IV2] = props.v2;
+    w[IV3] = props.v3;
+    w[IPR] = props.P;
+    const Real B1 = props.B1;
+    const Real B2 = props.B2;
+    const Real B3 = props.B3;
+    const Real B_sq = SQR(B1) + SQR(B2) + SQR(B3);
+
+    // print sound speed
+    const parthenon::Real cs = eos_.SoundSpeed(w);
+    const parthenon::Real v_A = std::sqrt(B_sq / props.rho);
+    const parthenon::Real v_abs = std::sqrt(SQR(props.v1) + SQR(props.v2) + SQR(props.v3));
+
+    // print timestep
+    std::cout << "\n----> dt = " << cfl_hyp * min_dt_hyperbolic.value;
+    std::cout << " (c_s = " << cs << ", v_A = " << v_A << ", |v| = " << v_abs << ")\n";
+
+    // find which is largest
+    std::vector<parthenon::Real> v{cs, v_A, v_abs};
+    std::vector<parthenon::Real>::iterator result = std::max_element(v.begin(), v.end());
+    const int max_idx = std::distance(v.begin(), result);
+
+    if (max_idx == 0) {
+      std::cout << "\tTimestep limited by sound speed.\n";
+    } else if (max_idx == 1) {
+      std::cout << "\tTimestep limited by Alfven speed.\n";
+    } else if (max_idx == 2) {
+      std::cout << "\tTimestep limited by fluid velocity.\n";
+    }
   }
 
   // save the result
