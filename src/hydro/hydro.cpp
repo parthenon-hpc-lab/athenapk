@@ -217,14 +217,17 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     auto glmmhd_alpha = pin->GetOrAddReal("hydro", "glmmhd_alpha", 0.1);
     pkg->AddParam<Real>("glmmhd_alpha", glmmhd_alpha);
     calc_c_h = true;
-    pkg->AddParam<Real>(
-        "c_h", 0.0, Params::Mutability::Restart); // hyperbolic divergence cleaning speed
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
   pkg->AddParam<>("fluid", fluid);
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("calc_c_h", calc_c_h);
+  // Following params should (currently) be present independent of solver because
+  // they're all used in the main loop.
+  // TODO(pgrete) think about which approach (selective versus always is preferable)
+  pkg->AddParam<Real>(
+      "c_h", 0.0, Params::Mutability::Restart); // hyperbolic divergence cleaning speed
   // global minimum dx (used to calc c_h)
   pkg->AddParam<Real>("mindx", std::numeric_limits<Real>::max(),
                       Params::Mutability::Restart);
