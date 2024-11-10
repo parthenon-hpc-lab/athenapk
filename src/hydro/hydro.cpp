@@ -860,7 +860,7 @@ Real EstimateTimestep(MeshData<Real> *md) {
       // or not constrain limit further (which is why RKL2 is there in first place)
     } else if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) {
       const auto max_dt_ratio = hydro_pkg->Param<Real>("rkl2_max_dt_ratio");
-      if (calc_dt_hyp && max_dt_ratio > 0.0 && dt_hyp / dt_diff > max_dt_ratio) {
+      if (max_dt_ratio > 0.0 && dt_hyp / dt_diff > max_dt_ratio) {
         min_dt = std::min(min_dt, max_dt_ratio * dt_diff);
       }
     } else {
