@@ -446,7 +446,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // Calculate hyperbolic divergence cleaning speed
   // TODO(pgrete) Calculating mindx is only required after remeshing. Need to find a clean
   // solution for this one-off global reduction.
-  if (hydro_pkg->Param<bool>("calc_c_h") && (stage == 1)) {
+  // TODO(PG) move this to PreStepMeshUserWorkInLoop
+  if ((hydro_pkg->Param<bool>("calc_c_h") ||
+       hydro_pkg->Param<DiffInt>("diffint") != DiffInt::none) &&
+      (stage == 1)) {
     // need to make sure that there's only one region in order to MPI_reduce to work
     TaskRegion &single_task_region = tc.AddRegion(1);
     auto &tl = single_task_region[0];
@@ -467,14 +470,16 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     reduce_c_h = tl.AddTask(
         prev_task,
         [](StateDescriptor *hydro_pkg) {
-          Real mins[2];
+          Real mins[3];
           mins[0] = hydro_pkg->Param<Real>("mindx");
           mins[1] = hydro_pkg->Param<Real>("dt_hyp");
-          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, mins, 2, MPI_PARTHENON_REAL,
+          mins[2] = hydro_pkg->Param<Real>("dt_diff");
+          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, mins, 3, MPI_PARTHENON_REAL,
                                             MPI_MIN, MPI_COMM_WORLD));
 
           hydro_pkg->UpdateParam("mindx", mins[0]);
           hydro_pkg->UpdateParam("dt_hyp", mins[1]);
+          hydro_pkg->UpdateParam("dt_diff", mins[2]);
           return TaskStatus::complete;
         },
         hydro_pkg.get());
@@ -656,7 +661,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
   // Single task in single (serial) region to reset global vars used in reductions in the
   // first stage.
-  if (stage == integrator->nstages && hydro_pkg->Param<bool>("calc_c_h")) {
+  if (stage == integrator->nstages &&
+      (hydro_pkg->Param<bool>("calc_c_h") ||
+       hydro_pkg->Param<DiffInt>("diffint") != DiffInt::none)) {
     TaskRegion &reset_reduction_vars_region = tc.AddRegion(1);
     auto &tl = reset_reduction_vars_region[0];
     tl.AddTask(
@@ -664,6 +671,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         [](StateDescriptor *hydro_pkg) {
           hydro_pkg->UpdateParam("mindx", std::numeric_limits<Real>::max());
           hydro_pkg->UpdateParam("dt_hyp", std::numeric_limits<Real>::max());
+          hydro_pkg->UpdateParam("dt_diff", std::numeric_limits<Real>::max());
           return TaskStatus::complete;
         },
         hydro_pkg.get());
