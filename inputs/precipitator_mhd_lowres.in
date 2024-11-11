@@ -47,8 +47,8 @@ ox2_bc     = periodic   # outer-X2 boundary flag
 nx3        = 128        # Number of zones in X3-direction
 x3min      = -100.      # minimum value of X3
 x3max      = 100.       # maximum value of X3
-ix3_bc     = user       # inner-X3 boundary flag
-ox3_bc     = user       # outer-X3 boundary flag
+ix3_bc     = precipitator_reflect_x3       # inner-X3 boundary flag
+ox3_bc     = precipitator_reflect_x3       # outer-X3 boundary flag
 
 
 <parthenon/meshblock>
