@@ -15,6 +15,7 @@
 ### Fixed (not changing behavior/API/variables/...)
 
 ### Infrastructure
+- [[PR 124]](https://github.com/parthenon-hpc-lab/athenapk/pull/124) Bump Kokkos 4.4.1 (and Parthenon to include view-of-view fix)
 - [[PR 117]](https://github.com/parthenon-hpc-lab/athenapk/pull/117) Update devcontainer.json to latest CI container
 - [[PR 114]](https://github.com/parthenon-hpc-lab/athenapk/pull/114) Bump Parthenon 24.08 and Kokkos to 4.4.00
 - [[PR 112]](https://github.com/parthenon-hpc-lab/athenapk/pull/112) Add dev container configuration
@@ -24,6 +25,8 @@
 ### Removed (removing behavior/API/varaibles/...)
 
 ### Incompatibilities (i.e. breaking changes)
+- [[PR 124]](https://github.com/parthenon-hpc-lab/athenapk/pull/124) Enrolling custom boundary conditions changed
+  - Boundary conditions can now be enrolled using a string that can be subsequently be used in the input file (see, e.g., cloud problem generator)
 - [[PR 114]](https://github.com/parthenon-hpc-lab/athenapk/pull/114) Bump Parthenon 24.08 and Kokkos to 4.4.00
   - Changed signature of `UserWorkBeforeOutput` to include `SimTime` as last paramter
   - Fixes bitwise idential restarts for AMR simulations (the derefinement counter is now included)

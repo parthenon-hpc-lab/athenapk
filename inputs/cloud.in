@@ -22,7 +22,7 @@ ox1_bc = outflow
 nx2 = 320
 x2min = -400
 x2max = 2100
-ix2_bc = user
+ix2_bc = cloud_inflow_x2
 ox2_bc = outflow
 
 nx3 = 192
