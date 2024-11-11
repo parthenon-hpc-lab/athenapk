@@ -865,7 +865,7 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   MPI_Op_create(ValPropPairMPIReducer, 1, &mpi_minloc_valproppair);
 
   // do MPI reduction
-  MPI_Allreduce(&min_dt_hyperbolic, &min_dt_hyperbolic, 1, mpi_valproppair,
+  MPI_Allreduce(MPI_IN_PLACE, &min_dt_hyperbolic, 1, mpi_valproppair,
                 mpi_minloc_valproppair, MPI_COMM_WORLD);
 
   if (parthenon::Globals::my_rank == 0) {
