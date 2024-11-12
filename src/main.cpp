@@ -6,6 +6,7 @@
 #include <sstream>
 
 // Parthenon headers
+#include "driver/driver.hpp"
 #include "globals.hpp"
 #include "parthenon_manager.hpp"
 
@@ -204,6 +205,7 @@ int main(int argc, char *argv[]) {
   }
 
   // This needs to be scoped so that the driver object is destructed before Finalize
+  parthenon::DriverStatus driver_status{};
   {
     Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
 
@@ -211,7 +213,7 @@ int main(int argc, char *argv[]) {
     //driver.pouts->MakeOutputs(pman.pmesh.get(), pman.pinput.get(), &driver.tm, parthenon::SignalHandler::OutputSignal::now);
 
     // This line actually runs the simulation
-    driver.Execute();
+    driver_status = driver.Execute();
   }
 
   // call MPI_Finalize and Kokkos::finalize if necessary
@@ -219,5 +221,9 @@ int main(int argc, char *argv[]) {
 
   // MPI and Kokkos can no longer be used
 
-  return (0);
+  // check driver_status
+  if (driver_status == parthenon::DriverStatus::failed) {
+    return 1;
+  }
+  return 0;
 }
