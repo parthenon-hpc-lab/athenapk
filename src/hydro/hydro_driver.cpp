@@ -240,7 +240,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto &Y0 = blocks[i]->meshblock_data.Get("u1");
     auto &base = blocks[i]->meshblock_data.Get();
     tl.AddTask(
-        none,
+        none, "u1 <- u0",
         [](MeshBlockData<Real> *dst, MeshBlockData<Real> *src) {
           dst->Get("cons").data.DeepCopy(src->Get("cons").data);
           dst->Get("prim").data.DeepCopy(src->Get("prim").data);
@@ -269,36 +269,37 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto &tl = region_calc_fluxes_step_init[i];
     auto &base = pmesh->mesh_data.GetOrAdd("base", i);
     const auto any = parthenon::BoundaryType::any;
-    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, base);
+    auto start_bnd = tl.AddTask(none, TF(parthenon::StartReceiveBoundBufs<any>), base);
     auto start_flxcor_recv =
-        tl.AddTask(none, parthenon::StartReceiveFluxCorrections, base);
+        tl.AddTask(none, TF(parthenon::StartReceiveFluxCorrections), base);
 
     // Reset flux arrays (not guaranteed to be zero)
-    auto reset_fluxes = tl.AddTask(none, ResetFluxes, base.get());
+    auto reset_fluxes = tl.AddTask(none, TF(ResetFluxes), base.get());
 
     // Calculate the diffusive fluxes for Y0 (here still "base" as nothing has been
     // updated yet) so that we can store the result as MY0 and reuse later
     // (in every subsetp).
     auto hydro_diff_fluxes =
-        tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), base.get());
+        tl.AddTask(reset_fluxes, TF(CalcDiffFluxes), hydro_pkg.get(), base.get());
 
     auto send_flx =
-        tl.AddTask(hydro_diff_fluxes, parthenon::LoadAndSendFluxCorrections, base);
+        tl.AddTask(hydro_diff_fluxes, TF(parthenon::LoadAndSendFluxCorrections), base);
     auto recv_flx =
-        tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, base);
+        tl.AddTask(start_flxcor_recv, TF(parthenon::ReceiveFluxCorrections), base);
     auto set_flx =
-        tl.AddTask(recv_flx | hydro_diff_fluxes, parthenon::SetFluxCorrections, base);
+        tl.AddTask(recv_flx | hydro_diff_fluxes, TF(parthenon::SetFluxCorrections), base);
 
     auto &Y0 = pmesh->mesh_data.GetOrAdd("u1", i);
     auto &MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
     auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
 
-    auto init_MY0 = tl.AddTask(set_flx, parthenon::Update::FluxDivergence<MeshData<Real>>,
-                               base.get(), MY0.get());
+    auto init_MY0 =
+        tl.AddTask(set_flx, TF(parthenon::Update::FluxDivergence<MeshData<Real>>),
+                   base.get(), MY0.get());
 
     // Initialize Y0 and Y1 and the recursion relation starting with j = 2 needs data from
     // the two preceeding stages.
-    auto rkl2_step_first = tl.AddTask(init_MY0, RKL2StepFirst, Y0.get(), base.get(),
+    auto rkl2_step_first = tl.AddTask(init_MY0, TF(RKL2StepFirst), Y0.get(), base.get(),
                                       Yjm2.get(), MY0.get(), s_rkl, tau);
 
     // Update ghost cells of Y1 (as MY1 is calculated for each Y_j).
@@ -311,7 +312,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
         rkl2_step_first | start_bnd, tl, base, pmesh->multilevel);
 
-    tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
+    tl.AddTask(bounds_exchange, TF(parthenon::Update::FillDerived<MeshData<Real>>),
                base.get());
   }
 
@@ -341,31 +342,31 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       // data/fluxes with neighbors. All other containers are passive (i.e., data is only
       // used but not exchanged).
       const auto any = parthenon::BoundaryType::any;
-      auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, base);
+      auto start_bnd = tl.AddTask(none, TF(parthenon::StartReceiveBoundBufs<any>), base);
       auto start_flxcor_recv =
-          tl.AddTask(none, parthenon::StartReceiveFluxCorrections, base);
+          tl.AddTask(none, TF(parthenon::StartReceiveFluxCorrections), base);
 
       // Reset flux arrays (not guaranteed to be zero)
-      auto reset_fluxes = tl.AddTask(none, ResetFluxes, base.get());
+      auto reset_fluxes = tl.AddTask(none, TF(ResetFluxes), base.get());
 
       // Calculate the diffusive fluxes for Yjm1 (here u1)
       auto hydro_diff_fluxes =
-          tl.AddTask(reset_fluxes, CalcDiffFluxes, hydro_pkg.get(), base.get());
+          tl.AddTask(reset_fluxes, TF(CalcDiffFluxes), hydro_pkg.get(), base.get());
 
       auto send_flx =
-          tl.AddTask(hydro_diff_fluxes, parthenon::LoadAndSendFluxCorrections, base);
+          tl.AddTask(hydro_diff_fluxes, TF(parthenon::LoadAndSendFluxCorrections), base);
       auto recv_flx =
-          tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, base);
-      auto set_flx =
-          tl.AddTask(recv_flx | hydro_diff_fluxes, parthenon::SetFluxCorrections, base);
+          tl.AddTask(start_flxcor_recv, TF(parthenon::ReceiveFluxCorrections), base);
+      auto set_flx = tl.AddTask(recv_flx | hydro_diff_fluxes,
+                                TF(parthenon::SetFluxCorrections), base);
 
       auto &Y0 = pmesh->mesh_data.GetOrAdd("u1", i);
       auto &MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
       auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
 
       auto rkl2_step_other =
-          tl.AddTask(set_flx, RKL2StepOther, Y0.get(), base.get(), Yjm2.get(), MY0.get(),
-                     mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
+          tl.AddTask(set_flx, TF(RKL2StepOther), Y0.get(), base.get(), Yjm2.get(),
+                     MY0.get(), mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
 
       // update ghost cells of base (currently storing Yj)
       // Update ghost cells (local and non local), prolongate and apply bound cond.
@@ -376,7 +377,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
           rkl2_step_other | start_bnd, tl, base, pmesh->multilevel);
 
-      tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
+      tl.AddTask(bounds_exchange, TF(parthenon::Update::FillDerived<MeshData<Real>>),
                  base.get());
     }
 
@@ -409,28 +410,28 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_task_region[0];
     // First globally reset triggering quantities
     auto prev_task =
-        tl.AddTask(none, cluster::AGNTriggeringResetTriggering, hydro_pkg.get());
+        tl.AddTask(none, TF(cluster::AGNTriggeringResetTriggering), hydro_pkg.get());
 
     // Adding one task for each partition. Given that they're all in one task list
     // they'll be executed sequentially. Given that a par_reduce to a host var is
     // blocking it's also save to store the variable in the Params for now.
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_agn_triggering =
-          tl.AddTask(prev_task, cluster::AGNTriggeringReduceTriggering, mu0.get(), tm.dt);
+      auto new_agn_triggering = tl.AddTask(
+          prev_task, TF(cluster::AGNTriggeringReduceTriggering), mu0.get(), tm.dt);
       prev_task = new_agn_triggering;
     }
 #ifdef MPI_PARALLEL
-    auto reduce_agn_triggering =
-        tl.AddTask(prev_task, cluster::AGNTriggeringMPIReduceTriggering, hydro_pkg.get());
+    auto reduce_agn_triggering = tl.AddTask(
+        prev_task, TF(cluster::AGNTriggeringMPIReduceTriggering), hydro_pkg.get());
     prev_task = reduce_agn_triggering;
 #endif
 
     // Remove accreted gas
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_remove_accreted_gas =
-          tl.AddTask(prev_task, cluster::AGNTriggeringFinalizeTriggering, mu0.get(), tm);
+      auto new_remove_accreted_gas = tl.AddTask(
+          prev_task, TF(cluster::AGNTriggeringFinalizeTriggering), mu0.get(), tm);
       prev_task = new_remove_accreted_gas;
     }
   }
@@ -467,13 +468,13 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto prev_task = none;
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_mindx = tl.AddTask(prev_task, CalculateGlobalMinDx, mu0.get());
+      auto new_mindx = tl.AddTask(prev_task, TF(CalculateGlobalMinDx), mu0.get());
       prev_task = new_mindx;
     }
     auto reduce_c_h = prev_task;
 #ifdef MPI_PARALLEL
     reduce_c_h = tl.AddTask(
-        prev_task,
+        prev_task, "reduce param dts",
         [](StateDescriptor *hydro_pkg) {
           Real mins[3];
           mins[0] = hydro_pkg->Param<Real>("mindx");
@@ -493,7 +494,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 #endif
     // Finally update c_h
     auto update_c_h = tl.AddTask(
-        reduce_c_h,
+        reduce_c_h, "reduce c_h",
         [](StateDescriptor *hydro_pkg) {
           const auto &mindx = hydro_pkg->Param<Real>("mindx");
           const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
@@ -516,20 +517,20 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // First globally reset magnetic_tower_linear_contrib and
     // magnetic_tower_quadratic_contrib
     auto prev_task =
-        tl.AddTask(none, cluster::MagneticTowerResetPowerContribs, hydro_pkg.get());
+        tl.AddTask(none, TF(cluster::MagneticTowerResetPowerContribs), hydro_pkg.get());
 
     // Adding one task for each partition. Given that they're all in one task list
     // they'll be executed sequentially. Given that a par_reduce to a host var is
     // blocking it's also save to store the variable in the Params for now.
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_magnetic_tower_power_contrib =
-          tl.AddTask(prev_task, cluster::MagneticTowerReducePowerContribs, mu0.get(), tm);
+      auto new_magnetic_tower_power_contrib = tl.AddTask(
+          prev_task, TF(cluster::MagneticTowerReducePowerContribs), mu0.get(), tm);
       prev_task = new_magnetic_tower_power_contrib;
     }
 #ifdef MPI_PARALLEL
     auto reduce_magnetic_tower_power_contrib = tl.AddTask(
-        prev_task,
+        prev_task, "reduce mag tower contr.",
         [](StateDescriptor *hydro_pkg) {
           Real magnetic_tower_contribs[] = {
               hydro_pkg->Param<Real>("magnetic_tower_linear_contrib"),
@@ -564,7 +565,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       // the source term is applied to all active registers in the flux calculation.
       // IMPORTANT 2: The tasks should work using `cons` variables as input as in the
       // final step, `prim` are not updated yet from the flux calculation.
-      tl.AddTask(none, AddSplitSourcesStrang, mu0.get(), tm);
+      tl.AddTask(none, TF(AddSplitSourcesStrang), mu0.get(), tm);
     }
   }
 
@@ -578,7 +579,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     if (stage == 1) {
       auto &u1 = pmb->meshblock_data.Get("u1");
       auto init_u1 = tl.AddTask(
-          none,
+          none, "init u1",
           [](MeshBlockData<Real> *u0, MeshBlockData<Real> *u1, bool copy_prim) {
             u1->Get("cons").data.DeepCopy(u0->Get("cons").data);
             if (copy_prim) {
@@ -601,13 +602,13 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
     const auto any = parthenon::BoundaryType::any;
-    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
+    auto start_bnd = tl.AddTask(none, TF(parthenon::StartReceiveBoundBufs<any>), mu0);
     auto start_flxcor_recv =
-        tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
+        tl.AddTask(none, TF(parthenon::StartReceiveFluxCorrections), mu0);
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
-    auto calc_flux = tl.AddTask(none, calc_flux_fun, mu0);
+    auto calc_flux = tl.AddTask(none, TF(calc_flux_fun), mu0);
 
     // TODO(pgrete) figure out what to do about the sources from the first stage
     // that are potentially disregarded when the (m)hd fluxes are corrected in the second
@@ -617,28 +618,29 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto *first_order_flux_correct_fun =
           hydro_pkg->Param<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun");
       first_order_flux_correct =
-          tl.AddTask(calc_flux, first_order_flux_correct_fun, mu0.get(), mu1.get(),
+          tl.AddTask(calc_flux, TF(first_order_flux_correct_fun), mu0.get(), mu1.get(),
                      integrator->gam0[stage - 1], integrator->gam1[stage - 1],
                      integrator->beta[stage - 1] * integrator->dt);
     }
 
-    auto send_flx =
-        tl.AddTask(first_order_flux_correct, parthenon::LoadAndSendFluxCorrections, mu0);
-    auto recv_flx = tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, mu0);
+    auto send_flx = tl.AddTask(first_order_flux_correct,
+                               TF(parthenon::LoadAndSendFluxCorrections), mu0);
+    auto recv_flx =
+        tl.AddTask(start_flxcor_recv, TF(parthenon::ReceiveFluxCorrections), mu0);
     auto set_flx = tl.AddTask(recv_flx | first_order_flux_correct,
-                              parthenon::SetFluxCorrections, mu0);
+                              TF(parthenon::SetFluxCorrections), mu0);
 
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(
-        set_flx, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
-        mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
+        set_flx, TF(parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>),
+        mu0.get(), mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
         integrator->beta[stage - 1] * integrator->dt);
 
     // Add non-operator split source terms.
     // Note: Directly update the "cons" variables of mu0 based on the "prim" variables
     // of mu0 as the "cons" variables have already been updated in this stage from the
     // fluxes in the previous step.
-    auto source_unsplit = tl.AddTask(update, AddUnsplitSources, mu0.get(), tm,
+    auto source_unsplit = tl.AddTask(update, TF(AddUnsplitSources), mu0.get(), tm,
                                      integrator->beta[stage - 1] * integrator->dt);
 
     auto source_split_first_order = source_unsplit;
@@ -648,14 +650,14 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       // IMPORTANT: The tasks should work using `cons` variables as input as in the
       // final step, `prim` are not updated yet from the flux calculation.
       auto source_split_strang_final =
-          tl.AddTask(source_unsplit, AddSplitSourcesStrang, mu0.get(), tm);
+          tl.AddTask(source_unsplit, TF(AddSplitSourcesStrang), mu0.get(), tm);
 
       // Add operator split source terms at first order, i.e., full dt update
       // after all stages of the integration.
       // Not recommended for but allows easy "reset" of variable for some
       // problem types, see random blasts.
-      source_split_first_order =
-          tl.AddTask(source_split_strang_final, AddSplitSourcesFirstOrder, mu0.get(), tm);
+      source_split_first_order = tl.AddTask(source_split_strang_final,
+                                            TF(AddSplitSourcesFirstOrder), mu0.get(), tm);
     }
 
     // Update ghost cells (local and non local), prolongate and apply bound cond.
@@ -671,7 +673,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_tasklist_per_pack_region_3[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto fill_derived =
-        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+        tl.AddTask(none, TF(parthenon::Update::FillDerived<MeshData<Real>>), mu0.get());
   }
   const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
   // If any tasks modify the conserved variables before this place and after FillDerived,
@@ -690,7 +692,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     TaskRegion &reset_reduction_vars_region = tc.AddRegion(1);
     auto &tl = reset_reduction_vars_region[0];
     tl.AddTask(
-        none,
+        none, "reset params dt",
         [](StateDescriptor *hydro_pkg) {
           hydro_pkg->UpdateParam("mindx", std::numeric_limits<Real>::max());
           hydro_pkg->UpdateParam("dt_hyp", std::numeric_limits<Real>::max());
@@ -705,8 +707,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = tr[i];
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_dt = tl.AddTask(none, parthenon::Update::EstimateTimestep<MeshData<Real>>,
-                               mu0.get());
+      auto new_dt = tl.AddTask(
+          none, TF(parthenon::Update::EstimateTimestep<MeshData<Real>>), mu0.get());
     }
   }
 
@@ -716,10 +718,11 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &tl = async_region_4[i];
       auto &u0 = blocks[i]->meshblock_data.Get("base");
       auto tag_refine =
-          tl.AddTask(none, parthenon::Refinement::Tag<MeshBlockData<Real>>, u0.get());
+          tl.AddTask(none, TF(parthenon::Refinement::Tag<MeshBlockData<Real>>), u0.get());
     }
   }
 
+  std::cout << tc;
   return tc;
 }
 } // namespace Hydro
