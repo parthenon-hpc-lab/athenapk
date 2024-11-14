@@ -61,7 +61,7 @@ fluid = glmmhd
 gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
 riemann = lhlld
-reconstruction = ppm
+reconstruction = plm
 first_order_flux_correct = true
 use_scratch = false
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
