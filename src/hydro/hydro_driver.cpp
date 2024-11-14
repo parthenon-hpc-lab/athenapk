@@ -185,7 +185,7 @@ TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
   // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "RKL other step", parthenon::DevExecSpace(), 0,
-      Y0.GetDim(5) - 1, 0, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      Y0.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         // First calc this step
         const auto &coords = Yjm1.GetCoords(b);
