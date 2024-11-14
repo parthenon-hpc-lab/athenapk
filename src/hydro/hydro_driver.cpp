@@ -13,6 +13,7 @@
 // Parthenon headers
 #include "amr_criteria/refinement_package.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
+#include "globals.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
@@ -217,6 +218,9 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       static_cast<int>(0.5 * (std::sqrt(9.0 + 16.0 * tau / mindt_diff) - 1.0)) + 1;
   // ensure odd number of stages
   if (s_rkl % 2 == 0) s_rkl += 1;
+
+  std::cerr << "[" << parthenon::Globals::my_rank << "] STS:\ttau=" << tau
+            << " dt_diff=" << mindt_diff << "\n";
 
   if (parthenon::Globals::my_rank == 0) {
     const auto ratio = 2.0 * tau / mindt_diff;
@@ -481,6 +485,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           hydro_pkg->UpdateParam("mindx", mins[0]);
           hydro_pkg->UpdateParam("dt_hyp", mins[1]);
           hydro_pkg->UpdateParam("dt_diff", mins[2]);
+          std::cerr << "[" << parthenon::Globals::my_rank << "] INI:\ttau=" << mins[1]
+                    << " dt_diff=" << mins[2] << "\n";
           return TaskStatus::complete;
         },
         hydro_pkg.get());

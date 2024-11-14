@@ -873,6 +873,8 @@ Real EstimateTimestep(MeshData<Real> *md) {
     auto dt_diff_param = hydro_pkg->Param<Real>("dt_diff");
     hydro_pkg->UpdateParam("dt_diff", std::min(dt_diff, dt_diff_param));
   }
+  std::cerr << "[" << parthenon::Globals::my_rank << "]  DT:\ttau=" << dt_hyp
+            << " dt_diff=" << dt_diff << "\n";
 
   if (ProblemEstimateTimestep != nullptr) {
     min_dt = std::min(min_dt, ProblemEstimateTimestep(md));
