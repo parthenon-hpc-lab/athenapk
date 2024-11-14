@@ -660,8 +660,24 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
                                         pmesh->multilevel);
   }
 
+  TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = single_tasklist_per_pack_region_3[i];
+    auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+    auto fill_derived =
+        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+  }
+  const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
+  // If any tasks modify the conserved variables before this place and after FillDerived,
+  // then the STS tasks should be updated to not assume prim and cons are in sync.
+  if (diffint == DiffInt::rkl2 && stage == integrator->nstages) {
+    AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
+  }
+
   // Single task in single (serial) region to reset global vars used in reductions in the
   // first stage.
+  // TODO(pgrete) check if we logically need this reset or if we can reset within the
+  // timestep task
   if (stage == integrator->nstages &&
       (hydro_pkg->Param<bool>("calc_c_h") ||
        hydro_pkg->Param<DiffInt>("diffint") != DiffInt::none)) {
@@ -676,20 +692,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           return TaskStatus::complete;
         },
         hydro_pkg.get());
-  }
-
-  TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; i++) {
-    auto &tl = single_tasklist_per_pack_region_3[i];
-    auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-    auto fill_derived =
-        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
-  }
-  const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
-  // If any tasks modify the conserved variables before this place and after FillDerived,
-  // then the STS tasks should be updated to not assume prim and cons are in sync.
-  if (diffint == DiffInt::rkl2 && stage == integrator->nstages) {
-    AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
   }
 
   if (stage == integrator->nstages) {
