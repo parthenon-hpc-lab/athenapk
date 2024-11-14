@@ -185,19 +185,19 @@ TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
   // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "RKL other step", parthenon::DevExecSpace(), 0,
-      Y0.GetDim(5) - 1, 0, Y0.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+      Y0.GetDim(5) - 1, 0, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         // First calc this step
         const auto &coords = Yjm1.GetCoords(b);
         const Real MYjm1 =
-            parthenon::Update::FluxDivHelper(v, k, j, i, ndim, coords, Yjm1(b));
-        const Real Yj = mu_j * Yjm1(b, v, k, j, i) + nu_j * Yjm2(b, v, k, j, i) +
-                        (1.0 - mu_j - nu_j) * Y0(b, v, k, j, i) +
+            parthenon::Update::FluxDivHelper(IEN, k, j, i, ndim, coords, Yjm1(b));
+        const Real Yj = mu_j * Yjm1(b, IEN, k, j, i) + nu_j * Yjm2(b, IEN, k, j, i) +
+                        (1.0 - mu_j - nu_j) * Y0(b, IEN, k, j, i) +
                         mu_tilde_j * tau * MYjm1 +
-                        gamma_tilde_j * tau * MY0(b, v, k, j, i);
+                        gamma_tilde_j * tau * MY0(b, IEN, k, j, i);
         // Then shuffle vars for next step
-        Yjm2(b, v, k, j, i) = Yjm1(b, v, k, j, i);
-        Yjm1(b, v, k, j, i) = Yj;
+        Yjm2(b, IEN, k, j, i) = Yjm1(b, IEN, k, j, i);
+        Yjm1(b, IEN, k, j, i) = Yj;
       });
 
   return TaskStatus::complete;
