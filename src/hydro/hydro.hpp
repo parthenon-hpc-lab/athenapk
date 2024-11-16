@@ -107,6 +107,8 @@ struct ValPropPair {
 };
 
 typedef ValPropPair<Real, CellPrimValues> valprop_reduce_type;
+
+#ifdef MPI_PARALLEL
 inline void ValPropPairMPIReducer(void *in, void *inout, int *len, MPI_Datatype *type) {
   valprop_reduce_type *invals = static_cast<valprop_reduce_type *>(in);
   valprop_reduce_type *inoutvals = static_cast<valprop_reduce_type *>(inout);
@@ -117,6 +119,7 @@ inline void ValPropPairMPIReducer(void *in, void *inout, int *len, MPI_Datatype 
     }
   }
 };
+#endif // MPI_PARALLEL
 
 } // namespace Hydro
 
