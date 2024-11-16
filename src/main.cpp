@@ -63,8 +63,8 @@ int main(int argc, char *argv[]) {
   } else if (problem == "cloud") {
     pman.app_input->InitUserMeshData = cloud::InitUserMeshData;
     pman.app_input->ProblemGenerator = cloud::ProblemGenerator;
-    pman.app_input->boundary_conditions[parthenon::BoundaryFace::inner_x2] =
-        cloud::InflowWindX2;
+    pman.app_input->RegisterBoundaryCondition(parthenon::BoundaryFace::inner_x2,
+                                              "cloud_inflow_x2", cloud::InflowWindX2);
     Hydro::ProblemCheckRefinementBlock = cloud::ProblemCheckRefinementBlock;
   } else if (problem == "blast") {
     pman.app_input->InitUserMeshData = blast::InitUserMeshData;
