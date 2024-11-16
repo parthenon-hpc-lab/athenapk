@@ -857,6 +857,7 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   // min_dt_hyperbolic.index contains the primitive vars for the cell that set the min
   // timestep on this local partition.
 
+#ifdef MPI_PARALLEL
   MPI_Datatype mpi_valproppair_types[2] = {MPI_PARTHENON_REAL, MPI_BYTE};
   MPI_Aint mpi_valproppair_disps[2] = {
       offsetof(valprop_reduce_type, value),
@@ -875,9 +876,10 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   MPI_Op_create(ValPropPairMPIReducer, 1, &mpi_minloc_valproppair);
 
   // do MPI reduction
-  MPI_Allreduce(&min_dt_hyperbolic, &min_dt_hyperbolic, 1, mpi_valproppair,
+  MPI_Allreduce(MPI_IN_PLACE, &min_dt_hyperbolic, 1, mpi_valproppair,
                 mpi_minloc_valproppair, MPI_COMM_WORLD);
-
+#endif // MPI_PARALLEL
+  
   if (parthenon::Globals::my_rank == 0) {
     // print cell properties
     CellPrimValues &props = min_dt_hyperbolic.index;
