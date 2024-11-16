@@ -4,6 +4,7 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <string>
@@ -29,6 +30,7 @@
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
+#include "interface/params.hpp"
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
@@ -60,44 +62,7 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
 // the task list is constructed (versus when the task list is being executed).
 // TODO(next person touching this function): If more/separate feature are required
 // please separate concerns.
-void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
-  auto hydro_pkg = pmesh->block_list[0]->packages.Get("Hydro");
-  const auto num_partitions = pmesh->DefaultNumPartitions();
-
-  if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) {
-    auto dt_diff = std::numeric_limits<Real>::max();
-    if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
-      for (auto i = 0; i < num_partitions; i++) {
-        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
-
-        dt_diff = std::min(dt_diff, EstimateConductionTimestep(md.get()));
-      }
-    }
-    if (hydro_pkg->Param<Viscosity>("viscosity") != Viscosity::none) {
-      for (auto i = 0; i < num_partitions; i++) {
-        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
-
-        dt_diff = std::min(dt_diff, EstimateViscosityTimestep(md.get()));
-      }
-    }
-    if (hydro_pkg->Param<Resistivity>("resistivity") != Resistivity::none) {
-      for (auto i = 0; i < num_partitions; i++) {
-        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
-
-        dt_diff = std::min(dt_diff, EstimateResistivityTimestep(md.get()));
-      }
-    }
-#ifdef MPI_PARALLEL
-    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &dt_diff, 1, MPI_PARTHENON_REAL,
-                                      MPI_MIN, MPI_COMM_WORLD));
-#endif
-    hydro_pkg->UpdateParam("dt_diff", dt_diff);
-    const auto max_dt_ratio = hydro_pkg->Param<Real>("rkl2_max_dt_ratio");
-    if (max_dt_ratio > 0.0 && tm.dt / dt_diff > max_dt_ratio) {
-      tm.dt = max_dt_ratio * dt_diff;
-    }
-  }
-}
+void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {}
 
 template <Hst hst, int idx = -1>
 Real HydroHst(MeshData<Real> *md) {
@@ -252,17 +217,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     auto glmmhd_alpha = pin->GetOrAddReal("hydro", "glmmhd_alpha", 0.1);
     pkg->AddParam<Real>("glmmhd_alpha", glmmhd_alpha);
     calc_c_h = true;
-    pkg->AddParam<Real>("c_h", 0.0, true); // hyperbolic divergence cleaning speed
-    // global minimum dx (used to calc c_h)
-    pkg->AddParam<Real>("mindx", std::numeric_limits<Real>::max(), true);
-    // hyperbolic timestep constraint
-    pkg->AddParam<Real>("dt_hyp", std::numeric_limits<Real>::max(), true);
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
   pkg->AddParam<>("fluid", fluid);
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("calc_c_h", calc_c_h);
+  // Following params should (currently) be present independent of solver because
+  // they're all used in the main loop.
+  // TODO(pgrete) think about which approach (selective versus always is preferable)
+  pkg->AddParam<Real>(
+      "c_h", 0.0, Params::Mutability::Restart); // hyperbolic divergence cleaning speed
+  // global minimum dx (used to calc c_h)
+  pkg->AddParam<Real>("mindx", std::numeric_limits<Real>::max(),
+                      Params::Mutability::Restart);
+  // hyperbolic timestep constraint
+  pkg->AddParam<Real>("dt_hyp", std::numeric_limits<Real>::max(),
+                      Params::Mutability::Restart);
 
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
@@ -633,12 +604,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                      "Options are: none, unsplit, rkl2");
     }
     if (diffint != DiffInt::none) {
-      pkg->AddParam<Real>("dt_diff", 0.0, true); // diffusive timestep constraint
       // As in Athena++ a cfl safety factor is also applied to the theoretical limit.
       // By default it is equal to the hyperbolic cfl.
       auto cfl_diff = pin->GetOrAddReal("diffusion", "cfl", pkg->Param<Real>("cfl"));
       pkg->AddParam<>("cfl_diff", cfl_diff);
     }
+    pkg->AddParam<Real>("dt_diff", std::numeric_limits<Real>::max(),
+                        Params::Mutability::Restart); // diffusive timestep constraint
     pkg->AddParam<>("diffint", diffint);
 
     if (fluid == Fluid::euler) {
@@ -855,9 +827,12 @@ Real EstimateTimestep(MeshData<Real> *md) {
   // get to package via first block in Meshdata (which exists by construction)
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto min_dt = std::numeric_limits<Real>::max();
+  auto dt_hyp = std::numeric_limits<Real>::max();
 
-  if (hydro_pkg->Param<bool>("calc_dt_hyp")) {
-    min_dt = std::min(min_dt, EstimateHyperbolicTimestep<fluid>(md));
+  const auto calc_dt_hyp = hydro_pkg->Param<bool>("calc_dt_hyp");
+  if (calc_dt_hyp) {
+    dt_hyp = EstimateHyperbolicTimestep<fluid>(md);
+    min_dt = std::min(min_dt, dt_hyp);
   }
 
   const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
@@ -869,17 +844,34 @@ Real EstimateTimestep(MeshData<Real> *md) {
     min_dt = std::min(min_dt, tabular_cooling.EstimateTimeStep(md));
   }
 
-  // For RKL2 STS, the diffusive timestep is calculated separately in the driver
-  if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) {
+  auto dt_diff = std::numeric_limits<Real>::max();
+  if (hydro_pkg->Param<DiffInt>("diffint") != DiffInt::none) {
     if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
-      min_dt = std::min(min_dt, EstimateConductionTimestep(md));
+      dt_diff = std::min(dt_diff, EstimateConductionTimestep(md));
     }
     if (hydro_pkg->Param<Viscosity>("viscosity") != Viscosity::none) {
-      min_dt = std::min(min_dt, EstimateViscosityTimestep(md));
+      dt_diff = std::min(dt_diff, EstimateViscosityTimestep(md));
     }
     if (hydro_pkg->Param<Resistivity>("resistivity") != Resistivity::none) {
-      min_dt = std::min(min_dt, EstimateResistivityTimestep(md));
+      dt_diff = std::min(dt_diff, EstimateResistivityTimestep(md));
     }
+
+    // For unsplit ingegration use strict limit
+    if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) {
+      min_dt = std::min(min_dt, dt_diff);
+      // and for RKL2 integration use limit taking into account the maxium ratio
+      // or not constrain limit further (which is why RKL2 is there in first place)
+    } else if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) {
+      const auto max_dt_ratio = hydro_pkg->Param<Real>("rkl2_max_dt_ratio");
+      if (max_dt_ratio > 0.0 && dt_hyp / dt_diff > max_dt_ratio) {
+        min_dt = std::min(min_dt, max_dt_ratio * dt_diff);
+      }
+    } else {
+      PARTHENON_THROW("Looks like a a new diffusion integrator was implemented without "
+                      "taking into accout timestep contstraints yet.");
+    }
+    auto dt_diff_param = hydro_pkg->Param<Real>("dt_diff");
+    hydro_pkg->UpdateParam("dt_diff", std::min(dt_diff, dt_diff_param));
   }
 
   if (ProblemEstimateTimestep != nullptr) {

@@ -67,6 +67,10 @@ To control the floors, following parameters can be set in the `<hydro>` block:
 *Note* the pressure floor will take precedence over the temperature floor in the
 conserved to primitive conversion if both are defined.
 
+#### Units
+
+See(here)[units.md].
+
 #### Diffusive processes
 
 Diffusive processes in AthenaPK can be configured in the `<diffusion>` block of the input file.
@@ -114,9 +118,6 @@ However, as reported by [^V+17] a large number of stages
 (in combination with anisotropic, limited diffusion) may lead to a loss in accuracy, which
 is why the difference between hyperbolic and parabolic timesteps can be limited by
 `diffusion/rkl2_max_dt_ratio=...` and a warning is shown if the ratio is above 400.
-Note that if this limit is enforced the `dt=` shown on the terminal might not be the actual
-`dt` taken in the code as the limit is currently enforced only after the output
-has been printed.
 
 [^M+14]:
     C. D. Meyer, D. S. Balsara, and T. D. Aslam, “A stabilized Runge–Kutta–Legendre method for explicit super-time-stepping of parabolic and mixed equations,” Journal of Computational Physics, vol. 257, pp. 594–626, 2014, doi: https://doi.org/10.1016/j.jcp.2013.08.021.
