@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#ifdef MPI_PARALLEL
 #include <mpi.h>
+#endif
 #include <string>
 #include <vector>
 
@@ -851,7 +853,7 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   MPI_Allreduce(MPI_IN_PLACE, &min_dt_hyperbolic, 1, mpi_valproppair,
                 mpi_minloc_valproppair, MPI_COMM_WORLD);
 #endif // MPI_PARALLEL
-  
+
   if (parthenon::Globals::my_rank == 0) {
     // print cell properties
     CellPrimValues &props = min_dt_hyperbolic.index;
