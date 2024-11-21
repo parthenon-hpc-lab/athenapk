@@ -16,6 +16,7 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
+#include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../main.hpp"
 #include "config.hpp"
 #include "diffusion.hpp"
@@ -264,15 +265,25 @@ void ThermalFluxIsoFixed(MeshData<Real> *md) {
 
 void ThermalFluxGeneral(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto cons_pack = md->PackVariablesAndFluxes(flags_ind);
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
+  const auto &eos = md->GetBlockData(0)
+                        ->GetBlockPointer()
+                        ->packages.Get("Hydro")
+                        ->Param<AdiabaticGLMMHDEOS>("eos");
+
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
+
   auto const &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  // silly workaroud to not change constorim interface
+  auto const &cons_pack_no_flux = md->PackVariables(std::vector<std::string>{"cons"});
 
   const int ndim = pmb->pmy_mesh->ndim;
 
@@ -281,11 +292,14 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Thermal conduction X1 fluxes (general)",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-      ib.e + 1, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s + 1, kb.e - 1, jb.s + 1,
+      jb.e - 1, ib.s + 1, ib.e + 1 - 1,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = prim_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
+        // Need this here as we're skipping the FillDerivedCall in RKL
+        eos.ConsToPrim(cons_pack_no_flux(b), prim, nhydro, nscalars, k, j, i);
 
         // Variables only required in 3D case
         Real dTdz = 0.0;
@@ -376,8 +390,9 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
   /* Compute heat fluxes in 2-direction  --------------------------------------*/
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Thermal conduction X2 fluxes (general)",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e + 1,
-      ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s + 1, kb.e - 1, jb.s + 1,
+      jb.e + 1 - 1, ib.s + 1, ib.e - 1,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = prim_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
@@ -469,8 +484,9 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Thermal conduction X3 fluxes (general)",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e,
-      ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s + 1, kb.e + 1 - 1,
+      jb.s + 1, jb.e - 1, ib.s + 1, ib.e - 1,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = prim_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);

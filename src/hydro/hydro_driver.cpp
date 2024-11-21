@@ -40,9 +40,9 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
 // Sets all fluxes to 0
 TaskStatus ResetFluxes(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
   // In principle, we'd only need to pack Metadata::WithFluxes here, but
   // choosing to mirror other use in the code so that the packs are already cached.
@@ -54,11 +54,10 @@ TaskStatus ResetFluxes(MeshData<Real> *md) {
   // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ResetFluxes X1", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, 0, cons_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-      ib.e + 1,
-      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         auto &cons = cons_pack(b);
-        cons.flux(X1DIR, v, k, j, i) = 0.0;
+        cons.flux(X1DIR, IEN, k, j, i) = 0.0;
       });
 
   if (ndim < 2) {
@@ -66,11 +65,10 @@ TaskStatus ResetFluxes(MeshData<Real> *md) {
   }
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ResetFluxes X2", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, 0, cons_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e + 1,
-      ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e + 1, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         auto &cons = cons_pack(b);
-        cons.flux(X2DIR, v, k, j, i) = 0.0;
+        cons.flux(X2DIR, IEN, k, j, i) = 0.0;
       });
 
   if (ndim < 3) {
@@ -78,12 +76,39 @@ TaskStatus ResetFluxes(MeshData<Real> *md) {
   }
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ResetFluxes X3", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, 0, cons_pack.GetDim(4) - 1, kb.s, kb.e + 1, jb.s, jb.e,
-      ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+      cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         auto &cons = cons_pack(b);
-        cons.flux(X3DIR, v, k, j, i) = 0.0;
+        cons.flux(X3DIR, IEN, k, j, i) = 0.0;
       });
+  return TaskStatus::complete;
+}
+
+TaskStatus SimpleFluxDiv(MeshData<Real> *md_base, MeshData<Real> *md_MY0) {
+  auto pmb = md_base->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+
+  // In principle, we'd only need to pack Metadata::WithFluxes here, but
+  // choosing to mirror other use in the code so that the packs are already cached.
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto base = md_base->PackVariablesAndFluxes(flags_ind);
+  auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
+
+  const int ndim = pmb->pmy_mesh->ndim;
+  // Using separate loops for each dim as the launch overhead should be hidden
+  // by enough work over the entire pack and it allows to not use any conditionals.
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "SimpleFluxDiv", parthenon::DevExecSpace(), 0,
+      base.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        // First calc this step
+        const auto &coords = base.GetCoords(b);
+        MY0(b, IEN, k, j, i) =
+            parthenon::Update::FluxDivHelper(IEN, k, j, i, ndim, coords, base(b));
+      });
+
   return TaskStatus::complete;
 }
 
@@ -91,9 +116,9 @@ TaskStatus RKL2StepFirst(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
                          MeshData<Real> *md_Yjm2, MeshData<Real> *md_MY0, const int s_rkl,
                          const Real tau) {
   auto pmb = md_Y0->GetBlockData(0)->GetBlockPointer();
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
   // Compute coefficients. Meyer+2014 eq. (18)
   Real mu_tilde_1 = 4. / 3. /
@@ -113,11 +138,11 @@ TaskStatus RKL2StepFirst(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
   // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "RKL first step", parthenon::DevExecSpace(), 0,
-      Y0.GetDim(5) - 1, 0, Y0.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-        Yjm1(b, v, k, j, i) =
-            Y0(b, v, k, j, i) + mu_tilde_1 * tau * MY0(b, v, k, j, i); // Y_1
-        Yjm2(b, v, k, j, i) = Y0(b, v, k, j, i);                       // Y_0
+      Y0.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        Yjm1(b, IEN, k, j, i) =
+            Y0(b, IEN, k, j, i) + mu_tilde_1 * tau * MY0(b, IEN, k, j, i); // Y_1
+        Yjm2(b, IEN, k, j, i) = Y0(b, IEN, k, j, i);                       // Y_0
       });
 
   return TaskStatus::complete;
@@ -128,9 +153,9 @@ TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
                          const Real nu_j, const Real mu_tilde_j, const Real gamma_tilde_j,
                          const Real tau) {
   auto pmb = md_Y0->GetBlockData(0)->GetBlockPointer();
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
   // In principle, we'd only need to pack Metadata::WithFluxes here, but
   // choosing to mirror other use in the code so that the packs are already cached.
@@ -249,8 +274,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto &MY0 = pmesh->mesh_data.GetOrAdd("MY0", i);
     auto &Yjm2 = pmesh->mesh_data.GetOrAdd("Yjm2", i);
 
-    auto init_MY0 = tl.AddTask(set_flx, parthenon::Update::FluxDivergence<MeshData<Real>>,
-                               base.get(), MY0.get());
+    auto init_MY0 = tl.AddTask(set_flx, SimpleFluxDiv, base.get(), MY0.get());
 
     // Initialize Y0 and Y1 and the recursion relation starting with j = 2 needs data from
     // the two preceeding stages.
@@ -264,11 +288,11 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     // performance for various tests (static, amr, block sizes) and then decide on the
     // best impl. Go with default call (split local/nonlocal) for now.
     // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
-    auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
-        rkl2_step_first | start_bnd, tl, base, pmesh->multilevel);
+    // auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
+    // rkl2_step_first | start_bnd, tl, base, pmesh->multilevel);
 
-    tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
-               base.get());
+    // tl.AddTask(rkl2_step_first, parthenon::Update::FillDerived<MeshData<Real>>,
+    //  base.get());
   }
 
   // Compute coefficients. Meyer+2012 eq. (16)
@@ -297,7 +321,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       // data/fluxes with neighbors. All other containers are passive (i.e., data is only
       // used but not exchanged).
       const auto any = parthenon::BoundaryType::any;
-      auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, base);
+      // auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, base);
       auto start_flxcor_recv =
           tl.AddTask(none, parthenon::StartReceiveFluxCorrections, base);
 
@@ -329,15 +353,24 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       // performance for various tests (static, amr, block sizes) and then decide on the
       // best impl. Go with default call (split local/nonlocal) for now.
       // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
-      auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
-          rkl2_step_other | start_bnd, tl, base, pmesh->multilevel);
+      // auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
+      // rkl2_step_other | start_bnd, tl, base, pmesh->multilevel);
 
-      tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
-                 base.get());
+      // tl.AddTask(rkl2_step_other, parthenon::Update::FillDerived<MeshData<Real>>,
+      //  base.get());
     }
 
     b_jm2 = b_jm1;
     b_jm1 = b_j;
+  }
+  TaskRegion &final_comm = ptask_coll->AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = final_comm[i];
+    auto &base = pmesh->mesh_data.GetOrAdd("base", i);
+    auto bounds_exchange =
+        parthenon::AddBoundaryExchangeTasks(none, tl, base, pmesh->multilevel);
+    tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
+               base.get());
   }
 }
 
