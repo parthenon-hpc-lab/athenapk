@@ -273,17 +273,7 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
   auto cons_pack = md->PackVariablesAndFluxes(flags_ind);
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
-  const auto &eos = md->GetBlockData(0)
-                        ->GetBlockPointer()
-                        ->packages.Get("Hydro")
-                        ->Param<AdiabaticGLMMHDEOS>("eos");
-
-  const auto nhydro = hydro_pkg->Param<int>("nhydro");
-  const auto nscalars = hydro_pkg->Param<int>("nscalars");
-
   auto const &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  // silly workaroud to not change constorim interface
-  auto const &cons_pack_no_flux = md->PackVariables(std::vector<std::string>{"cons"});
 
   const int ndim = pmb->pmy_mesh->ndim;
 
@@ -298,8 +288,6 @@ void ThermalFluxGeneral(MeshData<Real> *md) {
         const auto &coords = prim_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
-        // Need this here as we're skipping the FillDerivedCall in RKL
-        eos.ConsToPrim(cons_pack_no_flux(b), prim, nhydro, nscalars, k, j, i);
 
         // Variables only required in 3D case
         Real dTdz = 0.0;

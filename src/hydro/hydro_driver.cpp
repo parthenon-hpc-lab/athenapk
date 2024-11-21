@@ -291,8 +291,8 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     // auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
     // rkl2_step_first | start_bnd, tl, base, pmesh->multilevel);
 
-    // tl.AddTask(rkl2_step_first, parthenon::Update::FillDerived<MeshData<Real>>,
-    //  base.get());
+    tl.AddTask(rkl2_step_first, parthenon::Update::FillDerived<MeshData<Real>>,
+               base.get());
   }
 
   // Compute coefficients. Meyer+2012 eq. (16)
@@ -356,8 +356,8 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       // auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
       // rkl2_step_other | start_bnd, tl, base, pmesh->multilevel);
 
-      // tl.AddTask(rkl2_step_other, parthenon::Update::FillDerived<MeshData<Real>>,
-      //  base.get());
+      tl.AddTask(rkl2_step_other, parthenon::Update::FillDerived<MeshData<Real>>,
+                 base.get());
     }
 
     b_jm2 = b_jm1;
