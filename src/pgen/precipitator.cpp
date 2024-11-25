@@ -1088,6 +1088,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         const Real Bx = bfield_hse(0, k, j, i);
         const Real By = 0;
         const Real Bz = 0;
+        const Real B_sq = SQR(Bx) + SQR(By) + SQR(Bz);
 
         Real drho_over_rho = 0.0;
         if (amp > 0.) {
@@ -1104,7 +1105,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         u_dev(IM1, k, j, i) = 0.0;
         u_dev(IM2, k, j, i) = 0.0;
         u_dev(IM3, k, j, i) = 0.0;
-        u_dev(IEN, k, j, i) = P / gm1;
+        u_dev(IEN, k, j, i) = P / gm1 + 0.5 * B_sq; // this is the *total* energy density, including magnetic energy density
         u_dev(IB1, k, j, i) = Bx;
         u_dev(IB2, k, j, i) = By;
         u_dev(IB3, k, j, i) = Bz;
