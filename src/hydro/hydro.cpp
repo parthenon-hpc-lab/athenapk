@@ -302,13 +302,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // they're all used in the main loop.
   // TODO(pgrete) think about which approach (selective versus always is preferable)
   pkg->AddParam<Real>(
-      "c_h", 0.0, Params::Mutability::Restart); // hyperbolic divergence cleaning speed
+      "c_h", 0.0, Params::Mutability::Mutable); // hyperbolic divergence cleaning speed
   // global minimum dx (used to calc c_h)
   pkg->AddParam<Real>("mindx", std::numeric_limits<Real>::max(),
-                      Params::Mutability::Restart);
+                      Params::Mutability::Mutable);
   // hyperbolic timestep constraint
   pkg->AddParam<Real>("dt_hyp", std::numeric_limits<Real>::max(),
-                      Params::Mutability::Restart);
+                      Params::Mutability::Mutable);
 
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
@@ -685,7 +685,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       pkg->AddParam<>("cfl_diff", cfl_diff);
     }
     pkg->AddParam<Real>("dt_diff", std::numeric_limits<Real>::max(),
-                        Params::Mutability::Restart); // diffusive timestep constraint
+                        Params::Mutability::Mutable); // diffusive timestep constraint
     pkg->AddParam<>("diffint", diffint);
 
     if (fluid == Fluid::euler) {
