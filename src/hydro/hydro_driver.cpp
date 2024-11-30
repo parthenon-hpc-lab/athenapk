@@ -37,46 +37,6 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
   pin->CheckDesired("parthenon/time", "cfl");
 }
 
-// Calculate mininum dx, which is used in calculating the divergence cleaning speed c_h
-TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
-  auto hydro_pkg = pmb->packages.Get("Hydro");
-
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-
-  Real mindx = std::numeric_limits<Real>::max();
-
-  bool nx2 = prim_pack.GetDim(2) > 1;
-  bool nx3 = prim_pack.GetDim(3) > 1;
-  pmb->par_reduce(
-      "CalculateGlobalMinDx", 0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-      ib.e,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmindx) {
-        const auto &coords = prim_pack.GetCoords(b);
-        lmindx = fmin(lmindx, coords.Dxc<1>(k, j, i));
-        if (nx2) {
-          lmindx = fmin(lmindx, coords.Dxc<2>(k, j, i));
-        }
-        if (nx3) {
-          lmindx = fmin(lmindx, coords.Dxc<3>(k, j, i));
-        }
-      },
-      Kokkos::Min<Real>(mindx));
-
-  // Reduction to host var is blocking and only have one of this tasks run at the same
-  // time so modifying the package should be safe.
-  auto mindx_pkg = hydro_pkg->Param<Real>("mindx");
-  if (mindx < mindx_pkg) {
-    hydro_pkg->UpdateParam("mindx", mindx);
-  }
-
-  return TaskStatus::complete;
-}
-
 // Sets all fluxes to 0
 TaskStatus ResetFluxes(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
@@ -444,60 +404,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  // Calculate hyperbolic divergence cleaning speed
-  // TODO(pgrete) Calculating mindx is only required after remeshing. Need to find a clean
-  // solution for this one-off global reduction.
-  // TODO(PG) move this to PreStepMeshUserWorkInLoop
-  if ((hydro_pkg->Param<bool>("calc_c_h") ||
-       hydro_pkg->Param<DiffInt>("diffint") != DiffInt::none) &&
-      (stage == 1)) {
-    // need to make sure that there's only one region in order to MPI_reduce to work
-    TaskRegion &single_task_region = tc.AddRegion(1);
-    auto &tl = single_task_region[0];
-    // Adding one task for each partition. Not using a (new) single partition containing
-    // all blocks here as this (default) split is also used for the following tasks and
-    // thus does not create an overhead (such as creating a new MeshBlockPack that is just
-    // used here). Given that all partitions are in one task list they'll be executed
-    // sequentially. Given that a par_reduce to a host var is blocking it's also save to
-    // store the variable in the Params for now.
-    auto prev_task = none;
-    for (int i = 0; i < num_partitions; i++) {
-      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_mindx = tl.AddTask(prev_task, CalculateGlobalMinDx, mu0.get());
-      prev_task = new_mindx;
-    }
-    auto reduce_c_h = prev_task;
-#ifdef MPI_PARALLEL
-    reduce_c_h = tl.AddTask(
-        prev_task,
-        [](StateDescriptor *hydro_pkg) {
-          Real mins[3];
-          mins[0] = hydro_pkg->Param<Real>("mindx");
-          mins[1] = hydro_pkg->Param<Real>("dt_hyp");
-          mins[2] = hydro_pkg->Param<Real>("dt_diff");
-          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, mins, 3, MPI_PARTHENON_REAL,
-                                            MPI_MIN, MPI_COMM_WORLD));
-
-          hydro_pkg->UpdateParam("mindx", mins[0]);
-          hydro_pkg->UpdateParam("dt_hyp", mins[1]);
-          hydro_pkg->UpdateParam("dt_diff", mins[2]);
-          return TaskStatus::complete;
-        },
-        hydro_pkg.get());
-#endif
-    // Finally update c_h
-    auto update_c_h = tl.AddTask(
-        reduce_c_h,
-        [](StateDescriptor *hydro_pkg) {
-          const auto &mindx = hydro_pkg->Param<Real>("mindx");
-          const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
-          const auto &dt_hyp = hydro_pkg->Param<Real>("dt_hyp");
-          hydro_pkg->UpdateParam("c_h", cfl_hyp * mindx / dt_hyp);
-          return TaskStatus::complete;
-        },
-        hydro_pkg.get());
-  }
-
   // calculate magnetic tower scaling
   if ((stage == 1) && hydro_pkg->AllParams().hasKey("magnetic_tower_power_scaling") &&
       hydro_pkg->Param<bool>("magnetic_tower_power_scaling")) {
@@ -660,8 +566,24 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
                                         pmesh->multilevel);
   }
 
+  TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = single_tasklist_per_pack_region_3[i];
+    auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+    auto fill_derived =
+        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+  }
+  const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
+  // If any tasks modify the conserved variables before this place and after FillDerived,
+  // then the STS tasks should be updated to not assume prim and cons are in sync.
+  if (diffint == DiffInt::rkl2 && stage == integrator->nstages) {
+    AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
+  }
+
   // Single task in single (serial) region to reset global vars used in reductions in the
   // first stage.
+  // TODO(pgrete) check if we logically need this reset or if we can reset within the
+  // timestep task
   if (stage == integrator->nstages &&
       (hydro_pkg->Param<bool>("calc_c_h") ||
        hydro_pkg->Param<DiffInt>("diffint") != DiffInt::none)) {
@@ -676,20 +598,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           return TaskStatus::complete;
         },
         hydro_pkg.get());
-  }
-
-  TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; i++) {
-    auto &tl = single_tasklist_per_pack_region_3[i];
-    auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-    auto fill_derived =
-        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
-  }
-  const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
-  // If any tasks modify the conserved variables before this place and after FillDerived,
-  // then the STS tasks should be updated to not assume prim and cons are in sync.
-  if (diffint == DiffInt::rkl2 && stage == integrator->nstages) {
-    AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
   }
 
   if (stage == integrator->nstages) {
