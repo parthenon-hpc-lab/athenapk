@@ -13,8 +13,10 @@
 - [[PR 84]](https://github.com/parthenon-hpc-lab/athenapk/pull/84) Bump Parthenon to latest develop (2024-02-15)
 
 ### Fixed (not changing behavior/API/variables/...)
+- [[PR 128]](https://github.com/parthenon-hpc-lab/athenapk/pull/128) Fixed `dt_diff` in RKL2
 
 ### Infrastructure
+- [[PR 128]](https://github.com/parthenon-hpc-lab/athenapk/pull/128) Bump Parthenon to support `dn` based outputs
 - [[PR 124]](https://github.com/parthenon-hpc-lab/athenapk/pull/124) Bump Kokkos 4.4.1 (and Parthenon to include view-of-view fix)
 - [[PR 117]](https://github.com/parthenon-hpc-lab/athenapk/pull/117) Update devcontainer.json to latest CI container
 - [[PR 114]](https://github.com/parthenon-hpc-lab/athenapk/pull/114) Bump Parthenon 24.08 and Kokkos to 4.4.00
