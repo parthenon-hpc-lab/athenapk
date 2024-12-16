@@ -678,6 +678,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     pkg->CheckRefinementBlock = Hydro::ProblemCheckRefinementBlock;
   }
 
+  // EXACB custom modifications for power measurements
+  if (pin->DoesBlockExist("exacb/power")) {
+    const auto start = pin->GetOrAddInteger("exacb/power", "cycle_start", 50);
+    const auto end = pin->GetOrAddInteger("exacb/power", "cycle_stop", 250);
+    PARTHENON_REQUIRE_THROWS(end > start, "Measuring backwards does not make sense.");
+
+    const auto nlim = pin->GetInteger("parthenon/time", "nlim");
+    PARTHENON_REQUIRE_THROWS(nlim < 0 || nlim >= end, "end must be within nlim");
+
+    pkg->AddParam<int>("exacb/power/start", start);
+    pkg->AddParam<int>("exacb/power/end", end);
+  }
+
   if (ProblemInitPackageData != nullptr) {
     ProblemInitPackageData(pin, pkg.get());
   }

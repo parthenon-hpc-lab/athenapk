@@ -395,6 +395,25 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
   const int num_partitions = pmesh->DefaultNumPartitions();
 
+  // EXACB custom modifications for power measurements
+  if (stage == 1 && hydro_pkg->AllParams().hasKey("exacb/power/start")) {
+    const auto start = hydro_pkg->Param<int>("exacb/power/start");
+    const auto end = hydro_pkg->Param<int>("exacb/power/end");
+    std::ofstream outfile;
+    if (start == tm.ncycle) {
+      outfile.open("energy.times");
+      outfile << "energy_start:";
+    }
+    if (end == tm.ncycle) {
+      outfile.open("energy.times", std::ios_base::app);
+      outfile << "energy_stop:";
+    }
+    outfile << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+                   .count()
+            << std::endl;
+  }
+
   // calculate agn triggering accretion rate
   if ((stage == 1) &&
       hydro_pkg->AllParams().hasKey("agn_triggering_reduce_accretion_rate") &&
