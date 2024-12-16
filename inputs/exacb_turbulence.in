@@ -7,7 +7,7 @@ problem_id = turbulence
 
 <exacb/power>
 cycle_start = 50
-cycle_end   = 250
+cycle_stop  = 250
 
 <parthenon/time>
 cfl = 0.3               # The Courant, Friedrichs, & Lewy (CFL) Number
