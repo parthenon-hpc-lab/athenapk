@@ -15,7 +15,7 @@
 #include <mesh/mesh.hpp>
 #include <parameter_input.hpp>
 #include <parthenon/package.hpp>
-
+#include <string> 
 // AthenaPK headers
 #include "../../units.hpp"
 #include "jet_coords.hpp"
@@ -34,9 +34,12 @@ class AGNTriggering {
  private:
   const parthenon::Real gamma_;
   parthenon::Real mean_molecular_mass_;
-
+  
  public:
   const AGNTriggeringMode triggering_mode_;
+ 
+  parthenon::Real inflow_cold_=0.0;         // Cold mass inflow rate
+  parthenon::Real inflow_tot_=0.0;          // Total gas mass inflow rate
 
   const parthenon::Real accretion_radius_;
 
@@ -71,9 +74,9 @@ class AGNTriggering {
   // Compute Cold gas accretion rate within the accretion radius for cold gas triggering
   // and simultaneously remove cold gas (updating conserveds and primitives)
   template <typename EOS>
-  void ReduceColdMass(parthenon::Real &cold_mass,
+  void ReduceColdMass(parthenon::Real &cold_mass,parthenon::Real &total_mass,
                       parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt,
-                      const EOS eos) const;
+                      const EOS eos) ;
 
   // Compute Mass-weighted total density, velocity, and sound speed and total mass
   // for Bondi accretion
