@@ -1087,8 +1087,142 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
           auto &q = prim_in(b);
           auto &wl = wl_in(b);
           auto &wr = wr_in(b);
-          PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
-              q(n, k, j, i + 2), wl(n, k, j, i + 1), wr(n, k, j, i));
+
+          const auto &q_im2 = prim_in(b, n, k, j, i - 2);
+          const auto &q_im1 = prim_in(b, n, k, j, i - 1);
+          const auto &q_i = prim_in(b, n, k, j, i);
+          const auto &q_ip1 = prim_in(b, n, k, j, i + 1);
+          const auto &q_ip2 = prim_in(b, n, k, j, i + 2);
+
+          auto &ql_ip1 = wl_in(b, n, k, j, i + 1);
+          auto &qr_i = wr_in(b, n, k, j, i);
+
+          // CS08 constant used in second derivative limiter, >1 , independent of h
+          const Real C2 = 1.25;
+          //--- Step 1.
+          //--------------------------------------------------------------------------
+          // Reconstruct interface averages <a>_{i-1/2} and <a>_{i+1/2}
+          Real qa = (q_i - q_im1);
+          Real qb = (q_ip1 - q_i);
+          const Real dd_im1 = 0.5 * qa + 0.5 * (q_im1 - q_im2);
+          const Real dd = 0.5 * qb + 0.5 * qa;
+          const Real dd_ip1 = 0.5 * (q_ip2 - q_ip1) + 0.5 * qb;
+
+          // Approximate interface average at i-1/2 and i+1/2 using PPM (CW eq 1.6)
+          // KGF: group the biased stencil quantities to preserve FP symmetry
+          Real dph = 0.5 * (q_im1 + q_i) + (dd_im1 - dd) / 6.0;
+          Real dph_ip1 = 0.5 * (q_i + q_ip1) + (dd - dd_ip1) / 6.0;
+
+          //--- Step 2a.
+          //-----------------------------------------------------------------------
+          // Uniform Cartesian-like coordinate: limit interpolated interface states
+          // (CD 4.3.1) approximate second derivative at interfaces for smooth extrema
+          // preservation KGF: add the off-centered quantities first to preserve FP
+          // symmetry
+          const Real d2qc_im1 = q_im2 + q_i - 2.0 * q_im1;
+          const Real d2qc = q_im1 + q_ip1 - 2.0 * q_i; // (CD eq 85a) (no 1/2)
+          const Real d2qc_ip1 = q_i + q_ip2 - 2.0 * q_ip1;
+
+          // i-1/2
+          Real qa_tmp = dph - q_im1; // (CD eq 84a)
+          Real qb_tmp = q_i - dph;   // (CD eq 84b)
+          // KGF: add the off-centered quantities first to preserve FP symmetry
+          qa = 3.0 * (q_im1 + q_i - 2.0 * dph); // (CD eq 85b)
+          qb = d2qc_im1;                        // (CD eq 85a) (no 1/2)
+          Real qc = d2qc;                       // (CD eq 85c) (no 1/2)
+          Real qd = 0.0;
+          if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc)) {
+            qd = SIGN(qa) *
+                 std::min(C2 * std::abs(qb), std::min(C2 * std::abs(qc), std::abs(qa)));
+          }
+          Real dph_tmp = 0.5 * (q_im1 + q_i) - qd / 6.0;
+          if (qa_tmp * qb_tmp < 0.0) { // Local extrema detected at i-1/2 face
+            dph = dph_tmp;
+          }
+
+          // i+1/2
+          qa_tmp = dph_ip1 - q_i;   // (CD eq 84a)
+          qb_tmp = q_ip1 - dph_ip1; // (CD eq 84b)
+          // KGF: add the off-centered quantities first to preserve FP symmetry
+          qa = 3.0 * (q_i + q_ip1 - 2.0 * dph_ip1); // (CD eq 85b)
+          qb = d2qc;                                // (CD eq 85a) (no 1/2)
+          qc = d2qc_ip1;                            // (CD eq 85c) (no 1/2)
+          qd = 0.0;
+          if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc)) {
+            qd = SIGN(qa) *
+                 std::min(C2 * std::abs(qb), std::min(C2 * std::abs(qc), std::abs(qa)));
+          }
+          Real dphip1_tmp = 0.5 * (q_i + q_ip1) - qd / 6.0;
+          if (qa_tmp * qb_tmp < 0.0) { // Local extrema detected at i+1/2 face
+            dph_ip1 = dphip1_tmp;
+          }
+
+          // KGF: add the off-centered quantities first to preserve FP symmetry
+          const Real d2qf = 6.0 * (dph + dph_ip1 - 2.0 * q_i); // a6 coefficient * -2
+
+          // Cache Riemann states for both non-/uniform limiters
+          qr_i = dph;
+          ql_ip1 = dph_ip1;
+
+          //--- Step 3.
+          //------------------------------------------------------------------------
+          // Compute cell-centered difference stencils (MC section 2.4.1)
+          const Real dqf_minus = q_i - qr_i; // (CS eq 25) = -dQ^- in Mignone's notation
+          const Real dqf_plus = ql_ip1 - q_i;
+
+          //--- Step 4.
+          //------------------------------------------------------------------------
+          // For uniform Cartesian-like coordinate: apply CS limiters to parabolic
+          // interpolant
+          qa_tmp = dqf_minus * dqf_plus;
+          qb_tmp = (q_ip1 - q_i) * (q_i - q_im1);
+
+          qa = d2qc_im1;
+          qb = d2qc;
+          qc = d2qc_ip1;
+          qd = d2qf;
+          Real qe = 0.0;
+          if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc) && SIGN(qa) == SIGN(qd)) {
+            // Extrema is smooth
+            qe = SIGN(qd) * std::min(std::min(C2 * std::abs(qa), C2 * std::abs(qb)),
+                                     std::min(C2 * std::abs(qc),
+                                              std::abs(qd))); // (CS eq 22)
+          }
+
+          // Check if 2nd derivative is close to roundoff error
+          qa = std::max(std::abs(q_im1), std::abs(q_im2));
+          qb = std::max(std::max(std::abs(q_i), std::abs(q_ip1)), std::abs(q_ip2));
+
+          Real rho = 0.0;
+          if (std::abs(qd) > (1.0e-12) * std::max(qa, qb)) {
+            // Limiter is not sensitive to roundoff. Use limited ratio (MC eq 27)
+            rho = qe / qd;
+          }
+
+          Real tmp_m = q_i - rho * dqf_minus;
+          Real tmp_p = q_i + rho * dqf_plus;
+          Real tmp2_m = q_i - 2.0 * dqf_plus;
+          Real tmp2_p = q_i + 2.0 * dqf_minus;
+
+          // Check for local extrema
+          if ((qa_tmp <= 0.0 || qb_tmp <= 0.0)) {
+            // Check if relative change in limited 2nd deriv is > roundoff
+            if (rho <= (1.0 - (1.0e-12))) {
+              // Limit smooth extrema
+              qr_i = tmp_m; // (CS eq 23)
+              ql_ip1 = tmp_p;
+            }
+            // No extrema detected
+          } else {
+            // Overshoot i-1/2,R / i,(-) state
+            if (std::abs(dqf_minus) >= 2.0 * std::abs(dqf_plus)) {
+              qr_i = tmp2_m;
+            }
+            // Overshoot i+1/2,L / i,(+) state
+            if (std::abs(dqf_plus) >= 2.0 * std::abs(dqf_minus)) {
+              ql_ip1 = tmp2_p;
+            }
+          }
         });
 
     parthenon::par_for(
