@@ -30,6 +30,7 @@
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
+#include "interface/metadata.hpp"
 #include "interface/params.hpp"
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
@@ -772,6 +773,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                prim_labels);
   pkg->AddField("prim", m);
 
+  m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+               std::vector<int>({nhydro + nscalars}));
+  pkg->AddField("wl_block", m);
+  pkg->AddField("wr_block", m);
+
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
   if (refine_str == "pressure_gradient") {
     pkg->CheckRefinementBlock = refinement::gradient::PressureGradient;
@@ -803,6 +809,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     pkg->AddParam<Real>("refinement/maxdensity_refine_above", refine_above);
   } else if (refine_str == "user") {
     pkg->CheckRefinementBlock = Hydro::ProblemCheckRefinementBlock;
+  }
+
+  // EXACB custom modifications for power measurements
+  if (pin->DoesBlockExist("exacb/power")) {
+    const auto start = pin->GetOrAddInteger("exacb/power", "cycle_start", 50);
+    const auto stop = pin->GetOrAddInteger("exacb/power", "cycle_stop", 250);
+    PARTHENON_REQUIRE_THROWS(stop > start, "Measuring backwards does not make sense.");
+
+    const auto nlim = pin->GetInteger("parthenon/time", "nlim");
+    PARTHENON_REQUIRE_THROWS(nlim < 0 || nlim >= stop, "stop must be within nlim");
+
+    pkg->AddParam<int>("exacb/power/start", start);
+    pkg->AddParam<int>("exacb/power/stop", stop);
   }
 
   if (ProblemInitPackageData != nullptr) {
@@ -1054,36 +1073,564 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
   auto riemann = Riemann<fluid, rsolver>();
 
-  parthenon::par_for_outer(
-      DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
-      scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
-      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
-        const auto &prim = prim_in(b);
-        auto &cons = cons_in(b);
-        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
-                                         num_scratch_vars, nx1);
-        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
-                                         num_scratch_vars, nx1);
-        // get reconstructed state on faces
-        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
-        // Sync all threads in the team so that scratch memory is consistent
-        member.team_barrier();
+  if constexpr (fluid == Fluid::glmmhd && recon == Reconstruction::ppm &&
+                rsolver == RiemannSolver::hlld) {
+    auto const &wl_in = md->PackVariables(std::vector<std::string>{"wl_block"});
+    auto const &wr_in = md->PackVariables(std::vector<std::string>{"wr_block"});
+    PARTHENON_INSTRUMENT_REGION("x1 flux");
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "x1 recon", parthenon::DevExecSpace(), 0,
+        cons_in.GetDim(5) - 1, 0, cons_in.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s - 1,
+        ib.e + 1,
+        KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+          // const auto &cons = cons_pack(b);
+          auto &q = prim_in(b);
+          auto &wl = wl_in(b);
+          auto &wr = wr_in(b);
 
-        riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
-        member.team_barrier();
+          const auto &q_im2 = prim_in(b, n, k, j, i - 2);
+          const auto &q_im1 = prim_in(b, n, k, j, i - 1);
+          const auto &q_i = prim_in(b, n, k, j, i);
+          const auto &q_ip1 = prim_in(b, n, k, j, i + 1);
+          const auto &q_ip2 = prim_in(b, n, k, j, i + 2);
 
-        // Passive scalar fluxes
-        for (auto n = nhydro; n < nhydro + nscalars; ++n) {
-          parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
-            if (cons.flux(IV1, IDN, k, j, i) >= 0.0) {
-              cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wl(n, i);
-            } else {
-              cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wr(n, i);
+          auto &ql_ip1 = wl_in(b, n, k, j, i + 1);
+          auto &qr_i = wr_in(b, n, k, j, i);
+
+          // CS08 constant used in second derivative limiter, >1 , independent of h
+          const Real C2 = 1.25;
+          //--- Step 1.
+          //--------------------------------------------------------------------------
+          // Reconstruct interface averages <a>_{i-1/2} and <a>_{i+1/2}
+          Real qa = (q_i - q_im1);
+          Real qb = (q_ip1 - q_i);
+          const Real dd_im1 = 0.5 * qa + 0.5 * (q_im1 - q_im2);
+          const Real dd = 0.5 * qb + 0.5 * qa;
+          const Real dd_ip1 = 0.5 * (q_ip2 - q_ip1) + 0.5 * qb;
+
+          // Approximate interface average at i-1/2 and i+1/2 using PPM (CW eq 1.6)
+          // KGF: group the biased stencil quantities to preserve FP symmetry
+          Real dph = 0.5 * (q_im1 + q_i) + (dd_im1 - dd) / 6.0;
+          Real dph_ip1 = 0.5 * (q_i + q_ip1) + (dd - dd_ip1) / 6.0;
+
+          //--- Step 2a.
+          //-----------------------------------------------------------------------
+          // Uniform Cartesian-like coordinate: limit interpolated interface states
+          // (CD 4.3.1) approximate second derivative at interfaces for smooth extrema
+          // preservation KGF: add the off-centered quantities first to preserve FP
+          // symmetry
+          const Real d2qc_im1 = q_im2 + q_i - 2.0 * q_im1;
+          const Real d2qc = q_im1 + q_ip1 - 2.0 * q_i; // (CD eq 85a) (no 1/2)
+          const Real d2qc_ip1 = q_i + q_ip2 - 2.0 * q_ip1;
+
+          // i-1/2
+          Real qa_tmp = dph - q_im1; // (CD eq 84a)
+          Real qb_tmp = q_i - dph;   // (CD eq 84b)
+          // KGF: add the off-centered quantities first to preserve FP symmetry
+          qa = 3.0 * (q_im1 + q_i - 2.0 * dph); // (CD eq 85b)
+          qb = d2qc_im1;                        // (CD eq 85a) (no 1/2)
+          Real qc = d2qc;                       // (CD eq 85c) (no 1/2)
+          Real qd = 0.0;
+          if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc)) {
+            qd = SIGN(qa) *
+                 Kokkos::min(C2 * Kokkos::abs(qb),
+                             Kokkos::min(C2 * Kokkos::abs(qc), Kokkos::abs(qa)));
+          }
+          Real dph_tmp = 0.5 * (q_im1 + q_i) - qd / 6.0;
+          if (qa_tmp * qb_tmp < 0.0) { // Local extrema detected at i-1/2 face
+            dph = dph_tmp;
+          }
+
+          // i+1/2
+          qa_tmp = dph_ip1 - q_i;   // (CD eq 84a)
+          qb_tmp = q_ip1 - dph_ip1; // (CD eq 84b)
+          // KGF: add the off-centered quantities first to preserve FP symmetry
+          qa = 3.0 * (q_i + q_ip1 - 2.0 * dph_ip1); // (CD eq 85b)
+          qb = d2qc;                                // (CD eq 85a) (no 1/2)
+          qc = d2qc_ip1;                            // (CD eq 85c) (no 1/2)
+          qd = 0.0;
+          if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc)) {
+            qd = SIGN(qa) *
+                 Kokkos::min(C2 * Kokkos::abs(qb),
+                             Kokkos::min(C2 * Kokkos::abs(qc), Kokkos::abs(qa)));
+          }
+          Real dphip1_tmp = 0.5 * (q_i + q_ip1) - qd / 6.0;
+          if (qa_tmp * qb_tmp < 0.0) { // Local extrema detected at i+1/2 face
+            dph_ip1 = dphip1_tmp;
+          }
+
+          // KGF: add the off-centered quantities first to preserve FP symmetry
+          const Real d2qf = 6.0 * (dph + dph_ip1 - 2.0 * q_i); // a6 coefficient * -2
+
+          // Cache Riemann states for both non-/uniform limiters
+          qr_i = dph;
+          ql_ip1 = dph_ip1;
+
+          //--- Step 3.
+          //------------------------------------------------------------------------
+          // Compute cell-centered difference stencils (MC section 2.4.1)
+          const Real dqf_minus = q_i - qr_i; // (CS eq 25) = -dQ^- in Mignone's notation
+          const Real dqf_plus = ql_ip1 - q_i;
+
+          //--- Step 4.
+          //------------------------------------------------------------------------
+          // For uniform Cartesian-like coordinate: apply CS limiters to parabolic
+          // interpolant
+          qa_tmp = dqf_minus * dqf_plus;
+          qb_tmp = (q_ip1 - q_i) * (q_i - q_im1);
+
+          qa = d2qc_im1;
+          qb = d2qc;
+          qc = d2qc_ip1;
+          qd = d2qf;
+          Real qe = 0.0;
+          if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc) && SIGN(qa) == SIGN(qd)) {
+            // Extrema is smooth
+            qe = SIGN(qd) *
+                 Kokkos::min(Kokkos::min(C2 * Kokkos::abs(qa), C2 * Kokkos::abs(qb)),
+                             Kokkos::min(C2 * Kokkos::abs(qc),
+                                         Kokkos::abs(qd))); // (CS eq 22)
+          }
+
+          // Check if 2nd derivative is close to roundoff error
+          qa = Kokkos::max(Kokkos::abs(q_im1), Kokkos::abs(q_im2));
+          qb = Kokkos::max(Kokkos::max(Kokkos::abs(q_i), Kokkos::abs(q_ip1)),
+                           Kokkos::abs(q_ip2));
+
+          Real rho = 0.0;
+          if (Kokkos::abs(qd) > (1.0e-12) * Kokkos::max(qa, qb)) {
+            // Limiter is not sensitive to roundoff. Use limited ratio (MC eq 27)
+            rho = qe / qd;
+          }
+
+          Real tmp_m = q_i - rho * dqf_minus;
+          Real tmp_p = q_i + rho * dqf_plus;
+          Real tmp2_m = q_i - 2.0 * dqf_plus;
+          Real tmp2_p = q_i + 2.0 * dqf_minus;
+
+          // Check for local extrema
+          if ((qa_tmp <= 0.0 || qb_tmp <= 0.0)) {
+            // Check if relative change in limited 2nd deriv is > roundoff
+            if (rho <= (1.0 - (1.0e-12))) {
+              // Limit smooth extrema
+              qr_i = tmp_m; // (CS eq 23)
+              ql_ip1 = tmp_p;
             }
-          });
-        }
-      });
+            // No extrema detected
+          } else {
+            // Overshoot i-1/2,R / i,(-) state
+            if (Kokkos::abs(dqf_minus) >= 2.0 * Kokkos::abs(dqf_plus)) {
+              qr_i = tmp2_m;
+            }
+            // Overshoot i+1/2,L / i,(+) state
+            if (Kokkos::abs(dqf_plus) >= 2.0 * Kokkos::abs(dqf_minus)) {
+              ql_ip1 = tmp2_p;
+            }
+          }
+        });
 
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "x1 riemann", parthenon::DevExecSpace(), 0,
+        cons_in.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          auto &cons = cons_in(b);
+          auto &wl = wl_in(b);
+          auto &wr = wr_in(b);
+          constexpr int ivx = IV1;
+          const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
+          const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
+          const int iBx = ivx - 1 + NHYDRO;
+          const int iBy = ivy - 1 + NHYDRO;
+          const int iBz = ivz - 1 + NHYDRO;
+
+          const auto gamma = eos.GetGamma();
+          const auto gm1 = gamma - 1.0;
+          const auto igm1 = 1.0 / gm1;
+
+          // TODO(pgrete) move to a more central center and add logic
+          constexpr int NGLMMHD = 9;
+
+          // parthenon::par_for_inner(member, il, iu, [&](const int i) {
+          Real wli[NGLMMHD], wri[NGLMMHD], flxi[NGLMMHD];
+          Real spd[5];                     // signal speeds, left to right
+          Cons1D ul, ur;                   // L/R states, conserved variables (computed)
+          Cons1D ulst, uldst, urdst, urst; // Conserved variable for all states
+          Cons1D fl, fr;                   // Fluxes for left & right states
+
+          //--- Step 1.  Load L/R states into local variables
+
+          wli[IDN] = wl(IDN, k, j, i);
+          wli[IV1] = wl(ivx, k, j, i);
+          wli[IV2] = wl(ivy, k, j, i);
+          wli[IV3] = wl(ivz, k, j, i);
+          wli[IPR] = wl(IPR, k, j, i);
+          wli[IB1] = wl(iBx, k, j, i);
+          wli[IB2] = wl(iBy, k, j, i);
+          wli[IB3] = wl(iBz, k, j, i);
+          wli[IPS] = wl(IPS, k, j, i);
+
+          wri[IDN] = wr(IDN, k, j, i);
+          wri[IV1] = wr(ivx, k, j, i);
+          wri[IV2] = wr(ivy, k, j, i);
+          wri[IV3] = wr(ivz, k, j, i);
+          wri[IPR] = wr(IPR, k, j, i);
+          wri[IB1] = wr(iBx, k, j, i);
+          wri[IB2] = wr(iBy, k, j, i);
+          wri[IB3] = wr(iBz, k, j, i);
+          wri[IPS] = wr(IPS, k, j, i);
+
+          // first solve the decoupled state, see eq (24) in Mignone & Tzeferacos (2010)
+          Real bxi = 0.5 * (wli[IB1] + wri[IB1]) - 0.5 / c_h * (wri[IPS] - wli[IPS]);
+          Real psii = 0.5 * (wli[IPS] + wri[IPS]) - 0.5 * c_h * (wri[IB1] - wli[IB1]);
+          // and store flux
+          flxi[IB1] = psii;
+          flxi[IPS] = SQR(c_h) * bxi;
+
+          // Compute L/R states for selected conserved variables
+          Real bxsq = bxi * bxi;
+          // (KGF): group transverse vector components for floating-point associativity
+          // symmetry
+          Real pbl =
+              0.5 * (bxsq + (SQR(wli[IB2]) + SQR(wli[IB3]))); // magnetic pressure (l/r)
+          Real pbr = 0.5 * (bxsq + (SQR(wri[IB2]) + SQR(wri[IB3])));
+          Real kel = 0.5 * wli[IDN] * (SQR(wli[IV1]) + (SQR(wli[IV2]) + SQR(wli[IV3])));
+          Real ker = 0.5 * wri[IDN] * (SQR(wri[IV1]) + (SQR(wri[IV2]) + SQR(wri[IV3])));
+
+          ul.d = wli[IDN];
+          ul.mx = wli[IV1] * ul.d;
+          ul.my = wli[IV2] * ul.d;
+          ul.mz = wli[IV3] * ul.d;
+          ul.e = wli[IPR] * igm1 + kel + pbl;
+          ul.by = wli[IB2];
+          ul.bz = wli[IB3];
+
+          ur.d = wri[IDN];
+          ur.mx = wri[IV1] * ur.d;
+          ur.my = wri[IV2] * ur.d;
+          ur.mz = wri[IV3] * ur.d;
+          ur.e = wri[IPR] * igm1 + ker + pbr;
+          ur.by = wri[IB2];
+          ur.bz = wri[IB3];
+
+          //--- Step 2.  Compute L & R wave speeds according to Miyoshi & Kusano, eqn.
+          //(67)
+
+          const auto cfl =
+              eos.FastMagnetosonicSpeed(wli[IDN], wli[IPR], wli[IB1], wli[IB2], wli[IB3]);
+          const auto cfr =
+              eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[IB1], wri[IB2], wri[IB3]);
+
+          spd[0] = std::min(wli[IV1] - cfl, wri[IV1] - cfr);
+          spd[4] = std::max(wli[IV1] + cfl, wri[IV1] + cfr);
+
+          // Real cfmax = std::max(cfl,cfr);
+          // if (wli[IV1] <= wri[IV1]) {
+          //   spd[0] = wli[IV1] - cfmax;
+          //   spd[4] = wri[IV1] + cfmax;
+          // } else {
+          //   spd[0] = wri[IV1] - cfmax;
+          //   spd[4] = wli[IV1] + cfmax;
+          // }
+
+          //--- Step 3.  Compute L/R fluxes
+
+          Real ptl = wli[IPR] + pbl; // total pressures L,R
+          Real ptr = wri[IPR] + pbr;
+
+          fl.d = ul.mx;
+          fl.mx = ul.mx * wli[IV1] + ptl - bxsq;
+          fl.my = ul.my * wli[IV1] - bxi * ul.by;
+          fl.mz = ul.mz * wli[IV1] - bxi * ul.bz;
+          fl.e = wli[IV1] * (ul.e + ptl - bxsq) -
+                 bxi * (wli[IV2] * ul.by + wli[IV3] * ul.bz);
+          fl.by = ul.by * wli[IV1] - bxi * wli[IV2];
+          fl.bz = ul.bz * wli[IV1] - bxi * wli[IV3];
+
+          fr.d = ur.mx;
+          fr.mx = ur.mx * wri[IV1] + ptr - bxsq;
+          fr.my = ur.my * wri[IV1] - bxi * ur.by;
+          fr.mz = ur.mz * wri[IV1] - bxi * ur.bz;
+          fr.e = wri[IV1] * (ur.e + ptr - bxsq) -
+                 bxi * (wri[IV2] * ur.by + wri[IV3] * ur.bz);
+          fr.by = ur.by * wri[IV1] - bxi * wri[IV2];
+          fr.bz = ur.bz * wri[IV1] - bxi * wri[IV3];
+
+          //--- Step 4.  Compute middle and Alfven wave speeds
+
+          Real sdl = spd[0] - wli[IV1]; // S_i-u_i (i=L or R)
+          Real sdr = spd[4] - wri[IV1];
+
+          // S_M: eqn (38) of Miyoshi & Kusano
+          // (KGF): group ptl, ptr terms for floating-point associativity symmetry
+          spd[2] = (sdr * ur.mx - sdl * ul.mx + (ptl - ptr)) / (sdr * ur.d - sdl * ul.d);
+
+          Real sdml = spd[0] - spd[2]; // S_i-S_M (i=L or R)
+          Real sdmr = spd[4] - spd[2];
+          Real sdml_inv = 1.0 / sdml;
+          Real sdmr_inv = 1.0 / sdmr;
+          // eqn (43) of Miyoshi & Kusano
+          ulst.d = ul.d * sdl * sdml_inv;
+          urst.d = ur.d * sdr * sdmr_inv;
+          Real ulst_d_inv = 1.0 / ulst.d;
+          Real urst_d_inv = 1.0 / urst.d;
+          Real sqrtdl = std::sqrt(ulst.d);
+          Real sqrtdr = std::sqrt(urst.d);
+
+          // eqn (51) of Miyoshi & Kusano
+          spd[1] = spd[2] - std::abs(bxi) / sqrtdl;
+          spd[3] = spd[2] + std::abs(bxi) / sqrtdr;
+
+          //--- Step 5.  Compute intermediate states
+          // eqn (23) explicitly becomes eq (41) of Miyoshi & Kusano
+          // TODO(felker): place an assertion that ptstl==ptstr
+          Real ptstl = ptl + ul.d * sdl * (spd[2] - wli[IV1]);
+          Real ptstr = ptr + ur.d * sdr * (spd[2] - wri[IV1]);
+          // Real ptstl = ptl + ul.d*sdl*(sdl-sdml); // these equations had issues when
+          // averaged Real ptstr = ptr + ur.d*sdr*(sdr-sdmr);
+          Real ptst = 0.5 * (ptstr + ptstl); // total pressure (star state)
+
+          // ul* - eqn (39) of M&K
+          ulst.mx = ulst.d * spd[2];
+          if (std::abs(ul.d * sdl * sdml - bxsq) < (SMALL_NUMBER)*ptst) {
+            // Degenerate case
+            ulst.my = ulst.d * wli[IV2];
+            ulst.mz = ulst.d * wli[IV3];
+
+            ulst.by = ul.by;
+            ulst.bz = ul.bz;
+          } else {
+            // eqns (44) and (46) of M&K
+            Real tmp = bxi * (sdl - sdml) / (ul.d * sdl * sdml - bxsq);
+            ulst.my = ulst.d * (wli[IV2] - ul.by * tmp);
+            ulst.mz = ulst.d * (wli[IV3] - ul.bz * tmp);
+
+            // eqns (45) and (47) of M&K
+            tmp = (ul.d * SQR(sdl) - bxsq) / (ul.d * sdl * sdml - bxsq);
+            ulst.by = ul.by * tmp;
+            ulst.bz = ul.bz * tmp;
+          }
+          // v_i* dot B_i*
+          // (KGF): group transverse momenta terms for floating-point associativity
+          // symmetry
+          Real vbstl =
+              (ulst.mx * bxi + (ulst.my * ulst.by + ulst.mz * ulst.bz)) * ulst_d_inv;
+          // eqn (48) of M&K
+          // (KGF): group transverse by, bz terms for floating-point associativity
+          // symmetry
+          ulst.e =
+              (sdl * ul.e - ptl * wli[IV1] + ptst * spd[2] +
+               bxi * (wli[IV1] * bxi + (wli[IV2] * ul.by + wli[IV3] * ul.bz) - vbstl)) *
+              sdml_inv;
+
+          // ur* - eqn (39) of M&K
+          urst.mx = urst.d * spd[2];
+          if (std::abs(ur.d * sdr * sdmr - bxsq) < (SMALL_NUMBER)*ptst) {
+            // Degenerate case
+            urst.my = urst.d * wri[IV2];
+            urst.mz = urst.d * wri[IV3];
+
+            urst.by = ur.by;
+            urst.bz = ur.bz;
+          } else {
+            // eqns (44) and (46) of M&K
+            Real tmp = bxi * (sdr - sdmr) / (ur.d * sdr * sdmr - bxsq);
+            urst.my = urst.d * (wri[IV2] - ur.by * tmp);
+            urst.mz = urst.d * (wri[IV3] - ur.bz * tmp);
+
+            // eqns (45) and (47) of M&K
+            tmp = (ur.d * SQR(sdr) - bxsq) / (ur.d * sdr * sdmr - bxsq);
+            urst.by = ur.by * tmp;
+            urst.bz = ur.bz * tmp;
+          }
+          // v_i* dot B_i*
+          // (KGF): group transverse momenta terms for floating-point associativity
+          // symmetry
+          Real vbstr =
+              (urst.mx * bxi + (urst.my * urst.by + urst.mz * urst.bz)) * urst_d_inv;
+          // eqn (48) of M&K
+          // (KGF): group transverse by, bz terms for floating-point associativity
+          // symmetry
+          urst.e =
+              (sdr * ur.e - ptr * wri[IV1] + ptst * spd[2] +
+               bxi * (wri[IV1] * bxi + (wri[IV2] * ur.by + wri[IV3] * ur.bz) - vbstr)) *
+              sdmr_inv;
+          // ul** and ur** - if Bx is near zero, same as *-states
+          if (0.5 * bxsq < (SMALL_NUMBER)*ptst) {
+            uldst = ulst;
+            urdst = urst;
+          } else {
+            Real invsumd = 1.0 / (sqrtdl + sqrtdr);
+            Real bxsig = (bxi > 0.0 ? 1.0 : -1.0);
+
+            uldst.d = ulst.d;
+            urdst.d = urst.d;
+
+            uldst.mx = ulst.mx;
+            urdst.mx = urst.mx;
+
+            // eqn (59) of M&K
+            Real tmp =
+                invsumd * (sqrtdl * (ulst.my * ulst_d_inv) +
+                           sqrtdr * (urst.my * urst_d_inv) + bxsig * (urst.by - ulst.by));
+            uldst.my = uldst.d * tmp;
+            urdst.my = urdst.d * tmp;
+
+            // eqn (60) of M&K
+            tmp =
+                invsumd * (sqrtdl * (ulst.mz * ulst_d_inv) +
+                           sqrtdr * (urst.mz * urst_d_inv) + bxsig * (urst.bz - ulst.bz));
+            uldst.mz = uldst.d * tmp;
+            urdst.mz = urdst.d * tmp;
+
+            // eqn (61) of M&K
+            tmp = invsumd * (sqrtdl * urst.by + sqrtdr * ulst.by +
+                             bxsig * sqrtdl * sqrtdr *
+                                 ((urst.my * urst_d_inv) - (ulst.my * ulst_d_inv)));
+            uldst.by = urdst.by = tmp;
+
+            // eqn (62) of M&K
+            tmp = invsumd * (sqrtdl * urst.bz + sqrtdr * ulst.bz +
+                             bxsig * sqrtdl * sqrtdr *
+                                 ((urst.mz * urst_d_inv) - (ulst.mz * ulst_d_inv)));
+            uldst.bz = urdst.bz = tmp;
+
+            // eqn (63) of M&K
+            tmp = spd[2] * bxi + (uldst.my * uldst.by + uldst.mz * uldst.bz) / uldst.d;
+            uldst.e = ulst.e - sqrtdl * bxsig * (vbstl - tmp);
+            urdst.e = urst.e + sqrtdr * bxsig * (vbstr - tmp);
+          }
+
+          //--- Step 6.  Compute flux
+          uldst.d = spd[1] * (uldst.d - ulst.d);
+          uldst.mx = spd[1] * (uldst.mx - ulst.mx);
+          uldst.my = spd[1] * (uldst.my - ulst.my);
+          uldst.mz = spd[1] * (uldst.mz - ulst.mz);
+          uldst.e = spd[1] * (uldst.e - ulst.e);
+          uldst.by = spd[1] * (uldst.by - ulst.by);
+          uldst.bz = spd[1] * (uldst.bz - ulst.bz);
+
+          ulst.d = spd[0] * (ulst.d - ul.d);
+          ulst.mx = spd[0] * (ulst.mx - ul.mx);
+          ulst.my = spd[0] * (ulst.my - ul.my);
+          ulst.mz = spd[0] * (ulst.mz - ul.mz);
+          ulst.e = spd[0] * (ulst.e - ul.e);
+          ulst.by = spd[0] * (ulst.by - ul.by);
+          ulst.bz = spd[0] * (ulst.bz - ul.bz);
+
+          urdst.d = spd[3] * (urdst.d - urst.d);
+          urdst.mx = spd[3] * (urdst.mx - urst.mx);
+          urdst.my = spd[3] * (urdst.my - urst.my);
+          urdst.mz = spd[3] * (urdst.mz - urst.mz);
+          urdst.e = spd[3] * (urdst.e - urst.e);
+          urdst.by = spd[3] * (urdst.by - urst.by);
+          urdst.bz = spd[3] * (urdst.bz - urst.bz);
+
+          urst.d = spd[4] * (urst.d - ur.d);
+          urst.mx = spd[4] * (urst.mx - ur.mx);
+          urst.my = spd[4] * (urst.my - ur.my);
+          urst.mz = spd[4] * (urst.mz - ur.mz);
+          urst.e = spd[4] * (urst.e - ur.e);
+          urst.by = spd[4] * (urst.by - ur.by);
+          urst.bz = spd[4] * (urst.bz - ur.bz);
+
+          if (spd[0] >= 0.0) {
+            // return Fl if flow is supersonic
+            flxi[IDN] = fl.d;
+            flxi[IV1] = fl.mx;
+            flxi[IV2] = fl.my;
+            flxi[IV3] = fl.mz;
+            flxi[IEN] = fl.e;
+            flxi[IB2] = fl.by;
+            flxi[IB3] = fl.bz;
+          } else if (spd[4] <= 0.0) {
+            // return Fr if flow is supersonic
+            flxi[IDN] = fr.d;
+            flxi[IV1] = fr.mx;
+            flxi[IV2] = fr.my;
+            flxi[IV3] = fr.mz;
+            flxi[IEN] = fr.e;
+            flxi[IB2] = fr.by;
+            flxi[IB3] = fr.bz;
+          } else if (spd[1] >= 0.0) {
+            // return Fl*
+            flxi[IDN] = fl.d + ulst.d;
+            flxi[IV1] = fl.mx + ulst.mx;
+            flxi[IV2] = fl.my + ulst.my;
+            flxi[IV3] = fl.mz + ulst.mz;
+            flxi[IEN] = fl.e + ulst.e;
+            flxi[IB2] = fl.by + ulst.by;
+            flxi[IB3] = fl.bz + ulst.bz;
+          } else if (spd[2] >= 0.0) {
+            // return Fl**
+            flxi[IDN] = fl.d + ulst.d + uldst.d;
+            flxi[IV1] = fl.mx + ulst.mx + uldst.mx;
+            flxi[IV2] = fl.my + ulst.my + uldst.my;
+            flxi[IV3] = fl.mz + ulst.mz + uldst.mz;
+            flxi[IEN] = fl.e + ulst.e + uldst.e;
+            flxi[IB2] = fl.by + ulst.by + uldst.by;
+            flxi[IB3] = fl.bz + ulst.bz + uldst.bz;
+          } else if (spd[3] > 0.0) {
+            // return Fr**
+            flxi[IDN] = fr.d + urst.d + urdst.d;
+            flxi[IV1] = fr.mx + urst.mx + urdst.mx;
+            flxi[IV2] = fr.my + urst.my + urdst.my;
+            flxi[IV3] = fr.mz + urst.mz + urdst.mz;
+            flxi[IEN] = fr.e + urst.e + urdst.e;
+            flxi[IB2] = fr.by + urst.by + urdst.by;
+            flxi[IB3] = fr.bz + urst.bz + urdst.bz;
+          } else {
+            // return Fr*
+            flxi[IDN] = fr.d + urst.d;
+            flxi[IV1] = fr.mx + urst.mx;
+            flxi[IV2] = fr.my + urst.my;
+            flxi[IV3] = fr.mz + urst.mz;
+            flxi[IEN] = fr.e + urst.e;
+            flxi[IB2] = fr.by + urst.by;
+            flxi[IB3] = fr.bz + urst.bz;
+          }
+
+          cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
+          cons.flux(ivx, ivx, k, j, i) = flxi[IV1];
+          cons.flux(ivx, ivy, k, j, i) = flxi[IV2];
+          cons.flux(ivx, ivz, k, j, i) = flxi[IV3];
+          cons.flux(ivx, IEN, k, j, i) = flxi[IEN];
+          cons.flux(ivx, iBx, k, j, i) = flxi[IB1];
+          cons.flux(ivx, iBy, k, j, i) = flxi[IB2];
+          cons.flux(ivx, iBz, k, j, i) = flxi[IB3];
+          cons.flux(ivx, IPS, k, j, i) = flxi[IPS];
+        });
+  } else {
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
+        scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k,
+                      const int j) {
+          const auto &prim = prim_in(b);
+          auto &cons = cons_in(b);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          // get reconstructed state on faces
+          Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+          // Sync all threads in the team so that scratch memory is consistent
+          member.team_barrier();
+
+          riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
+          member.team_barrier();
+
+          // Passive scalar fluxes
+          for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+            parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
+              if (cons.flux(IV1, IDN, k, j, i) >= 0.0) {
+                cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wl(n, i);
+              } else {
+                cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wr(n, i);
+              }
+            });
+          }
+        });
+  }
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
@@ -1245,9 +1792,9 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
   std::int64_t num_corrected, num_need_floor;
   // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
-  // of a single cell at the same time. So the neighboring cells need to be rechecked with
-  // the corrected fluxes as the corrected fluxes in one cell may result in the need to
-  // correct all the fluxes of an originally "good" neighboring cell.
+  // of a single cell at the same time. So the neighboring cells need to be rechecked
+  // with the corrected fluxes as the corrected fluxes in one cell may result in the
+  // need to correct all the fluxes of an originally "good" neighboring cell.
   size_t num_attempts = 0;
   do {
     num_corrected = 0;

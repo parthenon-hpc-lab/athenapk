@@ -13,6 +13,7 @@
 // Parthenon headers
 #include "amr_criteria/refinement_package.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
+#include "globals.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
@@ -354,6 +355,26 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   auto num_task_lists_executed_independently = blocks.size();
 
   const int num_partitions = pmesh->DefaultNumPartitions();
+
+  // EXACB custom modifications for power measurements
+  if (stage == 1 && parthenon::Globals::my_rank == 0 &&
+      hydro_pkg->AllParams().hasKey("exacb/power/start")) {
+    const auto start = hydro_pkg->Param<int>("exacb/power/start");
+    const auto stop = hydro_pkg->Param<int>("exacb/power/stop");
+    std::ofstream outfile;
+    if (start == tm.ncycle) {
+      outfile.open("energy.times");
+      outfile << "energy_start:";
+    }
+    if (stop == tm.ncycle) {
+      outfile.open("energy.times", std::ios_base::app);
+      outfile << "energy_stop:";
+    }
+    outfile << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+                   .count()
+            << std::endl;
+  }
 
   // calculate agn triggering accretion rate
   if ((stage == 1) &&

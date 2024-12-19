@@ -1,0 +1,157 @@
+<comment>
+problem   = Turbulence with parabolic forcing profile (using few driving modes)
+reference = to be written, see https://gitlab.com/pgrete/kathena/wikis/turbulence for now
+
+<job>
+problem_id = turbulence
+
+<exacb/power>
+cycle_start = 50
+cycle_stop  = 250
+
+<parthenon/time>
+cfl = 0.3               # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = __NLIM__   # cycle limit
+tlim       = 5.0        # time limit
+integrator  = rk2       # time integration algorithm
+ncycle_out_mesh = -500  # print mesh structure every 500 cyles and on refinement
+
+<parthenon/mesh>
+nghost     = 3
+nx1        = __MX1__    # Number of zones in X1-direction
+x1min      = 0.0        # minimum value of X1
+x1max      = __X1MAX__  # maximum value of X1
+ix1_bc     = periodic   # inner-X1 boundary flag
+ox1_bc     = periodic   # outer-X1 boundary flag
+
+nx2        = __MX2__    # Number of zones in X2-direction
+x2min      = 0.0        # minimum value of X2
+x2max      = __X2MAX__  # maximum value of X2
+ix2_bc     = periodic   # inner-X2 boundary flag
+ox2_bc     = periodic   # outer-X2 boundary flag
+
+nx3        = __MX3__    # Number of zones in X3-direction
+x3min      = 0.0        # minimum value of X3
+x3max      = __X3MAX__  # maximum value of X3
+ix3_bc     = periodic   # inner-X3 boundary flag
+ox3_bc     = periodic   # outer-X3 boundary flag
+
+pack_size = -1          # pack all blocks in a single pack (currently required)
+
+<parthenon/meshblock>
+nx1        = __MB1__
+nx2        = __MB2__
+nx3        = __MB3__
+
+<hydro>
+fluid = glmmhd
+eos = adiabatic
+riemann = hlld
+reconstruction = ppm
+gamma           = 1.0001         # gamma = C_p/C_v
+scratch_level  = 1
+
+<problem/turbulence>
+rho0         = 1.0      # initial mean density
+p0           = 1.0      # initial mean pressure
+b0           = 0.01     # initial magnetic field (x-direction)
+b_config     = 0        # 0 - net flux; 1 - no net flux uniform B; 2 - non net flux sin B; 4 - field loop
+kpeak        = 2.0      # characteristic wavenumber
+corr_time    = 1.0      # autocorrelation time of the OU forcing process
+rseed        = 20190729 # random seed of the OU forcing process
+sol_weight   = 1.0      # solenoidal weight of the acceleration field
+accel_rms    = 0.5      # root mean square value of the acceleration field
+num_modes    = 20       # number of wavemodes
+
+<modes>
+k_1_0	= +2
+k_1_1	= -1
+k_1_2	= +0
+k_2_0	= +1
+k_2_1	= +0
+k_2_2	= +2
+k_3_0	= +1
+k_3_1	= +1
+k_3_2	= -1
+k_4_0	= +2
+k_4_1	= +0
+k_4_2	= +1
+k_5_0	= +0
+k_5_1	= +0
+k_5_2	= -1
+k_6_0	= +1
+k_6_1	= -1
+k_6_2	= -2
+k_7_0	= +0
+k_7_1	= +0
+k_7_2	= -2
+k_8_0	= +1
+k_8_1	= +0
+k_8_2	= -1
+k_9_0	= +0
+k_9_1	= +2
+k_9_2	= +1
+k_10_0	= +0
+k_10_1	= -1
+k_10_2	= +2
+k_11_0	= +0
+k_11_1	= +0
+k_11_2	= +2
+k_12_0	= +0
+k_12_1	= +2
+k_12_2	= -1
+k_13_0	= +2
+k_13_1	= +1
+k_13_2	= +1
+k_14_0	= +1
+k_14_1	= -1
+k_14_2	= +0
+k_15_0	= +0
+k_15_1	= -1
+k_15_2	= -1
+k_16_0	= +1
+k_16_1	= +0
+k_16_2	= +1
+k_17_0	= +0
+k_17_1	= -1
+k_17_2	= +1
+k_18_0	= +0
+k_18_1	= +1
+k_18_2	= +0
+k_19_0	= +1
+k_19_1	= -1
+k_19_2	= +1
+k_20_0	= +2
+k_20_1	= +1
+k_20_2	= -1
+k_21_0	= +0
+k_21_1	= -1
+k_21_2	= -2
+k_22_0	= +2
+k_22_1	= -1
+k_22_2	= +1
+k_23_0	= +0
+k_23_1	= +1
+k_23_2	= +1
+k_24_0	= +1
+k_24_1	= -2
+k_24_2	= +1
+k_25_0	= +1
+k_25_1	= -2
+k_25_2	= +0
+k_26_0	= +1
+k_26_1	= +2
+k_26_2	= +0
+k_27_0	= +1
+k_27_1	= -2
+k_27_2	= -1
+k_28_0	= +2
+k_28_1	= -1
+k_28_2	= -1
+k_29_0	= +1
+k_29_1	= +2
+k_29_2	= -1
+k_30_0	= +1
+k_30_1	= +1
+k_30_2	= +2
+
