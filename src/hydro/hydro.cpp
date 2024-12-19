@@ -1133,7 +1133,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
           Real qd = 0.0;
           if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc)) {
             qd = SIGN(qa) *
-                 std::min(C2 * std::abs(qb), std::min(C2 * std::abs(qc), std::abs(qa)));
+                 Kokkos::min(C2 * Kokkos::abs(qb),
+                             Kokkos::min(C2 * Kokkos::abs(qc), Kokkos::abs(qa)));
           }
           Real dph_tmp = 0.5 * (q_im1 + q_i) - qd / 6.0;
           if (qa_tmp * qb_tmp < 0.0) { // Local extrema detected at i-1/2 face
@@ -1150,7 +1151,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
           qd = 0.0;
           if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc)) {
             qd = SIGN(qa) *
-                 std::min(C2 * std::abs(qb), std::min(C2 * std::abs(qc), std::abs(qa)));
+                 Kokkos::min(C2 * Kokkos::abs(qb),
+                             Kokkos::min(C2 * Kokkos::abs(qc), Kokkos::abs(qa)));
           }
           Real dphip1_tmp = 0.5 * (q_i + q_ip1) - qd / 6.0;
           if (qa_tmp * qb_tmp < 0.0) { // Local extrema detected at i+1/2 face
@@ -1184,17 +1186,19 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
           Real qe = 0.0;
           if (SIGN(qa) == SIGN(qb) && SIGN(qa) == SIGN(qc) && SIGN(qa) == SIGN(qd)) {
             // Extrema is smooth
-            qe = SIGN(qd) * std::min(std::min(C2 * std::abs(qa), C2 * std::abs(qb)),
-                                     std::min(C2 * std::abs(qc),
-                                              std::abs(qd))); // (CS eq 22)
+            qe = SIGN(qd) *
+                 Kokkos::min(Kokkos::min(C2 * Kokkos::abs(qa), C2 * Kokkos::abs(qb)),
+                             Kokkos::min(C2 * Kokkos::abs(qc),
+                                         Kokkos::abs(qd))); // (CS eq 22)
           }
 
           // Check if 2nd derivative is close to roundoff error
-          qa = std::max(std::abs(q_im1), std::abs(q_im2));
-          qb = std::max(std::max(std::abs(q_i), std::abs(q_ip1)), std::abs(q_ip2));
+          qa = Kokkos::max(Kokkos::abs(q_im1), Kokkos::abs(q_im2));
+          qb = Kokkos::max(Kokkos::max(Kokkos::abs(q_i), Kokkos::abs(q_ip1)),
+                           Kokkos::abs(q_ip2));
 
           Real rho = 0.0;
-          if (std::abs(qd) > (1.0e-12) * std::max(qa, qb)) {
+          if (Kokkos::abs(qd) > (1.0e-12) * Kokkos::max(qa, qb)) {
             // Limiter is not sensitive to roundoff. Use limited ratio (MC eq 27)
             rho = qe / qd;
           }
@@ -1215,11 +1219,11 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             // No extrema detected
           } else {
             // Overshoot i-1/2,R / i,(-) state
-            if (std::abs(dqf_minus) >= 2.0 * std::abs(dqf_plus)) {
+            if (Kokkos::abs(dqf_minus) >= 2.0 * Kokkos::abs(dqf_plus)) {
               qr_i = tmp2_m;
             }
             // Overshoot i+1/2,L / i,(+) state
-            if (std::abs(dqf_plus) >= 2.0 * std::abs(dqf_minus)) {
+            if (Kokkos::abs(dqf_plus) >= 2.0 * Kokkos::abs(dqf_minus)) {
               ql_ip1 = tmp2_p;
             }
           }
