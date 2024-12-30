@@ -66,8 +66,6 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
       accretion_cfl_(pin->GetOrAddReal(block, "accretion_cfl", 1e-1)),
       remove_accreted_mass_(pin->GetOrAddBoolean(block, "removed_accreted_mass", true)),
       write_to_file_(pin->GetOrAddBoolean(block, "write_to_file", false)),
-      inflow_cold_(0),
-      inflow_tot_(0),
       triggering_filename_(
           pin->GetOrAddString(block, "triggering_filename", "agn_triggering.dat")) {
 
@@ -136,7 +134,7 @@ template <typename EOS>
 void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
                                    parthenon::Real &total_mass,
                                    parthenon::MeshData<parthenon::Real> *md,
-                                   const parthenon::Real dt, const EOS eos)  {
+                                   const parthenon::Real dt, const EOS eos) const  {
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
   using parthenon::Real;
@@ -184,7 +182,12 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
             pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
         if (r2 < accretion_radius2) {
           const Real cell_total_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
-          team_total_mass += cell_total_mass;
+          if (k >= int_kb.s && k <= int_kb.e && j >= int_jb.s && j <= int_jb.e &&
+                i >= int_ib.s && i <= int_ib.e) {
+              // Only reduce the cold gas that exists on the interior grid
+              team_total_mass += cell_total_mass;
+            }
+        
           const Real temp =
               mean_molecular_mass_by_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i);
           
@@ -382,7 +385,7 @@ AGNTriggering::GetAccretionRate(parthenon::StateDescriptor *hydro_pkg) const {
     return 0;
   }
   }
-  //return 0;
+  return 0;
 }
 
 parthenon::TaskStatus
@@ -418,7 +421,7 @@ AGNTriggeringReduceTriggering(parthenon::MeshData<parthenon::Real> *md,
                               const parthenon::Real dt) {
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
+  const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
   const parthenon::Real pre_accretion_cold_mass = hydro_pkg->Param<Real>("agn_triggering_cold_mass");
   const parthenon::Real pre_accretion_total_mass = hydro_pkg->Param<Real>("agn_triggering_total_mass");
   switch (agn_triggering.triggering_mode_) {
@@ -466,15 +469,7 @@ AGNTriggeringReduceTriggering(parthenon::MeshData<parthenon::Real> *md,
     break;
   }
   }
-  if (agn_triggering.triggering_mode_ == AGNTriggeringMode::COLD_GAS) {
-    auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering"); // Make it non-const
-    const parthenon::Real cold_mass = hydro_pkg->Param<Real>("agn_triggering_cold_mass");
-    const parthenon::Real total_mass = hydro_pkg->Param<Real>("agn_triggering_total_mass");
-
-    hydro_pkg->UpdateParam<Real>("agn_triggering_prev_cold_mass", cold_mass); //Move from AGNTriggeringFinalizeTriggering
-    hydro_pkg->UpdateParam<Real>("agn_triggering_prev_total_mass", total_mass);
-  }
-  hydro_pkg->UpdateParam<AGNTriggering>("agn_triggering", agn_triggering);
+  
   return TaskStatus::complete;
 }
 
@@ -484,16 +479,15 @@ AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg) {
   auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
   switch (agn_triggering.triggering_mode_) {
   case AGNTriggeringMode::COLD_GAS: {
-
-    Real accretion_rate = hydro_pkg->Param<Real>("agn_triggering_cold_mass");
-    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &accretion_rate, 1,
+    Real quantities[] ={
+      hydro_pkg->Param<Real>("agn_triggering_cold_mass"),
+      hydro_pkg->Param<Real>("agn_triggering_total_mass"),
+    };
+    
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &quantities, 2,
                                       MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
-    hydro_pkg->UpdateParam("agn_triggering_cold_mass", accretion_rate);
-
-    Real total_mass = hydro_pkg->Param<Real>("agn_triggering_total_mass");
-    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &total_mass, 1,
-                                          MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
-    hydro_pkg->UpdateParam("agn_triggering_total_mass", total_mass);
+    hydro_pkg->UpdateParam("agn_triggering_cold_mass", quantities[0]);
+    hydro_pkg->UpdateParam("agn_triggering_total_mass", quantities[1]);
     break;
   }
   case AGNTriggeringMode::BOOSTED_BONDI:
@@ -529,15 +523,17 @@ AGNTriggeringFinalizeTriggering(parthenon::MeshData<parthenon::Real> *md,
                                 const parthenon::SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
-  parthenon::Real cold_mass = 0.0; // Declare outside the if block
-  parthenon::Real total_mass = 0.0; // Declare outside the if block
+  parthenon::Real cold_mass = 0.0; 
+  parthenon::Real total_mass = 0.0; 
+  parthenon::Real inflow_cold = 0.0; 
+  parthenon::Real inflow_tot = 0.0; 
   if (agn_triggering.triggering_mode_ == AGNTriggeringMode::COLD_GAS) {
-    cold_mass = hydro_pkg->Param<Real>("agn_triggering_cold_mass"); // Assign here
+    cold_mass = hydro_pkg->Param<Real>("agn_triggering_cold_mass"); 
     total_mass = hydro_pkg->Param<Real>("agn_triggering_total_mass"); 
 
 
-    agn_triggering.inflow_cold_ = (cold_mass - hydro_pkg->Param<Real>("agn_triggering_prev_cold_mass")) / tm.dt; //Now this is the only place to calculate inflow rates
-    agn_triggering.inflow_tot_ = (total_mass - hydro_pkg->Param<Real>("agn_triggering_prev_total_mass")) / tm.dt; //Now this is the only place to calculate inflow rates
+    inflow_cold = (cold_mass - hydro_pkg->Param<Real>("agn_triggering_prev_cold_mass")) / tm.dt; 
+    inflow_tot = (total_mass - hydro_pkg->Param<Real>("agn_triggering_prev_total_mass")) / tm.dt; 
 
   }
   hydro_pkg->UpdateParam<AGNTriggering>("agn_triggering", agn_triggering); 
@@ -554,8 +550,8 @@ AGNTriggeringFinalizeTriggering(parthenon::MeshData<parthenon::Real> *md,
                     << agn_triggering.GetAccretionRate(hydro_pkg.get()) << " | "
                     << cold_mass << " | " 
                     << total_mass  << " | " 
-                    << agn_triggering.inflow_cold_ << " | " 
-                    << agn_triggering.inflow_tot_ << " ";
+                    << inflow_cold << " | " 
+                    << inflow_tot << " ";
 
     switch (agn_triggering.triggering_mode_) {
     case AGNTriggeringMode::COLD_GAS: {
@@ -642,11 +638,6 @@ AGNTriggering::EstimateTimeStep(parthenon::MeshData<parthenon::Real> *md) const 
     return std::numeric_limits<Real>::max();
   }
   }
-  //return std::numeric_limits<Real>::max();
-}
-
-} // namespace cluster
-
   return std::numeric_limits<Real>::max();
 }
 
