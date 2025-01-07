@@ -168,24 +168,26 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
 
   
 
-  parthenon::par_reduce(
-      parthenon::loop_pattern_mdrange_tag, "AGNTriggering::ReduceColdGas",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-      ib.e,
-      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
-                    Real &team_cold_mass, Real &team_total_mass) {
-        auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+   Kokkos::parallel_reduce(
+        "AGNTriggering::ReduceColdGas",
+        Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+            DevExecSpace(), {0, kb.s, jb.s, ib.s},
+            {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+            {1, 1, 1, ib.e + 1 - ib.s}),
+        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
+                      Real &team_cold_mass, Real &team_total_mass) {
+          auto &cons = cons_pack(b);
+          auto &prim = prim_pack(b);
+          const auto &coords = cons_pack.GetCoords(b);
 
-        const parthenon::Real r2 =
+          const parthenon::Real r2 =
             pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
-        if (r2 < accretion_radius2) {
-          const Real cell_total_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
-          if (k >= int_kb.s && k <= int_kb.e && j >= int_jb.s && j <= int_jb.e &&
+          if (r2 < accretion_radius2) {
+            const Real cell_total_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
+            if (k >= int_kb.s && k <= int_kb.e && j >= int_jb.s && j <= int_jb.e &&
                 i >= int_ib.s && i <= int_ib.e) {
               // Only reduce the cold gas that exists on the interior grid
-              team_total_mass += cell_total_mass;
+                team_total_mass += cell_total_mass;
             }
         
           const Real temp =
