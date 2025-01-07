@@ -538,7 +538,7 @@ AGNTriggeringFinalizeTriggering(parthenon::MeshData<parthenon::Real> *md,
     inflow_tot = (total_mass - hydro_pkg->Param<Real>("agn_triggering_prev_total_mass")) / tm.dt; 
 
   }
-  hydro_pkg->UpdateParam<AGNTriggering>("agn_triggering", agn_triggering); 
+
 
   hydro_pkg->UpdateParam<Real>("agn_triggering_prev_cold_mass", cold_mass);
   hydro_pkg->UpdateParam<Real>("agn_triggering_prev_total_mass", total_mass);
