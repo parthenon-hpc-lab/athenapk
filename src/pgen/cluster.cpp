@@ -357,6 +357,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   if (hydro_pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     // cooling time
     hydro_pkg->AddField("cooling_time", m);
+
+    hydro_pkg->AddField("mass_deposition_rate", m);
   }
 
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
@@ -877,6 +879,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
       });
   if (pkg->Param<Cooling>("enable_cooling") == Cooling::tabular) {
     auto &cooling_time = data->Get("cooling_time").data;
+    auto &mass_deposition_rate = data->Get("mass_deposition_rate").data;
 
     // get cooling function
     const cooling::TabularCooling &tabular_cooling =
@@ -894,6 +897,10 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
           const Real eint = P / (rho * gm1);
           const Real edot = cooling_table_obj.DeDt(eint, rho);
           cooling_time(k, j, i) = (edot != 0) ? -eint / edot : NAN;
+          mass_deposition_rate(k, j, i) = (edot != 0) ? 2. / 5. / gm1 * rho *
+                                                            coords.CellVolume(k, j, i) /
+                                                            cooling_time(k, j, i)
+                                                      : NAN;
         });
   }
 
