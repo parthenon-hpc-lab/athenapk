@@ -897,10 +897,12 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
           const Real eint = P / (rho * gm1);
           const Real edot = cooling_table_obj.DeDt(eint, rho);
           cooling_time(k, j, i) = (edot != 0) ? -eint / edot : NAN;
+          // At the bottom of the cooling table edot = 0, so no radiation
+          // and definitely not X-ray radiation for all cooling tables used so far.
           mass_deposition_rate(k, j, i) = (edot != 0) ? 2. / 5. / gm1 * rho *
                                                             coords.CellVolume(k, j, i) /
                                                             cooling_time(k, j, i)
-                                                      : NAN;
+                                                      : 0.0;
         });
   }
 
