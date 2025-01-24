@@ -90,7 +90,8 @@ class Units {
     return code_energy_cgs() / kev_cgs * code_length_cgs() * code_length_cgs();
   }
   parthenon::Real code_magnetic_cgs() const {
-    return sqrt(code_mass_cgs()) / sqrt(code_length_cgs()) / code_time_cgs();
+    return std::sqrt(4.0 * M_PI) * sqrt(code_mass_cgs()) / sqrt(code_length_cgs()) /
+           code_time_cgs();
   }
 
   // Physical Constants in code units
