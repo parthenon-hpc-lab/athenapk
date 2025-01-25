@@ -168,7 +168,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
 
   
 
-   Kokkos::parallel_reduce(
+  Kokkos::parallel_reduce(
         "AGNTriggering::ReduceColdGas",
         Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
             DevExecSpace(), {0, kb.s, jb.s, ib.s},
@@ -180,45 +180,47 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
           auto &prim = prim_pack(b);
           const auto &coords = cons_pack.GetCoords(b);
 
+        // Compute radius squared
           const parthenon::Real r2 =
             pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
+
+        // Consider only cells within the accretion radius
           if (r2 < accretion_radius2) {
             const Real cell_total_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
-            if (k >= int_kb.s && k <= int_kb.e && j >= int_jb.s && j <= int_jb.e &&
+
+            // Reduce total mass for interior grid only
+            if (k >= int_kb.s && k <= int_kb.e && 
+                j >= int_jb.s && j <= int_jb.e && 
                 i >= int_ib.s && i <= int_ib.e) {
-              // Only reduce the cold gas that exists on the interior grid
                 team_total_mass += cell_total_mass;
             }
-        
-          const Real temp =
-              mean_molecular_mass_by_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i);
-          
-          if (temp <= cold_temp_thresh) {
 
-            const Real cell_cold_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
+            // Compute temperature and filter based on threshold
+            const Real temp = mean_molecular_mass_by_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i);
+            if (temp <= cold_temp_thresh) {
+                const Real cell_cold_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
 
-            if (k >= int_kb.s && k <= int_kb.e && j >= int_jb.s && j <= int_jb.e &&
-                i >= int_ib.s && i <= int_ib.e) {
-              // Only reduce the cold gas that exists on the interior grid
-              team_cold_mass += cell_cold_mass;
-            }
+                // Reduce cold gas mass for interior grid only
+                if (k >= int_kb.s && k <= int_kb.e && 
+                    j >= int_jb.s && j <= int_jb.e && 
+                    i >= int_ib.s && i <= int_ib.e) {
+                    team_cold_mass += cell_cold_mass;
+                }
 
-            const Real cell_delta_rho = -prim(IDN, k, j, i) / cold_t_acc * dt;
-
-            if (remove_accreted_mass) {
-              AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(),
-                                             k, j, i);
-              // Update the Primitives
-              eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+                // Remove cold gas if configured to do so
+                if (remove_accreted_mass) {
+                    const Real cell_delta_rho = -prim(IDN, k, j, i) / cold_t_acc * dt;
+                    AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), k, j, i);
+                    eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+                }
             }
           }
-        }
-      },
-     
-      Kokkos::Sum<Real>(md_cold_mass), Kokkos::Sum<Real>(md_total_mass)); 
+        },
+    Kokkos::Sum<Real>(md_cold_mass), Kokkos::Sum<Real>(md_total_mass));
+
+// Update global variables with the computed mass values
   cold_mass += md_cold_mass;
   total_mass += md_total_mass;
-  
 }
 
 // Compute Mass-weighted total density, velocity, and sound speed and total mass
@@ -521,89 +523,112 @@ AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg) {
 }
 
 parthenon::TaskStatus
-AGNTriggeringFinalizeTriggering(parthenon::MeshData<parthenon::Real> *md,
-                                const parthenon::SimTime &tm) {
+void AGNTriggeringFinalizeTriggering(parthenon::MeshData<parthenon::Real> *md,
+                                     const parthenon::SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
-  parthenon::Real cold_mass = 0.0; 
-  parthenon::Real total_mass = 0.0; 
-  parthenon::Real inflow_cold = 0.0; 
-  parthenon::Real inflow_tot = 0.0; 
+
+  // Declare variables at the function level
+  parthenon::Real cold_mass = 0.0;
+  parthenon::Real total_mass = 0.0;
+  parthenon::Real inflow_cold = 0.0;
+  parthenon::Real inflow_tot = 0.0;
+
+  // Calculate masses and inflow rates for COLD_GAS mode
   if (agn_triggering.triggering_mode_ == AGNTriggeringMode::COLD_GAS) {
-    cold_mass = hydro_pkg->Param<Real>("agn_triggering_cold_mass"); 
-    total_mass = hydro_pkg->Param<Real>("agn_triggering_total_mass"); 
+    cold_mass = hydro_pkg->Param<Real>("agn_triggering_cold_mass");
+    total_mass = hydro_pkg->Param<Real>("agn_triggering_total_mass");
 
-
-    inflow_cold = (cold_mass - hydro_pkg->Param<Real>("agn_triggering_prev_cold_mass")) / tm.dt; 
-    inflow_tot = (total_mass - hydro_pkg->Param<Real>("agn_triggering_prev_total_mass")) / tm.dt; 
-
+    inflow_cold =
+        (cold_mass - hydro_pkg->Param<Real>("agn_triggering_prev_cold_mass")) / tm.dt;
+    inflow_tot =
+        (total_mass - hydro_pkg->Param<Real>("agn_triggering_prev_total_mass")) / tm.dt;
   }
 
-
+  // Update previous mass parameters
   hydro_pkg->UpdateParam<Real>("agn_triggering_prev_cold_mass", cold_mass);
   hydro_pkg->UpdateParam<Real>("agn_triggering_prev_total_mass", total_mass);
 
-  // Append quantities to file if applicable
+  // Append quantities to file
   if (agn_triggering.write_to_file_ && parthenon::Globals::my_rank == 0) {
     std::ofstream triggering_file;
+
+    // Open file in append mode
     triggering_file.open(agn_triggering.triggering_filename_, std::ofstream::app);
 
+    // Check if the file is empty and write headers
+    if (triggering_file.tellp() == 0) {
+      triggering_file << "Time | TimeStep | AccretionRate";
+      switch (agn_triggering.triggering_mode_) {
+        case AGNTriggeringMode::COLD_GAS: {
+          triggering_file << " | InflowCold | InflowTot | ColdMass | TotalMass";
+          break;
+        }
+        case AGNTriggeringMode::BOOSTED_BONDI:
+        case AGNTriggeringMode::BOOTH_SCHAYE: {
+          triggering_file << " | AvgDensity | AvgVelocity | AvgCS";
+          break;
+        }
+        case AGNTriggeringMode::NONE: {
+          break;
+        }
+      }
+      triggering_file << std::endl; // End of headers
+    }
+
+    // Write data
     triggering_file << tm.time << " | " << tm.dt << " | "
-                    << agn_triggering.GetAccretionRate(hydro_pkg.get()) << " | "
-                    << cold_mass << " | " 
-                    << total_mass  << " | " 
-                    << inflow_cold << " | " 
-                    << inflow_tot << " ";
+                    << agn_triggering.GetAccretionRate(hydro_pkg.get());
 
     switch (agn_triggering.triggering_mode_) {
-    case AGNTriggeringMode::COLD_GAS: {
-
-      triggering_file << hydro_pkg->Param<Real>("agn_triggering_cold_mass");
-      break;
-    }
-    case AGNTriggeringMode::BOOSTED_BONDI:
-    case AGNTriggeringMode::BOOTH_SCHAYE: {
-      const auto &total_mass = hydro_pkg->Param<Real>("agn_triggering_total_mass");
-      const auto &avg_density =
+      case AGNTriggeringMode::COLD_GAS: {
+        triggering_file << " | " << inflow_cold << " | " << inflow_tot << " | "
+                      << cold_mass << " | " << total_mass;
+        break;
+      }
+      case AGNTriggeringMode::BOOSTED_BONDI:
+      case AGNTriggeringMode::BOOTH_SCHAYE: {
+        const auto &total_mass = hydro_pkg->Param<Real>("agn_triggering_total_mass");
+        const auto &avg_density =
           hydro_pkg->Param<Real>("agn_triggering_mass_weighted_density") / total_mass;
-      const auto &avg_velocity =
+        const auto &avg_velocity =
           hydro_pkg->Param<Real>("agn_triggering_mass_weighted_velocity") / total_mass;
-      const auto &avg_cs =
+        const auto &avg_cs =
           hydro_pkg->Param<Real>("agn_triggering_mass_weighted_cs") / total_mass;
-      triggering_file << total_mass << " " << avg_density << " " << avg_velocity << " "
-                      << avg_cs;
-      break;
-    }
-    case AGNTriggeringMode::NONE: {
-      break;
-    }
+        triggering_file << " | " << avg_density << " | " << avg_velocity << " | " << avg_cs;
+        break;
+      }
+      case AGNTriggeringMode::NONE: {
+        break;
+      }
     }
 
     triggering_file << std::endl;
     triggering_file.close();
   }
 
+
   // Remove accreted gas if using a Bondi-like mode
   if (agn_triggering.remove_accreted_mass_) {
     switch (agn_triggering.triggering_mode_) {
-    case AGNTriggeringMode::BOOSTED_BONDI:
-    case AGNTriggeringMode::BOOTH_SCHAYE: {
-      auto fluid = hydro_pkg->Param<Fluid>("fluid");
-      if (fluid == Fluid::euler) {
-        agn_triggering.RemoveBondiAccretedGas(md, tm.dt,
+      case AGNTriggeringMode::BOOSTED_BONDI:
+      case AGNTriggeringMode::BOOTH_SCHAYE: {
+        auto fluid = hydro_pkg->Param<Fluid>("fluid");
+        if (fluid == Fluid::euler) {
+          agn_triggering.RemoveBondiAccretedGas(md, tm.dt,
                                               hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
-      } else if (fluid == Fluid::glmmhd) {
-        agn_triggering.RemoveBondiAccretedGas(
+        } else if (fluid == Fluid::glmmhd) {
+          agn_triggering.RemoveBondiAccretedGas(
             md, tm.dt, hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
-      } else {
-        PARTHENON_FAIL("AGNTriggeringFinalizeTriggering: Unknown EOS");
+        } else {
+          PARTHENON_FAIL("AGNTriggeringFinalizeTriggering: Unknown EOS");
+        }
+        break;
       }
-      break;
-    }
-    case AGNTriggeringMode::COLD_GAS: // Already removed during reduction
-    case AGNTriggeringMode::NONE: {
-      break;
-    }
+      case AGNTriggeringMode::COLD_GAS: // Already removed during reduction
+      case AGNTriggeringMode::NONE: {
+        break;
+      }
     }
   }
 

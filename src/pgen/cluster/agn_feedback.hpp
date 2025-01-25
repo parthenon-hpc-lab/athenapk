@@ -24,6 +24,17 @@ namespace cluster {
  *  AGNFeedback
  ************************************************************/
 class AGNFeedback {
+ private: 
+  parthenon::Real power;
+  parthenon::Real mass_rate;
+   
+  parthenon::Real magnetic_power;
+  parthenon::Real magnetic_mass_rate;
+  parthenon::Real thermal_feedback;
+  parthenon::Real thermal_density;
+  parthenon::Real jet_density;
+  parthenon::Real jet_feedback;
+  parthenon::Real jet_momentum;
  public:
   const parthenon::Real fixed_power_;
   parthenon::Real thermal_fraction_, kinetic_fraction_, magnetic_fraction_;
@@ -48,8 +59,11 @@ class AGNFeedback {
   const bool disabled_;
 
   const bool enable_magnetic_tower_mass_injection_;
+  const bool write_to_file_;
+  const std::string feedback_filename_;
 
-  AGNFeedback(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
+ 
+  AGNFeedback(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg, const std::string &block = "problem/cluster/agn_feedback");
 
   parthenon::Real GetFeedbackPower(parthenon::StateDescriptor *hydro_pkg) const;
   parthenon::Real GetFeedbackMassRate(parthenon::StateDescriptor *hydro_pkg) const;
@@ -62,7 +76,14 @@ class AGNFeedback {
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real beta_dt, const parthenon::SimTime &tm,
                        const EOS &eos) const;
+  friend parthenon::TaskStatus
+  void AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Real> *md,
+                                const parthenon::SimTime &tm );
 };
+
+parthenon::TaskStatus
+void AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Real> *md,
+                                const parthenon::SimTime &tm );
 
 } // namespace cluster
 
