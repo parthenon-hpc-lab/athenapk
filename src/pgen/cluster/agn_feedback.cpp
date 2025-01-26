@@ -194,7 +194,7 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
     feedback_file.close();
   }
 
-  hydro_pkg->AddParam<>("agn_feedback", *this);
+  hydro_pkg->AddParam<AGNFeedback>("agn_feedback", *this);
 
   
 }
@@ -250,8 +250,8 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto units = hydro_pkg->Param<Units>("units");
 
-  const Real power = GetFeedbackPower(hydro_pkg.get());
-  const Real mass_rate = GetFeedbackMassRate(hydro_pkg.get());
+  parthenon::Real power = GetFeedbackPower(hydro_pkg.get());
+  parthenon::Real mass_rate = GetFeedbackMassRate(hydro_pkg.get());
 
   if (power == 0 || disabled_) {
     // No AGN feedback, return
@@ -279,10 +279,10 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const Real thermal_scaling_factor = 1 / (4. / 3. * M_PI * pow(thermal_radius_, 3));
 
   // Amount of energy/volume to dump in each cell
-  const Real thermal_feedback =
+  parthenon::Real thermal_feedback =
       thermal_fraction_ * power * thermal_scaling_factor * beta_dt;
   // Amount of density to dump in each cell
-  const Real thermal_density =
+  parthenon::thermal_density =
       thermal_mass_fraction_ * mass_rate * thermal_scaling_factor * beta_dt;
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -300,7 +300,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   //    kinetic_fraction_ * power * kinetic_scaling_factor * beta_dt; // energy/volume
 
   // Amount of density to dump in each cell
-  const Real jet_density =
+  parthenon::Real jet_density =
       kinetic_mass_fraction_ * mass_rate * kinetic_scaling_factor * beta_dt;
 
   // Velocity of added gas
@@ -308,10 +308,10 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const Real jet_specific_internal_e = kinetic_jet_e_;
 
   // Amount of momentum density ( density * velocity) to dump in each cell
-  const Real jet_momentum = jet_density * jet_velocity;
+  parthenon::Real jet_momentum = jet_density * jet_velocity;
 
   // Amount of total energy to dump in each cell
-  const Real jet_feedback = kinetic_fraction_ * power * kinetic_scaling_factor * beta_dt;
+  parthenon::Real jet_feedback = kinetic_fraction_ * power * kinetic_scaling_factor * beta_dt;
 
   const Real vceil = vceil_;
   const Real vceil2 = SQR(vceil);
@@ -427,26 +427,16 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   // Apply magnetic tower feedback
   const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
 
-  const Real magnetic_power = power * magnetic_fraction_;
-  const Real magnetic_mass_rate = mass_rate * magnetic_mass_fraction_;
+  parthenon::Real magnetic_power = power * magnetic_fraction_;
+  parthenon::Real magnetic_mass_rate = mass_rate * magnetic_mass_fraction_;
   magnetic_tower.PowerSrcTerm(magnetic_power, magnetic_mass_rate, md, beta_dt, tm);
-  AGNFeedbackFinalizeFeedback(md, tm, power, mass_rate, magnetic_power,
-                               magnetic_mass_rate, thermal_feedback, thermal_density,
-                               jet_density, jet_feedback, jet_momentum);
+
 
 }
 
-
+parthenon::TaskStatus
 void AGNFeedback::AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Real> *md,
-                                  const parthenon::SimTime &tm, const Real power,
-                                  const Real mass_rate,
-                                  const Real magnetic_power,
-                                  const Real magnetic_mass_rate,
-                                  const Real thermal_feedback,
-                                  const Real thermal_density,
-                                  const Real jet_density,
-                                  const Real jet_feedback,
-                                  const Real jet_momentum) {
+                                  const parthenon::SimTime &tm) {
  
   using parthenon::Real;
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
@@ -479,6 +469,7 @@ void AGNFeedback::AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Rea
     feedback_file << std::endl;
     feedback_file.close();
   }
+  return TaskStatus::complete;
 }
 
 } // namespace cluster
