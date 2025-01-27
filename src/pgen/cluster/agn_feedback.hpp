@@ -24,18 +24,10 @@ namespace cluster {
  *  AGNFeedback
  ************************************************************/
 class AGNFeedback {
- private: 
-  parthenon::Real power;
-  parthenon::Real mass_rate;
-   
-  parthenon::Real magnetic_power;
-  parthenon::Real magnetic_mass_rate;
-  parthenon::Real thermal_feedback;
-  parthenon::Real thermal_density;
-  parthenon::Real jet_density;
-  parthenon::Real jet_feedback;
-  parthenon::Real jet_momentum;
+ 
+  
  public:
+
   const parthenon::Real fixed_power_;
   parthenon::Real thermal_fraction_, kinetic_fraction_, magnetic_fraction_;
   parthenon::Real thermal_mass_fraction_, kinetic_mass_fraction_, magnetic_mass_fraction_;
