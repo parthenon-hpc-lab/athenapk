@@ -427,7 +427,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   // Apply magnetic tower feedback
   const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
 
-  const Realmagnetic_power = power * magnetic_fraction_;
+  const Real magnetic_power = power * magnetic_fraction_;
   const Real magnetic_mass_rate = mass_rate * magnetic_mass_fraction_;
   magnetic_tower.PowerSrcTerm(magnetic_power, magnetic_mass_rate, md, beta_dt, tm);
 
@@ -435,7 +435,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 }
 
 parthenon::TaskStatus
-void AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Real> *md,
+AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Real> *md,
                                   const parthenon::SimTime &tm) {
  
   using parthenon::Real;
