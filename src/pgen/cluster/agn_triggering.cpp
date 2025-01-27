@@ -523,7 +523,7 @@ AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg) {
 }
 
 parthenon::TaskStatus
-void AGNTriggeringFinalizeTriggering(parthenon::MeshData<parthenon::Real> *md,
+AGNTriggeringFinalizeTriggering(parthenon::MeshData<parthenon::Real> *md,
                                      const parthenon::SimTime &tm) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
