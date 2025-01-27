@@ -69,12 +69,12 @@ class AGNFeedback {
                        const parthenon::Real beta_dt, const parthenon::SimTime &tm,
                        const EOS &eos) const;
   friend parthenon::TaskStatus
-  void AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Real> *md,
+  AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Real> *md,
                                 const parthenon::SimTime &tm );
 };
 
 parthenon::TaskStatus
-void AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Real> *md,
+AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Real> *md,
                                 const parthenon::SimTime &tm );
 
 } // namespace cluster
