@@ -41,8 +41,6 @@
 namespace Tracers {
 using namespace parthenon::package::prelude;
 namespace LCInterp = parthenon::interpolation::cent::linear;
-using DualView1D =
-    Kokkos::DualView<int *, parthenon::LayoutWrapper, parthenon::DevMemSpace>;
 
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto tracer_pkg = std::make_shared<StateDescriptor>("tracers");
@@ -105,8 +103,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // 0,    1,    2,    4,    8,    16,   32,   64,   128,  256,  384,  512,  640,  768,
   // 896,  1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, 2560, 3072, 3584, 4096,
   // 4608, 5120, 5632, 6144, 6656, 7168, 7680, 8192, 8704, 9216, 9728, 10240
-  DualView1D dncycles("dncycles", n_lookback);
-  auto dncycles_h = dncycles.view_host();
+  // Not using a DualView as (re)storing a DualView through Params is currently not
+  // supported/tested.
+  parthenon::HostArray1D<int> dncycles_h("dncycles_h", n_lookback);
   dncycles_h(0) = 0;
   int idx = 1;
   int dncycle = 1;
@@ -125,13 +124,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     dncycle += 512;
     idx++;
   }
-  // mark host space as modify
-  dncycles.modify_host();
-  // and ensure data is copied to device
-  dncycles.sync_device();
-
+  auto dncycles_d =
+      Kokkos::create_mirror_view_and_copy(parthenon::DevMemSpace(), dncycles_h);
   tracer_pkg->AddParam("n_lookback", n_lookback);
-  tracer_pkg->AddParam("dncycles", dncycles);
+  tracer_pkg->AddParam("dncycles_h", dncycles_h);
+  tracer_pkg->AddParam("dncycles_d", dncycles_d);
   // Using a vector to reduce code duplication.
   Metadata vreal_swarmvalue_metadata(
       {Metadata::Real, Metadata::Vector, Metadata::Restart},
@@ -215,9 +212,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
   const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
 
-  const auto dncycles = tracers_pkg->Param<DualView1D>("dncycles");
-  auto dncycles_h = dncycles.view_host();
-  auto dncycles_d = dncycles.view_device();
+  const auto dncycles_d = tracers_pkg->Param<parthenon::ParArray1D<int>>("dncycles_d");
+  const auto dncycles_h = tracers_pkg->Param<parthenon::HostArray1D<int>>("dncycles_h");
   // Params (which is storing t_lookback) is shared across all blocks so we update it
   // outside the block loop. Note, that this is a standard vector, so it cannot be used in
   // the kernel (but also don't need to be used as can directly update it)
