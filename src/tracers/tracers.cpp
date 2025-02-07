@@ -23,6 +23,9 @@
 #include <string>
 #include <vector>
 
+// Kokkos headers
+#include "Kokkos_DualView.hpp"
+
 // Parthenon headers
 #include "basic_types.hpp"
 #include "interface/metadata.hpp"
@@ -38,6 +41,8 @@
 namespace Tracers {
 using namespace parthenon::package::prelude;
 namespace LCInterp = parthenon::interpolation::cent::linear;
+using DualView1D =
+    Kokkos::DualView<int *, parthenon::LayoutWrapper, parthenon::DevMemSpace>;
 
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto tracer_pkg = std::make_shared<StateDescriptor>("tracers");
@@ -54,7 +59,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   params.Add("num_tracers_per_cell", num_tracers_per_cell);
 
   // Initialize random number generator pool
-  int rng_seed = pin->GetOrAddInteger("tracers", "rng_seed", time(NULL));
+  int rng_seed = pin->GetOrAddInteger("tracers", "rng_seed", time(nullptr));
   tracer_pkg->AddParam<>("rng_seed", rng_seed);
   RNGPool rng_pool(rng_seed);
   tracer_pkg->AddParam<>("rng_pool", rng_pool);
@@ -95,12 +100,37 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
 
   // TODO(pgrete) this should eventually moved to a more pgen/user specific place
-  // MARCUS AND EVAN LOOK
-  // Number of lookback times to be stored (in powers of 2,
-  // i.e., 12 allows to go from 0, 2^0 = 1, 2^1 = 2, 2^2 = 4, ..., 2^10 = 1024 cycles)
-  const int n_lookback = 14; // could even be made an input parameter if required/desired
-                             // (though it should probably not be changeable for restarts)
+  const int n_lookback = 40; // number of entries to store statistics
+  // list of cycles between updating statistics
+  // 0,    1,    2,    4,    8,    16,   32,   64,   128,  256,  384,  512,  640,  768,
+  // 896,  1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, 2560, 3072, 3584, 4096,
+  // 4608, 5120, 5632, 6144, 6656, 7168, 7680, 8192, 8704, 9216, 9728, 10240
+  DualView1D dncycles("dncycles", n_lookback);
+  dncycles.h_view(0) = 0;
+  int idx = 1;
+  int dncycle = 1;
+  while (dncycle < 256) {
+    dncycles.h_view(idx) = dncycle;
+    dncycle *= 2;
+    idx++;
+  }
+  while (dncycle < 2048) {
+    dncycles.h_view(idx) = dncycle;
+    dncycle += 128;
+    idx++;
+  }
+  while (dncycle <= 10240) {
+    dncycles.h_view(idx) = dncycle;
+    dncycle += 512;
+    idx++;
+  }
+  // mark host space as modify
+  dncycles.template modify<typename DualView1D::host_mirror_space>();
+  // and ensure data is copied to device
+  dncycles.template sync<typename DualView1D::execution_space>();
+
   tracer_pkg->AddParam("n_lookback", n_lookback);
+  tracer_pkg->AddParam("dncycles", dncycles);
   // Using a vector to reduce code duplication.
   Metadata vreal_swarmvalue_metadata(
       {Metadata::Real, Metadata::Vector, Metadata::Restart},
@@ -183,17 +213,17 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
   const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
+
+  const auto dncycles = tracers_pkg->Param<DualView1D>("dncycles");
   // Params (which is storing t_lookback) is shared across all blocks so we update it
   // outside the block loop. Note, that this is a standard vector, so it cannot be used in
   // the kernel (but also don't need to be used as can directly update it)
   auto t_lookback = tracers_pkg->Param<std::vector<Real>>("t_lookback");
-  auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
   auto idx = n_lookback - 1;
-  while (dncycle > 0) {
-    if (current_cycle % dncycle == 0) {
+  while (idx > 0) {
+    if (current_cycle % (dncycles.h_view(idx) - dncycles.h_view(idx - 1)) == 0) {
       t_lookback[idx] = t_lookback[idx - 1];
     }
-    dncycle /= 2;
     idx -= 1;
   }
   t_lookback[0] = tm.time;
@@ -259,17 +289,13 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
               B_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB3);
             }
 
-            // MARCUS AND EVAN LOOK
-            // Q: DO WE HAVE TO INITIALISE S_0?
-            // PG: It's default intiialized to zero, so probably not.
-            auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
             auto s_idx = n_lookback - 1;
-            while (dncycle > 0) {
-              if (current_cycle % dncycle == 0) {
+            while (s_idx > 0) {
+              if (current_cycle % (dncycles.d_view(s_idx) - dncycles.d_view(s_idx - 1)) ==
+                  0) {
                 s(s_idx, n) = s(s_idx - 1, n);
                 sdot(s_idx, n) = sdot(s_idx - 1, n);
               }
-              dncycle /= 2;
               s_idx -= 1;
             }
             s(0, n) = Kokkos::log(rho(n));
@@ -288,6 +314,10 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
     num_particles_total += swarm->GetNumActive();
   } // loop over all blocks on this rank (this MeshData container)
 
+  // Safetey check (for now)
+  PARTHENON_REQUIRE_THROWS(md->NumBlocks() ==
+                               md->GetMeshPointer()->GetNumMeshBlocksThisRank(),
+                           "The following reduction assumes pack_size=-1.");
   // Results still live in device memory. Copy to host for global reduction and output.
   auto corr_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), corr);
 #ifdef MPI_PARALLEL
