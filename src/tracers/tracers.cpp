@@ -106,28 +106,29 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // 896,  1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, 2560, 3072, 3584, 4096,
   // 4608, 5120, 5632, 6144, 6656, 7168, 7680, 8192, 8704, 9216, 9728, 10240
   DualView1D dncycles("dncycles", n_lookback);
-  dncycles.h_view(0) = 0;
+  auto dncycles_h = dncycles.view_host();
+  dncycles_h(0) = 0;
   int idx = 1;
   int dncycle = 1;
   while (dncycle < 256) {
-    dncycles.h_view(idx) = dncycle;
+    dncycles_h(idx) = dncycle;
     dncycle *= 2;
     idx++;
   }
   while (dncycle < 2048) {
-    dncycles.h_view(idx) = dncycle;
+    dncycles_h(idx) = dncycle;
     dncycle += 128;
     idx++;
   }
   while (dncycle <= 10240) {
-    dncycles.h_view(idx) = dncycle;
+    dncycles_h(idx) = dncycle;
     dncycle += 512;
     idx++;
   }
   // mark host space as modify
-  dncycles.template modify<typename DualView1D::host_mirror_space>();
+  dncycles.modify_host();
   // and ensure data is copied to device
-  dncycles.template sync<typename DualView1D::execution_space>();
+  dncycles.sync_device();
 
   tracer_pkg->AddParam("n_lookback", n_lookback);
   tracer_pkg->AddParam("dncycles", dncycles);
@@ -215,13 +216,15 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
 
   const auto dncycles = tracers_pkg->Param<DualView1D>("dncycles");
+  auto dncycles_h = dncycles.view_host();
+  auto dncycles_d = dncycles.view_device();
   // Params (which is storing t_lookback) is shared across all blocks so we update it
   // outside the block loop. Note, that this is a standard vector, so it cannot be used in
   // the kernel (but also don't need to be used as can directly update it)
   auto t_lookback = tracers_pkg->Param<std::vector<Real>>("t_lookback");
   auto idx = n_lookback - 1;
   while (idx > 0) {
-    if (current_cycle % (dncycles.h_view(idx) - dncycles.h_view(idx - 1)) == 0) {
+    if (current_cycle % (dncycles_h(idx) - dncycles_h(idx - 1)) == 0) {
       t_lookback[idx] = t_lookback[idx - 1];
     }
     idx -= 1;
@@ -291,8 +294,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
             auto s_idx = n_lookback - 1;
             while (s_idx > 0) {
-              if (current_cycle % (dncycles.d_view(s_idx) - dncycles.d_view(s_idx - 1)) ==
-                  0) {
+              if (current_cycle % (dncycles_d(s_idx) - dncycles_d(s_idx - 1)) == 0) {
                 s(s_idx, n) = s(s_idx - 1, n);
                 sdot(s_idx, n) = sdot(s_idx - 1, n);
               }
