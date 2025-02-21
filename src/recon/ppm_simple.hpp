@@ -23,12 +23,17 @@
 #ifndef RECONSTRUCT_PPM_SIMPLE_HPP_
 #define RECONSTRUCT_PPM_SIMPLE_HPP_
 
+#include "interface/variable_pack.hpp"
 #include <algorithm> // max()
 #include <math.h>
 
 #include <parthenon/parthenon.hpp>
 
 using parthenon::ScratchPad2D;
+
+enum reconstruct_idx { im2 = 0, im1, i0, ip1, ip2 };
+
+#define WELL_BALANCED
 
 //----------------------------------------------------------------------------------------
 //! \fn PPM()
@@ -161,6 +166,46 @@ void PPM(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip
   }
 }
 
+//----------------------------------------------------------------------------------------
+//! \fn PPM_balanced()
+//  \brief Reconstructs parabolic slope in cell i to compute ql(i+1) and qr(i), but
+// subtracts the hydrostatic pressure before the reconstruction and add its back
+// afterward.
+
+KOKKOS_INLINE_FUNCTION
+void PPM_balanced(const Real &q_im2, const Real &q_im1, const Real &q_i,
+                  const Real &q_ip1, const Real &q_ip2,
+                  const std::array<Real, 5> &p_over_rho, const std::array<Real, 5> &phi,
+                  const std::array<Real, 2> &phi_faces, Real &ql_ip1, Real &qr_i) {
+  // reconstruct cell-centered hydrostatic values
+  std::array<Real, 5> q_hse{};
+
+  q_hse[i0] = q_i;
+  q_hse[ip1] = q_hse[i0] * std::exp(-(phi[ip1] - phi[i0]) / p_over_rho[i0]);
+  q_hse[ip2] = q_hse[ip1] * std::exp(-(phi[ip2] - phi[ip1]) / p_over_rho[ip1]);
+  q_hse[im1] = q_hse[i0] * std::exp(-(phi[im1] - phi[i0]) / p_over_rho[i0]);
+  q_hse[im2] = q_hse[im1] * std::exp(-(phi[im2] - phi[im1]) / p_over_rho[im1]);
+
+  // divide by cell-average hydrostatic values
+  const Real p_i = q_i / q_hse[i0];
+  const Real p_ip1 = q_ip1 / q_hse[ip1];
+  const Real p_ip2 = q_ip2 / q_hse[ip2];
+  const Real p_im1 = q_im1 / q_hse[im1];
+  const Real p_im2 = q_im2 / q_hse[im2];
+
+  // do PPM reconstruction
+  PPM(p_im2, p_im1, p_i, p_ip1, p_ip2, ql_ip1, qr_i);
+
+  // multiply by pointwise hydrostatic values
+  const Real phi_p = phi_faces[1];
+  const Real phi_m = phi_faces[0];
+  const Real p_plus = q_i * std::exp(-(phi_p - phi[i0]) / p_over_rho[i0]);
+  const Real p_minus = q_i * std::exp(-(phi_m - phi[i0]) / p_over_rho[i0]);
+
+  ql_ip1 *= p_plus;
+  qr_i *= p_minus;
+}
+
 //! \fn Reconstruct<Reconstruction::ppm, int DIR>()
 //  \brief Wrapper function for PPM reconstruction
 //  In X1DIR call over [is-1,ie+1] to get BOTH L/R states over [is,ie]
@@ -174,27 +219,68 @@ template <Reconstruction recon, int XNDIR>
 KOKKOS_INLINE_FUNCTION typename std::enable_if<recon == Reconstruction::ppm, void>::type
 Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
             const int iu, const parthenon::VariablePack<Real> &q, ScratchPad2D<Real> &ql,
-            ScratchPad2D<Real> &qr) {
+            ScratchPad2D<Real> &qr, const parthenon::VariablePack<Real> &phi,
+            const parthenon::VariablePack<Real> &phi_zface) {
   const auto nvar = q.GetDim(4);
   for (auto n = 0; n < nvar; ++n) {
-    parthenon::par_for_inner(member, il, iu, [&](const int i) {
-      if constexpr (XNDIR == parthenon::X1DIR) {
-        // ql is ql_ip1 and qr is qr_i
-        PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
-            q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
-      } else if constexpr (XNDIR == parthenon::X2DIR) {
-        // ql is ql_jp1 and qr is qr_j
-        PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
-            q(n, k, j + 2, i), ql(n, i), qr(n, i));
-      } else if constexpr (XNDIR == parthenon::X3DIR) {
-        // ql is ql_kp1 and qr is qr_k
-        PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
-            q(n, k + 2, j, i), ql(n, i), qr(n, i));
-      } else {
-        PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
-      }
-    });
+#ifdef WELL_BALANCED
+    if (n == IPR || n == IDN) {
+      // reconstruct pressure or density
+      parthenon::par_for_inner(member, il, iu, [&](const int i) {
+        if constexpr (XNDIR == parthenon::X1DIR) {
+          // ql is ql_ip1 and qr is qr_i
+          PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+              q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+
+        } else if constexpr (XNDIR == parthenon::X2DIR) {
+          // ql is ql_jp1 and qr is qr_j
+          PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+              q(n, k, j + 2, i), ql(n, i), qr(n, i));
+
+        } else if constexpr (XNDIR == parthenon::X3DIR) {
+          std::array<Real, 5> p_over_rho{q(IPR, k - 2, j, i) / q(IDN, k - 2, j, i),
+                                         q(IPR, k - 1, j, i) / q(IDN, k - 1, j, i),
+                                         q(IPR, k, j, i) / q(IDN, k, j, i),
+                                         q(IPR, k + 1, j, i) / q(IDN, k + 1, j, i),
+                                         q(IPR, k + 2, j, i) / q(IDN, k + 2, j, i)};
+
+          std::array<Real, 5> sphi{phi(0, k - 2, j, i), phi(0, k - 1, j, i),
+                                   phi(0, k, j, i), phi(0, k + 1, j, i),
+                                   phi(0, k + 2, j, i)};
+          std::array<Real, 2> sphi_faces{phi_zface(0, k, j, i),
+                                         phi_zface(0, k + 1, j, i)};
+
+          // ql is ql_kp1 and qr is qr_k
+          PPM_balanced(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i),
+                       q(n, k + 1, j, i), q(n, k + 2, j, i), p_over_rho, sphi, sphi_faces,
+                       ql(n, i), qr(n, i));
+        } else {
+          PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
+        }
+      });
+    } else {
+#endif
+      parthenon::par_for_inner(member, il, iu, [&](const int i) {
+        if constexpr (XNDIR == parthenon::X1DIR) {
+          // ql is ql_ip1 and qr is qr_i
+          PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+              q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+        } else if constexpr (XNDIR == parthenon::X2DIR) {
+          // ql is ql_jp1 and qr is qr_j
+          PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+              q(n, k, j + 2, i), ql(n, i), qr(n, i));
+        } else if constexpr (XNDIR == parthenon::X3DIR) {
+          // ql is ql_kp1 and qr is qr_k
+          PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
+              q(n, k + 2, j, i), ql(n, i), qr(n, i));
+        } else {
+          PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
+        }
+      });
+    }
+#ifdef WELL_BALANCED
   }
+#endif
 }
 
 #endif // RECONSTRUCT_PPM_SIMPLE_HPP_
