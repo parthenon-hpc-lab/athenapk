@@ -36,8 +36,8 @@ ox2_bc     = periodic   # outer-X2 boundary flag
 nx3        = 128        # Number of zones in X3-direction
 x3min      = -100.      # minimum value of X3
 x3max      = 100.       # maximum value of X3
-ix3_bc     = user       # inner-X3 boundary flag
-ox3_bc     = user       # outer-X3 boundary flag
+ix3_bc     = precipitator_reflect_x3       # inner-X3 boundary flag
+ox3_bc     = precipitator_reflect_x3       # outer-X3 boundary flag
 
 
 <parthenon/meshblock>
@@ -72,8 +72,7 @@ lambda_units_cgs = 1
 cfl = 1.0
 
 <precipitator>
-hse_profile_filename = inputs/profile_tc_tff_3.0.txt
-bfield_gauss = 1.0e-6           # 1.0 uG
+hse_profile_filename = inputs/profile_hse_3.0_beta_100.txt
 uniform_init = 0
 enable_heating = magic          # options: [magic, none]
 thermostat_temperature = 1.0e7  # K
