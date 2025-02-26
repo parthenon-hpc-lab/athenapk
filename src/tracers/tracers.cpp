@@ -98,10 +98,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
 
   // TODO(pgrete) this should eventually moved to a more pgen/user specific place
-  const int n_lookback = 56; // number of entries to store statistics
+  // number of entries to store statistics
+  const auto n_lookback = pin->GetOrAddInteger("tracers", "n_lookback", -1);
+  PARTHENON_REQUIRE_THROWS(n_lookback == 40 || n_lookback == 56, "Unknown lookback time");
   // list of cycles between updating statistics
   // 0,    1,    2,    4,    8,    16,   32,   64,   128,
-  // then 128 steps till 4096 followed by 256 steps up to 8192
+  // then followed depending on n_lookback.
   // Not using a DualView as (re)storing a DualView through Params is currently not
   // supported/tested.
   parthenon::HostArray1D<int> dncycles_h("dncycles_h", n_lookback);
@@ -113,15 +115,35 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     dncycle *= 2;
     idx++;
   }
-  while (dncycle < 4096) {
-    dncycles_h(idx) = dncycle;
-    dncycle += 128;
-    idx++;
-  }
-  while (dncycle <= 8192) {
-    dncycles_h(idx) = dncycle;
-    dncycle += 256;
-    idx++;
+  // then 128 steps till 4096 followed by 256 steps up to 8192
+  if (n_lookback == 56) {
+    while (dncycle < 4096) {
+      dncycles_h(idx) = dncycle;
+      dncycle += 128;
+      idx++;
+    }
+    while (dncycle <= 8192) {
+      dncycles_h(idx) = dncycle;
+      dncycle += 256;
+      idx++;
+    }
+    // following 128, then 256,  384,  512,  640,  768,
+    // 896,  1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, 2560, 3072, 3584, 4096,
+    // 4608, 5120, 5632, 6144, 6656, 7168, 7680, 8192, 8704, 9216, 9728, 10240
+  } else if (n_lookback == 40) {
+    while (dncycle < 2048) {
+      dncycles_h(idx) = dncycle;
+      dncycle += 128;
+      idx++;
+    }
+    while (dncycle <= 10240) {
+      dncycles_h(idx) = dncycle;
+      dncycle += 512;
+      idx++;
+    }
+  } else {
+    PARTHENON_THROW(
+        "This line should not be reached as invalid n_lookback are caught above.");
   }
   auto dncycles_d =
       Kokkos::create_mirror_view_and_copy(parthenon::DevMemSpace(), dncycles_h);
