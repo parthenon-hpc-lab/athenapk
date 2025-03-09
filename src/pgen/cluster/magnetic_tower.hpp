@@ -17,6 +17,7 @@
 #include <parthenon/package.hpp>
 
 #include "jet_coords.hpp"
+#include "bh_coords.hpp"
 #include "utils/error_checking.hpp"
 
 namespace cluster {

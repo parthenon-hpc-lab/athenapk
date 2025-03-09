@@ -68,15 +68,16 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
       write_to_file_(pin->GetOrAddBoolean(block, "write_to_file", false)),
       triggering_filename_(
           pin->GetOrAddString(block, "triggering_filename", "agn_triggering.dat")) {
-
+  
   const auto units = hydro_pkg->Param<Units>("units");
   const parthenon::Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
   const parthenon::Real H_mass_fraction = 1.0 - He_mass_fraction;
   const parthenon::Real mu =
       1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
-
+  const bool init_spin_BH  = hydro_pkg->Param<bool>("init_spin_BH");
+  
   mean_molecular_mass_ = mu * units.atomic_mass_unit();
-
+  
   if (triggering_mode_ == AGNTriggeringMode::NONE) {
     hydro_pkg->AddParam<bool>("agn_triggering_reduce_accretion_rate", false);
   } else {
@@ -85,6 +86,12 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
   switch (triggering_mode_) {
   case AGNTriggeringMode::COLD_GAS: {
     hydro_pkg->AddParam<Real>("agn_triggering_cold_mass", 0, Params::Mutability::Restart);
+    if (init_spin_BH){
+      hydro_pkg->AddParam<Real>("J_gas_x", 0, Params::Mutability::Restart);
+      hydro_pkg->AddParam<Real>("J_gas_y", 0, Params::Mutability::Restart);
+      hydro_pkg->AddParam<Real>("J_gas_z", 0, Params::Mutability::Restart);
+    }
+    
     break;
   }
   case AGNTriggeringMode::BOOSTED_BONDI:
@@ -120,10 +127,13 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
 
 // Compute Cold gas accretion rate within the accretion radius for cold gas triggering
 // and simultaneously remove cold gas (updating conserveds and primitives)
+
+// If the spin of the black hole is followed, first calculate the gas angular momentum
 template <typename EOS>
 void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
                                    parthenon::MeshData<parthenon::Real> *md,
                                    const parthenon::Real dt, const EOS eos) const {
+  
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
   using parthenon::Real;
@@ -152,15 +162,21 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
   const Real cold_t_acc = cold_t_acc_;
 
   const bool remove_accreted_mass = remove_accreted_mass_;
-
+  
+  //========================================================================================
+  //! Calculate the accreted cold mass and remove it from the accretion region
+  //========================================================================================
+  
+  // Calculate and remove cold gas
   Real md_cold_mass = 0;
-
+  
   parthenon::par_reduce(
       parthenon::loop_pattern_mdrange_tag, "AGNTriggering::ReduceColdGas",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     Real &team_cold_mass) {
+        
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
@@ -178,6 +194,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
 
             if (k >= int_kb.s && k <= int_kb.e && j >= int_jb.s && j <= int_jb.e &&
                 i >= int_ib.s && i <= int_ib.e) {
+              
               // Only reduce the cold gas that exists on the interior grid
               team_cold_mass += cell_cold_mass;
             }
@@ -196,6 +213,104 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
       Kokkos::Sum<Real>(md_cold_mass));
   cold_mass += md_cold_mass;
 }
+
+
+
+//===============================================================================================
+//
+//!                  Compute the angular momentum of the gas
+//
+//===============================================================================================
+template <typename EOS>
+void AGNTriggering::ReduceAngularMomentum(parthenon::Real &J_gas_x, parthenon::Real &J_gas_y, parthenon::Real &J_gas_z,
+                                          parthenon::MeshData<parthenon::Real> *md,
+                                          const parthenon::Real dt, const EOS eos) const {
+
+  using parthenon::IndexDomain;
+  using parthenon::IndexRange;
+  using parthenon::Real;
+
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  // Grab some necessary variables
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
+  IndexRange int_ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange int_jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange int_kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
+  
+  // Reduce just the cold gas
+  const auto units = hydro_pkg->Param<Units>("units");
+  
+  //========================================================================================
+  //! If needed, calculate the gas angular momentum
+  //========================================================================================
+  
+  const bool init_spin_BH = hydro_pkg->Param<bool>("init_spin_BH");
+  
+  if (init_spin_BH){
+    
+    // Getting the radiius of the region within which calculating the angular momentum
+    const Real J_gas_radius = hydro_pkg->Param<Real>("J_gas_radius");
+        
+    // Define variables for the reduction
+    Real md_J_gas_x = 0.0, md_J_gas_y = 0.0, md_J_gas_z = 0.0;
+    
+    // Perform reduction
+    Kokkos::parallel_reduce(
+        "AGNTriggering::ReduceColdGasMomentum",
+        Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+            parthenon::DevExecSpace(), {0, kb.s, jb.s, ib.s},
+            {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+            {1, 1, 1, ib.e + 1 - ib.s}),
+        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
+                      Real &team_J_gas_x, Real &team_J_gas_y, Real &team_J_gas_z) {
+          
+          auto &cons = cons_pack(b);
+          auto &prim = prim_pack(b);
+          const auto &coords = cons_pack.GetCoords(b);
+          
+          const parthenon::Real x = coords.Xc<1>(i);
+          const parthenon::Real y = coords.Xc<2>(j);
+          const parthenon::Real z = coords.Xc<3>(k);
+          
+          const parthenon::Real r2 = x * x + y * y + z * z;
+          
+          // Only calculate angular momentum of gas inside the sphere of radius J_gas_radius
+          if (r2 < J_gas_radius * J_gas_radius) {
+            
+            const Real cell_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
+
+            if (k >= int_kb.s && k <= int_kb.e && j >= int_jb.s && j <= int_jb.e &&
+                i >= int_ib.s && i <= int_ib.e) {
+              
+              // Only reduce the cold gas that exists on the interior grid
+              const Real vx = prim(IV1, k, j, i);
+              const Real vy = prim(IV2, k, j, i);
+              const Real vz = prim(IV3, k, j, i);
+              
+              // Compute angular momentum components
+              team_J_gas_x += cell_mass * (y * vz - z * vy);
+              team_J_gas_y += cell_mass * (z * vx - x * vz);
+              team_J_gas_z += cell_mass * (x * vy - y * vx);
+            }
+
+          }
+        },
+        Kokkos::Sum<Real>(md_J_gas_x), Kokkos::Sum<Real>(md_J_gas_y), Kokkos::Sum<Real>(md_J_gas_z));
+
+  J_gas_x += md_J_gas_x;
+  J_gas_y += md_J_gas_y;
+  J_gas_z += md_J_gas_z;
+      
+  }
+}
+
 
 // Compute Mass-weighted total density, velocity, and sound speed and total mass
 // for Bondi accretion
@@ -367,10 +482,13 @@ AGNTriggering::GetAccretionRate(parthenon::StateDescriptor *hydro_pkg) const {
 parthenon::TaskStatus
 AGNTriggeringResetTriggering(parthenon::StateDescriptor *hydro_pkg) {
   const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
-
+  
   switch (agn_triggering.triggering_mode_) {
   case AGNTriggeringMode::COLD_GAS: {
     hydro_pkg->UpdateParam<Real>("agn_triggering_cold_mass", 0);
+    hydro_pkg->UpdateParam<Real>("J_gas_x", 0);
+    hydro_pkg->UpdateParam<Real>("J_gas_y", 0);
+    hydro_pkg->UpdateParam<Real>("J_gas_z", 0);
     break;
   }
   case AGNTriggeringMode::BOOSTED_BONDI:
@@ -391,26 +509,44 @@ AGNTriggeringResetTriggering(parthenon::StateDescriptor *hydro_pkg) {
 parthenon::TaskStatus
 AGNTriggeringReduceTriggering(parthenon::MeshData<parthenon::Real> *md,
                               const parthenon::Real dt) {
-
+  
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
-
+  const bool init_spin_BH = hydro_pkg->Param<bool>("init_spin_BH");
+  
   switch (agn_triggering.triggering_mode_) {
   case AGNTriggeringMode::COLD_GAS: {
     Real cold_mass = hydro_pkg->Param<parthenon::Real>("agn_triggering_cold_mass");
-
+    Real J_gas_x   = hydro_pkg->Param<parthenon::Real>("J_gas_x");
+    Real J_gas_y   = hydro_pkg->Param<parthenon::Real>("J_gas_y");
+    Real J_gas_z   = hydro_pkg->Param<parthenon::Real>("J_gas_z");
+      
     auto fluid = hydro_pkg->Param<Fluid>("fluid");
     if (fluid == Fluid::euler) {
       agn_triggering.ReduceColdMass(cold_mass, md, dt,
                                     hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+      if (init_spin_BH){
+        agn_triggering.ReduceAngularMomentum(J_gas_x, J_gas_y, J_gas_z, md, dt,
+                                    hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+      }
     } else if (fluid == Fluid::glmmhd) {
       agn_triggering.ReduceColdMass(cold_mass, md, dt,
                                     hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+      if (init_spin_BH){
+        agn_triggering.ReduceAngularMomentum(J_gas_x, J_gas_y, J_gas_z, md, dt,
+                                    hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+      }
     } else {
       PARTHENON_FAIL("AGNTriggeringReduceTriggeringQuantities: Unknown EOS");
     }
 
     hydro_pkg->UpdateParam("agn_triggering_cold_mass", cold_mass);
+    if (init_spin_BH){
+      hydro_pkg->UpdateParam("J_gas_x", J_gas_x);
+      hydro_pkg->UpdateParam("J_gas_y", J_gas_y);
+      hydro_pkg->UpdateParam("J_gas_z", J_gas_z);
+    }
+    
     break;
   }
   case AGNTriggeringMode::BOOSTED_BONDI:
@@ -446,11 +582,32 @@ AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg) {
   const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
   switch (agn_triggering.triggering_mode_) {
   case AGNTriggeringMode::COLD_GAS: {
-
+    
     Real accretion_rate = hydro_pkg->Param<Real>("agn_triggering_cold_mass");
     PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &accretion_rate, 1,
                                       MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
     hydro_pkg->UpdateParam("agn_triggering_cold_mass", accretion_rate);
+    
+    // Also reduce the angular momentum
+    
+    // x-component
+    Real angular_gas_x = hydro_pkg->Param<Real>("J_gas_x");
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &angular_gas_x, 1,
+                                      MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
+    hydro_pkg->UpdateParam("J_gas_x", angular_gas_x);
+    
+    // y-component
+    Real angular_gas_y = hydro_pkg->Param<Real>("J_gas_y");
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &angular_gas_y, 1,
+                                      MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
+    hydro_pkg->UpdateParam("J_gas_y", angular_gas_y);
+    
+    // z-component
+    Real angular_gas_z = hydro_pkg->Param<Real>("J_gas_z");
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &angular_gas_z, 1,
+                                      MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
+    hydro_pkg->UpdateParam("J_gas_z", angular_gas_z);
+    
     break;
   }
   case AGNTriggeringMode::BOOSTED_BONDI:

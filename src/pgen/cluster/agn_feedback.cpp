@@ -242,12 +242,12 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
     // No AGN feedback, return
     return;
   }
-
+  
   PARTHENON_REQUIRE(magnetic_fraction_ != 0 || thermal_fraction_ != 0 ||
                         kinetic_fraction_ != 0,
                     "AGNFeedback::FeedbackSrcTerm Magnetic, Thermal, and Kinetic "
                     "fractions are all zero");
-
+  
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
@@ -260,6 +260,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   ////////////////////////////////////////////////////////////////////////////////
   // Thermal quantities
   ////////////////////////////////////////////////////////////////////////////////
+  
   const Real thermal_radius2 = thermal_radius_ * thermal_radius_;
   const Real thermal_scaling_factor = 1 / (4. / 3. * M_PI * pow(thermal_radius_, 3));
 
@@ -279,47 +280,154 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const Real kinetic_jet_radius = kinetic_jet_radius_;
   const Real kinetic_jet_thickness = kinetic_jet_thickness_;
   const Real kinetic_jet_offset = kinetic_jet_offset_;
-
-  // Matches 1/2.*jet_density*jet_velocity*jet_velocity*beta_dt;
-  // const Real kinetic_feedback =
-  //    kinetic_fraction_ * power * kinetic_scaling_factor * beta_dt; // energy/volume
-
+  
   // Amount of density to dump in each cell
   const Real jet_density =
       kinetic_mass_fraction_ * mass_rate * kinetic_scaling_factor * beta_dt;
-
+  
   // Velocity of added gas
   const Real jet_velocity = kinetic_jet_velocity_;
   const Real jet_specific_internal_e = kinetic_jet_e_;
-
+  
   // Amount of momentum density ( density * velocity) to dump in each cell
   const Real jet_momentum = jet_density * jet_velocity;
-
+  
   // Amount of total energy to dump in each cell
   const Real jet_feedback = kinetic_fraction_ * power * kinetic_scaling_factor * beta_dt;
-
-  const Real vceil = vceil_;
+  
+  const Real vceil  = vceil_;
   const Real vceil2 = SQR(vceil);
-  const Real eceil = eceil_;
-  const Real gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
+  const Real eceil  = eceil_;
+  const Real gm1    = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
   const auto enable_tracer = enable_tracer_;
-  ////////////////////////////////////////////////////////////////////////////////
-
   const parthenon::Real time = tm.time;
+  
+  ////////////////////////////////////////////////////////////////////////////////
+  
+  // Boolean to verify whether the jet coordinate should be calculated out of BH spin.
+  // If needed, extract the angular momentum of the gas.
+  const bool init_spin_BH = hydro_pkg->Param<bool>("init_spin_BH");
+  
+  // Get useful parameters
+  const Real mass_smbh_8          = hydro_pkg->Param<Real>("mass_smbh") / (1e8 * units.msun());
+  const Real radiative_efficiency = 0.1;
+  
+  // Calculate the mass rate to Eddington mass rate ratio
+  const Real eddington_mass_rate  = 10 * (units.msun() / units.yr()) * mass_smbh_8;
+  const Real eddington_ratio      = mass_rate / eddington_mass_rate;
+  
+  // Get the BH and gas spin vectors
+  const Real J_BH_x  = hydro_pkg->Param<Real>("J_BH_x");
+  const Real J_BH_y  = hydro_pkg->Param<Real>("J_BH_y");
+  const Real J_BH_z  = hydro_pkg->Param<Real>("J_BH_z");
+  const Real J_BH_magnitude = std::sqrt(J_BH_x * J_BH_x + J_BH_y * J_BH_y + J_BH_z * J_BH_z);
+  
+  // Compute the specific spin of the black hole
+  const Real a_BH    = J_BH_magnitude * units.speed_of_light() / (units.gravitational_constant() * std::pow(hydro_pkg->Param<Real>("mass_smbh"),2.0));
+  
+  const Real J_gas_x = hydro_pkg->Param<Real>("J_gas_x");
+  const Real J_gas_y = hydro_pkg->Param<Real>("J_gas_y");
+  const Real J_gas_z = hydro_pkg->Param<Real>("J_gas_z");
+  
+  // Calculate the magnitude of the angular momentum vector
+  const Real J_gas_magnitude = std::sqrt(J_gas_x * J_gas_x + J_gas_y * J_gas_y + J_gas_z * J_gas_z);
+  
+  // Compute the unit vector components
+  const Real j_gas_x = J_gas_x / J_gas_magnitude;
+  const Real j_gas_y = J_gas_y / J_gas_magnitude;
+  const Real j_gas_z = J_gas_z / J_gas_magnitude;
+  
+  // Compute the anti-alignment criteria
+  const Real J_d_over_2J_bh = 6.8e-2 * std::pow(eddington_ratio / (radiative_efficiency / 0.1), 1.0 / 8.0) *
+                          std::pow(mass_smbh_8, 23.0 / 16.0) * std::pow(a_BH, 3.0 / 16.0);
+  
+  // Compare with cos(theta)
+  const Real cos_theta = (J_gas_x * J_BH_x + J_gas_y * J_BH_y + J_gas_z * J_BH_z) / (J_gas_magnitude * J_BH_magnitude);
+  
+  // Compute the total angular momentum J_tot = J_BH + J_gas
+  const Real J_tot_x = J_BH_x + 2 * J_BH_magnitude * J_d_over_2J_bh * j_gas_x;
+  const Real J_tot_y = J_BH_y + 2 * J_BH_magnitude * J_d_over_2J_bh * j_gas_y;
+  const Real J_tot_z = J_BH_z + 2 * J_BH_magnitude * J_d_over_2J_bh * j_gas_z;
+  
+  // Compute the magnitude of J_tot
+  const Real J_tot_magnitude = std::sqrt(J_tot_x * J_tot_x + J_tot_y * J_tot_y + J_tot_z * J_tot_z);
+  
+  // Compute the scalar product (dot product) of J_tot and J_BH
+  const Real J_dot_product = J_tot_x * J_BH_x + J_tot_y * J_BH_y + J_tot_z * J_BH_z;
+  
+  // Defining the new spin, will be used to clip the angular momentum if needed
+  const Real new_a_BH = J_tot_magnitude * units.speed_of_light() / (units.gravitational_constant() * std::pow(hydro_pkg->Param<Real>("mass_smbh"),2.0));
+  
+  // Compute the condition for anti-alignment
+  if (cos_theta < -J_d_over_2J_bh && J_dot_product > 0) {
 
+    if (new_a_BH <= 1){
+      // Anti-alignment case: J_BH = -J_tot
+      hydro_pkg->UpdateParam("J_BH_x", -J_tot_x);
+      hydro_pkg->UpdateParam("J_BH_y", -J_tot_y);
+      hydro_pkg->UpdateParam("J_BH_z", -J_tot_z);
+    } else {
+      
+      // Anti-alignment case: J_BH = -J_tot
+      hydro_pkg->UpdateParam("J_BH_x", -J_tot_x/new_a_BH);
+      hydro_pkg->UpdateParam("J_BH_y", -J_tot_y/new_a_BH);
+      hydro_pkg->UpdateParam("J_BH_z", -J_tot_z/new_a_BH);
+    }
+  
+  } else {
+    if (new_a_BH <= 1){
+      // Alignment case
+      hydro_pkg->UpdateParam("J_BH_x", J_tot_x);
+      hydro_pkg->UpdateParam("J_BH_y", J_tot_y);
+      hydro_pkg->UpdateParam("J_BH_z", J_tot_z);
+    } else {
+      // Clipping
+      hydro_pkg->UpdateParam("J_BH_x", J_tot_x/new_a_BH);
+      hydro_pkg->UpdateParam("J_BH_y", J_tot_y/new_a_BH);
+      hydro_pkg->UpdateParam("J_BH_z", J_tot_z/new_a_BH);
+      
+    }
+  }
+  
+  // Convert to spherical coordinates
+  const Real theta_BH = std::acos(hydro_pkg->Param<Real>("J_BH_z") / J_tot_magnitude);
+  const Real phi_BH   = std::atan2(hydro_pkg->Param<Real>("J_BH_y"), hydro_pkg->Param<Real>("J_BH_x"));
+  
+  // Create the BH coords factory
+  const auto &bh_coords_factory =
+    hydro_pkg->Param<BHCoordsFactory>("bh_coords_factory");
+  const BHCoords bh_coords = bh_coords_factory.CreateBHCoords(theta_BH,phi_BH);
+  
+  // Std::cout the tracked properties of the BH spin vector
+  /*
+  std::cout << "mass_smbh_8=" << mass_smbh_8 << std::endl;
+  std::cout << "eddington_ratio=" << eddington_ratio << std::endl;
+  std::cout << "J_BH_magnitude=" << J_BH_magnitude << std::endl;
+  std::cout << "J_gas_magnitude=" << J_gas_magnitude << ", a_BH=" << new_a_BH << std::endl;
+  std::cout << "J_d_over_2J_bh=" << J_d_over_2J_bh << std::endl;
+  std::cout << "cos_theta=" << cos_theta << std::endl;
+  std::cout << "J_BH_x=" << hydro_pkg->Param<Real>("J_BH_x") << std::endl;
+  std::cout << "J_BH_y=" << hydro_pkg->Param<Real>("J_BH_y") << std::endl;
+  std::cout << "J_BH_z=" << hydro_pkg->Param<Real>("J_BH_z") << std::endl;
+  */
+    
+  ////////////////////////////////////////////////////////////////////////////////
+  
+  // The jet coordinates are created here
   const auto &jet_coords_factory =
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory");
   const JetCoords jet_coords = jet_coords_factory.CreateJetCoords(time);
-
+  
   // Appy kinietic jet and thermal feedback
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HydroAGNFeedback::FeedbackSrcTerm",
       parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+        
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
-
+        
         const Real x = coords.Xc<1>(i);
         const Real y = coords.Xc<2>(j);
         const Real z = coords.Xc<3>(k);
@@ -336,38 +444,51 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
               AddDensityToConsAtFixedVel(thermal_density, cons, prim, k, j, i);
           }
         }
-
+        
         // Kinetic Jet Feedback
         if (jet_density > 0) {
+          
           // Get position in jet cylindrical coords
           Real r, cos_theta, sin_theta, h;
-          jet_coords.SimCartToJetCylCoords(x, y, z, r, cos_theta, sin_theta, h);
-
+          
+          if (init_spin_BH){
+            bh_coords.SimCartToBHCylCoords(x, y, z, r, cos_theta, sin_theta, h);
+          } else {
+            jet_coords.SimCartToJetCylCoords(x, y, z, r, cos_theta, sin_theta, h);
+          }
+          
           if (r < kinetic_jet_radius && fabs(h) >= kinetic_jet_offset &&
               fabs(h) <= kinetic_jet_offset + kinetic_jet_thickness) {
             // Cell falls inside jet deposition volume
-
+            
             // Get the vector of the jet axis
             Real jet_axis_x, jet_axis_y, jet_axis_z;
-            jet_coords.JetCylToSimCartVector(cos_theta, sin_theta, 0, 0, 1, jet_axis_x,
-                                             jet_axis_y, jet_axis_z);
-
+            
+            if (init_spin_BH){
+              bh_coords.BHCylToSimCartVector(cos_theta, sin_theta, 0, 0, 1, jet_axis_x,
+                                               jet_axis_y, jet_axis_z);
+            }else{
+              jet_coords.JetCylToSimCartVector(cos_theta, sin_theta, 0, 0, 1, jet_axis_x,
+                                               jet_axis_y, jet_axis_z);
+            }
+            
+            // If needed, overwrite the jet axis based on the BH spin.
             const Real sign_jet = (h > 0) ? 1 : -1; // Above or below jet-disk
-
+            
             ///////////////////////////////////////////////////////////////////
             //  We add the kinetic jet with a fixed jet velocity and specific
             //  internal energy/temperature of the added gas. The density,
             //  momentum, and total energy added depend on the triggered power.
             ///////////////////////////////////////////////////////////////////
-
+            
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-
+            
             cons(IDN, k, j, i) += jet_density;
             cons(IM1, k, j, i) += jet_momentum * sign_jet * jet_axis_x;
             cons(IM2, k, j, i) += jet_momentum * sign_jet * jet_axis_y;
             cons(IM3, k, j, i) += jet_momentum * sign_jet * jet_axis_z;
             cons(IEN, k, j, i) += jet_feedback;
-
+            
             // Reset tracer to one for the entire material in the jet launching region as
             // we cannot distinguish between original material in a cell and new jet
             // material in the evolution of the jet. Eventually, we're just interested in
@@ -378,7 +499,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
           }
-
+          
           // Apply velocity ceiling
           const Real v2 =
               SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) + SQR(prim(IV3, k, j, i));
@@ -395,7 +516,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             // Remove kinetic energy
             cons(IEN, k, j, i) -= 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
           }
-
+          
           // Apply  internal energy ceiling as a pressure ceiling
           const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
           if (eceil > 0 && internal_e > eceil) {
@@ -403,12 +524,12 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
           }
         }
-
+        
         eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
         PARTHENON_REQUIRE(prim(IPR, k, j, i) > 0,
                           "Kinetic injection leads to negative pressure");
       });
-
+  
   // Apply magnetic tower feedback
   const auto &magnetic_tower = hydro_pkg->Param<MagneticTower>("magnetic_tower");
 

@@ -19,6 +19,7 @@
 // AthenaPK headers
 #include "../../units.hpp"
 #include "jet_coords.hpp"
+#include "bh_coords.hpp"
 #include "utils/error_checking.hpp"
 
 namespace cluster {
@@ -74,6 +75,8 @@ class AGNTriggering {
   void ReduceColdMass(parthenon::Real &cold_mass,
                       parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt,
                       const EOS eos) const;
+  template <typename EOS>
+  void ReduceAngularMomentum(parthenon::Real &J_gas_x, parthenon::Real &J_gas_y, parthenon::Real &J_gas_z, parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt, const EOS eos) const;
 
   // Compute Mass-weighted total density, velocity, and sound speed and total mass
   // for Bondi accretion

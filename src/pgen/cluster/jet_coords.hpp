@@ -68,11 +68,12 @@ class JetCoords {
       const parthenon::Real v_r_jet, const parthenon::Real v_theta_jet,
       const parthenon::Real v_h_jet, parthenon::Real &v_x_sim, parthenon::Real &v_y_sim,
       parthenon::Real &v_z_sim) const __attribute__((always_inline)) {
+    
     // The vector in jet-cartesian coordinates
     const parthenon::Real v_x_jet = v_r_jet * cos_theta_jet - v_theta_jet * sin_theta_jet;
     const parthenon::Real v_y_jet = v_r_jet * sin_theta_jet + v_theta_jet * cos_theta_jet;
     const parthenon::Real v_z_jet = v_h_jet;
-
+    
     // Multiply v_jet by the DCM matrix to take Jet cartesian to Simulation Cartesian
     v_x_sim = v_x_jet * cos_phi_jet_axis_ * cos_theta_jet_axis_ -
               v_y_jet * sin_phi_jet_axis_ +
@@ -87,6 +88,7 @@ class JetCoords {
  * Jet Coordinates Factory Class
  * A factory for creating JetCoords objects given a time
  ************************************************************/
+
 class JetCoordsFactory {
  private:
   // Jet-axis Radians off the z-axis
