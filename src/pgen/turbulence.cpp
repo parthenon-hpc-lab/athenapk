@@ -29,6 +29,7 @@
 #include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
+#include "utils/error_checking.hpp"
 
 namespace turbulence {
 using namespace parthenon::package::prelude;
@@ -313,17 +314,25 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     }
   }
 
+  const auto init_vel =
+      pin->GetOrAddVector<Real>("problem/turbulence", "v0", {0., 0., 0.});
+  PARTHENON_REQUIRE_THROWS(init_vel.size() == 3,
+                           "Initial velocity vector should have three components.");
+  const auto v1 = init_vel.at(0);
+  const auto v2 = init_vel.at(1);
+  const auto v3 = init_vel.at(2);
+
   pmb->par_for(
       "Final norm. and init", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &u = cons(b);
         u(IDN, k, j, i) = rho0;
 
-        u(IM1, k, j, i) = 0.0;
-        u(IM2, k, j, i) = 0.0;
-        u(IM3, k, j, i) = 0.0;
+        u(IM1, k, j, i) = rho0 * v1;
+        u(IM2, k, j, i) = rho0 * v2;
+        u(IM3, k, j, i) = rho0 * v3;
 
-        u(IEN, k, j, i) = p0 / gm1;
+        u(IEN, k, j, i) = p0 / gm1 + 0.5 * rho0 * (SQR(v1) + SQR(v2) + SQR(v3));
 
         if (fluid == Fluid::glmmhd) {
           u(IB1, k, j, i) /= b_norm;
