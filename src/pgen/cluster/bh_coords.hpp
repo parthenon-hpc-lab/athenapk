@@ -31,26 +31,25 @@ class BHCoords {
 
  public:
   explicit BHCoords(const parthenon::Real theta_bh_axis,
-                     const parthenon::Real phi_bh_axis)
-      : cos_theta_bh_axis_(cos(theta_bh_axis)),
-        sin_theta_bh_axis_(sin(theta_bh_axis)), cos_phi_bh_axis_(cos(phi_bh_axis)),
-        sin_phi_bh_axis_(sin(phi_bh_axis)) {}
+                    const parthenon::Real phi_bh_axis)
+      : cos_theta_bh_axis_(cos(theta_bh_axis)), sin_theta_bh_axis_(sin(theta_bh_axis)),
+        cos_phi_bh_axis_(cos(phi_bh_axis)), sin_phi_bh_axis_(sin(phi_bh_axis)) {}
 
   // Convert simulation cartesian coordinates to bh cylindrical coordinates
   KOKKOS_INLINE_FUNCTION void
   SimCartToBHCylCoords(const parthenon::Real x_sim, const parthenon::Real y_sim,
-                        const parthenon::Real z_sim, parthenon::Real &r_bh,
-                        parthenon::Real &cos_theta_bh, parthenon::Real &sin_theta_bh,
-                        parthenon::Real &h_bh) const __attribute__((always_inline)) {
+                       const parthenon::Real z_sim, parthenon::Real &r_bh,
+                       parthenon::Real &cos_theta_bh, parthenon::Real &sin_theta_bh,
+                       parthenon::Real &h_bh) const __attribute__((always_inline)) {
 
     // Position in bh-cartesian coordinates
-    const parthenon::Real x_bh  = x_sim * cos_phi_bh_axis_ * cos_theta_bh_axis_ +
-                                  y_sim * sin_phi_bh_axis_ * cos_theta_bh_axis_ -
-                                  z_sim * sin_theta_bh_axis_;
-    const parthenon::Real y_bh  = -x_sim * sin_phi_bh_axis_ + y_sim * cos_phi_bh_axis_;
-    const parthenon::Real z_bh  = x_sim * sin_theta_bh_axis_ * cos_phi_bh_axis_ +
-                                  y_sim * sin_phi_bh_axis_ * sin_theta_bh_axis_ +
-                                  z_sim * cos_theta_bh_axis_;
+    const parthenon::Real x_bh = x_sim * cos_phi_bh_axis_ * cos_theta_bh_axis_ +
+                                 y_sim * sin_phi_bh_axis_ * cos_theta_bh_axis_ -
+                                 z_sim * sin_theta_bh_axis_;
+    const parthenon::Real y_bh = -x_sim * sin_phi_bh_axis_ + y_sim * cos_phi_bh_axis_;
+    const parthenon::Real z_bh = x_sim * sin_theta_bh_axis_ * cos_phi_bh_axis_ +
+                                 y_sim * sin_phi_bh_axis_ * sin_theta_bh_axis_ +
+                                 z_sim * cos_theta_bh_axis_;
 
     // Position in bh-cylindrical coordinates
     r_bh = sqrt(pow(fabs(x_bh), 2) + pow(fabs(y_bh), 2));
@@ -63,22 +62,21 @@ class BHCoords {
   }
 
   // Convert bh cylindrical vector to simulation cartesian vector
-  KOKKOS_INLINE_FUNCTION void BHCylToSimCartVector(
-      const parthenon::Real cos_theta_bh, const parthenon::Real sin_theta_bh,
-      const parthenon::Real v_r_bh, const parthenon::Real v_theta_bh,
-      const parthenon::Real v_h_bh, parthenon::Real &v_x_sim, parthenon::Real &v_y_sim,
-      parthenon::Real &v_z_sim) const __attribute__((always_inline)) {
+  KOKKOS_INLINE_FUNCTION void
+  BHCylToSimCartVector(const parthenon::Real cos_theta_bh,
+                       const parthenon::Real sin_theta_bh, const parthenon::Real v_r_bh,
+                       const parthenon::Real v_theta_bh, const parthenon::Real v_h_bh,
+                       parthenon::Real &v_x_sim, parthenon::Real &v_y_sim,
+                       parthenon::Real &v_z_sim) const __attribute__((always_inline)) {
     // The vector in bh-cartesian coordinates
     const parthenon::Real v_x_bh = v_r_bh * cos_theta_bh - v_theta_bh * sin_theta_bh;
     const parthenon::Real v_y_bh = v_r_bh * sin_theta_bh + v_theta_bh * cos_theta_bh;
     const parthenon::Real v_z_bh = v_h_bh;
 
     // Multiply v_bh by the DCM matrix to take BH cartesian to Simulation Cartesian
-    v_x_sim = v_x_bh * cos_phi_bh_axis_ * cos_theta_bh_axis_ -
-              v_y_bh * sin_phi_bh_axis_ +
+    v_x_sim = v_x_bh * cos_phi_bh_axis_ * cos_theta_bh_axis_ - v_y_bh * sin_phi_bh_axis_ +
               v_z_bh * sin_theta_bh_axis_ * cos_phi_bh_axis_;
-    v_y_sim = v_x_bh * sin_phi_bh_axis_ * cos_theta_bh_axis_ +
-              v_y_bh * cos_phi_bh_axis_ +
+    v_y_sim = v_x_bh * sin_phi_bh_axis_ * cos_theta_bh_axis_ + v_y_bh * cos_phi_bh_axis_ +
               v_z_bh * sin_phi_bh_axis_ * sin_theta_bh_axis_;
     v_z_sim = -v_x_bh * sin_theta_bh_axis_ + v_z_bh * cos_theta_bh_axis_;
   }
@@ -101,17 +99,15 @@ class BHCoordsFactory {
  public:
   explicit BHCoordsFactory(parthenon::ParameterInput *pin,
                            parthenon::StateDescriptor *hydro_pkg)
-      : theta_bh_axis_(0.0),
-        phi_dot_bh_axis_(0.0),
-        phi0_bh_axis_(0.0) {
+      : theta_bh_axis_(0.0), phi_dot_bh_axis_(0.0), phi0_bh_axis_(0.0) {
 
     // Passive, just meant to create the object
     hydro_pkg->AddParam<>("bh_coords_factory", *this);
-
   }
 
-  BHCoords CreateBHCoords(const parthenon::Real theta_BH_axis,const parthenon::Real phi_BH_axis) const {
-    
+  BHCoords CreateBHCoords(const parthenon::Real theta_BH_axis,
+                          const parthenon::Real phi_BH_axis) const {
+
     return BHCoords(theta_BH_axis, phi_BH_axis);
   }
 };

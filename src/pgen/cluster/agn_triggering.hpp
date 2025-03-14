@@ -18,8 +18,8 @@
 
 // AthenaPK headers
 #include "../../units.hpp"
-#include "jet_coords.hpp"
 #include "bh_coords.hpp"
+#include "jet_coords.hpp"
 #include "utils/error_checking.hpp"
 
 namespace cluster {
@@ -76,7 +76,10 @@ class AGNTriggering {
                       parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt,
                       const EOS eos) const;
   template <typename EOS>
-  void ReduceAngularMomentum(parthenon::Real &J_gas_x, parthenon::Real &J_gas_y, parthenon::Real &J_gas_z, parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt, const EOS eos) const;
+  void ReduceAngularMomentum(parthenon::Real &J_gas_x, parthenon::Real &J_gas_y,
+                             parthenon::Real &J_gas_z,
+                             parthenon::MeshData<parthenon::Real> *md,
+                             const parthenon::Real dt, const EOS eos) const;
 
   // Compute Mass-weighted total density, velocity, and sound speed and total mass
   // for Bondi accretion
@@ -108,7 +111,7 @@ class AGNTriggering {
 
   friend parthenon::TaskStatus
   AGNTriggeringUpdateBH(parthenon::MeshData<parthenon::Real> *md,
-                                const parthenon::SimTime &tm);
+                        const parthenon::SimTime &tm);
 
   friend parthenon::TaskStatus
   AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg);
@@ -124,14 +127,14 @@ class AGNTriggering {
 };
 
 parthenon::TaskStatus AGNTriggeringResetTriggering(parthenon::StateDescriptor *hydro_pkg);
-parthenon::TaskStatus AGNTriggeringResetAngularMomentum(parthenon::StateDescriptor *hydro_pkg);
+parthenon::TaskStatus
+AGNTriggeringResetAngularMomentum(parthenon::StateDescriptor *hydro_pkg);
 
 parthenon::TaskStatus
 AGNTriggeringReduceTriggering(parthenon::MeshData<parthenon::Real> *md,
                               const parthenon::SimTime &tm);
-parthenon::TaskStatus
-AGNTriggeringUpdateBH(parthenon::MeshData<parthenon::Real> *md,
-                              const parthenon::SimTime &tm);
+parthenon::TaskStatus AGNTriggeringUpdateBH(parthenon::MeshData<parthenon::Real> *md,
+                                            const parthenon::SimTime &tm);
 
 parthenon::TaskStatus
 AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg);

@@ -114,39 +114,47 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) {
 
   auto units = hydro_pkg->Param<Units>("units");
-  
+
   /************************************************************
    * Read Spin-driven jet re-orientation
    ************************************************************/
-  
-  const bool init_spin_BH = pin->GetOrAddBoolean("problem/cluster/agn_feedback", "init_spin_BH", false);
+
+  const bool init_spin_BH =
+      pin->GetOrAddBoolean("problem/cluster/agn_feedback", "init_spin_BH", false);
   hydro_pkg->AddParam<>("init_spin_BH", init_spin_BH);
-  
+
   if (init_spin_BH) {
-    
+
     // a_BH        :   BH spin, typically 0.1 (see Beckmann et al. 2019)
-    // J_gas_radius:   Radius of the sphere within which we calculate the surrounding gas angular momentum    
-    
-    const Real J_gas_radius    = pin->GetReal("problem/cluster/agn_feedback", "J_gas_radius");  // Gas angular momentum computation
-    const Real mass_smbh       = pin->GetReal("problem/cluster/gravity",      "m_smbh");        // Gas angular momentum computation
-    
+    // J_gas_radius:   Radius of the sphere within which we calculate the surrounding gas
+    // angular momentum
+
+    const Real J_gas_radius =
+        pin->GetReal("problem/cluster/agn_feedback",
+                     "J_gas_radius"); // Gas angular momentum computation
+    const Real mass_smbh = pin->GetReal("problem/cluster/gravity",
+                                        "m_smbh"); // Gas angular momentum computation
+
     // By default, the spin of the BH is aligned vertically
-    hydro_pkg->AddParam<>("mass_smbh",       mass_smbh);    
+    hydro_pkg->AddParam<>("mass_smbh", mass_smbh);
     // Define the variables for the gas angular momentum
     hydro_pkg->AddParam<>("J_gas_radius", J_gas_radius);
-    // Adding triggering efficiency/fixed_power (so that it can be accessed in agn_triggering.cpp)
-    hydro_pkg->AddParam<>("efficiency",  pin->GetOrAddReal("problem/cluster/agn_feedback", "efficiency",  0.01));
-    hydro_pkg->AddParam<>("fixed_power", pin->GetOrAddReal("problem/cluster/agn_feedback", "fixed_power", 0.01));
+    // Adding triggering efficiency/fixed_power (so that it can be accessed in
+    // agn_triggering.cpp)
+    hydro_pkg->AddParam<>("efficiency", pin->GetOrAddReal("problem/cluster/agn_feedback",
+                                                          "efficiency", 0.01));
+    hydro_pkg->AddParam<>("fixed_power", pin->GetOrAddReal("problem/cluster/agn_feedback",
+                                                           "fixed_power", 0.01));
   }
-  
+
   /************************************************************
    * Read Uniform Gas
    ************************************************************/
-  
+
   const bool init_uniform_gas =
       pin->GetOrAddBoolean("problem/cluster/uniform_gas", "init_uniform_gas", false);
   hydro_pkg->AddParam<>("init_uniform_gas", init_uniform_gas);
-  
+
   if (init_uniform_gas) {
     const Real uniform_gas_rho = pin->GetReal("problem/cluster/uniform_gas", "rho");
     const Real uniform_gas_ux = pin->GetReal("problem/cluster/uniform_gas", "ux");
@@ -229,8 +237,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    ************************************************************/
 
   JetCoordsFactory jet_coords_factory(pin, hydro_pkg);
-  BHCoordsFactory   bh_coords_factory(pin, hydro_pkg);
-  
+  BHCoordsFactory bh_coords_factory(pin, hydro_pkg);
+
   /************************************************************
    * Read AGN Feedback
    ************************************************************/
@@ -272,7 +280,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   /************************************************************
    * Read Clips  (ceilings and floors)
    ************************************************************/
-  
+
   // Disable all clips by default with a negative radius clip
   Real clip_r = pin->GetOrAddReal("problem/cluster/clips", "clip_r", -1.0);
 
@@ -316,7 +324,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     made and a history output is not, then the mass/energy between the last
     history output and the restart dump is lost
   */
-  
+
   // Add a param for each reduction, then add it as a summation reduction for
   // history outputs
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);

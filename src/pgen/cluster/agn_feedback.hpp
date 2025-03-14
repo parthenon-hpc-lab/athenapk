@@ -16,8 +16,8 @@
 #include <parameter_input.hpp>
 #include <parthenon/package.hpp>
 
-#include "jet_coords.hpp"
 #include "bh_coords.hpp"
+#include "jet_coords.hpp"
 
 namespace cluster {
 
@@ -57,7 +57,7 @@ class AGNFeedback {
 
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real beta_dt, const parthenon::SimTime &tm) const;
-  
+
   // Apply the feedback from hydrodynamic AGN feedback (kinetic jets and thermal feedback)
   template <typename EOS>
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,

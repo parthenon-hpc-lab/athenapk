@@ -345,7 +345,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
-  
+
   TaskID none(0);
   // Number of task lists that can be executed indepenently and thus *may*
   // be executed in parallel and asynchronous.
@@ -359,20 +359,20 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   if ((stage == 1) &&
       hydro_pkg->AllParams().hasKey("agn_triggering_reduce_accretion_rate") &&
       hydro_pkg->Param<bool>("agn_triggering_reduce_accretion_rate")) {
-    
+
     // need to make sure that there's only one region in order to MPI_reduce to work
     TaskRegion &single_task_region = tc.AddRegion(1);
     auto &tl = single_task_region[0];
     // First globally reset triggering quantities
     auto prev_task =
         tl.AddTask(none, cluster::AGNTriggeringResetTriggering, hydro_pkg.get());
-    
+
     /*
     auto reset_angular_momentum =
-        tl.AddTask(prev_task, cluster::AGNTriggeringResetAngularMomentum, hydro_pkg.get());
-    prev_task = reset_angular_momentum;
+        tl.AddTask(prev_task, cluster::AGNTriggeringResetAngularMomentum,
+    hydro_pkg.get()); prev_task = reset_angular_momentum;
     */
-    
+
     // Adding one task for each partition. Given that they're all in one task list
     // they'll be executed sequentially. Given that a par_reduce to a host var is
     // blocking it's also save to store the variable in the Params for now.
@@ -382,7 +382,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(prev_task, cluster::AGNTriggeringReduceTriggering, mu0.get(), tm);
       prev_task = new_agn_triggering;
     }
-    
+
 #ifdef MPI_PARALLEL
     auto reduce_agn_triggering =
         tl.AddTask(prev_task, cluster::AGNTriggeringMPIReduceTriggering, hydro_pkg.get());
@@ -395,7 +395,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(prev_task, cluster::AGNTriggeringUpdateBH, mu0.get(), tm);
       prev_task = update_bh;
     }
-    
+
     // Remove accreted gas
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
@@ -404,7 +404,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       prev_task = new_remove_accreted_gas;
     }
   }
-  
+
   for (int i = 0; i < blocks.size(); i++) {
     auto &pmb = blocks[i];
     // Using "base" as u0, which already exists (and returned by using plain Get())
