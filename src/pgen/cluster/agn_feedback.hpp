@@ -57,7 +57,7 @@ class AGNFeedback {
 
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real beta_dt, const parthenon::SimTime &tm) const;
-
+  
   // Apply the feedback from hydrodynamic AGN feedback (kinetic jets and thermal feedback)
   template <typename EOS>
   void FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,

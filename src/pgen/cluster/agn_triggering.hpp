@@ -100,8 +100,15 @@ class AGNTriggering {
   AGNTriggeringResetTriggering(parthenon::StateDescriptor *hydro_pkg);
 
   friend parthenon::TaskStatus
+  AGNTriggeringResetAngularMomentum(parthenon::StateDescriptor *hydro_pkg);
+
+  friend parthenon::TaskStatus
   AGNTriggeringReduceTriggering(parthenon::MeshData<parthenon::Real> *md,
-                                const parthenon::Real dt);
+                                const parthenon::SimTime &tm);
+
+  friend parthenon::TaskStatus
+  AGNTriggeringUpdateBH(parthenon::MeshData<parthenon::Real> *md,
+                                const parthenon::SimTime &tm);
 
   friend parthenon::TaskStatus
   AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg);
@@ -117,10 +124,14 @@ class AGNTriggering {
 };
 
 parthenon::TaskStatus AGNTriggeringResetTriggering(parthenon::StateDescriptor *hydro_pkg);
+parthenon::TaskStatus AGNTriggeringResetAngularMomentum(parthenon::StateDescriptor *hydro_pkg);
 
 parthenon::TaskStatus
 AGNTriggeringReduceTriggering(parthenon::MeshData<parthenon::Real> *md,
-                              const parthenon::Real dt);
+                              const parthenon::SimTime &tm);
+parthenon::TaskStatus
+AGNTriggeringUpdateBH(parthenon::MeshData<parthenon::Real> *md,
+                              const parthenon::SimTime &tm);
 
 parthenon::TaskStatus
 AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg);

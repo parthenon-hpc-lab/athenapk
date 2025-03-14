@@ -114,37 +114,29 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg) {
 
   auto units = hydro_pkg->Param<Units>("units");
-    
+  
   /************************************************************
    * Read Spin-driven jet re-orientation
    ************************************************************/
-
+  
   const bool init_spin_BH = pin->GetOrAddBoolean("problem/cluster/agn_feedback", "init_spin_BH", false);
   hydro_pkg->AddParam<>("init_spin_BH", init_spin_BH);
   
   if (init_spin_BH) {
     
-    // a_BH         : BH spin, typically 0.1 (see Beckmann et al. 2019)
+    // a_BH        :   BH spin, typically 0.1 (see Beckmann et al. 2019)
     // J_gas_radius:   Radius of the sphere within which we calculate the surrounding gas angular momentum    
     
-    const Real a_BH            = pin->GetReal("problem/cluster/agn_feedback", "a_BH");          // Initial spin a* = a/M of the BH
     const Real J_gas_radius    = pin->GetReal("problem/cluster/agn_feedback", "J_gas_radius");  // Gas angular momentum computation
     const Real mass_smbh       = pin->GetReal("problem/cluster/gravity",      "m_smbh");        // Gas angular momentum computation
     
     // By default, the spin of the BH is aligned vertically
-    hydro_pkg->AddParam<>("mass_smbh", mass_smbh);
-    hydro_pkg->AddParam<>("J_BH_x", 0.0, true);             // Define the spin vector of the black hole
-    hydro_pkg->AddParam<>("J_BH_y", 0.0, true);             // Define the spin vector of the black hole
-    hydro_pkg->AddParam<>("J_BH_z", a_BH * units.gravitational_constant() * (mass_smbh * mass_smbh) / units.speed_of_light(), true);  // Define the angular momentum vector of the black hole
-    
+    hydro_pkg->AddParam<>("mass_smbh",       mass_smbh);    
     // Define the variables for the gas angular momentum
     hydro_pkg->AddParam<>("J_gas_radius", J_gas_radius);
-    /*
-    hydro_pkg->AddParam<>("J_gas_x", 0.0, true);            // Define the angular momentum of the gas, 0.0 by default
-    hydro_pkg->AddParam<>("J_gas_y", 0.0, true);            // Define the angular momentum of the gas, 0.0 by default
-    hydro_pkg->AddParam<>("J_gas_z", 0.0, true);            // Define the angular momentum of the gas, 0.0 by default
-    */
-    
+    // Adding triggering efficiency/fixed_power (so that it can be accessed in agn_triggering.cpp)
+    hydro_pkg->AddParam<>("efficiency",  pin->GetOrAddReal("problem/cluster/agn_feedback", "efficiency",  0.01));
+    hydro_pkg->AddParam<>("fixed_power", pin->GetOrAddReal("problem/cluster/agn_feedback", "fixed_power", 0.01));
   }
   
   /************************************************************
@@ -324,28 +316,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     made and a history output is not, then the mass/energy between the last
     history output and the restart dump is lost
   */
-  std::string reduction_strs[] = {"stellar_mass", "added_dfloor_mass",
-                                  "removed_eceil_energy", "removed_vceil_energy",
-                                  "added_vAceil_mass"};
-
+  
   // Add a param for each reduction, then add it as a summation reduction for
   // history outputs
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
-
-  for (auto reduction_str : reduction_strs) {
-    hydro_pkg->AddParam(reduction_str, 0.0, true);
-    hst_vars.emplace_back(parthenon::HistoryOutputVar(
-        parthenon::UserHistoryOperation::sum,
-        [reduction_str](MeshData<Real> *md) {
-          auto pmb = md->GetBlockData(0)->GetBlockPointer();
-          auto hydro_pkg = pmb->packages.Get("Hydro");
-          const Real reduction = hydro_pkg->Param<Real>(reduction_str);
-          // Reset the running count for this reduction between history outputs
-          hydro_pkg->UpdateParam(reduction_str, 0.0);
-          return reduction;
-        },
-        reduction_str));
-  }
 
   // Add history reduction for total cold gas using stellar mass threshold
   const Real cold_thresh =

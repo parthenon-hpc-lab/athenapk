@@ -64,11 +64,11 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
     kinetic_fraction_ = kinetic_fraction_ / total_frac;
     magnetic_fraction_ = magnetic_fraction_ / total_frac;
   }
-
+  
   PARTHENON_REQUIRE(thermal_fraction_ >= 0 && kinetic_fraction_ >= 0 &&
                         magnetic_fraction_ >= 0,
                     "AGN feedback energy fractions must be non-negative.");
-
+  
   // Normalize the thermal, kinetic, and magnetic mass fractions to sum to 1.0
   if (enable_magnetic_tower_mass_injection_) {
     thermal_mass_fraction_ = thermal_fraction_;
@@ -174,9 +174,59 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           return agn_feedback.GetFeedbackPower(hydro_pkg.get());
         },
         "agn_feedback_power"));
-  }
-  hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
+  // Add phi and theta angles, and a_BH
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::max,
+        [this](MeshData<Real> *md) {
+          auto pmb = md->GetBlockData(0)->GetBlockPointer();
+          auto hydro_pkg = pmb->packages.Get("Hydro");
+          return hydro_pkg->Param<Real>("eddington_ratio");
+        },
+        "eddington_ratio"));
+
+  // Add phi and theta angles, and a_BH
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::max,
+        [this](MeshData<Real> *md) {
+          auto pmb = md->GetBlockData(0)->GetBlockPointer();
+          auto hydro_pkg = pmb->packages.Get("Hydro");
+          return hydro_pkg->Param<Real>("theta_BH")*(360/(2*M_PI));
+        },
+        "theta_BH"));
+  
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::max,
+        [this](MeshData<Real> *md) {
+          auto pmb = md->GetBlockData(0)->GetBlockPointer();
+          auto hydro_pkg = pmb->packages.Get("Hydro");
+          return hydro_pkg->Param<Real>("phi_BH")*(360/(2*M_PI));
+        },
+        "phi_BH"));
+
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::max,
+        [this](MeshData<Real> *md) {
+          auto pmb = md->GetBlockData(0)->GetBlockPointer();
+          auto hydro_pkg = pmb->packages.Get("Hydro");
+          return hydro_pkg->Param<Real>("a_BH");
+        },
+        "a_BH"));
+
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::max,
+        [this](MeshData<Real> *md) {
+          auto pmb = md->GetBlockData(0)->GetBlockPointer();
+          auto hydro_pkg = pmb->packages.Get("Hydro");
+          return hydro_pkg->Param<Real>("dt_acc");
+        },
+        "dt_acc"));
+    
+  }
+
+  
+  hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
+  
   // Double check that tracers are also enabled in fluid solver
   PARTHENON_REQUIRE_THROWS(!enable_tracer_ || hydro_pkg->Param<int>("nscalars") == 1,
                            "Enabling tracer for AGN feedback requires hydro/nscalars=1");
@@ -231,13 +281,13 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
   using parthenon::Real;
-
+  
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto units = hydro_pkg->Param<Units>("units");
-
-  const Real power = GetFeedbackPower(hydro_pkg.get());
+  
+  const Real power     = GetFeedbackPower(hydro_pkg.get());
   const Real mass_rate = GetFeedbackMassRate(hydro_pkg.get());
-
+  
   if (power == 0 || disabled_) {
     // No AGN feedback, return
     return;
@@ -256,27 +306,27 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
   const auto nhydro = hydro_pkg->Param<int>("nhydro");
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
-
+  
   ////////////////////////////////////////////////////////////////////////////////
   // Thermal quantities
   ////////////////////////////////////////////////////////////////////////////////
   
   const Real thermal_radius2 = thermal_radius_ * thermal_radius_;
   const Real thermal_scaling_factor = 1 / (4. / 3. * M_PI * pow(thermal_radius_, 3));
-
+  
   // Amount of energy/volume to dump in each cell
   const Real thermal_feedback =
       thermal_fraction_ * power * thermal_scaling_factor * beta_dt;
   // Amount of density to dump in each cell
   const Real thermal_density =
       thermal_mass_fraction_ * mass_rate * thermal_scaling_factor * beta_dt;
-
+  
   ////////////////////////////////////////////////////////////////////////////////
   // Kinetic Jet Quantities
   ////////////////////////////////////////////////////////////////////////////////
   const Real kinetic_scaling_factor =
       1 / (2 * kinetic_jet_thickness_ * M_PI * pow(kinetic_jet_radius_, 2));
-
+  
   const Real kinetic_jet_radius = kinetic_jet_radius_;
   const Real kinetic_jet_thickness = kinetic_jet_thickness_;
   const Real kinetic_jet_offset = kinetic_jet_offset_;
@@ -306,112 +356,12 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   
   // Boolean to verify whether the jet coordinate should be calculated out of BH spin.
   // If needed, extract the angular momentum of the gas.
-  const bool init_spin_BH = hydro_pkg->Param<bool>("init_spin_BH");
-  
-  // Get useful parameters
-  const Real mass_smbh_8          = hydro_pkg->Param<Real>("mass_smbh") / (1e8 * units.msun());
-  const Real radiative_efficiency = 0.1;
-  
-  // Calculate the mass rate to Eddington mass rate ratio
-  const Real eddington_mass_rate  = 10 * (units.msun() / units.yr()) * mass_smbh_8;
-  const Real eddington_ratio      = mass_rate / eddington_mass_rate;
-  
-  // Get the BH and gas spin vectors
-  const Real J_BH_x  = hydro_pkg->Param<Real>("J_BH_x");
-  const Real J_BH_y  = hydro_pkg->Param<Real>("J_BH_y");
-  const Real J_BH_z  = hydro_pkg->Param<Real>("J_BH_z");
-  const Real J_BH_magnitude = std::sqrt(J_BH_x * J_BH_x + J_BH_y * J_BH_y + J_BH_z * J_BH_z);
-  
-  // Compute the specific spin of the black hole
-  const Real a_BH    = J_BH_magnitude * units.speed_of_light() / (units.gravitational_constant() * std::pow(hydro_pkg->Param<Real>("mass_smbh"),2.0));
-  
-  const Real J_gas_x = hydro_pkg->Param<Real>("J_gas_x");
-  const Real J_gas_y = hydro_pkg->Param<Real>("J_gas_y");
-  const Real J_gas_z = hydro_pkg->Param<Real>("J_gas_z");
-  
-  // Calculate the magnitude of the angular momentum vector
-  const Real J_gas_magnitude = std::sqrt(J_gas_x * J_gas_x + J_gas_y * J_gas_y + J_gas_z * J_gas_z);
-  
-  // Compute the unit vector components
-  const Real j_gas_x = J_gas_x / J_gas_magnitude;
-  const Real j_gas_y = J_gas_y / J_gas_magnitude;
-  const Real j_gas_z = J_gas_z / J_gas_magnitude;
-  
-  // Compute the anti-alignment criteria
-  const Real J_d_over_2J_bh = 6.8e-2 * std::pow(eddington_ratio / (radiative_efficiency / 0.1), 1.0 / 8.0) *
-                          std::pow(mass_smbh_8, 23.0 / 16.0) * std::pow(a_BH, 3.0 / 16.0);
-  
-  // Compare with cos(theta)
-  const Real cos_theta = (J_gas_x * J_BH_x + J_gas_y * J_BH_y + J_gas_z * J_BH_z) / (J_gas_magnitude * J_BH_magnitude);
-  
-  // Compute the total angular momentum J_tot = J_BH + J_gas
-  const Real J_tot_x = J_BH_x + 2 * J_BH_magnitude * J_d_over_2J_bh * j_gas_x;
-  const Real J_tot_y = J_BH_y + 2 * J_BH_magnitude * J_d_over_2J_bh * j_gas_y;
-  const Real J_tot_z = J_BH_z + 2 * J_BH_magnitude * J_d_over_2J_bh * j_gas_z;
-  
-  // Compute the magnitude of J_tot
-  const Real J_tot_magnitude = std::sqrt(J_tot_x * J_tot_x + J_tot_y * J_tot_y + J_tot_z * J_tot_z);
-  
-  // Compute the scalar product (dot product) of J_tot and J_BH
-  const Real J_dot_product = J_tot_x * J_BH_x + J_tot_y * J_BH_y + J_tot_z * J_BH_z;
-  
-  // Defining the new spin, will be used to clip the angular momentum if needed
-  const Real new_a_BH = J_tot_magnitude * units.speed_of_light() / (units.gravitational_constant() * std::pow(hydro_pkg->Param<Real>("mass_smbh"),2.0));
-  
-  // Compute the condition for anti-alignment
-  if (cos_theta < -J_d_over_2J_bh && J_dot_product > 0) {
-
-    if (new_a_BH <= 1){
-      // Anti-alignment case: J_BH = -J_tot
-      hydro_pkg->UpdateParam("J_BH_x", -J_tot_x);
-      hydro_pkg->UpdateParam("J_BH_y", -J_tot_y);
-      hydro_pkg->UpdateParam("J_BH_z", -J_tot_z);
-    } else {
-      
-      // Anti-alignment case: J_BH = -J_tot
-      hydro_pkg->UpdateParam("J_BH_x", -J_tot_x/new_a_BH);
-      hydro_pkg->UpdateParam("J_BH_y", -J_tot_y/new_a_BH);
-      hydro_pkg->UpdateParam("J_BH_z", -J_tot_z/new_a_BH);
-    }
-  
-  } else {
-    if (new_a_BH <= 1){
-      // Alignment case
-      hydro_pkg->UpdateParam("J_BH_x", J_tot_x);
-      hydro_pkg->UpdateParam("J_BH_y", J_tot_y);
-      hydro_pkg->UpdateParam("J_BH_z", J_tot_z);
-    } else {
-      // Clipping
-      hydro_pkg->UpdateParam("J_BH_x", J_tot_x/new_a_BH);
-      hydro_pkg->UpdateParam("J_BH_y", J_tot_y/new_a_BH);
-      hydro_pkg->UpdateParam("J_BH_z", J_tot_z/new_a_BH);
-      
-    }
-  }
-  
-  // Convert to spherical coordinates
-  const Real theta_BH = std::acos(hydro_pkg->Param<Real>("J_BH_z") / J_tot_magnitude);
-  const Real phi_BH   = std::atan2(hydro_pkg->Param<Real>("J_BH_y"), hydro_pkg->Param<Real>("J_BH_x"));
+  const bool init_spin_BH         = hydro_pkg->Param<bool>("init_spin_BH");         // Check whether spin-driven mode is activated
   
   // Create the BH coords factory
   const auto &bh_coords_factory =
     hydro_pkg->Param<BHCoordsFactory>("bh_coords_factory");
-  const BHCoords bh_coords = bh_coords_factory.CreateBHCoords(theta_BH,phi_BH);
-  
-  // Std::cout the tracked properties of the BH spin vector
-  /*
-  std::cout << "mass_smbh_8=" << mass_smbh_8 << std::endl;
-  std::cout << "eddington_ratio=" << eddington_ratio << std::endl;
-  std::cout << "J_BH_magnitude=" << J_BH_magnitude << std::endl;
-  std::cout << "J_gas_magnitude=" << J_gas_magnitude << ", a_BH=" << new_a_BH << std::endl;
-  std::cout << "J_d_over_2J_bh=" << J_d_over_2J_bh << std::endl;
-  std::cout << "cos_theta=" << cos_theta << std::endl;
-  std::cout << "J_BH_x=" << hydro_pkg->Param<Real>("J_BH_x") << std::endl;
-  std::cout << "J_BH_y=" << hydro_pkg->Param<Real>("J_BH_y") << std::endl;
-  std::cout << "J_BH_z=" << hydro_pkg->Param<Real>("J_BH_z") << std::endl;
-  */
-    
-  ////////////////////////////////////////////////////////////////////////////////
+  const BHCoords bh_coords = bh_coords_factory.CreateBHCoords(hydro_pkg->Param<Real>("theta_BH"), hydro_pkg->Param<Real>("phi_BH"));
   
   // The jet coordinates are created here
   const auto &jet_coords_factory =
@@ -431,7 +381,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         const Real x = coords.Xc<1>(i);
         const Real y = coords.Xc<2>(j);
         const Real z = coords.Xc<3>(k);
-
+        
         // Thermal Feedback
         if (thermal_feedback > 0 || thermal_density > 0) {
           const Real r2 = x * x + y * y + z * z;
