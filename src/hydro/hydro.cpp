@@ -137,6 +137,7 @@ void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
     // Finally update c_h
     const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
     const auto &dt_hyp = hydro_pkg->Param<Real>("dt_hyp");
+    mindx = hydro_pkg->Param<Real>("mindx");
     hydro_pkg->UpdateParam("c_h", cfl_hyp * mindx / dt_hyp);
   }
 }
