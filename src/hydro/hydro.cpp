@@ -804,6 +804,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     pkg->AddParam<Real>("refinement/maxdensity_refine_above", refine_above);
   } else if (refine_str == "user") {
     pkg->CheckRefinementBlock = Hydro::ProblemCheckRefinementBlock;
+  } else if (refine_str == "cubic") {
+    pkg->CheckRefinementBlock = refinement::other::Cubic;
+    const auto active = pin->GetOrAddBoolean("refinement", "active", false);
+    const auto refinement_width =
+        pin->GetOrAddReal("refinement", "refinement_width", 0.0);
+    pkg->AddParam<>("refinement/active", active);
+    pkg->AddParam<>("refinement/refinement_width", refinement_width);
   }
 
   if (ProblemInitPackageData != nullptr) {
