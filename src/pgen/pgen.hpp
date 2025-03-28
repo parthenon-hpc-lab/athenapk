@@ -125,6 +125,8 @@ void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt);
 void SetPhases(MeshBlock *pmb, ParameterInput *pin);
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
                           const parthenon::SimTime &tm);
+TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
+                              const Real dt);
 void Cleanup();
 } // namespace turbulence
 

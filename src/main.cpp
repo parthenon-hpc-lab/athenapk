@@ -28,6 +28,7 @@ std::function<AmrTag(MeshBlockData<Real> *mbd)> ProblemCheckRefinementBlock = nu
 namespace Tracers {
 InitPackageDataFun_t ProblemInitTracerData = nullptr;
 SeedInitialFun_t ProblemSeedInitialTracers = nullptr;
+FillTracersFun_t ProblemFillTracers = nullptr;
 } // namespace Tracers
 
 int main(int argc, char *argv[]) {
@@ -105,6 +106,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->MeshProblemGenerator = turbulence::ProblemGenerator;
     Hydro::ProblemInitPackageData = turbulence::ProblemInitPackageData;
     Tracers::ProblemInitTracerData = turbulence::ProblemInitTracerData;
+    Tracers::ProblemFillTracers = turbulence::ProblemFillTracers;
     Hydro::ProblemSourceFirstOrder = turbulence::Driving;
     pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
     pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
