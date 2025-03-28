@@ -30,6 +30,7 @@
 #include <parthenon/package.hpp>
 
 #include "../main.hpp"
+#include "basic_types.hpp"
 
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
@@ -45,6 +46,9 @@ extern InitPackageDataFun_t ProblemInitTracerData;
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt);
 
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
+using FillTracersFun_t = std::function<TaskStatus(
+    MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)>;
+extern FillTracersFun_t ProblemFillTracers;
 
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 

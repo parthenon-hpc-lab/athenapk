@@ -209,3 +209,9 @@ To allow adding additional fields, the
 void ProblemInitTracerData(ParameterInput * pin, parthenon::StateDescriptor *tracer_pkg);```
 callback is available.
 It is called at the end of the tracer package initialization and can be defined at the per-problem-generator level, see, e.g., the turbulence driver as an example.
+
+Similarly, a callback is available to fill those new fields (or more) via
+```c++
+TaskStatus ProblemFillTracers(MeshData<Real> *md, parthenon::SimTime &tm, const Real dt);
+```
+It is called right after the default `FillTracers` task in the driver.

@@ -652,6 +652,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &tl = single_tasklist_per_pack_region_4[i];
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
       auto fill = tl.AddTask(none, Tracers::FillTracers, mu0.get(), tm);
+      if (Tracers::ProblemFillTracers != nullptr) {
+        fill =
+            tl.AddTask(fill, Tracers::ProblemFillTracers, mu0.get(), tm, integrator->dt);
+      }
     }
   }
 
