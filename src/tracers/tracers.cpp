@@ -111,8 +111,71 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   tracer_pkg->AddParam<>("t_lookback", std::vector<Real>(n_lookback),
                          Params::Mutability::Restart);
 
+  tracer_pkg->UserWorkBeforeLoopMesh = SeedInitialTracers;
   return tracer_pkg;
 } // Initialize
+
+void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
+  // This function is currently used to only seed tracers but it called every time the
+  // driver is executed (also also for restarts)
+  if (pmesh->is_restart) return;
+
+  auto tracers_pkg = pmesh->packages.Get("tracers");
+
+  for (auto &pmb : pmesh->block_list) {
+    auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get("tracers");
+    auto rng_pool = tracers_pkg->Param<RNGPool>("rng_pool");
+
+    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+    const Real &x_min = pmb->coords.Xf<1>(ib.s);
+    const Real &y_min = pmb->coords.Xf<2>(jb.s);
+    const Real &z_min = pmb->coords.Xf<3>(kb.s);
+    const Real &x_max = pmb->coords.Xf<1>(ib.e + 1);
+    const Real &y_max = pmb->coords.Xf<2>(jb.e + 1);
+    const Real &z_max = pmb->coords.Xf<3>(kb.e + 1);
+
+    // as for num_tracers on each block... will get too many on multiple blocks
+    // TODO: distribute amongst blocks.
+    const auto num_tracers_per_cell = tracers_pkg->Param<Real>("num_tracers_per_cell");
+    const auto num_tracers_per_block =
+        static_cast<int>(pmb->GetNumberOfMeshBlockCells() * num_tracers_per_cell);
+
+    // Create new particles and get accessor
+    auto new_particles_context = swarm->AddEmptyParticles(num_tracers_per_block);
+
+    auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
+    auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
+    auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+    auto &id = swarm->Get<int>("id").Get();
+
+    auto swarm_d = swarm->GetDeviceContext();
+
+    const int gid = pmb->gid;
+    pmb->par_for(
+        "ProblemGenerator::Turbulence::DistributeTracers", 0,
+        new_particles_context.GetNewParticlesMaxIndex(), KOKKOS_LAMBDA(const int new_n) {
+          auto rng_gen = rng_pool.get_state();
+          const int n = new_particles_context.GetNewParticleIndex(new_n);
+
+          x(n) = x_min + rng_gen.drand() * (x_max - x_min);
+          y(n) = y_min + rng_gen.drand() * (y_max - y_min);
+          z(n) = z_min + rng_gen.drand() * (z_max - z_min);
+          // Note that his works only during one time init.
+          // If (somehwere else) we eventually add dynamic particles, then we need to
+          // manage ids (not indices) more globally.
+          id(n) = num_tracers_per_block * gid + n;
+
+          rng_pool.free_state(rng_gen);
+
+          // TODO(pgrete) check if this actually required
+          bool on_current_mesh_block = true;
+          swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_current_mesh_block);
+        });
+  }
+}
 
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
   auto *pmb = mbd->GetParentPointer();
@@ -158,9 +221,9 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
           y(n) += dt * 0.5 * (vel_y(n) + vel_y_star);
           z(n) += dt * 0.5 * (vel_z(n) + vel_z_star);
 
-          // The following call is required as it updates the internal block id following
-          // the advection. The internal id is used in the subsequent task to communicate
-          // particles.
+          // The following call is required as it updates the internal block id
+          // following the advection. The internal id is used in the subsequent task to
+          // communicate particles.
           bool unused_temp = true;
           swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
         }
@@ -184,8 +247,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
   const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
   // Params (which is storing t_lookback) is shared across all blocks so we update it
-  // outside the block loop. Note, that this is a standard vector, so it cannot be used in
-  // the kernel (but also don't need to be used as can directly update it)
+  // outside the block loop. Note, that this is a standard vector, so it cannot be used
+  // in the kernel (but also don't need to be used as can directly update it)
   auto t_lookback = tracers_pkg->Param<std::vector<Real>>("t_lookback");
   auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
   auto idx = n_lookback - 1;
@@ -202,7 +265,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
   // TODO(pgrete) Benchmark atomic and potentially update to proper reduction instead of
   // atomics.
-  //  Used for the parallel reduction. Could be reused but this way it's initalized to 0.
+  //  Used for the parallel reduction. Could be reused but this way it's initalized to
+  //  0.
   // n_lookback + 1 as it also carries <s> and <sdot>
   parthenon::ParArray2D<Real> corr("tracer correlations", 2, n_lookback + 1);
   int64_t num_particles_total = 0;

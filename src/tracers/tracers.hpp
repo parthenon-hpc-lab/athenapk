@@ -41,6 +41,8 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt);
 
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
 
+void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
+
 } // namespace Tracers
 
 #endif // TRACERS_HPP_

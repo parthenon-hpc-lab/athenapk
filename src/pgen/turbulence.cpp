@@ -343,63 +343,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
         }
       });
-
-  /* tracer init section */
-  auto tracer_pkg = pmb->packages.Get("tracers");
-  if (tracer_pkg->Param<bool>("enabled")) {
-
-    for (int b = 0; b < md->NumBlocks(); b++) {
-      pmb = md->GetBlockData(b)->GetBlockPointer();
-      auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get("tracers");
-      auto rng_pool = tracer_pkg->Param<RNGPool>("rng_pool");
-
-      const Real &x_min = pmb->coords.Xf<1>(ib.s);
-      const Real &y_min = pmb->coords.Xf<2>(jb.s);
-      const Real &z_min = pmb->coords.Xf<3>(kb.s);
-      const Real &x_max = pmb->coords.Xf<1>(ib.e + 1);
-      const Real &y_max = pmb->coords.Xf<2>(jb.e + 1);
-      const Real &z_max = pmb->coords.Xf<3>(kb.e + 1);
-
-      // as for num_tracers on each block... will get too many on multiple blocks
-      // TODO: distribute amongst blocks.
-      const auto num_tracers_per_cell = tracer_pkg->Param<Real>("num_tracers_per_cell");
-      const auto num_tracers_per_block =
-          static_cast<int>(pmb->GetNumberOfMeshBlockCells() * num_tracers_per_cell);
-
-      // Create new particles and get accessor
-      auto new_particles_context = swarm->AddEmptyParticles(num_tracers_per_block);
-
-      auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
-      auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
-      auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
-      auto &id = swarm->Get<int>("id").Get();
-
-      auto swarm_d = swarm->GetDeviceContext();
-
-      const int gid = pmb->gid;
-      pmb->par_for(
-          "ProblemGenerator::Turbulence::DistributeTracers", 0,
-          new_particles_context.GetNewParticlesMaxIndex(),
-          KOKKOS_LAMBDA(const int new_n) {
-            auto rng_gen = rng_pool.get_state();
-            const int n = new_particles_context.GetNewParticleIndex(new_n);
-
-            x(n) = x_min + rng_gen.drand() * (x_max - x_min);
-            y(n) = y_min + rng_gen.drand() * (y_max - y_min);
-            z(n) = z_min + rng_gen.drand() * (z_max - z_min);
-            // Note that his works only during one time init.
-            // If (somehwere else) we eventually add dynamic particles, then we need to
-            // manage ids (not indices) more globally.
-            id(n) = num_tracers_per_block * gid + n;
-
-            rng_pool.free_state(rng_gen);
-
-            // TODO(pgrete) check if this actually required
-            bool on_current_mesh_block = true;
-            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_current_mesh_block);
-          });
-    }
-  }
 }
 
 //----------------------------------------------------------------------------------------
