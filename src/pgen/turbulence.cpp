@@ -196,6 +196,26 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   }
 }
 
+void ProblemInitTracerData(ParameterInput * /*pin*/,
+                           parthenon::StateDescriptor *tracer_pkg) {
+  // Number of lookback times to be stored (in powers of 2,
+  // i.e., 12 allows to go from 0, 2^0 = 1, 2^1 = 2, 2^2 = 4, ..., 2^10 = 1024 cycles)
+  const int n_lookback = 12; // could even be made an input parameter if required/desired
+                             // (though it should probably not be changeable for restarts)
+  tracer_pkg->AddParam("turbulence/n_lookback", n_lookback);
+
+  const auto swarm_name = tracer_pkg->Param<std::string>("swarm_name");
+  // Using a vector to reduce code duplication.
+  Metadata vreal_swarmvalue_metadata(
+      {Metadata::Real, Metadata::Vector, Metadata::Restart},
+      std::vector<int>{n_lookback});
+  tracer_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
+  // Timestamps for the lookback entries
+  tracer_pkg->AddParam<>("turbulence/t_lookback", std::vector<Real>(n_lookback),
+                         Params::Mutability::Restart);
+}
+
 // SetPhases is used as InitMeshBlockUserData because phases need to be reset on remeshing
 void SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
