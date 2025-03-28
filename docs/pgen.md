@@ -189,3 +189,23 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin)
 ```
 callback is available, that is called once every time right before a data output
 (hdf5 or restart) is being written.
+
+### Particles
+
+#### Tracers
+
+In order to allow custom seeding of tracer particles (per problem generator), the
+`ProblemSeedInitialTracers` function can be defined.
+```c++
+void ProblemSeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
+```
+It is executed once when a simulation is started the very first time (i.e., it
+is not called on subsequent restarts).
+See the standard tracer seeding implementation[`SeedInitialTracers`](https://github.com/parthenon-hpc-lab/athenapk/blob/main/src/tracers/tracers.cpp) for reference on how to deposit particles.
+
+
+To allow adding additional fields, the
+```c++
+void ProblemInitTracerData(ParameterInput * pin, parthenon::StateDescriptor *tracer_pkg);```
+callback is available.
+It is called at the end of the tracer package initialization and can be defined at the per-problem-generator level, see, e.g., the turbulence driver as an example.

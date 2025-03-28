@@ -49,6 +49,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   // Add swarm of tracers
   std::string swarm_name = "tracers";
+  tracer_pkg->AddParam<>("swarm_name", swarm_name);
   // TODO(pgrete) Check where metadata, e.g., for restart is required (i.e., at the swarm
   // or variable level).
   Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
@@ -82,24 +83,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     tracer_pkg->AddSwarmValue("B_z", swarm_name, real_swarmvalue_metadata);
   }
 
-  // TODO(pgrete) this should eventually moved to a more pgen/user specific place
-  // MARCUS AND EVAN LOOK
-  // Number of lookback times to be stored (in powers of 2,
-  // i.e., 12 allows to go from 0, 2^0 = 1, 2^1 = 2, 2^2 = 4, ..., 2^10 = 1024 cycles)
-  const int n_lookback = 12; // could even be made an input parameter if required/desired
-                             // (though it should probably not be changeable for restarts)
-  tracer_pkg->AddParam("n_lookback", n_lookback);
-  // Using a vector to reduce code duplication.
-  Metadata vreal_swarmvalue_metadata(
-      {Metadata::Real, Metadata::Vector, Metadata::Restart},
-      std::vector<int>{n_lookback});
-  tracer_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
-  tracer_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
-  // Timestamps for the lookback entries
-  tracer_pkg->AddParam<>("t_lookback", std::vector<Real>(n_lookback),
-                         Params::Mutability::Restart);
-
   tracer_pkg->UserWorkBeforeLoopMesh = SeedInitialTracers;
+
+  if (ProblemInitTracerData != nullptr) {
+    ProblemInitTracerData(pin, tracer_pkg.get());
+  }
   return tracer_pkg;
 } // Initialize
 
@@ -113,6 +101,8 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   const auto seed_method = pin->GetOrAddString("tracers", "initial_seed_method", "none");
   if (seed_method == "none") {
     return;
+  } else if (seed_method == "user") {
+    ProblemSeedInitialTracers(pmesh, pin, tm);
   } else if (seed_method == "random_per_block") {
     const auto num_tracers_per_cell =
         pin->GetOrAddReal("tracers", "initial_num_tracers_per_cell", 0.0);
@@ -175,7 +165,6 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
             swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_current_mesh_block);
           });
     }
-  } else if (seed_method == "user") {
   } else {
     PARTHENON_THROW("Unknown tracer initial_seed_method");
   }
@@ -249,11 +238,11 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
 
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
-  const auto n_lookback = tracers_pkg->Param<int>("n_lookback");
+  const auto n_lookback = tracers_pkg->Param<int>("turbulence/n_lookback");
   // Params (which is storing t_lookback) is shared across all blocks so we update it
   // outside the block loop. Note, that this is a standard vector, so it cannot be used
   // in the kernel (but also don't need to be used as can directly update it)
-  auto t_lookback = tracers_pkg->Param<std::vector<Real>>("t_lookback");
+  auto t_lookback = tracers_pkg->Param<std::vector<Real>>("turbulence/t_lookback");
   auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
   auto idx = n_lookback - 1;
   while (dncycle > 0) {
@@ -265,7 +254,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   }
   t_lookback[0] = tm.time;
   // Write data back to Params dict
-  tracers_pkg->UpdateParam("t_lookback", t_lookback);
+  tracers_pkg->UpdateParam("turbulence/t_lookback", t_lookback);
 
   // TODO(pgrete) Benchmark atomic and potentially update to proper reduction instead of
   // atomics.

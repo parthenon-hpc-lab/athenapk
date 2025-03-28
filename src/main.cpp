@@ -14,6 +14,7 @@
 #include "main.hpp"
 
 #include "pgen/pgen.hpp"
+#include "tracers/tracers.hpp"
 // Initialize defaults for package specific callback functions
 namespace Hydro {
 InitPackageDataFun_t ProblemInitPackageData = nullptr;
@@ -23,6 +24,11 @@ SourceFun_t ProblemSourceUnsplit = nullptr;
 EstimateTimestepFun_t ProblemEstimateTimestep = nullptr;
 std::function<AmrTag(MeshBlockData<Real> *mbd)> ProblemCheckRefinementBlock = nullptr;
 } // namespace Hydro
+
+namespace Tracers {
+InitPackageDataFun_t ProblemInitTracerData = nullptr;
+SeedInitialFun_t ProblemSeedInitialTracers = nullptr;
+} // namespace Tracers
 
 int main(int argc, char *argv[]) {
   using parthenon::ParthenonManager;
@@ -98,6 +104,7 @@ int main(int argc, char *argv[]) {
   } else if (problem == "turbulence") {
     pman.app_input->MeshProblemGenerator = turbulence::ProblemGenerator;
     Hydro::ProblemInitPackageData = turbulence::ProblemInitPackageData;
+    Tracers::ProblemInitTracerData = turbulence::ProblemInitTracerData;
     Hydro::ProblemSourceFirstOrder = turbulence::Driving;
     pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
     pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
