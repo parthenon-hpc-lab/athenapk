@@ -1,7 +1,7 @@
 // devcontainer.json
     {
       "name": "athenapk-dev",
-      "image": "ghcr.io/parthenon-hpc-lab/cuda11.6-mpi-hdf5-ascent",
+      "image": "ghcr.io/parthenon-hpc-lab/cuda11.6-noascent",
       // disable Dockerfile for now
       //"build": {
       //  // Path is relative to the devcontainer.json file.

@@ -4,6 +4,7 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <string>
@@ -29,6 +30,7 @@
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
+#include "interface/params.hpp"
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
@@ -55,32 +57,86 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   return packages;
 }
 
+// Calculate mininum dx, which is used in calculating the divergence cleaning speed c_h
+// TODO(PG) eventually move to calculating the timestep once the timestep calc
+// has been moved to be done before Step()
+Real CalculateGlobalMinDx(MeshData<Real> *md) {
+  auto *pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  Real mindx = std::numeric_limits<Real>::max();
+
+  bool nx2 = prim_pack.GetDim(2) > 1;
+  bool nx3 = prim_pack.GetDim(3) > 1;
+  pmb->par_reduce(
+      "CalculateGlobalMinDx", 0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmindx) {
+        const auto &coords = prim_pack.GetCoords(b);
+        lmindx = fmin(lmindx, coords.Dxc<1>(k, j, i));
+        if (nx2) {
+          lmindx = fmin(lmindx, coords.Dxc<2>(k, j, i));
+        }
+        if (nx3) {
+          lmindx = fmin(lmindx, coords.Dxc<3>(k, j, i));
+        }
+      },
+      Kokkos::Min<Real>(mindx));
+
+  return mindx;
+}
+
 // Using this per cycle function to populate various variables in
 // Params that require global reduction *and* need to be set/known when
 // the task list is constructed (versus when the task list is being executed).
 // TODO(next person touching this function): If more/separate feature are required
 // please separate concerns.
 void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
-  auto hydro_pkg = pmesh->block_list[0]->packages.Get("Hydro");
-  const auto num_partitions = pmesh->DefaultNumPartitions();
+  auto hydro_pkg = pmesh->packages.Get("Hydro");
 
-  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) &&
-      (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
-    auto dt_diff = std::numeric_limits<Real>::max();
-    for (auto i = 0; i < num_partitions; i++) {
-      auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+  // Calculate hyperbolic divergence cleaning speed
+  // TODO(pgrete) Calculating mindx is only required after remeshing. Need to
+  // find a clean solution for this one-off global reduction.
+  if (hydro_pkg->Param<bool>("calc_c_h") ||
+      hydro_pkg->Param<DiffInt>("diffint") != DiffInt::none) {
 
-      dt_diff = std::min(dt_diff, EstimateConductionTimestep(md.get()));
+    Real mindx = std::numeric_limits<Real>::max();
+    // Going over default partitions. Not using a (new) single partition containing
+    // all blocks here as this (default) split is also used main Step() function and
+    // thus does not create an overhead (such as creating a new MeshBlockPack that is just
+    // used here). All partitions are executed sequentially. Given that a par_reduce to a
+    // host var is blocking it's save to dirctly use the return value.
+    const int num_partitions = pmesh->DefaultNumPartitions();
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      mindx = std::min(mindx, CalculateGlobalMinDx(mu0.get()));
     }
 #ifdef MPI_PARALLEL
-    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &dt_diff, 1, MPI_PARTHENON_REAL,
-                                      MPI_MIN, MPI_COMM_WORLD));
+    Real mins[3];
+    mins[0] = mindx;
+    mins[1] = hydro_pkg->Param<Real>("dt_hyp");
+    mins[2] = hydro_pkg->Param<Real>("dt_diff");
+    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, mins, 3, MPI_PARTHENON_REAL, MPI_MIN,
+                                      MPI_COMM_WORLD));
+
+    hydro_pkg->UpdateParam("mindx", mins[0]);
+    hydro_pkg->UpdateParam("dt_hyp", mins[1]);
+    hydro_pkg->UpdateParam("dt_diff", mins[2]);
+#else
+    hydro_pkg->UpdateParam("mindx", mindx);
+    // dt_hyp and dt_diff are already set directly in Params when they're calculated
 #endif
-    hydro_pkg->UpdateParam("dt_diff", dt_diff);
-    const auto max_dt_ratio = hydro_pkg->Param<Real>("rkl2_max_dt_ratio");
-    if (max_dt_ratio > 0.0 && tm.dt / dt_diff > max_dt_ratio) {
-      tm.dt = max_dt_ratio * dt_diff;
-    }
+    // Finally update c_h
+    const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
+    const auto &dt_hyp = hydro_pkg->Param<Real>("dt_hyp");
+    mindx = hydro_pkg->Param<Real>("mindx");
+    hydro_pkg->UpdateParam("c_h", cfl_hyp * mindx / dt_hyp);
   }
 }
 
@@ -237,17 +293,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     auto glmmhd_alpha = pin->GetOrAddReal("hydro", "glmmhd_alpha", 0.1);
     pkg->AddParam<Real>("glmmhd_alpha", glmmhd_alpha);
     calc_c_h = true;
-    pkg->AddParam<Real>("c_h", 0.0, true); // hyperbolic divergence cleaning speed
-    // global minimum dx (used to calc c_h)
-    pkg->AddParam<Real>("mindx", std::numeric_limits<Real>::max(), true);
-    // hyperbolic timestep constraint
-    pkg->AddParam<Real>("dt_hyp", std::numeric_limits<Real>::max(), true);
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown fluid method.");
   }
   pkg->AddParam<>("fluid", fluid);
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("calc_c_h", calc_c_h);
+  // Following params should (currently) be present independent of solver because
+  // they're all used in the main loop.
+  // TODO(pgrete) think about which approach (selective versus always is preferable)
+  pkg->AddParam<Real>(
+      "c_h", 0.0, Params::Mutability::Mutable); // hyperbolic divergence cleaning speed
+  // global minimum dx (used to calc c_h)
+  pkg->AddParam<Real>("mindx", std::numeric_limits<Real>::max(),
+                      Params::Mutability::Mutable);
+  // hyperbolic timestep constraint
+  pkg->AddParam<Real>("dt_hyp", std::numeric_limits<Real>::max(),
+                      Params::Mutability::Mutable);
 
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
@@ -544,6 +606,67 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     pkg->AddParam<>("conduction", conduction);
 
+    auto viscosity = Viscosity::none;
+    auto viscosity_str = pin->GetOrAddString("diffusion", "viscosity", "none");
+    if (viscosity_str == "isotropic") {
+      viscosity = Viscosity::isotropic;
+    } else if (viscosity_str != "none") {
+      PARTHENON_FAIL("Unknown viscosity method. Options are: none, isotropic");
+    }
+    // If viscosity is enabled, process supported coefficients
+    if (viscosity != Viscosity::none) {
+      auto viscosity_coeff_str =
+          pin->GetOrAddString("diffusion", "viscosity_coeff", "none");
+      auto viscosity_coeff = ViscosityCoeff::none;
+
+      if (viscosity_coeff_str == "fixed") {
+        viscosity_coeff = ViscosityCoeff::fixed;
+        Real mom_diff_coeff_code = pin->GetReal("diffusion", "mom_diff_coeff_code");
+        auto mom_diff = MomentumDiffusivity(viscosity, viscosity_coeff,
+                                            mom_diff_coeff_code, 0.0, 0.0, 0.0);
+        pkg->AddParam<>("mom_diff", mom_diff);
+
+      } else {
+        PARTHENON_FAIL("Viscosity is enabled but no coefficient is set. Please "
+                       "set diffusion/viscosity_coeff to 'fixed' and "
+                       "diffusion/mom_diff_coeff_code to the desired value.");
+      }
+    }
+    pkg->AddParam<>("viscosity", viscosity);
+
+    auto resistivity = Resistivity::none;
+    auto resistivity_str = pin->GetOrAddString("diffusion", "resistivity", "none");
+    if (resistivity_str == "ohmic") {
+      resistivity = Resistivity::ohmic;
+    } else if (resistivity_str != "none") {
+      PARTHENON_FAIL("Unknown resistivity method. Options are: none, ohmic");
+    }
+    // If resistivity is enabled, process supported coefficients
+    if (resistivity != Resistivity::none) {
+      auto resistivity_coeff_str =
+          pin->GetOrAddString("diffusion", "resistivity_coeff", "none");
+      auto resistivity_coeff = ResistivityCoeff::none;
+
+      if (resistivity_coeff_str == "spitzer") {
+        // If this is implemented, check how the Spitzer coeff for thermal conduction is
+        // handled.
+        PARTHENON_FAIL("needs impl");
+
+      } else if (resistivity_coeff_str == "fixed") {
+        resistivity_coeff = ResistivityCoeff::fixed;
+        Real ohm_diff_coeff_code = pin->GetReal("diffusion", "ohm_diff_coeff_code");
+        auto ohm_diff = OhmicDiffusivity(resistivity, resistivity_coeff,
+                                         ohm_diff_coeff_code, 0.0, 0.0, 0.0);
+        pkg->AddParam<>("ohm_diff", ohm_diff);
+
+      } else {
+        PARTHENON_FAIL("Resistivity is enabled but no coefficient is set. Please "
+                       "set diffusion/resistivity_coeff to 'fixed' and "
+                       "diffusion/ohm_diff_coeff_code to the desired value.");
+      }
+    }
+    pkg->AddParam<>("resistivity", resistivity);
+
     auto diffint_str = pin->GetOrAddString("diffusion", "integrator", "none");
     auto diffint = DiffInt::none;
     if (diffint_str == "unsplit") {
@@ -557,8 +680,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                      "Options are: none, unsplit, rkl2");
     }
     if (diffint != DiffInt::none) {
-      pkg->AddParam<Real>("dt_diff", 0.0, true); // diffusive timestep constraint
+      // As in Athena++ a cfl safety factor is also applied to the theoretical limit.
+      // By default it is equal to the hyperbolic cfl.
+      auto cfl_diff = pin->GetOrAddReal("diffusion", "cfl", pkg->Param<Real>("cfl"));
+      pkg->AddParam<>("cfl_diff", cfl_diff);
     }
+    pkg->AddParam<Real>("dt_diff", std::numeric_limits<Real>::max(),
+                        Params::Mutability::Mutable); // diffusive timestep constraint
     pkg->AddParam<>("diffint", diffint);
 
     if (fluid == Fluid::euler) {
@@ -775,9 +903,12 @@ Real EstimateTimestep(MeshData<Real> *md) {
   // get to package via first block in Meshdata (which exists by construction)
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto min_dt = std::numeric_limits<Real>::max();
+  auto dt_hyp = std::numeric_limits<Real>::max();
 
-  if (hydro_pkg->Param<bool>("calc_dt_hyp")) {
-    min_dt = std::min(min_dt, EstimateHyperbolicTimestep<fluid>(md));
+  const auto calc_dt_hyp = hydro_pkg->Param<bool>("calc_dt_hyp");
+  if (calc_dt_hyp) {
+    dt_hyp = EstimateHyperbolicTimestep<fluid>(md);
+    min_dt = std::min(min_dt, dt_hyp);
   }
 
   const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
@@ -789,10 +920,34 @@ Real EstimateTimestep(MeshData<Real> *md) {
     min_dt = std::min(min_dt, tabular_cooling.EstimateTimeStep(md));
   }
 
-  // For RKL2 STS, the diffusive timestep is calculated separately in the driver
-  if ((hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) &&
-      (hydro_pkg->Param<Conduction>("conduction") != Conduction::none)) {
-    min_dt = std::min(min_dt, EstimateConductionTimestep(md));
+  auto dt_diff = std::numeric_limits<Real>::max();
+  if (hydro_pkg->Param<DiffInt>("diffint") != DiffInt::none) {
+    if (hydro_pkg->Param<Conduction>("conduction") != Conduction::none) {
+      dt_diff = std::min(dt_diff, EstimateConductionTimestep(md));
+    }
+    if (hydro_pkg->Param<Viscosity>("viscosity") != Viscosity::none) {
+      dt_diff = std::min(dt_diff, EstimateViscosityTimestep(md));
+    }
+    if (hydro_pkg->Param<Resistivity>("resistivity") != Resistivity::none) {
+      dt_diff = std::min(dt_diff, EstimateResistivityTimestep(md));
+    }
+
+    // For unsplit ingegration use strict limit
+    if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::unsplit) {
+      min_dt = std::min(min_dt, dt_diff);
+      // and for RKL2 integration use limit taking into account the maxium ratio
+      // or not constrain limit further (which is why RKL2 is there in first place)
+    } else if (hydro_pkg->Param<DiffInt>("diffint") == DiffInt::rkl2) {
+      const auto max_dt_ratio = hydro_pkg->Param<Real>("rkl2_max_dt_ratio");
+      if (max_dt_ratio > 0.0 && dt_hyp / dt_diff > max_dt_ratio) {
+        min_dt = std::min(min_dt, max_dt_ratio * dt_diff);
+      }
+    } else {
+      PARTHENON_THROW("Looks like a a new diffusion integrator was implemented without "
+                      "taking into accout timestep contstraints yet.");
+    }
+    auto dt_diff_param = hydro_pkg->Param<Real>("dt_diff");
+    hydro_pkg->UpdateParam("dt_diff", std::min(dt_diff, dt_diff_param));
   }
 
   if (ProblemEstimateTimestep != nullptr) {
@@ -1110,10 +1265,10 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
           const auto &u0_prim = u0_prim_pack(b);
           auto &u0_cons = u0_cons_pack(b);
 
-          // In principle, the u_cons.fluxes could be updated in parallel by a different
-          // thread resulting in a race conditon here.
-          // However, if the fluxes of a cell have been updated (anywhere) then the entire
-          // kernel will be called again anyway, and, at that point the already fixed
+          // In principle, the u_cons.fluxes could be updated in parallel by a
+          // different thread resulting in a race conditon here. However, if the
+          // fluxes of a cell have been updated (anywhere) then the entire kernel will
+          // be called again anyway, and, at that point the already fixed
           // u0_cons.fluxes will automaticlly be used here.
           Real new_cons[NVAR];
           for (auto v = 0; v < NVAR; v++) {
@@ -1141,13 +1296,13 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
             lnum_need_floor += 1;
             return;
           }
-          // In principle, there could be a racecondion as this loop goes over all k,j,i
-          // and we updating the i+1 flux here.
-          // However, the results are idential because u0_prim is never updated in this
-          // kernel so we don't worry about it.
-          // TODO(pgrete) as we need to keep the function signature idential for now (due
-          // to Cuda compiler bug) we could potentially template these function and get
-          // rid of the `if constexpr`
+          // In principle, there could be a racecondion as this loop goes over all
+          // k,j,i and we updating the i+1 flux here. However, the results are
+          // idential because u0_prim is never updated in this kernel so we don't
+          // worry about it.
+          // TODO(pgrete) as we need to keep the function signature idential for now
+          // (due to Cuda compiler bug) we could potentially template these function
+          // and get rid of the `if constexpr`
           riemann.Solve(eos, k, j, i, IV1, u0_prim, u0_cons, c_h);
           riemann.Solve(eos, k, j, i + 1, IV1, u0_prim, u0_cons, c_h);
 
@@ -1164,7 +1319,8 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
         Kokkos::Sum<std::int64_t>(num_corrected),
         Kokkos::Sum<std::int64_t>(num_need_floor));
     // TODO(pgrete) make this optional and global (potentially store values in Params)
-    // std::cout << "[" << parthenon::Globals::my_rank << "] Attempt: " << num_attempts
+    // std::cout << "[" << parthenon::Globals::my_rank << "] Attempt: " <<
+    // num_attempts
     //           << " Corrected (center): " << num_corrected
     //           << " Failed (will rely on floor): " << num_need_floor << std::endl;
     num_attempts += 1;

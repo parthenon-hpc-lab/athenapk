@@ -98,6 +98,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/output0/id=%s" % outname,
             "hydro/gamma=2.0",
             "parthenon/time/tlim=%f" % tlim,
+            # Work around for RKL2 integrator (that, by default, does not limit the
+            # timestep, which in newer versions of Parthenon results in triggering
+            # a fail-safe given the default init value of numeric_limits max.
+            "parthenon/time/dt_ceil=%f" % tlim,
             "diffusion/conduction=%s" % conduction,
             "diffusion/thermal_diff_coeff_code=0.25",
             "diffusion/integrator=%s" % int_cfg,
