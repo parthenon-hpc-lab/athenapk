@@ -1,5 +1,5 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2024, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2024-2025, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 # Problem generator for square implosion problem
@@ -21,15 +21,15 @@ p_out  = 1.0             # pressure
 
 <parthenon/mesh>
 refinement = none
-nghost = 2
+nghost = 3
 
-nx1 = 200
+nx1 = 512
 x1min = 0.0
 x1max = 0.3
 ix1_bc = reflecting
 ox1_bc = reflecting
 
-nx2 = 200
+nx2 = 512
 x2min = 0.0
 x2max = 0.3
 ix2_bc = reflecting
@@ -38,17 +38,18 @@ ox2_bc = reflecting
 nx3 = 1
 x3min = -0.5
 x3max = 0.5
-ix2_bc = periodic
-ox2_bc = periodic
+ix3_bc = periodic
+ox3_bc = periodic
 
 <parthenon/meshblock>
-nx1 = 100
-nx2 = 100
+nx1 = 512
+nx2 = 512
 nx3 = 1
 
 <parthenon/output0>
 file_type = hdf5
 dt = 0.1
+#dn = 1
 variables = prim
 id = prim
 
@@ -57,7 +58,7 @@ file_type = hst
 dt = 0.1
 
 <parthenon/time>
-integrator = vl2
+integrator = rk3
 cfl = 0.4
 tlim = 2.5
 nlim = -1
@@ -66,5 +67,5 @@ nlim = -1
 fluid = euler
 eos = adiabatic
 riemann = hllc
-reconstruction = plm
+reconstruction = ppm
 gamma = 1.4
