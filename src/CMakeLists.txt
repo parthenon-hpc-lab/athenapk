@@ -6,6 +6,7 @@ add_executable(
         main.cpp
         eos/adiabatic_glmmhd.cpp
         units.hpp
+        bvals/boundary_conditions_apk.hpp
         eos/adiabatic_hydro.cpp
         hydro/diffusion/conduction.cpp
         hydro/diffusion/diffusion.cpp

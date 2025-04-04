@@ -323,3 +323,21 @@ d_log_temp_tol = 1e-8              # Tolerance in cooling table between subseque
 Finally, a more comprehensive descriptions of various conventions used for cooling
 functions (and the chosen implementation in AthenaPK) can be found in [Cooling Notes](cooling_notes.md)
 and a notebook comparing various cooling tables (and their conversion) in [cooling/cooling.ipynb](cooling/cooling.ipynb).
+
+## Boundary conditions
+
+In addition to enrolling custom boundary conditions, three general options are currently supported by default:
+
+- `periodic`: work without restrictions (implemented in upstream Parthenon)
+- `outflow`: work without restrictions (implemented in upstream Parthenon)
+- `reflecting`: work only for cell-centered *hydro* fluid variables
+(implemented in AthenaPK currently without support for particles or `Metadata::Fine` fields,
+ where the latter are currently not being used in AthenaPK).
+ Note, that we specifically do *not* provide "reflecting" boundary conditions for the magnetic
+ fields as these kind of configurations are typically highly problem dependent and, thus,
+ require manual treatment.
+
+They are being used by specifying the name as parameter value for the
+`ix1_bc`, `ox1_bc`, `ix2_bc`, `ox2_bc`, `ix3_bc`, and `ox3_bc` paraemters
+in the `<parthenon/mesh>` block of the input file for the inner and outer
+(say left and right in x1 direction) in each coordinate direction, respectively.
