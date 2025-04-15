@@ -57,6 +57,11 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   const auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
   const auto num_blocks = md->NumBlocks();
 
+  // Adding the passive scalar
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
+
   //--- iprob=1. This was the classic, unresolved K-H test.
 
   //--- iprob=2. Uniform density medium moving at +/-vflow seperated by a single shear
@@ -73,6 +78,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           const auto &u = cons(b);
           const auto &coords = cons.GetCoords(b);
+
+          // Coordinates for the passive scalar
+          const Real y = coords.Xc<2>(j);
+
           u(IDN, k, j, i) = 1.0;
           u(IM1, k, j, i) = vflow * std::tanh((coords.Xc<2>(j)) / a);
           u(IM2, k, j, i) = amp * std::cos(2.0 * M_PI * coords.Xc<1>(i)) *
@@ -81,6 +90,13 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           u(IEN, k, j, i) =
               1.0 / gm1 +
               0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
+
+          // Init passive scalars
+          for (auto n = nhydro; n < nhydro + nscalars; n++) {
+            if (y <= 0) {
+              u(n, k, j, i) = 1.0;
+            }
+          }
         });
 
   } else if (iprob == 3) {
