@@ -78,12 +78,6 @@ sol_weight   = 0.3      # solenoidal weight of the acceleration field
 accel_rms    = 0.45      # root mean square value of the acceleration field
 num_modes    = 30       # number of wavemodes
 
-<diffusion>
-integrator = unsplit
-viscosity = isotropic
-viscosity_coeff = fixed
-mom_diff_coeff_code = 2.5e-5
-
 <tracers>
 enabled = true
 initial_seed_method  = random_per_block    # alternative: user
