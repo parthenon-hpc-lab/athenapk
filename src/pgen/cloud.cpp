@@ -17,6 +17,7 @@
 #include <basic_types.hpp>
 #include <iomanip>
 #include <ios>
+#include <ostream>
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 #include <random>
@@ -29,7 +30,7 @@
 namespace cloud {
 using namespace parthenon::driver::prelude;
 
-Real rho_wind, mom_wind, rhoe_wind, r_cloud, rho_cloud;
+Real rho_wind, mom_wind, rhoe_wind, r_cloud, rho_cloud, rho_amb, rhoe_amb;
 Real Bx = 0.0;
 Real By = 0.0;
 Real Bz = 0.0;
@@ -52,18 +53,37 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 
   r_cloud = pin->GetReal("problem/cloud", "r0_cgs") / units.code_length_cgs();
   rho_cloud = pin->GetReal("problem/cloud", "rho_cloud_cgs") / units.code_density_cgs();
-  rho_wind = pin->GetReal("problem/cloud", "rho_wind_cgs") / units.code_density_cgs();
-  auto T_wind = pin->GetReal("problem/cloud", "T_wind_cgs");
-  auto v_wind = pin->GetReal("problem/cloud", "v_wind_cgs") /
-                (units.code_length_cgs() / units.code_time_cgs());
+  rho_amb = pin->GetReal("problem/cloud", "rho_amb_cgs") / units.code_density_cgs();
+  auto T_amb = pin->GetReal("problem/cloud", "T_amb_cgs");
 
   // mu_mh_gm1_by_k_B is already in code units
-  rhoe_wind = T_wind * rho_wind / mbar_over_kb / gm1;
+  rhoe_amb = T_amb * rho_amb / mbar_over_kb / gm1;
+  const auto pressure =
+      gm1 * rhoe_amb; // one value for entire domain given initial pressure equil.
+
+  auto mach = pin->GetReal("problem/cloud", "mach_wind");
+
+  // Uses Rankine Hugoniot relations for adiabatic gas to initialize problem
+  Real jump1 = (gamma + 1.0) / (gm1 + 2.0 / (mach * mach));
+  Real jump2 = (2.0 * gamma * mach * mach - gm1) / (gamma + 1.0);
+  Real jump3 = 2.0 * (1.0 - 1.0 / (mach * mach)) / (gamma + 1.0);
+
+  rho_wind = rho_amb * jump1;
+  const auto pressure_wind = pressure * jump2;
+  rhoe_wind = pressure_wind / gm1;
+  const auto T_wind = pressure_wind / rho_wind * mbar_over_kb;
+
+  const auto v_wind = jump3 * mach * std::sqrt(gamma * pressure / rho_amb);
+  // const auto a_r = std::sqrt(gamma * pressure / rho_amb);
+  // const auto S_3 =
+  // a_r * std::sqrt(((gamma + 1.0) / (2 * gamma)) * (pressure_wind / pressure) +
+  // gm1 / (2 * gamma));
+  // const auto v_wind = (1.0 - rho_amb / rho_wind) * S_3;
+  mom_wind = rho_wind * v_wind;
+
   const auto c_s_wind = std::sqrt(gamma * gm1 * rhoe_wind / rho_wind);
   const auto chi_0 = rho_cloud / rho_wind;               // cloud to wind density ratio
   const auto t_cc = r_cloud * std::sqrt(chi_0) / v_wind; // cloud crushting time (code)
-  const auto pressure =
-      gm1 * rhoe_wind; // one value for entire domain given initial pressure equil.
 
   const auto T_cloud = pressure / rho_cloud * mbar_over_kb;
 
@@ -107,6 +127,10 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   msg << "## Uniform pressure (code units): " << pressure << std::endl;
   msg << "## Wind sonic Mach: " << v_wind / c_s_wind << std::endl;
   msg << "## Cloud crushing time: " << t_cc / units.myr() << " Myr" << std::endl;
+  // msg << "shock mach in abmient meidum: " << S_3 / sqrt(gamma * pressure / rho_amb)
+  // << std::endl;
+  msg << "wind mach in abmient meidum: " << v_wind / sqrt(gamma * pressure / rho_amb)
+      << std::endl;
 
   // (potentially) rescale global times only at the beginning of a simulation
   auto rescale_code_time_to_tcc =
@@ -162,7 +186,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
                    "but `hydro/fluid` is not supporting MHD.");
   }
 
+  Units units(pin);
   auto steepness = pin->GetOrAddReal("problem/cloud", "cloud_steepness", 10);
+  const auto r_cloud_cgs = pin->GetReal("problem/cloud", "r0_cgs");
+  auto xshock = pin->GetOrAddReal("problem/cloud", "xshock_cgs", -3 * r_cloud_cgs) /
+                units.code_length_cgs();
 
   // initialize conserved variables
   auto &mbd = pmb->meshblock_data.Get();
@@ -180,22 +208,18 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         const Real z = coords.Xc<3>(k);
         const Real rad = std::sqrt(SQR(x) + SQR(y) + SQR(z));
 
-        Real rho = rho_wind + 0.5 * (rho_cloud - rho_wind) *
-                                  (1.0 - std::tanh(steepness * (rad / r_cloud - 1.0)));
-
-        Real mom;
-        // Factor 1.3 as used in Grønnow, Tepper-García, & Bland-Hawthorn 2018,
-        // i.e., outside the cloud boundary region (for steepness 10)
-        if (rad > 1.3 * r_cloud) {
-          mom = mom_wind;
+        Real rho;
+        // Set background
+        if (y < xshock) {
+          rho = rho_wind;
+          u(IM2, k, j, i) = mom_wind;
+          u(IEN, k, j, i) = rhoe_wind + 0.5 * mom_wind * mom_wind / rho_wind;
         } else {
-          mom = 0.0;
+          rho = rho_amb + 0.5 * (rho_cloud - rho_amb) *
+                              (1.0 - std::tanh(steepness * (rad / r_cloud - 1.0)));
+          u(IEN, k, j, i) = rhoe_amb;
         }
-
         u(IDN, k, j, i) = rho;
-        u(IM2, k, j, i) = mom;
-        // Can use rhoe_wind here as simulation is setup in pressure equil.
-        u(IEN, k, j, i) = rhoe_wind + 0.5 * mom * mom / rho;
 
         if (mhd_enabled) {
           u(IB1, k, j, i) = Bx;
