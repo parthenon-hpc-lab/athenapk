@@ -24,8 +24,12 @@
 #include <cmath>     // log
 #include <cstring>   // strcmp()
 
+#include <adios2.h>
+
 // Parthenon headers
+#include "globals.hpp"
 #include "mesh/mesh.hpp"
+#include <iostream>
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 #include <random>
@@ -56,6 +60,27 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   // Get a MeshBlockPack on device with all conserved variables
   const auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
   const auto num_blocks = md->NumBlocks();
+
+  // Silly ADIOS2 test
+
+  adios2::fstream iStream("test.bp", adios2::fstream::in, MPI_COMM_WORLD);
+  adios2::fstep iStep;
+  // There's only a single step in the input file, so there's no issue using the while
+  // logic here.
+  while (adios2::getstep(iStream, iStep)) {
+    // only read row of current rank
+    const adios2::Dims start{static_cast<unsigned long>(parthenon::Globals::my_rank), 0};
+    const adios2::Dims count{1, 4};
+    auto mydata = iStream.read<double>("myvarname", start, count);
+    std::cerr << "[" << parthenon::Globals::my_rank << "] ";
+    for (auto var : mydata) {
+      std::cerr << var << " ";
+    }
+    std::cerr << "\n";
+    // Just to be sure we break (to not read any other steps if present in the bp file)
+    break;
+  }
+  iStream.close();
 
   //--- iprob=1. This was the classic, unresolved K-H test.
 

@@ -15,7 +15,7 @@ else()
     "For further directions open an issue on GitLab.")
 endif()
 
-project(athenaPK LANGUAGES CXX)
+project(athenaPK LANGUAGES C CXX)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -60,6 +60,13 @@ if (NOT PARTHENON_DISABLE_MPI)
   if (NOT MPI_FOUND)
     message(FATAL_ERROR "MPI is required but couldn't be found. "
     "If you want to build Parthenon without MPI, please rerun CMake with -DPARTHENON_DISABLE_MPI=ON")
+  endif()
+endif()
+
+if (NOT ATHENAPK_DISABLE_ADIOS2)
+  find_package(ADIOS2 REQUIRED)
+  if (NOT ADIOS2_FOUND)
+    message(FATAL_ERROR "ADIOS2 requested but couldn't be found. Either set ADIOS2_DIR to the install prefix as hint or disable by setting ATHENAPK_DISABLE_ADIOS2=ON")
   endif()
 endif()
 
