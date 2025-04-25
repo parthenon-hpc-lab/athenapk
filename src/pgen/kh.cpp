@@ -48,13 +48,6 @@ using namespace parthenon::driver::prelude;
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto vflow = pin->GetReal("problem/kh", "vflow");
   auto iprob = pin->GetInteger("problem/kh", "iprob");
-  // Get pointer to first block (always exists) for common data like loop bounds
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
-  auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-  auto gam = pin->GetReal("hydro", "gamma");
-  auto gm1 = (gam - 1.0);
 
   // Initialize conserved variables
   // Get a MeshBlockPack on device with all conserved variables
@@ -63,24 +56,71 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
   // Silly ADIOS2 test
 
-  adios2::fstream iStream("test.bp", adios2::fstream::in, MPI_COMM_WORLD);
-  adios2::fstep iStep;
-  // There's only a single step in the input file, so there's no issue using the while
-  // logic here.
-  while (adios2::getstep(iStream, iStep)) {
-    // only read row of current rank
-    const adios2::Dims start{static_cast<unsigned long>(parthenon::Globals::my_rank), 0};
-    const adios2::Dims count{1, 4};
-    auto mydata = iStream.read<double>("myvarname", start, count);
-    std::cerr << "[" << parthenon::Globals::my_rank << "] ";
-    for (auto var : mydata) {
-      std::cerr << var << " ";
+  for (int b = 0; b < num_blocks; b++) {
+    auto pmb = md->GetBlockData(b)->GetBlockPointer();
+    const auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);
+    const auto mb1 = pmb->block_size.nx(parthenon::X1DIR);
+    const auto mb2 = pmb->block_size.nx(parthenon::X2DIR);
+    const auto mb3 = pmb->block_size.nx(parthenon::X3DIR);
+    const auto gis = loc.lx1() * mb1;
+    const auto gjs = loc.lx2() * mb2;
+    const auto gks = loc.lx3() * mb3;
+    adios2::fstream iStream("test3d.bp", adios2::fstream::in, MPI_COMM_WORLD);
+    adios2::fstep iStep;
+    // There's only a single step in the input file, so there's no issue using the while
+    // logic here.
+    while (adios2::getstep(iStream, iStep)) {
+      // only read row of current rank
+      const adios2::Dims start{0, static_cast<unsigned long>(gks),
+                               static_cast<unsigned long>(gjs),
+                               static_cast<unsigned long>(gis)};
+      const adios2::Dims count{4, static_cast<unsigned long>(mb3),
+                               static_cast<unsigned long>(mb2),
+                               static_cast<unsigned long>(mb1)};
+      auto mydata = iStream.read<double>("myvarname", start, count);
+      std::cerr << "[" << parthenon::Globals::my_rank << ":" << b << "]";
+      for (int i = 0; i < 10; i++) {
+        std::cerr << mydata[i] << " ";
+      }
+      std::cerr << "\n";
+
+      auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+      auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+      auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+      // initialize conserved variables
+      auto &mbd = pmb->meshblock_data.Get();
+      auto &u_dev = mbd->Get("cons").data;
+      auto &coords = pmb->coords;
+      // initializing on host
+      auto u = u_dev.GetHostMirrorAndCopy();
+
+      // Read problem parameters
+      for (int k = kb.s; k <= kb.e; k++) {
+        for (int j = jb.s; j <= jb.e; j++) {
+          for (int i = ib.s; i <= ib.e; i++) {
+            const auto kk = k - kb.s;
+            const auto jj = j - jb.s;
+            const auto ii = i - ib.s;
+            u(IDN, k, j, i) = mydata[((0 * mb3 + kk) * mb2 + jj) * mb1 + ii];
+            u(IM2, k, j, i) = mydata[((1 * mb3 + kk) * mb2 + jj) * mb1 + ii];
+            u(IEN, k, j, i) = mydata[((2 * mb3 + kk) * mb2 + jj) * mb1 + ii];
+          }
+        }
+      }
+      // copy initialized vars to device
+      u_dev.DeepCopy(u);
+      // Just to be sure we break (to not read any other steps if present in the bp file)
+      break;
     }
-    std::cerr << "\n";
-    // Just to be sure we break (to not read any other steps if present in the bp file)
-    break;
+    iStream.close();
   }
-  iStream.close();
+  // Get pointer to first block (always exists) for common data like loop bounds
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  auto gam = pin->GetReal("hydro", "gamma");
+  auto gm1 = (gam - 1.0);
 
   //--- iprob=1. This was the classic, unresolved K-H test.
 
