@@ -12,9 +12,6 @@
 #include <cmath>     // log
 #include <cstring>   // strcmp()
 
-// Should be in ifdefs once adios2 lib is linked in Parthenon
-#include <adios2.h>
-
 // Parthenon headers
 #include "mesh/mesh.hpp"
 #include <basic_types.hpp>
