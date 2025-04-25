@@ -22,11 +22,13 @@
 // C++ headers
 #include <algorithm> // min, max
 #include <cmath>     // log
-#include <cstring>   // strcmp()
+#include <cstddef>
+#include <cstring> // strcmp()
 
 #include <adios2.h>
 
 // Parthenon headers
+#include "basic_types.hpp"
 #include "globals.hpp"
 #include "mesh/mesh.hpp"
 #include <iostream>
@@ -53,67 +55,74 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   // Get a MeshBlockPack on device with all conserved variables
   const auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
   const auto num_blocks = md->NumBlocks();
+  const auto mb1 = pmesh->GetDefaultBlockSize().nx(parthenon::X1DIR);
+  const auto mb2 = pmesh->GetDefaultBlockSize().nx(parthenon::X2DIR);
+  const auto mb3 = pmesh->GetDefaultBlockSize().nx(parthenon::X3DIR);
 
   // Silly ADIOS2 test
+  adios2::ADIOS adios(MPI_COMM_WORLD);
 
+  adios2::IO get_var = adios.DeclareIO("GetVar");
+  adios2::Engine bpReader = get_var.Open("test3d.bp", adios2::Mode::Read);
+
+  bpReader.BeginStep();
+  // this just discovers in the metadata file that the variable exists
+  adios2::Variable<double> myvar_in = get_var.InquireVariable<double>("myvarname");
+
+  PARTHENON_REQUIRE_THROWS(myvar_in, "Could not find variable name in file.");
+
+  // Allocate tmp data (shared across/overwritten for blocks)
+  std::vector<double> tmp(4 * mb1 * mb2 * mb3);
   for (int b = 0; b < num_blocks; b++) {
     auto pmb = md->GetBlockData(b)->GetBlockPointer();
     const auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);
-    const auto mb1 = pmb->block_size.nx(parthenon::X1DIR);
-    const auto mb2 = pmb->block_size.nx(parthenon::X2DIR);
-    const auto mb3 = pmb->block_size.nx(parthenon::X3DIR);
     const auto gis = loc.lx1() * mb1;
     const auto gjs = loc.lx2() * mb2;
     const auto gks = loc.lx3() * mb3;
-    adios2::fstream iStream("test3d.bp", adios2::fstream::in, MPI_COMM_WORLD);
-    adios2::fstep iStep;
-    // There's only a single step in the input file, so there's no issue using the while
-    // logic here.
-    while (adios2::getstep(iStream, iStep)) {
-      // only read row of current rank
-      const adios2::Dims start{0, static_cast<unsigned long>(gks),
-                               static_cast<unsigned long>(gjs),
-                               static_cast<unsigned long>(gis)};
-      const adios2::Dims count{4, static_cast<unsigned long>(mb3),
-                               static_cast<unsigned long>(mb2),
-                               static_cast<unsigned long>(mb1)};
-      auto mydata = iStream.read<double>("myvarname", start, count);
-      std::cerr << "[" << parthenon::Globals::my_rank << ":" << b << "]";
-      for (int i = 0; i < 10; i++) {
-        std::cerr << mydata[i] << " ";
-      }
-      std::cerr << "\n";
+    // only read row of current rank
+    const adios2::Dims start{0, static_cast<unsigned long>(gks),
+                             static_cast<unsigned long>(gjs),
+                             static_cast<unsigned long>(gis)};
+    const adios2::Dims count{4, static_cast<unsigned long>(mb3),
+                             static_cast<unsigned long>(mb2),
+                             static_cast<unsigned long>(mb1)};
+    myvar_in.SetSelection({start, count});
+    bpReader.Get(myvar_in, tmp.data(), adios2::Mode::Sync);
+    std::cerr << "[" << parthenon::Globals::my_rank << ":" << b << "]";
+    for (int i = 0; i < 10; i++) {
+      std::cerr << tmp[i] << " ";
+    }
+    std::cerr << "\n";
 
-      auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-      auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-      auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-      // initialize conserved variables
-      auto &mbd = pmb->meshblock_data.Get();
-      auto &u_dev = mbd->Get("cons").data;
-      auto &coords = pmb->coords;
-      // initializing on host
-      auto u = u_dev.GetHostMirrorAndCopy();
+    auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+    auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+    auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+    // initialize conserved variables
+    auto &mbd = pmb->meshblock_data.Get();
+    auto &u_dev = mbd->Get("cons").data;
+    auto &coords = pmb->coords;
+    // initializing on host
+    auto u = u_dev.GetHostMirrorAndCopy();
 
-      // Read problem parameters
-      for (int k = kb.s; k <= kb.e; k++) {
-        for (int j = jb.s; j <= jb.e; j++) {
-          for (int i = ib.s; i <= ib.e; i++) {
-            const auto kk = k - kb.s;
-            const auto jj = j - jb.s;
-            const auto ii = i - ib.s;
-            u(IDN, k, j, i) = mydata[((0 * mb3 + kk) * mb2 + jj) * mb1 + ii];
-            u(IM2, k, j, i) = mydata[((1 * mb3 + kk) * mb2 + jj) * mb1 + ii];
-            u(IEN, k, j, i) = mydata[((2 * mb3 + kk) * mb2 + jj) * mb1 + ii];
-          }
+    // Read problem parameters
+    for (int k = kb.s; k <= kb.e; k++) {
+      for (int j = jb.s; j <= jb.e; j++) {
+        for (int i = ib.s; i <= ib.e; i++) {
+          const auto kk = k - kb.s;
+          const auto jj = j - jb.s;
+          const auto ii = i - ib.s;
+          u(IDN, k, j, i) = tmp[((0 * mb3 + kk) * mb2 + jj) * mb1 + ii];
+          u(IM2, k, j, i) = tmp[((1 * mb3 + kk) * mb2 + jj) * mb1 + ii];
+          u(IEN, k, j, i) = tmp[((2 * mb3 + kk) * mb2 + jj) * mb1 + ii];
         }
       }
-      // copy initialized vars to device
-      u_dev.DeepCopy(u);
-      // Just to be sure we break (to not read any other steps if present in the bp file)
-      break;
     }
-    iStream.close();
+    // copy initialized vars to device
+    u_dev.DeepCopy(u);
   }
+  bpReader.EndStep();
+  bpReader.Close();
+
   // Get pointer to first block (always exists) for common data like loop bounds
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
