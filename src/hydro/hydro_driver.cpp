@@ -633,8 +633,11 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &pmb = blocks[n];
       auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
       auto &mbd0 = pmb->meshblock_data.Get("base");
+      auto tracer_inject = tl.AddTask(none, Tracers::InjectTracers, mbd0.get(), tm);
+      auto tracer_removal =
+          tl.AddTask(tracer_inject, Tracers::RemoveTracers, mbd0.get(), tm);
       auto tracer_advect =
-          tl.AddTask(none, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
+          tl.AddTask(tracer_removal, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
 
       auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
                              BoundaryCommSubset::all);
