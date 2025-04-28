@@ -43,6 +43,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 extern InitPackageDataFun_t ProblemInitTracerData;
 
+enum class InjectionCriteria { Density };
+
+TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt);
 
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
