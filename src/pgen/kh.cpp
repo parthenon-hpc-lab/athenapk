@@ -63,11 +63,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   adios2::ADIOS adios(MPI_COMM_WORLD);
 
   adios2::IO get_var = adios.DeclareIO("GetVar");
-  adios2::Engine bpReader = get_var.Open("test3d.bp", adios2::Mode::Read);
+  adios2::Engine bpReader = get_var.Open("ICs.bp", adios2::Mode::Read);
+  // adios2::Engine bpReader = get_var.Open("test3d.bp", adios2::Mode::Read);
 
   bpReader.BeginStep();
   // this just discovers in the metadata file that the variable exists
-  adios2::Variable<double> myvar_in = get_var.InquireVariable<double>("myvarname");
+  adios2::Variable<double> myvar_in = get_var.InquireVariable<double>("ICs");
 
   PARTHENON_REQUIRE_THROWS(myvar_in, "Could not find variable name in file.");
 
@@ -76,24 +77,30 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   for (int b = 0; b < num_blocks; b++) {
     auto pmb = md->GetBlockData(b)->GetBlockPointer();
     const auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);
-    const auto gis = loc.lx1() * mb1;
-    const auto gjs = loc.lx2() * mb2;
-    const auto gks = loc.lx3() * mb3;
     // only read row of current rank
-    const adios2::Dims start{0, static_cast<unsigned long>(gks),
-                             static_cast<unsigned long>(gjs),
-                             static_cast<unsigned long>(gis)};
-    const adios2::Dims count{4, static_cast<unsigned long>(mb3),
+    const adios2::Dims start{static_cast<unsigned long>(loc.lx1()),
+                             static_cast<unsigned long>(loc.lx2()),
+                             static_cast<unsigned long>(loc.lx3()),
+                             0,
+                             0,
+                             0,
+                             0};
+    const adios2::Dims count{1,
+                             1,
+                             1,
+                             4,
+                             static_cast<unsigned long>(mb3),
                              static_cast<unsigned long>(mb2),
                              static_cast<unsigned long>(mb1)};
     myvar_in.SetSelection({start, count});
+    auto bla = &tmp[50];
+
     bpReader.Get(myvar_in, tmp.data(), adios2::Mode::Sync);
     std::cerr << "[" << parthenon::Globals::my_rank << ":" << b << "]";
     for (int i = 0; i < 10; i++) {
       std::cerr << tmp[i] << " ";
     }
     std::cerr << "\n";
-
     auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
     auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
     auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -113,7 +120,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           const auto ii = i - ib.s;
           u(IDN, k, j, i) = tmp[((0 * mb3 + kk) * mb2 + jj) * mb1 + ii];
           u(IM2, k, j, i) = tmp[((1 * mb3 + kk) * mb2 + jj) * mb1 + ii];
-          u(IEN, k, j, i) = tmp[((2 * mb3 + kk) * mb2 + jj) * mb1 + ii];
+          u(IEN, k, j, i) = 1.0; // tmp[((2 * mb3 + kk) * mb2 + jj) * mb1 + ii];
         }
       }
     }
@@ -122,6 +129,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   }
   bpReader.EndStep();
   bpReader.Close();
+  return;
 
   // Get pointer to first block (always exists) for common data like loop bounds
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
