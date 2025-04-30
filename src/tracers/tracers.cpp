@@ -48,7 +48,7 @@ the swarm at the new timestep, and then on the cells again to inject the tracers
 Due to the stochasticity of the injection, we need a deterministic RNG that will
 return the same random number of each cells at both par_for. Below is an attempt
 of generating such RNG using a cell index based seed. Comments welcomed.
-=============================================================================== */ 
+=============================================================================== */
 
 // Generate a unique see, deterministic providing k,j,i
 KOKKOS_INLINE_FUNCTION
@@ -76,12 +76,10 @@ uint64_t hash(uint64_t seed) {
 KOKKOS_INLINE_FUNCTION
 double random_double(uint64_t seed) { return (hash(seed) >> 11) * (1.0 / (1ULL << 53)); }
 
-
 /* ===============================================================================
 EvaluateCriteria: custom function containing the criteria that cells have to ful-
 fill to be elligible for the injection of tracers.
-=============================================================================== */ 
-
+=============================================================================== */
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION bool EvaluateCriteria(InjectionCriteria crit, View4D cons,
@@ -112,9 +110,9 @@ KOKKOS_INLINE_FUNCTION bool EvaluateCriteria(InjectionCriteria crit, View4D cons
 }
 
 /* ===============================================================================
-Initialize: reads the input parameters, create the tracer package and create the 
+Initialize: reads the input parameters, create the tracer package and create the
 swarm object of each individual populations of tracers.
-=============================================================================== */ 
+=============================================================================== */
 
 // Initializing the tracer packages and swarms
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
@@ -231,8 +229,7 @@ filling a criterion indicated in the input parameter list. Since tracers can't b
 injected at all timesteps (this would lead to a divergence of the tracer population,
 these are injected in a stochastic way, based on a target number of tracer per cell
 and per unit time.
-=============================================================================== */ 
-
+=============================================================================== */
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
@@ -401,7 +398,7 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 /* ===============================================================================
 RemoveTracers: loops on tracer, check which ones have reach the end of their life-
 time, remove them in such case.
-=============================================================================== */ 
+=============================================================================== */
 
 TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
@@ -448,9 +445,9 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
 /* ===============================================================================
 SeedInitialTracers: setting up the initial distribution of tracers in each pop. As
-tracers can now be dynamically injected, it might worth lifting the non zero tracer 
+tracers can now be dynamically injected, it might worth lifting the non zero tracer
 condition.
-=============================================================================== */ 
+=============================================================================== */
 
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
 
@@ -561,7 +558,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 AdvectTracers: moves the tracers in each population for the current timestep.
 Two methods are implemented: velocity field interpolation (method 0), or advection
 through face-centered velocity (recommended).
-=============================================================================== */ 
+=============================================================================== */
 
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
 
@@ -692,7 +689,7 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
 /* ===============================================================================
 FillTracers: calculate interpolated values of some fields (rho, vel, B, etc.) to
 damped into the output files.
-=============================================================================== */ 
+=============================================================================== */
 
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   auto hydro_pkg = md->GetParentPointer()->packages.Get("Hydro");
