@@ -204,20 +204,13 @@ void ProblemInitTracerData(ParameterInput * /*pin*/,
                              // (though it should probably not be changeable for restarts)
   tracer_pkg->AddParam("turbulence/n_lookback", n_lookback);
 
-  // Getting the number of populations and looping
-  auto n_populations = tracer_pkg->Param<int>("n_populations");
-
-  for (int i = 0; i < n_populations; ++i) {
-
-    const auto swarm_name =
-        tracer_pkg->Param<std::string>("swarm_name" + std::to_string(i));
-    // Using a vector to reduce code duplication.
-    Metadata vreal_swarmvalue_metadata(
-        {Metadata::Real, Metadata::Vector, Metadata::Restart},
-        std::vector<int>{n_lookback});
-    tracer_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
-    tracer_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
-  }
+  const auto swarm_name = tracer_pkg->Param<std::string>("swarm_name");
+  // Using a vector to reduce code duplication.
+  Metadata vreal_swarmvalue_metadata(
+      {Metadata::Real, Metadata::Vector, Metadata::Restart},
+      std::vector<int>{n_lookback});
+  tracer_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
+  tracer_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
   // Timestamps for the lookback entries
   tracer_pkg->AddParam<>("turbulence/t_lookback", std::vector<Real>(n_lookback),
                          Params::Mutability::Restart);
@@ -353,13 +346,20 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       "Final norm. and init", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &u = cons(b);
-        u(IDN, k, j, i) = rho0;
+        const auto &coords = cons.GetCoords(b);
 
-        u(IM1, k, j, i) = rho0 * v1;
-        u(IM2, k, j, i) = rho0 * v2;
-        u(IM3, k, j, i) = rho0 * v3;
+        Real x = coords.Xc<1>(i);
+        Real y = coords.Xc<2>(j);
+        Real z = coords.Xc<3>(k);
+        Real r = std::sqrt(SQR(x - 0.5) + SQR(y - 0.5) + SQR(z - 0.5));
 
-        u(IEN, k, j, i) = p0 / gm1 + 0.5 * rho0 * (SQR(v1) + SQR(v2) + SQR(v3));
+        u(IDN, k, j, i) = 1.0 + rho0 * std::exp(-SQR(r / 0.25));
+
+        u(IM1, k, j, i) = 0.0;
+        u(IM2, k, j, i) = 0.0;
+        u(IM3, k, j, i) = 0.0;
+
+        u(IEN, k, j, i) = p0 / gm1;
 
         if (fluid == Fluid::glmmhd) {
           u(IB1, k, j, i) /= b_norm;
@@ -520,14 +520,12 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
                               const Real dt) {
   const auto current_cycle = tm.ncycle;
 
-  auto tracer_pkg = md->GetParentPointer()->packages.Get("tracers");
-  const auto n_lookback = tracer_pkg->Param<int>("turbulence/n_lookback");
-  const auto n_populations = tracer_pkg->Param<int>("n_populations");
-
+  auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
+  const auto n_lookback = tracers_pkg->Param<int>("turbulence/n_lookback");
   // Params (which is storing t_lookback) is shared across all blocks so we update it
   // outside the block loop. Note, that this is a standard vector, so it cannot be used
   // in the kernel (but also don't need to be used as can directly update it)
-  auto t_lookback = tracer_pkg->Param<std::vector<Real>>("turbulence/t_lookback");
+  auto t_lookback = tracers_pkg->Param<std::vector<Real>>("turbulence/t_lookback");
   auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
   auto idx = n_lookback - 1;
   while (dncycle > 0) {
@@ -539,23 +537,20 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
   }
   t_lookback[0] = tm.time;
   // Write data back to Params dict
-  tracer_pkg->UpdateParam("turbulence/t_lookback", t_lookback);
+  tracers_pkg->UpdateParam("turbulence/t_lookback", t_lookback);
 
   // TODO(pgrete) Benchmark atomic and potentially update to proper reduction instead of
   // atomics.
   //  Used for the parallel reduction. Could be reused but this way it's initalized to
   //  0.
   // n_lookback + 1 as it also carries <s> and <sdot>
-
-  // Only doing it for the first population (can be expanded if necessary)
-
   parthenon::ParArray2D<Real> corr("tracer correlations", 2, n_lookback + 1);
   int64_t num_particles_total = 0;
 
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
     auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
-    auto &swarm = sd->Get("tracers0");
+    auto &swarm = sd->Get("tracers");
 
     // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
     // pull swarm vars

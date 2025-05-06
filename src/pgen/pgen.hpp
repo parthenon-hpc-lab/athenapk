@@ -120,10 +120,13 @@ using namespace parthenon::driver::prelude;
 
 void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md);
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
+void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt);
 void SetPhases(MeshBlock *pmb, ParameterInput *pin);
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
                           const parthenon::SimTime &tm);
+TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
+                              const Real dt);
 void Cleanup();
 } // namespace turbulence
 
