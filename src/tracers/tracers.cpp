@@ -60,8 +60,9 @@ uint64_t SeedFromIndices(int k, int j, int i, int gid, double time) {
   uint64_t seed = static_cast<uint64_t>(i) * 73856093ull;
   seed ^= static_cast<uint64_t>(j) * 19349663ull;
   seed ^= static_cast<uint64_t>(k) * 83492791ull;
-  seed ^= static_cast<uint64_t>(gid) * 2654435761ull;     // Knuth's constant
-  seed ^= static_cast<uint64_t>(time_scaled) * 11400714819323198485ull; // golden ratio prime
+  seed ^= static_cast<uint64_t>(gid) * 2654435761ull; // Knuth's constant
+  seed ^=
+      static_cast<uint64_t>(time_scaled) * 11400714819323198485ull; // golden ratio prime
 
   return seed;
 }
@@ -377,7 +378,8 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
           if (EvaluateCriteria(inj_crit, prim, k, j, i, injection_threshold,
                                coords.Dxc<1>(0), mbar_over_kb)) {
 
-            auto seed = SeedFromIndices(k, j, i, pmb->gid, tm.time); // deterministic seed function
+            auto seed = SeedFromIndices(k, j, i, pmb->gid,
+                                        tm.time); // deterministic seed function
             auto rnd = random_double(seed);
             if (rnd < p_injection) {
               lnpart += 1;
@@ -534,7 +536,7 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                   EvaluateCriteria(exc_crit, prim, k, j, i, removal_exception_threshold,
                                    coords.Dxc<1>(0), mbar_over_kb)) {
                 ltime(n) += lifetime;
-              // Otherwise, the particle is flagged and removed.
+                // Otherwise, the particle is flagged and removed.
               } else {
                 swarm_d.MarkParticleForRemoval(n);
               }
