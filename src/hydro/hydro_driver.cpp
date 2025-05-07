@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2020-2023, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2020-2025, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
@@ -12,13 +12,16 @@
 
 // Parthenon headers
 #include "amr_criteria/refinement_package.hpp"
+#include "basic_types.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
+#include "utils/error_checking.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
+#include "../tracers/tracers.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
@@ -607,6 +610,53 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
       auto new_dt = tl.AddTask(none, parthenon::Update::EstimateTimestep<MeshData<Real>>,
                                mu0.get());
+    }
+  }
+
+  auto tracers_pkg = pmesh->packages.Get("tracers");
+  // First order operator split tracer advection
+  if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
+    const std::string swarm_name = "tracers";
+    TaskRegion &sync_region_tr = tc.AddRegion(1);
+    {
+      for (auto &pmb : blocks) {
+        auto &tl = sync_region_tr[0];
+        auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+        auto reset_comms =
+            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+      }
+    }
+
+    TaskRegion &async_region_tr = tc.AddRegion(blocks.size());
+    for (int n = 0; n < blocks.size(); n++) {
+      auto &tl = async_region_tr[n];
+      auto &pmb = blocks[n];
+      auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+      auto &mbd0 = pmb->meshblock_data.Get("base");
+      auto tracer_advect =
+          tl.AddTask(none, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
+
+      auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
+                             BoundaryCommSubset::all);
+
+      auto receive =
+          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+    }
+    // TODO(pgrete) Fix/cleanup once we got swarm packs.
+    // We need just a single region with a single task in order to be able to use plain
+    // MPI reductions (rather than Parthenon provided reduction tasks that work with
+    // arbitrary packs).
+    PARTHENON_REQUIRE_THROWS(num_partitions == 1,
+                             "Only pack_size=-1 currently supported for tracers.")
+    TaskRegion &single_tasklist_per_pack_region_4 = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = single_tasklist_per_pack_region_4[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto fill = tl.AddTask(none, Tracers::FillTracers, mu0.get(), tm);
+      if (Tracers::ProblemFillTracers != nullptr) {
+        fill =
+            tl.AddTask(fill, Tracers::ProblemFillTracers, mu0.get(), tm, integrator->dt);
+      }
     }
   }
 

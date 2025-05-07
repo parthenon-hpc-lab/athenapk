@@ -1,6 +1,6 @@
 <comment>
 problem   = Turbulence with parabolic forcing profile (using few driving modes)
-reference = to be written, see https://gitlab.com/pgrete/kathena/wikis/turbulence for now
+reference = https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/turbulence.md
 
 <job>
 problem_id = turbulence
