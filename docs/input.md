@@ -363,10 +363,12 @@ single_precision_output = true
 
 swarms = tracers
 tracers_variables = id, x, y, z, rho
+#write_swarm_xdmf=true  # uncomment to create an xdmf output (e.g., for Paraview or Visit)
 ```
 
-Tracers can be read/processed by the `phdf` package shipped with the Parthenon submodule.
-A sample plotting script might look like
+Tracers can be read/processed by Paraview or Visit (via the xdmf file)
+or by the `phdf` package shipped with the Parthenon submodule.
+A sample plotting script for the latter might look like
 ```python
 import matplotlib.pyplot as plt
 import numpy as np
@@ -401,7 +403,7 @@ resulting in the following image:
 Following "restrictions" apply to the current tracer implementation:
 - Only 3D simulations.
 - Only one advection method (RK2/Heun's method).
-- All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`)are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
+- All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`) are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
 - Default tracer values (such as the primitive fields) are only updated right before writing an output file.
 - Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.
 
