@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 // Tracer implementation refactored from https://github.com/lanl/phoebus
@@ -17,6 +17,7 @@
 // license in this material to reproduce, prepare derivative works,
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
+//========================================================================================
 
 #include <cmath>
 #include <fstream>
@@ -167,6 +168,21 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
     }
   } else {
     PARTHENON_THROW("Unknown tracer initial_seed_method");
+  }
+
+  // Now that the tracers are seeded, fill their initial values
+
+  const int num_partitions = pmesh->DefaultNumPartitions();
+  // TODO(pgrete) Fix/cleanup once we got swarm packs.
+  // We need just a single region with a single task in order to be able to use plain
+  // MPI reductions (rather than Parthenon provided reduction tasks that work with
+  // arbitrary packs).
+  PARTHENON_REQUIRE_THROWS(num_partitions == 1,
+                           "Only pack_size=-1 currently supported for tracers.")
+  auto &mu0 = pmesh->mesh_data.GetOrAdd("base", 0);
+  FillTracers(mu0.get(), tm);
+  if (ProblemFillTracers != nullptr) {
+    ProblemFillTracers(mu0.get(), tm, tm.dt);
   }
 }
 
