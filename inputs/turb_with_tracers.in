@@ -17,6 +17,7 @@ id         = prim
 single_precision_output = true
 swarms = tracers
 tracers_variables = id, x, y, z, rho, s, sdot
+#write_swarm_xdmf=true  # uncomment to create an xdmf output (e.g., for Paraview or Visit)
 
 <parthenon/output3>
 file_type  = rst        # Binary data dump
