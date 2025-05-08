@@ -533,29 +533,33 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   PARTHENON_REQUIRE_THROWS(
       pmesh->GetNumMeshBlocksThisRank() == 1,
       "For now, we only support one block per rank when using heffte.");
-
-  if (num_ranks > 9) {
-    if (me == 0)
-      std::cerr << " heffte_example_r2c should use less than 10 ranks, exiting \n";
-    return;
-  }
+  auto pmb = pmesh->block_list[0];
 
   if (me == 0)
     std::cerr << "using backend: " << heffte::backend::name<backend_tag>() << "\n";
 
   // the dimension where the data will shrink
   int r2c_direction = 2;
-  // direction 0 is chosen to reduce the number of indexes
-  heffte::box3d<> real_indexes({0, 0, 0}, {pmesh->mesh_size.nx(parthenon::X3DIR) - 1,
-                                           pmesh->mesh_size.nx(parthenon::X2DIR) - 1,
-                                           pmesh->mesh_size.nx(parthenon::X1DIR) - 1});
-  heffte::box3d<> complex_indexes({0, 0, 0},
-                                  {
-                                      pmesh->mesh_size.nx(parthenon::X3DIR) - 1,
-                                      pmesh->mesh_size.nx(parthenon::X2DIR) - 1,
-                                      (pmesh->mesh_size.nx(parthenon::X1DIR) - 1) / 2 + 1,
 
-                                  });
+  // Adjust (logical) grid size at levels other than the root level.
+  // This is required for simulation with mesh refinement so that the phases calculated
+  // below take the logical grid size into account. For example, the local phases at level
+  // 1 should be calculated assuming a grid that is twice as large as the root grid.
+  const auto root_level = pmesh->GetRootLevel();
+  auto gnx1 = static_cast<int>(pmesh->mesh_size.nx(X1DIR) *
+                               std::pow(2, pmb->loc.level() - root_level));
+  auto gnx2 = static_cast<int>(pmesh->mesh_size.nx(X2DIR) *
+                               std::pow(2, pmb->loc.level() - root_level));
+  auto gnx3 = static_cast<int>(pmesh->mesh_size.nx(X3DIR) *
+                               std::pow(2, pmb->loc.level() - root_level));
+
+  heffte::box3d<> real_indexes({0, 0, 0}, {gnx3 - 1, gnx2 - 1, gnx1 - 1});
+  heffte::box3d<> complex_indexes({0, 0, 0}, {
+                                                 gnx3 - 1,
+                                                 gnx2 - 1,
+                                                 (gnx1 - 1) / 2 + 1,
+
+                                             });
 
   // check if the complex indexes have correct dimension
   assert(real_indexes.r2c(r2c_direction) == complex_indexes);
@@ -568,16 +572,24 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
               << " complex indexes.\n";
   }
 
-  // see the heffte_example_options for comments on the proc_grid and boxes
-  // the proc_grid is chosen to minimize the real data, but use for both real and complex
-  // cases
-  std::array<int, 3> proc_grid = heffte::proc_setup_min_surface(real_indexes, num_ranks);
+  // Set local real indices based on the local infos
+  // Need to use legacy locations (which are global) because locations now are local
+  // to the tree, which results in inconsistencies for meshes with multiple trees.
+  const auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);
+  const auto nx1b = pmb->block_size.nx(X1DIR);
+  const auto nx2b = pmb->block_size.nx(X2DIR);
+  const auto nx3b = pmb->block_size.nx(X3DIR);
+  const int gis = loc.lx1() * nx1b;
+  const int gjs = loc.lx2() * nx2b;
+  const int gks = loc.lx3() * nx3b;
+  const heffte::box3d<> inbox({gks, gjs, gis},
+                              {gks + nx3b - 1, gjs + nx2b - 1, gis + nx1b - 1});
 
-  std::vector<heffte::box3d<>> real_boxes = heffte::split_world(real_indexes, proc_grid);
+  // but let heffte determine the best complex decomposition
+  std::array<int, 3> proc_grid =
+      heffte::proc_setup_min_surface(complex_indexes, num_ranks);
   std::vector<heffte::box3d<>> complex_boxes =
       heffte::split_world(complex_indexes, proc_grid);
-
-  heffte::box3d<> const inbox = real_boxes[me];
   heffte::box3d<> const outbox = complex_boxes[me];
 
   // define the heffte class and the input and output geometry
