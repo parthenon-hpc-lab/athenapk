@@ -596,24 +596,39 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   heffte::fft3d_r2c<backend_tag> fft(inbox, outbox, r2c_direction, comm);
 
   // vectors with the correct sizes to store the input and output data
-  std::vector<double> input(fft.size_inbox());
-  std::iota(input.begin(), input.end(), 0); // put some data in the input
+  // std::vector<Real> input(fft.size_inbox());
+  parthenon::HostArray1D<Real> input("fft input", fft.size_inbox());
+  parthenon::HostArray1D<Real> inverse("fft inverse", fft.size_inbox());
+  parthenon::HostArray1D<std::complex<Real>> output("fft output", fft.size_outbox());
+  parthenon::HostArray1D<std::complex<Real>> workspace("fft workspace",
+                                                       fft.size_workspace());
+  PARTHENON_REQUIRE_THROWS(pmesh->DefaultNumPartitions() == 1,
+                           "Only pack_size=-1 currently supported for heffte.")
+  auto &md = pmesh->mesh_data.GetOrAdd("base", 0);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  auto prim = md->PackVariables(std::vector<std::string>{"prim"});
+  pmb->par_for(
+      "Final norm. and init", 0, 0, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const auto &p = prim(b);
+        const auto kk = k - kb.s;
+        const int jj = j - jb.s;
+        const int ii = i - ib.s;
+        const int idx = (kk * nx2b + jj) * nx1b + ii;
+        input(idx) = p(IDN, k, j, i);
+      });
 
   // output has std::vector<std::complex<double>>
-  auto output = fft.forward(input);
+  fft.forward(input.data(), output.data(), workspace.data());
 
   // verify that the output has the correct size
   assert(output.size() == static_cast<size_t>(fft.size_outbox()));
 
   // in the r2c case, the result from a backward transform is always real
   // thus inverse is std::vector<double>
-  auto inverse = fft.backward(output, heffte::scale::full);
-
-  // double-check the types
-  static_assert(std::is_same<decltype(output), std::vector<std::complex<double>>>::value,
-                "the output should be a vector of std::complex<double>");
-  static_assert(std::is_same<decltype(inverse), std::vector<double>>::value,
-                "the inverse should be a vector of double");
+  fft.backward(output.data(), inverse.data(), workspace.data(), heffte::scale::full);
 
   // compare the computed entries to the original input data
   // the error is the max difference between the input and the real parts of the inverse
