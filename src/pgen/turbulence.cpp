@@ -607,11 +607,13 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
 
   // vectors with the correct sizes to store the input and output data
   // std::vector<Real> input(fft.size_inbox());
-  parthenon::HostArray1D<Real> input("fft input", fft.size_inbox());
-  parthenon::HostArray1D<Real> inverse("fft inverse", fft.size_inbox());
-  parthenon::HostArray1D<std::complex<Real>> output("fft output", fft.size_outbox());
+  int n_comp = 3;
+  parthenon::HostArray1D<Real> input("fft input", n_comp * fft.size_inbox());
+  parthenon::HostArray1D<Real> inverse("fft inverse", n_comp * fft.size_inbox());
+  parthenon::HostArray1D<std::complex<Real>> output("fft output",
+                                                    n_comp * fft.size_outbox());
   parthenon::HostArray1D<std::complex<Real>> workspace("fft workspace",
-                                                       fft.size_workspace());
+                                                       n_comp * fft.size_workspace());
   PARTHENON_REQUIRE_THROWS(pmesh->DefaultNumPartitions() == 1,
                            "Only pack_size=-1 currently supported for heffte.")
   auto &md = pmesh->mesh_data.GetOrAdd("base", 0);
@@ -628,11 +630,13 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
         const int jj = j - jb.s;
         const int ii = i - ib.s;
         const int idx = (kk * nx2b + jj) * nx1b + ii;
-        input(idx) = p(IDN, k, j, i);
+        input(idx) = p(IV1, k, j, i);
+        input(idx + fft.size_inbox()) = p(IV2, k, j, i);
+        input(idx + 2 * fft.size_inbox()) = p(IV3, k, j, i);
         realsum += SQR(p(IDN, k, j, i) - 1.0);
       }
 
-  fft.forward(input.data(), output.data(), workspace.data());
+  fft.forward(n_comp, input.data(), output.data(), workspace.data());
 
   auto k_max = std::sqrt(SQR(gnx1 / 2) + SQR(gnx2 / 2) + SQR(gnx3 / 2));
   Real mysum = 0;
@@ -648,10 +652,13 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
         auto k_mag =
             static_cast<int>(std::floor(std::sqrt(SQR(k_x) + SQR(k_y) + SQR(k_z))));
 
-        auto val = SQR(
-            std::abs(output[((k - outbox.low[2]) * outbox.size[1] + (j - outbox.low[1])) *
+        const auto outidx = ((k - outbox.low[2]) * outbox.size[1] + (j - outbox.low[1])) *
                                 outbox.size[0] +
-                            i - outbox.low[0]]));
+                            i - outbox.low[0];
+
+        auto val = SQR(std::abs(output[outidx])) +
+                   SQR(std::abs(output[outidx + fft.size_outbox()])) +
+                   SQR(std::abs(output[outidx + 2 * fft.size_outbox()]));
         // account for Hermitian symmetry of r2c transform
         if ((k_x > 0) && (2 * k_x != gnx1)) {
           val *= 2.0;
