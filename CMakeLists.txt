@@ -77,6 +77,8 @@ else()
   find_package(parthenon REQUIRED)
 endif()
 
+find_package(Heffte PATHS /home/pgrete/src/heffte/install-host)
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(src)
 

@@ -12,6 +12,10 @@
 #include <cmath>     // log
 #include <cstring>   // strcmp()
 
+// heffte headers
+#include "globals.hpp"
+#include "heffte.h"
+
 // Parthenon headers
 #include "basic_types.hpp"
 #include "kokkos_abstraction.hpp"
@@ -507,6 +511,112 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
   // store state of distribution
   auto state_dist = few_modes_ft.GetDistState();
   pin->SetString("problem/turbulence", "state_dist", state_dist);
+}
+
+void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
+                              parthenon::SimTime const &) {
+
+  std::cerr << "[" << parthenon::Globals::my_rank
+            << "] look I'm doing sth before output!\n";
+
+  auto *comm = MPI_COMM_WORLD;
+  // select the default CPU backend, first available in the following order MKL, FFTW,
+  // Stock
+  using backend_tag = heffte::backend::default_backend<heffte::tag::cpu>::type;
+
+  // wrapper around MPI_Comm_rank() and MPI_Comm_size(), using this is optional
+  int const me = heffte::mpi::comm_rank(comm);
+  int const num_ranks = heffte::mpi::comm_size(comm);
+
+  // This limitation could/should be alleviated, but we need to ensure that we have
+  // neighboring blocks on each rank and then fill a single large buffer those blocks.
+  PARTHENON_REQUIRE_THROWS(
+      pmesh->GetNumMeshBlocksThisRank() == 1,
+      "For now, we only support one block per rank when using heffte.");
+
+  if (num_ranks > 9) {
+    if (me == 0)
+      std::cerr << " heffte_example_r2c should use less than 10 ranks, exiting \n";
+    return;
+  }
+
+  if (me == 0)
+    std::cerr << "using backend: " << heffte::backend::name<backend_tag>() << "\n";
+
+  // the dimension where the data will shrink
+  int r2c_direction = 2;
+  // direction 0 is chosen to reduce the number of indexes
+  heffte::box3d<> real_indexes({0, 0, 0}, {pmesh->mesh_size.nx(parthenon::X3DIR) - 1,
+                                           pmesh->mesh_size.nx(parthenon::X2DIR) - 1,
+                                           pmesh->mesh_size.nx(parthenon::X1DIR) - 1});
+  heffte::box3d<> complex_indexes({0, 0, 0},
+                                  {
+                                      pmesh->mesh_size.nx(parthenon::X3DIR) - 1,
+                                      pmesh->mesh_size.nx(parthenon::X2DIR) - 1,
+                                      (pmesh->mesh_size.nx(parthenon::X1DIR) - 1) / 2 + 1,
+
+                                  });
+
+  // check if the complex indexes have correct dimension
+  assert(real_indexes.r2c(r2c_direction) == complex_indexes);
+
+  // report the indexes
+  if (me == 0) {
+    std::cout << "The global input contains " << real_indexes.count()
+              << " real indexes.\n";
+    std::cout << "The global output contains " << complex_indexes.count()
+              << " complex indexes.\n";
+  }
+
+  // see the heffte_example_options for comments on the proc_grid and boxes
+  // the proc_grid is chosen to minimize the real data, but use for both real and complex
+  // cases
+  std::array<int, 3> proc_grid = heffte::proc_setup_min_surface(real_indexes, num_ranks);
+
+  std::vector<heffte::box3d<>> real_boxes = heffte::split_world(real_indexes, proc_grid);
+  std::vector<heffte::box3d<>> complex_boxes =
+      heffte::split_world(complex_indexes, proc_grid);
+
+  heffte::box3d<> const inbox = real_boxes[me];
+  heffte::box3d<> const outbox = complex_boxes[me];
+
+  // define the heffte class and the input and output geometry
+  heffte::fft3d_r2c<backend_tag> fft(inbox, outbox, r2c_direction, comm);
+
+  // vectors with the correct sizes to store the input and output data
+  std::vector<double> input(fft.size_inbox());
+  std::iota(input.begin(), input.end(), 0); // put some data in the input
+
+  // output has std::vector<std::complex<double>>
+  auto output = fft.forward(input);
+
+  // verify that the output has the correct size
+  assert(output.size() == static_cast<size_t>(fft.size_outbox()));
+
+  // in the r2c case, the result from a backward transform is always real
+  // thus inverse is std::vector<double>
+  auto inverse = fft.backward(output, heffte::scale::full);
+
+  // double-check the types
+  static_assert(std::is_same<decltype(output), std::vector<std::complex<double>>>::value,
+                "the output should be a vector of std::complex<double>");
+  static_assert(std::is_same<decltype(inverse), std::vector<double>>::value,
+                "the inverse should be a vector of double");
+
+  // compare the computed entries to the original input data
+  // the error is the max difference between the input and the real parts of the inverse
+  // or the absolute value of the complex numbers
+  double err = 0.0;
+  for (size_t i = 0; i < input.size(); i++)
+    err =
+        std::max(err, std::abs(2.0f * (inverse[i] - input[i]) / (inverse[i] + input[i])));
+
+  // print the error for each MPI rank
+  std::cout << std::scientific;
+  for (int i = 0; i < num_ranks; i++) {
+    MPI_Barrier(comm);
+    if (me == i) std::cout << "rank " << i << " computed error: " << err << std::endl;
+  }
 }
 
 TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,

@@ -110,6 +110,7 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceFirstOrder = turbulence::Driving;
     pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
     pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
+    pman.app_input->UserMeshWorkBeforeOutput = turbulence::UserMeshWorkBeforeOutput;
   } else {
     // parthenon throw error message for the invalid problem
     std::stringstream msg;

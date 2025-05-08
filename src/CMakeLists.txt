@@ -30,3 +30,4 @@ add_executable(
 add_subdirectory(pgen)
 
 target_link_libraries(athenaPK PRIVATE parthenon)
+target_link_libraries(athenaPK PRIVATE Heffte::Heffte)
