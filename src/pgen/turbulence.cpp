@@ -20,6 +20,7 @@
 #include "basic_types.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/mesh.hpp"
+#include <heffte_fft3d.h>
 #include <iomanip>
 #include <ios>
 #include <parthenon/driver.hpp>
@@ -618,20 +619,23 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
   auto prim = md->PackVariables(std::vector<std::string>{"prim"});
-  pmb->par_for(
-      "Set init vals", 0, 0, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &p = prim(b);
+  Real realsum = 0.0;
+  for (int k = kb.s; k <= kb.e; k++)
+    for (int j = jb.s; j <= jb.e; j++)
+      for (int i = ib.s; i <= ib.e; i++) {
+        const auto &p = prim(0);
         const auto kk = k - kb.s;
         const int jj = j - jb.s;
         const int ii = i - ib.s;
         const int idx = (kk * nx2b + jj) * nx1b + ii;
         input(idx) = p(IDN, k, j, i);
-      });
+        realsum += SQR(p(IDN, k, j, i) - 1.0);
+      }
 
   fft.forward(input.data(), output.data(), workspace.data());
 
   auto k_max = std::sqrt(SQR(gnx1 / 2) + SQR(gnx2 / 2) + SQR(gnx3 / 2));
+  Real mysum = 0;
   parthenon::HostArray1D<Real> spec("spectrum", static_cast<int>(std::ceil(k_max)) + 1);
   for (int k = outbox.low[2]; k <= outbox.high[2]; k++)
     for (int j = outbox.low[1]; j <= outbox.high[1]; j++)
@@ -654,10 +658,18 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
         }
 
         spec(k_mag) += val;
+        if (k_mag > 0.0) {
+          mysum += val;
+        } else {
+          std::cerr << "[" << parthenon::Globals::my_rank
+                    << "] mode 0 is: " << std::sqrt(val) << "\n";
+        }
       }
 
   Kokkos::fence();
-
+  std::cerr << "[" << parthenon::Globals::my_rank
+            << "] my sum is: " << mysum / (gnx3 * gnx2 * gnx1) << " and the realsum is "
+            << realsum << "\n";
 #ifdef MPI_PARALLEL
   //  Sum the perturbations over all processors
   if (parthenon::Globals::my_rank == 0) {
