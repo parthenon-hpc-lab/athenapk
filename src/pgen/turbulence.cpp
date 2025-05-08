@@ -514,7 +514,7 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
 }
 
 void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
-                              parthenon::SimTime const &) {
+                              parthenon::SimTime const &tm) {
 
   std::cerr << "[" << parthenon::Globals::my_rank
             << "] look I'm doing sth before output!\n";
@@ -619,7 +619,7 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
   auto prim = md->PackVariables(std::vector<std::string>{"prim"});
   pmb->par_for(
-      "Final norm. and init", 0, 0, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      "Set init vals", 0, 0, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &p = prim(b);
         const auto kk = k - kb.s;
@@ -629,8 +629,67 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
         input(idx) = p(IDN, k, j, i);
       });
 
-  // output has std::vector<std::complex<double>>
   fft.forward(input.data(), output.data(), workspace.data());
+
+  auto k_max = std::sqrt(SQR(gnx1 / 2) + SQR(gnx2 / 2) + SQR(gnx3 / 2));
+  parthenon::HostArray1D<Real> spec("spectrum", static_cast<int>(std::ceil(k_max)) + 1);
+  for (int k = outbox.low[2]; k <= outbox.high[2]; k++)
+    for (int j = outbox.low[1]; j <= outbox.high[1]; j++)
+      for (int i = outbox.low[0]; i <= outbox.high[0]; i++) {
+        auto k_z = k <= gnx3 / 2 ? k : -gnx3 + k;
+        auto k_y = j <= gnx2 / 2 ? j : -gnx2 + j;
+        auto k_x = i; // because we're using r2c transforms
+
+        // for simple binning/indexing
+        auto k_mag =
+            static_cast<int>(std::floor(std::sqrt(SQR(k_x) + SQR(k_y) + SQR(k_z))));
+
+        auto val = SQR(
+            std::abs(output[((k - outbox.low[2]) * outbox.size[1] + (j - outbox.low[1])) *
+                                outbox.size[0] +
+                            i - outbox.low[0]]));
+        // account for Hermitian symmetry of r2c transform
+        if ((k_x > 0) && (2 * k_x != gnx1)) {
+          val *= 2.0;
+        }
+
+        spec(k_mag) += val;
+      }
+
+  Kokkos::fence();
+
+#ifdef MPI_PARALLEL
+  //  Sum the perturbations over all processors
+  if (parthenon::Globals::my_rank == 0) {
+    PARTHENON_MPI_CHECK(MPI_Reduce(MPI_IN_PLACE, spec.data(), spec.size(),
+                                   MPI_PARTHENON_REAL, MPI_SUM, 0, MPI_COMM_WORLD));
+  } else {
+    PARTHENON_MPI_CHECK(MPI_Reduce(spec.data(), spec.data(), spec.size(),
+                                   MPI_PARTHENON_REAL, MPI_SUM, 0, MPI_COMM_WORLD));
+  }
+#endif // MPI_PARALLEL
+
+  if (parthenon::Globals::my_rank == 0) {
+
+    // and write data
+    std::ofstream outfile;
+    const std::string fname("spec.csv");
+    // On startup, write header
+    if (tm.ncycle == 0) {
+      outfile.open(fname, std::ofstream::out);
+      outfile << "# cycle, time, pos spec,...\n";
+    } else {
+      outfile.open(fname, std::ofstream::out | std::ofstream::app);
+    }
+
+    outfile << tm.ncycle << "," << tm.time;
+    for (int i = 0; i < spec.size(); i++) {
+      outfile << "," << spec(i);
+    }
+    outfile << std::endl;
+
+    outfile.close();
+  }
 
   // verify that the output has the correct size
   assert(output.size() == static_cast<size_t>(fft.size_outbox()));
