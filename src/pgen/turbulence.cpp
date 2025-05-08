@@ -539,7 +539,7 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
     std::cerr << "using backend: " << heffte::backend::name<backend_tag>() << "\n";
 
   // the dimension where the data will shrink
-  int r2c_direction = 2;
+  int r2c_direction = 0;
 
   // Adjust (logical) grid size at levels other than the root level.
   // This is required for simulation with mesh refinement so that the phases calculated
@@ -553,11 +553,11 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   auto gnx3 = static_cast<int>(pmesh->mesh_size.nx(X3DIR) *
                                std::pow(2, pmb->loc.level() - root_level));
 
-  heffte::box3d<> real_indexes({0, 0, 0}, {gnx3 - 1, gnx2 - 1, gnx1 - 1});
+  heffte::box3d<> real_indexes({0, 0, 0}, {gnx1 - 1, gnx2 - 1, gnx3 - 1});
   heffte::box3d<> complex_indexes({0, 0, 0}, {
-                                                 gnx3 - 1,
-                                                 gnx2 - 1,
                                                  (gnx1 - 1) / 2 + 1,
+                                                 gnx2 - 1,
+                                                 gnx3 - 1,
 
                                              });
 
@@ -582,8 +582,8 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   const int gis = loc.lx1() * nx1b;
   const int gjs = loc.lx2() * nx2b;
   const int gks = loc.lx3() * nx3b;
-  const heffte::box3d<> inbox({gks, gjs, gis},
-                              {gks + nx3b - 1, gjs + nx2b - 1, gis + nx1b - 1});
+  const heffte::box3d<> inbox({gis, gjs, gks},
+                              {gis + nx1b - 1, gjs + nx2b - 1, gks + nx3b - 1});
 
   // but let heffte determine the best complex decomposition
   std::array<int, 3> proc_grid =
@@ -591,6 +591,15 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   std::vector<heffte::box3d<>> complex_boxes =
       heffte::split_world(complex_indexes, proc_grid);
   heffte::box3d<> const outbox = complex_boxes[me];
+
+  std::cerr << "[" << parthenon::Globals::my_rank
+            << "] my complex indices are: " << outbox.low[0] << ":" << outbox.high[0]
+            << " " << outbox.low[1] << ":" << outbox.high[1] << " " << outbox.low[2]
+            << ":" << outbox.high[2] << " "
+            << " and the complex order is for idx 012: " << outbox.order[0]
+            << outbox.order[1] << outbox.order[2]
+            << " and the real order is for idx 012: " << inbox.order[0] << inbox.order[1]
+            << inbox.order[2] << "\n";
 
   // define the heffte class and the input and output geometry
   heffte::fft3d_r2c<backend_tag> fft(inbox, outbox, r2c_direction, comm);
