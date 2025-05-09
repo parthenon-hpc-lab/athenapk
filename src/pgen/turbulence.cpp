@@ -9,8 +9,10 @@
 
 // C++ headers
 #include <algorithm> // min, max
-#include <cmath>     // log
-#include <cstring>   // strcmp()
+#include <array>
+#include <cmath> // log
+#include <cstdint>
+#include <cstring> // strcmp()
 
 // heffte headers
 #include "globals.hpp"
@@ -23,6 +25,7 @@
 #include <heffte_fft3d.h>
 #include <iomanip>
 #include <ios>
+#include <mpi.h>
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 #include <random>
@@ -34,6 +37,7 @@
 #include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
+#include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 
 namespace turbulence {
@@ -488,7 +492,6 @@ void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
                           const parthenon::SimTime & /*tm*/) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
-
   // Store (common) acceleration field in spectral space
   auto few_modes_ft = hydro_pkg->Param<FewModesFT>("turbulence/few_modes_ft");
   auto var_hat = few_modes_ft.GetVarHat();
@@ -517,8 +520,62 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
 void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
                               parthenon::SimTime const &tm) {
 
-  std::cerr << "[" << parthenon::Globals::my_rank
-            << "] look I'm doing sth before output!\n";
+  // Check if we have a contiguous block of data (over all rank-local blocks)
+  std::array local_loc_min{
+      std::numeric_limits<std::int64_t>::max(),
+      std::numeric_limits<std::int64_t>::max(),
+      std::numeric_limits<std::int64_t>::max(),
+  };
+  std::array local_loc_max{
+      std::numeric_limits<std::int64_t>::min(),
+      std::numeric_limits<std::int64_t>::min(),
+      std::numeric_limits<std::int64_t>::min(),
+  };
+
+  // Need to store this info in a way this can be used on device later
+  ParArray2D<std::int64_t> loc_view("logical location of local blocks",
+                                    pmesh->GetNumMeshBlocksThisRank(), 3);
+  auto loc_view_h = loc_view.GetHostMirror();
+
+  // Set rank local min and max logical locations.
+  // Also check if all blocks are on the same level (we use this check instead of checking
+  // for refinement=none because AMR could have been used to dynamically refine a
+  // simulation. We just need to ensure that all blocks are on the same level to create an
+  // effective uniform grid.)
+  const auto level =
+      pmesh->Forest().GetLegacyTreeLocation(pmesh->block_list[0]->loc).level();
+  for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
+    auto pmb = pmesh->block_list[b];
+    const auto loc = pmesh->Forest().GetLegacyTreeLocation(pmb->loc);
+    for (int i = 0; i <= 2; i++) {
+      local_loc_min.at(i) = std::min(loc.l(i), local_loc_min.at(i));
+      local_loc_max.at(i) = std::max(loc.l(i), local_loc_max.at(i));
+      loc_view_h(b, i) = loc.l(i);
+    }
+    PARTHENON_REQUIRE_THROWS(loc.level() == level,
+                             "Not all blocks are on the same level.");
+  }
+
+  // convert global logical locations to rank-local logical locs
+  for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
+    for (int i = 0; i <= 2; i++) {
+      loc_view_h(b, i) -= local_loc_min.at(i);
+    }
+  }
+  Kokkos::deep_copy(loc_view, loc_view_h);
+
+  std::array local_nlocs{
+      (local_loc_max.at(0) - local_loc_min.at(0)) + 1,
+      (local_loc_max.at(1) - local_loc_min.at(1)) + 1,
+      (local_loc_max.at(2) - local_loc_min.at(2)) + 1,
+  };
+  const auto loc_max_vol = local_nlocs.at(0) * local_nlocs.at(1) * local_nlocs.at(2);
+  std::cerr << "[" << parthenon::Globals::my_rank << "] got local vol of: " << loc_max_vol
+            << "\n";
+  PARTHENON_REQUIRE_THROWS(loc_max_vol == pmesh->GetNumMeshBlocksThisRank(),
+                           "Block coverage on rank cannot be matched to a contiguous "
+                           "array, which is required for FFTs. Try a different amount of "
+                           "ranks (one block per rank will always work).");
 
   auto *comm = MPI_COMM_WORLD;
   // select the default CPU backend, first available in the following order MKL, FFTW,
@@ -528,13 +585,6 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   // wrapper around MPI_Comm_rank() and MPI_Comm_size(), using this is optional
   int const me = heffte::mpi::comm_rank(comm);
   int const num_ranks = heffte::mpi::comm_size(comm);
-
-  // This limitation could/should be alleviated, but we need to ensure that we have
-  // neighboring blocks on each rank and then fill a single large buffer those blocks.
-  PARTHENON_REQUIRE_THROWS(
-      pmesh->GetNumMeshBlocksThisRank() == 1,
-      "For now, we only support one block per rank when using heffte.");
-  auto pmb = pmesh->block_list[0];
 
   if (me == 0)
     std::cerr << "using backend: " << heffte::backend::name<backend_tag>() << "\n";
@@ -547,12 +597,12 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   // below take the logical grid size into account. For example, the local phases at level
   // 1 should be calculated assuming a grid that is twice as large as the root grid.
   const auto root_level = pmesh->GetRootLevel();
-  auto gnx1 = static_cast<int>(pmesh->mesh_size.nx(X1DIR) *
-                               std::pow(2, pmb->loc.level() - root_level));
-  auto gnx2 = static_cast<int>(pmesh->mesh_size.nx(X2DIR) *
-                               std::pow(2, pmb->loc.level() - root_level));
-  auto gnx3 = static_cast<int>(pmesh->mesh_size.nx(X3DIR) *
-                               std::pow(2, pmb->loc.level() - root_level));
+  auto gnx1 =
+      static_cast<int>(pmesh->mesh_size.nx(X1DIR) * std::pow(2, level - root_level));
+  auto gnx2 =
+      static_cast<int>(pmesh->mesh_size.nx(X2DIR) * std::pow(2, level - root_level));
+  auto gnx3 =
+      static_cast<int>(pmesh->mesh_size.nx(X3DIR) * std::pow(2, level - root_level));
 
   heffte::box3d<> real_indexes({0, 0, 0}, {gnx1 - 1, gnx2 - 1, gnx3 - 1});
   heffte::box3d<> complex_indexes({0, 0, 0}, {
@@ -574,17 +624,24 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   }
 
   // Set local real indices based on the local infos
-  // Need to use legacy locations (which are global) because locations now are local
-  // to the tree, which results in inconsistencies for meshes with multiple trees.
-  const auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);
-  const auto nx1b = pmb->block_size.nx(X1DIR);
-  const auto nx2b = pmb->block_size.nx(X2DIR);
-  const auto nx3b = pmb->block_size.nx(X3DIR);
-  const int gis = loc.lx1() * nx1b;
-  const int gjs = loc.lx2() * nx2b;
-  const int gks = loc.lx3() * nx3b;
-  const heffte::box3d<> inbox({gis, gjs, gks},
-                              {gis + nx1b - 1, gjs + nx2b - 1, gks + nx3b - 1});
+  // Need to use legacy locations from above (which are global) because locations now are
+  // local to the tree, which results in inconsistencies for meshes with multiple trees.
+  const auto block_size = pmesh->GetDefaultBlockSize();
+  // block sizes
+  const auto nx1b = block_size.nx(X1DIR);
+  const auto nx2b = block_size.nx(X2DIR);
+  const auto nx3b = block_size.nx(X3DIR);
+  // all local blocks sizes (based on logical locations)
+  const auto nx1l = local_nlocs.at(0) * nx1b;
+  const auto nx2l = local_nlocs.at(1) * nx2b;
+  const auto nx3l = local_nlocs.at(2) * nx3b;
+  const int gis = local_loc_min.at(0) * nx1b;
+  const int gjs = local_loc_min.at(1) * nx2b;
+  const int gks = local_loc_min.at(2) * nx3b;
+  // fft() interface below requires box3d's of int (to we need to cast down)
+  const heffte::box3d<> inbox({gis, gjs, gks}, {static_cast<int>(gis + nx1l - 1),
+                                                static_cast<int>(gjs + nx2l - 1),
+                                                static_cast<int>(gks + nx3l - 1)});
 
   // but let heffte determine the best complex decomposition
   std::array<int, 3> proc_grid =
@@ -622,19 +679,21 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
   auto prim = md->PackVariables(std::vector<std::string>{"prim"});
   Real realsum = 0.0;
-  for (int k = kb.s; k <= kb.e; k++)
-    for (int j = jb.s; j <= jb.e; j++)
-      for (int i = ib.s; i <= ib.e; i++) {
-        const auto &p = prim(0);
-        const auto kk = k - kb.s;
-        const int jj = j - jb.s;
-        const int ii = i - ib.s;
-        const int idx = (kk * nx2b + jj) * nx1b + ii;
-        input(idx) = p(IV1, k, j, i);
-        input(idx + fft.size_inbox()) = p(IV2, k, j, i);
-        input(idx + 2 * fft.size_inbox()) = p(IV3, k, j, i);
-        realsum += SQR(p(IDN, k, j, i) - 1.0);
-      }
+  for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
+    for (int k = kb.s; k <= kb.e; k++)
+      for (int j = jb.s; j <= jb.e; j++)
+        for (int i = ib.s; i <= ib.e; i++) {
+          const auto &p = prim(b);
+          const auto kk = k - kb.s + loc_view(b, 2) * nx3b;
+          const auto jj = j - jb.s + loc_view(b, 1) * nx2b;
+          const auto ii = i - ib.s + loc_view(b, 0) * nx1b;
+          const std::int64_t idx = (kk * nx2l + jj) * nx1l + ii;
+          input(idx) = p(IV1, k, j, i);
+          input(idx + fft.size_inbox()) = p(IV2, k, j, i);
+          input(idx + 2 * fft.size_inbox()) = p(IV3, k, j, i);
+          realsum += SQR(p(IDN, k, j, i) - 1.0);
+        }
+  }
 
   fft.forward(n_comp, input.data(), output.data(), workspace.data());
 
