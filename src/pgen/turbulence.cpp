@@ -662,15 +662,15 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   // define the heffte class and the input and output geometry
   heffte::fft3d_r2c<backend_tag> fft(inbox, outbox, r2c_direction, comm);
 
-  // vectors with the correct sizes to store the input and output data
-  // std::vector<Real> input(fft.size_inbox());
+  // TODO(pgrete) Eventually make these persistent
   int n_comp = 3;
-  parthenon::HostArray1D<Real> input("fft input", n_comp * fft.size_inbox());
-  parthenon::HostArray1D<Real> inverse("fft inverse", n_comp * fft.size_inbox());
-  parthenon::HostArray1D<std::complex<Real>> output("fft output",
-                                                    n_comp * fft.size_outbox());
-  parthenon::HostArray1D<std::complex<Real>> workspace("fft workspace",
-                                                       n_comp * fft.size_workspace());
+  const auto fft_size_inbox = fft.size_inbox();
+  parthenon::ParArray1D<Real> input("fft input", n_comp * fft_size_inbox);
+  parthenon::ParArray1D<Real> inverse("fft inverse", n_comp * fft_size_inbox);
+  parthenon::ParArray1D<std::complex<Real>> output("fft output",
+                                                   n_comp * fft.size_outbox());
+  parthenon::ParArray1D<std::complex<Real>> workspace("fft workspace",
+                                                      n_comp * fft.size_workspace());
   PARTHENON_REQUIRE_THROWS(pmesh->DefaultNumPartitions() == 1,
                            "Only pack_size=-1 currently supported for heffte.")
   auto &md = pmesh->mesh_data.GetOrAdd("base", 0);
@@ -678,91 +678,97 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
   auto prim = md->PackVariables(std::vector<std::string>{"prim"});
-  Real realsum = 0.0;
-  for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
-    for (int k = kb.s; k <= kb.e; k++)
-      for (int j = jb.s; j <= jb.e; j++)
-        for (int i = ib.s; i <= ib.e; i++) {
-          const auto &p = prim(b);
-          const auto kk = k - kb.s + loc_view(b, 2) * nx3b;
-          const auto jj = j - jb.s + loc_view(b, 1) * nx2b;
-          const auto ii = i - ib.s + loc_view(b, 0) * nx1b;
-          const std::int64_t idx = (kk * nx2l + jj) * nx1l + ii;
-          input(idx) = p(IV1, k, j, i);
-          input(idx + fft.size_inbox()) = p(IV2, k, j, i);
-          input(idx + 2 * fft.size_inbox()) = p(IV3, k, j, i);
-          realsum += SQR(p(IDN, k, j, i) - 1.0);
-        }
-  }
+  par_for(
+      "Init FFT fields", 0, pmesh->GetNumMeshBlocksThisRank() - 1, kb.s, kb.e, jb.s, jb.e,
+      ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const auto &p = prim(b);
+        const auto kk = k - kb.s + loc_view(b, 2) * nx3b;
+        const auto jj = j - jb.s + loc_view(b, 1) * nx2b;
+        const auto ii = i - ib.s + loc_view(b, 0) * nx1b;
+        const std::int64_t idx = (kk * nx2l + jj) * nx1l + ii;
+        input(idx) = p(IV1, k, j, i);
+        input(idx + fft_size_inbox) = p(IV2, k, j, i);
+        input(idx + 2 * fft_size_inbox) = p(IV3, k, j, i);
+      });
 
   fft.forward(n_comp, input.data(), output.data(), workspace.data());
 
-  auto k_max = std::sqrt(SQR(gnx1 / 2) + SQR(gnx2 / 2) + SQR(gnx3 / 2));
-  Real mysum = 0;
-  parthenon::HostArray1D<Real> spec("spectrum", static_cast<int>(std::ceil(k_max)) + 1);
-  for (int k = outbox.low[2]; k <= outbox.high[2]; k++)
-    for (int j = outbox.low[1]; j <= outbox.high[1]; j++)
-      for (int i = outbox.low[0]; i <= outbox.high[0]; i++) {
+  const auto k_max = std::sqrt(SQR(gnx1 / 2) + SQR(gnx2 / 2) + SQR(gnx3 / 2));
+
+  const auto num_bins = static_cast<int>(std::ceil(k_max)) + 1;
+  // TODO(pgrete) if these are being reused, then ensure to reset (i.e., init 0 to and
+  // call .reset())
+  ParArray2D<Real> spectra("spectra", num_bins, 3);
+  // temp view for reduction for better performance (switches
+  // between atomics and data duplication depending on the platform)
+  auto scatter_spectra =
+      Kokkos::Experimental::ScatterView<Real **, parthenon::LayoutWrapper>(
+          spectra.KokkosView());
+
+  ib.s = outbox.low[0];
+  ib.e = outbox.high[0];
+  jb.s = outbox.low[1];
+  jb.e = outbox.high[1];
+  kb.s = outbox.low[2];
+  kb.e = outbox.high[2];
+  const auto fft_size_outbox = fft.size_outbox();
+  parthenon::par_for(
+      "CalcSpec", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
         auto k_z = k <= gnx3 / 2 ? k : -gnx3 + k;
         auto k_y = j <= gnx2 / 2 ? j : -gnx2 + j;
         auto k_x = i; // because we're using r2c transforms
 
         // for simple binning/indexing
-        auto k_mag =
-            static_cast<int>(std::floor(std::sqrt(SQR(k_x) + SQR(k_y) + SQR(k_z))));
+        auto k_mag = std::sqrt(SQR(k_x) + SQR(k_y) + SQR(k_z));
+        auto k_mag_int = static_cast<int>(std::floor(k_mag));
 
-        const auto outidx = ((k - outbox.low[2]) * outbox.size[1] + (j - outbox.low[1])) *
-                                outbox.size[0] +
-                            i - outbox.low[0];
+        const auto outidx =
+            ((k - kb.s) * (jb.e - jb.s + 1) + (j - jb.s)) * (ib.e - ib.s + 1) + i - ib.s;
 
         auto val = SQR(std::abs(output[outidx])) +
-                   SQR(std::abs(output[outidx + fft.size_outbox()])) +
-                   SQR(std::abs(output[outidx + 2 * fft.size_outbox()]));
+                   SQR(std::abs(output[outidx + fft_size_outbox])) +
+                   SQR(std::abs(output[outidx + 2 * fft_size_outbox]));
+
         // account for Hermitian symmetry of r2c transform
-        if ((k_x > 0) && (2 * k_x != gnx1)) {
-          val *= 2.0;
-        }
+        const auto fac = ((k_x > 0) && (2 * k_x != gnx1)) ? 2.0 : 1.0;
 
-        spec(k_mag) += val;
-        if (k_mag > 0.0) {
-          mysum += val;
-        } else {
-          std::cerr << "[" << parthenon::Globals::my_rank
-                    << "] mode 0 is: " << std::sqrt(val) << "\n";
-        }
-      }
+        auto spec = scatter_spectra.access();
+        // 0: histsum - 1: ksum - 2: histcount
+        spec(k_mag_int, 0) += fac * val;
+        spec(k_mag_int, 1) += fac * k_mag;
+        spec(k_mag_int, 2) += fac * 1.0;
+      });
+  Kokkos::Experimental::contribute(spectra.KokkosView(), scatter_spectra);
 
-  Kokkos::fence();
-  std::cerr << "[" << parthenon::Globals::my_rank
-            << "] my sum is: " << mysum / (gnx3 * gnx2 * gnx1) << " and the realsum is "
-            << realsum << "\n";
+  Kokkos::fence(); // May not be required.
 #ifdef MPI_PARALLEL
   //  Sum the perturbations over all processors
   if (parthenon::Globals::my_rank == 0) {
-    PARTHENON_MPI_CHECK(MPI_Reduce(MPI_IN_PLACE, spec.data(), spec.size(),
+    PARTHENON_MPI_CHECK(MPI_Reduce(MPI_IN_PLACE, spectra.data(), spectra.size(),
                                    MPI_PARTHENON_REAL, MPI_SUM, 0, MPI_COMM_WORLD));
   } else {
-    PARTHENON_MPI_CHECK(MPI_Reduce(spec.data(), spec.data(), spec.size(),
+    PARTHENON_MPI_CHECK(MPI_Reduce(spectra.data(), spectra.data(), spectra.size(),
                                    MPI_PARTHENON_REAL, MPI_SUM, 0, MPI_COMM_WORLD));
   }
 #endif // MPI_PARALLEL
 
   if (parthenon::Globals::my_rank == 0) {
-
+    auto spectra_h = spectra.GetHostMirrorAndCopy();
     // and write data
     std::ofstream outfile;
     const std::string fname("spec.csv");
     // On startup, write header
     if (tm.ncycle == 0) {
       outfile.open(fname, std::ofstream::out);
-      outfile << "# cycle, time, pos spec,...\n";
+      outfile << "# cycle, time, num_bins, pos spec,...\n";
     } else {
       outfile.open(fname, std::ofstream::out | std::ofstream::app);
     }
 
-    outfile << tm.ncycle << "," << tm.time;
-    for (int i = 0; i < spec.size(); i++) {
-      outfile << "," << spec(i);
+    outfile << tm.ncycle << "," << tm.time << "," << num_bins;
+    for (int i = 0; i < spectra_h.size(); i++) {
+      outfile << "," << spectra_h(i);
     }
     outfile << std::endl;
 
