@@ -111,7 +111,6 @@ TaskStatus RKL2StepFirst(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
   auto Yjm2 = md_Yjm2->PackVariablesAndFluxes(flags_ind);
   auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
 
-  const int ndim = pmb->pmy_mesh->ndim;
   // Using separate loops for each dim as the launch overhead should be hidden
   // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
