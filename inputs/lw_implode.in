@@ -23,13 +23,13 @@ p_out  = 1.0             # pressure
 refinement = none
 nghost = 3
 
-nx1 = 512
+nx1 = 256
 x1min = 0.0
 x1max = 0.3
 ix1_bc = reflecting
 ox1_bc = reflecting
 
-nx2 = 512
+nx2 = 256
 x2min = 0.0
 x2max = 0.3
 ix2_bc = reflecting
@@ -42,8 +42,8 @@ ix3_bc = periodic
 ox3_bc = periodic
 
 <parthenon/meshblock>
-nx1 = 512
-nx2 = 512
+nx1 = 256
+nx2 = 256
 nx3 = 1
 
 <parthenon/output0>
@@ -58,7 +58,7 @@ file_type = hst
 dt = 0.1
 
 <parthenon/time>
-integrator = rk3
+integrator = vl2
 cfl = 0.4
 tlim = 2.5
 nlim = -1
@@ -67,5 +67,5 @@ nlim = -1
 fluid = euler
 eos = adiabatic
 riemann = hllc
-reconstruction = ppm
+reconstruction = plm
 gamma = 1.4
