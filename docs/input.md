@@ -413,9 +413,11 @@ Please get in touch, if you interested in running simulations that require lifti
 
 In addition to enrolling custom boundary conditions, three general options are currently supported by default:
 
-- `periodic`: work without restrictions (implemented in upstream Parthenon)
-- `outflow`: work without restrictions (implemented in upstream Parthenon)
-- `reflecting`: work only for cell-centered *hydro* fluid variables
+- `periodic`: Work without restrictions (implemented in upstream Parthenon)
+- `outflow`: Last layer of active cells is copied into ghost cells. Work (technicaly) without restrictions (implemented in upstream Parthenon). Physically care must be taken when using outflow conditions in subsonic flows (as characteristics can travel into the domain, which is not properly handled by copying the active cell data).
+It is recommended to implement custom, problem specific boundary conditions for subsonic outflows, see large body of engineering literature.
+For supersonic outflows there is no issue as the flow itself is faster than the fastest characteristic.
+- `reflecting`: Work only for cell-centered *hydro* fluid variables
 (implemented in AthenaPK currently without support for particles or `Metadata::Fine` fields,
  where the latter are currently not being used in AthenaPK).
  Note, that we specifically do *not* provide "reflecting" boundary conditions for the magnetic
