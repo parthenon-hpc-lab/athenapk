@@ -22,7 +22,6 @@
 #include "basic_types.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/mesh.hpp"
-#include <heffte_fft3d.h>
 #include <iomanip>
 #include <ios>
 #include <mpi.h>
@@ -127,8 +126,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // Using OneCopy here to save memory. We typically don't need to update/evolve the
   // acceleration field for various stages in a cycle as the "model" error of the
   // turbulence driver is larger than the numerical one any way. This may need to be
-  // changed if an "as close as possible" comparison between methods/codes is the goal and
-  // not turbulence from a physical point of view.
+  // changed if an "as close as possible" comparison between methods/codes is the goal
+  // and not turbulence from a physical point of view.
   Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
              std::vector<int>({3}));
   pkg->AddField("acc", m);
@@ -136,8 +135,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto num_modes =
       pin->GetInteger("problem/turbulence", "num_modes"); // number of wavemodes
 
-  uint32_t rseed =
-      pin->GetOrAddInteger("problem/turbulence", "rseed", -1); // seed for random number.
+  uint32_t rseed = pin->GetOrAddInteger("problem/turbulence", "rseed",
+                                        -1); // seed for random number.
   pkg->AddParam<>("turbulence/rseed", rseed);
 
   auto k_peak =
@@ -173,8 +172,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   // Check if this is is a restart and restore previous state
   if (pin->DoesParameterExist("problem/turbulence", "accel_hat_0_0_r")) {
-    // Need to extract mutable object from Params here as the original few_modes_ft above
-    // and the one in Params are different instances
+    // Need to extract mutable object from Params here as the original few_modes_ft
+    // above and the one in Params are different instances
     auto *pfew_modes_ft = pkg->MutableParam<FewModesFT>("turbulence/few_modes_ft");
     // Restore (common) acceleration field in spectral space
     auto accel_hat = pfew_modes_ft->GetVarHat();
@@ -225,7 +224,8 @@ void ProblemInitTracerData(ParameterInput * /*pin*/,
                          Params::Mutability::Restart);
 }
 
-// SetPhases is used as InitMeshBlockUserData because phases need to be reset on remeshing
+// SetPhases is used as InitMeshBlockUserData because phases need to be reset on
+// remeshing
 void SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   auto few_modes_ft = hydro_pkg->Param<FewModesFT>("turbulence/few_modes_ft");
@@ -538,10 +538,10 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   auto loc_view_h = loc_view.GetHostMirror();
 
   // Set rank local min and max logical locations.
-  // Also check if all blocks are on the same level (we use this check instead of checking
-  // for refinement=none because AMR could have been used to dynamically refine a
-  // simulation. We just need to ensure that all blocks are on the same level to create an
-  // effective uniform grid.)
+  // Also check if all blocks are on the same level (we use this check instead of
+  // checking for refinement=none because AMR could have been used to dynamically refine
+  // a simulation. We just need to ensure that all blocks are on the same level to
+  // create an effective uniform grid.)
   const auto level =
       pmesh->Forest().GetLegacyTreeLocation(pmesh->block_list[0]->loc).level();
   for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
@@ -578,9 +578,18 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
                            "ranks (one block per rank will always work).");
 
   auto *comm = MPI_COMM_WORLD;
-  // select the default CPU backend, first available in the following order MKL, FFTW,
-  // Stock
+
+  // TODO(pgrete) not nice, make nicer
+#ifndef KOKKOS_ENABLE_CUDA
+  // if constexpr (std::is_same_v<Kokkos::DefaultExecutionSpace::memory_space,
+  //  Kokkos::HostSpace>) {
   using backend_tag = heffte::backend::default_backend<heffte::tag::cpu>::type;
+#else
+  // } else {
+  using backend_tag = heffte::backend::default_backend<heffte::tag::gpu>::type;
+  // using backend_tag = heffte::backend::cufft;
+// }
+#endif
 
   // wrapper around MPI_Comm_rank() and MPI_Comm_size(), using this is optional
   int const me = heffte::mpi::comm_rank(comm);
@@ -591,7 +600,6 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
 
   // the dimension where the data will shrink
   int r2c_direction = 0;
-
   // Adjust (logical) grid size at levels other than the root level.
   // This is required for simulation with mesh refinement so that the phases calculated
   // below take the logical grid size into account. For example, the local phases at level
@@ -659,6 +667,20 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
             << " and the real order is for idx 012: " << inbox.order[0] << inbox.order[1]
             << inbox.order[2] << "\n";
 
+  // TODO(pgrete) not nice, make nicer
+#ifdef KOKKOS_ENABLE_CUDA
+  // if constexpr (!std::is_same_v<Kokkos::DefaultExecutionSpace::memory_space,
+  // Kokkos::HostSpace>) {
+  PARTHENON_REQUIRE_THROWS(heffte::gpu::device_count() == 1,
+                           "To make this work, we need to ensure that Kokkos and heffte "
+                           "use the same GPUs. So hard fail for now.");
+  // if (heffte::gpu::device_count() > 1) {
+  // on a multi-gpu system, distribute the devices across the mpi ranks
+  // heffte::gpu::device_set(heffte::mpi::comm_rank(comm) %
+  // heffte::gpu::device_count());
+  // }
+// }
+#endif
   // define the heffte class and the input and output geometry
   heffte::fft3d_r2c<backend_tag> fft(inbox, outbox, r2c_direction, comm);
 
@@ -726,10 +748,11 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
         const auto outidx =
             ((k - kb.s) * (jb.e - jb.s + 1) + (j - jb.s)) * (ib.e - ib.s + 1) + i - ib.s;
 
-        auto val = SQR(std::abs(output[outidx])) +
-                   SQR(std::abs(output[outidx + fft_size_outbox])) +
-                   SQR(std::abs(output[outidx + 2 * fft_size_outbox]));
+        auto val2 = SQR(std::abs(output[outidx])) +
+                    SQR(std::abs(output[outidx + fft_size_outbox])) +
+                    SQR(std::abs(output[outidx + 2 * fft_size_outbox]));
 
+        auto val = SQR(std::abs(output[outidx].real()));
         // account for Hermitian symmetry of r2c transform
         const auto fac = ((k_x > 0) && (2 * k_x != gnx1)) ? 2.0 : 1.0;
 
@@ -773,28 +796,6 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
     outfile << std::endl;
 
     outfile.close();
-  }
-
-  // verify that the output has the correct size
-  assert(output.size() == static_cast<size_t>(fft.size_outbox()));
-
-  // in the r2c case, the result from a backward transform is always real
-  // thus inverse is std::vector<double>
-  fft.backward(output.data(), inverse.data(), workspace.data(), heffte::scale::full);
-
-  // compare the computed entries to the original input data
-  // the error is the max difference between the input and the real parts of the inverse
-  // or the absolute value of the complex numbers
-  double err = 0.0;
-  for (size_t i = 0; i < input.size(); i++)
-    err =
-        std::max(err, std::abs(2.0f * (inverse[i] - input[i]) / (inverse[i] + input[i])));
-
-  // print the error for each MPI rank
-  std::cout << std::scientific;
-  for (int i = 0; i < num_ranks; i++) {
-    MPI_Barrier(comm);
-    if (me == i) std::cout << "rank " << i << " computed error: " << err << std::endl;
   }
 }
 
