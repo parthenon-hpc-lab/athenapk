@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2020-2024, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2020-2025, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
@@ -111,7 +111,6 @@ TaskStatus RKL2StepFirst(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
   auto Yjm2 = md_Yjm2->PackVariablesAndFluxes(flags_ind);
   auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
 
-  const int ndim = pmb->pmy_mesh->ndim;
   // Using separate loops for each dim as the launch overhead should be hidden
   // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
@@ -647,7 +646,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
     // TODO(pgrete) Fix/cleanup once we got swarm packs.
     // We need just a single region with a single task in order to be able to use plain
-    // reductions.
+    // MPI reductions (rather than Parthenon provided reduction tasks that work with
+    // arbitrary packs).
     PARTHENON_REQUIRE_THROWS(num_partitions == 1,
                              "Only pack_size=-1 currently supported for tracers.")
     TaskRegion &single_tasklist_per_pack_region_4 = tc.AddRegion(num_partitions);

@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2025, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file turbulence.cpp
@@ -218,6 +218,7 @@ void ProblemInitTracerData(ParameterInput * /*pin*/,
     tracer_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
     tracer_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
   }
+
   // Timestamps for the lookback entries
   tracer_pkg->AddParam<>("turbulence/t_lookback", std::vector<Real>(n_lookback),
                          Params::Mutability::Restart);
@@ -546,9 +547,7 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
   //  Used for the parallel reduction. Could be reused but this way it's initalized to
   //  0.
   // n_lookback + 1 as it also carries <s> and <sdot>
-
   // Only doing it for the first population (can be expanded if necessary)
-
   parthenon::ParArray2D<Real> corr("tracer correlations", 2, n_lookback + 1);
   int64_t num_particles_total = 0;
 
