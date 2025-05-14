@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 // Tracer implementation refactored from https://github.com/lanl/phoebus
@@ -17,6 +17,8 @@
 // license in this material to reproduce, prepare derivative works,
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
+//========================================================================================
+
 
 #include <cmath>
 #include <fstream>
@@ -250,6 +252,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       tracer_pkg->AddSwarmValue("B_z", swarm_name, real_swarmvalue_metadata);
     }
   }
+
   tracer_pkg->UserWorkBeforeLoopMesh = SeedInitialTracers;
 
   if (ProblemInitTracerData != nullptr) {
@@ -793,7 +796,6 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
 FillTracers: calculate interpolated values of some fields (rho, vel, B, etc.) to
 damped into the output files.
 =============================================================================== */
-
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   auto hydro_pkg = md->GetParentPointer()->packages.Get("Hydro");
   const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;

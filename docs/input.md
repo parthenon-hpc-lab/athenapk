@@ -363,10 +363,13 @@ single_precision_output = true
 
 swarms = tracers
 tracers_variables = id, x, y, z, rho
+#write_swarm_xdmf=true  # uncomment to create an xdmf output (e.g., for Paraview or Visit)
 ```
 
-Tracers can be read/processed by the `phdf` package shipped with the Parthenon submodule.
-A sample plotting script might look like
+Tracers can be read/processed by Paraview or Visit (via the xdmf file)
+or by the `phdf` package shipped with the Parthenon submodule.
+A sample plotting script for the latter might look like
+>>>>>>> origin/main
 ```python
 import matplotlib.pyplot as plt
 import numpy as np
@@ -401,8 +404,35 @@ resulting in the following image:
 Following "restrictions" apply to the current tracer implementation:
 - Only 3D simulations.
 - Only one advection method (RK2/Heun's method).
+<<<<<<< HEAD
 - All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`)are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
 - Default tracer values (such as the primitive fields) are only updated right before writing an output file.
 - Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.
 
 Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
+=======
+- All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`) are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
+- Default tracer values (such as the primitive fields) are only updated right before writing an output file.
+- Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.
+
+Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
+
+## Boundary conditions
+
+In addition to enrolling custom boundary conditions, three general options are currently supported by default:
+
+- `periodic`: Work without restrictions (implemented in upstream Parthenon)
+- `outflow`: Last layer of active cells is copied into ghost cells. Work (technicaly) without restrictions (implemented in upstream Parthenon). Physically care must be taken when using outflow conditions in subsonic flows (as characteristics can travel into the domain, which is not properly handled by copying the active cell data).
+It is recommended to implement custom, problem specific boundary conditions for subsonic outflows, see large body of engineering literature.
+For supersonic outflows there is no issue as the flow itself is faster than the fastest characteristic.
+- `reflecting`: Work only for cell-centered *hydro* fluid variables
+(implemented in AthenaPK currently without support for particles or `Metadata::Fine` fields,
+ where the latter are currently not being used in AthenaPK).
+ Note, that we specifically do *not* provide "reflecting" boundary conditions for the magnetic
+ fields as these kind of configurations are typically highly problem dependent and, thus,
+ require manual treatment.
+
+They are being used by specifying the name as parameter value for the
+`ix1_bc`, `ox1_bc`, `ix2_bc`, `ox2_bc`, `ix3_bc`, and `ox3_bc` paraemters
+in the `<parthenon/mesh>` block of the input file for the inner and outer
+(say left and right in x1 direction) in each coordinate direction, respectively.
