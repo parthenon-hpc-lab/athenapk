@@ -2,6 +2,7 @@
 // Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE");
 
+#include <fenv.h>
 #include <sstream>
 
 // Parthenon headers
@@ -35,6 +36,83 @@ FillTracersFun_t ProblemFillTracers = nullptr;
 } // namespace Tracers
 
 int main(int argc, char *argv[]) {
+  // FPE handling (borrowed from AMReX)
+  {
+    using SignalHandler = void (*)(int);
+    SignalHandler prev_handler_sigfpe = SIG_ERR; // NOLINT(performance-no-int-to-ptr)
+    SignalHandler prev_handler_sigill = SIG_ERR; // NOLINT(performance-no-int-to-ptr)
+#if defined(__linux__)
+    int prev_fpe_excepts = 0;
+    int curr_fpe_excepts = 0;
+#elif defined(__APPLE__) && defined(__x86_64__)
+    unsigned int prev_fpe_mask = 0u;
+    unsigned int curr_fpe_excepts = 0u;
+#endif
+
+    prev_handler_sigfpe = SIG_ERR; // NOLINT(performance-no-int-to-ptr)
+    {
+      int invalid = 0, divbyzero = 0, overflow = 0;
+
+#if defined(__linux__)
+      curr_fpe_excepts = 0;
+      if (invalid) {
+        curr_fpe_excepts |= FE_INVALID;
+      }
+      if (divbyzero) {
+        curr_fpe_excepts |= FE_DIVBYZERO;
+      }
+      if (overflow) {
+        curr_fpe_excepts |= FE_OVERFLOW;
+      }
+      prev_fpe_excepts = fegetexcept();
+      if (curr_fpe_excepts != 0) {
+        feenableexcept(curr_fpe_excepts); // trap floating point exceptions
+        // prev_handler_sigfpe = std::signal(SIGFPE, BLBackTrace::handler);
+      }
+
+#elif defined(__APPLE__) && defined(__x86_64__)
+      prev_fpe_mask = _MM_GET_EXCEPTION_MASK();
+      curr_fpe_excepts = 0u;
+      if (invalid) {
+        curr_fpe_excepts |= _MM_MASK_INVALID;
+      }
+      if (divbyzero) {
+        curr_fpe_excepts |= _MM_MASK_DIV_ZERO;
+      }
+      if (overflow) {
+        curr_fpe_excepts |= _MM_MASK_OVERFLOW;
+      }
+      if (curr_fpe_excepts != 0u) {
+        _MM_SET_EXCEPTION_MASK(prev_fpe_mask & ~curr_fpe_excepts);
+        // prev_handler_sigfpe = std::signal(SIGFPE, BLBackTrace::handler);
+      }
+#endif
+    }
+
+    prev_handler_sigill = SIG_ERR; // NOLINT(performance-no-int-to-ptr)
+    {
+#if defined(__APPLE__) && defined(__aarch64__)
+      int invalid = 0, divbyzero = 0, overflow = 0;
+
+      fenv_t env;
+      fegetenv(&env);
+      if (invalid) {
+        env.__fpcr |= __fpcr_trap_invalid;
+      }
+      if (divbyzero) {
+        env.__fpcr |= __fpcr_trap_divbyzero;
+      }
+      if (overflow) {
+        env.__fpcr |= __fpcr_trap_overflow;
+      }
+      fesetenv(&env);
+      // SIGILL ref: https://developer.apple.com/forums/thread/689159
+#endif
+      // prev_handler_sigill = std::signal(SIGILL, BLBackTrace::handler);
+    }
+  }
+
+  // begin main()
   using parthenon::ParthenonManager;
   using parthenon::ParthenonStatus;
   ParthenonManager pman;
@@ -105,6 +183,16 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
     Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
+  } else if (problem == "precipitator") {
+    Hydro::ProblemInitPackageData = precipitator::ProblemInitPackageData;
+    pman.app_input->ProblemGenerator = precipitator::ProblemGenerator;
+    pman.app_input->RegisterBoundaryCondition(parthenon::BoundaryFace::inner_x3,
+                                              "precipitator_reflect_x3", precipitator::ReflectingInnerX3);
+    pman.app_input->RegisterBoundaryCondition(parthenon::BoundaryFace::outer_x3,
+                                              "precipitator_reflect_x3", precipitator::ReflectingOuterX3);
+    pman.app_input->UserMeshWorkBeforeOutput = precipitator::UserMeshWorkBeforeOutput;
+    Hydro::ProblemSourceUnsplit = precipitator::AddUnsplitSrcTerms;
+    Hydro::ProblemSourceFirstOrder = precipitator::AddSplitSrcTerms;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {
@@ -147,11 +235,15 @@ int main(int argc, char *argv[]) {
   }
 
   // This needs to be scoped so that the driver object is destructed before Finalize
+  parthenon::DriverStatus driver_status{};
   {
     Hydro::HydroDriver driver(pman.pinput.get(), pman.app_input.get(), pman.pmesh.get());
 
+    // output restart file at t=0
+    //driver.pouts->MakeOutputs(pman.pmesh.get(), pman.pinput.get(), &driver.tm, parthenon::SignalHandler::OutputSignal::now);
+
     // This line actually runs the simulation
-    driver.Execute();
+    driver_status = driver.Execute();
   }
 
   // call MPI_Finalize and Kokkos::finalize if necessary
@@ -159,5 +251,9 @@ int main(int argc, char *argv[]) {
 
   // MPI and Kokkos can no longer be used
 
-  return (0);
+  // check driver_status
+  if (driver_status == parthenon::DriverStatus::failed) {
+    return 1;
+  }
+  return 0;
 }

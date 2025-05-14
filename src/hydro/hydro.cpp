@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <mpi.h>
 #include <string>
 #include <vector>
 
@@ -27,16 +28,20 @@
 #include "../refinement/refinement.hpp"
 #include "../tracers/tracers.hpp"
 #include "../units.hpp"
+#include "basic_types.hpp"
 #include "defs.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
+#include "globals.hpp"
 #include "hydro.hpp"
+#include "kokkos_abstraction.hpp"
 #include "interface/params.hpp"
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
+#include "utils/reductions.hpp"
 
 using namespace parthenon::package::prelude;
 
@@ -264,6 +269,9 @@ TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm) {
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto pkg = std::make_shared<StateDescriptor>("Hydro");
 
+  CellPrimValues cell_values{};
+  pkg->AddParam<CellPrimValues>("cfl_cell_properties", cell_values, true);
+
   Real cfl = pin->GetOrAddReal("parthenon/time", "cfl", 0.3);
   pkg->AddParam<>("cfl", cfl);
 
@@ -352,8 +360,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     riemann = RiemannSolver::hlle;
   } else if (riemann_str == "hllc") {
     riemann = RiemannSolver::hllc;
+  } else if (riemann_str == "lhllc") {
+    riemann = RiemannSolver::lhllc;
   } else if (riemann_str == "hlld") {
     riemann = RiemannSolver::hlld;
+  } else if (riemann_str == "lhlld") {
+    riemann = RiemannSolver::lhlld;
   } else if (riemann_str == "none") {
     riemann = RiemannSolver::none;
     // If hyperbolic fluxes are disabled, there's no restriction from those
@@ -396,6 +408,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::limo3, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::limo3, RiemannSolver::lhllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::lhllc>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::none>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
@@ -409,6 +427,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::lhlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::lhlld>(flux_functions);
   // Add first order recon with LLF fluxes (implemented for testing as tight loop)
   flux_functions[std::make_tuple(Fluid::euler, Reconstruction::dc, RiemannSolver::llf)] =
       Hydro::CalculateFluxesTight<Fluid::euler>;
@@ -839,7 +863,10 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-  Real min_dt_hyperbolic = std::numeric_limits<Real>::max();
+  // reduce ValPropPair<Real, CellPrimValues> so we can obtain the properties of
+  // the cell that is limiting the timestep
+  ValPropPair<Real, CellPrimValues> min_dt_hyperbolic{std::numeric_limits<Real>::max(),
+                                                      {}};
 
   const auto ndim_ = prim_pack.GetNdim();
   Kokkos::parallel_reduce(
@@ -848,7 +875,8 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
           DevExecSpace(), {0, kb.s, jb.s, ib.s},
           {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
           {1, 1, 1, ib.e + 1 - ib.s}),
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i,
+                    ValPropPair<Real, CellPrimValues> &min_dt) {
         const auto &prim = prim_pack(b);
         const auto &coords = prim_pack.GetCoords(b);
         // Need to reference variables here so that they are properly caught by
@@ -862,37 +890,118 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         w[IV2] = prim(IV2, k, j, i);
         w[IV3] = prim(IV3, k, j, i);
         w[IPR] = prim(IPR, k, j, i);
-        Real lambda_max_x, lambda_max_y, lambda_max_z;
+
+        const Real B1 = prim(IB1, k, j, i);
+        const Real B2 = prim(IB2, k, j, i);
+        const Real B3 = prim(IB3, k, j, i);
+
+        Real lambda_max_x{};
+        Real lambda_max_y{};
+        Real lambda_max_z{};
+
         if constexpr (fluid == Fluid::euler) {
           lambda_max_x = eos.SoundSpeed(w);
           lambda_max_y = lambda_max_x;
           lambda_max_z = lambda_max_x;
 
         } else if constexpr (fluid == Fluid::glmmhd) {
-          lambda_max_x = eos.FastMagnetosonicSpeed(
-              w[IDN], w[IPR], prim(IB1, k, j, i), prim(IB2, k, j, i), prim(IB3, k, j, i));
+          lambda_max_x = eos.FastMagnetosonicSpeed(w[IDN], w[IPR], B1, B2, B3);
           if (ndim > 1) {
-            lambda_max_y =
-                eos.FastMagnetosonicSpeed(w[IDN], w[IPR], prim(IB2, k, j, i),
-                                          prim(IB3, k, j, i), prim(IB1, k, j, i));
+            lambda_max_y = eos.FastMagnetosonicSpeed(w[IDN], w[IPR], B2, B3, B1);
           }
           if (ndim > 2) {
-            lambda_max_z =
-                eos.FastMagnetosonicSpeed(w[IDN], w[IPR], prim(IB3, k, j, i),
-                                          prim(IB1, k, j, i), prim(IB2, k, j, i));
+            lambda_max_z = eos.FastMagnetosonicSpeed(w[IDN], w[IPR], B3, B1, B2);
           }
         } else {
           PARTHENON_FAIL("Unknown fluid in EstimateTimestep");
         }
-        min_dt = fmin(min_dt, coords.Dxc<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
+        min_dt.value =
+            fmin(min_dt.value, coords.Dxc<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
         if (ndim > 1) {
-          min_dt = fmin(min_dt, coords.Dxc<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
+          min_dt.value =
+              fmin(min_dt.value, coords.Dxc<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
         }
         if (ndim > 2) {
-          min_dt = fmin(min_dt, coords.Dxc<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
+          min_dt.value =
+              fmin(min_dt.value, coords.Dxc<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
         }
+
+        CellPrimValues this_cell{w[IDN], w[IV1], w[IV2], w[IV3], w[IPR], B1, B2, B3};
+        min_dt.index = this_cell;
       },
-      Kokkos::Min<Real>(min_dt_hyperbolic));
+      Kokkos::Min<ValPropPair<Real, CellPrimValues>>(min_dt_hyperbolic));
+
+  // Locally, min_dt_hyperbolic.value now contains the min timestep and
+  // min_dt_hyperbolic.index contains the primitive vars for the cell that set the min
+  // timestep on this local partition.
+
+  MPI_Datatype mpi_valproppair_types[2] = {MPI_PARTHENON_REAL, MPI_BYTE};
+  MPI_Aint mpi_valproppair_disps[2] = {
+      offsetof(valprop_reduce_type, value),
+      offsetof(valprop_reduce_type, index),
+  };
+  int mpi_valproppair_lens[2] = {1, sizeof(CellPrimValues)};
+
+  // create MPI datatype
+  MPI_Datatype mpi_valproppair;
+  MPI_Type_create_struct(2, mpi_valproppair_lens, mpi_valproppair_disps,
+                         mpi_valproppair_types, &mpi_valproppair);
+  MPI_Type_commit(&mpi_valproppair);
+
+  // create MPI reduction op
+  MPI_Op mpi_minloc_valproppair;
+  MPI_Op_create(ValPropPairMPIReducer, 1, &mpi_minloc_valproppair);
+
+  // do MPI reduction
+  MPI_Allreduce(MPI_IN_PLACE, &min_dt_hyperbolic, 1, mpi_valproppair,
+                mpi_minloc_valproppair, MPI_COMM_WORLD);
+
+  if (parthenon::Globals::my_rank == 0) {
+    // print cell properties
+    CellPrimValues &props = min_dt_hyperbolic.index;
+
+    Real w[(NHYDRO)];
+    w[IDN] = props.rho;
+    w[IV1] = props.v1;
+    w[IV2] = props.v2;
+    w[IV3] = props.v3;
+    w[IPR] = props.P;
+    const Real B1 = props.B1;
+    const Real B2 = props.B2;
+    const Real B3 = props.B3;
+    const Real B_sq = SQR(B1) + SQR(B2) + SQR(B3);
+
+    // print sound speed
+    auto units = hydro_pkg->Param<Units>("units");
+    const parthenon::Real code_velocity_cgs = units.code_length_cgs() / units.code_time_cgs();
+    const parthenon::Real code_vel_kms = code_velocity_cgs / 1.0e5;
+    const parthenon::Real cs = eos_.SoundSpeed(w);
+    const parthenon::Real v_A = std::sqrt(B_sq / props.rho);
+    const parthenon::Real v_abs = std::sqrt(SQR(props.v1) + SQR(props.v2) + SQR(props.v3));
+
+    // print timestep
+    std::cout << "\n----> dt = " << cfl_hyp * min_dt_hyperbolic.value;
+    std::cout << " (c_s = " << cs * code_vel_kms
+              << " km/s, v_A = " << v_A * code_vel_kms
+              << " km/s, |v| = " << v_abs * code_vel_kms
+              << " km/s)\n";
+
+    // find which is largest
+    std::vector<parthenon::Real> v{cs, v_A, v_abs};
+    std::vector<parthenon::Real>::iterator result = std::max_element(v.begin(), v.end());
+    const int max_idx = std::distance(v.begin(), result);
+
+    if (max_idx == 0) {
+      std::cout << "\tTimestep limited by sound speed.\n";
+    } else if (max_idx == 1) {
+      std::cout << "\tTimestep limited by Alfven speed.\n";
+    } else if (max_idx == 2) {
+      std::cout << "\tTimestep limited by fluid velocity.\n";
+    }
+  }
+
+  // save the result
+  hydro_pkg->UpdateParam("cfl_cell_properties", min_dt_hyperbolic.index);
 
   // TODO(pgrete) THIS WORKAROUND IS NOT THREAD SAFE (though this will only become
   // relevant once parthenon uses host-multithreading in the driver).
@@ -902,11 +1011,11 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   // processes.
   if constexpr (fluid == Fluid::glmmhd) {
     auto dt_hyp_pkg = hydro_pkg->Param<Real>("dt_hyp");
-    if (cfl_hyp * min_dt_hyperbolic < dt_hyp_pkg) {
-      hydro_pkg->UpdateParam("dt_hyp", cfl_hyp * min_dt_hyperbolic);
+    if (cfl_hyp * min_dt_hyperbolic.value < dt_hyp_pkg) {
+      hydro_pkg->UpdateParam("dt_hyp", cfl_hyp * min_dt_hyperbolic.value);
     }
   }
-  return cfl_hyp * min_dt_hyperbolic;
+  return cfl_hyp * min_dt_hyperbolic.value;
 }
 
 // provide the routine that estimates a stable timestep for this package
@@ -1056,7 +1165,12 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     c_h = pkg->Param<Real>("c_h");
   }
 
-  auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &prim_in = md->PackVariables(std::vector<std::string>({"prim"}));
+
+  // gravitational potential (needed for well-balancing)
+  const auto &phi_in = md->PackVariables(std::vector<std::string>({"grav_phi"}));
+  const auto &phi_zface_in =
+      md->PackVariables(std::vector<std::string>({"grav_phi_zface"}));
 
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
@@ -1072,13 +1186,17 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
       scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
         const auto &prim = prim_in(b);
+        const auto &phi = phi_in(b);
+        const auto &phi_zface = phi_zface_in(b);
+
         auto &cons = cons_in(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         // get reconstructed state on faces
-        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr, phi,
+                                  phi_zface);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
@@ -1114,6 +1232,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
           const auto &prim = prim_in(b);
+          const auto &phi = phi_in(b);
+          const auto &phi_zface = phi_zface_in(b);
+
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
@@ -1123,7 +1244,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
                                             num_scratch_vars, nx1);
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
-            Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
+            Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr, phi,
+                                      phi_zface);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
@@ -1162,6 +1284,9 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
           const auto &prim = prim_in(b);
+          const auto &phi = phi_in(b);
+          const auto &phi_zface = phi_zface_in(b);
+
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
@@ -1171,7 +1296,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
                                             num_scratch_vars, nx1);
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
-            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
+            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr, phi,
+                                      phi_zface);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
