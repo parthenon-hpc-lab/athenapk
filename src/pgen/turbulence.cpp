@@ -15,11 +15,11 @@
 #include <cstring> // strcmp()
 
 // heffte headers
-#include "globals.hpp"
 #include "heffte.h"
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "globals.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/mesh.hpp"
 #include <iomanip>
@@ -581,14 +581,12 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
 
   // TODO(pgrete) not nice, make nicer
 #ifndef KOKKOS_ENABLE_CUDA
-  // if constexpr (std::is_same_v<Kokkos::DefaultExecutionSpace::memory_space,
-  //  Kokkos::HostSpace>) {
   using backend_tag = heffte::backend::default_backend<heffte::tag::cpu>::type;
 #else
-  // } else {
   using backend_tag = heffte::backend::default_backend<heffte::tag::gpu>::type;
-  // using backend_tag = heffte::backend::cufft;
-// }
+  PARTHENON_REQUIRE_THROWS(heffte::gpu::device_count() == 1,
+                           "To make this work, we need to ensure that Kokkos and heffte "
+                           "use the same GPUs. So hard fail for now.");
 #endif
 
   // wrapper around MPI_Comm_rank() and MPI_Comm_size(), using this is optional
@@ -667,20 +665,6 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
             << " and the real order is for idx 012: " << inbox.order[0] << inbox.order[1]
             << inbox.order[2] << "\n";
 
-  // TODO(pgrete) not nice, make nicer
-#ifdef KOKKOS_ENABLE_CUDA
-  // if constexpr (!std::is_same_v<Kokkos::DefaultExecutionSpace::memory_space,
-  // Kokkos::HostSpace>) {
-  PARTHENON_REQUIRE_THROWS(heffte::gpu::device_count() == 1,
-                           "To make this work, we need to ensure that Kokkos and heffte "
-                           "use the same GPUs. So hard fail for now.");
-  // if (heffte::gpu::device_count() > 1) {
-  // on a multi-gpu system, distribute the devices across the mpi ranks
-  // heffte::gpu::device_set(heffte::mpi::comm_rank(comm) %
-  // heffte::gpu::device_count());
-  // }
-// }
-#endif
   // define the heffte class and the input and output geometry
   heffte::fft3d_r2c<backend_tag> fft(inbox, outbox, r2c_direction, comm);
 
@@ -748,11 +732,12 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
         const auto outidx =
             ((k - kb.s) * (jb.e - jb.s + 1) + (j - jb.s)) * (ib.e - ib.s + 1) + i - ib.s;
 
-        auto val2 = SQR(std::abs(output[outidx])) +
-                    SQR(std::abs(output[outidx + fft_size_outbox])) +
-                    SQR(std::abs(output[outidx + 2 * fft_size_outbox]));
+        auto val = SQR(output[outidx].real()) + SQR(output[outidx].imag()) +
+                   SQR(output[outidx + fft_size_outbox].real()) +
+                   SQR(output[outidx + fft_size_outbox].imag()) +
+                   SQR(output[outidx + 2 * fft_size_outbox].real()) +
+                   SQR(output[outidx + 2 * fft_size_outbox].imag());
 
-        auto val = SQR(std::abs(output[outidx].real()));
         // account for Hermitian symmetry of r2c transform
         const auto fac = ((k_x > 0) && (2 * k_x != gnx1)) ? 2.0 : 1.0;
 
@@ -790,8 +775,11 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
     }
 
     outfile << tm.ncycle << "," << tm.time << "," << num_bins;
-    for (int i = 0; i < spectra_h.size(); i++) {
-      outfile << "," << spectra_h(i);
+
+    for (int j = 0; j < 3; j++) {
+      for (int i = 0; i < num_bins; i++) {
+        outfile << "," << spectra_h(i, j);
+      }
     }
     outfile << std::endl;
 
