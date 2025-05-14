@@ -569,6 +569,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     // If conduction is enabled, process supported coefficients
     if (conduction != Conduction::none) {
+      PARTHENON_REQUIRE_THROWS(
+          typeid(parthenon::Coordinates_t) == typeid(parthenon::UniformCartesian),
+          "Probably need to update derivative calc (with respect to spacing between the "
+          "faces when calculating fluxes from cell centered quantities average to cell "
+          "faces) in thermal conduction to support non-Cartesian coordiates.");
       auto conduction_coeff_str =
           pin->GetOrAddString("diffusion", "conduction_coeff", "none");
       auto conduction_coeff = ConductionCoeff::none;
@@ -638,6 +643,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     // If viscosity is enabled, process supported coefficients
     if (viscosity != Viscosity::none) {
+      PARTHENON_REQUIRE_THROWS(
+          typeid(parthenon::Coordinates_t) == typeid(parthenon::UniformCartesian),
+          "Probably need to update derivative calc (with respect to spacing between the "
+          "faces when calculating fluxes from cell centered quantities average to cell "
+          "faces) in viscosity to support non-Cartesian coordiates.");
       auto viscosity_coeff_str =
           pin->GetOrAddString("diffusion", "viscosity_coeff", "none");
       auto viscosity_coeff = ViscosityCoeff::none;
@@ -1133,10 +1143,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     else // 3D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
   }
-  // get cell sizes
-  const Real dx1 = pmb->coords.CellWidth<X1DIR>();
-  const Real dx2 = pmb->coords.CellWidth<X2DIR>();
-  const Real dx3 = pmb->coords.CellWidth<X3DIR>();
 
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto cons_in = md->PackVariablesAndFluxes(flags_ind);
