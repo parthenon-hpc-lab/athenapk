@@ -26,6 +26,7 @@
 #include "../recon/weno3_simple.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
+#include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "basic_types.hpp"
 #include "defs.hpp"
@@ -59,6 +60,7 @@ using parthenon::HistoryOutputVar;
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
+  packages.Add(Tracers::Initialize(pin.get()));
   return packages;
 }
 
@@ -140,6 +142,7 @@ void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, SimTime &tm) {
     // Finally update c_h
     const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
     const auto &dt_hyp = hydro_pkg->Param<Real>("dt_hyp");
+    mindx = hydro_pkg->Param<Real>("mindx");
     hydro_pkg->UpdateParam("c_h", cfl_hyp * mindx / dt_hyp);
   }
 }

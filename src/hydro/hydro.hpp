@@ -41,8 +41,6 @@ TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm);
 using SourceFun_t =
     std::function<void(MeshData<Real> *md, const SimTime &tm, const Real dt)>;
 using EstimateTimestepFun_t = std::function<Real(MeshData<Real> *md)>;
-using InitPackageDataFun_t =
-    std::function<void(ParameterInput *pin, StateDescriptor *pkg)>;
 
 extern SourceFun_t ProblemSourceFirstOrder;
 extern SourceFun_t ProblemSourceUnsplit;

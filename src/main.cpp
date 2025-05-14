@@ -6,16 +6,19 @@
 #include <sstream>
 
 // Parthenon headers
-#include "driver/driver.hpp"
+#include "bvals/boundary_conditions_generic.hpp"
+#include "defs.hpp"
 #include "globals.hpp"
 #include "parthenon_manager.hpp"
 
 // AthenaPK headers
+#include "bvals/boundary_conditions_apk.hpp"
 #include "hydro/hydro.hpp"
 #include "hydro/hydro_driver.hpp"
 #include "main.hpp"
 
 #include "pgen/pgen.hpp"
+#include "tracers/tracers.hpp"
 // Initialize defaults for package specific callback functions
 namespace Hydro {
 InitPackageDataFun_t ProblemInitPackageData = nullptr;
@@ -25,6 +28,12 @@ SourceFun_t ProblemSourceUnsplit = nullptr;
 EstimateTimestepFun_t ProblemEstimateTimestep = nullptr;
 std::function<AmrTag(MeshBlockData<Real> *mbd)> ProblemCheckRefinementBlock = nullptr;
 } // namespace Hydro
+
+namespace Tracers {
+InitPackageDataFun_t ProblemInitTracerData = nullptr;
+SeedInitialFun_t ProblemSeedInitialTracers = nullptr;
+FillTracersFun_t ProblemFillTracers = nullptr;
+} // namespace Tracers
 
 int main(int argc, char *argv[]) {
   // FPE handling (borrowed from AMReX)
@@ -161,6 +170,8 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemInitPackageData = field_loop::ProblemInitPackageData;
   } else if (problem == "kh") {
     pman.app_input->MeshProblemGenerator = kh::ProblemGenerator;
+  } else if (problem == "lw_implode") {
+    pman.app_input->ProblemGenerator = lw_implode::ProblemGenerator;
   } else if (problem == "rand_blast") {
     pman.app_input->ProblemGenerator = rand_blast::ProblemGenerator;
     Hydro::ProblemInitPackageData = rand_blast::ProblemInitPackageData;
@@ -187,6 +198,8 @@ int main(int argc, char *argv[]) {
   } else if (problem == "turbulence") {
     pman.app_input->MeshProblemGenerator = turbulence::ProblemGenerator;
     Hydro::ProblemInitPackageData = turbulence::ProblemInitPackageData;
+    Tracers::ProblemInitTracerData = turbulence::ProblemInitTracerData;
+    Tracers::ProblemFillTracers = turbulence::ProblemFillTracers;
     Hydro::ProblemSourceFirstOrder = turbulence::Driving;
     pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
     pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
@@ -196,6 +209,23 @@ int main(int argc, char *argv[]) {
     msg << "Problem ID '" << problem << "' is not implemented yet.";
     PARTHENON_THROW(msg);
   }
+
+  const std::string REFLECTING = "reflecting";
+  using BF = parthenon::BoundaryFace;
+  using Hydro::BoundaryFunction::ReflectBC;
+  using parthenon::BoundaryFunction::BCSide;
+  pman.app_input->RegisterBoundaryCondition(BF::inner_x1, REFLECTING,
+                                            ReflectBC<X1DIR, BCSide::Inner>);
+  pman.app_input->RegisterBoundaryCondition(BF::outer_x1, REFLECTING,
+                                            ReflectBC<X1DIR, BCSide::Outer>);
+  pman.app_input->RegisterBoundaryCondition(BF::inner_x2, REFLECTING,
+                                            ReflectBC<X2DIR, BCSide::Inner>);
+  pman.app_input->RegisterBoundaryCondition(BF::outer_x2, REFLECTING,
+                                            ReflectBC<X2DIR, BCSide::Outer>);
+  pman.app_input->RegisterBoundaryCondition(BF::inner_x3, REFLECTING,
+                                            ReflectBC<X3DIR, BCSide::Inner>);
+  pman.app_input->RegisterBoundaryCondition(BF::outer_x3, REFLECTING,
+                                            ReflectBC<X3DIR, BCSide::Outer>);
 
   pman.ParthenonInitPackagesAndMesh();
 
