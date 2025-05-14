@@ -276,7 +276,6 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto tracer_pkg = pmb->packages.Get("tracers");
   auto hydro_pkg = pmb->packages.Get("Hydro");
   auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
-
   // Getting the number of independent populations of tracers
   auto n_populations = tracer_pkg->Param<int>("n_populations");
   auto rmax = tracer_pkg->Param<Real>("rmax");
@@ -329,12 +328,6 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
       PARTHENON_FAIL("No injection criteria has been set.");
     }
 
-    // Generating a new random seed at each call
-    std::srand(std::time(nullptr));
-    int rng_seed = std::rand();
-
-    RNGPool rng_pool(pmb->gid + rng_seed);
-
     // Check number of dimensions
     auto ndim = pmb->pmy_mesh->ndim;
 
@@ -358,8 +351,8 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
     // Simple test case: first calculate the number of cells fulfilling the criteria.
     // (modulo some stochastic factor)
-    // To be discussed: currently assumes that only one tracer is added per timestep.
-    // (otherwise p_injection > 1 if injection_timescale = O(tm.dt)).
+    // To be discussed: currently assumes that only one tracer is added per timestep and
+    // per cell. (otherwise p_injection > 1 if injection_timescale = O(tm.dt)).
     int npart = 0; // Number of particles to be injected at current timestep.
     Real p_injection = std::min(1.0, injection_num_target * tm.dt / injection_timescale);
 
@@ -424,24 +417,14 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
             if (rnd < p_injection) {
 
-              auto rng = rng_pool.get_state();
-
               int thread_id = Kokkos::atomic_fetch_add(&counter(), 1);
               int swarm_idx = injected_particles_context.GetNewParticleIndex(thread_id);
 
-              // Get the current cell sizes
-              const Real dx_cell = coords.Dxc<1>(i);
-              const Real dy_cell = coords.Dxc<2>(j);
-              const Real dz_cell = coords.Dxc<3>(k);
-
-              const Real rx = 0.5 - rng.drand();
-              const Real ry = 0.5 - rng.drand();
-              const Real rz = 0.5 - rng.drand();
-
-              x(swarm_idx) = x_cell + dx_cell * rx;
-              y(swarm_idx) = y_cell + dy_cell * ry;
+              // Setting the position of the tracers
+              x(swarm_idx) = x_cell;
+              y(swarm_idx) = y_cell;
               if (ndim == 3) {
-                z(swarm_idx) = z_cell + dz_cell * rz;
+                z(swarm_idx) = z_cell;
               }
 
               id(swarm_idx) = 1;
