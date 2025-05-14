@@ -34,7 +34,8 @@ class FewModesFT {
   ParArray2D<Real> k_vec_;
   Real k_peak_; // peak of the power spectrum
   Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::DevMemSpace> random_num_;
-  Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::HostMemSpace> random_num_host_;
+  Kokkos::View<Real ***, Kokkos::LayoutRight, parthenon::DevMemSpace>::host_mirror_type
+      random_num_host_;
   std::mt19937 rng_;
   std::uniform_real_distribution<> dist_;
   Real sol_weight_;  // power in solenoidal modes for projection. Set to negative to
