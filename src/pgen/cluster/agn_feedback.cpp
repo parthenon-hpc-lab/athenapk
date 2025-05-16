@@ -32,7 +32,8 @@ namespace cluster {
 using namespace parthenon;
 
 AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
-                         parthenon::StateDescriptor *hydro_pkg)
+                         parthenon::StateDescriptor *hydro_pkg,
+                             const std::string &block)
     : fixed_power_(pin->GetOrAddReal("problem/cluster/agn_feedback", "fixed_power", 0.0)),
       vceil_(pin->GetOrAddReal("problem/cluster/agn_feedback", "vceil",
                                std::numeric_limits<Real>::infinity())),
@@ -55,7 +56,10 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false)),
       disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)),
       enable_magnetic_tower_mass_injection_(pin->GetOrAddBoolean(
-          "problem/cluster/agn_feedback", "enable_magnetic_tower_mass_injection", true)) {
+          "problem/cluster/agn_feedback", "enable_magnetic_tower_mass_injection", true)),
+      write_to_file_(pin->GetOrAddBoolean(block, "write_to_file", false)),
+      feedback_filename_(
+          pin->GetOrAddString(block, "feedback_filename", "agn_feedback.dat")) {
 
   // Normalize the thermal, kinetic, and magnetic fractions to sum to 1.0
   const Real total_frac = thermal_fraction_ + kinetic_fraction_ + magnetic_fraction_;
@@ -181,7 +185,18 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
   PARTHENON_REQUIRE_THROWS(!enable_tracer_ || hydro_pkg->Param<int>("nscalars") == 1,
                            "Enabling tracer for AGN feedback requires hydro/nscalars=1");
 
+
+
+  if (write_to_file_ && parthenon::Globals::my_rank == 0) {
+ 
+    std::ofstream feedback_file;
+    feedback_file.open(feedback_filename_, std::ofstream::out | std::ofstream::trunc);
+    feedback_file.close();
+  }
+
   hydro_pkg->AddParam<>("agn_feedback", *this);
+
+  
 }
 
 parthenon::Real AGNFeedback::GetFeedbackPower(StateDescriptor *hydro_pkg) const {
@@ -414,6 +429,59 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const Real magnetic_power = power * magnetic_fraction_;
   const Real magnetic_mass_rate = mass_rate * magnetic_mass_fraction_;
   magnetic_tower.PowerSrcTerm(magnetic_power, magnetic_mass_rate, md, beta_dt, tm);
+
+
+}
+
+parthenon::TaskStatus
+AGNFeedbackFinalizeFeedback(parthenon::MeshData<parthenon::Real> *md,
+                                  const parthenon::SimTime &tm) {
+ 
+  using parthenon::Real;
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
+  const Real power = agn_feedback.GetFeedbackPower(hydro_pkg.get());
+  const Real mass_rate = agn_feedback.GetFeedbackMassRate(hydro_pkg.get());
+  const Real magnetic_power = power * agn_feedback.magnetic_fraction_;
+  const Real magnetic_mass_rate = mass_rate * agn_feedback.magnetic_mass_fraction_;
+
+  const Real thermal_scaling_factor = 1 / (4. / 3. * M_PI * std::pow(agn_feedback.thermal_radius_, 3));
+  const Real thermal_feedback = agn_feedback.thermal_fraction_ * power * thermal_scaling_factor * tm.dt;
+  const Real thermal_density = agn_feedback.thermal_mass_fraction_ * mass_rate * thermal_scaling_factor * tm.dt;
+
+  const Real kinetic_scaling_factor = 1 / (2 * agn_feedback.kinetic_jet_thickness_ *
+                                           M_PI * std::pow(agn_feedback.kinetic_jet_radius_, 2));
+  const Real jet_density = agn_feedback.kinetic_mass_fraction_ * mass_rate * kinetic_scaling_factor * tm.dt;
+  const Real jet_feedback = agn_feedback.kinetic_fraction_ * power * kinetic_scaling_factor * tm.dt;
+  const Real jet_momentum = jet_density * agn_feedback.kinetic_jet_velocity_;
+  // Append quantities to file
+  if (agn_feedback.write_to_file_ && parthenon::Globals::my_rank == 0) {
+    std::ofstream feedback_file;
+
+    // Open file in append mode
+    feedback_file.open(agn_feedback.feedback_filename_, std::ofstream::app);
+
+    // Check if the file is empty and write headers
+    if (feedback_file.tellp() == 0) {
+      feedback_file << "Time | TimeStep | Power | MassRate | MagneticPower | MagneticMassRate | "
+                    << "ThermalEnergy | ThermalDensity | KineticDensity | KineticEnergy | JetMomentum";
+      feedback_file << std::endl; // End of headers
+    }
+
+    // Write data
+    feedback_file << tm.time << " | " << tm.dt << " | "
+                  << power << " | "
+                  << mass_rate << " | "
+                  << magnetic_power << " | " << magnetic_mass_rate << " | "
+                  << thermal_feedback << " | " << thermal_density << " | "
+                  << jet_density << " | " << jet_feedback << " | "
+                  << jet_momentum;
+
+    feedback_file << std::endl;
+    feedback_file.close();
+  }
+  return TaskStatus::complete;
 }
 
 } // namespace cluster
+
