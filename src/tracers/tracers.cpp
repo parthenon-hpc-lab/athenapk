@@ -277,7 +277,13 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   // Get meshblock data
   auto tracer_pkg = pmb->packages.Get("tracers");
   auto hydro_pkg = pmb->packages.Get("Hydro");
-  auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+
+  // Getting variable required for temperature
+  Real mbar_over_kb = -1; // Arbitrary set to one
+  if (hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
+    mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+  }
+
   // Getting the number of independent populations of tracers
   auto n_populations = tracer_pkg->Param<int>("n_populations");
   auto rmax = tracer_pkg->Param<Real>("rmax");
@@ -463,7 +469,11 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto &coords = pmb->coords;
   auto &prim = mbd->PackVariables(std::vector<std::string>{"prim"});
   auto hydro_pkg = pmb->packages.Get("Hydro");
-  auto mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+  // Getting variable required for temperature
+  Real mbar_over_kb = -1;
+  if (hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
+    mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+  }
   auto tracer_pkg = pmb->packages.Get("tracers");
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
 
