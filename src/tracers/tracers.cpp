@@ -19,14 +19,14 @@
 // publicly, and to permit others to do so.
 //========================================================================================
 
-
 #include <cmath>
 #include <fstream>
 #include <string>
 #include <vector>
 
-#include <cstdlib>
+#include <cstdint>
 #include <ctime>
+#include <limits>
 
 // Parthenon headers
 #include "basic_types.hpp"
@@ -48,11 +48,11 @@ namespace LCInterp = parthenon::interpolation::cent::linear;
 The injection routine requires to first loop on the cells to calculate the size of
 the swarm at the new timestep, and then on the cells again to inject the tracers.
 Due to the stochasticity of the injection, we need a deterministic RNG that will
-return the same random number of each cells at both par_for. Below is an attempt
+return the same random number of cells at both par_for. Below is an attempt
 of generating such RNG using a cell index based seed. Comments welcomed.
 =============================================================================== */
 
-// Generate a unique see, deterministic providing k,j,i, the meshblock ID and time
+// Generate a unique seed, deterministic providing k,j,i, the meshblock ID and time
 KOKKOS_INLINE_FUNCTION
 uint64_t SeedFromIndices(int k, int j, int i, int gid, double time) {
   // Convert time to integer (e.g., nanosecond scale)
@@ -147,10 +147,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   tracer_pkg->AddParam<int>("n_populations", n_populations);
 
   // Looping on the N independent swarms
-  for (int i = 0; i < n_populations; ++i) {
+  for (int k_population = 0; k_population < n_populations; ++k_population) {
 
     // Defining the name of the swarm.
-    std::string swarm_name = "tracers" + std::to_string(i);
+    std::string swarm_name = "tracers" + std::to_string(k_population);
 
     const auto rng_seed = pin->GetOrAddInteger(swarm_name, "initial_rng_seed", 0);
 
@@ -216,15 +216,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     tracer_pkg->AddParam<int>(swarm_name + "_rng_seed", rng_seed);
 
     // Add swarm of tracers
-    tracer_pkg->AddParam<>("swarm_name" + std::to_string(i), swarm_name);
+    tracer_pkg->AddParam<>("swarm_name" + std::to_string(k_population), swarm_name);
 
     // TODO(pgrete) Check where metadata, e.g., for restart is required (i.e., at the
     // swarm or variable level).
     Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
     tracer_pkg->AddSwarm(swarm_name, swarm_metadata);
     Metadata real_swarmvalue_metadata({Metadata::Real});
-    tracer_pkg->AddSwarmValue("id", swarm_name,
-                              Metadata({Metadata::Integer, Metadata::Restart}));
     tracer_pkg->AddSwarmValue("injection_time", swarm_name,
                               Metadata({Metadata::Real, Metadata::Restart}));
     tracer_pkg->AddSwarmValue("lifetime", swarm_name,
@@ -272,6 +270,7 @@ and per unit time.
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
   auto *pmb = mbd->GetParentPointer();
+  auto gid = pmb->gid;
   auto &coords = pmb->coords;
   auto &prim = mbd->PackVariables(std::vector<std::string>{"prim"});
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
@@ -282,11 +281,16 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   // Getting the number of independent populations of tracers
   auto n_populations = tracer_pkg->Param<int>("n_populations");
   auto rmax = tracer_pkg->Param<Real>("rmax");
+  // Getting the offsets and copy to host
+  auto &off = mbd->Get("tracers_offsets").data;
+  auto host_off = Kokkos::create_mirror_view(off);
+  Kokkos::deep_copy(host_off, off);
+
   // Looping on populations
-  for (int i = 0; i < n_populations; ++i) {
+  for (int k_population = 0; k_population < n_populations; ++k_population) {
 
     // Defining the name of the swarm.
-    std::string swarm_name = "tracers" + std::to_string(i);
+    std::string swarm_name = "tracers" + std::to_string(k_population);
 
     auto &swarm = sd->Get(swarm_name);
 
@@ -310,10 +314,8 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     // needed.
     auto lifetime = tracer_pkg->Param<Real>(swarm_name + "_lifetime");
 
-    // Checking whether injection time has come
-    if (injection_enabled == false) {
-      return TaskStatus::complete;
-    }
+    // Checking whether injection should be proceeded
+    if (!injection_enabled) continue;
 
     // Setting up injection criteria
     TracerCriteria inj_crit;
@@ -337,9 +339,9 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+    auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
     auto &ltime = swarm->Get<Real>("lifetime").Get();
-    auto &id = swarm->Get<int>("id").Get();
 
     IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
     IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -399,6 +401,9 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     Kokkos::View<int, parthenon::DevExecSpace> counter("counter");
     Kokkos::deep_copy(counter, 0); // initialize to 0
 
+    std::uint64_t block_offset;
+    std::memcpy(&block_offset, &host_off(k_population), sizeof(std::uint64_t));
+
     pmb->par_for(
         "InjectedTracers::Initialize", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
@@ -430,13 +435,20 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                 z(swarm_idx) = z_cell;
               }
 
-              id(swarm_idx) = 1;
+              id(swarm_idx) = block_offset + thread_id;
               t_inj(swarm_idx) = tm.time;
               ltime(swarm_idx) = lifetime;
             }
           }
         });
-  }
+
+    // For loop to update offset field
+    block_offset += num_injected_tracers_in_block;
+    std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
+
+  } // End population loop
+  // Copy host back to device
+  Kokkos::deep_copy(off, host_off);
   return TaskStatus::complete;
 }
 
@@ -458,10 +470,10 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto n_populations = tracer_pkg->Param<int>("n_populations");
 
   // Looping on populations
-  for (int i = 0; i < n_populations; ++i) {
+  for (int k_population = 0; k_population < n_populations; ++k_population) {
 
     // Defining the name of the swarm.
-    std::string swarm_name = "tracers" + std::to_string(i);
+    std::string swarm_name = "tracers" + std::to_string(k_population);
 
     auto &swarm = sd->Get(swarm_name);
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
@@ -568,10 +580,18 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
     // First looping on blocks, then looping on populations (arbitrary)
     for (auto &pmb : pmesh->block_list) {
 
-      for (int i = 0; i < n_populations; ++i) {
+      // Loading the tracers_offsets field
+      auto &mbd = pmb->meshblock_data.Get();
+      auto &off = mbd->Get("tracers_offsets").data;
+
+      // Create host side mirror view of the offset field
+      auto host_off = Kokkos::create_mirror_view(off);
+
+      // Looping on tracer populations
+      for (int k_population = 0; k_population < n_populations; ++k_population) {
 
         // Defining the name of the swarm.
-        std::string swarm_name = "tracers" + std::to_string(i);
+        std::string swarm_name = "tracers" + std::to_string(k_population);
 
         // Get the initial lifetime of the current population
         const auto lifetime = tracer_pkg->Param<Real>(swarm_name + "_lifetime");
@@ -609,13 +629,24 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
         auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
         auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+        auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
         auto &t_inj = swarm->Get<Real>("injection_time").Get();
         auto &ltime = swarm->Get<Real>("lifetime").Get();
-        auto &id = swarm->Get<int>("id").Get();
 
+        // Getting the offset for the current meshblock
+        const uint64_t gid = static_cast<uint64_t>(pmb->gid); // global ID of the block
+        const uint64_t nbt =
+            static_cast<uint64_t>(pmesh->nbtotal); // total number of meshblocks
+
+        // Compute step size: (UINT64_MAX - 1) / nbt
+        const uint64_t step = (std::numeric_limits<uint64_t>::max() - 1ULL) / nbt;
+
+        // Compute block offset
+        uint64_t block_offset = gid * step;
+
+        // Loading swarm
         auto swarm_d = swarm->GetDeviceContext();
 
-        const auto gid = pmb->gid;
         pmb->par_for(
             "SeedInitialTracers::random_per_block", 0,
             new_particles_context.GetNewParticlesMaxIndex(),
@@ -641,7 +672,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
                 return;
               }
 
-              id(n) = num_tracers_per_block * gid + n;
+              id(n) = block_offset + n;
               ltime(n) = lifetime;
               t_inj(n) = 0.0;
 
@@ -653,7 +684,12 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
         // Remove particles outside rmax
         swarm->RemoveMarkedParticles();
+
+        // Updating the current block offset.
+        block_offset += num_tracers_per_block;
+        std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
       }
+      Kokkos::deep_copy(off, host_off);
     }
   } else {
     PARTHENON_THROW("Unknown tracer initial_seed_method");
@@ -678,10 +714,10 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
   // Check number of dimensions
   auto ndim = pmb->pmy_mesh->ndim;
 
-  for (int i = 0; i < n_populations; ++i) {
+  for (int k_population = 0; k_population < n_populations; ++k_population) {
 
     // Loading the ith-swarm
-    std::string swarm_name = "tracers" + std::to_string(i);
+    std::string swarm_name = "tracers" + std::to_string(k_population);
     auto &swarm = sd->Get(swarm_name);
 
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
@@ -810,10 +846,10 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
     auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
 
     // Looping on populations
-    for (int i = 0; i < n_populations; ++i) {
+    for (int k_population = 0; k_population < n_populations; ++k_population) {
 
       // Loading the ith-swarm
-      std::string swarm_name = "tracers" + std::to_string(i);
+      std::string swarm_name = "tracers" + std::to_string(k_population);
       auto &swarm = sd->Get(swarm_name);
       auto ndim = pmb->pmy_mesh->ndim;
 
