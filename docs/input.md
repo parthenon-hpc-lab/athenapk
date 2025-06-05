@@ -404,13 +404,6 @@ resulting in the following image:
 Following "restrictions" apply to the current tracer implementation:
 - Only 3D simulations.
 - Only one advection method (RK2/Heun's method).
-<<<<<<< HEAD
-- All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`)are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
-- Default tracer values (such as the primitive fields) are only updated right before writing an output file.
-- Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.
-
-Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
-=======
 - All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`) are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
 - Default tracer values (such as the primitive fields) are only updated right before writing an output file.
 - Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.

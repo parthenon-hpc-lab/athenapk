@@ -798,6 +798,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // Checking that the integrator is correctly set
   m = Metadata({Metadata::Face, Metadata::Derived}, std::vector<int>({3}));
   pkg->AddField("fvel", m); // face-centered velocity
+  // Adding a field for tracers offsets
+  const auto tracers_n_populations = pin->GetOrAddInteger("tracers", "n_populations", 1);
+  m = Metadata({Metadata::None, Metadata::Derived, Metadata::Restart},
+               std::vector<int>({tracers_n_populations}));
+  pkg->AddField("tracers_offsets", m);
 
   if (tracers_enabled && tracers_method == 1) {
     PARTHENON_REQUIRE(integrator_str == "vl2",
