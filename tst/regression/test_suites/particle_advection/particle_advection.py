@@ -19,6 +19,7 @@ import utils.test_case
 """ To prevent littering up imported folders with .pyc files or __pycache_ folder"""
 sys.dont_write_bytecode = True
 
+
 class TestCase(utils.test_case.TestCaseAbs):
     def Prepare(self, parameters, step):
         parameters.driver_cmd_line_args = [
