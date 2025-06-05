@@ -77,11 +77,11 @@ class TestCase(utils.test_case.TestCaseAbs):
             data_sorted[dump] = {}
             # data = phdf.phdf(f"v0_111_32p3/parthenon.prim.{dump}.phdf")
             data = phdf.phdf(f"{parameters.output_path}/parthenon.{dump}.rhdf")
-            tracers = data.GetSwarm("tracers")
+            tracers = data.GetSwarm("tracers0")
             xs = tracers.x
             ys = tracers.y
             zs = tracers.z
-            ids = tracers.Get("id")
+            ids = tracers.id
 
             idx_ids_sorted = np.argsort(ids)
 
