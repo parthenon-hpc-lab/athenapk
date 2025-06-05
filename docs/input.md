@@ -369,6 +369,7 @@ tracers_variables = id, x, y, z, rho
 Tracers can be read/processed by Paraview or Visit (via the xdmf file)
 or by the `phdf` package shipped with the Parthenon submodule.
 A sample plotting script for the latter might look like
+>>>>>>> origin/main
 ```python
 import matplotlib.pyplot as plt
 import numpy as np
