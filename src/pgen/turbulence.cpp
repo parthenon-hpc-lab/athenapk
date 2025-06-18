@@ -11,6 +11,7 @@
 #include <algorithm> // min, max
 #include <cmath>     // log
 #include <cstring>   // strcmp()
+#include <fstream>   // ofstream
 
 // Parthenon headers
 #include "basic_types.hpp"
