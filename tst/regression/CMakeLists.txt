@@ -1,5 +1,5 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2020-2023, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2020-2025, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the 3-Clause License (the "LICENSE");
 
 # Any external modules that are required by python can be added to REQUIRED_PYTHON_MODULES
@@ -66,3 +66,9 @@ setup_test_both("cluster_hydro_agn_feedback" "--driver ${PROJECT_BINARY_DIR}/bin
 
 setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/agn_triggering.in --num_steps 3" "convergence")
+
+  setup_test_both("particle_advection" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/turbulence.in --num_steps 2" "regression")
+
+  setup_test_serial("lw_implode_symmetry" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/lw_implode.in --num_steps 1" "regression")

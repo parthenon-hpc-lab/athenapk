@@ -6,6 +6,7 @@ add_executable(
         main.cpp
         eos/adiabatic_glmmhd.cpp
         units.hpp
+        bvals/boundary_conditions_apk.hpp
         eos/adiabatic_hydro.cpp
         hydro/diffusion/conduction.cpp
         hydro/diffusion/diffusion.cpp
@@ -21,7 +22,10 @@ add_executable(
         hydro/srcterms/tabular_cooling.cpp
         refinement/gradient.cpp
         refinement/other.cpp
+        tracers/tracers.cpp
+        tracers/tracers.hpp
         utils/few_modes_ft.cpp
+        utils/few_modes_ft.hpp
 )
 
 add_subdirectory(pgen)
