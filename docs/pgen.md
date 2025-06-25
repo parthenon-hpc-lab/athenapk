@@ -1,4 +1,4 @@
-# Problem generators
+# Custom problem generators
 
 Different simulation setups in AthenaPK are controlled via the so-called problem generators.
 New problem generators can easily be added and we are happy to accept and merge contibuted problem
@@ -189,3 +189,29 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin)
 ```
 callback is available, that is called once every time right before a data output
 (hdf5 or restart) is being written.
+
+### Particles
+
+#### Tracers
+
+In order to allow custom seeding of tracer particles (per problem generator), the
+`ProblemSeedInitialTracers` function can be defined.
+```c++
+void ProblemSeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
+```
+It is executed once when a simulation is started the very first time (i.e., it
+is not called on subsequent restarts).
+See the standard tracer seeding implementation[`SeedInitialTracers`](https://github.com/parthenon-hpc-lab/athenapk/blob/main/src/tracers/tracers.cpp) for reference on how to deposit particles.
+
+
+To allow adding additional fields, the
+```c++
+void ProblemInitTracerData(ParameterInput * pin, parthenon::StateDescriptor *tracer_pkg);```
+callback is available.
+It is called at the end of the tracer package initialization and can be defined at the per-problem-generator level, see, e.g., the turbulence driver as an example.
+
+Similarly, a callback is available to fill those new fields (or more) via
+```c++
+TaskStatus ProblemFillTracers(MeshData<Real> *md, parthenon::SimTime &tm, const Real dt);
+```
+It is called right after the default `FillTracers` task in the driver.

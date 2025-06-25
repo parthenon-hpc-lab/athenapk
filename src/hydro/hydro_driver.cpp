@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2020-2023, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2020-2025, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
@@ -12,13 +12,16 @@
 
 // Parthenon headers
 #include "amr_criteria/refinement_package.hpp"
+#include "basic_types.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
+#include "utils/error_checking.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
+#include "../tracers/tracers.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
@@ -35,46 +38,6 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
 
   // warn if these fields aren't specified in the input file
   pin->CheckDesired("parthenon/time", "cfl");
-}
-
-// Calculate mininum dx, which is used in calculating the divergence cleaning speed c_h
-TaskStatus CalculateGlobalMinDx(MeshData<Real> *md) {
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
-  auto hydro_pkg = pmb->packages.Get("Hydro");
-
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-
-  Real mindx = std::numeric_limits<Real>::max();
-
-  bool nx2 = prim_pack.GetDim(2) > 1;
-  bool nx3 = prim_pack.GetDim(3) > 1;
-  pmb->par_reduce(
-      "CalculateGlobalMinDx", 0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-      ib.e,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmindx) {
-        const auto &coords = prim_pack.GetCoords(b);
-        lmindx = fmin(lmindx, coords.Dxc<1>(k, j, i));
-        if (nx2) {
-          lmindx = fmin(lmindx, coords.Dxc<2>(k, j, i));
-        }
-        if (nx3) {
-          lmindx = fmin(lmindx, coords.Dxc<3>(k, j, i));
-        }
-      },
-      Kokkos::Min<Real>(mindx));
-
-  // Reduction to host var is blocking and only have one of this tasks run at the same
-  // time so modifying the package should be safe.
-  auto mindx_pkg = hydro_pkg->Param<Real>("mindx");
-  if (mindx < mindx_pkg) {
-    hydro_pkg->UpdateParam("mindx", mindx);
-  }
-
-  return TaskStatus::complete;
 }
 
 // Sets all fluxes to 0
@@ -148,7 +111,6 @@ TaskStatus RKL2StepFirst(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
   auto Yjm2 = md_Yjm2->PackVariablesAndFluxes(flags_ind);
   auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
 
-  const int ndim = pmb->pmy_mesh->ndim;
   // Using separate loops for each dim as the launch overhead should be hidden
   // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
@@ -444,55 +406,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  // Calculate hyperbolic divergence cleaning speed
-  // TODO(pgrete) Calculating mindx is only required after remeshing. Need to find a clean
-  // solution for this one-off global reduction.
-  if (hydro_pkg->Param<bool>("calc_c_h") && (stage == 1)) {
-    // need to make sure that there's only one region in order to MPI_reduce to work
-    TaskRegion &single_task_region = tc.AddRegion(1);
-    auto &tl = single_task_region[0];
-    // Adding one task for each partition. Not using a (new) single partition containing
-    // all blocks here as this (default) split is also used for the following tasks and
-    // thus does not create an overhead (such as creating a new MeshBlockPack that is just
-    // used here). Given that all partitions are in one task list they'll be executed
-    // sequentially. Given that a par_reduce to a host var is blocking it's also save to
-    // store the variable in the Params for now.
-    auto prev_task = none;
-    for (int i = 0; i < num_partitions; i++) {
-      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_mindx = tl.AddTask(prev_task, CalculateGlobalMinDx, mu0.get());
-      prev_task = new_mindx;
-    }
-    auto reduce_c_h = prev_task;
-#ifdef MPI_PARALLEL
-    reduce_c_h = tl.AddTask(
-        prev_task,
-        [](StateDescriptor *hydro_pkg) {
-          Real mins[2];
-          mins[0] = hydro_pkg->Param<Real>("mindx");
-          mins[1] = hydro_pkg->Param<Real>("dt_hyp");
-          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, mins, 2, MPI_PARTHENON_REAL,
-                                            MPI_MIN, MPI_COMM_WORLD));
-
-          hydro_pkg->UpdateParam("mindx", mins[0]);
-          hydro_pkg->UpdateParam("dt_hyp", mins[1]);
-          return TaskStatus::complete;
-        },
-        hydro_pkg.get());
-#endif
-    // Finally update c_h
-    auto update_c_h = tl.AddTask(
-        reduce_c_h,
-        [](StateDescriptor *hydro_pkg) {
-          const auto &mindx = hydro_pkg->Param<Real>("mindx");
-          const auto &cfl_hyp = hydro_pkg->Param<Real>("cfl");
-          const auto &dt_hyp = hydro_pkg->Param<Real>("dt_hyp");
-          hydro_pkg->UpdateParam("c_h", cfl_hyp * mindx / dt_hyp);
-          return TaskStatus::complete;
-        },
-        hydro_pkg.get());
-  }
-
   // calculate magnetic tower scaling
   if ((stage == 1) && hydro_pkg->AllParams().hasKey("magnetic_tower_power_scaling") &&
       hydro_pkg->Param<bool>("magnetic_tower_power_scaling")) {
@@ -655,21 +568,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
                                         pmesh->multilevel);
   }
 
-  // Single task in single (serial) region to reset global vars used in reductions in the
-  // first stage.
-  if (stage == integrator->nstages && hydro_pkg->Param<bool>("calc_c_h")) {
-    TaskRegion &reset_reduction_vars_region = tc.AddRegion(1);
-    auto &tl = reset_reduction_vars_region[0];
-    tl.AddTask(
-        none,
-        [](StateDescriptor *hydro_pkg) {
-          hydro_pkg->UpdateParam("mindx", std::numeric_limits<Real>::max());
-          hydro_pkg->UpdateParam("dt_hyp", std::numeric_limits<Real>::max());
-          return TaskStatus::complete;
-        },
-        hydro_pkg.get());
-  }
-
   TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = single_tasklist_per_pack_region_3[i];
@@ -684,6 +582,26 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
   }
 
+  // Single task in single (serial) region to reset global vars used in reductions in the
+  // first stage.
+  // TODO(pgrete) check if we logically need this reset or if we can reset within the
+  // timestep task
+  if (stage == integrator->nstages &&
+      (hydro_pkg->Param<bool>("calc_c_h") ||
+       hydro_pkg->Param<DiffInt>("diffint") != DiffInt::none)) {
+    TaskRegion &reset_reduction_vars_region = tc.AddRegion(1);
+    auto &tl = reset_reduction_vars_region[0];
+    tl.AddTask(
+        none,
+        [](StateDescriptor *hydro_pkg) {
+          hydro_pkg->UpdateParam("mindx", std::numeric_limits<Real>::max());
+          hydro_pkg->UpdateParam("dt_hyp", std::numeric_limits<Real>::max());
+          hydro_pkg->UpdateParam("dt_diff", std::numeric_limits<Real>::max());
+          return TaskStatus::complete;
+        },
+        hydro_pkg.get());
+  }
+
   if (stage == integrator->nstages) {
     TaskRegion &tr = tc.AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
@@ -691,6 +609,53 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
       auto new_dt = tl.AddTask(none, parthenon::Update::EstimateTimestep<MeshData<Real>>,
                                mu0.get());
+    }
+  }
+
+  auto tracers_pkg = pmesh->packages.Get("tracers");
+  // First order operator split tracer advection
+  if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
+    const std::string swarm_name = "tracers";
+    TaskRegion &sync_region_tr = tc.AddRegion(1);
+    {
+      for (auto &pmb : blocks) {
+        auto &tl = sync_region_tr[0];
+        auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+        auto reset_comms =
+            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+      }
+    }
+
+    TaskRegion &async_region_tr = tc.AddRegion(blocks.size());
+    for (int n = 0; n < blocks.size(); n++) {
+      auto &tl = async_region_tr[n];
+      auto &pmb = blocks[n];
+      auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+      auto &mbd0 = pmb->meshblock_data.Get("base");
+      auto tracer_advect =
+          tl.AddTask(none, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
+
+      auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
+                             BoundaryCommSubset::all);
+
+      auto receive =
+          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+    }
+    // TODO(pgrete) Fix/cleanup once we got swarm packs.
+    // We need just a single region with a single task in order to be able to use plain
+    // MPI reductions (rather than Parthenon provided reduction tasks that work with
+    // arbitrary packs).
+    PARTHENON_REQUIRE_THROWS(num_partitions == 1,
+                             "Only pack_size=-1 currently supported for tracers.")
+    TaskRegion &single_tasklist_per_pack_region_4 = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = single_tasklist_per_pack_region_4[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto fill = tl.AddTask(none, Tracers::FillTracers, mu0.get(), tm);
+      if (Tracers::ProblemFillTracers != nullptr) {
+        fill =
+            tl.AddTask(fill, Tracers::ProblemFillTracers, mu0.get(), tm, integrator->dt);
+      }
     }
   }
 

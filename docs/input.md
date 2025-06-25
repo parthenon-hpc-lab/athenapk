@@ -67,7 +67,64 @@ To control the floors, following parameters can be set in the `<hydro>` block:
 *Note* the pressure floor will take precedence over the temperature floor in the
 conserved to primitive conversion if both are defined.
 
+#### Units
+
+See(here)[units.md].
+
 #### Diffusive processes
+
+Diffusive processes in AthenaPK can be configured in the `<diffusion>` block of the input file.
+```
+<diffusion>
+integrator = unsplit       # alternatively: rkl2 (for rkl2 integrator (operator split integrator)
+#rkl2_max_dt_ratio = 100.0 # limits the ratio between the parabolic and hyperbolic timesteps (only used for RKL2 operator split integrator)
+#cfl = 1.0                 # Additional safety factor applied in the caluclation of the diffusive timestep (used in both unsplit and RKL2 integration schemes). Defaults to hyperbolic cfl.
+
+conduction = anisotropic               # none (disabled), or isotropic, or anisotropic
+conduction_coeff = fixed               # alternative: spitzer
+thermal_diff_coeff_code = 0.01         # fixed coefficent in code units (code_length^2/code_time)
+#spitzer_cond_in_erg_by_s_K_cm = 4.6e7 # spitzer coefficient in cgs units (requires definition of a unit system)
+#conduction_sat_phi = 0.3              # fudge factor to account for uncertainties in saturated fluxes
+
+
+viscosity = none            # none (disabled) or isotropic
+viscosity_coeff = fixed
+mom_diff_coeff_code = 0.25  # fixed coefficent of the kinetmatic viscosity in code units (code_length^2/code_time)
+
+resistivity = none          # none (disabled) or ohmic
+resistivity_coeff = fixed
+ohm_diff_coeff_code = 0.25  # fixed coefficent of the magnetic (ohmic) diffusivity code units (code_length^2/code_time)
+```
+(An)isotropic thermal conduction (with fixed or Spitzer coefficient), and isotropic viscosity and
+resistivity with fixed coefficient are currently implemented.
+They can be integrated in an unsplit manner or operator split using a second-order accurate RKL2
+supertimestepping algorithm.
+More details are described in the following.
+
+#### Integrators
+
+Diffusive processes can be integrated in either an unsplit
+fashion (`diffusion/integrator=unsplit`) or operator split using a second-order accurate
+RKL2 super timestepping algorithm (`diffusion/integrator=rkl2`) following [^M+14].
+
+In the unsplit case, the diffusive processes are included at the end of every stage in
+the main integration loop and the global timestep is limited accordingly.
+A separate CFL can be set for the diffusive processes via `diffusion/cfl=...`, which
+defaults to the hyperbolic value if not set.
+
+In the RKL2 case, the global timestep is not limited by the diffusive processes by default.
+However, as reported by [^V+17] a large number of stages
+($`s \approx \sqrt(\Delta t_{hyp}/\Delta t_{par}) \geq 20`$) in the supertimestepping
+(in combination with anisotropic, limited diffusion) may lead to a loss in accuracy, which
+is why the difference between hyperbolic and parabolic timesteps can be limited by
+`diffusion/rkl2_max_dt_ratio=...` and a warning is shown if the ratio is above 400.
+
+[^M+14]:
+    C. D. Meyer, D. S. Balsara, and T. D. Aslam, “A stabilized Runge–Kutta–Legendre method for explicit super-time-stepping of parabolic and mixed equations,” Journal of Computational Physics, vol. 257, pp. 594–626, 2014, doi: https://doi.org/10.1016/j.jcp.2013.08.021.
+
+[^V+17]:
+    B. Vaidya, D. Prasad, A. Mignone, P. Sharma, and L. Rickler, “Scalable explicit implementation of anisotropic diffusion with Runge–Kutta–Legendre super-time stepping,” Monthly Notices of the Royal Astronomical Society, vol. 472, no. 3, pp. 3147–3160, 2017, doi: 10.1093/mnras/stx2176.
+
 
 ##### Isotropic (hydro and MHD) and anisotropic thermal conduction (only MHD)
 In the presence of magnetic fields thermal conduction is becoming anisotropic with the flux along
@@ -139,6 +196,29 @@ Default value corresponds to the typical value used in literature and goes back 
 
 [^BM82]:
     S. A. Balbus and C. F. McKee, “The evaporation of spherical clouds in a hot gas. III - Suprathermal evaporation,” , vol. 252, pp. 529–552, Jan. 1982, doi: https://doi.org/10.1086/159581
+
+#### Viscosity/Momentum diffusion
+
+Only isotropic viscosity with a (spatially and temporally) fixed coefficient in code units
+(`code_length`^2/`code_time`) is currently implemented.
+To enable set (in the `<diffusion>` block)
+```
+viscosity = isotropic
+viscosity_coeff = fixed
+mom_diff_coeff_code = 0.25  # fixed coefficent of the kinetmatic viscosity in code units (code_length^2/code_time)
+```
+
+#### Resistivity/Ohmic diffusion
+
+Only resistivity with a (spatially and temporally) fixed coefficient in code units
+(`code_length`^2/`code_time`)is currently implemented.
+To enable set (in the `<diffusion>` block)
+```
+resistivity = ohmic
+resistivity_coeff = fixed
+ohm_diff_coeff_code = 0.25  # fixed coefficent of the magnetic (ohmic) diffusivity code units (code_length^2/code_time)
+```
+
 
 ### Additional MHD options in `<hydro>` block
 
@@ -243,3 +323,108 @@ d_log_temp_tol = 1e-8              # Tolerance in cooling table between subseque
 Finally, a more comprehensive descriptions of various conventions used for cooling
 functions (and the chosen implementation in AthenaPK) can be found in [Cooling Notes](cooling_notes.md)
 and a notebook comparing various cooling tables (and their conversion) in [cooling/cooling.ipynb](cooling/cooling.ipynb).
+
+### Particles
+
+#### Tracers
+
+Tracer particles can be enabled by setting `tracers/enabled=true` in the input file:
+
+```
+<tracers>
+enabled = true
+
+initial_seed_method  = random_per_block    # alternative: user
+initial_num_tracers_per_cell = 0.125
+### Optional arguments
+#initial_rng_seed = INTEGER
+```
+
+Two seeding methods are currently supported:
+
+- `initial_seed_method=random_per_block`
+  - seeds particles at random positions in each block
+  - NOTE: the random number generator seed uses the unique block id. Therefore, simulations with the mesh decomposition (mesh and meshblock sizes) are identical independent of the number of MPI ranks used, but if the meshblock size is changed for given mesh (and thus the total number of blocks) the initial state will be different.
+  - `initial_num_tracers_per_cell` determines the number of seeded particles per cell
+  - `initial_rng_seed` (optional) is used as seed in addition to the block id.
+- `initial_seed_method=user`
+  - Calls a problem specific callback function (`ProblemSeedInitialTracers`), see [tracer callback documenation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/pgen.md#tracers).
+
+By default, swarm fields are written only to restart files.
+If they are required for "standard" output files (like single precision `hdf5`),
+they need to be added manually to the output block, e.g., (bottom two lines)
+```
+<parthenon/output2>
+file_type  = hdf5       # Binary data dump
+variables   = prim   # variables to be output
+dt         = 0.1        # time increment between outputs
+id         = prim
+single_precision_output = true
+
+swarms = tracers
+tracers_variables = id, x, y, z, rho
+#write_swarm_xdmf=true  # uncomment to create an xdmf output (e.g., for Paraview or Visit)
+```
+
+Tracers can be read/processed by Paraview or Visit (via the xdmf file)
+or by the `phdf` package shipped with the Parthenon submodule.
+A sample plotting script for the latter might look like
+```python
+import matplotlib.pyplot as plt
+import numpy as np
+import sys
+sys.path.insert(
+    1,
+    "/path/to/athenapk/external/parthenon"
+    + "/scripts/python/packages/parthenon_tools/parthenon_tools",
+)
+
+try:
+    import phdf
+except ModuleNotFoundError:
+    print("Couldn't find module to read Parthenon hdf5 files.")
+
+data = phdf.phdf("../run-turbulence/parthenon.prim.00010.phdf")
+tracers = data.GetSwarm("tracers")
+xs = tracers.x
+ys = tracers.y
+zs = tracers.z
+ids = tracers.Get("id")
+
+fig = plt.figure()
+ax = fig.add_subplot(projection='3d')
+
+ax.scatter(xs, ys, zs,s=1,c=ids)
+```
+resulting in the following image:
+
+![image](img/tracer_example.png)
+
+Following "restrictions" apply to the current tracer implementation:
+- Only 3D simulations.
+- Only one advection method (RK2/Heun's method).
+- All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`) are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
+- Default tracer values (such as the primitive fields) are only updated right before writing an output file.
+- Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.
+
+Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
+
+## Boundary conditions
+
+In addition to enrolling custom boundary conditions, three general options are currently supported by default:
+
+- `periodic`: Work without restrictions (implemented in upstream Parthenon)
+- `outflow`: Last layer of active cells is copied into ghost cells. Work (technicaly) without restrictions (implemented in upstream Parthenon). Physically care must be taken when using outflow conditions in subsonic flows (as characteristics can travel into the domain, which is not properly handled by copying the active cell data).
+It is recommended to implement custom, problem specific boundary conditions for subsonic outflows, see large body of engineering literature.
+For supersonic outflows there is no issue as the flow itself is faster than the fastest characteristic.
+- `reflecting`: Work only for cell-centered *hydro* fluid variables
+(implemented in AthenaPK currently without support for particles or `Metadata::Fine` fields,
+ where the latter are currently not being used in AthenaPK).
+ Note, that we specifically do *not* provide "reflecting" boundary conditions for the magnetic
+ fields as these kind of configurations are typically highly problem dependent and, thus,
+ require manual treatment.
+
+They are being used by specifying the name as parameter value for the
+`ix1_bc`, `ox1_bc`, `ix2_bc`, `ox2_bc`, `ix3_bc`, and `ox3_bc` paraemters
+in the `<parthenon/mesh>` block of the input file for the inner and outer
+(say left and right in x1 direction) in each coordinate direction, respectively.

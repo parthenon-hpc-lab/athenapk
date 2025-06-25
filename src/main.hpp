@@ -1,5 +1,5 @@
 // AthenaPK - a performance portable block structured AMR MHD code
-// Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2020-2024, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
 
 #ifndef MAIN_HPP_
@@ -7,7 +7,9 @@
 
 #include <limits> // numeric limits
 
+// Parthenon headers
 #include "basic_types.hpp" // Real
+#include <parthenon/package.hpp>
 
 // TODO(pgrete) There's a compiler bug in nvcc < 11.2 that precludes the use
 // of C++17 with relaxed-constexpr in Kokkos,
@@ -37,6 +39,10 @@ enum class Fluid { undefined, euler, glmmhd };
 enum class Cooling { none, tabular };
 enum class Conduction { none, isotropic, anisotropic };
 enum class ConductionCoeff { none, fixed, spitzer };
+enum class Viscosity { none, isotropic };
+enum class ViscosityCoeff { none, fixed };
+enum class Resistivity { none, ohmic };
+enum class ResistivityCoeff { none, fixed, spitzer };
 enum class DiffInt { none, unsplit, rkl2 };
 
 enum class Hst { idx, ekin, emag, divb };
@@ -44,5 +50,8 @@ enum class Hst { idx, ekin, emag, divb };
 enum class CartesianDir { x, y, z };
 
 constexpr parthenon::Real float_min{std::numeric_limits<float>::min()};
+
+using InitPackageDataFun_t =
+    std::function<void(parthenon::ParameterInput *pin, parthenon::StateDescriptor *pkg)>;
 
 #endif // MAIN_HPP_
