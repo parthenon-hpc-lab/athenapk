@@ -30,6 +30,7 @@ struct Riemann;
 #include "hydro_dc_llf.hpp"
 #include "hydro_hllc.hpp"
 #include "hydro_hlle.hpp"
+#include "hydro_lhllc.hpp"
 
 // "none" solvers for runs/testing without fluid evolution, i.e., just reset fluxes
 template <>
