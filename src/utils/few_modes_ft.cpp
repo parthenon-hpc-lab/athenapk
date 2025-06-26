@@ -13,6 +13,7 @@
 // Parthenon headers
 #include "basic_types.hpp"
 #include "config.hpp"
+#include "defs.hpp"
 #include "globals.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/meshblock_pack.hpp"
@@ -47,9 +48,9 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   // lambda cannot live in the constructor of an object.
   auto k_vec_host = k_vec.GetHostMirrorAndCopy();
   for (int i = 0; i < num_modes; i++) {
-    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) <= gnx1 / 2, "k_vec x1 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) <= gnx2 / 2, "k_vec x2 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) <= gnx3 / 2, "k_vec x3 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) <= static_cast<Real>(gnx1) / 2, "k_vec x1 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) <= static_cast<Real>(gnx2) / 2, "k_vec x2 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) <= static_cast<Real>(gnx3) / 2, "k_vec x3 mode too large");
   }
 
   const auto nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
@@ -80,8 +81,133 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
       "random_num", 3, num_modes, 2);
   random_num_host_ = Kokkos::create_mirror_view(random_num_);
 
-  rng_.seed(rseed);
-  dist_ = std::uniform_real_distribution<>(-1.0, 1.0);
+  bool is_restart = pin->DoesParameterExist("few_modes_ft", "var_hat_0_0_r");
+  if (is_restart) {
+    // Restore acceleration field in Fourier space
+    std::cout << "restoring acceleration field...\n\n";
+
+    // read var_hat
+    {
+      //std::cout << "reading var_hat...\n";
+      auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
+      for (int i = 0; i < 3; i++) {
+        for (int m = 0; m < num_modes; m++) {
+          auto real = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
+                                                       std::to_string(m) + "_r");
+          auto imag = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
+                                                       std::to_string(m) + "_i");
+          //std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
+          var_hat_host(i, m) = Complex(real, imag);
+        }
+      }
+      Kokkos::deep_copy(var_hat_, var_hat_host);
+    }
+
+    // read var_hat_new
+    {
+      //std::cout << "reading var_hat_new...\n";
+      auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
+      for (int i = 0; i < 3; i++) {
+        for (int m = 0; m < num_modes; m++) {
+          auto real_new =
+              pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
+                                               std::to_string(m) + "_r");
+          auto imag_new =
+              pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
+                                               std::to_string(m) + "_i");
+          //std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new
+          //          << "\n";
+          var_hat_new_host(i, m) = Complex(real_new, imag_new);
+        }
+      }
+      Kokkos::deep_copy(var_hat_new_, var_hat_new_host);
+    }
+
+    // read rng state
+    {
+      std::istringstream iss(pin->GetString("few_modes_ft", "state_rng"));
+      iss >> rng_;
+      //std::cout << "rng state: " << rng_ << "\n";
+    }
+
+    // read dist
+    {
+      std::istringstream iss(pin->GetString("few_modes_ft", "state_dist"));
+      iss >> dist_;
+      //std::cout << "dist state: " << dist_ << "\n";
+    }
+
+  } else {
+    // this is NOT a restart
+    rng_.seed(rseed);
+    dist_ = std::uniform_real_distribution<>(-1.0, 1.0);
+  }
+}
+
+void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
+  // Save acceleration field in Fourier space
+  auto md = mesh->mesh_data.Get();
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  auto num_modes = pin->GetInteger("precipitator/driving", "num_modes");
+
+  // var_hat_
+  {
+    auto var_hat_host =
+        Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_);
+    // std::cout << "writing var_hat...\n";
+
+    for (int i = 0; i < 3; i++) {
+      for (int m = 0; m < num_modes; m++) {
+        Real real = var_hat_host(i, m).real();
+        Real imag = var_hat_host(i, m).imag();
+        pin->SetReal("few_modes_ft",
+                     "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
+                     real);
+        pin->SetReal("few_modes_ft",
+                     "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
+                     imag);
+        // std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
+      }
+    }
+  }
+
+  // var_hat_new_
+  {
+    auto var_hat_new_host = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_new_);
+    // std::cout << "writing var_hat_new...\n";
+
+    for (int i = 0; i < 3; i++) {
+      for (int m = 0; m < num_modes; m++) {
+        Real real_new = var_hat_new_host(i, m).real();
+        Real imag_new = var_hat_new_host(i, m).imag();
+        pin->SetReal("few_modes_ft",
+                     "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
+                     real_new);
+        pin->SetReal("few_modes_ft",
+                     "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
+                     imag_new);
+        // std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new <<
+        // "\n";
+      }
+    }
+  }
+
+  // save rng
+  {
+    std::ostringstream oss;
+    oss << rng_;
+    pin->SetString("few_modes_ft", "state_rng", oss.str());
+    // std::cout << "rng state: " << rng_ << "\n";
+  }
+
+  // save dist
+  {
+    std::ostringstream oss;
+    oss << dist_;
+    pin->SetString("few_modes_ft", "state_dist", oss.str());
+    // std::cout << "dist state: " << dist_ << "\n";
+  }
 }
 
 void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
@@ -118,10 +244,12 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   // Restriction should also be easily fixed, just need to double check transforms and
   // volume weighting everywhere
+#if 0
   PARTHENON_REQUIRE_THROWS(((gnx1 == gnx2) && (gnx2 == gnx3)) &&
                                ((Lx1 == Lx2) && (Lx2 == Lx3)),
                            "FMFT has only been tested with cubic meshes and constant "
                            "dx/dy/dz. Remove this warning at your own risk.")
+#endif
 
   const auto nx1 = pmb->block_size.nx(X1DIR);
   const auto nx2 = pmb->block_size.nx(X2DIR);
@@ -350,7 +478,7 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
 
 // Creates a random set of wave vectors with k_mag within k_peak/2 and 2*k_peak
 ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
-                                 uint32_t rseed = 31224) {
+                                 uint32_t rseed = 31224, const bool xy_modes_only) {
   auto k_vec = parthenon::ParArray2D<Real>("k_vec", 3, num_modes);
   auto k_vec_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), k_vec);
 
@@ -363,15 +491,22 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
 
   int n_mode = 0;
   int n_attempt = 0;
-  constexpr int max_attempts = 1000000;
-  Real kx1, kx2, kx3, k_mag, ampl;
+  constexpr int max_attempts = 1e6;
+  Real kx1 = NAN;
+  Real kx2 = NAN;
+  Real kx3 = 0.;
+  Real k_mag = NAN;
+  Real ampl = NAN;
+
   bool mode_exists = false;
   while (n_mode < num_modes && n_attempt < max_attempts) {
     n_attempt += 1;
 
     kx1 = dist(rng);
     kx2 = dist(rng);
-    kx3 = dist(rng);
+    if (!xy_modes_only) {
+      kx3 = dist(rng);
+    }
     k_mag = std::sqrt(SQR(kx1) + SQR(kx2) + SQR(kx3));
 
     // Expected amplitude of the spectral function. If this is changed, it also needs to
@@ -396,6 +531,17 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
     k_vec_h(2, n_mode) = kx3;
     n_mode++;
   }
+
+#if 0
+  // print modes
+  for (int n = 0; n < n_mode; ++n) {
+    std::cout << "k_vec_h(0, " << n << ") = " << k_vec_h(0, n) << "\n";
+    std::cout << "k_vec_h(1, " << n << ") = " << k_vec_h(1, n) << "\n";
+    std::cout << "k_vec_h(2, " << n << ") = " << k_vec_h(2, n) << "\n";
+    std::cout << "\n";
+  }
+#endif
+
   PARTHENON_REQUIRE_THROWS(
       n_attempt < max_attempts,
       "Cluster init did not succeed in calculating perturbation modes.")

@@ -52,6 +52,7 @@ class FewModesFT {
   int GetNumModes() { return num_modes_; }
   void SetPhases(MeshBlock *pmb, ParameterInput *pin);
   void Generate(MeshData<Real> *md, const Real dt, const std::string &var_name);
+  void SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin);
   void RestoreRNG(std::istringstream &iss) { iss >> rng_; }
   void RestoreDist(std::istringstream &iss) { iss >> dist_; }
   std::string GetRNGState() {
@@ -67,6 +68,6 @@ class FewModesFT {
 };
 
 // Creates a random set of wave vectors with k_mag within k_peak/2 and 2*k_peak
-ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak, uint32_t rseed);
+ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak, uint32_t rseed, const bool xy_modes_only = false);
 
 } // namespace utils::few_modes_ft

@@ -26,6 +26,7 @@
 
 // Parthenon headers
 #include "Kokkos_MathematicalFunctions.hpp"
+#include "basic_types.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"

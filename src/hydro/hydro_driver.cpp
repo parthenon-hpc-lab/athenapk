@@ -7,7 +7,7 @@
 #include <limits>
 #include <memory>
 #include <string>
-#include <utility>
+#include <sys/types.h>
 #include <vector>
 
 // Parthenon headers
@@ -26,6 +26,7 @@
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
+#include "utils/error_checking.hpp"
 
 using namespace parthenon::driver::prelude;
 
@@ -356,7 +357,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   auto num_task_lists_executed_independently = blocks.size();
 
   const int num_partitions = pmesh->DefaultNumPartitions();
-
   // calculate agn triggering accretion rate
   if ((stage == 1) &&
       hydro_pkg->AllParams().hasKey("agn_triggering_reduce_accretion_rate") &&
