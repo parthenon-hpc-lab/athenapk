@@ -35,8 +35,12 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/meshblock/nx2=16",
             "parthenon/meshblock/nx3=8",
             "tracers/enabled=true",
+            "tracers/method=1",
+            "tracers/n_populations=1",
             "tracers/initial_seed_method=random_per_block",
-            "tracers/initial_num_tracers_per_cell=0.125",
+            "tracers0/initial_num_tracers_per_cell=0.125",
+            "tracers0/injection_enabled=false",
+            "tracers0/removal_enabled=false",
             # disable driving and setup homogenous flow
             "problem/turbulence/accel_rms=0.0",
             "problem/turbulence/v0=1.5,1.0,0.75",
@@ -73,11 +77,11 @@ class TestCase(utils.test_case.TestCaseAbs):
             data_sorted[dump] = {}
             # data = phdf.phdf(f"v0_111_32p3/parthenon.prim.{dump}.phdf")
             data = phdf.phdf(f"{parameters.output_path}/parthenon.{dump}.rhdf")
-            tracers = data.GetSwarm("tracers")
+            tracers = data.GetSwarm("tracers0")
             xs = tracers.x
             ys = tracers.y
             zs = tracers.z
-            ids = tracers.Get("id")
+            ids = tracers.id
 
             idx_ids_sorted = np.argsort(ids)
 

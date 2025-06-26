@@ -785,6 +785,30 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                prim_labels);
   pkg->AddField("prim", m);
 
+  // ==============================================================================
+  // ==============================                  ==============================
+  // ============================== TRACER PARTICLES ==============================
+  // ==============================                  ==============================
+  // ==============================================================================
+
+  const auto tracers_enabled = pin->GetOrAddBoolean("tracers", "enabled", false);
+  pkg->AddParam<bool>("tracer_enabled", tracers_enabled);
+  /* Methods: 0 = interpolated vel. field, 1 = interp. flux, 2 = Monte Carlo */
+  const auto tracers_method = pin->GetOrAddInteger("tracers", "method", 0);
+  // Checking that the integrator is correctly set
+  m = Metadata({Metadata::Face, Metadata::Derived}, std::vector<int>({3}));
+  pkg->AddField("fvel", m); // face-centered velocity
+  // Adding a field for tracers offsets
+  const auto tracers_n_populations = pin->GetOrAddInteger("tracers", "n_populations", 1);
+  m = Metadata({Metadata::None, Metadata::Derived, Metadata::Restart},
+               std::vector<int>({tracers_n_populations}));
+  pkg->AddField("tracers_offsets", m);
+
+  if (tracers_enabled && tracers_method == 1) {
+    PARTHENON_REQUIRE(integrator_str == "vl2",
+                      "Provided tracer parameters only support vl2 integrator.");
+  }
+
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
   if (refine_str == "pressure_gradient") {
     pkg->CheckRefinementBlock = refinement::gradient::PressureGradient;
@@ -1044,6 +1068,11 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
 
+  // If necessary, load the left/right states.
+  auto tracer_enabled = pkg->Param<bool>("tracer_enabled");
+  auto fvel = md->PackVariables(std::vector<std::string>{"fvel"});
+
+  // Loading equation of state
   const auto &eos =
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                            AdiabaticGLMMHDEOS>::type>("eos");
@@ -1084,6 +1113,18 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
         riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         member.team_barrier();
+
+        /* Storing the left and right states */
+        auto &fvelb = fvel(b);
+        parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
+          auto n = IDN;
+
+          if (cons.flux(IV1, IDN, k, j, i) >= 0.0) {
+            fvelb(0, k, j, i) = cons.flux(IV1, IDN, k, j, i) / wl(n, i);
+          } else {
+            fvelb(0, k, j, i) = cons.flux(IV1, IDN, k, j, i) / wr(n, i);
+          }
+        });
 
         // Passive scalar fluxes
         for (auto n = nhydro; n < nhydro + nscalars; ++n) {
@@ -1130,6 +1171,16 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             if (j > jb.s - 1) {
               riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
               member.team_barrier();
+
+              // Storing the left / right states for tracers
+              auto &fvelb = fvel(b);
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                if (cons.flux(IV2, IDN, k, j, i) >= 0.0) {
+                  fvelb(1, k, j, i) = cons.flux(IV2, IDN, k, j, i) / wl(IDN, i);
+                } else {
+                  fvelb(1, k, j, i) = cons.flux(IV2, IDN, k, j, i) / wr(IDN, i);
+                }
+              });
 
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
@@ -1178,6 +1229,16 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             if (k > kb.s - 1) {
               riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               member.team_barrier();
+
+              // Storing the left / right states for tracers
+              auto &fvelb = fvel(b);
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                if (cons.flux(IV3, IDN, k, j, i) >= 0.0) {
+                  fvelb(2, k, j, i) = cons.flux(IV3, IDN, k, j, i) / wl(IDN, i);
+                } else {
+                  fvelb(2, k, j, i) = cons.flux(IV3, IDN, k, j, i) / wr(IDN, i);
+                }
+              });
 
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
