@@ -24,7 +24,6 @@
 #include "mesh/mesh.hpp"
 #include <iomanip>
 #include <ios>
-#include <mpi.h>
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 #include <random>
@@ -36,7 +35,6 @@
 #include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
-#include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 
 namespace turbulence {
@@ -126,8 +124,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   // Using OneCopy here to save memory. We typically don't need to update/evolve the
   // acceleration field for various stages in a cycle as the "model" error of the
   // turbulence driver is larger than the numerical one any way. This may need to be
-  // changed if an "as close as possible" comparison between methods/codes is the goal
-  // and not turbulence from a physical point of view.
+  // changed if an "as close as possible" comparison between methods/codes is the goal and
+  // not turbulence from a physical point of view.
   Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
              std::vector<int>({3}));
   pkg->AddField("acc", m);
@@ -135,8 +133,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto num_modes =
       pin->GetInteger("problem/turbulence", "num_modes"); // number of wavemodes
 
-  uint32_t rseed = pin->GetOrAddInteger("problem/turbulence", "rseed",
-                                        -1); // seed for random number.
+  uint32_t rseed =
+      pin->GetOrAddInteger("problem/turbulence", "rseed", -1); // seed for random number.
   pkg->AddParam<>("turbulence/rseed", rseed);
 
   auto k_peak =
@@ -172,8 +170,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 
   // Check if this is is a restart and restore previous state
   if (pin->DoesParameterExist("problem/turbulence", "accel_hat_0_0_r")) {
-    // Need to extract mutable object from Params here as the original few_modes_ft
-    // above and the one in Params are different instances
+    // Need to extract mutable object from Params here as the original few_modes_ft above
+    // and the one in Params are different instances
     auto *pfew_modes_ft = pkg->MutableParam<FewModesFT>("turbulence/few_modes_ft");
     // Restore (common) acceleration field in spectral space
     auto accel_hat = pfew_modes_ft->GetVarHat();
@@ -224,8 +222,7 @@ void ProblemInitTracerData(ParameterInput * /*pin*/,
                          Params::Mutability::Restart);
 }
 
-// SetPhases is used as InitMeshBlockUserData because phases need to be reset on
-// remeshing
+// SetPhases is used as InitMeshBlockUserData because phases need to be reset on remeshing
 void SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   auto few_modes_ft = hydro_pkg->Param<FewModesFT>("turbulence/few_modes_ft");
@@ -492,6 +489,7 @@ void Driving(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
                           const parthenon::SimTime & /*tm*/) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
+
   // Store (common) acceleration field in spectral space
   auto few_modes_ft = hydro_pkg->Param<FewModesFT>("turbulence/few_modes_ft");
   auto var_hat = few_modes_ft.GetVarHat();
