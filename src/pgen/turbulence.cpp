@@ -578,13 +578,13 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   auto *comm = MPI_COMM_WORLD;
 
   // TODO(pgrete) not nice, make nicer
-#ifndef KOKKOS_ENABLE_CUDA
-  using backend_tag = heffte::backend::default_backend<heffte::tag::cpu>::type;
-#else
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   using backend_tag = heffte::backend::default_backend<heffte::tag::gpu>::type;
   PARTHENON_REQUIRE_THROWS(heffte::gpu::device_count() == 1,
                            "To make this work, we need to ensure that Kokkos and heffte "
                            "use the same GPUs. So hard fail for now.");
+#else
+  using backend_tag = heffte::backend::default_backend<heffte::tag::cpu>::type;
 #endif
 
   // wrapper around MPI_Comm_rank() and MPI_Comm_size(), using this is optional
@@ -653,16 +653,18 @@ void UserMeshWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
   std::vector<heffte::box3d<>> complex_boxes =
       heffte::split_world(complex_indexes, proc_grid);
   heffte::box3d<> const outbox = complex_boxes[me];
+  /*
+    std::cerr << "[" << parthenon::Globals::my_rank
+              << "] my complex indices are: " << outbox.low[0] << ":" << outbox.high[0]
+              << " " << outbox.low[1] << ":" << outbox.high[1] << " " << outbox.low[2]
+              << ":" << outbox.high[2] << " "
+              << " and the complex order is for idx 012: " << outbox.order[0]
+              << outbox.order[1] << outbox.order[2]
+              << " and the real order is for idx 012: " << inbox.order[0] <<
+    inbox.order[1]
+              << inbox.order[2] << "\n";
 
-  std::cerr << "[" << parthenon::Globals::my_rank
-            << "] my complex indices are: " << outbox.low[0] << ":" << outbox.high[0]
-            << " " << outbox.low[1] << ":" << outbox.high[1] << " " << outbox.low[2]
-            << ":" << outbox.high[2] << " "
-            << " and the complex order is for idx 012: " << outbox.order[0]
-            << outbox.order[1] << outbox.order[2]
-            << " and the real order is for idx 012: " << inbox.order[0] << inbox.order[1]
-            << inbox.order[2] << "\n";
-
+    */
   // define the heffte class and the input and output geometry
   heffte::fft3d_r2c<backend_tag> fft(inbox, outbox, r2c_direction, comm);
 
