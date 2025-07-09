@@ -323,3 +323,108 @@ d_log_temp_tol = 1e-8              # Tolerance in cooling table between subseque
 Finally, a more comprehensive descriptions of various conventions used for cooling
 functions (and the chosen implementation in AthenaPK) can be found in [Cooling Notes](cooling_notes.md)
 and a notebook comparing various cooling tables (and their conversion) in [cooling/cooling.ipynb](cooling/cooling.ipynb).
+
+### Particles
+
+#### Tracers
+
+Tracer particles can be enabled by setting `tracers/enabled=true` in the input file:
+
+```
+<tracers>
+enabled = true
+
+initial_seed_method  = random_per_block    # alternative: user
+initial_num_tracers_per_cell = 0.125
+### Optional arguments
+#initial_rng_seed = INTEGER
+```
+
+Two seeding methods are currently supported:
+
+- `initial_seed_method=random_per_block`
+  - seeds particles at random positions in each block
+  - NOTE: the random number generator seed uses the unique block id. Therefore, simulations with the mesh decomposition (mesh and meshblock sizes) are identical independent of the number of MPI ranks used, but if the meshblock size is changed for given mesh (and thus the total number of blocks) the initial state will be different.
+  - `initial_num_tracers_per_cell` determines the number of seeded particles per cell
+  - `initial_rng_seed` (optional) is used as seed in addition to the block id.
+- `initial_seed_method=user`
+  - Calls a problem specific callback function (`ProblemSeedInitialTracers`), see [tracer callback documenation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/pgen.md#tracers).
+
+By default, swarm fields are written only to restart files.
+If they are required for "standard" output files (like single precision `hdf5`),
+they need to be added manually to the output block, e.g., (bottom two lines)
+```
+<parthenon/output2>
+file_type  = hdf5       # Binary data dump
+variables   = prim   # variables to be output
+dt         = 0.1        # time increment between outputs
+id         = prim
+single_precision_output = true
+
+swarms = tracers
+tracers_variables = id, x, y, z, rho
+#write_swarm_xdmf=true  # uncomment to create an xdmf output (e.g., for Paraview or Visit)
+```
+
+Tracers can be read/processed by Paraview or Visit (via the xdmf file)
+or by the `phdf` package shipped with the Parthenon submodule.
+A sample plotting script for the latter might look like
+```python
+import matplotlib.pyplot as plt
+import numpy as np
+import sys
+sys.path.insert(
+    1,
+    "/path/to/athenapk/external/parthenon"
+    + "/scripts/python/packages/parthenon_tools/parthenon_tools",
+)
+
+try:
+    import phdf
+except ModuleNotFoundError:
+    print("Couldn't find module to read Parthenon hdf5 files.")
+
+data = phdf.phdf("../run-turbulence/parthenon.prim.00010.phdf")
+tracers = data.GetSwarm("tracers")
+xs = tracers.x
+ys = tracers.y
+zs = tracers.z
+ids = tracers.Get("id")
+
+fig = plt.figure()
+ax = fig.add_subplot(projection='3d')
+
+ax.scatter(xs, ys, zs,s=1,c=ids)
+```
+resulting in the following image:
+
+![image](img/tracer_example.png)
+
+Following "restrictions" apply to the current tracer implementation:
+- Only 3D simulations.
+- Only one advection method (RK2/Heun's method).
+- All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`) are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
+- Default tracer values (such as the primitive fields) are only updated right before writing an output file.
+- Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.
+
+Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
+
+## Boundary conditions
+
+In addition to enrolling custom boundary conditions, three general options are currently supported by default:
+
+- `periodic`: Work without restrictions (implemented in upstream Parthenon)
+- `outflow`: Last layer of active cells is copied into ghost cells. Work (technicaly) without restrictions (implemented in upstream Parthenon). Physically care must be taken when using outflow conditions in subsonic flows (as characteristics can travel into the domain, which is not properly handled by copying the active cell data).
+It is recommended to implement custom, problem specific boundary conditions for subsonic outflows, see large body of engineering literature.
+For supersonic outflows there is no issue as the flow itself is faster than the fastest characteristic.
+- `reflecting`: Work only for cell-centered *hydro* fluid variables
+(implemented in AthenaPK currently without support for particles or `Metadata::Fine` fields,
+ where the latter are currently not being used in AthenaPK).
+ Note, that we specifically do *not* provide "reflecting" boundary conditions for the magnetic
+ fields as these kind of configurations are typically highly problem dependent and, thus,
+ require manual treatment.
+
+They are being used by specifying the name as parameter value for the
+`ix1_bc`, `ox1_bc`, `ix2_bc`, `ox2_bc`, `ix3_bc`, and `ox3_bc` paraemters
+in the `<parthenon/mesh>` block of the input file for the inner and outer
+(say left and right in x1 direction) in each coordinate direction, respectively.
