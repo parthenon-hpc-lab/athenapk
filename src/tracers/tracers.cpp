@@ -26,7 +26,7 @@
 
 #include <cstdint>
 #include <ctime>
-#include <limits>
+#include <iostream>
 
 // Parthenon headers
 #include "basic_types.hpp"
@@ -35,87 +35,78 @@
 #include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 #include "utils/interpolation.hpp"
+#include <parthenon/package.hpp>
 
 // AthenaPK headers
 #include "../main.hpp"
+#include "../utils/custom_rng.hpp"
 #include "tracers.hpp"
 
 namespace Tracers {
 using namespace parthenon::package::prelude;
+using parthenon::Coordinates_t;
+
+using utils::custom_rng::hash;
+using utils::custom_rng::random_double;
+using utils::custom_rng::SeedFromIndices;
+using TE = parthenon::TopologicalElement;
+
 namespace LCInterp = parthenon::interpolation::cent::linear;
 
-/* ===============================================================================
+/* ===================================================================================
 The injection routine requires to first loop on the cells to calculate the size of
 the swarm at the new timestep, and then on the cells again to inject the tracers.
 Due to the stochasticity of the injection, we need a deterministic RNG that will
-return the same random number of cells at both par_for. Below is an attempt
-of generating such RNG using a cell index based seed. Comments welcomed.
-=============================================================================== */
-
-// Generate a unique seed, deterministic providing k,j,i, the meshblock ID and time
-KOKKOS_INLINE_FUNCTION
-uint64_t SeedFromIndices(int k, int j, int i, int gid, double time) {
-  // Convert time to integer (e.g., nanosecond scale)
-  uint64_t time_scaled = static_cast<uint64_t>(time * 1e9);
-
-  // Combine all values using different large primes
-  uint64_t seed = static_cast<uint64_t>(i) * 73856093ull;
-  seed ^= static_cast<uint64_t>(j) * 19349663ull;
-  seed ^= static_cast<uint64_t>(k) * 83492791ull;
-  seed ^= static_cast<uint64_t>(gid) * 2654435761ull; // Knuth's constant
-  seed ^=
-      static_cast<uint64_t>(time_scaled) * 11400714819323198485ull; // golden ratio prime
-
-  return seed;
-}
-
-// First, scramble the seed -> random-looking integer
-KOKKOS_INLINE_FUNCTION
-uint64_t hash(uint64_t seed) {
-  seed ^= (seed >> 33);
-  seed *= 0xff51afd7ed558ccdULL;
-  seed ^= (seed >> 33);
-  seed *= 0xc4ceb9fe1a85ec53ULL;
-  seed ^= (seed >> 33);
-  return seed;
-}
-
-// Generate the a deterministic random number from the seed
-KOKKOS_INLINE_FUNCTION
-double random_double(uint64_t seed) { return (hash(seed) >> 11) * (1.0 / (1ULL << 53)); }
+return the same random number of cells at both par_for. An attempt of implementing
+such RNG using a cell index based seed is in utils/custom_rng.hpp. Comments welcomed.
+====================================================================================== */
 
 /* ===============================================================================
-EvaluateCriteria: custom function containing the criteria that cells have to ful-
+EvaluateCriterion: custom function containing the criterion that cells have to ful-
 fill to be elligible for the injection of tracers.
 =============================================================================== */
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION bool
-EvaluateCriteria(TracerCriteria crit, View4D prim, const int k, const int j, const int i,
-                 const Real threshold, const Real dx, const Real mbar_over_kb) {
+EvaluateCriterion(TracerCriterion crit, View4D prim, const Coordinates_t &coords,
+                  const int k, const int j, const int i, const Real threshold,
+                  const Real mbar_over_kb, const Real jet_radius, const Real jet_offset,
+                  const Real jet_thickness, const int ndim) {
+
+  // Loading coordinates
+  const Real dx = coords.Dxc<1>(k, j, i);
+  const Real dy = coords.Dxc<2>(k, j, i);
+  const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
+
   switch (crit) {
-  case TracerCriteria::DensityAbove:
+  case TracerCriterion::DensityAbove:
     return prim(IDN, k, j, i) >= threshold;
 
-  case TracerCriteria::DensityBelow:
+  case TracerCriterion::DensityBelow:
     return prim(IDN, k, j, i) <= threshold;
 
-  case TracerCriteria::TemperatureBelow:
+  case TracerCriterion::TemperatureBelow:
     return mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i) <= threshold;
 
-  case TracerCriteria::TemperatureAbove:
+  case TracerCriterion::TemperatureAbove:
     return mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i) >= threshold;
 
-  case TracerCriteria::GradDensityAbove: {
-    // Centered finite difference with division by dx
-    Real d_rho_dx = 0.5 * (prim(IDN, k, j, i + 1) - prim(IDN, k, j, i - 1)) / dx;
-    Real d_rho_dy = 0.5 * (prim(IDN, k, j + 1, i) - prim(IDN, k, j - 1, i)) / dx;
-    Real d_rho_dz = 0.5 * (prim(IDN, k + 1, j, i) - prim(IDN, k - 1, j, i)) / dx;
+  case TracerCriterion::Jet: {
+    // Coordinates of the cell center
+    const Real x = coords.Xc<1>(k, j, i);
+    const Real y = coords.Xc<2>(k, j, i);
+    const Real z = (ndim == 3) ? coords.Xc<3>(k, j, i) : 0.0;
 
-    Real grad_mag =
-        std::sqrt(d_rho_dx * d_rho_dx + d_rho_dy * d_rho_dy + d_rho_dz * d_rho_dz);
+    // Cylindrical coordinates
+    const Real r = std::sqrt(x * x + y * y);
+    const Real h = z;
 
-    return grad_mag >= threshold;
+    if (r < jet_radius && std::abs(h) >= jet_offset &&
+        std::abs(h) <= jet_offset + jet_thickness) {
+      return true;
+    } else {
+      return false;
+    }
   }
 
   default:
@@ -130,111 +121,207 @@ swarm object of each individual populations of tracers.
 
 // Initializing the tracer packages and swarms
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
-  auto tracer_pkg = std::make_shared<StateDescriptor>("tracers");
+  auto tracers_pkg = std::make_shared<StateDescriptor>("tracers");
+  auto swarm_names = pin->GetVector<std::string>("tracers", "swarm_names");
   const bool enabled = pin->GetOrAddBoolean("tracers", "enabled", false);
-  const auto rmax = pin->GetOrAddReal("tracers", "rmax", -1.0);
-  const auto method = pin->GetOrAddInteger(
-      "tracers", "method", 0); // 0 = interpolated, 1 = flux-vel, 2 = Monte-Carlo
+  const auto integrator_str = pin->GetString("parthenon/time", "integrator");
+  const auto advection_method_str =
+      pin->GetOrAddString("tracers", "advection_method", "fluxinterp");
 
-  const int n_populations = pin->GetOrAddInteger("tracers", "n_populations", 1);
+  // =====================================================================
+  // General parameters
+  // =====================================================================
 
-  tracer_pkg->AddParam<bool>("enabled", enabled);
-  if (!enabled) return tracer_pkg;
-  Params &params = tracer_pkg->AllParams();
+  // Storing advection_method into enum class
+  AdvectMethod advection_method;
+  if (advection_method_str == "vinterp") {
+    advection_method = AdvectMethod::VInterp;
+  } else if (advection_method_str == "fluxinterp") {
+    advection_method = AdvectMethod::Flux;
+  } else {
+    PARTHENON_FAIL("Invalid advection_method: " + advection_method_str);
+  }
 
-  tracer_pkg->AddParam<Real>("rmax", rmax);
-  tracer_pkg->AddParam<int>("method", method);
-  tracer_pkg->AddParam<int>("n_populations", n_populations);
+  // Setting up useful fields (face-centered velocity, IDs offsets),
+  // also checking the integrator choice in case of flux-based advection
+  if (enabled) {
+    Metadata m;
+    // Face-centered velocity
+    if (advection_method == AdvectMethod::Flux) {
+      // Integrator sanity check
+      PARTHENON_REQUIRE(integrator_str == "vl2",
+                        "Provided tracer parameters only support vl2 integrator.");
+      // Adding derived field
+      m = Metadata({Metadata::Face, Metadata::Derived, Metadata::OneCopy},
+                   std::vector<int>({1}));
+      tracers_pkg->AddField("fvel", m); // face-centered velocity
+    }
+    // Offsets for the tracer's ids
+    const int tracers_n_populations = static_cast<int>(swarm_names.size());
+    PARTHENON_REQUIRE(
+        tracers_n_populations > 0,
+        "No tracer populations defined. Check 'swarm_names' in input file.");
+    m = Metadata({Metadata::None, Metadata::Derived, Metadata::Restart},
+                 std::vector<int>({tracers_n_populations}));
+    tracers_pkg->AddField("tracers_offsets", m);
+  }
 
-  // Looping on the N independent swarms
-  for (int k_population = 0; k_population < n_populations; ++k_population) {
+  // Store the enum value in the tracer package
+  tracers_pkg->AddParam<>("advection_method", advection_method);
+  tracers_pkg->AddParam<>("swarm_names", swarm_names);
+  tracers_pkg->AddParam<>("enabled", enabled);
 
-    // Defining the name of the swarm.
-    std::string swarm_name = "tracers" + std::to_string(k_population);
+  if (!enabled) return tracers_pkg;
+  Params &params = tracers_pkg->AllParams();
 
-    const auto rng_seed = pin->GetOrAddInteger(swarm_name, "initial_rng_seed", 0);
+  // =====================================================================
+  // Population specific parameters
+  // =====================================================================
+  for (const auto &swarm_name : swarm_names) {
+
+    const auto rng_seed =
+        pin->GetOrAddInteger("tracers", swarm_name + "/initial_rng_seed", 0);
 
     // Number of tracers per cell in the initial injection (t=0)
+    const auto rmax_center =
+        pin->GetOrAddReal("tracers", swarm_name + "/rmax_center", -1.0);
     const auto num_tracers_per_cell =
-        pin->GetOrAddReal(swarm_name, "initial_num_tracers_per_cell", 0.0);
+        pin->GetOrAddReal("tracers", swarm_name + "/initial_num_tracers_per_cell", 0.0);
 
     // Tracer injection parameters
-    // - injection_target: target number of tracers per elligible cells
-    // - injection_timescale: time required to reach injection target
-    // - injection_criteria: condition to be checked (only density atm)
-    // - injection_threshold: value for criteria (only density atm)
+    // - injection_num_target: target number of tracers per elligible cells
+    // - injection_timescale:  time required to reach injection target
+    // - injection_criterion:  condition to be checked (only density atm)
+    // - injection_threshold:  value for criterion (only density atm)
 
     const auto injection_enabled =
-        pin->GetOrAddBoolean(swarm_name, "injection_enabled", false);
-    const auto injection_num_target =
-        pin->GetOrAddReal(swarm_name, "injection_num_target", 10);
-    const auto injection_timescale =
-        pin->GetOrAddReal(swarm_name, "injection_timescale", 0.1);
-    const auto injection_criteria =
-        pin->GetOrAddString(swarm_name, "injection_criteria", "none");
-    const auto injection_threshold =
-        pin->GetOrAddReal(swarm_name, "injection_threshold", -1);
+        pin->GetOrAddBoolean("tracers", swarm_name + "/injection_enabled", false);
+    tracers_pkg->AddParam<>(swarm_name + "_injection_enabled", injection_enabled);
+
+    // =====================================================================
+    // Injection parameters
+    // =====================================================================
+    if (injection_enabled) {
+      const auto injection_num_target =
+          pin->GetOrAddReal("tracers", swarm_name + "/injection_num_target", 10);
+      const auto injection_timescale =
+          pin->GetOrAddReal("tracers", swarm_name + "/injection_timescale", 0.1);
+      const auto injection_criterion =
+          pin->GetOrAddString("tracers", swarm_name + "/injection_criterion", "none");
+      const auto injection_threshold =
+          pin->GetOrAddReal("tracers", swarm_name + "/injection_threshold", -1);
+
+      // Injection criterion
+      TracerCriterion inj_crit;
+      if (injection_criterion == "density_above") {
+        inj_crit = TracerCriterion::DensityAbove;
+      } else if (injection_criterion == "density_below") {
+        inj_crit = TracerCriterion::DensityBelow;
+      } else if (injection_criterion == "temperature_above") {
+        inj_crit = TracerCriterion::TemperatureAbove;
+      } else if (injection_criterion == "temperature_below") {
+        inj_crit = TracerCriterion::TemperatureBelow;
+      } else if (injection_criterion == "jet") {
+        inj_crit = TracerCriterion::Jet;
+      } else {
+        PARTHENON_FAIL("No injection criterion has been set.");
+      }
+
+      tracers_pkg->AddParam<>(swarm_name + "_injection_num_target", injection_num_target);
+      tracers_pkg->AddParam<>(swarm_name + "_injection_timescale", injection_timescale);
+      tracers_pkg->AddParam<>(swarm_name + "_injection_threshold", injection_threshold);
+      tracers_pkg->AddParam<>(swarm_name + "_injection_criterion", inj_crit);
+    }
 
     // Tracer removal parameters.
     // Particles are injected at t_inj, and destroyed after reaching t-t_ing >= lifetime
     // Some tracers can also survive removal if sitting in a cell that fulfill a certain
-    // criteria. To activate such feature, removal_exception must be set to true, and a
-    // survival criteria must be provided, along with a threshold value (just like in the
+    // criterion. To activate such feature, removal_exception must be set to true, and a
+    // survival criterion must be provided, along with a threshold value (just like in the
     // injection routine. In such case, the lifetime of the particle is extended by 50%.
     const auto removal_enabled =
-        pin->GetOrAddBoolean(swarm_name, "removal_enabled", false);
-    const auto removal_exception =
-        pin->GetOrAddBoolean(swarm_name, "removal_exception", false);
-    const auto removal_exception_criteria =
-        pin->GetOrAddString(swarm_name, "removal_exception_criteria", "none");
-    const auto removal_exception_threshold =
-        pin->GetOrAddReal(swarm_name, "removal_exception_threshold", -1);
+        pin->GetOrAddBoolean("tracers", swarm_name + "/removal_enabled", false);
+    tracers_pkg->AddParam<>(swarm_name + "_removal_enabled", removal_enabled);
 
-    const auto lifetime = pin->GetOrAddReal(swarm_name, "lifetime",
-                                            -1); // If -1, particles are never removed
+    // =====================================================================
+    // Removal parameters
+    // =====================================================================
+    if (removal_enabled) {
+      // In any case, save lifetime
+      const auto lifetime = pin->GetOrAddReal("tracers", swarm_name + "/lifetime",
+                                              -1); // If -1, particles are never removed
+      tracers_pkg->AddParam<>(swarm_name + "_lifetime", lifetime);
 
-    // Injection criterion
-    tracer_pkg->AddParam<bool>(swarm_name + "_injection_enabled", injection_enabled);
-    tracer_pkg->AddParam<Real>(swarm_name + "_injection_num_target",
-                               injection_num_target);
-    tracer_pkg->AddParam<Real>(swarm_name + "_injection_timescale", injection_timescale);
-    tracer_pkg->AddParam<std::string>(swarm_name + "_injection_criteria",
-                                      injection_criteria);
-    tracer_pkg->AddParam<Real>(swarm_name + "_injection_threshold", injection_threshold);
+      // If needed, add exception
+      const auto removal_exception =
+          pin->GetOrAddBoolean("tracers", swarm_name + "/removal_exception", false);
+      tracers_pkg->AddParam<>(swarm_name + "_removal_exception", removal_exception);
 
-    // Removal criterion
-    tracer_pkg->AddParam<bool>(swarm_name + "_removal_enabled", removal_enabled);
-    tracer_pkg->AddParam<bool>(swarm_name + "_removal_exception", removal_exception);
-    tracer_pkg->AddParam<std::string>(swarm_name + "_removal_exception_criteria",
-                                      removal_exception_criteria);
-    tracer_pkg->AddParam<Real>(swarm_name + "_removal_exception_threshold",
-                               removal_exception_threshold);
-    tracer_pkg->AddParam<Real>(swarm_name + "_lifetime", lifetime);
+      if (removal_exception) {
+        const auto removal_exception_criterion = pin->GetOrAddString(
+            "tracers", swarm_name + "/removal_exception_criterion", "none");
+        const auto removal_exception_threshold =
+            pin->GetOrAddReal("tracers", swarm_name + "/removal_exception_threshold", -1);
 
-    tracer_pkg->AddParam<Real>(swarm_name + "_num_tracers_per_cell",
-                               num_tracers_per_cell);
-    tracer_pkg->AddParam<int>(swarm_name + "_rng_seed", rng_seed);
+        // Removal criterion
+        TracerCriterion exc_crit;
+        if (removal_exception_criterion == "density_above") {
+          exc_crit = TracerCriterion::DensityAbove;
+        } else if (removal_exception_criterion == "density_below") {
+          exc_crit = TracerCriterion::DensityBelow;
+        } else if (removal_exception_criterion == "temperature_above") {
+          exc_crit = TracerCriterion::TemperatureAbove;
+        } else if (removal_exception_criterion == "temperature_below") {
+          exc_crit = TracerCriterion::TemperatureBelow;
+        } else if (removal_exception_criterion == "jet") {
+          exc_crit = TracerCriterion::Jet;
+        } else {
+          PARTHENON_FAIL("No removal exception criterion has been set.");
+        }
 
-    // Add swarm of tracers
-    tracer_pkg->AddParam<>("swarm_name" + std::to_string(k_population), swarm_name);
+        // Add parameters to the tracer package
+        tracers_pkg->AddParam<>(swarm_name + "_removal_exception_criterion", exc_crit);
+        tracers_pkg->AddParam<>(swarm_name + "_removal_exception_threshold",
+                                removal_exception_threshold);
+      }
+    }
+
+    // =====================================================================
+    // Additional parameters
+    // =====================================================================
+    tracers_pkg->AddParam<>(swarm_name + "_num_tracers_per_cell", num_tracers_per_cell);
+    tracers_pkg->AddParam<>(swarm_name + "_rmax_center", rmax_center);
+    tracers_pkg->AddParam<>(swarm_name + "_rng_seed", rng_seed);
 
     // TODO(pgrete) Check where metadata, e.g., for restart is required (i.e., at the
     // swarm or variable level).
-    Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
-    tracer_pkg->AddSwarm(swarm_name, swarm_metadata);
-    Metadata real_swarmvalue_metadata({Metadata::Real});
-    tracer_pkg->AddSwarmValue("injection_time", swarm_name,
-                              Metadata({Metadata::Real, Metadata::Restart}));
-    tracer_pkg->AddSwarmValue("lifetime", swarm_name,
-                              Metadata({Metadata::Real, Metadata::Restart}));
 
+    // =====================================================================
+    // Tracers value
+    // =====================================================================
+    Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
+    tracers_pkg->AddSwarm(swarm_name, swarm_metadata);
+    Metadata real_swarmvalue_metadata({Metadata::Real});
+
+    tracers_pkg->AddSwarmValue("injection_time", swarm_name,
+                               Metadata({Metadata::Real, Metadata::Restart}));
+
+    // If needed, adding the lifetime of the particle
+    if (removal_enabled) {
+      tracers_pkg->AddSwarmValue("lifetime", swarm_name,
+                                 Metadata({Metadata::Real, Metadata::Restart}));
+    }
     // TODO(pgrete) Add CheckDesired/required for vars
     // thermo variables
-    tracer_pkg->AddSwarmValue("rho", swarm_name, real_swarmvalue_metadata);
-    tracer_pkg->AddSwarmValue("pressure", swarm_name, real_swarmvalue_metadata);
-    tracer_pkg->AddSwarmValue("vel_x", swarm_name, real_swarmvalue_metadata);
-    tracer_pkg->AddSwarmValue("vel_y", swarm_name, real_swarmvalue_metadata);
-    tracer_pkg->AddSwarmValue("vel_z", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("rho", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("pressure", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("vel_x", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("vel_y", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("vel_z", swarm_name, real_swarmvalue_metadata);
+
+    // mfournier: adding additional variables for cluster environment.
+    tracers_pkg->AddSwarmValue("compression", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("vorticity", swarm_name, real_swarmvalue_metadata);
 
     // TODO(pgrete) this should be safe because we call this package init after the hydro
     // one, but we should check if there's direct way to access Params of other packages.
@@ -245,18 +332,18 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         "Tracers/swarms currently only supported on non-adaptive meshes.");
 
     if (mhd) {
-      tracer_pkg->AddSwarmValue("B_x", swarm_name, real_swarmvalue_metadata);
-      tracer_pkg->AddSwarmValue("B_y", swarm_name, real_swarmvalue_metadata);
-      tracer_pkg->AddSwarmValue("B_z", swarm_name, real_swarmvalue_metadata);
+      tracers_pkg->AddSwarmValue("B_x", swarm_name, real_swarmvalue_metadata);
+      tracers_pkg->AddSwarmValue("B_y", swarm_name, real_swarmvalue_metadata);
+      tracers_pkg->AddSwarmValue("B_z", swarm_name, real_swarmvalue_metadata);
     }
   }
 
-  tracer_pkg->UserWorkBeforeLoopMesh = SeedInitialTracers;
+  tracers_pkg->UserWorkBeforeLoopMesh = SeedInitialTracers;
 
   if (ProblemInitTracerData != nullptr) {
-    ProblemInitTracerData(pin, tracer_pkg.get());
+    ProblemInitTracerData(pin, tracers_pkg.get());
   }
-  return tracer_pkg;
+  return tracers_pkg;
 } // Initialize
 
 /* ===============================================================================
@@ -275,79 +362,68 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto &prim = mbd->PackVariables(std::vector<std::string>{"prim"});
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
   // Get meshblock data
-  auto tracer_pkg = pmb->packages.Get("tracers");
+  auto tracers_pkg = pmb->packages.Get("tracers");
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
   // Getting variable required for temperature
+  auto current_time = tm.time;
   Real mbar_over_kb = -1; // Arbitrary set to one
   if (hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
     mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
   }
 
-  // Getting the number of independent populations of tracers
-  auto n_populations = tracer_pkg->Param<int>("n_populations");
-  auto rmax = tracer_pkg->Param<Real>("rmax");
+  // Jet properties
+  Real jet_radius = -1.0;
+  Real jet_offset = -1.0;
+  Real jet_thickness = -1.0;
+
+  if (tracers_pkg->AllParams().hasKey("jet_radius")) {
+    jet_radius = tracers_pkg->Param<Real>("jet_radius");
+  }
+  if (tracers_pkg->AllParams().hasKey("jet_offset")) {
+    jet_offset = tracers_pkg->Param<Real>("jet_offset");
+  }
+  if (tracers_pkg->AllParams().hasKey("jet_thickness")) {
+    jet_thickness = tracers_pkg->Param<Real>("jet_thickness");
+  }
+
   // Getting the offsets and copy to host
   auto &off = mbd->Get("tracers_offsets").data;
-  auto host_off = Kokkos::create_mirror_view(off);
-  Kokkos::deep_copy(host_off, off);
+  auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
 
-  // Looping on populations
-  for (int k_population = 0; k_population < n_populations; ++k_population) {
+  auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+  // Looping on the N independent swarms
+  for (std::size_t k_population = 0; k_population < swarm_names.size(); ++k_population) {
 
-    // Defining the name of the swarm.
-    std::string swarm_name = "tracers" + std::to_string(k_population);
-
+    const std::string &swarm_name = swarm_names[k_population];
     auto &swarm = sd->Get(swarm_name);
+
+    auto rmax_center = tracers_pkg->Param<Real>(swarm_name + "_rmax_center");
 
     // Get relevant variables for injection
     // - injection_num_tracers_per_cell: target number. Would result in
     //   10 tracers per cell if the whole volume of the meshblock is filled
-    //   with cells fulfilling the criteria, within a timescale of
+    //   with cells fulfilling the criterion, within a timescale of
     //   injection_timescale
     // - c.f. above.
-    auto injection_enabled = tracer_pkg->Param<bool>(swarm_name + "_injection_enabled");
-    auto injection_timescale =
-        tracer_pkg->Param<Real>(swarm_name + "_injection_timescale");
-    auto injection_num_target =
-        tracer_pkg->Param<Real>(swarm_name + "_injection_num_target");
-    auto injection_criteria =
-        tracer_pkg->Param<std::string>(swarm_name + "_injection_criteria");
-    auto injection_threshold =
-        tracer_pkg->Param<Real>(swarm_name + "_injection_threshold");
-
-    // lifetime here is the initial lifetime. But it could eventually be extended if
-    // needed.
-    auto lifetime = tracer_pkg->Param<Real>(swarm_name + "_lifetime");
+    auto injection_enabled = tracers_pkg->Param<bool>(swarm_name + "_injection_enabled");
+    auto removal_enabled = tracers_pkg->Param<bool>(swarm_name + "_removal_enabled");
 
     // Checking whether injection should be proceeded
     if (!injection_enabled) continue;
 
-    // Setting up injection criteria
-    TracerCriteria inj_crit;
-    if (injection_criteria == "density_above") {
-      inj_crit = TracerCriteria::DensityAbove;
-    } else if (injection_criteria == "density_below") {
-      inj_crit = TracerCriteria::DensityBelow;
-    } else if (injection_criteria == "temperature_above") {
-      inj_crit = TracerCriteria::TemperatureAbove;
-    } else if (injection_criteria == "temperature_below") {
-      inj_crit = TracerCriteria::TemperatureBelow;
-    } else if (injection_criteria == "grad_density_above") {
-      inj_crit = TracerCriteria::GradDensityAbove;
-    } else {
-      PARTHENON_FAIL("No injection criteria has been set.");
-    }
+    // Loading injection parameters if needed
+    auto injection_timescale =
+        tracers_pkg->Param<Real>(swarm_name + "_injection_timescale");
+    auto injection_num_target =
+        tracers_pkg->Param<Real>(swarm_name + "_injection_num_target");
+    auto injection_criterion =
+        tracers_pkg->Param<TracerCriterion>(swarm_name + "_injection_criterion");
+    auto injection_threshold =
+        tracers_pkg->Param<Real>(swarm_name + "_injection_threshold");
 
     // Check number of dimensions
     auto ndim = pmb->pmy_mesh->ndim;
-
-    auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
-    auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
-    auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
-    auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
-    auto &t_inj = swarm->Get<Real>("injection_time").Get();
-    auto &ltime = swarm->Get<Real>("lifetime").Get();
 
     IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
     IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -360,49 +436,60 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     const auto &y_max = pmb->coords.Xf<2>(jb.e + 1);
     const auto &z_max = pmb->coords.Xf<3>(kb.e + 1);
 
-    // Simple test case: first calculate the number of cells fulfilling the criteria.
+    // Simple test case: first calculate the number of cells fulfilling the criterion.
     // (modulo some stochastic factor)
     // To be discussed: currently assumes that only one tracer is added per timestep and
     // per cell. (otherwise p_injection > 1 if injection_timescale = O(tm.dt)).
-    int npart = 0; // Number of particles to be injected at current timestep.
+    int num_injected_tracers_in_block = 0;
     Real p_injection = std::min(1.0, injection_num_target * tm.dt / injection_timescale);
 
     pmb->par_reduce(
-        "InjectedTracers::FindCells", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        "InjectTracers::FindCells", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i, int &lnpart) {
           const Real x_cell = coords.Xc<1>(i);
           const Real y_cell = coords.Xc<2>(j);
           const Real z_cell = coords.Xc<3>(k);
-          const Real r_cell =
+          const Real r_cell_center =
               std::sqrt(x_cell * x_cell + y_cell * y_cell + z_cell * z_cell);
 
-          if (rmax != -1 && r_cell > rmax)
+          if (rmax_center != -1 && r_cell_center > rmax_center)
             return; // skip cell if outside the allowed radius
 
-          if (EvaluateCriteria(inj_crit, prim, k, j, i, injection_threshold,
-                               coords.Dxc<1>(0), mbar_over_kb)) {
+          if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
+                                injection_threshold, mbar_over_kb, jet_radius, jet_offset,
+                                jet_thickness, ndim)) {
 
             auto seed = SeedFromIndices(k, j, i, pmb->gid,
-                                        tm.time); // deterministic seed function
+                                        current_time); // deterministic seed function
             auto rnd = random_double(seed);
             if (rnd < p_injection) {
               lnpart += 1;
             }
           }
         },
-        Kokkos::Sum<int>(npart));
-
-    // Defining the number of new tracers to be added.
-    auto num_injected_tracers_in_block = npart;
+        Kokkos::Sum<int>(num_injected_tracers_in_block));
 
     if (num_injected_tracers_in_block == 0) {
       return TaskStatus::complete;
     }
-
     // Create new particles and get accessor
     auto injected_particles_context =
         swarm->AddEmptyParticles(num_injected_tracers_in_block);
     auto swarm_d = swarm->GetDeviceContext();
+
+    auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
+    auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
+    auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+    auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
+    auto &t_inj = swarm->Get<Real>("injection_time").Get();
+
+    // Assigning default value
+    Real lifetime;
+    auto ltime = t_inj.Get();
+    if (removal_enabled) {
+      lifetime = tracers_pkg->Param<Real>(swarm_name + "_lifetime");
+      ltime = swarm->Get<Real>("lifetime").Get();
+    }
 
     Kokkos::View<int, parthenon::DevExecSpace> counter("counter");
     Kokkos::deep_copy(counter, 0); // initialize to 0
@@ -411,28 +498,29 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     std::memcpy(&block_offset, &host_off(k_population), sizeof(std::uint64_t));
 
     pmb->par_for(
-        "InjectedTracers::Initialize", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        "InjectTracers::Initialize", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
           // First, calculate the radius of the cell if needed
           const Real x_cell = coords.Xc<1>(i);
           const Real y_cell = coords.Xc<2>(j);
           const Real z_cell = coords.Xc<3>(k);
-          const Real r_cell =
+          const Real r_cell_center =
               std::sqrt(x_cell * x_cell + y_cell * y_cell + z_cell * z_cell);
 
-          if (rmax != -1.0 && r_cell > rmax) return;
+          if (rmax_center != -1.0 && r_cell_center > rmax_center) return;
 
-          if (EvaluateCriteria(inj_crit, prim, k, j, i, injection_threshold,
-                               coords.Dxc<1>(0), mbar_over_kb)) {
+          if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
+                                injection_threshold, mbar_over_kb, jet_radius, jet_offset,
+                                jet_thickness, ndim)) {
 
             // Deterministic seed and random double, only depends on k,j,i
-            auto seed = SeedFromIndices(k, j, i, pmb->gid, tm.time);
+            auto seed = SeedFromIndices(k, j, i, pmb->gid, current_time);
             auto rnd = random_double(seed);
 
             if (rnd < p_injection) {
 
-              int thread_id = Kokkos::atomic_fetch_add(&counter(), 1);
-              int swarm_idx = injected_particles_context.GetNewParticleIndex(thread_id);
+              int counter_idx = Kokkos::atomic_fetch_add(&counter(), 1);
+              int swarm_idx = injected_particles_context.GetNewParticleIndex(counter_idx);
 
               // Setting the position of the tracers
               x(swarm_idx) = x_cell;
@@ -441,9 +529,11 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                 z(swarm_idx) = z_cell;
               }
 
-              id(swarm_idx) = block_offset + thread_id;
-              t_inj(swarm_idx) = tm.time;
-              ltime(swarm_idx) = lifetime;
+              id(swarm_idx) = block_offset + counter_idx;
+              t_inj(swarm_idx) = current_time;
+              if (removal_enabled) {
+                ltime(swarm_idx) = lifetime;
+              }
             }
           }
         });
@@ -468,61 +558,48 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto *pmb = mbd->GetParentPointer();
   auto &coords = pmb->coords;
   auto &prim = mbd->PackVariables(std::vector<std::string>{"prim"});
+  auto ndim = pmb->pmy_mesh->ndim;
   auto hydro_pkg = pmb->packages.Get("Hydro");
   // Getting variable required for temperature
+  auto current_time = tm.time;
   Real mbar_over_kb = -1;
   if (hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
     mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
   }
-  auto tracer_pkg = pmb->packages.Get("tracers");
+  auto tracers_pkg = pmb->packages.Get("tracers");
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
 
-  auto n_populations = tracer_pkg->Param<int>("n_populations");
-
-  // Looping on populations
-  for (int k_population = 0; k_population < n_populations; ++k_population) {
-
-    // Defining the name of the swarm.
-    std::string swarm_name = "tracers" + std::to_string(k_population);
+  auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+  // Looping on the N independent swarms
+  for (const auto &swarm_name : swarm_names) {
 
     auto &swarm = sd->Get(swarm_name);
-    auto &t_inj = swarm->Get<Real>("injection_time").Get();
-    auto &ltime = swarm->Get<Real>("lifetime").Get();
 
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
 
     // Get meshblock data
-    auto removal_enabled = tracer_pkg->Param<bool>(swarm_name + "_removal_enabled");
-    auto removal_exception = tracer_pkg->Param<bool>(swarm_name + "_removal_exception");
-    auto removal_exception_criteria =
-        tracer_pkg->Param<std::string>(swarm_name + "_removal_exception_criteria");
-    auto removal_exception_threshold =
-        tracer_pkg->Param<Real>(swarm_name + "_removal_exception_threshold");
-
-    auto lifetime = tracer_pkg->Param<Real>(swarm_name + "_lifetime");
-
+    auto removal_enabled = tracers_pkg->Param<bool>(swarm_name + "_removal_enabled");
     // If the particles should not be removed, the routine ends here.
-    if (removal_enabled == false) {
-      return TaskStatus::complete;
+    if (!removal_enabled) {
+      continue;
     }
 
-    // Otherwise, we might also check whether we allow some particles
-    // to survive for longer.
-    TracerCriteria exc_crit;
-    if (removal_exception_criteria == "density_above") {
-      exc_crit = TracerCriteria::DensityAbove;
-    } else if (removal_exception_criteria == "density_below") {
-      exc_crit = TracerCriteria::DensityBelow;
-    } else if (removal_exception_criteria == "temperature_above") {
-      exc_crit = TracerCriteria::TemperatureAbove;
-    } else if (removal_exception_criteria == "temperature_below") {
-      exc_crit = TracerCriteria::TemperatureBelow;
-    } else if (removal_exception_criteria == "grad_density_above") {
-      exc_crit = TracerCriteria::GradDensityAbove;
-    } else {
-      PARTHENON_FAIL("No removal exception criteria has been set.");
+    // If removal is activated, load fields and params
+    auto lifetime = tracers_pkg->Param<Real>(swarm_name + "_lifetime");
+    auto &t_inj = swarm->Get<Real>("injection_time").Get();
+    auto &ltime = swarm->Get<Real>("lifetime").Get();
+
+    auto removal_exception = tracers_pkg->Param<bool>(swarm_name + "_removal_exception");
+
+    TracerCriterion removal_exception_criterion;
+    Real removal_exception_threshold;
+    if (removal_exception) {
+      removal_exception_criterion = tracers_pkg->Param<TracerCriterion>(
+          swarm_name + "_removal_exception_criterion");
+      removal_exception_threshold =
+          tracers_pkg->Param<Real>(swarm_name + "_removal_exception_threshold");
     }
 
     // Looping on the particles and check which ones need to be removed
@@ -532,19 +609,21 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     pmb->par_for(
         "RemoveTracers::PartLoop", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
           if (swarm_d.IsActive(n)) {
-
-            // Get the indices of the parent cell.
             int k, j, i;
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-            if (tm.time - t_inj(n) >= ltime(n)) {
-              // First, check if there should be an exception to be made.
-              // If yes, the lifetime of the particle is extended by 0.5 * lifetime.
-              if (removal_exception &&
-                  EvaluateCriteria(exc_crit, prim, k, j, i, removal_exception_threshold,
-                                   coords.Dxc<1>(0), mbar_over_kb)) {
+            if (current_time - t_inj(n) >= ltime(n)) {
+              bool keep_particle = false;
+
+              if (removal_exception) {
+                // Jet variables set to 0.0 as we don't need them here
+                keep_particle = EvaluateCriterion(
+                    removal_exception_criterion, prim, coords, k, j, i,
+                    removal_exception_threshold, mbar_over_kb, 0.0, 0.0, 0.0, ndim);
+              }
+
+              if (keep_particle) {
                 ltime(n) += lifetime;
-                // Otherwise, the particle is flagged and removed.
               } else {
                 swarm_d.MarkParticleForRemoval(n);
               }
@@ -572,9 +651,9 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   // driver is executed (also also for restarts)
   if (pmesh->is_restart) return;
 
-  auto tracer_pkg = pmesh->packages.Get("tracers");
-  auto n_populations = tracer_pkg->Param<int>("n_populations");
-  auto rmax = tracer_pkg->Param<Real>("rmax");
+  auto tracers_pkg = pmesh->packages.Get("tracers");
+  auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+
   auto hydro_pkg = pmesh->packages.Get("Hydro");
 
   const auto seed_method = pin->GetOrAddString("tracers", "initial_seed_method", "none");
@@ -595,27 +674,25 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
       auto &off = mbd->Get("tracers_offsets").data;
 
       // Create host side mirror view of the offset field
-      auto host_off = Kokkos::create_mirror_view(off);
+      auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
 
-      // Looping on tracer populations
-      for (int k_population = 0; k_population < n_populations; ++k_population) {
+      // Looping on the N independent swarms
+      for (std::size_t k_population = 0; k_population < swarm_names.size();
+           ++k_population) {
+        const std::string &swarm_name = swarm_names[k_population];
 
-        // Defining the name of the swarm.
-        std::string swarm_name = "tracers" + std::to_string(k_population);
-
-        // Get the initial lifetime of the current population
-        const auto lifetime = tracer_pkg->Param<Real>(swarm_name + "_lifetime");
+        const auto removal_enabled =
+            tracers_pkg->Param<bool>(swarm_name + "_removal_enabled");
+        const auto rmax_center = tracers_pkg->Param<Real>(swarm_name + "_rmax_center");
 
         // Sanity check for the number of tracers to be injected.
         // (now swarm-dependent, so inside the population loop.)
         const auto num_tracers_per_cell =
-            pin->GetOrAddReal(swarm_name, "initial_num_tracers_per_cell", 0.0);
-        PARTHENON_REQUIRE_THROWS(num_tracers_per_cell > 0.0,
-                                 "You should seed at least some tracers.");
+            tracers_pkg->Param<Real>(swarm_name + "_num_tracers_per_cell");
+        PARTHENON_REQUIRE_THROWS(num_tracers_per_cell >= 0.0,
+                                 "Provided number of tracers is negative.");
         const auto num_tracers_per_block =
             static_cast<int>(pmesh->GetNumberOfMeshBlockCells() * num_tracers_per_cell);
-        PARTHENON_REQUIRE_THROWS(num_tracers_per_block > 0,
-                                 "Resulting number of particles per block is invalid.");
 
         // Loading the swarm data
         auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get(swarm_name);
@@ -641,7 +718,14 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
         auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
         auto &t_inj = swarm->Get<Real>("injection_time").Get();
-        auto &ltime = swarm->Get<Real>("lifetime").Get();
+
+        // Assigning default value
+        Real lifetime;
+        auto ltime = t_inj.Get();
+        if (removal_enabled) {
+          auto ltime = swarm->Get<Real>("lifetime").Get();
+          lifetime = tracers_pkg->Param<Real>(swarm_name + "_lifetime");
+        }
 
         // Getting the offset for the current meshblock
         const uint64_t gid = static_cast<uint64_t>(pmb->gid); // global ID of the block
@@ -673,18 +757,20 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
               }
 
               // Compute distance from box center (assumed to be at origin)
-              const Real r = std::sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
+              const Real r_center = std::sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
 
               // Check if outside rmax, and mark for removal if so
-              if (rmax != -1.0 && r > rmax) {
+              if (rmax_center != -1.0 && r_center > rmax_center) {
                 swarm_d.MarkParticleForRemoval(n);
                 rng_pool.free_state(rng_gen);
                 return;
               }
 
               id(n) = block_offset + n;
-              ltime(n) = lifetime;
               t_inj(n) = 0.0;
+              if (removal_enabled) {
+                ltime(n) = lifetime;
+              }
 
               rng_pool.free_state(rng_gen);
 
@@ -704,6 +790,20 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   } else {
     PARTHENON_THROW("Unknown tracer initial_seed_method");
   }
+
+  // Now that the tracers are seeded, fill their initial values
+  const int num_partitions = pmesh->DefaultNumPartitions();
+  // TODO(pgrete) Fix/cleanup once we got swarm packs.
+  // We need just a single region with a single task in order to be able to use plain
+  // MPI reductions (rather than Parthenon provided reduction tasks that work with
+  // arbitrary packs).
+  PARTHENON_REQUIRE_THROWS(num_partitions == 1,
+                           "Only pack_size=-1 currently supported for tracers.")
+  auto &mu0 = pmesh->mesh_data.GetOrAdd("base", 0);
+  FillTracers(mu0.get(), tm);
+  if (ProblemFillTracers != nullptr) {
+    ProblemFillTracers(mu0.get(), tm, tm.dt);
+  }
 }
 
 /* ===============================================================================
@@ -717,17 +817,25 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
   auto *pmb = mbd->GetParentPointer();
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
 
+  // Get tracer data
+  auto tracers_pkg = pmb->packages.Get("tracers");
+  auto advection_method = tracers_pkg->Param<AdvectMethod>("advection_method");
+  auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+
   // Get meshblock data
-  auto tracer_pkg = pmb->packages.Get("tracers");
-  auto method = tracer_pkg->Param<int>("method");
-  auto n_populations = tracer_pkg->Param<int>("n_populations");
-  // Check number of dimensions
+  const auto &cons_pack = mbd->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
+  const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
+  const auto &coords = pmb->coords;
+
+  auto fvel_pack = parthenon::VariablePack<parthenon::Real>{};
+  if (advection_method == AdvectMethod::Flux) {
+    fvel_pack = mbd->PackVariables(std::vector<std::string>{"fvel"});
+  }
+
   auto ndim = pmb->pmy_mesh->ndim;
 
-  for (int k_population = 0; k_population < n_populations; ++k_population) {
-
-    // Loading the ith-swarm
-    std::string swarm_name = "tracers" + std::to_string(k_population);
+  // Looping on the N independent swarms
+  for (const auto &swarm_name : swarm_names) {
     auto &swarm = sd->Get(swarm_name);
 
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
@@ -739,10 +847,6 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
     auto &vel_z = swarm->Get<Real>("vel_z").Get();
 
     auto swarm_d = swarm->GetDeviceContext();
-    const auto &cons_pack = mbd->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
-    const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
-    const auto &fvel_pack = mbd->PackVariables(std::vector<std::string>{"fvel"});
-    const auto &coords = pmb->coords;
 
     // update loop. RK2
     const int max_active_index = swarm->GetMaxActiveIndex();
@@ -755,7 +859,7 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
             // Intermediate position and velocities
             // x^{*,n+1} = x^n + dt * v^n
 
-            if (method == 0) {
+            if (advection_method == AdvectMethod::VInterp) {
               const auto x_star = x(n) + dt * vel_x(n);
               const auto y_star = y(n) + dt * vel_y(n);
               const auto z_star = z(n) + dt * vel_z(n);
@@ -777,19 +881,19 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
               if (ndim == 3) {
                 z(n) += dt * 0.5 * (vel_z(n) + vel_z_star);
               }
-            } else if (method == 1) {
+            } else if (advection_method == AdvectMethod::Flux) {
 
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
               // Extracting the velocities of the left and right faces
               // x-direction
-              const auto fvel_x_lft = fvel_pack(0, k, j, i);
-              const auto fvel_x_rgt = fvel_pack(0, k, j, i + 1);
+              const auto fvel_x_lft = fvel_pack(TE::F1, 0, k, j, i);
+              const auto fvel_x_rgt = fvel_pack(TE::F1, 0, k, j, i + 1);
 
               // y-direction
-              const auto fvel_y_lft = fvel_pack(1, k, j, i);
-              const auto fvel_y_rgt = fvel_pack(1, k, j + 1, i);
+              const auto fvel_y_lft = fvel_pack(TE::F2, 0, k, j, i);
+              const auto fvel_y_rgt = fvel_pack(TE::F2, 0, k, j + 1, i);
 
               /* Calculating the interpolated velocity */
               // delta_x_over_dx is the distance between the tracer particle are the left
@@ -814,8 +918,8 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
               // First dimension in case of 3D
               if (ndim == 3) {
 
-                const auto fvel_z_lft = fvel_pack(2, k, j, i);
-                const auto fvel_z_rgt = fvel_pack(2, k + 1, j, i);
+                const auto fvel_z_lft = fvel_pack(TE::F3, 0, k, j, i);
+                const auto fvel_z_rgt = fvel_pack(TE::F3, 0, k + 1, j, i);
 
                 const auto delta_z_over_dx =
                     (z(n) - (coords.Xc<3>(k) - coords.Dxc<3>(k, j, i) / 2)) /
@@ -846,20 +950,20 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   auto hydro_pkg = md->GetParentPointer()->packages.Get("Hydro");
   const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
 
-  auto tracer_pkg = md->GetParentPointer()->packages.Get("tracers");
-  auto n_populations = tracer_pkg->Param<int>("n_populations");
+  auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
+  auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
   // Get hydro/mhd fluid vars over all blocks
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
     auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+    auto &coords = pmb->coords;
 
     // Looping on populations
-    for (int k_population = 0; k_population < n_populations; ++k_population) {
+    for (const auto &swarm_name : swarm_names) {
 
-      // Loading the ith-swarm
-      std::string swarm_name = "tracers" + std::to_string(k_population);
       auto &swarm = sd->Get(swarm_name);
       auto ndim = pmb->pmy_mesh->ndim;
 
@@ -880,36 +984,95 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
         B_y = swarm->Get<Real>("B_y").Get();
         B_z = swarm->Get<Real>("B_z").Get();
       }
+
       auto &rho = swarm->Get<Real>("rho").Get();
       auto &pressure = swarm->Get<Real>("pressure").Get();
+
+      /* mfournier: Additional variables: vorticity,compression */
+      auto &compression = swarm->Get<Real>("compression").Get();
+      auto &vorticity = swarm->Get<Real>("vorticity").Get();
 
       auto swarm_d = swarm->GetDeviceContext();
 
       // update loop.
       const int max_active_index = swarm->GetMaxActiveIndex();
       pmb->par_for(
-          "FillTracers::Interp", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+          "FillTracers::CellCentered", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
             if (swarm_d.IsActive(n)) {
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-              // TODO(pgrete) Interpolate
-              rho(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IDN);
-
-              vel_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV1);
-              vel_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV2);
+              // Direct cell-centered access
+              rho(n) = prim_pack(b, IDN, k, j, i);
+              vel_x(n) = prim_pack(b, IV1, k, j, i);
+              vel_y(n) = prim_pack(b, IV2, k, j, i);
               if (ndim == 3) {
-                vel_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV3);
+                vel_z(n) = prim_pack(b, IV3, k, j, i);
+              }
+              pressure(n) = prim_pack(b, IPR, k, j, i);
+
+              if (mhd) {
+                B_x(n) = prim_pack(b, IB1, k, j, i);
+                B_y(n) = prim_pack(b, IB2, k, j, i);
+                if (ndim == 3) {
+                  B_z(n) = prim_pack(b, IB3, k, j, i);
+                }
               }
 
-              pressure(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IPR);
-              if (mhd) {
-                B_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB1);
-                B_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB2);
+              // Cell size for central differences
+              const Real dx = coords.Dxc<1>(k, j, i);
+              const Real dy = coords.Dxc<2>(k, j, i);
+              const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
 
-                if (ndim == 3) {
-                  B_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB3);
-                }
+              // Central differences using neighbors
+              const Real dvx_dx =
+                  (prim_pack(b, IV1, k, j, i + 1) - prim_pack(b, IV1, k, j, i - 1)) /
+                  (2.0 * dx);
+              const Real dvy_dy =
+                  (prim_pack(b, IV2, k, j + 1, i) - prim_pack(b, IV2, k, j - 1, i)) /
+                  (2.0 * dy);
+              Real dvz_dz = 0.0;
+              if (ndim == 3) {
+                dvz_dz =
+                    (prim_pack(b, IV3, k + 1, j, i) - prim_pack(b, IV3, k - 1, j, i)) /
+                    (2.0 * dz);
+              }
+
+              const Real dvx_dy =
+                  (prim_pack(b, IV1, k, j + 1, i) - prim_pack(b, IV1, k, j - 1, i)) /
+                  (2.0 * dy);
+              const Real dvx_dz = (ndim == 3) ? (prim_pack(b, IV1, k + 1, j, i) -
+                                                 prim_pack(b, IV1, k - 1, j, i)) /
+                                                    (2.0 * dz)
+                                              : 0.0;
+              const Real dvy_dx =
+                  (prim_pack(b, IV2, k, j, i + 1) - prim_pack(b, IV2, k, j, i - 1)) /
+                  (2.0 * dx);
+              const Real dvy_dz = (ndim == 3) ? (prim_pack(b, IV2, k + 1, j, i) -
+                                                 prim_pack(b, IV2, k - 1, j, i)) /
+                                                    (2.0 * dz)
+                                              : 0.0;
+              const Real dvz_dx = (ndim == 3) ? (prim_pack(b, IV3, k, j, i + 1) -
+                                                 prim_pack(b, IV3, k, j, i - 1)) /
+                                                    (2.0 * dx)
+                                              : 0.0;
+              const Real dvz_dy = (ndim == 3) ? (prim_pack(b, IV3, k, j + 1, i) -
+                                                 prim_pack(b, IV3, k, j - 1, i)) /
+                                                    (2.0 * dy)
+                                              : 0.0;
+
+              // Vorticity and compression
+              if (ndim == 3) {
+                const Real omega_x = dvz_dy - dvy_dz;
+                const Real omega_y = dvx_dz - dvz_dx;
+                const Real omega_z = dvy_dx - dvx_dy;
+                vorticity(n) =
+                    std::sqrt(omega_x * omega_x + omega_y * omega_y + omega_z * omega_z);
+                compression(n) = dvx_dx + dvy_dy + dvz_dz;
+              } else {
+                const Real omega_z = dvy_dx - dvx_dy;
+                vorticity(n) = std::abs(omega_z);
+                compression(n) = dvx_dx + dvy_dy;
               }
             }
           });
