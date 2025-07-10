@@ -197,31 +197,29 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 }
 
 void ProblemInitTracerData(ParameterInput * /*pin*/,
-                           parthenon::StateDescriptor *tracer_pkg) {
+                           parthenon::StateDescriptor *tracers_pkg) {
   // Number of lookback times to be stored (in powers of 2,
   // i.e., 12 allows to go from 0, 2^0 = 1, 2^1 = 2, 2^2 = 4, ..., 2^10 = 1024 cycles)
   const int n_lookback = 12; // could even be made an input parameter if required/desired
                              // (though it should probably not be changeable for restarts)
-  tracer_pkg->AddParam("turbulence/n_lookback", n_lookback);
+  tracers_pkg->AddParam("turbulence/n_lookback", n_lookback);
 
-  // Getting the number of populations and looping
-  auto n_populations = tracer_pkg->Param<int>("n_populations");
+  // Getting the population names and loop on them
+  auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
-  for (int i = 0; i < n_populations; ++i) {
+  for (const auto &swarm_name : swarm_names) {
 
-    const auto swarm_name =
-        tracer_pkg->Param<std::string>("swarm_name" + std::to_string(i));
     // Using a vector to reduce code duplication.
     Metadata vreal_swarmvalue_metadata(
         {Metadata::Real, Metadata::Vector, Metadata::Restart},
         std::vector<int>{n_lookback});
-    tracer_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
-    tracer_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
   }
 
   // Timestamps for the lookback entries
-  tracer_pkg->AddParam<>("turbulence/t_lookback", std::vector<Real>(n_lookback),
-                         Params::Mutability::Restart);
+  tracers_pkg->AddParam<>("turbulence/t_lookback", std::vector<Real>(n_lookback),
+                          Params::Mutability::Restart);
 }
 
 // SetPhases is used as InitMeshBlockUserData because phases need to be reset on remeshing
@@ -521,14 +519,14 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
                               const Real dt) {
   const auto current_cycle = tm.ncycle;
 
-  auto tracer_pkg = md->GetParentPointer()->packages.Get("tracers");
-  const auto n_lookback = tracer_pkg->Param<int>("turbulence/n_lookback");
-  const auto n_populations = tracer_pkg->Param<int>("n_populations");
+  auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
+  const auto n_lookback = tracers_pkg->Param<int>("turbulence/n_lookback");
+  const auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
   // Params (which is storing t_lookback) is shared across all blocks so we update it
   // outside the block loop. Note, that this is a standard vector, so it cannot be used
   // in the kernel (but also don't need to be used as can directly update it)
-  auto t_lookback = tracer_pkg->Param<std::vector<Real>>("turbulence/t_lookback");
+  auto t_lookback = tracers_pkg->Param<std::vector<Real>>("turbulence/t_lookback");
   auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
   auto idx = n_lookback - 1;
   while (dncycle > 0) {
@@ -540,7 +538,7 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
   }
   t_lookback[0] = tm.time;
   // Write data back to Params dict
-  tracer_pkg->UpdateParam("turbulence/t_lookback", t_lookback);
+  tracers_pkg->UpdateParam("turbulence/t_lookback", t_lookback);
 
   // TODO(pgrete) Benchmark atomic and potentially update to proper reduction instead of
   // atomics.
@@ -554,7 +552,8 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
     auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
-    auto &swarm = sd->Get("tracers0");
+    auto &swarm =
+        sd->Get(swarm_names[0]); // Could also adapt to loop on all swarms if needed
 
     // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
     // pull swarm vars

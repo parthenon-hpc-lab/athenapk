@@ -192,26 +192,106 @@ callback is available, that is called once every time right before a data output
 
 ### Particles
 
-#### Tracers
+#### Tracer Particles
 
-In order to allow custom seeding of tracer particles (per problem generator), the
-`ProblemSeedInitialTracers` function can be defined.
+Tracer particles can be seeded at the start of the simulation and evolved. These can be also dynamically injected and removed as the simulation is running.
+
+---
+
+##### Initial Tracer Seeding
+
+To allow custom seeding of tracer particles per problem generator, define:
+
 ```c++
 void ProblemSeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 ```
-It is executed once when a simulation is started the very first time (i.e., it
-is not called on subsequent restarts).
-See the standard tracer seeding implementation[`SeedInitialTracers`](https://github.com/parthenon-hpc-lab/athenapk/blob/main/src/tracers/tracers.cpp) for reference on how to deposit particles.
 
+It is executed once when a simulation is started the very first time (i.e., it is not called on subsequent restarts). See the standard implementation [`SeedInitialTracers`](https://github.com/parthenon-hpc-lab/athenapk/blob/main/src/tracers/tracers.cpp) for reference.
 
-To allow adding additional fields, the
+---
+
+##### Tracer Package Initialization
+
+To register custom tracer fields and parameters, define:
+
 ```c++
-void ProblemInitTracerData(ParameterInput * pin, parthenon::StateDescriptor *tracer_pkg);```
-callback is available.
-It is called at the end of the tracer package initialization and can be defined at the per-problem-generator level, see, e.g., the turbulence driver as an example.
+void ProblemInitTracerData(ParameterInput * pin, parthenon::StateDescriptor *tracer_pkg);
+```
 
-Similarly, a callback is available to fill those new fields (or more) via
+This is called after the default tracer package is initialized and allows the user to add additional fields or metadata to the tracer population.
+
+---
+
+##### Filling Tracer Fields
+
+To compute and assign additional per-tracer field values (e.g., interpolated fluid variables), define:
+
 ```c++
 TaskStatus ProblemFillTracers(MeshData<Real> *md, parthenon::SimTime &tm, const Real dt);
 ```
-It is called right after the default `FillTracers` task in the driver.
+
+This function is called right after the default `FillTracers` task.
+
+> The default `FillTracers` routine registers cell-centered key quantities (e.g., density `rho`, velocity `vel`, magnetic field `B`, etc.).
+
+---
+
+##### Tracer Injection
+
+**Optionally**, tracers can be stochastically injected during runtime using:
+
+```c++
+void InjectTracers(MeshData<Real> *md, const Real time, const Real dt);
+```
+
+This function is called at every timestep and injects new tracers into cells that fulfill a user-defined criterion (see next section). Tracer injection is governed by a target number of tracers per cell per unit time and uses a probabilistic approach to avoid uncontrolled growth of the tracer population. Because injection is stochastic but must be consistent between separate loops, a deterministic random number generator is required. An implementation using a cell-index-based seed is available in:
+
+```
+utils/custom_rng.hpp
+```
+
+---
+
+##### Injection Criteria
+
+The function that defines whether a cell is eligible for injection is:
+
+```c++
+bool EvaluateCriterion(TracerCriterion crit, View4D prim, const Coordinates_t &coords,
+                  const int k, const int j, const int i, const Real threshold,
+                  const Real mbar_over_kb, const Real jet_radius, const Real jet_offset,
+                  const Real jet_thickness, const int ndim);
+```
+
+This should return `true` for cells that meet user-defined conditions (e.g., based on temperature, density, geometry, etc.).
+
+Only those cells will be considered for tracer injection during the current timestep.
+
+---
+
+##### Tracer Removal
+
+**Optionally**, tracers can also be removed once they exceed their lifetime:
+
+```c++
+void RemoveTracers(MeshData<Real> *md, const Real time);
+```
+
+This function scans through all tracer particles and removes those flagged for deletion (e.g., due to age or leaving the computational domain).
+
+---
+
+##### Tracer Advection
+
+The tracer's position is updated at each timestep in:
+
+```c++
+void AdvectTracers(MeshData<Real> *md, const Real dt);
+```
+
+Two advection methods are currently implemented:
+
+- **Cell-centered velocity interpolation**: The particle position is updated using a velocity value obtained from interpolating the cell-centered velocity vectors of the host and neighboring gas cells.
+- **Recommended**: **Face-centered velocity interpolation** Face-centered velocities are calculated directly in the `CalculatesFluxes` routine (see `hydro.cpp`) for the gas cell hosting each tracer.
+
+---
