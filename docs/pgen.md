@@ -241,7 +241,7 @@ This function is called right after the default `FillTracers` task.
 **Optionally**, tracers can be stochastically injected during runtime using:
 
 ```c++
-void InjectTracers(MeshData<Real> *md, const Real time, const Real dt);
+TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 ```
 
 This function is called at every timestep and injects new tracers into cells that fulfill a user-defined criterion (see next section). Tracer injection is governed by a target number of tracers per cell per unit time and uses a probabilistic approach to avoid uncontrolled growth of the tracer population. Because injection is stochastic but must be consistent between separate loops, a deterministic random number generator is required. An implementation using a cell-index-based seed is available in:
@@ -274,7 +274,7 @@ Only those cells will be considered for tracer injection during the current time
 **Optionally**, tracers can also be removed once they exceed their lifetime:
 
 ```c++
-void RemoveTracers(MeshData<Real> *md, const Real time);
+TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 ```
 
 This function scans through all tracer particles and removes those flagged for deletion (e.g., due to age or leaving the computational domain).
@@ -286,7 +286,7 @@ This function scans through all tracer particles and removes those flagged for d
 The tracer's position is updated at each timestep in:
 
 ```c++
-void AdvectTracers(MeshData<Real> *md, const Real dt);
+TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt);
 ```
 
 Two advection methods are currently implemented:
