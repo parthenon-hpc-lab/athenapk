@@ -35,7 +35,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/meshblock/nx2=16",
             "parthenon/meshblock/nx3=8",
             "tracers/enabled=true",
-            "tracers/method=vinterp",
+            "tracers/advection_method=vinterp",
             "tracers/swarm_names=tracers0",
             "tracers/initial_seed_method=random_per_block",
             "tracers/tracers0/initial_num_tracers_per_cell=0.125",
