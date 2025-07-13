@@ -73,12 +73,10 @@ class TestCase(utils.test_case.TestCaseAbs):
         success = True
 
         data_sorted = {}
-        
         for dump in ["init.00000", "init.final", "cont.final"]:
             data_sorted[dump] = {}
             # data = phdf.phdf(f"v0_111_32p3/parthenon.prim.{dump}.phdf")
             data = phdf.phdf(f"{parameters.output_path}/parthenon.{dump}.rhdf")
-        
             tracers = data.GetSwarm("tracers0")
             xs = tracers.x
             ys = tracers.y
