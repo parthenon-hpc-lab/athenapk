@@ -89,7 +89,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             data_sorted[dump]["xs"] = 2 * (xs[idx_ids_sorted] - 0.5)
             data_sorted[dump]["ys"] = 2 * (ys[idx_ids_sorted] - 0.5)
             data_sorted[dump]["zs"] = 2 * (zs[idx_ids_sorted] - 0.5)
-        
+
         # compare init versus final position
         for pos in ["xs", "ys", "zs"]:
             a = data_sorted["init.00000"][pos]
@@ -120,5 +120,5 @@ class TestCase(utils.test_case.TestCaseAbs):
                     f"ERROR: difference in final positions for restarted sim for {pos} of {relabs.max()}"
                 )
                 success = False
-        
+
         return success
