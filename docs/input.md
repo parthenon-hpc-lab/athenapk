@@ -365,23 +365,23 @@ Each swarm's parameters must be provided **within** the `<tracers>` section.
 
 ```ini
 # tracers0: persistent population of tracers injected initially
-tracers0/initial_num_tracers_per_cell = 1.0
-tracers0/injection_enabled    = false
-tracers0/removal_enabled      = false
+tracers0_initial_num_tracers_per_cell = 1.0
+tracers0_injection_enabled    = false
+tracers0_removal_enabled      = false
 
 # tracers1: dynamically injected tracers
-tracers1/initial_num_tracers_per_cell = 0
-tracers1/injection_enabled    = true
-tracers1/injection_criteria   = density_above
-tracers1/injection_threshold  = 8.0 # in code units
-tracers1/injection_timescale  = 0.05
-tracers1/injection_num_target = 1
+tracers1_initial_num_tracers_per_cell = 0
+tracers1_injection_enabled    = true
+tracers1_injection_criteria   = density_above
+tracers1_injection_threshold  = 8.0 # in code units
+tracers1_injection_timescale  = 0.05
+tracers1_injection_num_target = 1
 
-tracers1/removal_enabled             = true
-tracers1/removal_exception           = true
-tracers1/removal_exception_criteria  = density_above
-tracers1/removal_exception_threshold = 8.0 # in code units
-tracers1/lifetime                    = 0.05
+tracers1_removal_enabled             = true
+tracers1_removal_exception           = true
+tracers1_removal_exception_criteria  = density_above
+tracers1_removal_exception_threshold = 8.0 # in code units
+tracers1_lifetime                    = 0.05
 ```
 
 Note that to keep the population of dynamically injected tracers roughly stable in time, it is recommended to match `injection_timescale` and `lifetime`. If `lifetime` is much larger than the injection timescale (or if removal isn't even enabled), the particle's population can grow increasingly large in an uncontrolled fashion.
@@ -400,7 +400,7 @@ Two seeding methods are supported:
   - Seeds particles randomly in each mesh block.
   - **Note**: the random number generator seed uses the unique block id. Therefore, simulations with the mesh decomposition (mesh and meshblock sizes) are identical independent of the number of MPI ranks used, but if the meshblock size is changed for given mesh (and thus the total number of blocks) the initial state will be different.
   - Controlled by:
-    - `tracers0/initial_num_tracers_per_cell`
+    - `tracers0_initial_num_tracers_per_cell`
     - Optional: `initial_rng_seed` to customize randomness
 
 - **`user`**
