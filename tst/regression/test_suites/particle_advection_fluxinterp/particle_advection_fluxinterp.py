@@ -35,12 +35,12 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/meshblock/nx2=16",
             "parthenon/meshblock/nx3=8",
             "tracers/enabled=true",
-            "tracers/method=fluxinterp",
+            "tracers/advection_method=fluxinterp",
             "tracers/swarm_names=tracers0",
             "tracers/initial_seed_method=random_per_block",
-            "tracers/tracers0/initial_num_tracers_per_cell=0.125",
-            "tracers/tracers0/injection_enabled=false",
-            "tracers/tracers0/removal_enabled=false",
+            "tracers/tracers0_initial_num_tracers_per_cell=1",
+            "tracers/tracers0_injection_enabled=false",
+            "tracers/tracers0_removal_enabled=false",
             # disable driving and setup homogenous flow
             "problem/turbulence/accel_rms=0.0",
             "problem/turbulence/v0=1.5,1.0,0.75",
@@ -73,10 +73,12 @@ class TestCase(utils.test_case.TestCaseAbs):
         success = True
 
         data_sorted = {}
+        
         for dump in ["init.00000", "init.final", "cont.final"]:
             data_sorted[dump] = {}
             # data = phdf.phdf(f"v0_111_32p3/parthenon.prim.{dump}.phdf")
             data = phdf.phdf(f"{parameters.output_path}/parthenon.{dump}.rhdf")
+        
             tracers = data.GetSwarm("tracers0")
             xs = tracers.x
             ys = tracers.y
@@ -89,7 +91,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             data_sorted[dump]["xs"] = 2 * (xs[idx_ids_sorted] - 0.5)
             data_sorted[dump]["ys"] = 2 * (ys[idx_ids_sorted] - 0.5)
             data_sorted[dump]["zs"] = 2 * (zs[idx_ids_sorted] - 0.5)
-
+        
         # compare init versus final position
         for pos in ["xs", "ys", "zs"]:
             a = data_sorted["init.00000"][pos]
@@ -120,5 +122,5 @@ class TestCase(utils.test_case.TestCaseAbs):
                     f"ERROR: difference in final positions for restarted sim for {pos} of {relabs.max()}"
                 )
                 success = False
-
+        
         return success

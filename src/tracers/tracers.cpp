@@ -122,7 +122,6 @@ swarm object of each individual populations of tracers.
 // Initializing the tracer packages and swarms
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto tracers_pkg = std::make_shared<StateDescriptor>("tracers");
-  auto swarm_names = pin->GetVector<std::string>("tracers", "swarm_names");
   const bool enabled = pin->GetOrAddBoolean("tracers", "enabled", false);
   const auto integrator_str = pin->GetString("parthenon/time", "integrator");
   const auto advection_method_str =
@@ -139,40 +138,39 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (advection_method_str == "fluxinterp") {
     advection_method = AdvectMethod::Flux;
   } else {
+    advection_method = AdvectMethod::None;
     PARTHENON_FAIL("Invalid advection_method: " + advection_method_str);
-  }
-
-  // Setting up useful fields (face-centered velocity, IDs offsets),
-  // also checking the integrator choice in case of flux-based advection
-  if (enabled) {
-    Metadata m;
-    // Face-centered velocity
-    if (advection_method == AdvectMethod::Flux) {
-      // Integrator sanity check
-      PARTHENON_REQUIRE(integrator_str == "vl2",
-                        "Provided tracer parameters only support vl2 integrator.");
-      // Adding derived field
-      m = Metadata({Metadata::Face, Metadata::Derived, Metadata::OneCopy},
-                   std::vector<int>({1}));
-      tracers_pkg->AddField("fvel", m); // face-centered velocity
-    }
-    // Offsets for the tracer's ids
-    const int tracers_n_populations = static_cast<int>(swarm_names.size());
-    PARTHENON_REQUIRE(
-        tracers_n_populations > 0,
-        "No tracer populations defined. Check 'swarm_names' in input file.");
-    m = Metadata({Metadata::None, Metadata::Derived, Metadata::Restart},
-                 std::vector<int>({tracers_n_populations}));
-    tracers_pkg->AddField("tracers_offsets", m);
   }
 
   // Store the enum value in the tracer package
   tracers_pkg->AddParam<>("advection_method", advection_method);
-  tracers_pkg->AddParam<>("swarm_names", swarm_names);
   tracers_pkg->AddParam<>("enabled", enabled);
 
   if (!enabled) return tracers_pkg;
-  Params &params = tracers_pkg->AllParams();
+
+  // Setting up useful fields (face-centered velocity, IDs offsets),
+  // also checking the integrator choice in case of flux-based advection
+  auto swarm_names = pin->GetVector<std::string>("tracers", "swarm_names");
+  tracers_pkg->AddParam<>("swarm_names", swarm_names);
+
+  Metadata m;
+  // Face-centered velocity
+  if (advection_method == AdvectMethod::Flux) {
+    // Integrator sanity check
+    PARTHENON_REQUIRE(integrator_str == "vl2",
+                      "Provided tracer parameters only support vl2 integrator.");
+    // Adding derived field
+    m = Metadata({Metadata::Face, Metadata::Derived, Metadata::OneCopy},
+                 std::vector<int>({1}));
+    tracers_pkg->AddField("fvel", m); // face-centered velocity
+  }
+  // Offsets for the tracer's ids
+  const int tracers_n_populations = static_cast<int>(swarm_names.size());
+  PARTHENON_REQUIRE(tracers_n_populations > 0,
+                    "No tracer populations defined. Check 'swarm_names' in input file.");
+  m = Metadata({Metadata::None, Metadata::Derived, Metadata::Restart},
+               std::vector<int>({tracers_n_populations}));
+  tracers_pkg->AddField("tracers_offsets", m);
 
   // =====================================================================
   // Population specific parameters
@@ -180,13 +178,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   for (const auto &swarm_name : swarm_names) {
 
     const auto rng_seed =
-        pin->GetOrAddInteger("tracers", swarm_name + "/initial_rng_seed", 0);
+        pin->GetOrAddInteger("tracers", swarm_name + "_initial_rng_seed", 0);
 
     // Number of tracers per cell in the initial injection (t=0)
     const auto rmax_center =
-        pin->GetOrAddReal("tracers", swarm_name + "/rmax_center", -1.0);
+        pin->GetOrAddReal("tracers", swarm_name + "_rmax_center", -1.0);
     const auto num_tracers_per_cell =
-        pin->GetOrAddReal("tracers", swarm_name + "/initial_num_tracers_per_cell", 0.0);
+        pin->GetOrAddReal("tracers", swarm_name + "_initial_num_tracers_per_cell", 0.0);
 
     // Tracer injection parameters
     // - injection_num_target: target number of tracers per elligible cells
@@ -195,7 +193,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // - injection_threshold:  value for criterion (only density atm)
 
     const auto injection_enabled =
-        pin->GetOrAddBoolean("tracers", swarm_name + "/injection_enabled", false);
+        pin->GetOrAddBoolean("tracers", swarm_name + "_injection_enabled", false);
     tracers_pkg->AddParam<>(swarm_name + "_injection_enabled", injection_enabled);
 
     // =====================================================================
@@ -203,13 +201,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // =====================================================================
     if (injection_enabled) {
       const auto injection_num_target =
-          pin->GetOrAddReal("tracers", swarm_name + "/injection_num_target", 10);
+          pin->GetOrAddReal("tracers", swarm_name + "_injection_num_target", 10);
       const auto injection_timescale =
-          pin->GetOrAddReal("tracers", swarm_name + "/injection_timescale", 0.1);
+          pin->GetOrAddReal("tracers", swarm_name + "_injection_timescale", 0.1);
       const auto injection_criterion =
-          pin->GetOrAddString("tracers", swarm_name + "/injection_criterion", "none");
+          pin->GetOrAddString("tracers", swarm_name + "_injection_criterion", "none");
       const auto injection_threshold =
-          pin->GetOrAddReal("tracers", swarm_name + "/injection_threshold", -1);
+          pin->GetOrAddReal("tracers", swarm_name + "_injection_threshold", -1);
 
       // Injection criterion
       TracerCriterion inj_crit;
@@ -240,7 +238,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // survival criterion must be provided, along with a threshold value (just like in the
     // injection routine. In such case, the lifetime of the particle is extended by 50%.
     const auto removal_enabled =
-        pin->GetOrAddBoolean("tracers", swarm_name + "/removal_enabled", false);
+        pin->GetOrAddBoolean("tracers", swarm_name + "_removal_enabled", false);
     tracers_pkg->AddParam<>(swarm_name + "_removal_enabled", removal_enabled);
 
     // =====================================================================
@@ -248,20 +246,20 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // =====================================================================
     if (removal_enabled) {
       // In any case, save lifetime
-      const auto lifetime = pin->GetOrAddReal("tracers", swarm_name + "/lifetime",
+      const auto lifetime = pin->GetOrAddReal("tracers", swarm_name + "_lifetime",
                                               -1); // If -1, particles are never removed
       tracers_pkg->AddParam<>(swarm_name + "_lifetime", lifetime);
 
       // If needed, add exception
       const auto removal_exception =
-          pin->GetOrAddBoolean("tracers", swarm_name + "/removal_exception", false);
+          pin->GetOrAddBoolean("tracers", swarm_name + "_removal_exception", false);
       tracers_pkg->AddParam<>(swarm_name + "_removal_exception", removal_exception);
 
       if (removal_exception) {
         const auto removal_exception_criterion = pin->GetOrAddString(
-            "tracers", swarm_name + "/removal_exception_criterion", "none");
+            "tracers", swarm_name + "_removal_exception_criterion", "none");
         const auto removal_exception_threshold =
-            pin->GetOrAddReal("tracers", swarm_name + "/removal_exception_threshold", -1);
+            pin->GetOrAddReal("tracers", swarm_name + "_removal_exception_threshold", -1);
 
         // Removal criterion
         TracerCriterion exc_crit;
@@ -662,7 +660,6 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   } else if (seed_method == "user") {
     ProblemSeedInitialTracers(pmesh, pin, tm);
   } else if (seed_method == "random_per_block") {
-
     // Initialize random number generator pool
     int rng_seed = pin->GetOrAddInteger("tracers", "initial_rng_seed", 0);
 
