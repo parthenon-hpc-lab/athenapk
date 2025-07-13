@@ -51,7 +51,7 @@ enum class TracerCriterion {
   Jet
 };
 
-enum class AdvectMethod { VInterp, Flux };
+enum class AdvectMethod { VInterp, Flux, None };
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
