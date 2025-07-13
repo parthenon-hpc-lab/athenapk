@@ -157,9 +157,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.uniform_gas_My = self.uniform_gas_rho * self.uniform_gas_uy
         self.uniform_gas_Mz = self.uniform_gas_rho * self.uniform_gas_uz
         self.uniform_gas_energy_density = 1.0 / 2.0 * self.uniform_gas_rho * (
-            self.uniform_gas_ux**2
-            + self.uniform_gas_uy**2
-            + self.uniform_gas_uz**2
+            self.uniform_gas_ux**2 + self.uniform_gas_uy**2 + self.uniform_gas_uz**2
         ) + self.uniform_gas_pres / (self.adiabatic_index - 1.0)
 
         # Efficiency of power to accretion rate (controls rate of mass injection for this test)
