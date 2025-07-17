@@ -539,10 +539,8 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     // For loop to update offset field
     block_offset += num_injected_tracers_in_block;
     std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
-
+    Kokkos::deep_copy(off, host_off);
   } // End population loop
-  // Copy host back to device
-  Kokkos::deep_copy(off, host_off);
   return TaskStatus::complete;
 }
 
