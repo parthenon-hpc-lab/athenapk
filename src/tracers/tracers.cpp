@@ -26,6 +26,7 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "globals.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
@@ -53,11 +54,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   tracer_pkg->AddParam<>("swarm_name", swarm_name);
   // TODO(pgrete) Check where metadata, e.g., for restart is required (i.e., at the swarm
   // or variable level).
-  Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
-  tracer_pkg->AddSwarm(swarm_name, swarm_metadata);
+
+  // By by default Parthenon now provides a uint64 "swarm.id" field.
+  // If we want legacy (i.e., int32 type and named "id") we have to manually add it.
+  if (pin->GetOrAddBoolean("tracers", "use_legacy_ids", false)) {
+    tracer_pkg->AddSwarm(swarm_name,
+                         Metadata({Metadata::Provides, Metadata::None, Metadata::Restart,
+                                   Metadata::NoPersistentParticleIds}));
+    tracer_pkg->AddSwarmValue("id", swarm_name,
+                              Metadata({Metadata::Integer, Metadata::Restart}));
+  } else {
+    tracer_pkg->AddSwarm(swarm_name, Metadata({
+                                         Metadata::Provides,
+                                         Metadata::None,
+                                         Metadata::Restart,
+                                     }));
+  }
   Metadata real_swarmvalue_metadata({Metadata::Real});
-  tracer_pkg->AddSwarmValue("id", swarm_name,
-                            Metadata({Metadata::Integer, Metadata::Restart}));
 
   // TODO(pgrete) Add CheckDesired/required for vars
   // thermo variables
@@ -95,7 +108,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   // This function is currently used to only seed tracers but it called every time the
   // driver is executed (also also for restarts)
-  if (pmesh->is_restart) return;
+  if (parthenon::Globals::is_restart) return;
 
   auto tracers_pkg = pmesh->packages.Get("tracers");
 
