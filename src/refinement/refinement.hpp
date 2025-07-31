@@ -19,7 +19,9 @@ AmrTag PressureGradient(MeshBlockData<Real> *rc);
 AmrTag VelocityGradient(MeshBlockData<Real> *rc);
 } // namespace gradient
 namespace other {
+// refinement condition: check max density
 parthenon::AmrTag MaxDensity(MeshBlockData<Real> *rc);
+parthenon::AmrTag Always(MeshBlockData<Real> * mbd);
 }
 
 } // namespace refinement
