@@ -31,6 +31,9 @@ setup_test_both("convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
 setup_test_both("mhd_convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 48" "convergence")
 
+setup_test_both("mhd_convergence_modes" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 147" "convergence")
+
 setup_test_serial("performance" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 21" "performance")
 
