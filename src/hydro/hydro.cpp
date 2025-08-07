@@ -31,6 +31,7 @@
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
+#include "interface/metadata.hpp"
 #include "interface/params.hpp"
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
@@ -788,8 +789,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                           parthenon::refinement_ops::RestrictAverage>();
   pkg->AddField("cons", m);
 
-  m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro + nscalars}),
-               prim_labels);
+  m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+               std::vector<int>({nhydro + nscalars}), prim_labels);
   pkg->AddField("prim", m);
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
