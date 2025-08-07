@@ -383,37 +383,38 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // TODO(?) The following line could potentially be set by configure-time options
   // so that the resulting binary can only contain a subset of included flux functions
   // to reduce size.
-  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::none>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::limo3, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::hllc>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hllc>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::hllc>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::limo3, RiemannSolver::hllc>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::hllc>(flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::none>(flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlle>(flux_functions);
+  // add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
+  // add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::none>(flux_functions);
+  // add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
+  // add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
+  // add_flux_fun<Fluid::euler, Reconstruction::weno3,
+  // RiemannSolver::hlle>(flux_functions); add_flux_fun<Fluid::euler,
+  // Reconstruction::limo3, RiemannSolver::hlle>(flux_functions);
+  // add_flux_fun<Fluid::euler, Reconstruction::wenoz,
+  // RiemannSolver::hlle>(flux_functions); add_flux_fun<Fluid::euler, Reconstruction::dc,
+  // RiemannSolver::hllc>(flux_functions); add_flux_fun<Fluid::euler, Reconstruction::plm,
+  // RiemannSolver::hllc>(flux_functions); add_flux_fun<Fluid::euler, Reconstruction::ppm,
+  // RiemannSolver::hllc>(flux_functions); add_flux_fun<Fluid::euler,
+  // Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
+  // add_flux_fun<Fluid::euler, Reconstruction::limo3,
+  // RiemannSolver::hllc>(flux_functions); add_flux_fun<Fluid::euler,
+  // Reconstruction::wenoz, RiemannSolver::hllc>(flux_functions);
+  // add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
+  // add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::none>(flux_functions);
+  // add_flux_fun<Fluid::glmmhd, Reconstruction::plm,
+  // RiemannSolver::hlle>(flux_functions); add_flux_fun<Fluid::glmmhd,
+  // Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
+  // add_flux_fun<Fluid::glmmhd, Reconstruction::weno3,
+  // RiemannSolver::hlle>(flux_functions); add_flux_fun<Fluid::glmmhd,
+  // Reconstruction::limo3, RiemannSolver::hlle>(flux_functions);
+  // add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz,
+  // RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>(flux_functions);
-  // Add first order recon with LLF fluxes (implemented for testing as tight loop)
-  flux_functions[std::make_tuple(Fluid::euler, Reconstruction::dc, RiemannSolver::llf)] =
-      Hydro::CalculateFluxesTight<Fluid::euler>;
-  flux_functions[std::make_tuple(Fluid::glmmhd, Reconstruction::dc, RiemannSolver::llf)] =
-      Hydro::CalculateFluxesTight<Fluid::glmmhd>;
 
   // flux used in all stages expect the first. First stage is set below based on integr.
   FluxFun_t *flux_other_stage = nullptr;
@@ -741,6 +742,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam("scratch_level", scratch_level);
 
   auto nscalars = pin->GetOrAddInteger("hydro", "nscalars", 0);
+  PARTHENON_REQUIRE_THROWS(
+      nscalars == 0, "This optimized version does not support passive scalars (yet).");
   pkg->AddParam("nscalars", nscalars);
 
   std::vector<std::string> cons_labels(nhydro);
@@ -774,9 +777,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     prim_labels.emplace_back("scalar_" + std::to_string(i));
   }
 
-  Metadata m(
-      {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
-      std::vector<int>({nhydro + nscalars}), cons_labels);
+  Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost},
+             std::vector<int>({nhydro + nscalars}), cons_labels);
   m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
                           parthenon::refinement_ops::RestrictAverage>();
   pkg->AddField("cons", m);
@@ -1025,8 +1027,9 @@ TaskStatus CalculateFluxesTight(std::shared_ptr<MeshData<Real>> &md) {
 
 // Calculate fluxes using scratch pad memory, i.e., over cached pencils in i-dir.
 template <Fluid fluid, Reconstruction recon, RiemannSolver rsolver>
-TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
+                           const Real gam0_, const Real gam1_, const Real beta_dt_) {
+  auto pmb = u0_data->GetBlockData(0)->GetBlockPointer();
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
@@ -1039,9 +1042,13 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     else // 3D
       jl = jb.s - 1, ju = jb.e + 1, kl = kb.s - 1, ku = kb.e + 1;
   }
+  auto const gam0 = gam0_;
+  auto const gam1 = gam1_;
+  auto const beta_dt = beta_dt_;
 
-  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
-  auto cons_in = md->PackVariablesAndFluxes(flags_ind);
+  auto const &u0_cons_pack = u0_data->PackVariables(std::vector<std::string>{"cons"});
+  auto const &u1_cons_pack = u1_data->PackVariables(std::vector<std::string>{"cons"});
+  auto const &u0_prim_pack = u0_data->PackVariables(std::vector<std::string>{"prim"});
   auto pkg = pmb->packages.Get("Hydro");
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
@@ -1058,52 +1065,53 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     c_h = pkg->Param<Real>("c_h");
   }
 
-  auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
-
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
 
   size_t scratch_size_in_bytes =
-      parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 2;
+      parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
 
   auto riemann = Riemann<fluid, rsolver>();
 
   parthenon::par_for_outer(
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
-      scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
+      scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
-        const auto &prim = prim_in(b);
-        auto &cons = cons_in(b);
+        const auto &u0_prim = u0_prim_pack(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
+        parthenon::ScratchPad2D<Real> flx(member.team_scratch(scratch_level),
+                                          num_scratch_vars, nx1);
         // get reconstructed state on faces
-        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, u0_prim, wl, wr);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
-        riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
+        riemann.Solve(member, ib.s, ib.e + 1, IV1, wl, wr, flx, eos, c_h);
         member.team_barrier();
 
-        // Passive scalar fluxes
-        for (auto n = nhydro; n < nhydro + nscalars; ++n) {
-          parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
-            if (cons.flux(IV1, IDN, k, j, i) >= 0.0) {
-              cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wl(n, i);
-            } else {
-              cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wr(n, i);
-            }
-          });
-        }
-      });
+        const auto &coords = u0_cons_pack.GetCoords(b);
+        // Now directly update
+        parthenon::par_for_inner(
+            member, 0, u0_cons_pack.GetDim(4) - 1, ib.s, ib.e,
+            [&](const int v, const int i) {
+              const auto du = -(coords.FaceArea<X1DIR>(k, j, i + 1) * flx(v, i + 1) -
+                                coords.FaceArea<X1DIR>(k, j, i) * flx(v, i)) /
+                              coords.CellVolume(k, j, i);
 
+              u0_cons_pack(b, v, k, j, i) = gam0 * u0_cons_pack(b, v, k, j, i) +
+                                            gam1 * u1_cons_pack(b, v, k, j, i) +
+                                            beta_dt * du;
+            });
+      });
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
     scratch_size_in_bytes =
-        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
+        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 4;
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
     if (pmb->block_size.nx(X3DIR) == 1) // 2D
@@ -1113,15 +1121,16 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
-        scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
+        scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
-          const auto &prim = prim_in(b);
-          auto &cons = cons_in(b);
+          const auto &prim = u0_prim_pack(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flx(member.team_scratch(scratch_level),
                                             num_scratch_vars, nx1);
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
@@ -1130,19 +1139,22 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             member.team_barrier();
 
             if (j > jb.s - 1) {
-              riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
+              riemann.Solve(member, il, iu, IV2, wl, wr, flx, eos, c_h);
               member.team_barrier();
+              const auto &coords = u0_cons_pack.GetCoords(b);
+              // Now directly update
+              parthenon::par_for_inner(
+                  member, 0, u0_cons_pack.GetDim(4) - 1, il, iu,
+                  [&](const int v, const int i) {
+                    const auto du =
+                        -(coords.FaceArea<X2DIR>(k, j + 1, i) * flx(v, i + 1) -
+                          coords.FaceArea<X2DIR>(k, j, i) * flx(v, i)) /
+                        coords.CellVolume(k, j, i);
 
-              // Passive scalar fluxes
-              for (auto n = nhydro; n < nhydro + nscalars; ++n) {
-                parthenon::par_for_inner(member, il, iu, [&](const int i) {
-                  if (cons.flux(IV2, IDN, k, j, i) >= 0.0) {
-                    cons.flux(IV2, n, k, j, i) = cons.flux(IV2, IDN, k, j, i) * wl(n, i);
-                  } else {
-                    cons.flux(IV2, n, k, j, i) = cons.flux(IV2, IDN, k, j, i) * wr(n, i);
-                  }
-                });
-              }
+                    u0_cons_pack(b, v, k, j, i) = gam0 * u0_cons_pack(b, v, k, j, i) +
+                                                  gam1 * u1_cons_pack(b, v, k, j, i) +
+                                                  beta_dt * du;
+                  });
               member.team_barrier();
             }
 
@@ -1161,15 +1173,16 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
-        scratch_level, 0, cons_in.GetDim(5) - 1, jl, ju,
+        scratch_level, 0, u0_cons_pack.GetDim(5) - 1, jl, ju,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
-          const auto &prim = prim_in(b);
-          auto &cons = cons_in(b);
+          const auto &prim = u0_prim_pack(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flx(member.team_scratch(scratch_level),
                                             num_scratch_vars, nx1);
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
@@ -1178,19 +1191,22 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             member.team_barrier();
 
             if (k > kb.s - 1) {
-              riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
+              riemann.Solve(member, il, iu, IV3, wl, wr, flx, eos, c_h);
               member.team_barrier();
+              const auto &coords = u0_cons_pack.GetCoords(b);
+              // Now directly update
+              parthenon::par_for_inner(
+                  member, 0, u0_cons_pack.GetDim(4) - 1, il, iu,
+                  [&](const int v, const int i) {
+                    const auto du =
+                        -(coords.FaceArea<X3DIR>(k + 1, j, i) * flx(v, i + 1) -
+                          coords.FaceArea<X3DIR>(k, j, i) * flx(v, i)) /
+                        coords.CellVolume(k, j, i);
 
-              // Passive scalar fluxes
-              for (auto n = nhydro; n < nhydro + nscalars; ++n) {
-                parthenon::par_for_inner(member, il, iu, [&](const int i) {
-                  if (cons.flux(IV3, IDN, k, j, i) >= 0.0) {
-                    cons.flux(IV3, n, k, j, i) = cons.flux(IV3, IDN, k, j, i) * wl(n, i);
-                  } else {
-                    cons.flux(IV3, n, k, j, i) = cons.flux(IV3, IDN, k, j, i) * wr(n, i);
-                  }
-                });
-              }
+                    u0_cons_pack(b, v, k, j, i) = gam0 * u0_cons_pack(b, v, k, j, i) +
+                                                  gam1 * u1_cons_pack(b, v, k, j, i) +
+                                                  beta_dt * du;
+                  });
               member.team_barrier();
             }
             // swap the arrays for the next step
@@ -1199,11 +1215,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             wlb.assign_data(tmp);
           }
         });
-  }
-
-  const auto &diffint = pkg->Param<DiffInt>("diffint");
-  if (diffint == DiffInt::unsplit) {
-    CalcDiffFluxes(pkg.get(), md.get());
   }
 
   return TaskStatus::complete;

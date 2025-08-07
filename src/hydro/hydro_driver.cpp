@@ -504,43 +504,18 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
     const auto any = parthenon::BoundaryType::any;
     auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
-    auto start_flxcor_recv =
-        tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
-    auto calc_flux = tl.AddTask(none, calc_flux_fun, mu0);
-
-    // TODO(pgrete) figure out what to do about the sources from the first stage
-    // that are potentially disregarded when the (m)hd fluxes are corrected in the second
-    // stage.
-    TaskID first_order_flux_correct = calc_flux;
-    if (hydro_pkg->Param<bool>("first_order_flux_correct")) {
-      auto *first_order_flux_correct_fun =
-          hydro_pkg->Param<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun");
-      first_order_flux_correct =
-          tl.AddTask(calc_flux, first_order_flux_correct_fun, mu0.get(), mu1.get(),
-                     integrator->gam0[stage - 1], integrator->gam1[stage - 1],
-                     integrator->beta[stage - 1] * integrator->dt);
-    }
-
-    auto send_flx =
-        tl.AddTask(first_order_flux_correct, parthenon::LoadAndSendFluxCorrections, mu0);
-    auto recv_flx = tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, mu0);
-    auto set_flx = tl.AddTask(recv_flx | first_order_flux_correct,
-                              parthenon::SetFluxCorrections, mu0);
-
-    // compute the divergence of fluxes of conserved variables
-    auto update = tl.AddTask(
-        set_flx, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
-        mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
-        integrator->beta[stage - 1] * integrator->dt);
+    auto calc_flux = tl.AddTask(none, calc_flux_fun, mu0.get(), mu1.get(),
+                                integrator->gam0[stage - 1], integrator->gam1[stage - 1],
+                                integrator->beta[stage - 1] * integrator->dt);
 
     // Add non-operator split source terms.
     // Note: Directly update the "cons" variables of mu0 based on the "prim" variables
     // of mu0 as the "cons" variables have already been updated in this stage from the
     // fluxes in the previous step.
-    auto source_unsplit = tl.AddTask(update, AddUnsplitSources, mu0.get(), tm,
+    auto source_unsplit = tl.AddTask(calc_flux, AddUnsplitSources, mu0.get(), tm,
                                      integrator->beta[stage - 1] * integrator->dt);
 
     auto source_split_first_order = source_unsplit;

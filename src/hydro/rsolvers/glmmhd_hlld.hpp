@@ -38,10 +38,9 @@ struct Cons1D {
 template <>
 struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
   static KOKKOS_INLINE_FUNCTION void
-  Solve(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
-        const int iu, const int ivx, const ScratchPad2D<Real> &wl,
-        const ScratchPad2D<Real> &wr, VariableFluxPack<Real> &cons,
-        const AdiabaticGLMMHDEOS &eos, const Real c_h) {
+  Solve(parthenon::team_mbr_t const &member, const int il, const int iu, const int ivx,
+        const ScratchPad2D<Real> &wl, const ScratchPad2D<Real> &wr,
+        ScratchPad2D<Real> &flx, const AdiabaticGLMMHDEOS &eos, const Real c_h) {
     const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
     const int iBx = ivx - 1 + NHYDRO;
@@ -382,15 +381,15 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
         flxi[IB3] = fr.bz + urst.bz;
       }
 
-      cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
-      cons.flux(ivx, ivx, k, j, i) = flxi[IV1];
-      cons.flux(ivx, ivy, k, j, i) = flxi[IV2];
-      cons.flux(ivx, ivz, k, j, i) = flxi[IV3];
-      cons.flux(ivx, IEN, k, j, i) = flxi[IEN];
-      cons.flux(ivx, iBx, k, j, i) = flxi[IB1];
-      cons.flux(ivx, iBy, k, j, i) = flxi[IB2];
-      cons.flux(ivx, iBz, k, j, i) = flxi[IB3];
-      cons.flux(ivx, IPS, k, j, i) = flxi[IPS];
+      flx(IDN, i) = flxi[IDN];
+      flx(ivx, i) = flxi[IV1];
+      flx(ivy, i) = flxi[IV2];
+      flx(ivz, i) = flxi[IV3];
+      flx(IEN, i) = flxi[IEN];
+      flx(iBx, i) = flxi[IB1];
+      flx(iBy, i) = flxi[IB2];
+      flx(iBz, i) = flxi[IB3];
+      flx(IPS, i) = flxi[IPS];
     });
   }
 };
