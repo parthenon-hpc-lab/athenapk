@@ -392,15 +392,18 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // Reconstruction::limo3, RiemannSolver::hlle>(flux_functions);
   // add_flux_fun<Fluid::euler, Reconstruction::wenoz,
   // RiemannSolver::hlle>(flux_functions); add_flux_fun<Fluid::euler, Reconstruction::dc,
-  // RiemannSolver::hllc>(flux_functions); add_flux_fun<Fluid::euler, Reconstruction::plm,
-  // RiemannSolver::hllc>(flux_functions); add_flux_fun<Fluid::euler, Reconstruction::ppm,
+  // RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hllc>(flux_functions);
+  // add_flux_fun < Fluid::euler, Reconstruction::ppm,
   // RiemannSolver::hllc>(flux_functions); add_flux_fun<Fluid::euler,
   // Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
   // add_flux_fun<Fluid::euler, Reconstruction::limo3,
   // RiemannSolver::hllc>(flux_functions); add_flux_fun<Fluid::euler,
   // Reconstruction::wenoz, RiemannSolver::hllc>(flux_functions);
-  // add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlle>(flux_functions);
-  // add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::none>(flux_functions);
+  // add_flux_fun<Fluid::glmmhd, Reconstruction::dc,
+  // RiemannSolver::hlle>(flux_functions); add_flux_fun<Fluid::glmmhd,
+  // Reconstruction::dc, RiemannSolver::none>(flux_functions);
   // add_flux_fun<Fluid::glmmhd, Reconstruction::plm,
   // RiemannSolver::hlle>(flux_functions); add_flux_fun<Fluid::glmmhd,
   // Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
@@ -463,6 +466,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     flux_first_stage =
         flux_functions.at(std::make_tuple(fluid, Reconstruction::dc, riemann));
   }
+  PARTHENON_REQUIRE_THROWS(integrator == Integrator::vl2,
+                           "Optimizations in flux calc are hard coded to VL2");
   pkg->AddParam<>("integrator", integrator);
   pkg->AddParam<FluxFun_t *>("flux_first_stage", flux_first_stage);
   pkg->AddParam<FluxFun_t *>("flux_other_stage", flux_other_stage);
@@ -1074,9 +1079,16 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
 
   auto riemann = Riemann<fluid, rsolver>();
 
+  std::string suffix;
+  if constexpr (recon == Reconstruction::dc) {
+    suffix = " DC";
+  } else {
+    suffix = " HO";
+  }
+
   parthenon::par_for_outer(
-      DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
-      scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku, jl, ju,
+      DEFAULT_OUTER_LOOP_PATTERN, "x1 flux" + suffix, DevExecSpace(),
+      scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
         const auto &u0_prim = u0_prim_pack(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -1102,16 +1114,16 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                                 coords.FaceArea<X1DIR>(k, j, i) * flx(v, i)) /
                               coords.CellVolume(k, j, i);
 
-              u0_cons_pack(b, v, k, j, i) = gam0 * u0_cons_pack(b, v, k, j, i) +
-                                            gam1 * u1_cons_pack(b, v, k, j, i) +
-                                            beta_dt * du;
+              // WARNING: removing gam0 is specific to the VL2 integrator
+              u0_cons_pack(b, v, k, j, i) = // gam0 * u0_cons_pack(b, v, k, j, i) +
+                  gam1 * u1_cons_pack(b, v, k, j, i) + beta_dt * du;
             });
       });
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
     scratch_size_in_bytes =
-        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 4;
+        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 5;
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
     if (pmb->block_size.nx(X3DIR) == 1) // 2D
@@ -1120,8 +1132,8 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
       kl = kb.s - 1, ku = kb.e + 1;
 
     parthenon::par_for_outer(
-        DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
-        scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku,
+        DEFAULT_OUTER_LOOP_PATTERN, "x2 flux" + suffix, DevExecSpace(),
+        scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
           const auto &prim = u0_prim_pack(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -1130,8 +1142,10 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
                                             num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> flx(member.team_scratch(scratch_level),
-                                            num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxl(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxr(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
             Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
@@ -1139,29 +1153,36 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             member.team_barrier();
 
             if (j > jb.s - 1) {
-              riemann.Solve(member, il, iu, IV2, wl, wr, flx, eos, c_h);
+              riemann.Solve(member, il, iu, IV2, wl, wr, flxr, eos, c_h);
               member.team_barrier();
-              const auto &coords = u0_cons_pack.GetCoords(b);
-              // Now directly update
-              parthenon::par_for_inner(
-                  member, 0, u0_cons_pack.GetDim(4) - 1, il, iu,
-                  [&](const int v, const int i) {
-                    const auto du =
-                        -(coords.FaceArea<X2DIR>(k, j + 1, i) * flx(v, i + 1) -
-                          coords.FaceArea<X2DIR>(k, j, i) * flx(v, i)) /
-                        coords.CellVolume(k, j, i);
+              if (j > jb.s) {
+                const auto &coords = u0_cons_pack.GetCoords(b);
+                // Now directly update
+                parthenon::par_for_inner(
+                    member, 0, u0_cons_pack.GetDim(4) - 1, il, iu,
+                    [&](const int v, const int i) {
+                      const auto du =
+                          -(coords.FaceArea<X2DIR>(k, j, i) * flxr(v, i) -
+                            coords.FaceArea<X2DIR>(k, j - 1, i) * flxl(v, i)) /
+                          coords.CellVolume(k, j - 1, i);
 
-                    u0_cons_pack(b, v, k, j, i) = gam0 * u0_cons_pack(b, v, k, j, i) +
-                                                  gam1 * u1_cons_pack(b, v, k, j, i) +
-                                                  beta_dt * du;
-                  });
-              member.team_barrier();
+                      // WARNING: this is specific to the VL2 integrator
+                      u0_cons_pack(b, v, k, j - 1, i) +=
+                          // gam0 * u0_cons_pack(b, v, k, j, i) +
+                          // gam1 * u1_cons_pack(b, v, k, j, i) +
+                          beta_dt * du;
+                    });
+                member.team_barrier();
+              }
             }
 
             // swap the arrays for the next step
             auto *tmp = wl.data();
             wl.assign_data(wlb.data());
             wlb.assign_data(tmp);
+            tmp = flxr.data();
+            flxr.assign_data(flxl.data());
+            flxl.assign_data(tmp);
           }
         });
   }
@@ -1172,8 +1193,8 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
     il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
 
     parthenon::par_for_outer(
-        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
-        scratch_level, 0, u0_cons_pack.GetDim(5) - 1, jl, ju,
+        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux" + suffix, DevExecSpace(),
+        scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, jl, ju,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
           const auto &prim = u0_prim_pack(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -1182,8 +1203,10 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
                                             num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> flx(member.team_scratch(scratch_level),
-                                            num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxr(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxl(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
             Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
@@ -1191,28 +1214,35 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             member.team_barrier();
 
             if (k > kb.s - 1) {
-              riemann.Solve(member, il, iu, IV3, wl, wr, flx, eos, c_h);
+              riemann.Solve(member, il, iu, IV3, wl, wr, flxr, eos, c_h);
               member.team_barrier();
-              const auto &coords = u0_cons_pack.GetCoords(b);
-              // Now directly update
-              parthenon::par_for_inner(
-                  member, 0, u0_cons_pack.GetDim(4) - 1, il, iu,
-                  [&](const int v, const int i) {
-                    const auto du =
-                        -(coords.FaceArea<X3DIR>(k + 1, j, i) * flx(v, i + 1) -
-                          coords.FaceArea<X3DIR>(k, j, i) * flx(v, i)) /
-                        coords.CellVolume(k, j, i);
+              if (k > kb.s) {
+                const auto &coords = u0_cons_pack.GetCoords(b);
+                // Now directly update
+                parthenon::par_for_inner(
+                    member, 0, u0_cons_pack.GetDim(4) - 1, il, iu,
+                    [&](const int v, const int i) {
+                      const auto du =
+                          -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i) -
+                            coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i)) /
+                          coords.CellVolume(k - 1, j, i);
 
-                    u0_cons_pack(b, v, k, j, i) = gam0 * u0_cons_pack(b, v, k, j, i) +
-                                                  gam1 * u1_cons_pack(b, v, k, j, i) +
-                                                  beta_dt * du;
-                  });
-              member.team_barrier();
+                      // WARNING: this is specific to the VL2 integrator
+                      u0_cons_pack(b, v, k - 1, j, i) +=
+                          // gam0 * u0_cons_pack(b, v, k, j, i) +
+                          // gam1 * u1_cons_pack(b, v, k, j, i) +
+                          beta_dt * du;
+                    });
+                member.team_barrier();
+              }
             }
             // swap the arrays for the next step
             auto *tmp = wl.data();
             wl.assign_data(wlb.data());
             wlb.assign_data(tmp);
+            tmp = flxr.data();
+            flxr.assign_data(flxl.data());
+            flxl.assign_data(tmp);
           }
         });
   }
