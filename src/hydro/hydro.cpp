@@ -33,6 +33,7 @@
 #include "hydro.hpp"
 #include "interface/metadata.hpp"
 #include "interface/params.hpp"
+#include "kokkos_abstraction.hpp"
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
@@ -1108,17 +1109,19 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
 
         const auto &coords = u0_cons_pack.GetCoords(b);
         // Now directly update
-        parthenon::par_for_inner(
-            member, 0, u0_cons_pack.GetDim(4) - 1, ib.s, ib.e,
-            [&](const int v, const int i) {
-              const auto du = -(coords.FaceArea<X1DIR>(k, j, i + 1) * flx(v, i + 1) -
-                                coords.FaceArea<X1DIR>(k, j, i) * flx(v, i)) /
-                              coords.CellVolume(k, j, i);
+        auto team_range =
+            Kokkos::TeamVectorMDRange<Kokkos::Rank<2>, parthenon::team_mbr_t>(
+                member, u0_cons_pack.GetDim(4), ib.e - ib.s + 1);
+        Kokkos::parallel_for(team_range, [&](const int v, const int ii) {
+          const auto i = ii + ib.s;
+          const auto du = -(coords.FaceArea<X1DIR>(k, j, i + 1) * flx(v, i + 1) -
+                            coords.FaceArea<X1DIR>(k, j, i) * flx(v, i)) /
+                          coords.CellVolume(k, j, i);
 
-              // WARNING: removing gam0 is specific to the VL2 integrator
-              u0_cons_pack(b, v, k, j, i) = // gam0 * u0_cons_pack(b, v, k, j, i) +
-                  gam1 * u1_cons_pack(b, v, k, j, i) + beta_dt * du;
-            });
+          // WARNING: removing gam0 is specific to the VL2 integrator
+          u0_cons_pack(b, v, k, j, i) = // gam0 * u0_cons_pack(b, v, k, j, i) +
+              gam1 * u1_cons_pack(b, v, k, j, i) + beta_dt * du;
+        });
       });
   //--------------------------------------------------------------------------------------
   // j-direction
@@ -1159,20 +1162,21 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
               if (j > jb.s) {
                 const auto &coords = u0_cons_pack.GetCoords(b);
                 // Now directly update
-                parthenon::par_for_inner(
-                    member, 0, u0_cons_pack.GetDim(4) - 1, il, iu,
-                    [&](const int v, const int i) {
-                      const auto du =
-                          -(coords.FaceArea<X2DIR>(k, j, i) * flxr(v, i) -
-                            coords.FaceArea<X2DIR>(k, j - 1, i) * flxl(v, i)) /
-                          coords.CellVolume(k, j - 1, i);
+                auto team_range =
+                    Kokkos::TeamVectorMDRange<Kokkos::Rank<2>, parthenon::team_mbr_t>(
+                        member, u0_cons_pack.GetDim(4), iu - il + 1);
+                Kokkos::parallel_for(team_range, [&](const int v, const int ii) {
+                  const auto i = ii + il;
+                  const auto du = -(coords.FaceArea<X2DIR>(k, j, i) * flxr(v, i) -
+                                    coords.FaceArea<X2DIR>(k, j - 1, i) * flxl(v, i)) /
+                                  coords.CellVolume(k, j - 1, i);
 
-                      // WARNING: this is specific to the VL2 integrator
-                      u0_cons_pack(b, v, k, j - 1, i) +=
-                          // gam0 * u0_cons_pack(b, v, k, j, i) +
-                          // gam1 * u1_cons_pack(b, v, k, j, i) +
-                          beta_dt * du;
-                    });
+                  // WARNING: this is specific to the VL2 integrator
+                  u0_cons_pack(b, v, k, j - 1, i) +=
+                      // gam0 * u0_cons_pack(b, v, k, j, i) +
+                      // gam1 * u1_cons_pack(b, v, k, j, i) +
+                      beta_dt * du;
+                });
                 member.team_barrier();
               }
             }
@@ -1220,20 +1224,21 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
               if (k > kb.s) {
                 const auto &coords = u0_cons_pack.GetCoords(b);
                 // Now directly update
-                parthenon::par_for_inner(
-                    member, 0, u0_cons_pack.GetDim(4) - 1, il, iu,
-                    [&](const int v, const int i) {
-                      const auto du =
-                          -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i) -
-                            coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i)) /
-                          coords.CellVolume(k - 1, j, i);
+                auto team_range =
+                    Kokkos::TeamVectorMDRange<Kokkos::Rank<2>, parthenon::team_mbr_t>(
+                        member, u0_cons_pack.GetDim(4), iu - il + 1);
+                Kokkos::parallel_for(team_range, [&](const int v, const int ii) {
+                  const auto i = ii + il;
+                  const auto du = -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i) -
+                                    coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i)) /
+                                  coords.CellVolume(k - 1, j, i);
 
-                      // WARNING: this is specific to the VL2 integrator
-                      u0_cons_pack(b, v, k - 1, j, i) +=
-                          // gam0 * u0_cons_pack(b, v, k, j, i) +
-                          // gam1 * u1_cons_pack(b, v, k, j, i) +
-                          beta_dt * du;
-                    });
+                  // WARNING: this is specific to the VL2 integrator
+                  u0_cons_pack(b, v, k - 1, j, i) +=
+                      // gam0 * u0_cons_pack(b, v, k, j, i) +
+                      // gam1 * u1_cons_pack(b, v, k, j, i) +
+                      beta_dt * du;
+                });
                 member.team_barrier();
               }
             }
