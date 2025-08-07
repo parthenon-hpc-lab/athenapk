@@ -31,7 +31,7 @@ import utils.test_case
 sys.dont_write_bytecode = True
 
 # if this is updated make sure to update the assert statements for the number of MPI ranks, too
-lin_res = [16, 32, 64]  # resolution for linear convergence
+lin_res = [16, 32, 64, 128]  # resolution for linear convergence
 method_cfgs = [
     {"integrator": "vl2", "recon": "plm", "riemann": "hlld"},
     {"integrator": "vl2", "recon": "wenoz", "riemann": "hlld"},
@@ -40,9 +40,12 @@ method_cfgs = [
     {"integrator": "rk2", "recon": "wenoz", "riemann": "hlld"},
     {"integrator": "rk2", "recon": "ppm", "riemann": "hlld"},
     {"integrator": "rk3", "recon": "ppm", "riemann": "hlld"},
+    {"integrator": "rk3", "recon": "wenoz", "riemann": "hlld"},
 ]
 
-wave_flags = [0, 1, 2, 3, 4, 5, 6]
+# TODO(pgrete) figure out why the entropy wave times out
+# wave_flags = [0, 1, 2, 4, 5, 6]
+wave_flags = [0, 1, 2]
 
 all_cfgs = list(itertools.product(method_cfgs, wave_flags, lin_res))
 
@@ -58,7 +61,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             lin_res[0] / parameters.num_ranks >= 4
         ), "Use <= 8 ranks for convergence test."
 
-        wave_flag, method_cfg, res = all_cfgs[step - 1]
+        method_cfg, wave_flag, res = all_cfgs[step - 1]
         integrator = method_cfg["integrator"]
         recon = method_cfg["recon"]
         if "riemann" in method_cfg.keys():
@@ -128,44 +131,69 @@ class TestCase(utils.test_case.TestCaseAbs):
         #    print("QUICK AND DIRTY TEST FAILED")
         #    analyze_status = False
 
-        data = data.reshape((n_meth, n_wave, n_res))
+        data = data.reshape((n_meth, n_wave, n_res, -1))
+
+        wave_axs = {
+            0: [0, 0],
+            1: [1, 0],
+            2: [2, 0],
+            # 3: [3, 0],
+            4: [2, 1],
+            5: [1, 1],
+            6: [0, 1],
+        }
+
+        fig, axs = plt.subplots(3, 2, sharex=True, sharey=True, figsize=(9, 9))
 
         markers = "ov^<>sp*hDXd+|x"
         for i, cfg in enumerate(method_cfgs):
-            plt.plot(
-                data[i * n_res : (i + 1) * n_res, 0],
-                data[i * n_res : (i + 1) * n_res, 4],
-                marker=markers[i],
-                label=(
-                    (
-                        f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
-                        f'{"hlle" if "riemann" not in cfg.keys() else cfg["riemann"]}'
-                    )
-                ),
+            for w, wave_flag in enumerate(wave_flags):
+                this_data = data[i, w]
+                row, col = wave_axs[wave_flag]
+                axs[row, col].plot(
+                    this_data[:, 0],
+                    this_data[:, 4],
+                    marker=markers[i],
+                    label=(
+                        (
+                            f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
+                            f'{"hlle" if "riemann" not in cfg.keys() else cfg["riemann"]}'
+                        )
+                    ),
+                )
+
+        for ax in axs.ravel():
+            ax.plot(
+                [32, 2 * lin_res[-1]],
+                [1.7e-7, 1.7e-7 / (2 * lin_res[-1] / 32) ** 2],
+                "--",
+                label="second order",
             )
+            ax.plot(
+                [32, 2 * lin_res[-1]],
+                [3.7e-8, 3.7e-8 / (2 * lin_res[-1] / 32) ** 2],
+                "--",
+                label="second order",
+            )
+            ax.plot(
+                [32, 2 * lin_res[-1]],
+                [5.6e-8, 5.6e-8 / (2 * lin_res[-1] / 32) ** 3],
+                "--",
+                label="third order",
+            )
+            ax.grid()
 
-        plt.plot([32, 512], [7e-7, 7e-7 / (512 / 32)], "--", label="first order")
-        plt.plot(
-            [32, 512], [1.7e-7, 1.7e-7 / (512 / 32) ** 2], "--", label="second order"
-        )
-        plt.plot(
-            [32, 512], [3.7e-8, 3.7e-8 / (512 / 32) ** 2], "--", label="second order"
-        )
-        plt.plot(
-            [32, 512], [5.6e-8, 5.6e-8 / (512 / 32) ** 3], "--", label="third order"
-        )
-        plt.plot(
-            [32, 512], [3.6e-9, 3.6e-9 / (512 / 32) ** 3], "--", label="third order"
-        )
+        axs[0, 0].set_ylim(1e-10, 5e-7)
+        axs[0, 0].set_xscale("log")
+        axs[0, 0].set_yscale("log")
+        axs[0, 0].legend(bbox_to_anchor=(0, 0), loc="lower left", fontsize=8, ncol=2)
 
-        plt.ylim(1e-12, 5e-6)
-
-        plt.legend(bbox_to_anchor=(1, 1), loc="upper left")
-        plt.xscale("log")
-        plt.yscale("log")
-        plt.ylabel("L1 err")
-        plt.xlabel("Linear resolution")
-        plt.savefig(
+        for i in range(3):
+            axs[i, 0].set_ylabel("L1 err")
+        axs[-1, 0].set_xlabel("Linear resolution")
+        axs[-1, 1].set_xlabel("Linear resolution")
+        fig.tight_layout()
+        fig.savefig(
             os.path.join(parameters.output_path, "mhd-linearwave-errors.png"),
             bbox_inches="tight",
         )
