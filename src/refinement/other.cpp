@@ -40,7 +40,9 @@ parthenon::AmrTag MaxDensity(MeshBlockData<Real> *rc) {
   return parthenon::AmrTag::same;
 }
 
-parthenon::AmrTag Always(MeshBlockData<Real> * /*mbd*/) { return parthenon::AmrTag::refine; };
+parthenon::AmrTag Always(MeshBlockData<Real> * /*mbd*/) {
+  return parthenon::AmrTag::refine;
+};
 
 } // namespace other
 } // namespace refinement
