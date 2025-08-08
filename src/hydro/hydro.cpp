@@ -34,6 +34,7 @@
 #include "impl/Kokkos_Profiling.hpp"
 #include "interface/metadata.hpp"
 #include "interface/params.hpp"
+#include "kokkos_abstraction.hpp"
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
@@ -1359,6 +1360,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             flxl.assign_data(tmp);
           }
         });
+
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x3 flux" + suffix + " TVR", DevExecSpace(),
         scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, jl, ju,
@@ -1413,6 +1415,112 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             tmp = flxr.data();
             flxr.assign_data(flxl.data());
             flxl.assign_data(tmp);
+          }
+        });
+
+    const int cache_level = 0;   // use actual scratch pad
+    const int pencil_width = 26; // number of elements in single cached var
+    using Cache2D = parthenon::ScratchPad2D<Real>;
+    size_t cache_size_in_bytes =
+        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, pencil_width) * 10;
+    const auto Ni = iu - il;
+    // only save for positive int and no overflows which is the case for our indices
+    const auto Ni_outer = (Ni + pencil_width - 1) / pencil_width;
+
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux" + suffix + " TVR better mem",
+        DevExecSpace(), cache_size_in_bytes, cache_level, 0, u0_cons_pack.GetDim(5) - 1,
+        jl, ju, 0, Ni_outer - 1,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j,
+                      const int io) {
+          const int ill = io * pencil_width + il; // lower local/pencil i index
+          int iul = (io + 1) * pencil_width + il; // uppper local/pencil i index
+          // Given that we're not always exactly matching bounds, we need to adjust
+          iul = std::min(iul, iu);
+
+          const auto &prim = u0_prim_pack(b);
+          Cache2D km2(member.team_scratch(cache_level), num_scratch_vars, pencil_width);
+          Cache2D km1(member.team_scratch(cache_level), num_scratch_vars, pencil_width);
+          Cache2D kn0(member.team_scratch(cache_level), num_scratch_vars, pencil_width);
+          Cache2D kp1(member.team_scratch(cache_level), num_scratch_vars, pencil_width);
+          Cache2D kp2(member.team_scratch(cache_level), num_scratch_vars, pencil_width);
+          Cache2D wl(member.team_scratch(cache_level), num_scratch_vars, pencil_width);
+          Cache2D wr(member.team_scratch(cache_level), num_scratch_vars, pencil_width);
+          Cache2D wlb(member.team_scratch(cache_level), num_scratch_vars, pencil_width);
+          Cache2D flxr(member.team_scratch(cache_level), num_scratch_vars, pencil_width);
+          Cache2D flxl(member.team_scratch(cache_level), num_scratch_vars, pencil_width);
+
+          // Fill initial pencils
+          const int Nv = u0_cons_pack.GetDim(4);
+          const int Nil = iul - ill + 1;
+          const int NvNil = Nv * Nil;
+          auto tvr = Kokkos::TeamVectorRange(member, u0_cons_pack.GetDim(4), NvNil);
+          Kokkos::parallel_for(tvr, [&](const int idx) {
+            const int v = idx / Nil;
+            const int i = idx % Nil + ill;
+            km2(v, i) = prim(v, kb.s - 1 - 2, j, i);
+            km1(v, i) = prim(v, kb.s - 1 - 1, j, i);
+            kn0(v, i) = prim(v, kb.s - 1 + 0, j, i);
+            kp1(v, i) = prim(v, kb.s - 1 + 1, j, i);
+            // kp2 is filled in k loop
+          });
+          member.team_barrier();
+
+          for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
+            Kokkos::parallel_for(tvr, [&](const int idx) {
+              const int v = idx / Nil;
+              const int i = idx % Nil + ill;
+              kp2(v, i) = prim(v, k + 2, j, i);
+            });
+            member.team_barrier();
+
+            // reconstruct L/R states at j
+            // Reconstruct<recon, X3DIR>(member, k, j, ill, iul, prim, wlb, wr);
+            Kokkos::parallel_for(tvr, [&](const int idx) {
+              const int v = idx / Nil;
+              const int i = idx % Nil + ill;
+              PPM(km2(v, i), km1(v, i), kn0(v, i), kp1(v, i), kp2(v, i), wlb(v, i),
+                  wr(v, i));
+            });
+            // Sync all threads in the team so that scratch memory is consistent
+            member.team_barrier();
+
+            if (k > kb.s - 1) {
+              riemann.Solve(member, ill, iul, IV3, wl, wr, flxr, eos, c_h);
+              member.team_barrier();
+              if (k > kb.s) {
+                const auto &coords = u0_cons_pack.GetCoords(b);
+                // Now directly update
+                auto tvr = Kokkos::TeamVectorRange(member, u0_cons_pack.GetDim(4), NvNil);
+                Kokkos::parallel_for(tvr, [&](const int idx) {
+                  const int v = idx / Nil;
+                  const int i = idx % Nil + ill;
+                  const auto du = -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i) -
+                                    coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i)) /
+                                  coords.CellVolume(k - 1, j, i);
+
+                  // WARNING: this is specific to the VL2 integrator
+                  u0_cons_pack(b, v, k - 1, j, i) +=
+                      // gam0 * u0_cons_pack(b, v, k, j, i) +
+                      // gam1 * u1_cons_pack(b, v, k, j, i) +
+                      beta_dt * du;
+                });
+                member.team_barrier();
+              }
+            }
+            // swap the arrays for the next step
+            auto *tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+            tmp = flxr.data();
+            flxr.assign_data(flxl.data());
+            flxl.assign_data(tmp);
+            tmp = km2.data();
+            km2.assign_data(km1.data());
+            km1.assign_data(kn0.data());
+            kn0.assign_data(kp1.data());
+            kp1.assign_data(kp2.data());
+            kp2.assign_data(tmp);
           }
         });
   }
