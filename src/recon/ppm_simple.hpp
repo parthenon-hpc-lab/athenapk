@@ -178,7 +178,7 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
   const int Nv = q.GetDim(4);
   const int Ni = iu - il + 1;
   const int NvNi = Nv * Ni;
-  auto tvr = Kokkos::TeamVectorRange(member, u0_cons_pack.GetDim(4), NvNi);
+  auto tvr = Kokkos::TeamVectorRange(member, NvNi);
   Kokkos::parallel_for(tvr, [&](const int idx) {
     const int n = idx / Ni;
     const int i = idx % Ni + il;
@@ -198,7 +198,6 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
       PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
     }
   });
-}
 }
 
 #endif // RECONSTRUCT_PPM_SIMPLE_HPP_
