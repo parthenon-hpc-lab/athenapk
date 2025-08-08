@@ -1433,8 +1433,8 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         jl, ju, 0, Ni_outer - 1,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j,
                       const int io) {
-          const int ill = io * pencil_width + il; // lower local/pencil i index
-          int iul = (io + 1) * pencil_width + il; // uppper local/pencil i index
+          const int ill = io * pencil_width + il;     // lower local/pencil i index
+          int iul = (io + 1) * pencil_width + il - 1; // uppper local/pencil i index
           // Given that we're not always exactly matching bounds, we need to adjust
           iul = std::min(iul, iu);
 
@@ -1458,10 +1458,10 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
           Kokkos::parallel_for(tvr, [&](const int idx) {
             const int v = idx / Nil;
             const int i = idx % Nil + ill;
-            km2(v, i) = prim(v, kb.s - 1 - 2, j, i);
-            km1(v, i) = prim(v, kb.s - 1 - 1, j, i);
-            kn0(v, i) = prim(v, kb.s - 1 + 0, j, i);
-            kp1(v, i) = prim(v, kb.s - 1 + 1, j, i);
+            km2(v, i - ill) = prim(v, kb.s - 1 - 2, j, i);
+            km1(v, i - ill) = prim(v, kb.s - 1 - 1, j, i);
+            kn0(v, i - ill) = prim(v, kb.s - 1 + 0, j, i);
+            kp1(v, i - ill) = prim(v, kb.s - 1 + 1, j, i);
             // kp2 is filled in k loop
           });
           member.team_barrier();
@@ -1470,7 +1470,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             Kokkos::parallel_for(tvr, [&](const int idx) {
               const int v = idx / Nil;
               const int i = idx % Nil + ill;
-              kp2(v, i) = prim(v, k + 2, j, i);
+              kp2(v, i - ill) = prim(v, k + 2, j, i);
             });
             member.team_barrier();
 
@@ -1478,7 +1478,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             // Reconstruct<recon, X3DIR>(member, k, j, ill, iul, prim, wlb, wr);
             Kokkos::parallel_for(tvr, [&](const int idx) {
               const int v = idx / Nil;
-              const int i = idx % Nil + ill;
+              const int i = idx % Nil; // no ill offset here as everything is local
               PPM(km2(v, i), km1(v, i), kn0(v, i), kp1(v, i), kp2(v, i), wlb(v, i),
                   wr(v, i));
             });
@@ -1486,7 +1486,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             member.team_barrier();
 
             if (k > kb.s - 1) {
-              riemann.Solve(member, ill, iul, IV3, wl, wr, flxr, eos, c_h);
+              riemann.Solve(member, 0, Nil, IV3, wl, wr, flxr, eos, c_h);
               member.team_barrier();
               if (k > kb.s) {
                 const auto &coords = u0_cons_pack.GetCoords(b);
@@ -1495,9 +1495,10 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                 Kokkos::parallel_for(tvr, [&](const int idx) {
                   const int v = idx / Nil;
                   const int i = idx % Nil + ill;
-                  const auto du = -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i) -
-                                    coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i)) /
-                                  coords.CellVolume(k - 1, j, i);
+                  const auto du =
+                      -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i - ill) -
+                        coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i - ill)) /
+                      coords.CellVolume(k - 1, j, i);
 
                   // WARNING: this is specific to the VL2 integrator
                   u0_cons_pack(b, v, k - 1, j, i) +=
