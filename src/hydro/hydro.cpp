@@ -1089,7 +1089,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
     suffix = " HO";
   }
 
-  const auto dx1 = u0_cons_pack.GetCoords(0).Dxc<X1DIR>(0);
+  const auto dx1 = pmb->coords.CellWidth<X1DIR>(0, 0, 0);
   parthenon::par_for_outer(
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux" + suffix + " TVR", DevExecSpace(),
       scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku, jl, ju,
@@ -1135,7 +1135,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
     else // 3D
       kl = kb.s - 1, ku = kb.e + 1;
 
-    const auto dx2 = u0_cons_pack.GetCoords(0).Dxc<X2DIR>(0);
+    const auto dx2 = pmb->coords.CellWidth<X2DIR>(0, 0, 0);
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x2 flux" + suffix + " TVR", DevExecSpace(),
         scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku,
@@ -1196,7 +1196,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
 
-    const auto dx3 = u0_cons_pack.GetCoords(0).Dxc<X3DIR>(0);
+    const auto dx3 = pmb->coords.CellWidth<X3DIR>(0, 0, 0);
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x3 flux" + suffix + " TVR", DevExecSpace(),
         scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, jl, ju,
