@@ -314,7 +314,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
         flx(ivx, i) = fl.mx;
         flx(ivy, i) = fl.my;
         flx(ivz, i) = fl.mz;
-        flx(IEN, i) = fl.e;
+        flxi[IEN] = fl.e;
         flx(iBy, i) = fl.by;
         flx(iBz, i) = fl.bz;
       } else if (spd[4] <= 0.0) {
@@ -323,7 +323,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
         flx(ivx, i) = fr.mx;
         flx(ivy, i) = fr.my;
         flx(ivz, i) = fr.mz;
-        flx(IEN, i) = fr.e;
+        flxi[IEN] = fr.e;
         flx(iBy, i) = fr.by;
         flx(iBz, i) = fr.bz;
       } else if (spd[1] >= 0.0) {
@@ -332,7 +332,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
         flx(ivx, i) = fl.mx + ulst.mx;
         flx(ivy, i) = fl.my + ulst.my;
         flx(ivz, i) = fl.mz + ulst.mz;
-        flx(IEN, i) = fl.e + ulst.e;
+        flxi[IEN] = fl.e + ulst.e;
         flx(iBy, i) = fl.by + ulst.by;
         flx(iBz, i) = fl.bz + ulst.bz;
       } else if (spd[2] >= 0.0) {
@@ -341,7 +341,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
         flx(ivx, i) = fl.mx + ulst.mx + uldst.mx;
         flx(ivy, i) = fl.my + ulst.my + uldst.my;
         flx(ivz, i) = fl.mz + ulst.mz + uldst.mz;
-        flx(IEN, i) = fl.e + ulst.e + uldst.e;
+        flxi[IEN] = fl.e + ulst.e + uldst.e;
         flx(iBy, i) = fl.by + ulst.by + uldst.by;
         flx(iBz, i) = fl.bz + ulst.bz + uldst.bz;
       } else if (spd[3] > 0.0) {
@@ -350,7 +350,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
         flx(ivx, i) = fr.mx + urst.mx + urdst.mx;
         flx(ivy, i) = fr.my + urst.my + urdst.my;
         flx(ivz, i) = fr.mz + urst.mz + urdst.mz;
-        flx(IEN, i) = fr.e + urst.e + urdst.e;
+        flxi[IEN] = fr.e + urst.e + urdst.e;
         flx(iBy, i) = fr.by + urst.by + urdst.by;
         flx(iBz, i) = fr.bz + urst.bz + urdst.bz;
       } else {
@@ -359,10 +359,20 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
         flx(ivx, i) = fr.mx + urst.mx;
         flx(ivy, i) = fr.my + urst.my;
         flx(ivz, i) = fr.mz + urst.mz;
-        flx(IEN, i) = fr.e + urst.e;
+        flxi[IEN] = fr.e + urst.e;
         flx(iBy, i) = fr.by + urst.by;
         flx(iBz, i) = fr.bz + urst.bz;
       }
+
+      flx(IDN, i) = flx(IDN, i);
+      flx(ivx, i) = flx(ivx, i);
+      flx(ivy, i) = flx(ivy, i);
+      flx(ivz, i) = flx(ivz, i);
+      flx(IEN, i) = flxi[IEN];
+      flx(iBx, i) = flx(iBx, i);
+      flx(iBy, i) = flx(iBy, i);
+      flx(iBz, i) = flx(iBz, i);
+      flx(IPS, i) = flx(IPS, i);
     });
   }
 };
