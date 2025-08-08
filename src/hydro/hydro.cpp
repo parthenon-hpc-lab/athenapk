@@ -31,9 +31,9 @@
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
+#include "impl/Kokkos_Profiling.hpp"
 #include "interface/metadata.hpp"
 #include "interface/params.hpp"
-#include "kokkos_abstraction.hpp"
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
@@ -1229,6 +1229,170 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                         member, u0_cons_pack.GetDim(4), iu - il + 1);
                 Kokkos::parallel_for(team_range, [&](const int v, const int ii) {
                   const auto i = ii + il;
+                  const auto du = -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i) -
+                                    coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i)) /
+                                  coords.CellVolume(k - 1, j, i);
+
+                  // WARNING: this is specific to the VL2 integrator
+                  u0_cons_pack(b, v, k - 1, j, i) +=
+                      // gam0 * u0_cons_pack(b, v, k, j, i) +
+                      // gam1 * u1_cons_pack(b, v, k, j, i) +
+                      beta_dt * du;
+                });
+                member.team_barrier();
+              }
+            }
+            // swap the arrays for the next step
+            auto *tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+            tmp = flxr.data();
+            flxr.assign_data(flxl.data());
+            flxl.assign_data(tmp);
+          }
+        });
+
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux" + suffix + " par_for_inner_inner",
+        DevExecSpace(), scratch_size_in_bytes, scratch_level, 0,
+        u0_cons_pack.GetDim(5) - 1, jl, ju,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
+          const auto &prim = u0_prim_pack(b);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxr(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxl(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+          for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
+            // reconstruct L/R states at j
+            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
+            // Sync all threads in the team so that scratch memory is consistent
+            member.team_barrier();
+
+            if (k > kb.s - 1) {
+              riemann.Solve(member, il, iu, IV3, wl, wr, flxr, eos, c_h);
+              member.team_barrier();
+              if (k > kb.s) {
+                const auto &coords = u0_cons_pack.GetCoords(b);
+                // Now directly update
+                parthenon::par_for_inner(member, ib.s, ib.e, [&](const int i) {
+                  for (int v = 0; v < u0_cons_pack.GetDim(4); v++) {
+                    const auto du = -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i) -
+                                      coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i)) /
+                                    coords.CellVolume(k - 1, j, i);
+
+                    // WARNING: this is specific to the VL2 integrator
+                    u0_cons_pack(b, v, k - 1, j, i) +=
+                        // gam0 * u0_cons_pack(b, v, k, j, i) +
+                        // gam1 * u1_cons_pack(b, v, k, j, i) +
+                        beta_dt * du;
+                  }
+                });
+                member.team_barrier();
+              }
+            }
+            // swap the arrays for the next step
+            auto *tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+            tmp = flxr.data();
+            flxr.assign_data(flxl.data());
+            flxl.assign_data(tmp);
+          }
+        });
+
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux" + suffix + " par_for_inner_outer",
+        DevExecSpace(), scratch_size_in_bytes, scratch_level, 0,
+        u0_cons_pack.GetDim(5) - 1, jl, ju,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
+          const auto &prim = u0_prim_pack(b);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxr(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxl(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+          for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
+            // reconstruct L/R states at j
+            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
+            // Sync all threads in the team so that scratch memory is consistent
+            member.team_barrier();
+
+            if (k > kb.s - 1) {
+              riemann.Solve(member, il, iu, IV3, wl, wr, flxr, eos, c_h);
+              member.team_barrier();
+              if (k > kb.s) {
+                const auto &coords = u0_cons_pack.GetCoords(b);
+                // Now directly update
+                for (int v = 0; v < u0_cons_pack.GetDim(4); v++) {
+                  parthenon::par_for_inner(member, ib.s, ib.e, [&](const int i) {
+                    const auto du = -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i) -
+                                      coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i)) /
+                                    coords.CellVolume(k - 1, j, i);
+
+                    // WARNING: this is specific to the VL2 integrator
+                    u0_cons_pack(b, v, k - 1, j, i) +=
+                        // gam0 * u0_cons_pack(b, v, k, j, i) +
+                        // gam1 * u1_cons_pack(b, v, k, j, i) +
+                        beta_dt * du;
+                  });
+                }
+                member.team_barrier();
+              }
+            }
+            // swap the arrays for the next step
+            auto *tmp = wl.data();
+            wl.assign_data(wlb.data());
+            wlb.assign_data(tmp);
+            tmp = flxr.data();
+            flxr.assign_data(flxl.data());
+            flxl.assign_data(tmp);
+          }
+        });
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux" + suffix + " TVR", DevExecSpace(),
+        scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, jl, ju,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
+          const auto &prim = u0_prim_pack(b);
+          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
+                                           num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxr(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxl(member.team_scratch(scratch_level),
+                                             num_scratch_vars, nx1);
+          for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
+            // reconstruct L/R states at j
+            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
+            // Sync all threads in the team so that scratch memory is consistent
+            member.team_barrier();
+
+            if (k > kb.s - 1) {
+              riemann.Solve(member, il, iu, IV3, wl, wr, flxr, eos, c_h);
+              member.team_barrier();
+              if (k > kb.s) {
+                const auto &coords = u0_cons_pack.GetCoords(b);
+                // Now directly update
+                const int Nv = u0_cons_pack.GetDim(4);
+                const int Ni = iu - il + 1;
+                const int NvNi = Nv * Ni;
+                auto tvr = Kokkos::TeamVectorRange(member, u0_cons_pack.GetDim(4), NvNi);
+                Kokkos::parallel_for(tvr, [&](const int idx) {
+                  const int v = idx / Ni;
+                  const int i = idx % Ni + il;
                   const auto du = -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i) -
                                     coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i)) /
                                   coords.CellVolume(k - 1, j, i);
