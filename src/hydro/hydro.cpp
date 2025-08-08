@@ -1089,6 +1089,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
     suffix = " HO";
   }
 
+  const auto dx1 = u0_cons_pack.GetCoords(0).Dxc<X1DIR>(0);
   parthenon::par_for_outer(
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux" + suffix + " TVR", DevExecSpace(),
       scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku, jl, ju,
@@ -1108,7 +1109,6 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         riemann.Solve(member, ib.s, ib.e + 1, IV1, wl, wr, flx, eos, c_h);
         member.team_barrier();
 
-        const auto &coords = u0_cons_pack.GetCoords(b);
         // Now directly update
         const int Ni = ib.e - ib.s + 1;
         const int NvNi = u0_cons_pack.GetDim(4) * Ni;
@@ -1116,9 +1116,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         Kokkos::parallel_for(tvr, [&](const int idx) {
           const int v = idx / Ni;
           const int i = idx % Ni + ib.s;
-          const auto du = -(coords.FaceArea<X1DIR>(k, j, i + 1) * flx(v, i + 1) -
-                            coords.FaceArea<X1DIR>(k, j, i) * flx(v, i)) /
-                          coords.CellVolume(k, j, i);
+          const auto du = -(flx(v, i + 1) - flx(v, i)) / dx1;
 
           // WARNING: removing gam0 is specific to the VL2 integrator
           u0_cons_pack(b, v, k, j, i) = // gam0 * u0_cons_pack(b, v, k, j, i) +
@@ -1137,6 +1135,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
     else // 3D
       kl = kb.s - 1, ku = kb.e + 1;
 
+    const auto dx2 = u0_cons_pack.GetCoords(0).Dxc<X2DIR>(0);
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x2 flux" + suffix + " TVR", DevExecSpace(),
         scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku,
@@ -1162,7 +1161,6 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
               riemann.Solve(member, il, iu, IV2, wl, wr, flxr, eos, c_h);
               member.team_barrier();
               if (j > jb.s) {
-                const auto &coords = u0_cons_pack.GetCoords(b);
                 // Now directly update
                 const int Ni = iu - il + 1;
                 const int NvNi = u0_cons_pack.GetDim(4) * Ni;
@@ -1170,9 +1168,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                 Kokkos::parallel_for(tvr, [&](const int idx) {
                   const int v = idx / Ni;
                   const int i = idx % Ni + il;
-                  const auto du = -(coords.FaceArea<X2DIR>(k, j, i) * flxr(v, i) -
-                                    coords.FaceArea<X2DIR>(k, j - 1, i) * flxl(v, i)) /
-                                  coords.CellVolume(k, j - 1, i);
+                  const auto du = -(flxr(v, i) - flxl(v, i)) / dx2;
 
                   // WARNING: this is specific to the VL2 integrator
                   u0_cons_pack(b, v, k, j - 1, i) +=
@@ -1200,6 +1196,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
 
+    const auto dx3 = u0_cons_pack.GetCoords(0).Dxc<X3DIR>(0);
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x3 flux" + suffix + " TVR", DevExecSpace(),
         scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, jl, ju,
@@ -1225,7 +1222,6 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
               riemann.Solve(member, il, iu, IV3, wl, wr, flxr, eos, c_h);
               member.team_barrier();
               if (k > kb.s) {
-                const auto &coords = u0_cons_pack.GetCoords(b);
                 // Now directly update
                 const int Ni = iu - il + 1;
                 const int NvNi = u0_cons_pack.GetDim(4) * Ni;
@@ -1233,9 +1229,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                 Kokkos::parallel_for(tvr, [&](const int idx) {
                   const int v = idx / Ni;
                   const int i = idx % Ni + il;
-                  const auto du = -(coords.FaceArea<X3DIR>(k, j, i) * flxr(v, i) -
-                                    coords.FaceArea<X3DIR>(k - 1, j, i) * flxl(v, i)) /
-                                  coords.CellVolume(k - 1, j, i);
+                  const auto du = -(flxr(v, i) - flxl(v, i)) / dx3;
 
                   // WARNING: this is specific to the VL2 integrator
                   u0_cons_pack(b, v, k - 1, j, i) +=
