@@ -1113,7 +1113,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         const int Nv = u0_cons_pack.GetDim(4);
         const int Ni = ib.e - ib.s + 1;
         const int NvNi = Nv * Ni;
-        auto tvr = Kokkos::TeamVectorRange(member, u0_cons_pack.GetDim(4), NvNi);
+        auto tvr = Kokkos::TeamVectorRange(member, NvNi);
         Kokkos::parallel_for(tvr, [&](const int idx) {
           const int v = idx / Ni;
           const int i = idx % Ni + ib.s;
@@ -1168,7 +1168,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                 const int Nv = u0_cons_pack.GetDim(4);
                 const int Ni = iu - il + 1;
                 const int NvNi = Nv * Ni;
-                auto tvr = Kokkos::TeamVectorRange(member, u0_cons_pack.GetDim(4), NvNi);
+                auto tvr = Kokkos::TeamVectorRange(member, NvNi);
                 Kokkos::parallel_for(tvr, [&](const int idx) {
                   const int v = idx / Ni;
                   const int i = idx % Ni + il;
@@ -1230,7 +1230,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
               const int Nv = u0_cons_pack.GetDim(4);
               const int Ni = iu - il + 1;
               const int NvNi = Nv * Ni;
-              auto tvr = Kokkos::TeamVectorRange(member, u0_cons_pack.GetDim(4), NvNi);
+              auto tvr = Kokkos::TeamVectorRange(member, NvNi);
               Kokkos::parallel_for(tvr, [&](const int idx) {
                 const int v = idx / Ni;
                 const int i = idx % Ni + il;
@@ -1496,7 +1496,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                 const int Nv = u0_cons_pack.GetDim(4);
                 const int Ni = iu - il + 1;
                 const int NvNi = Nv * Ni;
-                auto tvr = Kokkos::TeamVectorRange(member, u0_cons_pack.GetDim(4), NvNi);
+                auto tvr = Kokkos::TeamVectorRange(member, NvNi);
                 Kokkos::parallel_for(tvr, [&](const int idx) {
                   const int v = idx / Ni;
                   const int i = idx % Ni + il;
@@ -1566,7 +1566,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             const int Nv = u0_cons_pack.GetDim(4);
             const int Nil = iul - ill + 1;
             const int NvNil = Nv * Nil;
-            auto tvr = Kokkos::TeamVectorRange(member, u0_cons_pack.GetDim(4), NvNil);
+            auto tvr = Kokkos::TeamVectorRange(member, NvNil);
             Kokkos::parallel_for(tvr, [&](const int idx) {
               const int v = idx / Nil;
               const int i = idx % Nil + ill;
@@ -1670,7 +1670,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         const int Nv = u0_cons_pack.GetDim(4);
         const int Nil = iul - ill + 1;
         const int NvNil = Nv * Nil;
-        auto tvr = Kokkos::TeamVectorRange(member, u0_cons_pack.GetDim(4), NvNil);
+        auto tvr = Kokkos::TeamVectorRange(member, NvNil);
         Kokkos::parallel_for(tvr, [&](const int idx) {
           const int v = idx / Nil;
           const int i = idx % Nil + ill;
