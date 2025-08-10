@@ -55,7 +55,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
     // TODO(pgrete) move to a more central center and add logic
     constexpr int NGLMMHD = 9;
 
-    Real wli[NGLMMHD], wri[NGLMMHD], flxi[NGLMMHD];
+    Real wli[NGLMMHD], wri[NGLMMHD];
     Real spd[5];                     // signal speeds, left to right
     Cons1D ul, ur;                   // L/R states, conserved variables (computed)
     Cons1D ulst, uldst, urdst, urst; // Conserved variable for all states
@@ -87,8 +87,8 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
     Real bxi = 0.5 * (wli[IB1] + wri[IB1]) - 0.5 / c_h * (wri[IPS] - wli[IPS]);
     Real psii = 0.5 * (wli[IPS] + wri[IPS]) - 0.5 * c_h * (wri[IB1] - wli[IB1]);
     // and store flux
-    flxi[IB1] = psii;
-    flxi[IPS] = SQR(c_h) * bxi;
+    wl(iBx, k, j, i) = psii;
+    wl(IPS, k, j, i) = SQR(c_h) * bxi;
 
     // Compute L/R states for selected conserved variables
     Real bxsq = bxi * bxi;
@@ -326,69 +326,59 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
 
     if (spd[0] >= 0.0) {
       // return Fl if flow is supersonic
-      flxi[IDN] = fl.d;
-      flxi[IV1] = fl.mx;
-      flxi[IV2] = fl.my;
-      flxi[IV3] = fl.mz;
-      flxi[IEN] = fl.e;
-      flxi[IB2] = fl.by;
-      flxi[IB3] = fl.bz;
+      wl(IDN, k, j, i) = fl.d;
+      wl(ivx, k, j, i) = fl.mx;
+      wl(ivy, k, j, i) = fl.my;
+      wl(ivz, k, j, i) = fl.mz;
+      wl(IEN, k, j, i) = fl.e;
+      wl(iBy, k, j, i) = fl.by;
+      wl(iBz, k, j, i) = fl.bz;
     } else if (spd[4] <= 0.0) {
       // return Fr if flow is supersonic
-      flxi[IDN] = fr.d;
-      flxi[IV1] = fr.mx;
-      flxi[IV2] = fr.my;
-      flxi[IV3] = fr.mz;
-      flxi[IEN] = fr.e;
-      flxi[IB2] = fr.by;
-      flxi[IB3] = fr.bz;
+      wl(IDN, k, j, i) = fr.d;
+      wl(ivx, k, j, i) = fr.mx;
+      wl(ivy, k, j, i) = fr.my;
+      wl(ivz, k, j, i) = fr.mz;
+      wl(IEN, k, j, i) = fr.e;
+      wl(iBy, k, j, i) = fr.by;
+      wl(iBz, k, j, i) = fr.bz;
     } else if (spd[1] >= 0.0) {
       // return Fl*
-      flxi[IDN] = fl.d + ulst.d;
-      flxi[IV1] = fl.mx + ulst.mx;
-      flxi[IV2] = fl.my + ulst.my;
-      flxi[IV3] = fl.mz + ulst.mz;
-      flxi[IEN] = fl.e + ulst.e;
-      flxi[IB2] = fl.by + ulst.by;
-      flxi[IB3] = fl.bz + ulst.bz;
+      wl(IDN, k, j, i) = fl.d + ulst.d;
+      wl(ivx, k, j, i) = fl.mx + ulst.mx;
+      wl(ivy, k, j, i) = fl.my + ulst.my;
+      wl(ivz, k, j, i) = fl.mz + ulst.mz;
+      wl(IEN, k, j, i) = fl.e + ulst.e;
+      wl(iBy, k, j, i) = fl.by + ulst.by;
+      wl(iBz, k, j, i) = fl.bz + ulst.bz;
     } else if (spd[2] >= 0.0) {
       // return Fl**
-      flxi[IDN] = fl.d + ulst.d + uldst.d;
-      flxi[IV1] = fl.mx + ulst.mx + uldst.mx;
-      flxi[IV2] = fl.my + ulst.my + uldst.my;
-      flxi[IV3] = fl.mz + ulst.mz + uldst.mz;
-      flxi[IEN] = fl.e + ulst.e + uldst.e;
-      flxi[IB2] = fl.by + ulst.by + uldst.by;
-      flxi[IB3] = fl.bz + ulst.bz + uldst.bz;
+      wl(IDN, k, j, i) = fl.d + ulst.d + uldst.d;
+      wl(ivx, k, j, i) = fl.mx + ulst.mx + uldst.mx;
+      wl(ivy, k, j, i) = fl.my + ulst.my + uldst.my;
+      wl(ivz, k, j, i) = fl.mz + ulst.mz + uldst.mz;
+      wl(IEN, k, j, i) = fl.e + ulst.e + uldst.e;
+      wl(iBy, k, j, i) = fl.by + ulst.by + uldst.by;
+      wl(iBz, k, j, i) = fl.bz + ulst.bz + uldst.bz;
     } else if (spd[3] > 0.0) {
       // return Fr**
-      flxi[IDN] = fr.d + urst.d + urdst.d;
-      flxi[IV1] = fr.mx + urst.mx + urdst.mx;
-      flxi[IV2] = fr.my + urst.my + urdst.my;
-      flxi[IV3] = fr.mz + urst.mz + urdst.mz;
-      flxi[IEN] = fr.e + urst.e + urdst.e;
-      flxi[IB2] = fr.by + urst.by + urdst.by;
-      flxi[IB3] = fr.bz + urst.bz + urdst.bz;
+      wl(IDN, k, j, i) = fr.d + urst.d + urdst.d;
+      wl(ivx, k, j, i) = fr.mx + urst.mx + urdst.mx;
+      wl(ivy, k, j, i) = fr.my + urst.my + urdst.my;
+      wl(ivz, k, j, i) = fr.mz + urst.mz + urdst.mz;
+      wl(IEN, k, j, i) = fr.e + urst.e + urdst.e;
+      wl(iBy, k, j, i) = fr.by + urst.by + urdst.by;
+      wl(iBz, k, j, i) = fr.bz + urst.bz + urdst.bz;
     } else {
       // return Fr*
-      flxi[IDN] = fr.d + urst.d;
-      flxi[IV1] = fr.mx + urst.mx;
-      flxi[IV2] = fr.my + urst.my;
-      flxi[IV3] = fr.mz + urst.mz;
-      flxi[IEN] = fr.e + urst.e;
-      flxi[IB2] = fr.by + urst.by;
-      flxi[IB3] = fr.bz + urst.bz;
+      wl(IDN, k, j, i) = fr.d + urst.d;
+      wl(ivx, k, j, i) = fr.mx + urst.mx;
+      wl(ivy, k, j, i) = fr.my + urst.my;
+      wl(ivz, k, j, i) = fr.mz + urst.mz;
+      wl(IEN, k, j, i) = fr.e + urst.e;
+      wl(iBy, k, j, i) = fr.by + urst.by;
+      wl(iBz, k, j, i) = fr.bz + urst.bz;
     }
-
-    wl(IDN, k, j, i) = flxi[IDN];
-    wl(ivx, k, j, i) = flxi[IV1];
-    wl(ivy, k, j, i) = flxi[IV2];
-    wl(ivz, k, j, i) = flxi[IV3];
-    wl(IEN, k, j, i) = flxi[IEN];
-    wl(iBx, k, j, i) = flxi[IB1];
-    wl(iBy, k, j, i) = flxi[IB2];
-    wl(iBz, k, j, i) = flxi[IB3];
-    wl(IPS, k, j, i) = flxi[IPS];
   }
 };
 #endif // RSOLVERS_GLMMHD_HLLD_HPP_
