@@ -38,9 +38,10 @@ struct Cons1D {
 template <>
 struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
   static KOKKOS_INLINE_FUNCTION void
-  Solve(parthenon::team_mbr_t const &member, const int il, const int iu, const int ivx,
-        const ScratchPad2D<Real> &wl, const ScratchPad2D<Real> &wr,
-        ScratchPad2D<Real> &flx, const AdiabaticGLMMHDEOS &eos, const Real c_h) {
+  Solve(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
+        const int iu, const int ivx, const ScratchPad2D<Real> &wl,
+        const ScratchPad2D<Real> &wr, ScratchPad2D<Real> &flxm1, VariablePack<Real> &flx,
+        const AdiabaticGLMMHDEOS &eos, const Real c_h) {
     const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
     const int iBx = ivx - 1 + NHYDRO;
@@ -381,15 +382,48 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
         flxi[IB3] = fr.bz + urst.bz;
       }
 
-      flx(IDN, i) = flxi[IDN];
-      flx(ivx, i) = flxi[IV1];
-      flx(ivy, i) = flxi[IV2];
-      flx(ivz, i) = flxi[IV3];
-      flx(IEN, i) = flxi[IEN];
-      flx(iBx, i) = flxi[IB1];
-      flx(iBy, i) = flxi[IB2];
-      flx(iBz, i) = flxi[IB3];
-      flx(IPS, i) = flxi[IPS];
+      // Important, this assumes that dx1=dx2=dx3! (same in Riemann solve where flx is
+      // set)
+      if (ivx == IV1) {
+        flx(IDN, k, j, i - 1) = flxi[IDN] - flxm1(IDN, i);
+        flx(ivx, k, j, i - 1) = flxi[IV1] - flxm1(IV1, i);
+        flx(ivy, k, j, i - 1) = flxi[IV2] - flxm1(IV2, i);
+        flx(ivz, k, j, i - 1) = flxi[IV3] - flxm1(IV3, i);
+        flx(IEN, k, j, i - 1) = flxi[IEN] - flxm1(IEN, i);
+        flx(iBx, k, j, i - 1) = flxi[IB1] - flxm1(IB1, i);
+        flx(iBy, k, j, i - 1) = flxi[IB2] - flxm1(IB2, i);
+        flx(iBz, k, j, i - 1) = flxi[IB3] - flxm1(IB3, i);
+        flx(IPS, k, j, i - 1) = flxi[IPS] - flxm1(IPS, i);
+      } else if (ivx == IV2) {
+        flx(IDN, k, j - 1, i) += flxi[IDN] - flxm1(IDN, i);
+        flx(ivx, k, j - 1, i) += flxi[IV1] - flxm1(IV1, i);
+        flx(ivy, k, j - 1, i) += flxi[IV2] - flxm1(IV2, i);
+        flx(ivz, k, j - 1, i) += flxi[IV3] - flxm1(IV3, i);
+        flx(IEN, k, j - 1, i) += flxi[IEN] - flxm1(IEN, i);
+        flx(iBx, k, j - 1, i) += flxi[IB1] - flxm1(IB1, i);
+        flx(iBy, k, j - 1, i) += flxi[IB2] - flxm1(IB2, i);
+        flx(iBz, k, j - 1, i) += flxi[IB3] - flxm1(IB3, i);
+        flx(IPS, k, j - 1, i) += flxi[IPS] - flxm1(IPS, i);
+      } else if (ivx == IV3) {
+        flx(IDN, k - 1, j, i) += flxi[IDN] - flxm1(IDN, i);
+        flx(ivx, k - 1, j, i) += flxi[IV1] - flxm1(IV1, i);
+        flx(ivy, k - 1, j, i) += flxi[IV2] - flxm1(IV2, i);
+        flx(ivz, k - 1, j, i) += flxi[IV3] - flxm1(IV3, i);
+        flx(IEN, k - 1, j, i) += flxi[IEN] - flxm1(IEN, i);
+        flx(iBx, k - 1, j, i) += flxi[IB1] - flxm1(IB1, i);
+        flx(iBy, k - 1, j, i) += flxi[IB2] - flxm1(IB2, i);
+        flx(iBz, k - 1, j, i) += flxi[IB3] - flxm1(IB3, i);
+        flx(IPS, k - 1, j, i) += flxi[IPS] - flxm1(IPS, i);
+      }
+      flxm1(IDN, i) = flxi[IDN];
+      flxm1(IV1, i) = flxi[IV1];
+      flxm1(IV2, i) = flxi[IV2];
+      flxm1(IV3, i) = flxi[IV3];
+      flxm1(IEN, i) = flxi[IEN];
+      flxm1(IB1, i) = flxi[IB1];
+      flxm1(IB2, i) = flxi[IB2];
+      flxm1(IB3, i) = flxi[IB3];
+      flxm1(IPS, i) = flxi[IPS];
     });
   }
 };

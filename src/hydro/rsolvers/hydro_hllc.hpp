@@ -31,9 +31,10 @@
 template <>
 struct Riemann<Fluid::euler, RiemannSolver::hllc> {
   static KOKKOS_INLINE_FUNCTION void
-  Solve(parthenon::team_mbr_t const &member, const int il, const int iu, const int ivx,
-        const ScratchPad2D<Real> &wl, const ScratchPad2D<Real> &wr,
-        ScratchPad2D<Real> &flx, const AdiabaticHydroEOS &eos, const Real c_h) {
+  Solve(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
+        const int iu, const int ivx, const ScratchPad2D<Real> &wl,
+        const ScratchPad2D<Real> &wr, ScratchPad2D<Real> &flxm1, VariablePack<Real> &flx,
+        const AdiabaticHydroEOS &eos, const Real c_h) {
     int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     int ivz = IV1 + ((ivx - IV1) + 2) % 3;
     Real gamma = eos.GetGamma();
@@ -146,11 +147,32 @@ struct Riemann<Fluid::euler, RiemannSolver::hllc> {
       flxi[IV3] = sl * fl[IV3] + sr * fr[IV3];
       flxi[IEN] = sl * fl[IEN] + sr * fr[IEN] + sm * cp * am;
 
-      flx(IDN, i) = flxi[IDN];
-      flx(ivx, i) = flxi[IV1];
-      flx(ivy, i) = flxi[IV2];
-      flx(ivz, i) = flxi[IV3];
-      flx(IEN, i) = flxi[IEN];
+      // Important, this assumes that dx1=dx2=dx3! (same in Riemann solve where flx is
+      // set)
+      if (ivx == IV1) {
+        flx(IDN, k, j, i - 1) = flxi[IDN] - flxm1(IDN, i);
+        flx(ivx, k, j, i - 1) = flxi[IV1] - flxm1(IV1, i);
+        flx(ivy, k, j, i - 1) = flxi[IV2] - flxm1(IV2, i);
+        flx(ivz, k, j, i - 1) = flxi[IV3] - flxm1(IV3, i);
+        flx(IEN, k, j, i - 1) = flxi[IEN] - flxm1(IEN, i);
+      } else if (ivx == IV2) {
+        flx(IDN, k, j - 1, i) += flxi[IDN] - flxm1(IDN, i);
+        flx(ivx, k, j - 1, i) += flxi[IV1] - flxm1(IV1, i);
+        flx(ivy, k, j - 1, i) += flxi[IV2] - flxm1(IV2, i);
+        flx(ivz, k, j - 1, i) += flxi[IV3] - flxm1(IV3, i);
+        flx(IEN, k, j - 1, i) += flxi[IEN] - flxm1(IEN, i);
+      } else if (ivx == IV3) {
+        flx(IDN, k - 1, j, i) += flxi[IDN] - flxm1(IDN, i);
+        flx(ivx, k - 1, j, i) += flxi[IV1] - flxm1(IV1, i);
+        flx(ivy, k - 1, j, i) += flxi[IV2] - flxm1(IV2, i);
+        flx(ivz, k - 1, j, i) += flxi[IV3] - flxm1(IV3, i);
+        flx(IEN, k - 1, j, i) += flxi[IEN] - flxm1(IEN, i);
+      }
+      flxm1(IDN, i) = flxi[IDN];
+      flxm1(IV1, i) = flxi[IV1];
+      flxm1(IV2, i) = flxi[IV2];
+      flxm1(IV3, i) = flxi[IV3];
+      flxm1(IEN, i) = flxi[IEN];
     });
   }
 };

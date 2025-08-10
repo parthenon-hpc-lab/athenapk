@@ -794,6 +794,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
                std::vector<int>({nhydro + nscalars}), prim_labels);
   pkg->AddField("prim", m);
+  pkg->AddField("flx", m);
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
   if (refine_str == "pressure_gradient") {
@@ -1057,6 +1058,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
   auto const &u0_cons_pack = u0_data->PackVariables(std::vector<std::string>{"cons"});
   auto const &u1_cons_pack = u1_data->PackVariables(std::vector<std::string>{"cons"});
   auto const &u0_prim_pack = u0_data->PackVariables(std::vector<std::string>{"prim"});
+  auto &u0_flx_pack = u0_data->PackVariables(std::vector<std::string>{"flx"});
   auto pkg = pmb->packages.Get("Hydro");
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
@@ -1095,39 +1097,26 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
       scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
         const auto &u0_prim = u0_prim_pack(b);
+        auto &flx = u0_flx_pack(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
-        parthenon::ScratchPad2D<Real> flx(member.team_scratch(scratch_level),
-                                          num_scratch_vars, nx1);
+        parthenon::ScratchPad2D<Real> flxm1(member.team_scratch(scratch_level),
+                                            num_scratch_vars, nx1);
         // get reconstructed state on faces
         Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, u0_prim, wl, wr);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
-        riemann.Solve(member, ib.s, ib.e + 1, IV1, wl, wr, flx, eos, c_h);
+        riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, flxm1, flx, eos, c_h);
         member.team_barrier();
-
-        // Now directly update
-        const int Ni = ib.e - ib.s + 1;
-        const int NvNi = u0_cons_pack.GetDim(4) * Ni;
-        auto tvr = Kokkos::TeamVectorRange(member, NvNi);
-        Kokkos::parallel_for(tvr, [&](const int idx) {
-          const int v = idx / Ni;
-          const int i = idx % Ni + ib.s;
-          const auto du = -(flx(v, i + 1) - flx(v, i)) / dx1;
-
-          // WARNING: removing gam0 is specific to the VL2 integrator
-          u0_cons_pack(b, v, k, j, i) = // gam0 * u0_cons_pack(b, v, k, j, i) +
-              gam1 * u1_cons_pack(b, v, k, j, i) + beta_dt * du;
-        });
       });
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
     scratch_size_in_bytes =
-        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 5;
+        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 4;
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
     if (pmb->block_size.nx(X3DIR) == 1) // 2D
@@ -1141,16 +1130,15 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
           const auto &prim = u0_prim_pack(b);
+          auto &flx = u0_flx_pack(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
                                             num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> flxl(member.team_scratch(scratch_level),
-                                             num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> flxr(member.team_scratch(scratch_level),
-                                             num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxm1(member.team_scratch(scratch_level),
+                                              num_scratch_vars, nx1);
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
             Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
@@ -1158,35 +1146,14 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             member.team_barrier();
 
             if (j > jb.s - 1) {
-              riemann.Solve(member, il, iu, IV2, wl, wr, flxr, eos, c_h);
+              riemann.Solve(member, k, j, il, iu, IV2, wl, wr, flxm1, flx, eos, c_h);
               member.team_barrier();
-              if (j > jb.s) {
-                // Now directly update
-                const int Ni = iu - il + 1;
-                const int NvNi = u0_cons_pack.GetDim(4) * Ni;
-                auto tvr = Kokkos::TeamVectorRange(member, NvNi);
-                Kokkos::parallel_for(tvr, [&](const int idx) {
-                  const int v = idx / Ni;
-                  const int i = idx % Ni + il;
-                  const auto du = -(flxr(v, i) - flxl(v, i)) / dx2;
-
-                  // WARNING: this is specific to the VL2 integrator
-                  u0_cons_pack(b, v, k, j - 1, i) +=
-                      // gam0 * u0_cons_pack(b, v, k, j, i) +
-                      // gam1 * u1_cons_pack(b, v, k, j, i) +
-                      beta_dt * du;
-                });
-                member.team_barrier();
-              }
             }
 
             // swap the arrays for the next step
             auto *tmp = wl.data();
             wl.assign_data(wlb.data());
             wlb.assign_data(tmp);
-            tmp = flxr.data();
-            flxr.assign_data(flxl.data());
-            flxl.assign_data(tmp);
           }
         });
   }
@@ -1202,16 +1169,15 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, jl, ju,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
           const auto &prim = u0_prim_pack(b);
+          auto &flx = u0_flx_pack(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
                                             num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> flxr(member.team_scratch(scratch_level),
-                                             num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> flxl(member.team_scratch(scratch_level),
-                                             num_scratch_vars, nx1);
+          parthenon::ScratchPad2D<Real> flxm1(member.team_scratch(scratch_level),
+                                              num_scratch_vars, nx1);
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
             Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
@@ -1219,37 +1185,31 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             member.team_barrier();
 
             if (k > kb.s - 1) {
-              riemann.Solve(member, il, iu, IV3, wl, wr, flxr, eos, c_h);
+              riemann.Solve(member, k, j, il, iu, IV3, wl, wr, flxm1, flx, eos, c_h);
               member.team_barrier();
-              if (k > kb.s) {
-                // Now directly update
-                const int Ni = iu - il + 1;
-                const int NvNi = u0_cons_pack.GetDim(4) * Ni;
-                auto tvr = Kokkos::TeamVectorRange(member, NvNi);
-                Kokkos::parallel_for(tvr, [&](const int idx) {
-                  const int v = idx / Ni;
-                  const int i = idx % Ni + il;
-                  const auto du = -(flxr(v, i) - flxl(v, i)) / dx3;
-
-                  // WARNING: this is specific to the VL2 integrator
-                  u0_cons_pack(b, v, k - 1, j, i) +=
-                      // gam0 * u0_cons_pack(b, v, k, j, i) +
-                      // gam1 * u1_cons_pack(b, v, k, j, i) +
-                      beta_dt * du;
-                });
-                member.team_barrier();
-              }
             }
             // swap the arrays for the next step
             auto *tmp = wl.data();
             wl.assign_data(wlb.data());
             wlb.assign_data(tmp);
-            tmp = flxr.data();
-            flxr.assign_data(flxl.data());
-            flxl.assign_data(tmp);
           }
         });
   }
+
+  // Now directly update
+  ib = u0_data->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  jb = u0_data->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  kb = u0_data->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  // Important, this assumes that dx1=dx2=dx3! (same in Riemann solve where flx is set)
+  pmb->par_for(
+      "UpdateFluxDiv", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1, kb.s,
+      kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+        // WARNING: removing gam0 is specific to the VL2 integrator
+        u0_cons_pack(b, v, k, j, i) = // gam0 * u0_cons_pack(b, v, k, j, i) +
+            gam1 * u1_cons_pack(b, v, k, j, i) -
+            beta_dt * u0_flx_pack(b, v, k, j, i) / dx1;
+      });
 
   return TaskStatus::complete;
 }
