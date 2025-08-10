@@ -396,8 +396,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // add_flux_fun<Fluid::euler, Reconstruction::wenoz,
   // RiemannSolver::hlle>(flux_functions); add_flux_fun<Fluid::euler, Reconstruction::dc,
   // RiemannSolver::hllc>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::hllc>(flux_functions);
-  add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hllc>(flux_functions);
+  // add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::hllc>(flux_functions);
+  // add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hllc>(flux_functions);
   // add_flux_fun < Fluid::euler, Reconstruction::ppm,
   // RiemannSolver::hllc>(flux_functions); add_flux_fun<Fluid::euler,
   // Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
@@ -794,7 +794,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
                std::vector<int>({nhydro + nscalars}), prim_labels);
   pkg->AddField("prim", m);
-  pkg->AddField("flx", m);
+  pkg->AddField("wl", m);
+  pkg->AddField("wr", m);
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
   if (refine_str == "pressure_gradient") {
@@ -1059,6 +1060,8 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
   auto const &u1_cons_pack = u1_data->PackVariables(std::vector<std::string>{"cons"});
   auto const &u0_prim_pack = u0_data->PackVariables(std::vector<std::string>{"prim"});
   auto &u0_flx_pack = u0_data->PackVariables(std::vector<std::string>{"flx"});
+  auto &u0_wl_pack = u0_data->PackVariables(std::vector<std::string>{"wl"});
+  auto &u0_wr_pack = u0_data->PackVariables(std::vector<std::string>{"wr"});
   auto pkg = pmb->packages.Get("Hydro");
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
@@ -1090,126 +1093,156 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
   } else {
     suffix = " HO";
   }
-
   const auto dx1 = pmb->coords.CellWidth<X1DIR>(0, 0, 0);
-  parthenon::par_for_outer(
-      DEFAULT_OUTER_LOOP_PATTERN, "x1 flux" + suffix + " TVR", DevExecSpace(),
-      scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku, jl, ju,
-      KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
-        const auto &u0_prim = u0_prim_pack(b);
-        auto &flx = u0_flx_pack(b);
-        parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
-                                         num_scratch_vars, nx1);
-        parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
-                                         num_scratch_vars, nx1);
-        parthenon::ScratchPad2D<Real> flxm1(member.team_scratch(scratch_level),
-                                            num_scratch_vars, nx1);
-        // get reconstructed state on faces
-        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, u0_prim, wl, wr);
-        // Sync all threads in the team so that scratch memory is consistent
-        member.team_barrier();
-
-        riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, flxm1, flx, eos, c_h);
-        member.team_barrier();
-      });
-  //--------------------------------------------------------------------------------------
-  // j-direction
-  if (pmb->pmy_mesh->ndim >= 2) {
-    scratch_size_in_bytes =
-        parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 4;
-    // set the loop limits
-    il = ib.s - 1, iu = ib.e + 1, kl = kb.s, ku = kb.e;
-    if (pmb->block_size.nx(X3DIR) == 1) // 2D
-      kl = kb.s, ku = kb.e;
-    else // 3D
-      kl = kb.s - 1, ku = kb.e + 1;
-
-    const auto dx2 = pmb->coords.CellWidth<X2DIR>(0, 0, 0);
+  /*
     parthenon::par_for_outer(
-        DEFAULT_OUTER_LOOP_PATTERN, "x2 flux" + suffix + " TVR", DevExecSpace(),
-        scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
-          const auto &prim = u0_prim_pack(b);
-          auto &flx = u0_flx_pack(b);
+        DEFAULT_OUTER_LOOP_PATTERN, "x1 flux" + suffix + " TVR", DevExecSpace(),
+        scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kl, ku, jl,
+    ju, KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j)
+    { const auto &u0_prim = u0_prim_pack(b); auto &flx = u0_flx_pack(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
-                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> flxm1(member.team_scratch(scratch_level),
                                               num_scratch_vars, nx1);
-          for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
-            // reconstruct L/R states at j
-            Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
-            // Sync all threads in the team so that scratch memory is consistent
-            member.team_barrier();
+          // get reconstructed state on faces
+          Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, u0_prim, wl, wr);
+          // Sync all threads in the team so that scratch memory is consistent
+          member.team_barrier();
 
-            if (j > jb.s - 1) {
-              riemann.Solve(member, k, j, il, iu, IV2, wl, wr, flxm1, flx, eos, c_h);
-              member.team_barrier();
-            }
+          riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, flxm1, flx, eos, c_h);
+          member.team_barrier();
+        });
 
-            // swap the arrays for the next step
-            auto *tmp = wl.data();
-            wl.assign_data(wlb.data());
-            wlb.assign_data(tmp);
-          }
+        */
+
+  ib = u0_data->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  jb = u0_data->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  kb = u0_data->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  // Important, this assumes that dx1=dx2=dx3! (same in Riemann solve where flx is set)
+
+  if constexpr (recon == Reconstruction::dc) {
+    pmb->par_for(
+        "x1 recon DC", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1, kb.s,
+        kb.e, jb.s, jb.e, ib.s - 1, ib.e + 1,
+        KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+          const auto &q = u0_prim_pack(b);
+          u0_wl_pack(b, n, k, j, i + 1) = u0_wr_pack(b, n, k, j, i) = q(n, k, j, i);
+        });
+  } else {
+    pmb->par_for(
+        "x1 recon PPM", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
+        kb.s, kb.e, jb.s, jb.e, ib.s - 1, ib.e + 1,
+        KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+          const auto &q = u0_prim_pack(b);
+          PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+              q(n, k, j, i + 2), u0_wl_pack(b, n, k, j, i + 1),
+              u0_wr_pack(b, n, k, j, i));
+        });
+  }
+  pmb->par_for(
+      "x1 Riemann", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1, kb.s,
+      kb.e, jb.s, jb.e, ib.s, ib.e + 1,
+      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+        auto &wl = u0_wl_pack(b);
+        const auto &wr = u0_wr_pack(b);
+        riemann.Solve(k, j, i, IV1, wl, wr, eos, c_h);
+      });
+  pmb->par_for(
+      "UpdateFluxDiv x1", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
+      kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+        auto &wl = u0_wl_pack(b);
+        // WARNING: removing gam0 is specific to the VL2 integrator
+        u0_cons_pack(b, v, k, j, i) = // gam0 * u0_cons_pack(b, v, k, j, i) +
+            gam1 * u1_cons_pack(b, v, k, j, i) -
+            beta_dt * (wl(v, k, j, i + 1) - wl(v, k, j, i)) / dx1;
+      });
+  //--------------------------------------------------------------------------------------
+  // j-direction
+  if (pmb->pmy_mesh->ndim >= 2) {
+    if constexpr (recon == Reconstruction::dc) {
+      pmb->par_for(
+          "x2 recon DC", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
+          kb.s, kb.e, jb.s - 1, jb.e + 1, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+            const auto &q = u0_prim_pack(b);
+            u0_wl_pack(b, n, k, j + 1, i) = u0_wr_pack(b, n, k, j, i) = q(n, k, j, i);
+          });
+    } else {
+      pmb->par_for(
+          "x2 recon PPM", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
+          kb.s, kb.e, jb.s - 1, jb.e + 1, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+            const auto &q = u0_prim_pack(b);
+            PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+                q(n, k, j + 2, i), u0_wl_pack(b, n, k, j + 1, i),
+                u0_wr_pack(b, n, k, j, i));
+          });
+    }
+    pmb->par_for(
+        "x2 Riemann", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1, kb.s,
+        kb.e, jb.s, jb.e + 1, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+          auto &wl = u0_wl_pack(b);
+          const auto &wr = u0_wr_pack(b);
+          riemann.Solve(k, j, i, IV2, wl, wr, eos, c_h);
+        });
+    const auto dx2 = pmb->coords.CellWidth<X2DIR>(0, 0, 0);
+    pmb->par_for(
+        "UpdateFluxDiv x2", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
+        kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+          auto &wl = u0_wl_pack(b);
+          // WARNING: removing gam0 is specific to the VL2 integrator
+          u0_cons_pack(b, v, k, j, i) += // gam0 * u0_cons_pack(b, v, k, j, i) +
+                                         // gam1 * u1_cons_pack(b, v, k, j, i) -
+              beta_dt * (wl(v, k, j + 1, i) - wl(v, k, j, i)) / dx2;
         });
   }
   //--------------------------------------------------------------------------------------
   // k-direction
   if (pmb->pmy_mesh->ndim >= 3) {
-    // set the loop limits
-    il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
-
+    if constexpr (recon == Reconstruction::dc) {
+      pmb->par_for(
+          "x3 recon DC", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
+          kb.s - 1, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+            const auto &q = u0_prim_pack(b);
+            u0_wl_pack(b, n, k + 1, j, i) = u0_wr_pack(b, n, k, j, i) = q(n, k, j, i);
+          });
+    } else {
+      pmb->par_for(
+          "x3 recon PPM", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
+          kb.s - 1, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+            const auto &q = u0_prim_pack(b);
+            PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
+                q(n, k + 2, j, i), u0_wl_pack(b, n, k + 1, j, i),
+                u0_wr_pack(b, n, k, j, i));
+          });
+    }
+    pmb->par_for(
+        "x3 Riemann", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1, kb.s,
+        kb.e + 1, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+          auto &wl = u0_wl_pack(b);
+          const auto &wr = u0_wr_pack(b);
+          riemann.Solve(k, j, i, IV3, wl, wr, eos, c_h);
+        });
     const auto dx3 = pmb->coords.CellWidth<X3DIR>(0, 0, 0);
-    parthenon::par_for_outer(
-        DEFAULT_OUTER_LOOP_PATTERN, "x3 flux" + suffix + " TVR", DevExecSpace(),
-        scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, jl, ju,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
-          const auto &prim = u0_prim_pack(b);
-          auto &flx = u0_flx_pack(b);
-          parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
-                                           num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
-                                           num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> wlb(member.team_scratch(scratch_level),
-                                            num_scratch_vars, nx1);
-          parthenon::ScratchPad2D<Real> flxm1(member.team_scratch(scratch_level),
-                                              num_scratch_vars, nx1);
-          for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
-            // reconstruct L/R states at j
-            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
-            // Sync all threads in the team so that scratch memory is consistent
-            member.team_barrier();
-
-            if (k > kb.s - 1) {
-              riemann.Solve(member, k, j, il, iu, IV3, wl, wr, flxm1, flx, eos, c_h);
-              member.team_barrier();
-            }
-            // swap the arrays for the next step
-            auto *tmp = wl.data();
-            wl.assign_data(wlb.data());
-            wlb.assign_data(tmp);
-          }
+    pmb->par_for(
+        "UpdateFluxDiv x3", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
+        kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+          auto &wl = u0_wl_pack(b);
+          // WARNING: removing gam0 is specific to the VL2 integrator
+          u0_cons_pack(b, v, k, j, i) += // gam0 * u0_cons_pack(b, v, k, j, i) +
+                                         // gam1 * u1_cons_pack(b, v, k, j, i) -
+              beta_dt * (wl(v, k + 1, j, i) - wl(v, k, j, i)) / dx3;
         });
   }
-
-  // Now directly update
-  ib = u0_data->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  jb = u0_data->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  kb = u0_data->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-  // Important, this assumes that dx1=dx2=dx3! (same in Riemann solve where flx is set)
-  pmb->par_for(
-      "UpdateFluxDiv", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1, kb.s,
-      kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-        // WARNING: removing gam0 is specific to the VL2 integrator
-        u0_cons_pack(b, v, k, j, i) = // gam0 * u0_cons_pack(b, v, k, j, i) +
-            gam1 * u1_cons_pack(b, v, k, j, i) -
-            beta_dt * u0_flx_pack(b, v, k, j, i) / dx1;
-      });
 
   return TaskStatus::complete;
 }
