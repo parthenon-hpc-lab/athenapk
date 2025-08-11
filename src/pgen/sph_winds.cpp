@@ -156,7 +156,6 @@ void InjectSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm, const Real 
 
   const auto num_blocks = md->NumBlocks();
   auto const &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  auto const &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   pmb->par_for(
       "Init field loop potential", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
@@ -170,17 +169,21 @@ void InjectSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm, const Real 
         if (r < radius_in) {
           // Add density such that velocity and temperature (propto pressure/density) is
           // fixed
+          const auto rho = cons(IDN, k, j, i);
+          const auto vx = cons(IM1, k, j, i) / rho;
+          const auto vy = cons(IM2, k, j, i) / rho;
+          const auto vz = cons(IM3, k, j, i) / rho;
+          const auto v2 = SQR(vx) + SQR(vy) + SQR(vz);
+          const auto e = (cons(IEN, k, j, i) - 0.5 * rho * v2) / rho;
           cons(IDN, k, j, i) += beta_dt * dens_inj;
-          cons(IM1, k, j, i) += beta_dt * dens_inj * prim(IV1, k, j, i);
-          cons(IM2, k, j, i) += beta_dt * dens_inj * prim(IV2, k, j, i);
-          cons(IM3, k, j, i) += beta_dt * dens_inj * prim(IV3, k, j, i);
-          cons(IEN, k, j, i) +=
-              beta_dt *
-              (dens_inj * (0.5 * (SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) +
-                                  SQR(prim(IV3, k, j, i))) +
-                           1 / (gm1)*prim(IPR, k, j, i) /
-                               prim(IDN, k, j, i)) + // temp stays fixed
-               endens_inj);
+          cons(IM1, k, j, i) += beta_dt * dens_inj * vx;
+          cons(IM2, k, j, i) += beta_dt * dens_inj * vy;
+          cons(IM3, k, j, i) += beta_dt * dens_inj * vz;
+          cons(IEN, k, j, i) = 0.5 *
+                                   (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                    SQR(cons(IM3, k, j, i))) /
+                                   cons(IDN, k, j, i) +
+                               e * cons(IDN, k, j, i) + beta_dt * endens_inj;
         }
       });
 }

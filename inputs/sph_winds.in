@@ -38,11 +38,11 @@ nx3=16
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
-tlim = 100.0
+tlim = 1000.0
 nlim = 1000
 perf_cycle_offset = 2     # number of inital cycles not to be included in perf calc
 ncycle_out_mesh = -500    # output mesh structure every 500 cycles and on every change (<0)
-dt_init = 1e-6
+dt_init = 0.1
 
 <hydro>
 eos = adiabatic
@@ -51,6 +51,7 @@ reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 He_mass_fraction = 0.25
+first_order_flux_correct = true
 
 <units>
 # Using "galactic" unit system by default, i.e., kpc, Msun, kyr
@@ -71,5 +72,5 @@ mass_inj_rate_cgs = 6.3e24  # 0.1 Msun/yr
 energy_inj_rate_cgs = 3.169e+42 # 0.1 * 10^51 ergs/yr 
 
 <parthenon/output0>
-file_type = openpmd
+file_type = rst
 dn = 100
