@@ -122,6 +122,13 @@ using namespace parthenon::driver::prelude;
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 } // namespace sod
 
+namespace sph_winds {
+using namespace parthenon::driver::prelude;
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
+void SetOutside(MeshBlock *pmb, ParameterInput *pin);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace sph_winds
+
 namespace turbulence {
 using namespace parthenon::driver::prelude;
 

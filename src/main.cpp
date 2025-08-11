@@ -107,6 +107,10 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
+  } else if (problem == "sph_winds") {
+    pman.app_input->ProblemGenerator = sph_winds::ProblemGenerator;
+    Hydro::ProblemInitPackageData = sph_winds::ProblemInitPackageData;
+    pman.app_input->InitMeshBlockUserData = sph_winds::SetOutside;
   } else if (problem == "turbulence") {
     pman.app_input->MeshProblemGenerator = turbulence::ProblemGenerator;
     Hydro::ProblemInitPackageData = turbulence::ProblemInitPackageData;
