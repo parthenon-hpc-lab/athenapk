@@ -127,6 +127,7 @@ using namespace parthenon::driver::prelude;
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void SetOutside(MeshBlock *pmb, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void InjectSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm, const Real beta_dt);
 } // namespace sph_winds
 
 namespace turbulence {

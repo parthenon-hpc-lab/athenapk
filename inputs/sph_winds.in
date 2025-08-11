@@ -12,36 +12,37 @@ problem_id = sph_winds
 refinement = none
 nghost = 2
 
-nx1 = 64
+nx1 = 32
 x1min = -1.0
 x1max = 1.0
 ix1_bc = periodic
 ox1_bc = periodic
 
-nx2 = 64
+nx2 = 32
 x2min = -1.0
 x2max = 1.0
 ix2_bc = periodic
 ox2_bc = periodic
 
-nx3 = 64
+nx3 = 32
 x3min = -1.0
 x3max = 1.0
 ix3_bc = outflow
 ox3_bc = outflow
 
 <parthenon/meshblock>
-nx1=32  
-nx2=32  
-nx3=32
+nx1=16  
+nx2=16  
+nx3=16
 
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
-tlim = 1.0
-nlim = 10000
+tlim = 100.0
+nlim = 1000
 perf_cycle_offset = 2     # number of inital cycles not to be included in perf calc
 ncycle_out_mesh = -500    # output mesh structure every 500 cycles and on every change (<0)
+dt_init = 1e-6
 
 <hydro>
 eos = adiabatic
@@ -49,6 +50,7 @@ riemann = hllc
 reconstruction = plm
 gamma = 1.666666666666667 # gamma = C_p/C_v
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+He_mass_fraction = 0.25
 
 <units>
 # Using "galactic" unit system by default, i.e., kpc, Msun, kyr
@@ -57,10 +59,17 @@ code_mass_cgs = 1.98841586e+33          # Msun in g
 code_time_cgs = 3.15576e+10             # 1 kyr in s
 
 <problem/sph_winds>
-opening_angle_deg = 30
+initial_dens_cgs = 2e-28;
+initial_temp_cgs = 1e4;
+opening_angle_deg = 30      # in degrees
 sph_radius_cgs =  6.171e+20 # 200 pc
-
+# Total mass injection rate (within given radius).
+mass_inj_rate_cgs = 6.3e24  # 0.1 Msun/yr
+# Total thermal energy injection rate (within given radius),
+# i.e., total energy injection is currently even higher given
+# the increase in kinetic energy from the mass injection.
+energy_inj_rate_cgs = 3.169e+42 # 0.1 * 10^51 ergs/yr 
 
 <parthenon/output0>
 file_type = openpmd
-dt = 0.5
+dn = 100

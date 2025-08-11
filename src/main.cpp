@@ -111,6 +111,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = sph_winds::ProblemGenerator;
     Hydro::ProblemInitPackageData = sph_winds::ProblemInitPackageData;
     pman.app_input->InitMeshBlockUserData = sph_winds::SetOutside;
+    Hydro::ProblemSourceFirstOrder = sph_winds::InjectSrcTerm;
   } else if (problem == "turbulence") {
     pman.app_input->MeshProblemGenerator = turbulence::ProblemGenerator;
     Hydro::ProblemInitPackageData = turbulence::ProblemInitPackageData;
