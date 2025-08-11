@@ -161,7 +161,6 @@ void InjectSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm, const Real 
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = cons_pack.GetCoords(b);
         auto &cons = cons_pack(b);
-        const auto &prim = cons_pack(b);
         const auto x = coords.Xc<1>(i);
         const auto y = coords.Xc<2>(j);
         const auto z = coords.Xc<3>(k);

@@ -1067,6 +1067,33 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
   auto riemann = Riemann<fluid, rsolver>();
 
+  const auto num_blocks = md->NumBlocks();
+  auto const &outside_pack = md->PackVariables(std::vector<std::string>{"outside"});
+  pmb->par_for(
+      "Set x1 reflect", 0, num_blocks - 1, kl, ku, jl, ju, ib.s - 1, ib.e + 1,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        auto &cons = cons_in(b);
+        auto &outside = outside_pack(b);
+
+        // check for left and right sided reflection
+        for (int dir = -1; dir <= 1; dir += 2) {
+          if (outside(0, k, j, i) > 0 && outside(0, k, j, i + dir) == 0) {
+            PARTHENON_REQUIRE(outside(0, k, j, i + 2 * dir) == 0,
+                              "Corner case, not sure how to handle corner case");
+            PARTHENON_REQUIRE(outside(0, k, j, i - dir) > 0,
+                              "Corner case, not sure how to handle corner case");
+            // mirror all components
+            for (int n = 0; n < prim_in.GetDim(4); n++) {
+              const bool reflect = n == IV1;
+              prim_in(b, n, k, j, i) =
+                  (reflect ? -1.0 : 1.0) * prim_in(b, n, k, j, i + dir);
+              prim_in(b, n, k, j, i - dir) =
+                  (reflect ? -1.0 : 1.0) * prim_in(b, n, k, j, i + 2 * dir);
+            }
+          }
+        }
+      });
+
   parthenon::par_for_outer(
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
       scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
@@ -1109,6 +1136,30 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     else // 3D
       kl = kb.s - 1, ku = kb.e + 1;
 
+    pmb->par_for(
+        "Set x2 reflect", 0, num_blocks - 1, kl, ku, jb.s - 1, jb.e + 1, il, iu,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          auto &cons = cons_in(b);
+          auto &outside = outside_pack(b);
+
+          // check for left and right sided reflection
+          for (int dir = -1; dir <= 1; dir += 2) {
+            if (outside(0, k, j, i) > 0 && outside(0, k, j + dir, i) == 0) {
+              PARTHENON_REQUIRE(outside(0, k, j + 2 * dir, i) == 0,
+                                "Corner case, not sure how to handle corner case");
+              PARTHENON_REQUIRE(outside(0, k, j - dir, i) > 0,
+                                "Corner case, not sure how to handle corner case");
+              // mirror all components
+              for (int n = 0; n < prim_in.GetDim(4); n++) {
+                const bool reflect = n == IV2;
+                prim_in(b, n, k, j, i) =
+                    (reflect ? -1.0 : 1.0) * prim_in(b, n, k, j + dir, i);
+                prim_in(b, n, k, j - dir, i) =
+                    (reflect ? -1.0 : 1.0) * prim_in(b, n, k, j + 2 * dir, i);
+              }
+            }
+          }
+        });
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
         scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
@@ -1156,6 +1207,30 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   if (pmb->pmy_mesh->ndim >= 3) {
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
+    pmb->par_for(
+        "Set x3 reflect", 0, num_blocks - 1, kb.s - 1, kb.e + 1, jl, ju, il, iu,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          auto &cons = cons_in(b);
+          auto &outside = outside_pack(b);
+
+          // check for left and right sided reflection
+          for (int dir = -1; dir <= 1; dir += 2) {
+            if (outside(0, k, j, i) > 0 && outside(0, k + dir, j, i) == 0) {
+              PARTHENON_REQUIRE(outside(0, k + 2 * dir, j, i) == 0,
+                                "Corner case, not sure how to handle corner case");
+              PARTHENON_REQUIRE(outside(0, k - dir, j, i) > 0,
+                                "Corner case, not sure how to handle corner case");
+              // mirror all components
+              for (int n = 0; n < prim_in.GetDim(4); n++) {
+                const bool reflect = n == IV3;
+                prim_in(b, n, k, j, i) =
+                    (reflect ? -1.0 : 1.0) * prim_in(b, n, k + dir, j, i);
+                prim_in(b, n, k - dir, j, i) =
+                    (reflect ? -1.0 : 1.0) * prim_in(b, n, k + 2 * dir, j, i);
+              }
+            }
+          }
+        });
 
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
