@@ -1220,6 +1220,9 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
               beta_dt * (wl(v, k, j, i + 1) - wl(v, k, j, i)) / dx1;
         });
   }
+  ib = u0_data->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  jb = u0_data->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  kb = u0_data->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
@@ -1282,6 +1285,87 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                 q(n, k + 2, j, i), u0_wl_pack(b, n, k + 1, j, i),
                 u0_wr_pack(b, n, k, j, i));
           });
+
+      const auto Ni = ib.e - ib.s + 1;
+      std::array<int, 23> pencil_widths = {12,  14,  16,  18,  28,  30,  32,  34,
+                                           52,  60,  62,  64,  66,  126, 128, 130,
+                                           190, 192, 194, 254, 256, 258, Ni};
+      for (int p = 0; p < 23; p++) {
+        const int pencil_width =
+            pencil_widths[p]; // number of elements in single cached var
+
+        using Cache1D = parthenon::ScratchPad1D<Real>;
+        const int scrach_level = 0; // 0 is actual scratch (tiny); 1 is HBM
+        size_t scratch_size_in_bytes = Cache1D::shmem_size(pencil_width) * 5;
+
+        const int Nb = u0_cons_pack.GetDim(5);
+        const int Nn = u0_cons_pack.GetDim(4);
+        const int Nj = jb.e - jb.s + 1;
+        // followin int ceil is only save for positive int and no overflows, which is the
+        // case for our indices
+        const auto Nio = (Ni + pencil_width - 1) / pencil_width;
+        const int NjNio = Nj * Nio;
+        const int NnNjNio = Nn * NjNio;
+        const int NbNnNjNio = Nb * NnNjNio;
+
+        parthenon::team_policy policy(DevExecSpace(), NbNnNjNio, Kokkos::AUTO);
+
+        Kokkos::parallel_for(
+            "x3 recon PPM scratch",
+            policy.set_scratch_size(scratch_level,
+                                    Kokkos::PerTeam(scratch_size_in_bytes)),
+            KOKKOS_LAMBDA(parthenon::team_mbr_t member) {
+              const int b = member.league_rank() / NnNjNio;
+              const int n = (member.league_rank() - b * NnNjNio) / NjNio;
+              int j = (member.league_rank() - b * NnNjNio - n * NjNio) / Nio;
+              const int io = member.league_rank() - b * NnNjNio - n * NjNio - j * Nio;
+              j += jb.s;
+
+              const auto &prim = u0_prim_pack(b);
+              Cache1D km2(member.team_scratch(scratch_level), pencil_width);
+              Cache1D km1(member.team_scratch(scratch_level), pencil_width);
+              Cache1D kn0(member.team_scratch(scratch_level), pencil_width);
+              Cache1D kp1(member.team_scratch(scratch_level), pencil_width);
+              Cache1D kp2(member.team_scratch(scratch_level), pencil_width);
+
+              const int ill = io * pencil_width + ib.s;     // lower local/pencil i index
+              int iul = (io + 1) * pencil_width + ib.s - 1; // uppper index (inclusive)
+              // Given that we're not always exactly matching bounds, we need to adjust
+              iul = std::min(iul, iu);
+              auto tvr = Kokkos::TeamVectorRange(member, iul - ill + 1);
+              Kokkos::parallel_for(tvr, [&](const int idx) {
+                const int i = idx + ill;
+                km2(i - ill) = prim(n, kb.s - 1 - 2, j, i);
+                km1(i - ill) = prim(n, kb.s - 1 - 1, j, i);
+                kn0(i - ill) = prim(n, kb.s - 1 + 0, j, i);
+                kp1(i - ill) = prim(n, kb.s - 1 + 1, j, i);
+                // kp2 is filled in k loop
+              });
+              member.team_barrier();
+
+              for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
+                Kokkos::parallel_for(tvr, [&](const int idx) {
+                  const int i = idx + ill;
+                  kp2(i - ill) = prim(n, k + 2, j, i);
+                });
+                member.team_barrier();
+
+                Kokkos::parallel_for(tvr, [&](const int idx) {
+                  const int i = idx + ill;
+                  PPM(km2(i), km1(i), kn0(i), kp1(i), kp2(i),
+                      u0_wl_pack(b, n, k + 1, j, i), u0_wr_pack(b, n, k, j, i));
+                });
+                member.team_barrier();
+                // swap the arrays for the next step
+                auto *tmp = km2.data();
+                km2.assign_data(km1.data());
+                km1.assign_data(kn0.data());
+                kn0.assign_data(kp1.data());
+                kp1.assign_data(kp2.data());
+                kp2.assign_data(tmp);
+              }
+            });
+      }
     }
     pmb->par_for(
         "x3 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e, ib.s,
