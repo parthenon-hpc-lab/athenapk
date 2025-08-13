@@ -9,6 +9,7 @@
 // C++ headers
 #include <array>
 #include <limits> // std::numeric_limits<float>
+#include <string>
 
 // Parthenon headers
 #include "mesh/mesh.hpp"
@@ -108,9 +109,12 @@ class AdiabaticHydroEOS : public EquationOfState {
 
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.
-    PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
-                      "Got negative pressure. Consider enabling first-order flux "
-                      "correction or setting a reasonble pressure or temperature floor.");
+    PARTHENON_REQUIRE(
+        w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
+        "Got negative pressure of " + std::to_string(w_p) + " at kji " +
+            std::to_string(k) + " " + std::to_string(j) + " " + std::to_string(i) +
+            "\nConsider enabling first-order flux "
+            "correction or setting a reasonble pressure or temperature floor.");
 
     // Pressure floor (if present) takes precedence over temperature floor
     if ((pressure_floor_ > 0.0) && (w_p < pressure_floor_)) {
