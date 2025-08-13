@@ -1066,40 +1066,14 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
       parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 2;
 
   auto riemann = Riemann<fluid, rsolver>();
-
-  const auto num_blocks = md->NumBlocks();
   auto const &outside_pack = md->PackVariables(std::vector<std::string>{"outside"});
-  pmb->par_for(
-      "Set x1 reflect", 0, num_blocks - 1, kl, ku, jl, ju, ib.s - 1, ib.e + 1,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        auto &cons = cons_in(b);
-        auto &outside = outside_pack(b);
-
-        // check for left and right sided reflection
-        for (int dir = -1; dir <= 1; dir += 2) {
-          if (outside(0, k, j, i) > 0 && outside(0, k, j, i + dir) == 0) {
-            PARTHENON_REQUIRE(outside(0, k, j, i + 2 * dir) == 0,
-                              "Corner case, not sure how to handle corner case");
-            PARTHENON_REQUIRE(outside(0, k, j, i - dir) > 0,
-                              "Corner case, not sure how to handle corner case");
-            // mirror all components
-            for (int n = 0; n < prim_in.GetDim(4); n++) {
-              const bool reflect = n == IV1;
-              prim_in(b, n, k, j, i) =
-                  (reflect ? -1.0 : 1.0) * prim_in(b, n, k, j, i + dir);
-              prim_in(b, n, k, j, i - dir) =
-                  (reflect ? -1.0 : 1.0) * prim_in(b, n, k, j, i + 2 * dir);
-            }
-          }
-        }
-      });
-
   parthenon::par_for_outer(
       DEFAULT_OUTER_LOOP_PATTERN, "x1 flux", DevExecSpace(), scratch_size_in_bytes,
       scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku, jl, ju,
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
         const auto &prim = prim_in(b);
         auto &cons = cons_in(b);
+        auto &outside = outside_pack(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
@@ -1108,10 +1082,44 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
-
+#if 1
+        parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
+          // if the cell left of the current reconstructed interface is outside and the
+          // right (current)cell inside, replace reconstructed variable on both sides with
+          // (reflected) first order versions
+          if (outside(0, k, j, i - 1) > 0 && outside(0, k, j, i) == 0) {
+            for (auto n = 0; n < prim.GetDim(4); ++n) {
+              const bool reflect = n == IV1;
+              wl(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j, i);
+              wr(n, i) = prim(n, k, j, i);
+            }
+          }
+          // if the cell left of the current reconstructed interface is inside and the
+          // right (current) cell outside, replace reconstructed variable on both sides
+          // with (reflected) first order versions
+          if (outside(0, k, j, i) > 0 && outside(0, k, j, i - 1) == 0) {
+            for (auto n = 0; n < prim.GetDim(4); ++n) {
+              const bool reflect = n == IV1;
+              wl(n, i) = prim(n, k, j, i - 1);
+              wr(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j, i - 1);
+            }
+          }
+        });
+        member.team_barrier();
+#endif
         riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         member.team_barrier();
-
+#if 0
+        parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
+          if (outside(0, k, j, i) > 0 ||
+              (outside(0, k, j, i) == 0 && outside(0, k, j, i - 1) > 0)) {
+            for (auto n = 0; n < prim.GetDim(4); ++n) {
+              cons.flux(IV1, n, k, j, i) = 0;
+            }
+          }
+        });
+        member.team_barrier();
+#endif
         // Passive scalar fluxes
         for (auto n = nhydro; n < nhydro + nscalars; ++n) {
           parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
@@ -1136,36 +1144,13 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
     else // 3D
       kl = kb.s - 1, ku = kb.e + 1;
 
-    pmb->par_for(
-        "Set x2 reflect", 0, num_blocks - 1, kl, ku, jb.s - 1, jb.e + 1, il, iu,
-        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          auto &cons = cons_in(b);
-          auto &outside = outside_pack(b);
-
-          // check for left and right sided reflection
-          for (int dir = -1; dir <= 1; dir += 2) {
-            if (outside(0, k, j, i) > 0 && outside(0, k, j + dir, i) == 0) {
-              PARTHENON_REQUIRE(outside(0, k, j + 2 * dir, i) == 0,
-                                "Corner case, not sure how to handle corner case");
-              PARTHENON_REQUIRE(outside(0, k, j - dir, i) > 0,
-                                "Corner case, not sure how to handle corner case");
-              // mirror all components
-              for (int n = 0; n < prim_in.GetDim(4); n++) {
-                const bool reflect = n == IV2;
-                prim_in(b, n, k, j, i) =
-                    (reflect ? -1.0 : 1.0) * prim_in(b, n, k, j + dir, i);
-                prim_in(b, n, k, j - dir, i) =
-                    (reflect ? -1.0 : 1.0) * prim_in(b, n, k, j + 2 * dir, i);
-              }
-            }
-          }
-        });
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x2 flux", DevExecSpace(), scratch_size_in_bytes,
         scratch_level, 0, cons_in.GetDim(5) - 1, kl, ku,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
+          auto &outside = outside_pack(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
@@ -1179,8 +1164,44 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             member.team_barrier();
 
             if (j > jb.s - 1) {
+#if 1
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                // if the cell left of the current reconstructed interface is outside and
+                // the right (current)cell inside, replace reconstructed variable on both
+                // sides with (reflected) first order versions
+                if (outside(0, k, j - 1, i) > 0 && outside(0, k, j, i) == 0) {
+                  for (auto n = 0; n < prim.GetDim(4); ++n) {
+                    const bool reflect = n == IV2;
+                    wl(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j, i);
+                    wr(n, i) = prim(n, k, j, i);
+                  }
+                }
+                // if the cell left of the current reconstructed interface is inside and
+                // the right (current) cell outside, replace reconstructed variable on
+                // both sides with (reflected) first order versions
+                if (outside(0, k, j, i) > 0 && outside(0, k, j - 1, i) == 0) {
+                  for (auto n = 0; n < prim.GetDim(4); ++n) {
+                    const bool reflect = n == IV2;
+                    wl(n, i) = prim(n, k, j - 1, i);
+                    wr(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j - 1, i);
+                  }
+                }
+              });
+              member.team_barrier();
+#endif
               riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
               member.team_barrier();
+#if 0
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                if (outside(0, k, j, i) > 0 ||
+                    (outside(0, k, j, i) == 0 && outside(0, k, j - 1, i) > 0)) {
+                  for (auto n = 0; n < prim.GetDim(4); ++n) {
+                    cons.flux(IV2, n, k, j, i) = 0;
+                  }
+                }
+              });
+              member.team_barrier();
+#endif
 
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
@@ -1207,30 +1228,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   if (pmb->pmy_mesh->ndim >= 3) {
     // set the loop limits
     il = ib.s - 1, iu = ib.e + 1, jl = jb.s - 1, ju = jb.e + 1;
-    pmb->par_for(
-        "Set x3 reflect", 0, num_blocks - 1, kb.s - 1, kb.e + 1, jl, ju, il, iu,
-        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          auto &cons = cons_in(b);
-          auto &outside = outside_pack(b);
-
-          // check for left and right sided reflection
-          for (int dir = -1; dir <= 1; dir += 2) {
-            if (outside(0, k, j, i) > 0 && outside(0, k + dir, j, i) == 0) {
-              PARTHENON_REQUIRE(outside(0, k + 2 * dir, j, i) == 0,
-                                "Corner case, not sure how to handle corner case");
-              PARTHENON_REQUIRE(outside(0, k - dir, j, i) > 0,
-                                "Corner case, not sure how to handle corner case");
-              // mirror all components
-              for (int n = 0; n < prim_in.GetDim(4); n++) {
-                const bool reflect = n == IV3;
-                prim_in(b, n, k, j, i) =
-                    (reflect ? -1.0 : 1.0) * prim_in(b, n, k + dir, j, i);
-                prim_in(b, n, k - dir, j, i) =
-                    (reflect ? -1.0 : 1.0) * prim_in(b, n, k + 2 * dir, j, i);
-              }
-            }
-          }
-        });
 
     parthenon::par_for_outer(
         DEFAULT_OUTER_LOOP_PATTERN, "x3 flux", DevExecSpace(), scratch_size_in_bytes,
@@ -1238,6 +1235,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
+          auto &outside = outside_pack(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
@@ -1249,10 +1247,46 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
-
             if (k > kb.s - 1) {
+#if 1
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                // if the cell left of the current reconstructed interface is outside and
+                // the right (current)cell inside, replace reconstructed variable on both
+                // sides with (reflected) first order versions
+                if (outside(0, k - 1, j, i) > 0 && outside(0, k, j, i) == 0) {
+                  for (auto n = 0; n < prim.GetDim(4); ++n) {
+                    const bool reflect = n == IV3;
+                    wl(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j, i);
+                    wr(n, i) = prim(n, k, j, i);
+                  }
+                }
+                // if the cell left of the current reconstructed interface is inside and
+                // the right (current) cell outside, replace reconstructed variable on
+                // both sides with (reflected) first order versions
+                if (outside(0, k, j, i) > 0 && outside(0, k - 1, j, i) == 0) {
+                  for (auto n = 0; n < prim.GetDim(4); ++n) {
+                    const bool reflect = n == IV3;
+                    wl(n, i) = prim(n, k - 1, j, i);
+                    wr(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k - 1, j, i);
+                  }
+                }
+              });
+              member.team_barrier();
+#endif
               riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               member.team_barrier();
+
+#if 0
+              parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                if (outside(0, k, j, i) > 0 ||
+                    (outside(0, k, j, i) == 0 && outside(0, k - 1, j, i) > 0)) {
+                  for (auto n = 0; n < prim.GetDim(4); ++n) {
+                    cons.flux(IV3, n, k, j, i) = 0;
+                  }
+                }
+              });
+              member.team_barrier();
+#endif
 
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
@@ -1333,9 +1367,9 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
   std::int64_t num_corrected, num_need_floor;
   // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
-  // of a single cell at the same time. So the neighboring cells need to be rechecked with
-  // the corrected fluxes as the corrected fluxes in one cell may result in the need to
-  // correct all the fluxes of an originally "good" neighboring cell.
+  // of a single cell at the same time. So the neighboring cells need to be rechecked
+  // with the corrected fluxes as the corrected fluxes in one cell may result in the
+  // need to correct all the fluxes of an originally "good" neighboring cell.
   size_t num_attempts = 0;
   do {
     num_corrected = 0;
