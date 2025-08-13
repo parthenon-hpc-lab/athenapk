@@ -1295,7 +1295,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             pencil_widths[p]; // number of elements in single cached var
 
         using Cache1D = parthenon::ScratchPad1D<Real>;
-        const int scrach_level = 0; // 0 is actual scratch (tiny); 1 is HBM
+        const int scratch_level = 0; // 0 is actual scratch (tiny); 1 is HBM
         size_t scratch_size_in_bytes = Cache1D::shmem_size(pencil_width) * 5;
 
         const int Nb = u0_cons_pack.GetDim(5);
@@ -1311,7 +1311,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         parthenon::team_policy policy(DevExecSpace(), NbNnNjNio, Kokkos::AUTO);
 
         Kokkos::parallel_for(
-            "x3 recon PPM scratch",
+            "x3 recon PPM scratch " + std::to_string(pencil_width),
             policy.set_scratch_size(scratch_level,
                                     Kokkos::PerTeam(scratch_size_in_bytes)),
             KOKKOS_LAMBDA(parthenon::team_mbr_t member) {
