@@ -164,25 +164,38 @@ void ReconstructPlain(parthenon::IndexRange kb, parthenon::IndexRange jb,
     PARTHENON_FAIL("Unknown recon");
   }
 
+  // offsets for wl/wr buffers
+  const auto ng = parthenon::Globals::nghost;
+  int kbs_ = 0;
+  int jbs_ = 0;
+  int ibs_ = 0;
+
   // index offsets in prim stencil
   int ko_ = 0;
   int jo_ = 0;
   int io_ = 0;
   if constexpr (XNDIR == parthenon::X1DIR) {
+    kbs_ = kb.s;
+    jbs_ = jb.s;
+    ibs_ = ib.s == ng ? 0 : (prim_pack.GetDim(1) - 2 * ng) / 2;
     io_ = 1;
     ib.s -= 1;
     ib.e += 1;
   } else if constexpr (XNDIR == parthenon::X2DIR) {
+    // jbs_ = jb.s == ng ? 0 : (prim_pack.GetDim(2) - 2 * ng) / 2;
     jo_ = 1;
     jb.s -= 1;
     jb.e += 1;
   } else if constexpr (XNDIR == parthenon::X3DIR) {
+    // kbs_ = kb.s == ng ? 0 : (prim_pack.GetDim(3) - 2 * ng) / 2;
     ko_ = 1;
     kb.s -= 1;
     kb.e += 1;
   } else {
     PARTHENON_FAIL("Unknown XNDIR: " + std::to_string(XNDIR));
   }
+
+  std::cerr << "offsets are " << kbs_ << " " << jbs_ << " " << ibs_ << "\n";
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "x" + std::to_string(XNDIR) + " recon " + recon_name,
       DevExecSpace(), 0, prim_pack.GetDim(5) - 1, 0, prim_pack.GetDim(4) - 1, kb.s, kb.e,
@@ -195,11 +208,16 @@ void ReconstructPlain(parthenon::IndexRange kb, parthenon::IndexRange jb,
         const auto ko = ko_;
         const auto jo = jo_;
         const auto io = io_;
+        const auto kbs = kbs_;
+        const auto jbs = jbs_;
+        const auto ibs = ibs_;
         if constexpr (recon == Reconstruction::dc) {
-          wl(n, k + ko, j + jo, i + io) = wr(n, k, j, i) = q(n, k, j, i);
+          wl(n, k - kbs + ko, j - jbs + jo, i - ibs + io) =
+              wr(n, k - kbs, j - jbs, i - ibs) = q(n, k, j, i);
         } else if constexpr (recon == Reconstruction::plm) {
           PLM(q(n, k - ko, j - jo, i - io), q(n, k, j, i), q(n, k + ko, j + jo, i + io),
-              wl(n, k + ko, j + jo, i + io), wr(n, k, j, i));
+              wl(n, k - kbs + ko, j - jbs + jo, i - ibs + io),
+              wr(n, k - kbs, j - jbs, i - ibs));
         } else if constexpr (recon == Reconstruction::limo3) {
           const bool ensure_positivity = (n == IDN || n == IPR);
           auto dx = q.GetCoords().Dxc<XNDIR>(k, j, i);
@@ -213,8 +231,9 @@ void ReconstructPlain(parthenon::IndexRange kb, parthenon::IndexRange jb,
         } else if constexpr (recon == Reconstruction::ppm) {
           PPM(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io), q(n, k - ko, j - jo, i - io),
               q(n, k, j, i), q(n, k + ko, j + jo, i + io),
-              q(n, k + 2 * ko, j + 2 * jo, i + 2 * io), wl(n, k + ko, j + jo, i + io),
-              wr(n, k, j, i));
+              q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
+              wl(n, k - kbs + ko, j - jbs + jo, i - ibs + io),
+              wr(n, k - kbs, j - jbs, i - ibs));
         } else if constexpr (recon == Reconstruction::wenoz) {
           WENOZ(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io), q(n, k - ko, j - jo, i - io),
                 q(n, k, j, i), q(n, k + ko, j + jo, i + io),
