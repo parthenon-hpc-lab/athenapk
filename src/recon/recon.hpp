@@ -3,18 +3,23 @@
 // Copyright (c) 2025, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-#ifndef RECON_HPP_
-#define RECON_HPP_
+#ifndef RECON_RECON_HPP_
+#define RECON_RECON_HPP_
 //! \file recon.hpp
 //  \brief Reconstruction over 3D data with scratch space
 
 #include <string>
 
-#include "../main.hpp"
-#include "basic_types.hpp"
-#include "ppm_simple.hpp"
-#include "wenoz_simple.hpp"
+#include <basic_types.hpp>
 #include <parthenon/parthenon.hpp>
+
+#include "../main.hpp"
+#include "./dc_simple.hpp"
+#include "./limo3_simple.hpp"
+#include "./plm_simple.hpp"
+#include "./ppm_simple.hpp"
+#include "./weno3_simple.hpp"
+#include "./wenoz_simple.hpp"
 using parthenon::Real;
 using parthenon::ScratchPad2D;
 using MBPVP = parthenon::MeshBlockPack<parthenon::VariablePack<Real>>;
@@ -23,8 +28,6 @@ using MBPVP = parthenon::MeshBlockPack<parthenon::VariablePack<Real>>;
 template <Reconstruction recon, int XNDIR>
 typename std::enable_if_t<(recon == Reconstruction::ppm ||
                            recon == Reconstruction::wenoz)>
-// std::disjunction<std::is_same_v<recon == Reconstruction::ppm, void>,
-//  std::is_same_v<recon == Reconstruction::wenoz, void>>>
 Reconstruct(const parthenon::IndexRange kb, const parthenon::IndexRange jb,
             parthenon::IndexRange ib, const MBPVP &prim_pack, const MBPVP &wl_pack,
             const MBPVP &wr_pack) {
@@ -138,4 +141,92 @@ Reconstruct(const parthenon::IndexRange kb, const parthenon::IndexRange jb,
   }
 }
 
-#endif // RECONSTRUCT_PLM_SIMPLE_HPP_
+// Reconstruction without scratch pad over all kji
+template <Reconstruction recon, int XNDIR>
+void ReconstructPlain(parthenon::IndexRange kb, parthenon::IndexRange jb,
+                      parthenon::IndexRange ib, const MBPVP &prim_pack,
+                      const MBPVP &wl_pack, const MBPVP &wr_pack) {
+
+  std::string recon_name = "unknown";
+  if constexpr (recon == Reconstruction::dc) {
+    recon_name = "DC";
+  } else if constexpr (recon == Reconstruction::plm) {
+    recon_name = "PLM";
+  } else if constexpr (recon == Reconstruction::weno3) {
+    recon_name = "WENO3";
+  } else if constexpr (recon == Reconstruction::limo3) {
+    recon_name = "LIMOZ";
+  } else if constexpr (recon == Reconstruction::ppm) {
+    recon_name = "PPM";
+  } else if constexpr (recon == Reconstruction::wenoz) {
+    recon_name = "WENOZ";
+  } else {
+    PARTHENON_FAIL("Unknown recon");
+  }
+
+  // index offsets in prim stencil
+  int ko2 = 0;
+  int ko1 = 0;
+  int jo2 = 0;
+  int jo1 = 0;
+  int io2 = 0;
+  int io1 = 0;
+  if constexpr (XNDIR == parthenon::X1DIR) {
+    io2 = 2;
+    io1 = 1;
+    ib.s -= 1;
+    ib.e += 1;
+  } else if constexpr (XNDIR == parthenon::X2DIR) {
+    jo2 = 2;
+    jo1 = 1;
+    jb.s -= 1;
+    jb.e += 1;
+  } else if constexpr (XNDIR == parthenon::X3DIR) {
+    ko2 = 2;
+    ko1 = 1;
+    kb.s -= 1;
+    kb.e += 1;
+  } else {
+    PARTHENON_FAIL("Unknown XNDIR: " + std::to_string(XNDIR));
+  }
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "x" + std::to_string(XNDIR) + " recon " + recon_name,
+      DevExecSpace(), 0, prim_pack.GetDim(5) - 1, 0, prim_pack.GetDim(4) - 1, kb.s, kb.e,
+      jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
+        const auto &q = prim_pack(b);
+        auto &wl = wl_pack(b);
+        auto &wr = wr_pack(b);
+        if constexpr (recon == Reconstruction::dc) {
+          wl(n, k + ko1, j + jo1, i + io1) = wr(n, k, j, i) = q(n, k, j, i);
+        } else if constexpr (recon == Reconstruction::plm) {
+          PLM(q(n, k - ko1, j - jo1, i - io1), q(n, k, j, i),
+              q(n, k + ko1, j + jo1, i + io1), wl(n, k + ko1, j + jo1, i + io1),
+              wr(n, k, j, i));
+        } else if constexpr (recon == Reconstruction::limo3) {
+          const bool ensure_positivity = (n == IDN || n == IPR);
+          auto dx = q.GetCoords().Dxc<XNDIR>(k, j, i);
+          LimO3(q(n, k - ko1, j - jo1, i - io1), q(n, k, j, i),
+                q(n, k + ko1, j + jo1, i + io1), wl(n, k + ko1, j + jo1, i + io1),
+                wr(n, k, j, i), dx, ensure_positivity);
+        } else if constexpr (recon == Reconstruction::weno3) {
+          auto dx2 = q.GetCoords().Dxc<XNDIR>(k, j, i);
+          dx2 = dx2 * dx2;
+          WENO3(q(n, k - ko1, j - jo1, i - io1), q(n, k, j, i),
+                q(n, k + ko1, j + jo1, i + io1), wl(n, k + ko1, j + jo1, i + io1),
+                wr(n, k, j, i), dx2);
+        } else if constexpr (recon == Reconstruction::ppm) {
+          PPM(q(n, k - ko2, j - jo2, i - io2), q(n, k - ko1, j - jo1, i - io1),
+              q(n, k, j, i), q(n, k + ko1, j + jo1, i + io1),
+              q(n, k + ko2, j + jo2, i + io2), wl(n, k + ko1, j + jo1, i + io1),
+              wr(n, k, j, i));
+        } else if constexpr (recon == Reconstruction::wenoz) {
+          WENOZ(q(n, k - ko2, j - jo2, i - io2), q(n, k - ko1, j - jo1, i - io1),
+                q(n, k, j, i), q(n, k + ko1, j + jo1, i + io1),
+                q(n, k + ko2, j + jo2, i + io2), wl(n, k + ko1, j + jo1, i + io1),
+                wr(n, k, j, i));
+        }
+      });
+}
+
+#endif // RECON_RECON_HPP_

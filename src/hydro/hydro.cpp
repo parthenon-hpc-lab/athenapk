@@ -18,13 +18,7 @@
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
 #include "../pgen/pgen.hpp"
-#include "../recon/dc_simple.hpp"
-#include "../recon/limo3_simple.hpp"
-#include "../recon/plm_simple.hpp"
-#include "../recon/ppm_simple.hpp"
 #include "../recon/recon.hpp"
-#include "../recon/weno3_simple.hpp"
-#include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
 #include "../tracers/tracers.hpp"
 #include "../units.hpp"
@@ -417,12 +411,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz,
   // RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlld>(flux_functions);
-  // add_flux_fun<Fluid::glmmhd, Reconstruction::plm,
-  // RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlld>(flux_functions);
-  // add_flux_fun<Fluid::glmmhd, Reconstruction::weno3,
-  // RiemannSolver::hlld>(flux_functions); add_flux_fun<Fluid::glmmhd,
-  // Reconstruction::limo3, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>(flux_functions);
 
   // flux used in all stages expect the first. First stage is set below based on integr.
@@ -1186,29 +1178,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
       jb.e = jbf.e;
       kb.e = kbf.e;
     }
-    if constexpr (recon == Reconstruction::dc) {
-      pmb->par_for(
-          "x1 recon DC", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
-          kb.s, kb.e, jb.s, jb.e, ib.s - 1, ib.e + 1,
-          KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
-            const auto &q = u0_prim_pack(b);
-            u0_wl_pack(b, n, k, j, i + 1) = u0_wr_pack(b, n, k, j, i) = q(n, k, j, i);
-          });
-    } else {
-#if 0
-      pmb->par_for(
-          "x1 recon PPM", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
-          kb.s, kb.e, jb.s, jb.e, ib.s - 1, ib.e + 1,
-          KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
-            const auto &q = u0_prim_pack(b);
-            PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
-                q(n, k, j, i + 2), u0_wl_pack(b, n, k, j, i + 1),
-                u0_wr_pack(b, n, k, j, i));
-          });
-#endif
-
-      Reconstruct<recon, X1DIR>(kb, jb, ib, u0_prim_pack, u0_wl_pack, u0_wr_pack);
-    }
+    ReconstructPlain<recon, X1DIR>(kb, jb, ib, u0_prim_pack, u0_wl_pack, u0_wr_pack);
     pmb->par_for(
         "x1 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
         ib.e + 1, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
@@ -1233,26 +1203,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
   //--------------------------------------------------------------------------------------
   // j-direction
   if (pmb->pmy_mesh->ndim >= 2) {
-    if constexpr (recon == Reconstruction::dc) {
-      pmb->par_for(
-          "x2 recon DC", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
-          kb.s, kb.e, jb.s - 1, jb.e + 1, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
-            const auto &q = u0_prim_pack(b);
-            u0_wl_pack(b, n, k, j + 1, i) = u0_wr_pack(b, n, k, j, i) = q(n, k, j, i);
-          });
-    } else {
-      pmb->par_for(
-          "x2 recon PPM", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
-          kb.s, kb.e, jb.s - 1, jb.e + 1, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
-            const auto &q = u0_prim_pack(b);
-            PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
-                q(n, k, j + 2, i), u0_wl_pack(b, n, k, j + 1, i),
-                u0_wr_pack(b, n, k, j, i));
-          });
-    }
-#if 0
+    ReconstructPlain<recon, X2DIR>(kb, jb, ib, u0_prim_pack, u0_wl_pack, u0_wr_pack);
     pmb->par_for(
         "x2 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e + 1, ib.s,
         ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
@@ -1260,20 +1211,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
           const auto &wr = u0_wr_pack(b);
           riemann.Solve(k, j, i, IV2, wl, wr, eos, c_h);
         });
-#endif
-    scratch_size_in_bytes = 0;
-    parthenon::par_for_outer(
-        DEFAULT_OUTER_LOOP_PATTERN, "x2 Riemann TeamPolicy", DevExecSpace(),
-        scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kb.s, kb.e,
-        jb.s, jb.e + 1,
-        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k,
-                      const int j) {
-          auto &wl = u0_wl_pack(b);
-          const auto &wr = u0_wr_pack(b);
-          parthenon::par_for_inner(member, ib.s, ib.e, [&](const int i) {
-            riemann.Solve(k, j, i, IV2, wl, wr, eos, c_h);
-          });
-        });
+
     const auto dx2 = pmb->coords.CellWidth<X2DIR>(0, 0, 0);
     pmb->par_for(
         "UpdateFluxDiv x2", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
@@ -1289,77 +1227,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
   //--------------------------------------------------------------------------------------
   // k-direction
   if (pmb->pmy_mesh->ndim >= 3) {
-    if constexpr (recon == Reconstruction::dc) {
-      pmb->par_for(
-          "x3 recon DC", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
-          kb.s - 1, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
-            const auto &q = u0_prim_pack(b);
-            u0_wl_pack(b, n, k + 1, j, i) = u0_wr_pack(b, n, k, j, i) = q(n, k, j, i);
-          });
-    } else {
-      {
-        kb = u0_data->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-        kb.s -= 1;
-        kb.e += 1;
-        const int Nb = u0_cons_pack.GetDim(5);
-        const int Nn = u0_cons_pack.GetDim(4);
-        const int Nk = kb.e - kb.s + 1;
-        const int Nj = jb.e - jb.s + 1;
-        const int NkNj = Nk * Nj;
-        const int NnNkNj = Nn * NkNj;
-        const int NbNnNkNj = Nb * NnNkNj;
-
-        auto x3ppm = KOKKOS_LAMBDA(parthenon::team_mbr_t member) {
-          const int b = member.league_rank() / NnNkNj;
-          const int n = (member.league_rank() - b * NnNkNj) / NkNj;
-          int k = (member.league_rank() - b * NnNkNj - n * NkNj) / Nj;
-          const int j = member.league_rank() - b * NnNkNj - n * NkNj - k * Nj + jb.s;
-          k += kb.s;
-
-          const auto &q = u0_prim_pack(b);
-          auto tvr = Kokkos::TeamVectorRange(member, ib.e - ib.s + 1);
-          Kokkos::parallel_for(tvr, [&](const int idx) {
-            const int i = idx + ib.s;
-            PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
-                q(n, k + 2, j, i), u0_wl_pack(b, n, k + 1, j, i),
-                u0_wr_pack(b, n, k, j, i));
-          });
-        };
-
-        parthenon::team_policy policy(DevExecSpace(), NbNnNkNj, Kokkos::AUTO);
-        Kokkos::parallel_for("x3 recon PPM TPTVR team auto", policy, x3ppm);
-
-        std::array<int, 9> sizes = {126, 128, 132, 190, 192, 194, 254, 256, 258};
-        for (int t = 0; t < 9; t++) {
-          const auto team_size = sizes[t];
-          parthenon::team_policy policy(DevExecSpace(), NbNnNkNj, team_size);
-          Kokkos::parallel_for("x3 recon PPM TPTVR team " + std::to_string(team_size),
-                               policy, x3ppm);
-        }
-      }
-      kb = u0_data->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-
-#if 1
-      pmb->par_for(
-          "x3 recon PPM", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
-          kb.s - 1, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
-            const auto &q = u0_prim_pack(b);
-            PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
-                q(n, k + 2, j, i), u0_wl_pack(b, n, k + 1, j, i),
-                u0_wr_pack(b, n, k, j, i));
-          });
-#endif
-
-      Reconstruct<recon, X3DIR>(kb, jb, ib, u0_prim_pack, u0_wl_pack, u0_wr_pack);
-    }
-
-    // ####################################################################################################3
-    // ####################################################################################################3
-    // ####################################################################################################3
-    // ####################################################################################################3
-    // ####################################################################################################3
+    ReconstructPlain<recon, X3DIR>(kb, jb, ib, u0_prim_pack, u0_wl_pack, u0_wr_pack);
 
     pmb->par_for(
         "x3 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e, ib.s,
