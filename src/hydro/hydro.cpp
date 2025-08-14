@@ -464,8 +464,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     flux_first_stage =
         flux_functions.at(std::make_tuple(fluid, Reconstruction::dc, riemann));
   }
-  PARTHENON_REQUIRE_THROWS(integrator == Integrator::vl2,
-                           "Optimizations in flux calc are hard coded to VL2");
   pkg->AddParam<>("integrator", integrator);
   pkg->AddParam<FluxFun_t *>("flux_first_stage", flux_first_stage);
   pkg->AddParam<FluxFun_t *>("flux_other_stage", flux_other_stage);
@@ -1191,9 +1189,8 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
           auto &wl = u0_wl_pack(b);
-          // WARNING: removing gam0 is specific to the VL2 integrator
-          u0_cons_pack(b, v, k, j, i) = // gam0 * u0_cons_pack(b, v, k, j, i) +
-              gam1 * u1_cons_pack(b, v, k, j, i) -
+          u0_cons_pack(b, v, k, j, i) =
+              gam0 * u0_cons_pack(b, v, k, j, i) + gam1 * u1_cons_pack(b, v, k, j, i) -
               beta_dt * (wl(v, k, j, i + 1) - wl(v, k, j, i)) / dx1;
         });
   }
@@ -1218,9 +1215,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
           auto &wl = u0_wl_pack(b);
-          // WARNING: removing gam0 is specific to the VL2 integrator
-          u0_cons_pack(b, v, k, j, i) -= // gam0 * u0_cons_pack(b, v, k, j, i) +
-                                         // gam1 * u1_cons_pack(b, v, k, j, i) -
+          u0_cons_pack(b, v, k, j, i) -=
               beta_dt * (wl(v, k, j + 1, i) - wl(v, k, j, i)) / dx2;
         });
   }
@@ -1242,9 +1237,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
         kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
           auto &wl = u0_wl_pack(b);
-          // WARNING: removing gam0 is specific to the VL2 integrator
-          u0_cons_pack(b, v, k, j, i) -= // gam0 * u0_cons_pack(b, v, k, j, i) +
-                                         // gam1 * u1_cons_pack(b, v, k, j, i) -
+          u0_cons_pack(b, v, k, j, i) -=
               beta_dt * (wl(v, k + 1, j, i) - wl(v, k, j, i)) / dx3;
         });
   }
