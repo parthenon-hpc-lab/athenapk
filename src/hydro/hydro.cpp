@@ -1314,7 +1314,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
           const int b = member.league_rank() / NnNkNj;
           const int n = (member.league_rank() - b * NnNkNj) / NkNj;
           int k = (member.league_rank() - b * NnNkNj - n * NkNj) / Nj;
-          const int j = member.league_rank() - b * NnNkNj - n * NkNj - j * Nk + jb.s;
+          const int j = member.league_rank() - b * NnNkNj - n * NkNj - k * Nj + jb.s;
           k += kb.s;
 
           const auto &q = u0_prim_pack(b);
