@@ -165,25 +165,19 @@ void ReconstructPlain(parthenon::IndexRange kb, parthenon::IndexRange jb,
   }
 
   // index offsets in prim stencil
-  int ko2_ = 0;
-  int ko1_ = 0;
-  int jo2_ = 0;
-  int jo1_ = 0;
-  int io2_ = 0;
-  int io1_ = 0;
+  int ko_ = 0;
+  int jo_ = 0;
+  int io_ = 0;
   if constexpr (XNDIR == parthenon::X1DIR) {
-    io2_ = 2;
-    io1_ = 1;
+    io_ = 1;
     ib.s -= 1;
     ib.e += 1;
   } else if constexpr (XNDIR == parthenon::X2DIR) {
-    jo2_ = 2;
-    jo1_ = 1;
+    jo_ = 1;
     jb.s -= 1;
     jb.e += 1;
   } else if constexpr (XNDIR == parthenon::X3DIR) {
-    ko2_ = 2;
-    ko1_ = 1;
+    ko_ = 1;
     kb.s -= 1;
     kb.e += 1;
   } else {
@@ -198,39 +192,33 @@ void ReconstructPlain(parthenon::IndexRange kb, parthenon::IndexRange jb,
         auto &wl = wl_pack(b);
         auto &wr = wr_pack(b);
         // need redeclare here so that vars are captures by nvcc
-        const auto ko2 = ko2_;
-        const auto ko1 = ko1_;
-        const auto jo2 = jo2_;
-        const auto jo1 = jo1_;
-        const auto io2 = io2_;
-        const auto io1 = io1_;
+        const auto ko = ko_;
+        const auto jo = jo_;
+        const auto io = io_;
         if constexpr (recon == Reconstruction::dc) {
-          wl(n, k + ko1, j + jo1, i + io1) = wr(n, k, j, i) = q(n, k, j, i);
+          wl(n, k + ko, j + jo, i + io) = wr(n, k, j, i) = q(n, k, j, i);
         } else if constexpr (recon == Reconstruction::plm) {
-          PLM(q(n, k - ko1, j - jo1, i - io1), q(n, k, j, i),
-              q(n, k + ko1, j + jo1, i + io1), wl(n, k + ko1, j + jo1, i + io1),
-              wr(n, k, j, i));
+          PLM(q(n, k - ko, j - jo, i - io), q(n, k, j, i), q(n, k + ko, j + jo, i + io),
+              wl(n, k + ko, j + jo, i + io), wr(n, k, j, i));
         } else if constexpr (recon == Reconstruction::limo3) {
           const bool ensure_positivity = (n == IDN || n == IPR);
           auto dx = q.GetCoords().Dxc<XNDIR>(k, j, i);
-          LimO3(q(n, k - ko1, j - jo1, i - io1), q(n, k, j, i),
-                q(n, k + ko1, j + jo1, i + io1), wl(n, k + ko1, j + jo1, i + io1),
-                wr(n, k, j, i), dx, ensure_positivity);
+          LimO3(q(n, k - ko, j - jo, i - io), q(n, k, j, i), q(n, k + ko, j + jo, i + io),
+                wl(n, k + ko, j + jo, i + io), wr(n, k, j, i), dx, ensure_positivity);
         } else if constexpr (recon == Reconstruction::weno3) {
           auto dx2 = q.GetCoords().Dxc<XNDIR>(k, j, i);
           dx2 = dx2 * dx2;
-          WENO3(q(n, k - ko1, j - jo1, i - io1), q(n, k, j, i),
-                q(n, k + ko1, j + jo1, i + io1), wl(n, k + ko1, j + jo1, i + io1),
-                wr(n, k, j, i), dx2);
+          WENO3(q(n, k - ko, j - jo, i - io), q(n, k, j, i), q(n, k + ko, j + jo, i + io),
+                wl(n, k + ko, j + jo, i + io), wr(n, k, j, i), dx2);
         } else if constexpr (recon == Reconstruction::ppm) {
-          PPM(q(n, k - ko2, j - jo2, i - io2), q(n, k - ko1, j - jo1, i - io1),
-              q(n, k, j, i), q(n, k + ko1, j + jo1, i + io1),
-              q(n, k + ko2, j + jo2, i + io2), wl(n, k + ko1, j + jo1, i + io1),
+          PPM(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io), q(n, k - ko, j - jo, i - io),
+              q(n, k, j, i), q(n, k + ko, j + jo, i + io),
+              q(n, k + 2 * ko, j + 2 * jo, i + 2 * io), wl(n, k + ko, j + jo, i + io),
               wr(n, k, j, i));
         } else if constexpr (recon == Reconstruction::wenoz) {
-          WENOZ(q(n, k - ko2, j - jo2, i - io2), q(n, k - ko1, j - jo1, i - io1),
-                q(n, k, j, i), q(n, k + ko1, j + jo1, i + io1),
-                q(n, k + ko2, j + jo2, i + io2), wl(n, k + ko1, j + jo1, i + io1),
+          WENOZ(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io), q(n, k - ko, j - jo, i - io),
+                q(n, k, j, i), q(n, k + ko, j + jo, i + io),
+                q(n, k + 2 * ko, j + 2 * jo, i + 2 * io), wl(n, k + ko, j + jo, i + io),
                 wr(n, k, j, i));
         }
       });
