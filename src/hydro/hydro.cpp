@@ -1195,6 +1195,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             u0_wl_pack(b, n, k, j, i + 1) = u0_wr_pack(b, n, k, j, i) = q(n, k, j, i);
           });
     } else {
+#if 0
       pmb->par_for(
           "x1 recon PPM", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
           kb.s, kb.e, jb.s, jb.e, ib.s - 1, ib.e + 1,
@@ -1204,6 +1205,9 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                 q(n, k, j, i + 2), u0_wl_pack(b, n, k, j, i + 1),
                 u0_wr_pack(b, n, k, j, i));
           });
+#endif
+
+      Reconstruct<recon, X1DIR>(kb, jb, ib, u0_prim_pack, u0_wl_pack, u0_wr_pack);
     }
     pmb->par_for(
         "x1 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,

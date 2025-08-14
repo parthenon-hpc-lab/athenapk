@@ -21,13 +21,15 @@ using MBPVP = parthenon::MeshBlockPack<parthenon::VariablePack<Real>>;
 
 // Reconstruction using a 5 point stencil
 template <Reconstruction recon, int XNDIR>
-KOKKOS_INLINE_FUNCTION typename std::enable_if_t<(recon == Reconstruction::ppm ||
-                                                  recon == Reconstruction::wenoz)>
+typename std::enable_if_t<(recon == Reconstruction::ppm ||
+                           recon == Reconstruction::wenoz)>
 // std::disjunction<std::is_same_v<recon == Reconstruction::ppm, void>,
 //  std::is_same_v<recon == Reconstruction::wenoz, void>>>
 Reconstruct(const parthenon::IndexRange kb, const parthenon::IndexRange jb,
-            const parthenon::IndexRange ib, const MBPVP &prim_pack, const MBPVP &wl_pack,
+            parthenon::IndexRange ib, const MBPVP &prim_pack, const MBPVP &wl_pack,
             const MBPVP &wr_pack) {
+  using Cache1D = parthenon::ScratchPad1D<Real>;
+
   std::string recon_name = "unknown";
   if constexpr (recon == Reconstruction::ppm) {
     recon_name = "PPM";
@@ -35,10 +37,46 @@ Reconstruct(const parthenon::IndexRange kb, const parthenon::IndexRange jb,
     recon_name = "WENOZ";
   }
   if constexpr (XNDIR == parthenon::X1DIR) {
+    // Adjust local indices to include wl of i-1 and wr of i+1
+    ib.s -= 1;
+    ib.e += 1;
+    const int Nx1 = prim_pack.GetDim(1); // adjust for full pencil/stencil size
+    const int scratch_level = 0;         // 0 is actual scratch (tiny); 1 is HBM
+    size_t scratch_size_in_bytes = Cache1D::shmem_size(Nx1) * 1;
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x1 recon scratch " + recon_name, DevExecSpace(),
+        scratch_size_in_bytes, scratch_level, 0, prim_pack.GetDim(5) - 1, 0,
+        prim_pack.GetDim(4) - 1, jb.s, jb.e,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int n,
+                      const int j) {
+          const auto &prim = prim_pack(b);
+          auto &wl = wl_pack(b);
+          auto &wr = wr_pack(b);
+          Cache1D pencil(member.team_scratch(scratch_level), Nx1);
+
+          for (int k = kb.s; k <= kb.e; ++k) {
+            Kokkos::parallel_for(
+                Kokkos::TeamVectorRange(member, Nx1),
+                [&](const int idx) { pencil(idx) = prim(n, k, j, idx); });
+            member.team_barrier();
+
+            auto tvr = Kokkos::TeamVectorRange(member, ib.size());
+            Kokkos::parallel_for(tvr, [&](const int idx) {
+              const int i = idx + ib.s;
+              if constexpr (recon == Reconstruction::ppm) {
+                PPM(pencil(i - 2), pencil(i - 1), pencil(i), pencil(i + 1), pencil(i + 2),
+                    wl(n, k, j, i + 1), wr(n, k, j, i));
+              } else if constexpr (recon == Reconstruction::wenoz) {
+                WENOZ(pencil(i - 2), pencil(i - 1), pencil(i), pencil(i + 1),
+                      pencil(i + 2), wl(n, k, j, i + 1), wr(n, k, j, i));
+              }
+            });
+            member.team_barrier();
+          }
+        });
   } else if constexpr (XNDIR == parthenon::X2DIR) {
   } else if constexpr (XNDIR == parthenon::X3DIR) {
     const auto Ni = ib.e - ib.s + 1;
-    using Cache1D = parthenon::ScratchPad1D<Real>;
     const int scratch_level = 0; // 0 is actual scratch (tiny); 1 is HBM
     size_t scratch_size_in_bytes = Cache1D::shmem_size(Ni) * 5;
 
@@ -49,6 +87,8 @@ Reconstruct(const parthenon::IndexRange kb, const parthenon::IndexRange jb,
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int n,
                       const int j) {
           const auto &prim = prim_pack(b);
+          auto &wl = wl_pack(b);
+          auto &wr = wr_pack(b);
           Cache1D km2(member.team_scratch(scratch_level), Ni);
           Cache1D km1(member.team_scratch(scratch_level), Ni);
           Cache1D kn0(member.team_scratch(scratch_level), Ni);
@@ -76,11 +116,11 @@ Reconstruct(const parthenon::IndexRange kb, const parthenon::IndexRange jb,
             Kokkos::parallel_for(tvr, [&](const int idx) {
               const int i = idx + ib.s;
               if constexpr (recon == Reconstruction::ppm) {
-                PPM(km2(idx), km1(idx), kn0(idx), kp1(idx), kp2(idx),
-                    wl_pack(b, n, k + 1, j, i), wr_pack(b, n, k, j, i));
+                PPM(km2(idx), km1(idx), kn0(idx), kp1(idx), kp2(idx), wl(n, k + 1, j, i),
+                    wr(n, k, j, i));
               } else if constexpr (recon == Reconstruction::wenoz) {
                 WENOZ(km2(idx), km1(idx), kn0(idx), kp1(idx), kp2(idx),
-                      wl_pack(b, n, k + 1, j, i), wr_pack(b, n, k, j, i));
+                      wl(n, k + 1, j, i), wr(n, k, j, i));
               }
             });
             member.team_barrier();
