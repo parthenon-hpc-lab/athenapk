@@ -60,7 +60,7 @@ Reconstruct(const parthenon::IndexRange kb, const parthenon::IndexRange jb,
                 [&](const int idx) { pencil(idx) = prim(n, k, j, idx); });
             member.team_barrier();
 
-            auto tvr = Kokkos::TeamVectorRange(member, ib.size());
+            auto tvr = Kokkos::TeamVectorRange(member, ib.e - ib.s + 1);
             Kokkos::parallel_for(tvr, [&](const int idx) {
               const int i = idx + ib.s;
               if constexpr (recon == Reconstruction::ppm) {
