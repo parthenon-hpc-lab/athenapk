@@ -1339,14 +1339,14 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
               const int ill = io * pencil_width + ib.s;     // lower local/pencil i index
               int iul = (io + 1) * pencil_width + ib.s - 1; // uppper index (inclusive)
               // Given that we're not always exactly matching bounds, we need to adjust
-              iul = std::min(iul, iu);
+              iul = std::min(iul, ib.e);
               auto tvr = Kokkos::TeamVectorRange(member, iul - ill + 1);
               Kokkos::parallel_for(tvr, [&](const int idx) {
                 const int i = idx + ill;
-                km2(i - ill) = prim(n, kb.s - 1 - 2, j, i);
-                km1(i - ill) = prim(n, kb.s - 1 - 1, j, i);
-                kn0(i - ill) = prim(n, kb.s - 1 + 0, j, i);
-                kp1(i - ill) = prim(n, kb.s - 1 + 1, j, i);
+                km2(idx) = prim(n, kb.s - 1 - 2, j, i);
+                km1(idx) = prim(n, kb.s - 1 - 1, j, i);
+                kn0(idx) = prim(n, kb.s - 1 + 0, j, i);
+                kp1(idx) = prim(n, kb.s - 1 + 1, j, i);
                 // kp2 is filled in k loop
               });
               member.team_barrier();
@@ -1354,13 +1354,13 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
               for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
                 Kokkos::parallel_for(tvr, [&](const int idx) {
                   const int i = idx + ill;
-                  kp2(i - ill) = prim(n, k + 2, j, i);
+                  kp2(idx) = prim(n, k + 2, j, i);
                 });
                 member.team_barrier();
 
                 Kokkos::parallel_for(tvr, [&](const int idx) {
                   const int i = idx + ill;
-                  PPM(km2(i), km1(i), kn0(i), kp1(i), kp2(i),
+                  PPM(km2(idx), km1(idx), kn0(idx), kp1(idx), kp2(idx),
                       u0_wl_pack(b, n, k + 1, j, i), u0_wr_pack(b, n, k, j, i));
                 });
                 member.team_barrier();
@@ -1547,14 +1547,14 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
               const int ill = io * pencil_width + ib.s;     // lower local/pencil i index
               int iul = (io + 1) * pencil_width + ib.s - 1; // uppper index (inclusive)
               // Given that we're not always exactly matching bounds, we need to adjust
-              iul = std::min(iul, iu);
+              iul = std::min(iul, ib.e);
               auto tvr = Kokkos::TeamVectorRange(member, iul - ill + 1);
               Kokkos::parallel_for(tvr, [&](const int idx) {
                 const int i = idx + ill;
-                km2(i - ill) = prim(n, kb.s - 1 - 2, j, i);
-                km1(i - ill) = prim(n, kb.s - 1 - 1, j, i);
-                kn0(i - ill) = prim(n, kb.s - 1 + 0, j, i);
-                kp1(i - ill) = prim(n, kb.s - 1 + 1, j, i);
+                km2(idx) = prim(n, kb.s - 1 - 2, j, i);
+                km1(idx) = prim(n, kb.s - 1 - 1, j, i);
+                kn0(idx) = prim(n, kb.s - 1 + 0, j, i);
+                kp1(idx) = prim(n, kb.s - 1 + 1, j, i);
                 // kp2 is filled in k loop
               });
               member.team_barrier();
@@ -1562,13 +1562,13 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
               for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
                 Kokkos::parallel_for(tvr, [&](const int idx) {
                   const int i = idx + ill;
-                  kp2(i - ill) = prim(n, k + 2, j, i);
+                  kp2(idx) = prim(n, k + 2, j, i);
                 });
                 member.team_barrier();
 
                 Kokkos::parallel_for(tvr, [&](const int idx) {
                   const int i = idx + ill;
-                  PPM(km2(i), km1(i), kn0(i), kp1(i), kp2(i),
+                  PPM(km2(idx), km1(idx), kn0(idx), kp1(idx), kp2(idx),
                       u0_wl_pack(b, n, k + 1, j, i), u0_wr_pack(b, n, k, j, i));
                 });
                 member.team_barrier();
