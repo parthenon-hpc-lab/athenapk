@@ -165,25 +165,25 @@ void ReconstructPlain(parthenon::IndexRange kb, parthenon::IndexRange jb,
   }
 
   // index offsets in prim stencil
-  int ko2 = 0;
-  int ko1 = 0;
-  int jo2 = 0;
-  int jo1 = 0;
-  int io2 = 0;
-  int io1 = 0;
+  int ko2_ = 0;
+  int ko1_ = 0;
+  int jo2_ = 0;
+  int jo1_ = 0;
+  int io2_ = 0;
+  int io1_ = 0;
   if constexpr (XNDIR == parthenon::X1DIR) {
-    io2 = 2;
-    io1 = 1;
+    io2_ = 2;
+    io1_ = 1;
     ib.s -= 1;
     ib.e += 1;
   } else if constexpr (XNDIR == parthenon::X2DIR) {
-    jo2 = 2;
-    jo1 = 1;
+    jo2_ = 2;
+    jo1_ = 1;
     jb.s -= 1;
     jb.e += 1;
   } else if constexpr (XNDIR == parthenon::X3DIR) {
-    ko2 = 2;
-    ko1 = 1;
+    ko2_ = 2;
+    ko1_ = 1;
     kb.s -= 1;
     kb.e += 1;
   } else {
@@ -197,6 +197,13 @@ void ReconstructPlain(parthenon::IndexRange kb, parthenon::IndexRange jb,
         const auto &q = prim_pack(b);
         auto &wl = wl_pack(b);
         auto &wr = wr_pack(b);
+        // need redeclare here so that vars are captures by nvcc
+        const auto ko2 = ko2_;
+        const auto ko1 = ko1_;
+        const auto jo2 = jo2_;
+        const auto jo1 = jo1_;
+        const auto io2 = io2_;
+        const auto io1 = io1_;
         if constexpr (recon == Reconstruction::dc) {
           wl(n, k + ko1, j + jo1, i + io1) = wr(n, k, j, i) = q(n, k, j, i);
         } else if constexpr (recon == Reconstruction::plm) {
