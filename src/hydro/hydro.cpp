@@ -1248,12 +1248,27 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                 u0_wr_pack(b, n, k, j, i));
           });
     }
+#if 0
     pmb->par_for(
         "x2 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e + 1, ib.s,
         ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           auto &wl = u0_wl_pack(b);
           const auto &wr = u0_wr_pack(b);
           riemann.Solve(k, j, i, IV2, wl, wr, eos, c_h);
+        });
+#endif
+    scratch_size_in_bytes = 0;
+    parthenon::par_for_outer(
+        DEFAULT_OUTER_LOOP_PATTERN, "x2 Riemann TeamPolicy", DevExecSpace(),
+        scratch_size_in_bytes, scratch_level, 0, u0_cons_pack.GetDim(5) - 1, kb.s, kb.e,
+        jb.s, jb.e + 1,
+        KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k,
+                      const int j) {
+          auto &wl = u0_wl_pack(b);
+          const auto &wr = u0_wr_pack(b);
+          parthenon::par_for_inner(member, ib.s, ib.e, [&](const int i) {
+            riemann.Solve(k, j, i, IV2, wl, wr, eos, c_h);
+          });
         });
     const auto dx2 = pmb->coords.CellWidth<X2DIR>(0, 0, 0);
     pmb->par_for(
