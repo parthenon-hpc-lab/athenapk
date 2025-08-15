@@ -111,6 +111,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 // Defined embedded boundaires for `outside` field.
 // Default init 0 is "inside", everything non-zero is outside.
 void SetOutside(MeshBlock *pmb, ParameterInput *pin) {
+  return;
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
   // No need to set ghost cells as data is communicated prior to entering the main
@@ -166,23 +167,8 @@ void InjectSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm, const Real 
         const auto z = coords.Xc<3>(k);
         const auto r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
         if (r < radius_in) {
-          // Add density such that velocity and temperature (propto pressure/density) is
-          // fixed
-          const auto rho = cons(IDN, k, j, i);
-          const auto vx = cons(IM1, k, j, i) / rho;
-          const auto vy = cons(IM2, k, j, i) / rho;
-          const auto vz = cons(IM3, k, j, i) / rho;
-          const auto v2 = SQR(vx) + SQR(vy) + SQR(vz);
-          const auto e = (cons(IEN, k, j, i) - 0.5 * rho * v2) / rho;
           cons(IDN, k, j, i) += beta_dt * dens_inj;
-          cons(IM1, k, j, i) += beta_dt * dens_inj * vx;
-          cons(IM2, k, j, i) += beta_dt * dens_inj * vy;
-          cons(IM3, k, j, i) += beta_dt * dens_inj * vz;
-          cons(IEN, k, j, i) = 0.5 *
-                                   (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                    SQR(cons(IM3, k, j, i))) /
-                                   cons(IDN, k, j, i) +
-                               e * cons(IDN, k, j, i) + beta_dt * endens_inj;
+          cons(IEN, k, j, i) += beta_dt * endens_inj;
         }
       });
 }
