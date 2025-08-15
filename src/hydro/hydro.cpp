@@ -1082,44 +1082,46 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
-#if 1
+
         parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
-          // if the cell left of the current reconstructed interface is outside and the
-          // right (current)cell inside, replace reconstructed variable on both sides with
-          // (reflected) first order versions
-          if (outside(0, k, j, i - 1) > 0 && outside(0, k, j, i) == 0) {
+          // Need to handle all cases (for three point stencil recon)
+          const bool outl = outside(0, k, j, i - 1);
+          const bool outc = outside(0, k, j, i);
+          const bool outr = outside(0, k, j, i + 1);
+
+          // Case: XXX (all outside) or OOO (all inside)
+          // Nothing to do as stencil is clean
+          if ((outl && outc && outr) || (!outl && !outc && !outr)) {
+            return;
+            // Stencil poluted by ouside info, but cell at i is inside.
+            // Cases: XOO, OOX, XOX
+            // Reconstruct both sides at first order.
+          } else if (!outc && (outl || outr)) {
             for (auto n = 0; n < prim.GetDim(4); ++n) {
-              const bool reflect = n == IV1;
-              wl(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j, i);
               wr(n, i) = prim(n, k, j, i);
+              wl(n, i + 1) = prim(n, k, j, i);
             }
-          }
-          // if the cell left of the current reconstructed interface is inside and the
-          // right (current) cell outside, replace reconstructed variable on both sides
-          // with (reflected) first order versions
-          if (outside(0, k, j, i) > 0 && outside(0, k, j, i - 1) == 0) {
+            // if current cell is outside we need some fixes
+          } else if (outc) {
             for (auto n = 0; n < prim.GetDim(4); ++n) {
               const bool reflect = n == IV1;
-              wl(n, i) = prim(n, k, j, i - 1);
-              wr(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j, i - 1);
+              // fix right state by reflection of left inside cell
+              if (!outl) {
+                wr(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j, i - 1);
+              }
+              if (!outr) {
+                wl(n, i + 1) = (reflect ? -1.0 : 1.0) * prim(n, k, j, i + 1);
+              }
             }
+          } else {
+            PARTHENON_FAIL("I should never be here.");
           }
         });
         member.team_barrier();
-#endif
+
         riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         member.team_barrier();
-#if 0
-        parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
-          if (outside(0, k, j, i) > 0 ||
-              (outside(0, k, j, i) == 0 && outside(0, k, j, i - 1) > 0)) {
-            for (auto n = 0; n < prim.GetDim(4); ++n) {
-              cons.flux(IV1, n, k, j, i) = 0;
-            }
-          }
-        });
-        member.team_barrier();
-#endif
+
         // Passive scalar fluxes
         for (auto n = nhydro; n < nhydro + nscalars; ++n) {
           parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
@@ -1164,44 +1166,44 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             member.team_barrier();
 
             if (j > jb.s - 1) {
-#if 1
               parthenon::par_for_inner(member, il, iu, [&](const int i) {
-                // if the cell left of the current reconstructed interface is outside and
-                // the right (current)cell inside, replace reconstructed variable on both
-                // sides with (reflected) first order versions
-                if (outside(0, k, j - 1, i) > 0 && outside(0, k, j, i) == 0) {
+                // Need to handle all cases (for three point stencil recon)
+                const bool outl = outside(0, k, j - 1, i);
+                const bool outc = outside(0, k, j, i);
+                const bool outr = outside(0, k, j + 1, i);
+
+                // Case: XXX (all outside) or OOO (all inside)
+                // Nothing to do as stencil is clean
+                if ((outl && outc && outr) || (!outl && !outc && !outr)) {
+                  return;
+                  // Stencil poluted by ouside info, but cell at i is inside.
+                  // Cases: XOO, OOX, XOX
+                  // Reconstruct both sides at first order.
+                } else if (!outc && (outl || outr)) {
                   for (auto n = 0; n < prim.GetDim(4); ++n) {
-                    const bool reflect = n == IV2;
-                    wl(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j, i);
                     wr(n, i) = prim(n, k, j, i);
+                    wlb(n, i) = prim(n, k, j, i);
                   }
-                }
-                // if the cell left of the current reconstructed interface is inside and
-                // the right (current) cell outside, replace reconstructed variable on
-                // both sides with (reflected) first order versions
-                if (outside(0, k, j, i) > 0 && outside(0, k, j - 1, i) == 0) {
+                  // if current cell is outside we need some fixes
+                } else if (outc) {
                   for (auto n = 0; n < prim.GetDim(4); ++n) {
                     const bool reflect = n == IV2;
-                    wl(n, i) = prim(n, k, j - 1, i);
-                    wr(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j - 1, i);
+                    // fix right state by reflection of left inside cell
+                    if (!outl) {
+                      wr(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j - 1, i);
+                    }
+                    if (!outr) {
+                      wlb(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j + 1, i);
+                    }
                   }
+                } else {
+                  PARTHENON_FAIL("I should never be here.");
                 }
               });
               member.team_barrier();
-#endif
+
               riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
               member.team_barrier();
-#if 0
-              parthenon::par_for_inner(member, il, iu, [&](const int i) {
-                if (outside(0, k, j, i) > 0 ||
-                    (outside(0, k, j, i) == 0 && outside(0, k, j - 1, i) > 0)) {
-                  for (auto n = 0; n < prim.GetDim(4); ++n) {
-                    cons.flux(IV2, n, k, j, i) = 0;
-                  }
-                }
-              });
-              member.team_barrier();
-#endif
 
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
@@ -1248,45 +1250,45 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
             if (k > kb.s - 1) {
-#if 1
+
               parthenon::par_for_inner(member, il, iu, [&](const int i) {
-                // if the cell left of the current reconstructed interface is outside and
-                // the right (current)cell inside, replace reconstructed variable on both
-                // sides with (reflected) first order versions
-                if (outside(0, k - 1, j, i) > 0 && outside(0, k, j, i) == 0) {
+                // Need to handle all cases (for three point stencil recon)
+                const bool outl = outside(0, k - 1, j, i);
+                const bool outc = outside(0, k, j, i);
+                const bool outr = outside(0, k + 1, j, i);
+
+                // Case: XXX (all outside) or OOO (all inside)
+                // Nothing to do as stencil is clean
+                if ((outl && outc && outr) || (!outl && !outc && !outr)) {
+                  return;
+                  // Stencil poluted by ouside info, but cell at i is inside.
+                  // Cases: XOO, OOX, XOX
+                  // Reconstruct both sides at first order.
+                } else if (!outc && (outl || outr)) {
                   for (auto n = 0; n < prim.GetDim(4); ++n) {
-                    const bool reflect = n == IV3;
-                    wl(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k, j, i);
                     wr(n, i) = prim(n, k, j, i);
+                    wlb(n, i) = prim(n, k, j, i);
                   }
-                }
-                // if the cell left of the current reconstructed interface is inside and
-                // the right (current) cell outside, replace reconstructed variable on
-                // both sides with (reflected) first order versions
-                if (outside(0, k, j, i) > 0 && outside(0, k - 1, j, i) == 0) {
+                  // if current cell is outside we need some fixes
+                } else if (outc) {
                   for (auto n = 0; n < prim.GetDim(4); ++n) {
                     const bool reflect = n == IV3;
-                    wl(n, i) = prim(n, k - 1, j, i);
-                    wr(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k - 1, j, i);
+                    // fix right state by reflection of left inside cell
+                    if (!outl) {
+                      wr(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k - 1, j, i);
+                    }
+                    if (!outr) {
+                      wlb(n, i) = (reflect ? -1.0 : 1.0) * prim(n, k + 1, j, i);
+                    }
                   }
+                } else {
+                  PARTHENON_FAIL("I should never be here.");
                 }
               });
-              member.team_barrier();
-#endif
-              riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               member.team_barrier();
 
-#if 0
-              parthenon::par_for_inner(member, il, iu, [&](const int i) {
-                if (outside(0, k, j, i) > 0 ||
-                    (outside(0, k, j, i) == 0 && outside(0, k - 1, j, i) > 0)) {
-                  for (auto n = 0; n < prim.GetDim(4); ++n) {
-                    cons.flux(IV3, n, k, j, i) = 0;
-                  }
-                }
-              });
+              riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               member.team_barrier();
-#endif
 
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {

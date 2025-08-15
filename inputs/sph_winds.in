@@ -12,28 +12,28 @@ problem_id = sph_winds
 refinement = none
 nghost = 2
 
-nx1 = 128
-x1min = -2.0
-x1max = 2.0
+nx1 = 64 
+x1min = -0.5
+x1max = 0.5
 ix1_bc = periodic
 ox1_bc = periodic
 
-nx2 = 128
-x2min = -2.0
-x2max = 2.0
+nx2 = 64 
+x2min = -0.5
+x2max = 0.5
 ix2_bc = periodic
 ox2_bc = periodic
 
 nx3 = 128
-x3min = -2.0
-x3max = 2.0
+x3min = -1.0
+x3max = 1.0
 ix3_bc = periodic
 ox3_bc = periodic
 
 <parthenon/meshblock>
 nx1=64  
 nx2=64  
-nx3=64
+nx3=32
 
 <parthenon/time>
 integrator = vl2

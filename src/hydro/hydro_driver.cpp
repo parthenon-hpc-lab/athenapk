@@ -40,6 +40,36 @@ HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm
   pin->CheckDesired("parthenon/time", "cfl");
 }
 
+TaskStatus UpdateWithFluxDivergenceInside(MeshData<Real> *u0_data,
+                                          MeshData<Real> *u1_data, const Real gam0,
+                                          const Real gam1, const Real beta_dt) {
+  using parthenon::Update::FluxDivHelper;
+  const IndexDomain interior = IndexDomain::interior;
+
+  std::vector<parthenon::MetadataFlag> flags({Metadata::WithFluxes, Metadata::Cell});
+  auto u0_pack = u0_data->PackVariablesAndFluxes(flags);
+  const auto &u1_pack = u1_data->PackVariables(flags);
+  const IndexRange ib = u0_data->GetBoundsI(interior);
+  const IndexRange jb = u0_data->GetBoundsJ(interior);
+  const IndexRange kb = u0_data->GetBoundsK(interior);
+  auto const &outside_pack = u0_data->PackVariables(std::vector<std::string>{"outside"});
+
+  const int ndim = u0_pack.GetNdim();
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, PARTHENON_AUTO_LABEL, DevExecSpace(), 0,
+      u0_pack.GetDim(5) - 1, 0, u0_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int l, const int k, const int j, const int i) {
+        const auto &coords = u0_pack.GetCoords(b);
+        const auto &u0 = u0_pack(b);
+
+        if (outside_pack(b, 0, k, j, i) == 0) {
+          u0_pack(b, l, k, j, i) = gam0 * u0(l, k, j, i) + gam1 * u1_pack(b, l, k, j, i) +
+                                   beta_dt * FluxDivHelper(l, k, j, i, ndim, coords, u0);
+        }
+      });
+  return TaskStatus::complete;
+}
+
 // Sets all fluxes to 0
 TaskStatus ResetFluxes(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
@@ -531,10 +561,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
                               parthenon::SetFluxCorrections, mu0);
 
     // compute the divergence of fluxes of conserved variables
-    auto update = tl.AddTask(
-        set_flx, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
-        mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
-        integrator->beta[stage - 1] * integrator->dt);
+    auto update =
+        tl.AddTask(set_flx, UpdateWithFluxDivergenceInside, mu0.get(), mu1.get(),
+                   integrator->gam0[stage - 1], integrator->gam1[stage - 1],
+                   integrator->beta[stage - 1] * integrator->dt);
 
     // Add non-operator split source terms.
     // Note: Directly update the "cons" variables of mu0 based on the "prim" variables

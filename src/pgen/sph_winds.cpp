@@ -111,7 +111,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 // Defined embedded boundaires for `outside` field.
 // Default init 0 is "inside", everything non-zero is outside.
 void SetOutside(MeshBlock *pmb, ParameterInput *pin) {
-  return;
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
   // No need to set ghost cells as data is communicated prior to entering the main
@@ -158,8 +157,8 @@ void InjectSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm, const Real 
   const auto num_blocks = md->NumBlocks();
   auto const &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   pmb->par_for(
-      "Init field loop potential", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+      "Mass and thermal energy injection", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e,
+      ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = cons_pack.GetCoords(b);
         auto &cons = cons_pack(b);
         const auto x = coords.Xc<1>(i);
