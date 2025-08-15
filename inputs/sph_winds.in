@@ -38,11 +38,10 @@ nx3=32
 <parthenon/time>
 integrator = vl2
 cfl = 0.3
-tlim = 1000.0
-nlim = 1000
+tlim = 450.0
+nlim = -1
 perf_cycle_offset = 2     # number of inital cycles not to be included in perf calc
 ncycle_out_mesh = -500    # output mesh structure every 500 cycles and on every change (<0)
-dt_init = 1.0
 
 <hydro>
 eos = adiabatic
@@ -68,7 +67,8 @@ sph_radius_cgs =  6.171e+20 # 200 pc
 mass_inj_rate_cgs = 2.52e26  # 4 Msun/yr
 # Total thermal energy injection rate (within given radius),
 energy_inj_rate_cgs = 2.0e+42 # approx 0.07 * 10^51 ergs/yr 
+embedded_boundary = sphere_w_cone # alternative none
 
 <parthenon/output0>
 file_type = rst
-dn = 100
+dt = 20

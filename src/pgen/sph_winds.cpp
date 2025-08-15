@@ -36,6 +36,8 @@ using namespace parthenon::package::prelude;
 
 namespace sph_winds {
 
+enum class BndType { none, sph_w_cone };
+
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
 
   // not great/clean to use a Real field but working with what's available
@@ -49,6 +51,15 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
                                  "Wind opening angle to z-axis in degrees.");
   theta *= M_PI / 180.;
   pkg->AddParam("problem/sph_winds/theta", theta);
+
+  auto bnd_type_str =
+      pin->GetOrAddString("problem/sph_winds", "embedded_boundary", "none",
+                          {"none", "sphere_w_cone"}, "Type of embedded boundary.");
+  auto bnd_type = BndType::none;
+  if (bnd_type_str == "sphere_w_cone") {
+    bnd_type = BndType::sph_w_cone;
+  }
+  pkg->AddParam("problem/sph_winds/bnd_type", bnd_type);
 
   auto radius = pin->GetOrAddReal(
                     "problem/sph_winds", "sph_radius_cgs", 6.171e+20,
@@ -121,6 +132,7 @@ void SetOutside(MeshBlock *pmb, ParameterInput *pin) {
 
   const auto radius_in = hydro_pkg->Param<Real>("problem/sph_winds/radius");
   const auto theta_in = hydro_pkg->Param<Real>("problem/sph_winds/theta");
+  const auto bnd_type = hydro_pkg->Param<BndType>("problem/sph_winds/bnd_type");
 
   auto &mbd = pmb->meshblock_data.Get();
   auto &outside = mbd->Get("outside").data;
@@ -134,9 +146,10 @@ void SetOutside(MeshBlock *pmb, ParameterInput *pin) {
         const auto r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
         const auto theta = std::acos(z / r);
         outside(k, j, i) = 0.0;
-
-        if ((theta > theta_in && theta < M_PI - theta_in) && r > radius_in) {
-          outside(k, j, i) = 1.0;
+        if (bnd_type == BndType::sph_w_cone) {
+          if ((theta > theta_in && theta < M_PI - theta_in) && r > radius_in) {
+            outside(k, j, i) = 1.0;
+          }
         }
       });
 }
