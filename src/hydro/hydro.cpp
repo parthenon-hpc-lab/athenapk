@@ -389,11 +389,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // RiemannSolver::hlle>(flux_functions); add_flux_fun<Fluid::euler,
   // Reconstruction::limo3, RiemannSolver::hlle>(flux_functions);
   // add_flux_fun<Fluid::euler, Reconstruction::wenoz,
-  // RiemannSolver::hlle>(flux_functions); add_flux_fun<Fluid::euler, Reconstruction::dc,
-  // RiemannSolver::hllc>(flux_functions);
-  // add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::hllc>(flux_functions);
-  // add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hllc>(flux_functions);
-  // add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::hllc>(flux_functions);
+  // RiemannSolver::hlle>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::hllc>(flux_functions);
   // add_flux_fun<Fluid::euler,
   // Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
   // add_flux_fun<Fluid::euler, Reconstruction::limo3,
