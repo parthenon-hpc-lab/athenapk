@@ -37,9 +37,9 @@ struct Cons1D {
 
 template <>
 struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
-  static KOKKOS_INLINE_FUNCTION void Solve(const int k, const int j, const int i,
-                                           const int ivx, const VariablePack<Real> &wl,
-                                           const VariablePack<Real> &wr,
+  static KOKKOS_INLINE_FUNCTION void Solve(const int b, const int k, const int j,
+                                           const int i, const int ivx,
+                                           const SparsePack<> &wl, const SparsePack<> &wr,
                                            const AdiabaticGLMMHDEOS &eos,
                                            const Real c_h) {
     const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
@@ -63,32 +63,32 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
 
     //--- Step 1.  Load L/R states into local variables
 
-    wli[IDN] = wl(IDN, k, j, i);
-    wli[IV1] = wl(ivx, k, j, i);
-    wli[IV2] = wl(ivy, k, j, i);
-    wli[IV3] = wl(ivz, k, j, i);
-    wli[IPR] = wl(IPR, k, j, i);
-    wli[IB1] = wl(iBx, k, j, i);
-    wli[IB2] = wl(iBy, k, j, i);
-    wli[IB3] = wl(iBz, k, j, i);
-    wli[IPS] = wl(IPS, k, j, i);
+    wli[IDN] = wl(b, IDN, k, j, i);
+    wli[IV1] = wl(b, ivx, k, j, i);
+    wli[IV2] = wl(b, ivy, k, j, i);
+    wli[IV3] = wl(b, ivz, k, j, i);
+    wli[IPR] = wl(b, IPR, k, j, i);
+    wli[IB1] = wl(b, iBx, k, j, i);
+    wli[IB2] = wl(b, iBy, k, j, i);
+    wli[IB3] = wl(b, iBz, k, j, i);
+    wli[IPS] = wl(b, IPS, k, j, i);
 
-    wri[IDN] = wr(IDN, k, j, i);
-    wri[IV1] = wr(ivx, k, j, i);
-    wri[IV2] = wr(ivy, k, j, i);
-    wri[IV3] = wr(ivz, k, j, i);
-    wri[IPR] = wr(IPR, k, j, i);
-    wri[IB1] = wr(iBx, k, j, i);
-    wri[IB2] = wr(iBy, k, j, i);
-    wri[IB3] = wr(iBz, k, j, i);
-    wri[IPS] = wr(IPS, k, j, i);
+    wri[IDN] = wr(b, IDN, k, j, i);
+    wri[IV1] = wr(b, ivx, k, j, i);
+    wri[IV2] = wr(b, ivy, k, j, i);
+    wri[IV3] = wr(b, ivz, k, j, i);
+    wri[IPR] = wr(b, IPR, k, j, i);
+    wri[IB1] = wr(b, iBx, k, j, i);
+    wri[IB2] = wr(b, iBy, k, j, i);
+    wri[IB3] = wr(b, iBz, k, j, i);
+    wri[IPS] = wr(b, IPS, k, j, i);
 
     // first solve the decoupled state, see eq (24) in Mignone & Tzeferacos (2010)
     Real bxi = 0.5 * (wli[IB1] + wri[IB1]) - 0.5 / c_h * (wri[IPS] - wli[IPS]);
     Real psii = 0.5 * (wli[IPS] + wri[IPS]) - 0.5 * c_h * (wri[IB1] - wli[IB1]);
     // and store flux
-    wl(iBx, k, j, i) = psii;
-    wl(IPS, k, j, i) = SQR(c_h) * bxi;
+    wl(b, iBx, k, j, i) = psii;
+    wl(b, IPS, k, j, i) = SQR(c_h) * bxi;
 
     // Compute L/R states for selected conserved variables
     Real bxsq = bxi * bxi;
@@ -326,58 +326,58 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
 
     if (spd[0] >= 0.0) {
       // return Fl if flow is supersonic
-      wl(IDN, k, j, i) = fl.d;
-      wl(ivx, k, j, i) = fl.mx;
-      wl(ivy, k, j, i) = fl.my;
-      wl(ivz, k, j, i) = fl.mz;
-      wl(IEN, k, j, i) = fl.e;
-      wl(iBy, k, j, i) = fl.by;
-      wl(iBz, k, j, i) = fl.bz;
+      wl(b, IDN, k, j, i) = fl.d;
+      wl(b, ivx, k, j, i) = fl.mx;
+      wl(b, ivy, k, j, i) = fl.my;
+      wl(b, ivz, k, j, i) = fl.mz;
+      wl(b, IEN, k, j, i) = fl.e;
+      wl(b, iBy, k, j, i) = fl.by;
+      wl(b, iBz, k, j, i) = fl.bz;
     } else if (spd[4] <= 0.0) {
       // return Fr if flow is supersonic
-      wl(IDN, k, j, i) = fr.d;
-      wl(ivx, k, j, i) = fr.mx;
-      wl(ivy, k, j, i) = fr.my;
-      wl(ivz, k, j, i) = fr.mz;
-      wl(IEN, k, j, i) = fr.e;
-      wl(iBy, k, j, i) = fr.by;
-      wl(iBz, k, j, i) = fr.bz;
+      wl(b, IDN, k, j, i) = fr.d;
+      wl(b, ivx, k, j, i) = fr.mx;
+      wl(b, ivy, k, j, i) = fr.my;
+      wl(b, ivz, k, j, i) = fr.mz;
+      wl(b, IEN, k, j, i) = fr.e;
+      wl(b, iBy, k, j, i) = fr.by;
+      wl(b, iBz, k, j, i) = fr.bz;
     } else if (spd[1] >= 0.0) {
       // return Fl*
-      wl(IDN, k, j, i) = fl.d + ulst.d;
-      wl(ivx, k, j, i) = fl.mx + ulst.mx;
-      wl(ivy, k, j, i) = fl.my + ulst.my;
-      wl(ivz, k, j, i) = fl.mz + ulst.mz;
-      wl(IEN, k, j, i) = fl.e + ulst.e;
-      wl(iBy, k, j, i) = fl.by + ulst.by;
-      wl(iBz, k, j, i) = fl.bz + ulst.bz;
+      wl(b, IDN, k, j, i) = fl.d + ulst.d;
+      wl(b, ivx, k, j, i) = fl.mx + ulst.mx;
+      wl(b, ivy, k, j, i) = fl.my + ulst.my;
+      wl(b, ivz, k, j, i) = fl.mz + ulst.mz;
+      wl(b, IEN, k, j, i) = fl.e + ulst.e;
+      wl(b, iBy, k, j, i) = fl.by + ulst.by;
+      wl(b, iBz, k, j, i) = fl.bz + ulst.bz;
     } else if (spd[2] >= 0.0) {
       // return Fl**
-      wl(IDN, k, j, i) = fl.d + ulst.d + uldst.d;
-      wl(ivx, k, j, i) = fl.mx + ulst.mx + uldst.mx;
-      wl(ivy, k, j, i) = fl.my + ulst.my + uldst.my;
-      wl(ivz, k, j, i) = fl.mz + ulst.mz + uldst.mz;
-      wl(IEN, k, j, i) = fl.e + ulst.e + uldst.e;
-      wl(iBy, k, j, i) = fl.by + ulst.by + uldst.by;
-      wl(iBz, k, j, i) = fl.bz + ulst.bz + uldst.bz;
+      wl(b, IDN, k, j, i) = fl.d + ulst.d + uldst.d;
+      wl(b, ivx, k, j, i) = fl.mx + ulst.mx + uldst.mx;
+      wl(b, ivy, k, j, i) = fl.my + ulst.my + uldst.my;
+      wl(b, ivz, k, j, i) = fl.mz + ulst.mz + uldst.mz;
+      wl(b, IEN, k, j, i) = fl.e + ulst.e + uldst.e;
+      wl(b, iBy, k, j, i) = fl.by + ulst.by + uldst.by;
+      wl(b, iBz, k, j, i) = fl.bz + ulst.bz + uldst.bz;
     } else if (spd[3] > 0.0) {
       // return Fr**
-      wl(IDN, k, j, i) = fr.d + urst.d + urdst.d;
-      wl(ivx, k, j, i) = fr.mx + urst.mx + urdst.mx;
-      wl(ivy, k, j, i) = fr.my + urst.my + urdst.my;
-      wl(ivz, k, j, i) = fr.mz + urst.mz + urdst.mz;
-      wl(IEN, k, j, i) = fr.e + urst.e + urdst.e;
-      wl(iBy, k, j, i) = fr.by + urst.by + urdst.by;
-      wl(iBz, k, j, i) = fr.bz + urst.bz + urdst.bz;
+      wl(b, IDN, k, j, i) = fr.d + urst.d + urdst.d;
+      wl(b, ivx, k, j, i) = fr.mx + urst.mx + urdst.mx;
+      wl(b, ivy, k, j, i) = fr.my + urst.my + urdst.my;
+      wl(b, ivz, k, j, i) = fr.mz + urst.mz + urdst.mz;
+      wl(b, IEN, k, j, i) = fr.e + urst.e + urdst.e;
+      wl(b, iBy, k, j, i) = fr.by + urst.by + urdst.by;
+      wl(b, iBz, k, j, i) = fr.bz + urst.bz + urdst.bz;
     } else {
       // return Fr*
-      wl(IDN, k, j, i) = fr.d + urst.d;
-      wl(ivx, k, j, i) = fr.mx + urst.mx;
-      wl(ivy, k, j, i) = fr.my + urst.my;
-      wl(ivz, k, j, i) = fr.mz + urst.mz;
-      wl(IEN, k, j, i) = fr.e + urst.e;
-      wl(iBy, k, j, i) = fr.by + urst.by;
-      wl(iBz, k, j, i) = fr.bz + urst.bz;
+      wl(b, IDN, k, j, i) = fr.d + urst.d;
+      wl(b, ivx, k, j, i) = fr.mx + urst.mx;
+      wl(b, ivy, k, j, i) = fr.my + urst.my;
+      wl(b, ivz, k, j, i) = fr.mz + urst.mz;
+      wl(b, IEN, k, j, i) = fr.e + urst.e;
+      wl(b, iBy, k, j, i) = fr.by + urst.by;
+      wl(b, iBz, k, j, i) = fr.bz + urst.bz;
     }
   }
 };
