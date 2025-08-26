@@ -34,7 +34,7 @@ struct Riemann<Fluid::euler, RiemannSolver::hllc> {
                                            const int ivx, const Real wli[(NHYDRO)],
                                            const Real wri[(NHYDRO)],
                                            const AdiabaticHydroEOS &eos,
-                                           VariableFluxPack<Real> cons) {
+                                           const VariableFluxPack<Real> &cons) {
     int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     int ivz = IV1 + ((ivx - IV1) + 2) % 3;
     Real gamma = eos.GetGamma();
@@ -127,11 +127,11 @@ struct Riemann<Fluid::euler, RiemannSolver::hllc> {
     //--- Step 9. Compute the HLLC flux at interface, including weighted contribution
     // of the flux along the contact
 
-    cons(ivx, IDN, k, j, i) = sl * fl[IDN] + sr * fr[IDN];
-    cons(ivx, ivx, k, j, i) = sl * fl[IV1] + sr * fr[IV1] + sm * cp;
-    cons(ivx, ivy, k, j, i) = sl * fl[IV2] + sr * fr[IV2];
-    cons(ivx, ivz, k, j, i) = sl * fl[IV3] + sr * fr[IV3];
-    cons(ivx, IEN, k, j, i) = sl * fl[IEN] + sr * fr[IEN] + sm * cp * am;
+    cons.flux(ivx, IDN, k, j, i) = sl * fl[IDN] + sr * fr[IDN];
+    cons.flux(ivx, ivx, k, j, i) = sl * fl[IV1] + sr * fr[IV1] + sm * cp;
+    cons.flux(ivx, ivy, k, j, i) = sl * fl[IV2] + sr * fr[IV2];
+    cons.flux(ivx, ivz, k, j, i) = sl * fl[IV3] + sr * fr[IV3];
+    cons.flux(ivx, IEN, k, j, i) = sl * fl[IEN] + sr * fr[IEN] + sm * cp * am;
   }
 };
 

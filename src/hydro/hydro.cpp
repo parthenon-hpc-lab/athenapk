@@ -1045,15 +1045,15 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
   auto const &u0_cons_pack = u0_data->PackVariables(std::vector<std::string>{"cons"});
   auto const &u1_cons_pack = u1_data->PackVariables(std::vector<std::string>{"cons"});
   auto const &u0_prim_pack = u0_data->PackVariables(std::vector<std::string>{"prim"});
-  using parthenon::PDOpt;
-  auto desc_wlc = parthenon::MakePackDescriptor(
-      pkg.get(), std::vector<std::string>{"cons"}, std::vector<parthenon::MetadataFlag>{},
-      std::set<PDOpt>{PDOpt::Coarse});
-  auto u0_wl_cpack = desc_wlc.GetPack(u0_data);
-  auto desc_wrc = parthenon::MakePackDescriptor(
-      pkg.get(), std::vector<std::string>{"prim"}, std::vector<parthenon::MetadataFlag>{},
-      std::set<PDOpt>{PDOpt::Coarse});
-  auto u0_wr_cpack = desc_wrc.GetPack(u0_data);
+  // using parthenon::PDOpt;
+  // auto desc_wlc = parthenon::MakePackDescriptor(
+  // pkg.get(), std::vector<std::string>{"cons"}, std::vector<parthenon::MetadataFlag>{},
+  // std::set<PDOpt>{PDOpt::Coarse});
+  // auto u0_wl_cpack = desc_wlc.GetPack(u0_data);
+  // auto desc_wrc = parthenon::MakePackDescriptor(
+  // pkg.get(), std::vector<std::string>{"prim"}, std::vector<parthenon::MetadataFlag>{},
+  // std::set<PDOpt>{PDOpt::Coarse});
+  // auto u0_wr_cpack = desc_wrc.GetPack(u0_data);
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
 
@@ -1080,6 +1080,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
     auto riemann = Riemann<fluid, rsolver>();
     std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
     auto cons_in = u0_data->PackVariablesAndFluxes(flags_ind);
+    // TODO(pgrete) k and j bounds are too large for non-3D sims
     pmb->par_for(
         "THE UPDATE", 0, u0_cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e + 1, ib.s,
         ib.e + 1, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
@@ -1099,7 +1100,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
             }
           }
           riemann.Solve(k, j, i, IV1, wli, wri, eos, cons);
-
+          if (u0_prim_pack.GetDim(2) <= 1) return;
           for (int n = 0; n < u0_prim_pack.GetDim(4); n++) {
             if constexpr (recon == Reconstruction::plm) {
               PLM(q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i), unused, wri[n]);
@@ -1113,6 +1114,7 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
           }
           riemann.Solve(k, j, i, IV2, wli, wri, eos, cons);
 
+          if (u0_prim_pack.GetDim(3) <= 1) return;
           for (int n = 0; n < u0_prim_pack.GetDim(4); n++) {
             if constexpr (recon == Reconstruction::plm) {
               PLM(q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i), unused, wri[n]);
