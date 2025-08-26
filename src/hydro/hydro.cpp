@@ -1086,19 +1086,43 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
           const auto &q = u0_prim_pack(b);
           auto cons = cons_in(b);
           Real wli[(NHYDRO)], wri[(NHYDRO)];
+          Real unused;
           for (int n = 0; n < u0_prim_pack.GetDim(4); n++) {
-            PLMI(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
-                 wli[n], wri[n]);
+            if constexpr (recon == Reconstruction::plm) {
+              PLM(q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1), unused, wri[n]);
+              PLM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), wli[n], unused);
+            } else if constexpr (recon == Reconstruction::ppm) {
+              PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+                  q(n, k, j, i + 2), unused, wri[n]);
+              PPM(q(n, k, j, i - 3), q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i),
+                  q(n, k, j, i + 1), wli[n], unused);
+            }
           }
           riemann.Solve(k, j, i, IV1, wli, wri, eos, cons);
+
           for (int n = 0; n < u0_prim_pack.GetDim(4); n++) {
-            PLMI(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
-                 wli[n], wri[n]);
+            if constexpr (recon == Reconstruction::plm) {
+              PLM(q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i), unused, wri[n]);
+              PLM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), wli[n], unused);
+            } else if constexpr (recon == Reconstruction::ppm) {
+              PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+                  q(n, k, j + 2, i), unused, wri[n]);
+              PPM(q(n, k, j - 3, i), q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i),
+                  q(n, k, j + 1, i), wli[n], unused);
+            }
           }
           riemann.Solve(k, j, i, IV2, wli, wri, eos, cons);
+
           for (int n = 0; n < u0_prim_pack.GetDim(4); n++) {
-            PLMI(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
-                 wli[n], wri[n]);
+            if constexpr (recon == Reconstruction::plm) {
+              PLM(q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i), unused, wri[n]);
+              PLM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), wli[n], unused);
+            } else if constexpr (recon == Reconstruction::ppm) {
+              PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
+                  q(n, k + 2, j, i), unused, wri[n]);
+              PPM(q(n, k - 3, j, i), q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i),
+                  q(n, k + 1, j, i), wli[n], unused);
+            }
           }
           riemann.Solve(k, j, i, IV3, wli, wri, eos, cons);
         });
