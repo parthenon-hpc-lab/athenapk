@@ -777,8 +777,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     prim_labels.emplace_back("scalar_" + std::to_string(i));
   }
 
-  Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost},
-             std::vector<int>({nhydro + nscalars}), cons_labels);
+  Metadata m(
+      {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
+      std::vector<int>({nhydro + nscalars}), cons_labels);
   m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
                           parthenon::refinement_ops::RestrictAverage>();
   pkg->AddField("cons", m);
@@ -1074,179 +1075,34 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
 
   // parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
 
-  auto riemann = Riemann<fluid, rsolver>();
-
   const auto dx1 = pmb->coords.CellWidth<X1DIR>(0, 0, 0);
-
-  // Original "full" IndexDomain
-  const auto ibf = u0_data->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  const auto jbf = u0_data->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  const auto kbf = u0_data->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-  // Half size of IndexDomains
-  const auto nih = (ibf.e - ibf.s + 1) / 2;
-  const auto njh = (jbf.e - jbf.s + 1) / 2;
-  const auto nkh = (kbf.e - kbf.s + 1) / 2;
-  // Important, this assumes that dx1=dx2=dx3! (same in Riemann solve where flx is set)
-  // Offsets for wl/wr in each block
-  int iwoff = 0;
-  int jwoff = 0;
-  int kwoff = 0;
-  auto set_indices = [&](const int d) {
-    iwoff = 0;
-    jwoff = 0;
-    kwoff = 0;
-    if (d == 0) {
-      ib.s = ibf.s;
-      jb.s = jbf.s;
-      kb.s = kbf.s;
-      ib.e = ibf.s + nih - 1;
-      jb.e = jbf.s + njh - 1;
-      kb.e = kbf.s + nkh - 1;
-    } else if (d == 1) {
-      ib.s = ibf.s + nih;
-      jb.s = jbf.s;
-      kb.s = kbf.s;
-      ib.e = ibf.e;
-      jb.e = jbf.s + njh - 1;
-      kb.e = kbf.s + nkh - 1;
-      iwoff = nih;
-    } else if (d == 2) {
-      ib.s = ibf.s;
-      jb.s = jbf.s + njh;
-      kb.s = kbf.s;
-      ib.e = ibf.s + nih - 1;
-      jb.e = jbf.e;
-      kb.e = kbf.s + nkh - 1;
-      jwoff = njh;
-    } else if (d == 3) {
-      ib.s = ibf.s + nih;
-      jb.s = jbf.s + njh;
-      kb.s = kbf.s;
-      ib.e = ibf.e;
-      jb.e = jbf.e;
-      kb.e = kbf.s + nkh - 1;
-      iwoff = nih;
-      jwoff = njh;
-    } else if (d == 4) {
-      ib.s = ibf.s;
-      jb.s = jbf.s;
-      kb.s = kbf.s + nkh;
-      ib.e = ibf.s + nih - 1;
-      jb.e = jbf.s + njh - 1;
-      kb.e = kbf.e;
-      kwoff = nkh;
-    } else if (d == 5) {
-      ib.s = ibf.s + nih;
-      jb.s = jbf.s;
-      kb.s = kbf.s + nkh;
-      ib.e = ibf.e;
-      jb.e = jbf.s + njh - 1;
-      kb.e = kbf.e;
-      iwoff = nih;
-      kwoff = nkh;
-    } else if (d == 6) {
-      ib.s = ibf.s;
-      jb.s = jbf.s + njh;
-      kb.s = kbf.s + nkh;
-      ib.e = ibf.s + nih - 1;
-      jb.e = jbf.e;
-      kb.e = kbf.e;
-      jwoff = njh;
-      kwoff = nkh;
-    } else if (d == 7) {
-      ib.s = ibf.s + nih;
-      jb.s = jbf.s + njh;
-      kb.s = kbf.s + nkh;
-      ib.e = ibf.e;
-      jb.e = jbf.e;
-      kb.e = kbf.e;
-      iwoff = nih;
-      jwoff = njh;
-      kwoff = nkh;
-    }
-  };
-  // Given that we use u0_cons_pack in the x1 fluxdiv update, we have to update all x1
-  // fluxes first before doing the other fluxes (that just add)
-  for (int d = 0; d < 8; d++) {
-    set_indices(d);
-    // std::cerr << "block bounds are kbs " << kb.s << " kb.e " << kb.e << " jbs " << jb.s
-    // << " jbe " << jb.e << " ibs " << ib.s << " ibe " << ib.e << "\n";
-    // ReconstructPlain<recon, X1DIR>(kb, jb, ib, u0_prim_pack, u0_wl_pack,
-    // u0_wr_pack);
-    ReconstructPlainTile<recon, X1DIR>(kb, jb, ib, u0_prim_pack, u0_wl_cpack, u0_wr_cpack,
-                                       kwoff, jwoff, iwoff);
+  if constexpr (rsolver == RiemannSolver::hllc) {
+    auto riemann = Riemann<fluid, rsolver>();
+    std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+    auto cons_in = u0_data->PackVariablesAndFluxes(flags_ind);
     pmb->par_for(
-        "x1 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s - kwoff, kb.e - kwoff,
-        jb.s - jwoff, jb.e - jwoff, ib.s - iwoff, ib.e - iwoff + 1,
+        "THE UPDATE", 0, u0_cons_pack.GetDim(5) - 1, kb.s - 1, kb.e + 1, jb.s - 1,
+        jb.e + 1, ib.s - 1, ib.e + 1,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          riemann.Solve(b, k, j, i, IV1, u0_wl_cpack, u0_wr_cpack, eos, c_h);
+          const auto &q = u0_prim_pack(b);
+          auto cons = cons_in(b);
+          Real wli[(NHYDRO)], wri[(NHYDRO)];
+          for (int n = 0; n < u0_prim_pack.GetDim(4); n++) {
+            PLMI(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+                 wli[n], wri[n]);
+          }
+          riemann.Solve(k, j, i, IV1, wli, wri, eos, cons);
+          for (int n = 0; n < u0_prim_pack.GetDim(4); n++) {
+            PLMI(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+                 wli[n], wri[n]);
+          }
+          riemann.Solve(k, j, i, IV2, wli, wri, eos, cons);
+          for (int n = 0; n < u0_prim_pack.GetDim(4); n++) {
+            PLMI(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
+                 wli[n], wri[n]);
+          }
+          riemann.Solve(k, j, i, IV3, wli, wri, eos, cons);
         });
-    pmb->par_for(
-        "UpdateFluxDiv x1", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
-        kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-          auto &wl = u0_wl_cpack(b, v);
-          u0_cons_pack(b, v, k, j, i) = gam0 * u0_cons_pack(b, v, k, j, i) +
-                                        gam1 * u1_cons_pack(b, v, k, j, i) -
-                                        beta_dt *
-                                            (wl(k - kwoff, j - jwoff, i - iwoff + 1) -
-                                             wl(k - kwoff, j - jwoff, i - iwoff)) /
-                                            dx1;
-        });
-  }
-  //--------------------------------------------------------------------------------------
-  // j-direction
-  if (pmb->pmy_mesh->ndim >= 2) {
-    for (int d = 0; d < 8; d++) {
-      set_indices(d);
-      ReconstructPlainTile<recon, X2DIR>(kb, jb, ib, u0_prim_pack, u0_wl_cpack,
-                                         u0_wr_cpack, kwoff, jwoff, iwoff);
-      pmb->par_for(
-          "x2 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s - kwoff, kb.e - kwoff,
-          jb.s - jwoff, jb.e - jwoff + 1, ib.s - iwoff, ib.e - iwoff,
-          KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-            riemann.Solve(b, k, j, i, IV2, u0_wl_cpack, u0_wr_cpack, eos, c_h);
-          });
-
-      const auto dx2 = pmb->coords.CellWidth<X2DIR>(0, 0, 0);
-      pmb->par_for(
-          "UpdateFluxDiv x2", 0, u0_cons_pack.GetDim(5) - 1, 0,
-          u0_cons_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-            auto &wl = u0_wl_cpack(b, v);
-            u0_cons_pack(b, v, k, j, i) -= beta_dt *
-                                           (wl(k - kwoff, j - jwoff + 1, i - iwoff) -
-                                            wl(k - kwoff, j - jwoff, i - iwoff)) /
-                                           dx2;
-          });
-    }
-  }
-  //--------------------------------------------------------------------------------------
-  // k-direction
-  if (pmb->pmy_mesh->ndim >= 3) {
-    for (int d = 0; d < 8; d++) {
-      set_indices(d);
-      ReconstructPlainTile<recon, X3DIR>(kb, jb, ib, u0_prim_pack, u0_wl_cpack,
-                                         u0_wr_cpack, kwoff, jwoff, iwoff);
-
-      pmb->par_for(
-          "x3 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s - kwoff, kb.e - kwoff + 1,
-          jb.s - jwoff, jb.e - jwoff, ib.s - iwoff, ib.e - iwoff,
-          KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-            riemann.Solve(b, k, j, i, IV3, u0_wl_cpack, u0_wr_cpack, eos, c_h);
-          });
-      const auto dx3 = pmb->coords.CellWidth<X3DIR>(0, 0, 0);
-      pmb->par_for(
-          "UpdateFluxDiv x3", 0, u0_cons_pack.GetDim(5) - 1, 0,
-          u0_cons_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-            auto &wl = u0_wl_cpack(b, v);
-            u0_cons_pack(b, v, k, j, i) -= beta_dt *
-                                           (wl(k - kwoff + 1, j - jwoff, i - iwoff) -
-                                            wl(k - kwoff, j - jwoff, i - iwoff)) /
-                                           dx3;
-          });
-    }
   }
   return TaskStatus::complete;
 }

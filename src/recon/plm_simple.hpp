@@ -16,6 +16,31 @@ using parthenon::ScratchPad2D;
 //! \fn PLM()
 //  \brief Reconstructs linear slope in cell i to compute ql(i+1) and qr(i). Works for
 //  reconstruction in any dimension by passing in the appropriate q_im1, q_i, and q_ip1.
+KOKKOS_INLINE_FUNCTION
+void PLMI(const Real &q_im2, const Real &q_im1, const Real &q_i, const Real &q_ip1,
+          Real &ql_i, Real &qr_i) {
+  // compute L/R slopes
+  Real dql = (q_i - q_im1);
+  Real dqr = (q_ip1 - q_i);
+
+  // Apply limiters for Cartesian-like coordinate with uniform mesh spacing
+  Real dq2 = dql * dqr;
+  Real dqm = 0.0;
+  if (dq2 > 0.0) {
+    dqm = dq2 / (dql + dqr);
+  }
+
+  // compute ql_(i+1/2) and qr_(i-1/2) using limited slopes
+  qr_i = q_i - dqm;
+
+  dqr = (q_im1 - q_im2);
+  dq2 = dql * dqr;
+  dqm = 0.0;
+  if (dq2 > 0.0) {
+    dqm = dq2 / (dql + dqr);
+  }
+  ql_i = q_im1 + dqm;
+}
 
 KOKKOS_INLINE_FUNCTION
 void PLM(const Real &q_im1, const Real &q_i, const Real &q_ip1, Real &ql_ip1,

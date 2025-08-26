@@ -30,30 +30,18 @@
 
 template <>
 struct Riemann<Fluid::euler, RiemannSolver::hllc> {
-  static KOKKOS_INLINE_FUNCTION void Solve(const int b, const int k, const int j,
-                                           const int i, const int ivx,
-                                           const SparsePack<> &wl, const SparsePack<> &wr,
-                                           const AdiabaticHydroEOS &eos, const Real c_h) {
+  static KOKKOS_INLINE_FUNCTION void Solve(const int k, const int j, const int i,
+                                           const int ivx, const Real wli[(NHYDRO)],
+                                           const Real wri[(NHYDRO)],
+                                           const AdiabaticHydroEOS &eos,
+                                           VariableFluxPack<Real> cons) {
     int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     int ivz = IV1 + ((ivx - IV1) + 2) % 3;
     Real gamma = eos.GetGamma();
     Real gm1 = gamma - 1.0;
     Real igm1 = 1.0 / gm1;
 
-    Real wli[(NHYDRO)], wri[(NHYDRO)];
-    Real fl[(NHYDRO)], fr[(NHYDRO)], flxi[(NHYDRO)];
-    //--- Step 1.  Load L/R states into local variables
-    wli[IDN] = wl(b, IDN, k, j, i);
-    wli[IV1] = wl(b, ivx, k, j, i);
-    wli[IV2] = wl(b, ivy, k, j, i);
-    wli[IV3] = wl(b, ivz, k, j, i);
-    wli[IPR] = wl(b, IPR, k, j, i);
-
-    wri[IDN] = wr(b, IDN, k, j, i);
-    wri[IV1] = wr(b, ivx, k, j, i);
-    wri[IV2] = wr(b, ivy, k, j, i);
-    wri[IV3] = wr(b, ivz, k, j, i);
-    wri[IPR] = wr(b, IPR, k, j, i);
+    Real fl[(NHYDRO)], fr[(NHYDRO)];
 
     //--- Step 2.  Compute middle state estimates with PVRS (Toro 10.5.2)
 
@@ -139,11 +127,11 @@ struct Riemann<Fluid::euler, RiemannSolver::hllc> {
     //--- Step 9. Compute the HLLC flux at interface, including weighted contribution
     // of the flux along the contact
 
-    wl(b, IDN, k, j, i) = sl * fl[IDN] + sr * fr[IDN];
-    wl(b, ivx, k, j, i) = sl * fl[IV1] + sr * fr[IV1] + sm * cp;
-    wl(b, ivy, k, j, i) = sl * fl[IV2] + sr * fr[IV2];
-    wl(b, ivz, k, j, i) = sl * fl[IV3] + sr * fr[IV3];
-    wl(b, IEN, k, j, i) = sl * fl[IEN] + sr * fr[IEN] + sm * cp * am;
+    cons(ivx, IDN, k, j, i) = sl * fl[IDN] + sr * fr[IDN];
+    cons(ivx, ivx, k, j, i) = sl * fl[IV1] + sr * fr[IV1] + sm * cp;
+    cons(ivx, ivy, k, j, i) = sl * fl[IV2] + sr * fr[IV2];
+    cons(ivx, ivz, k, j, i) = sl * fl[IV3] + sr * fr[IV3];
+    cons(ivx, IEN, k, j, i) = sl * fl[IEN] + sr * fr[IEN] + sm * cp * am;
   }
 };
 
