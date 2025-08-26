@@ -1081,9 +1081,8 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
     std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
     auto cons_in = u0_data->PackVariablesAndFluxes(flags_ind);
     pmb->par_for(
-        "THE UPDATE", 0, u0_cons_pack.GetDim(5) - 1, kb.s - 1, kb.e + 1, jb.s - 1,
-        jb.e + 1, ib.s - 1, ib.e + 1,
-        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        "THE UPDATE", 0, u0_cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e + 1, ib.s,
+        ib.e + 1, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
           const auto &q = u0_prim_pack(b);
           auto cons = cons_in(b);
           Real wli[(NHYDRO)], wri[(NHYDRO)];
