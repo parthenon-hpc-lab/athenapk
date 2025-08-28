@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 // Tracer implementation refacored from https://github.com/lanl/phoebus
@@ -21,12 +21,16 @@
 #ifndef TRACERS_HPP_
 #define TRACERS_HPP_
 
+#include <functional>
 #include <memory>
 
 #include "Kokkos_Random.hpp"
 
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
+
+#include "../main.hpp"
+#include "basic_types.hpp"
 
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
@@ -37,9 +41,20 @@ namespace Tracers {
 
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
+extern InitPackageDataFun_t ProblemInitTracerData;
+
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt);
 
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
+using FillTracersFun_t = std::function<TaskStatus(
+    MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)>;
+extern FillTracersFun_t ProblemFillTracers;
+
+void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
+
+using SeedInitialFun_t =
+    std::function<void(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm)>;
+extern SeedInitialFun_t ProblemSeedInitialTracers;
 
 } // namespace Tracers
 

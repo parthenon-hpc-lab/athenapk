@@ -120,7 +120,7 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
         const auto d3B1 =
             ndim > 2 ? (0.5 * (prim(IB1, k + 1, j, i - 1) + prim(IB1, k + 1, j, i)) -
                         0.5 * (prim(IB1, k - 1, j, i - 1) + prim(IB1, k - 1, j, i))) /
-                           (2.0 * coords.Dxf<3, 1>(k, j, i))
+                           (coords.Xf<3, 1>(k + 1, j, i) - coords.Xf<3, 1>(k - 1, j, i))
                      : 0.0;
 
         const auto d1B3 =
@@ -135,7 +135,7 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
         const auto d2B1 =
             ndim > 1 ? (0.5 * (prim(IB1, k, j + 1, i - 1) + prim(IB1, k, j + 1, i)) -
                         0.5 * (prim(IB1, k, j - 1, i - 1) + prim(IB1, k, j - 1, i))) /
-                           (2.0 * coords.Dxf<2, 1>(k, j, i))
+                           (coords.Xf<2, 1>(k, j + 1, i) - coords.Xf<2, 1>(k, j - 1, i))
                      : 0.0;
 
         const auto j3 = d1B2 - d2B1;
@@ -164,7 +164,7 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
         // j3 = d1B2 - d2B1
         const auto d1B2 = (0.5 * (prim(IB2, k, j - 1, i + 1) + prim(IB2, k, j, i + 1)) -
                            0.5 * (prim(IB2, k, j - 1, i - 1) + prim(IB2, k, j, i - 1))) /
-                          (2.0 * coords.Dxf<1, 2>(k, j, i));
+                          (coords.Xf<1, 2>(k, j, i + 1) - coords.Xf<1, 2>(k, j, i - 1));
 
         const auto d2B1 =
             (prim(IB1, k, j, i) - prim(IB1, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
@@ -178,7 +178,7 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
         const auto d3B2 =
             ndim > 2 ? (0.5 * (prim(IB2, k + 1, j - 1, i) + prim(IB2, k + 1, j, i)) -
                         0.5 * (prim(IB2, k - 1, j - 1, i) + prim(IB2, k - 1, j, i))) /
-                           (2.0 * coords.Dxf<3, 2>(k, j, i))
+                           (coords.Xf<3, 2>(k + 1, j, i) - coords.Xf<3, 2>(k - 1, j, i))
                      : 0.0;
 
         const auto j1 = d2B3 - d3B2;
@@ -207,7 +207,7 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
         // j1 = d2B3 - d3B2
         const auto d2B3 = (0.5 * (prim(IB3, k - 1, j + 1, i) + prim(IB3, k, j + 1, i)) -
                            0.5 * (prim(IB3, k - 1, j - 1, i) + prim(IB3, k, j - 1, i))) /
-                          (2.0 * coords.Dxf<2, 3>(k, j, i));
+                          (coords.Xf<2, 3>(k, j + 1, i) - coords.Xf<2, 3>(k, j - 1, i));
 
         const auto d3B2 =
             (prim(IB2, k, j, i) - prim(IB2, k - 1, j, i)) / coords.Dxc<3>(k, j, i);
@@ -220,7 +220,7 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
 
         const auto d1B3 = (0.5 * (prim(IB3, k - 1, j, i + 1) + prim(IB3, k, j, i + 1)) -
                            0.5 * (prim(IB3, k - 1, j, i - 1) + prim(IB3, k, j, i - 1))) /
-                          (2.0 * coords.Dxf<1, 3>(k, j, i));
+                          (coords.Xf<1, 3>(k, j, i + 1) - coords.Xf<1, 3>(k, j, i - 1));
 
         const auto j2 = d3B1 - d1B3;
 
