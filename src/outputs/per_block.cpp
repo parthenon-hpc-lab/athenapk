@@ -1,6 +1,6 @@
 //========================================================================================
 // Parthenon performance portable AMR framework
-// Copyright(C) 2020-2023 The Parthenon collaboration
+// Copyright(C) 2020-2025 The Parthenon collaboration
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 // (C) (or copyright) 2020-2023. Triad National Security, LLC. All rights reserved.
@@ -145,6 +145,14 @@ void UserOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, SimTime *tm,
   // open HDF5 file
   // Define output filename
   std::string filename = GenerateFilename_(pin, tm, signal);
+
+  if (signal == SignalHandler::OutputSignal::none) {
+    // After file has been opened with the current number, already advance output
+    // parameters so that for restarts the file is not immediatly overwritten again.
+    // Only applies to default time-based data dumps, so that writing "now" and "final"
+    // outputs does not change the desired output numbering.
+    UpdateNextOutput_(pm, tm);
+  }
 
   // set file access property list
   H5P const acc_file = H5P::FromHIDCheck(HDF5::GenerateFileAccessProps());
@@ -563,16 +571,6 @@ std::string UserOutput::GenerateFilename_(ParameterInput *pin, SimTime *tm,
   }
   filename.append(".hdf");
 
-  if (signal == SignalHandler::OutputSignal::none) {
-    // After file has been opened with the current number, already advance output
-    // parameters so that for restarts the file is not immediatly overwritten again.
-    // Only applies to default time-based data dumps, so that writing "now" and "final"
-    // outputs does not change the desired output numbering.
-    output_params.file_number++;
-    output_params.next_time += output_params.dt;
-    pin->SetInteger(output_params.block_name, "file_number", output_params.file_number);
-    pin->SetReal(output_params.block_name, "next_time", output_params.next_time);
-  }
   return filename;
 }
 
