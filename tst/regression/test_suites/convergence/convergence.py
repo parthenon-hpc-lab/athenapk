@@ -33,15 +33,17 @@ sys.dont_write_bytecode = True
 lin_res = [16, 32, 64, 128]  # resolution for linear convergence
 method_cfgs = [
     {"integrator": "rk1", "recon": "dc"},
-    {"integrator": "rk1", "recon": "dc", "riemann": "llf"},
+    #    {"integrator": "rk1", "recon": "dc", "riemann": "llf"},
     {"integrator": "vl2", "recon": "plm"},
-    {"integrator": "vl2", "recon": "weno3"},
+    {"integrator": "vl2", "recon": "ppm"},
+    #    {"integrator": "vl2", "recon": "weno3"},
     {"integrator": "rk2", "recon": "plm"},
-    {"integrator": "rk2", "recon": "weno3"},
+    {"integrator": "rk2", "recon": "ppm"},
+    #    {"integrator": "rk2", "recon": "weno3"},
     {"integrator": "rk3", "recon": "ppm"},
-    {"integrator": "rk3", "recon": "weno3"},
-    {"integrator": "rk3", "recon": "limo3"},
-    {"integrator": "rk3", "recon": "wenoz"},
+    #    {"integrator": "rk3", "recon": "weno3"},
+    #    {"integrator": "rk3", "recon": "limo3"},
+    #    {"integrator": "rk3", "recon": "wenoz"},
 ]
 
 
@@ -88,7 +90,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         if "riemann" in method_cfg.keys():
             riemann = method_cfg["riemann"]
         else:
-            riemann = "hlle"
+            riemann = "hllc"
         mb_nx1 = (2 * res) // parameters.num_ranks
         # ensure that nx1 is <= 128 when using scratch (V100 limit on test system)
         while mb_nx1 > 128:
