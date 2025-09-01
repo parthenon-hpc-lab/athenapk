@@ -175,26 +175,29 @@ KOKKOS_INLINE_FUNCTION typename std::enable_if<recon == Reconstruction::ppm, voi
 Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
             const int iu, const parthenon::VariablePack<Real> &q, ScratchPad2D<Real> &ql,
             ScratchPad2D<Real> &qr) {
-  const auto nvar = q.GetDim(4);
-  for (auto n = 0; n < nvar; ++n) {
-    parthenon::par_for_inner(member, il, iu, [&](const int i) {
-      if constexpr (XNDIR == parthenon::X1DIR) {
-        // ql is ql_ip1 and qr is qr_i
-        PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
-            q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
-      } else if constexpr (XNDIR == parthenon::X2DIR) {
-        // ql is ql_jp1 and qr is qr_j
-        PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
-            q(n, k, j + 2, i), ql(n, i), qr(n, i));
-      } else if constexpr (XNDIR == parthenon::X3DIR) {
-        // ql is ql_kp1 and qr is qr_k
-        PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
-            q(n, k + 2, j, i), ql(n, i), qr(n, i));
-      } else {
-        PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
-      }
-    });
-  }
+  const int Nv = q.GetDim(4);
+  const int Ni = iu - il + 1;
+  const int NvNi = Nv * Ni;
+  auto tvr = Kokkos::TeamVectorRange(member, NvNi);
+  Kokkos::parallel_for(tvr, [&](const int idx) {
+    const int n = idx / Ni;
+    const int i = idx % Ni + il;
+    if constexpr (XNDIR == parthenon::X1DIR) {
+      // ql is ql_ip1 and qr is qr_i
+      PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
+          q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+    } else if constexpr (XNDIR == parthenon::X2DIR) {
+      // ql is ql_jp1 and qr is qr_j
+      PPM(q(n, k, j - 2, i), q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i),
+          q(n, k, j + 2, i), ql(n, i), qr(n, i));
+    } else if constexpr (XNDIR == parthenon::X3DIR) {
+      // ql is ql_kp1 and qr is qr_k
+      PPM(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i),
+          q(n, k + 2, j, i), ql(n, i), qr(n, i));
+    } else {
+      PARTHENON_FAIL("Unknow direction for PPM reconstruction.")
+    }
+  });
 }
 
 #endif // RECONSTRUCT_PPM_SIMPLE_HPP_

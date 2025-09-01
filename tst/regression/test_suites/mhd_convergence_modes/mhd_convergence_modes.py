@@ -1,6 +1,6 @@
 # ========================================================================================
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2020-2025, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the 3-clause BSD License, see LICENSE file for details
 # ========================================================================================
 # (C) (or copyright) 2020. Triad National Security, LLC. All rights reserved.
@@ -24,6 +24,7 @@ matplotlib.use("agg")
 import matplotlib.pylab as plt
 import sys
 import os
+import itertools
 import utils.test_case
 
 """ To prevent littering up imported folders with .pyc files or __pycache_ folder"""
@@ -32,49 +33,26 @@ sys.dont_write_bytecode = True
 # if this is updated make sure to update the assert statements for the number of MPI ranks, too
 lin_res = [16, 32, 64, 128]  # resolution for linear convergence
 method_cfgs = [
-    {"integrator": "vl2", "recon": "plm"},
-    {"integrator": "vl2", "recon": "weno3"},
-    {"integrator": "vl2", "recon": "ppm"},
-    {"integrator": "vl2", "recon": "wenoz"},
-    {"integrator": "rk2", "recon": "plm"},
-    {"integrator": "rk2", "recon": "weno3"},
-    {"integrator": "rk2", "recon": "ppm"},
-    {"integrator": "rk2", "recon": "wenoz"},
-    {"integrator": "rk3", "recon": "plm"},
-    {"integrator": "rk3", "recon": "weno3"},
-    {"integrator": "rk3", "recon": "ppm"},
-    {"integrator": "rk3", "recon": "wenoz"},
+    {"integrator": "vl2", "recon": "plm", "riemann": "hlld"},
+    {"integrator": "vl2", "recon": "wenoz", "riemann": "hlld"},
+    {"integrator": "vl2", "recon": "ppm", "riemann": "hlld"},
+    {"integrator": "rk2", "recon": "plm", "riemann": "hlld"},
+    {"integrator": "rk2", "recon": "wenoz", "riemann": "hlld"},
+    {"integrator": "rk2", "recon": "ppm", "riemann": "hlld"},
+    {"integrator": "rk3", "recon": "ppm", "riemann": "hlld"},
+    {"integrator": "rk3", "recon": "wenoz", "riemann": "hlld"},
 ]
+
+# TODO(pgrete) figure out why the entropy wave times out
+# wave_flags = [0, 1, 2, 4, 5, 6]
+wave_flags = [0, 1, 2]
+
+all_cfgs = list(itertools.product(method_cfgs, wave_flags, lin_res))
 
 
 class TestCase(utils.test_case.TestCaseAbs):
     def Prepare(self, parameters, step):
-        """
-        Any preprocessing that is needed before the drive is run can be done in
-        this method
 
-        This includes preparing files or any other pre processing steps that
-        need to be implemented.  The method also provides access to the
-        parameters object which controls which parameters are being used to run
-        the driver.
-
-        It is possible to append arguments to the driver_cmd_line_args if it is
-        desired to  override the parthenon input file. Each element in the list
-        is simply a string of the form '<block>/<field>=<value>', where the
-        contents of the string are exactly what one would type on the command
-        line run running a parthenon driver.
-
-        As an example if the following block was uncommented it would overwrite
-        any of the parameters that were specified in the parthenon input file
-        parameters.driver_cmd_line_args = ['output1/file_type=vtk',
-                'output1/variable=cons',
-                'output1/dt=0.4',
-                'time/tlim=0.4',
-                'mesh/nx1=400']
-        """
-
-        n_res = len(lin_res)
-        n_meth = len(method_cfgs)
         # make sure we can evenly distribute the MeshBlock sizes
         err_msg = "Num ranks must be multiples of 2 for convergence test."
         assert parameters.num_ranks == 1 or parameters.num_ranks % 2 == 0, err_msg
@@ -83,8 +61,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             lin_res[0] / parameters.num_ranks >= 4
         ), "Use <= 8 ranks for convergence test."
 
-        res = lin_res[(step - 1) % n_res]
-        method_cfg = method_cfgs[(step - 1) // n_res]
+        method_cfg, wave_flag, res = all_cfgs[step - 1]
         integrator = method_cfg["integrator"]
         recon = method_cfg["recon"]
         if "riemann" in method_cfg.keys():
@@ -111,29 +88,12 @@ class TestCase(utils.test_case.TestCaseAbs):
             "hydro/riemann=%s" % riemann,
             "hydro/fluid=glmmhd",
             "job/problem_id=linear_wave_mhd",
+            f"problem/linear_wave/wave_flag={wave_flag}",
         ]
 
         return parameters
 
     def Analyse(self, parameters):
-        """
-        Analyze the output and determine if the test passes.
-
-        This function is called after the driver has been executed. It is
-        responsible for reading whatever data it needs and making a judgment
-        about whether or not the test passes. It takes no inputs. Output should
-        be True (test passes) or False (test fails).
-
-        The parameters that are passed in provide the paths to relevant
-        locations and commands. Of particular importance is the path to the
-        output folder. All files from a drivers run should appear in and output
-        folder located in
-        parthenon/tst/regression/test_suites/test_name/output.
-
-        It is possible in this function to read any of the output files such as
-        hdf5 output and compare them to expected quantities.
-
-        """
 
         try:
             f = open(os.path.join(parameters.output_path, "linearwave-errors.dat"), "r")
@@ -144,13 +104,11 @@ class TestCase(utils.test_case.TestCaseAbs):
             print("linearwave-errors.dat file not accessible")
 
         analyze_status = True
-        n_res = len(lin_res)
-        n_meth = len(method_cfgs)
 
-        if len(lines) != n_res * n_meth + 1:
+        if len(lines) != len(all_cfgs) + 1:
             print(
                 "Missing lines in output file. Expected ",
-                n_res * n_method + 1,
+                len(all_cfgs) + 1,
                 ", but got ",
                 len(lines),
             )
@@ -164,52 +122,78 @@ class TestCase(utils.test_case.TestCaseAbs):
             os.path.join(parameters.output_path, "linearwave-errors.dat")
         )
 
+        n_res = len(lin_res)
+        n_meth = len(method_cfgs)
+        n_wave = len(wave_flags)
+
         # quick and dirty test
         # if data[47, 4] > 6.14e-12:
         #    print("QUICK AND DIRTY TEST FAILED")
         #    analyze_status = False
 
+        data = data.reshape((n_meth, n_wave, n_res, -1))
+
+        wave_axs = {
+            0: [0, 0],
+            1: [1, 0],
+            2: [2, 0],
+            # 3: [3, 0],
+            4: [2, 1],
+            5: [1, 1],
+            6: [0, 1],
+        }
+
+        fig, axs = plt.subplots(3, 2, sharex=True, sharey=True, figsize=(9, 9))
+
         markers = "ov^<>sp*hDXd+|x"
         for i, cfg in enumerate(method_cfgs):
-            plt.plot(
-                data[i * n_res : (i + 1) * n_res, 0],
-                data[i * n_res : (i + 1) * n_res, 4],
-                marker=markers[i],
-                label=(
-                    (
-                        f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
-                        f'{"hlld" if "riemann" not in cfg.keys() else cfg["riemann"]}'
-                    )
-                ),
+            for w, wave_flag in enumerate(wave_flags):
+                this_data = data[i, w]
+                row, col = wave_axs[wave_flag]
+                axs[row, col].plot(
+                    this_data[:, 0],
+                    this_data[:, 4],
+                    marker=markers[i],
+                    label=(
+                        (
+                            f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
+                            f'{"hlle" if "riemann" not in cfg.keys() else cfg["riemann"]}'
+                        )
+                    ),
+                )
+
+        for ax in axs.ravel():
+            ax.plot(
+                [32, 2 * lin_res[-1]],
+                [1.7e-7, 1.7e-7 / (2 * lin_res[-1] / 32) ** 2],
+                "--",
+                label="second order",
             )
+            ax.plot(
+                [32, 2 * lin_res[-1]],
+                [3.7e-8, 3.7e-8 / (2 * lin_res[-1] / 32) ** 2],
+                "--",
+                label="second order",
+            )
+            ax.plot(
+                [32, 2 * lin_res[-1]],
+                [5.6e-8, 5.6e-8 / (2 * lin_res[-1] / 32) ** 3],
+                "--",
+                label="third order",
+            )
+            ax.grid()
 
-        plt.plot(
-            [32, 2 * lin_res[-1]],
-            [1.7e-7, 1.7e-7 / (2 * lin_res[-1] / 32) ** 2],
-            "--",
-            label="second order",
-        )
-        plt.plot(
-            [32, 2 * lin_res[-1]],
-            [3.7e-8, 3.7e-8 / (2 * lin_res[-1] / 32) ** 2],
-            "--",
-            label="second order",
-        )
-        plt.plot(
-            [32, 2 * lin_res[-1]],
-            [5.6e-8, 5.6e-8 / (2 * lin_res[-1] / 32) ** 3],
-            "--",
-            label="third order",
-        )
+        axs[0, 0].set_ylim(1e-10, 5e-7)
+        axs[0, 0].set_xscale("log")
+        axs[0, 0].set_yscale("log")
+        axs[0, 0].legend(bbox_to_anchor=(0, 0), loc="lower left", fontsize=8, ncol=2)
 
-        plt.ylim(1e-10, 5e-7)
-
-        plt.legend(bbox_to_anchor=(1, 1), loc="upper left")
-        plt.xscale("log")
-        plt.yscale("log")
-        plt.ylabel("L1 err")
-        plt.xlabel("Linear resolution")
-        plt.savefig(
+        for i in range(3):
+            axs[i, 0].set_ylabel("L1 err")
+        axs[-1, 0].set_xlabel("Linear resolution")
+        axs[-1, 1].set_xlabel("Linear resolution")
+        fig.tight_layout()
+        fig.savefig(
             os.path.join(parameters.output_path, "mhd-linearwave-errors.png"),
             bbox_inches="tight",
         )
