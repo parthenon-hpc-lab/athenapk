@@ -98,7 +98,7 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   // initializtion. From my (pgrete) point of view, it's currently cleaner to keep things
   // separate and not touch the main driver at the expense of using one pack per rank --
   // which is typically fastest on devices anyway.
-    bool uses_single_pack = false;
+  bool uses_single_pack = false;
   // need separate check due to new packs_per_rank parameter
   if (pin->DoesParameterExist("parthenon/mesh", "pack_size")) {
     uses_single_pack = pin->GetInteger("parthenon/mesh", "pack_size") == -1;

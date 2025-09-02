@@ -1,7 +1,7 @@
 // devcontainer.json
     {
       "name": "athenapk-dev",
-      "image": "ghcr.io/parthenon-hpc-lab/cuda11.6-noascent",
+      "image": "ghcr.io/parthenon-hpc-lab/cuda12.8-mpi-hdf5-ascent",
       // disable Dockerfile for now
       //"build": {
       //  // Path is relative to the devcontainer.json file.
@@ -24,17 +24,23 @@
             "swyddfa.esbonio",
             "tomoki1207.pdf",
             "ms-vscode.cmake-tools",
-            "ms-vsliveshare.vsliveshare"
+            "ms-vsliveshare.vsliveshare",
+            "xaver.clang-format"
         ]
         }
       },
       "remoteEnv": {
-        "PATH": "${containerEnv:PATH}:/usr/local/hdf5/parallel/bin",
+        "PATH": "${containerEnv:PATH}:/home/ci/.local/bin:/usr/local/hdf5/parallel/bin",
         "OMPI_MCA_opal_warn_on_missing_libcuda": "0"
       },
       //"remoteUser": "ubuntu",
       // we need to manually checkout the submodules,
       // but VSCode may try to configure CMake before they are fully checked-out.
       // workaround TBD
-      "postCreateCommand": "git submodule update --init"
+      "postCreateCommand": {
+        "git" : "git submodule update --init",
+        "clang-format" : "pip3 install --break-system-packages clang-format==11.0.1",
+        // until we have clangd in the image above
+        "clangd" : "pip3 install --break-system-packages clangd"
+      }
     }
