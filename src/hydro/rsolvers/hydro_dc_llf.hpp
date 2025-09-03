@@ -100,8 +100,8 @@ struct Riemann<Fluid::euler, RiemannSolver::llf> {
 
     //--- Step 3.  Compute max wave speed in L,R states (see Toro eq. 10.43)
 
-    qa = eos.SoundSpeed(wli);
-    qb = eos.SoundSpeed(wri);
+    qa = eos.SoundSpeed(wli[IDN], wli[IPR]);
+    qb = eos.SoundSpeed(wri[IDN], wri[IPR]);
     Real a = fmax((fabs(wli[IV1]) + qa), (fabs(wri[IV1]) + qb));
 
     //--- Step 4.  Compute difference in L/R states dU, multiplied by max wave speed

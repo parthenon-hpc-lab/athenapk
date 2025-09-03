@@ -13,6 +13,7 @@
 #include <basic_types.hpp>
 #include <parthenon/parthenon.hpp>
 
+#include "../hydro/hydro_driver.hpp"
 #include "../main.hpp"
 #include "./dc_simple.hpp"
 #include "./limo3_simple.hpp"
@@ -20,6 +21,7 @@
 #include "./ppm_simple.hpp"
 #include "./weno3_simple.hpp"
 #include "./wenoz_simple.hpp"
+#include "interface/variable.hpp"
 using parthenon::Real;
 using parthenon::ScratchPad2D;
 using MBPVP = parthenon::MeshBlockPack<parthenon::VariablePack<Real>>;
@@ -230,6 +232,91 @@ void ReconstructPlainTile(parthenon::IndexRange kb, parthenon::IndexRange jb,
                 q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
                 wl(k - kwoff + ko, j - jwoff + jo, i - iwoff + io),
                 wr(k - kwoff, j - jwoff, i - iwoff));
+        }
+      });
+}
+
+// Reconstruction without scratch pad over all kji
+template <Reconstruction recon, int XNDIR>
+void ReconstructPlainPerBlock(parthenon::IndexRange kb, parthenon::IndexRange jb,
+                              parthenon::IndexRange ib,
+                              const parthenon::Variable<Real> &q,
+                              parthenon::ParArray5DRaw<Hydro::FluxReal> tmp) {
+
+  std::string recon_name = "unknown";
+  if constexpr (recon == Reconstruction::dc) {
+    recon_name = "DC";
+  } else if constexpr (recon == Reconstruction::plm) {
+    recon_name = "PLM";
+  } else if constexpr (recon == Reconstruction::weno3) {
+    recon_name = "WENO3";
+  } else if constexpr (recon == Reconstruction::limo3) {
+    recon_name = "LIMOZ";
+  } else if constexpr (recon == Reconstruction::ppm) {
+    recon_name = "PPM";
+  } else if constexpr (recon == Reconstruction::wenoz) {
+    recon_name = "WENOZ";
+  } else {
+    PARTHENON_FAIL("Unknown recon");
+  }
+
+  // index offsets in prim stencil
+  int ko_ = 0;
+  int jo_ = 0;
+  int io_ = 0;
+  if constexpr (XNDIR == parthenon::X1DIR) {
+    io_ = 1;
+    ib.s -= 1;
+    ib.e += 1;
+  } else if constexpr (XNDIR == parthenon::X2DIR) {
+    jo_ = 1;
+    jb.s -= 1;
+    jb.e += 1;
+  } else if constexpr (XNDIR == parthenon::X3DIR) {
+    ko_ = 1;
+    kb.s -= 1;
+    kb.e += 1;
+  } else {
+    PARTHENON_FAIL("Unknown XNDIR: " + std::to_string(XNDIR));
+  }
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "x" + std::to_string(XNDIR) + " recon " + recon_name,
+      DevExecSpace(), 0, q.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int n, const int k, const int j, const int i) {
+        // need redeclare here so that vars are captures by nvcc
+        const auto ko = ko_;
+        const auto jo = jo_;
+        const auto io = io_;
+        if constexpr (recon == Reconstruction::dc) {
+          tmp(0, n, k + ko, j + jo, i + io) = tmp(1, n, k, j, i) = q(n, k, j, i);
+        } else if constexpr (recon == Reconstruction::plm) {
+          PLM<Hydro::FluxReal>(q(n, k - ko, j - jo, i - io), q(n, k, j, i),
+                               q(n, k + ko, j + jo, i + io),
+                               tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
+        } else if constexpr (recon == Reconstruction::limo3) {
+          PARTHENON_FAIL("limo3 not implemented");
+          // const bool ensure_positivity = (n == IDN || n == IPR);
+          // auto dx = q.GetCoords().Dxc<XNDIR>(k, j, i);
+          // LimO3(q(n, k - ko, j - jo, i - io), q(n, k, j, i), q(n, k + ko, j + jo, i +
+          // io), tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i), dx,
+          // ensure_positivity);
+        } else if constexpr (recon == Reconstruction::weno3) {
+          PARTHENON_FAIL("weno3 not implemented");
+          // auto dx2 = q.GetCoords().Dxc<XNDIR>(k, j, i);
+          // dx2 = dx2 * dx2;
+          // WENO3(q(n, k - ko, j - jo, i - io), q(n, k, j, i), q(n, k + ko, j + jo, i +
+          // io), tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i), dx2);
+        } else if constexpr (recon == Reconstruction::ppm) {
+          PPM<Hydro::FluxReal>(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io),
+                               q(n, k - ko, j - jo, i - io), q(n, k, j, i),
+                               q(n, k + ko, j + jo, i + io),
+                               q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
+                               tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
+        } else if constexpr (recon == Reconstruction::wenoz) {
+          WENOZ(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io), q(n, k - ko, j - jo, i - io),
+                q(n, k, j, i), q(n, k + ko, j + jo, i + io),
+                q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
+                tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
         }
       });
 }

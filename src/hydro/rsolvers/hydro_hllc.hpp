@@ -30,47 +30,48 @@
 
 template <>
 struct Riemann<Fluid::euler, RiemannSolver::hllc> {
-  static KOKKOS_INLINE_FUNCTION void Solve(const int b, const int k, const int j,
-                                           const int i, const int ivx,
-                                           const SparsePack<> &wl, const SparsePack<> &wr,
-                                           const AdiabaticHydroEOS &eos, const Real c_h) {
+  static KOKKOS_INLINE_FUNCTION void Solve(const int k, const int j, const int i,
+                                           const int ivx,
+                                           parthenon::ParArray5DRaw<Hydro::FluxReal> tmp,
+                                           const AdiabaticHydroEOS &eos,
+                                           const Hydro::FluxReal c_h) {
+    using Hydro::FluxReal;
     int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     int ivz = IV1 + ((ivx - IV1) + 2) % 3;
-    Real gamma = eos.GetGamma();
-    Real gm1 = gamma - 1.0;
-    Real igm1 = 1.0 / gm1;
+    const auto gamma = static_cast<FluxReal>(eos.GetGamma());
+    const auto igm1 = 1.0 / (gamma - 1.0);
 
-    Real wli[(NHYDRO)], wri[(NHYDRO)];
-    Real fl[(NHYDRO)], fr[(NHYDRO)], flxi[(NHYDRO)];
+    FluxReal wli[(NHYDRO)], wri[(NHYDRO)];
+    FluxReal fl[(NHYDRO)], fr[(NHYDRO)];
     //--- Step 1.  Load L/R states into local variables
-    wli[IDN] = wl(b, IDN, k, j, i);
-    wli[IV1] = wl(b, ivx, k, j, i);
-    wli[IV2] = wl(b, ivy, k, j, i);
-    wli[IV3] = wl(b, ivz, k, j, i);
-    wli[IPR] = wl(b, IPR, k, j, i);
+    wli[IDN] = tmp(0, IDN, k, j, i);
+    wli[IV1] = tmp(0, ivx, k, j, i);
+    wli[IV2] = tmp(0, ivy, k, j, i);
+    wli[IV3] = tmp(0, ivz, k, j, i);
+    wli[IPR] = tmp(0, IPR, k, j, i);
 
-    wri[IDN] = wr(b, IDN, k, j, i);
-    wri[IV1] = wr(b, ivx, k, j, i);
-    wri[IV2] = wr(b, ivy, k, j, i);
-    wri[IV3] = wr(b, ivz, k, j, i);
-    wri[IPR] = wr(b, IPR, k, j, i);
+    wri[IDN] = tmp(1, IDN, k, j, i);
+    wri[IV1] = tmp(1, ivx, k, j, i);
+    wri[IV2] = tmp(1, ivy, k, j, i);
+    wri[IV3] = tmp(1, ivz, k, j, i);
+    wri[IPR] = tmp(1, IPR, k, j, i);
 
     //--- Step 2.  Compute middle state estimates with PVRS (Toro 10.5.2)
 
-    Real al, ar, el, er;
-    Real cl = eos.SoundSpeed(wli);
-    Real cr = eos.SoundSpeed(wri);
+    FluxReal al, ar, el, er;
+    auto cl = static_cast<FluxReal>(eos.SoundSpeed(wli[IDN], wli[IPR]));
+    auto cr = static_cast<FluxReal>(eos.SoundSpeed(wri[IDN], wri[IPR]));
     el = wli[IPR] * igm1 +
          0.5 * wli[IDN] * (SQR(wli[IV1]) + SQR(wli[IV2]) + SQR(wli[IV3]));
     er = wri[IPR] * igm1 +
          0.5 * wri[IDN] * (SQR(wri[IV1]) + SQR(wri[IV2]) + SQR(wri[IV3]));
-    Real rhoa = .5 * (wli[IDN] + wri[IDN]); // average density
-    Real ca = .5 * (cl + cr);               // average sound speed
-    Real pmid = .5 * (wli[IPR] + wri[IPR] + (wli[IV1] - wri[IV1]) * rhoa * ca);
+    auto rhoa = .5 * (wli[IDN] + wri[IDN]); // average density
+    auto ca = .5 * (cl + cr);               // average sound speed
+    auto pmid = .5 * (wli[IPR] + wri[IPR] + (wli[IV1] - wri[IV1]) * rhoa * ca);
 
     //--- Step 3.  Compute sound speed in L,R
 
-    Real ql, qr;
+    FluxReal ql, qr;
     ql = (pmid <= wli[IPR])
              ? 1.0
              : std::sqrt(1.0 + (gamma + 1) / (2 * gamma) * (pmid / wli[IPR] - 1.0));
@@ -83,24 +84,24 @@ struct Riemann<Fluid::euler, RiemannSolver::hllc> {
     al = wli[IV1] - cl * ql;
     ar = wri[IV1] + cr * qr;
 
-    Real bp = ar > 0.0 ? ar : (TINY_NUMBER);
-    Real bm = al < 0.0 ? al : -(TINY_NUMBER);
+    auto bp = ar > 0.0 ? ar : (TINY_NUMBER);
+    auto bm = al < 0.0 ? al : -(TINY_NUMBER);
 
     //--- Step 5. Compute the contact wave speed and pressure
 
-    Real vxl = wli[IV1] - al;
-    Real vxr = wri[IV1] - ar;
+    auto vxl = wli[IV1] - al;
+    auto vxr = wri[IV1] - ar;
 
-    Real tl = wli[IPR] + vxl * wli[IDN] * wli[IV1];
-    Real tr = wri[IPR] + vxr * wri[IDN] * wri[IV1];
+    auto tl = wli[IPR] + vxl * wli[IDN] * wli[IV1];
+    auto tr = wri[IPR] + vxr * wri[IDN] * wri[IV1];
 
-    Real ml = wli[IDN] * vxl;
-    Real mr = -(wri[IDN] * vxr);
+    auto ml = wli[IDN] * vxl;
+    auto mr = -(wri[IDN] * vxr);
 
     // Determine the contact wave speed...
-    Real am = (tl - tr) / (ml + mr);
+    auto am = (tl - tr) / (ml + mr);
     // ...and the pressure at the contact surface
-    Real cp = (ml * tr + mr * tl) / (ml + mr);
+    auto cp = (ml * tr + mr * tl) / (ml + mr);
     cp = cp > 0.0 ? cp : 0.0;
 
     //--- Step 6. Compute L/R fluxes along the line bm, bp
@@ -125,7 +126,7 @@ struct Riemann<Fluid::euler, RiemannSolver::hllc> {
 
     //--- Step 8. Compute flux weights or scales
 
-    Real sl, sr, sm;
+    FluxReal sl, sr, sm;
     if (am >= 0.0) {
       sl = am / (am - bm);
       sr = 0.0;
@@ -139,11 +140,11 @@ struct Riemann<Fluid::euler, RiemannSolver::hllc> {
     //--- Step 9. Compute the HLLC flux at interface, including weighted contribution
     // of the flux along the contact
 
-    wl(b, IDN, k, j, i) = sl * fl[IDN] + sr * fr[IDN];
-    wl(b, ivx, k, j, i) = sl * fl[IV1] + sr * fr[IV1] + sm * cp;
-    wl(b, ivy, k, j, i) = sl * fl[IV2] + sr * fr[IV2];
-    wl(b, ivz, k, j, i) = sl * fl[IV3] + sr * fr[IV3];
-    wl(b, IEN, k, j, i) = sl * fl[IEN] + sr * fr[IEN] + sm * cp * am;
+    tmp(1 + ivx, IDN, k, j, i) = sl * fl[IDN] + sr * fr[IDN];
+    tmp(1 + ivx, ivx, k, j, i) = sl * fl[IV1] + sr * fr[IV1] + sm * cp;
+    tmp(1 + ivx, ivy, k, j, i) = sl * fl[IV2] + sr * fr[IV2];
+    tmp(1 + ivx, ivz, k, j, i) = sl * fl[IV3] + sr * fr[IV3];
+    tmp(1 + ivx, IEN, k, j, i) = sl * fl[IEN] + sr * fr[IEN] + sm * cp * am;
   }
 };
 

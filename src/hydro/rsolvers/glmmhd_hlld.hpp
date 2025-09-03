@@ -30,74 +30,73 @@
 // container to store (density, momentum, total energy, tranverse magnetic field)
 // minimizes changes required to adopt athena4.2 version of this solver
 struct Cons1D {
-  Real d, mx, my, mz, e, by, bz;
+  Hydro::FluxReal d, mx, my, mz, e, by, bz;
 };
 
 #define SMALL_NUMBER 1.0e-8
 
 template <>
 struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
-  static KOKKOS_INLINE_FUNCTION void Solve(const int b, const int k, const int j,
-                                           const int i, const int ivx,
-                                           const SparsePack<> &wl, const SparsePack<> &wr,
+  static KOKKOS_INLINE_FUNCTION void Solve(const int k, const int j, const int i,
+                                           const int ivx,
+                                           parthenon::ParArray5DRaw<Hydro::FluxReal> tmp,
                                            const AdiabaticGLMMHDEOS &eos,
-                                           const Real c_h) {
+                                           const Hydro::FluxReal c_h) {
+    using Hydro::FluxReal;
     const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
     const int iBx = ivx - 1 + NHYDRO;
     const int iBy = ivy - 1 + NHYDRO;
     const int iBz = ivz - 1 + NHYDRO;
 
-    const auto gamma = eos.GetGamma();
-    const auto gm1 = gamma - 1.0;
-    const auto igm1 = 1.0 / gm1;
+    const auto igm1 = 1.0 / (static_cast<FluxReal>(eos.GetGamma()) - 1.0);
 
     // TODO(pgrete) move to a more central center and add logic
     constexpr int NGLMMHD = 9;
 
-    Real wli[NGLMMHD], wri[NGLMMHD];
-    Real spd[5];                     // signal speeds, left to right
+    FluxReal wli[NGLMMHD], wri[NGLMMHD];
+    FluxReal spd[5];                 // signal speeds, left to right
     Cons1D ul, ur;                   // L/R states, conserved variables (computed)
     Cons1D ulst, uldst, urdst, urst; // Conserved variable for all states
     Cons1D fl, fr;                   // Fluxes for left & right states
 
     //--- Step 1.  Load L/R states into local variables
 
-    wli[IDN] = wl(b, IDN, k, j, i);
-    wli[IV1] = wl(b, ivx, k, j, i);
-    wli[IV2] = wl(b, ivy, k, j, i);
-    wli[IV3] = wl(b, ivz, k, j, i);
-    wli[IPR] = wl(b, IPR, k, j, i);
-    wli[IB1] = wl(b, iBx, k, j, i);
-    wli[IB2] = wl(b, iBy, k, j, i);
-    wli[IB3] = wl(b, iBz, k, j, i);
-    wli[IPS] = wl(b, IPS, k, j, i);
+    wli[IDN] = tmp(0, IDN, k, j, i);
+    wli[IV1] = tmp(0, ivx, k, j, i);
+    wli[IV2] = tmp(0, ivy, k, j, i);
+    wli[IV3] = tmp(0, ivz, k, j, i);
+    wli[IPR] = tmp(0, IPR, k, j, i);
+    wli[IB1] = tmp(0, iBx, k, j, i);
+    wli[IB2] = tmp(0, iBy, k, j, i);
+    wli[IB3] = tmp(0, iBz, k, j, i);
+    wli[IPS] = tmp(0, IPS, k, j, i);
 
-    wri[IDN] = wr(b, IDN, k, j, i);
-    wri[IV1] = wr(b, ivx, k, j, i);
-    wri[IV2] = wr(b, ivy, k, j, i);
-    wri[IV3] = wr(b, ivz, k, j, i);
-    wri[IPR] = wr(b, IPR, k, j, i);
-    wri[IB1] = wr(b, iBx, k, j, i);
-    wri[IB2] = wr(b, iBy, k, j, i);
-    wri[IB3] = wr(b, iBz, k, j, i);
-    wri[IPS] = wr(b, IPS, k, j, i);
+    wri[IDN] = tmp(1, IDN, k, j, i);
+    wri[IV1] = tmp(1, ivx, k, j, i);
+    wri[IV2] = tmp(1, ivy, k, j, i);
+    wri[IV3] = tmp(1, ivz, k, j, i);
+    wri[IPR] = tmp(1, IPR, k, j, i);
+    wri[IB1] = tmp(1, iBx, k, j, i);
+    wri[IB2] = tmp(1, iBy, k, j, i);
+    wri[IB3] = tmp(1, iBz, k, j, i);
+    wri[IPS] = tmp(1, IPS, k, j, i);
 
     // first solve the decoupled state, see eq (24) in Mignone & Tzeferacos (2010)
-    Real bxi = 0.5 * (wli[IB1] + wri[IB1]) - 0.5 / c_h * (wri[IPS] - wli[IPS]);
-    Real psii = 0.5 * (wli[IPS] + wri[IPS]) - 0.5 * c_h * (wri[IB1] - wli[IB1]);
+    auto bxi = 0.5 * (wli[IB1] + wri[IB1]) - 0.5 / c_h * (wri[IPS] - wli[IPS]);
+    auto psii = 0.5 * (wli[IPS] + wri[IPS]) - 0.5 * c_h * (wri[IB1] - wli[IB1]);
     // and store flux
-    wl(b, iBx, k, j, i) = psii;
-    wl(b, IPS, k, j, i) = SQR(c_h) * bxi;
+    tmp(1 + ivx, iBx, k, j, i) = psii;
+    tmp(1 + ivx, IPS, k, j, i) = SQR(c_h) * bxi;
 
     // Compute L/R states for selected conserved variables
-    Real bxsq = bxi * bxi;
+    auto bxsq = bxi * bxi;
     // (KGF): group transverse vector components for floating-point associativity
     // symmetry
-    Real pbl = 0.5 * (bxsq + (SQR(wli[IB2]) + SQR(wli[IB3]))); // magnetic pressure (l/r)
-    Real pbr = 0.5 * (bxsq + (SQR(wri[IB2]) + SQR(wri[IB3])));
-    Real kel = 0.5 * wli[IDN] * (SQR(wli[IV1]) + (SQR(wli[IV2]) + SQR(wli[IV3])));
-    Real ker = 0.5 * wri[IDN] * (SQR(wri[IV1]) + (SQR(wri[IV2]) + SQR(wri[IV3])));
+    auto pbl = 0.5 * (bxsq + (SQR(wli[IB2]) + SQR(wli[IB3]))); // magnetic pressure (l/r)
+    auto pbr = 0.5 * (bxsq + (SQR(wri[IB2]) + SQR(wri[IB3])));
+    auto kel = 0.5 * wli[IDN] * (SQR(wli[IV1]) + (SQR(wli[IV2]) + SQR(wli[IV3])));
+    auto ker = 0.5 * wri[IDN] * (SQR(wri[IV1]) + (SQR(wri[IV2]) + SQR(wri[IV3])));
 
     ul.d = wli[IDN];
     ul.mx = wli[IV1] * ul.d;
@@ -117,10 +116,10 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
 
     //--- Step 2.  Compute L & R wave speeds according to Miyoshi & Kusano, eqn. (67)
 
-    const auto cfl =
-        eos.FastMagnetosonicSpeed(wli[IDN], wli[IPR], wli[IB1], wli[IB2], wli[IB3]);
-    const auto cfr =
-        eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[IB1], wri[IB2], wri[IB3]);
+    const auto cfl = static_cast<FluxReal>(
+        eos.FastMagnetosonicSpeed(wli[IDN], wli[IPR], wli[IB1], wli[IB2], wli[IB3]));
+    const auto cfr = static_cast<FluxReal>(
+        eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[IB1], wri[IB2], wri[IB3]));
 
     spd[0] = std::min(wli[IV1] - cfl, wri[IV1] - cfr);
     spd[4] = std::max(wli[IV1] + cfl, wri[IV1] + cfr);
@@ -136,8 +135,8 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
 
     //--- Step 3.  Compute L/R fluxes
 
-    Real ptl = wli[IPR] + pbl; // total pressures L,R
-    Real ptr = wri[IPR] + pbr;
+    auto ptl = wli[IPR] + pbl; // total pressures L,R
+    auto ptr = wri[IPR] + pbr;
 
     fl.d = ul.mx;
     fl.mx = ul.mx * wli[IV1] + ptl - bxsq;
@@ -157,24 +156,24 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
 
     //--- Step 4.  Compute middle and Alfven wave speeds
 
-    Real sdl = spd[0] - wli[IV1]; // S_i-u_i (i=L or R)
-    Real sdr = spd[4] - wri[IV1];
+    auto sdl = spd[0] - wli[IV1]; // S_i-u_i (i=L or R)
+    auto sdr = spd[4] - wri[IV1];
 
     // S_M: eqn (38) of Miyoshi & Kusano
     // (KGF): group ptl, ptr terms for floating-point associativity symmetry
     spd[2] = (sdr * ur.mx - sdl * ul.mx + (ptl - ptr)) / (sdr * ur.d - sdl * ul.d);
 
-    Real sdml = spd[0] - spd[2]; // S_i-S_M (i=L or R)
-    Real sdmr = spd[4] - spd[2];
-    Real sdml_inv = 1.0 / sdml;
-    Real sdmr_inv = 1.0 / sdmr;
+    auto sdml = spd[0] - spd[2]; // S_i-S_M (i=L or R)
+    auto sdmr = spd[4] - spd[2];
+    auto sdml_inv = 1.0 / sdml;
+    auto sdmr_inv = 1.0 / sdmr;
     // eqn (43) of Miyoshi & Kusano
     ulst.d = ul.d * sdl * sdml_inv;
     urst.d = ur.d * sdr * sdmr_inv;
-    Real ulst_d_inv = 1.0 / ulst.d;
-    Real urst_d_inv = 1.0 / urst.d;
-    Real sqrtdl = std::sqrt(ulst.d);
-    Real sqrtdr = std::sqrt(urst.d);
+    auto ulst_d_inv = 1.0 / ulst.d;
+    auto urst_d_inv = 1.0 / urst.d;
+    auto sqrtdl = std::sqrt(ulst.d);
+    auto sqrtdr = std::sqrt(urst.d);
 
     // eqn (51) of Miyoshi & Kusano
     spd[1] = spd[2] - std::abs(bxi) / sqrtdl;
@@ -183,11 +182,11 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
     //--- Step 5.  Compute intermediate states
     // eqn (23) explicitly becomes eq (41) of Miyoshi & Kusano
     // TODO(felker): place an assertion that ptstl==ptstr
-    Real ptstl = ptl + ul.d * sdl * (spd[2] - wli[IV1]);
-    Real ptstr = ptr + ur.d * sdr * (spd[2] - wri[IV1]);
+    auto ptstl = ptl + ul.d * sdl * (spd[2] - wli[IV1]);
+    auto ptstr = ptr + ur.d * sdr * (spd[2] - wri[IV1]);
     // Real ptstl = ptl + ul.d*sdl*(sdl-sdml); // these equations had issues when
     // averaged Real ptstr = ptr + ur.d*sdr*(sdr-sdmr);
-    Real ptst = 0.5 * (ptstr + ptstl); // total pressure (star state)
+    auto ptst = 0.5 * (ptstr + ptstl); // total pressure (star state)
 
     // ul* - eqn (39) of M&K
     ulst.mx = ulst.d * spd[2];
@@ -200,7 +199,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       ulst.bz = ul.bz;
     } else {
       // eqns (44) and (46) of M&K
-      Real tmp = bxi * (sdl - sdml) / (ul.d * sdl * sdml - bxsq);
+      auto tmp = bxi * (sdl - sdml) / (ul.d * sdl * sdml - bxsq);
       ulst.my = ulst.d * (wli[IV2] - ul.by * tmp);
       ulst.mz = ulst.d * (wli[IV3] - ul.bz * tmp);
 
@@ -211,7 +210,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
     }
     // v_i* dot B_i*
     // (KGF): group transverse momenta terms for floating-point associativity symmetry
-    Real vbstl = (ulst.mx * bxi + (ulst.my * ulst.by + ulst.mz * ulst.bz)) * ulst_d_inv;
+    auto vbstl = (ulst.mx * bxi + (ulst.my * ulst.by + ulst.mz * ulst.bz)) * ulst_d_inv;
     // eqn (48) of M&K
     // (KGF): group transverse by, bz terms for floating-point associativity symmetry
     ulst.e = (sdl * ul.e - ptl * wli[IV1] + ptst * spd[2] +
@@ -229,7 +228,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       urst.bz = ur.bz;
     } else {
       // eqns (44) and (46) of M&K
-      Real tmp = bxi * (sdr - sdmr) / (ur.d * sdr * sdmr - bxsq);
+      auto tmp = bxi * (sdr - sdmr) / (ur.d * sdr * sdmr - bxsq);
       urst.my = urst.d * (wri[IV2] - ur.by * tmp);
       urst.mz = urst.d * (wri[IV3] - ur.bz * tmp);
 
@@ -240,7 +239,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
     }
     // v_i* dot B_i*
     // (KGF): group transverse momenta terms for floating-point associativity symmetry
-    Real vbstr = (urst.mx * bxi + (urst.my * urst.by + urst.mz * urst.bz)) * urst_d_inv;
+    auto vbstr = (urst.mx * bxi + (urst.my * urst.by + urst.mz * urst.bz)) * urst_d_inv;
     // eqn (48) of M&K
     // (KGF): group transverse by, bz terms for floating-point associativity symmetry
     urst.e = (sdr * ur.e - ptr * wri[IV1] + ptst * spd[2] +
@@ -251,8 +250,8 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       uldst = ulst;
       urdst = urst;
     } else {
-      Real invsumd = 1.0 / (sqrtdl + sqrtdr);
-      Real bxsig = (bxi > 0.0 ? 1.0 : -1.0);
+      auto invsumd = 1.0 / (sqrtdl + sqrtdr);
+      auto bxsig = (bxi > 0.0 ? 1.0 : -1.0);
 
       uldst.d = ulst.d;
       urdst.d = urst.d;
@@ -261,7 +260,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       urdst.mx = urst.mx;
 
       // eqn (59) of M&K
-      Real tmp =
+      auto tmp =
           invsumd * (sqrtdl * (ulst.my * ulst_d_inv) + sqrtdr * (urst.my * urst_d_inv) +
                      bxsig * (urst.by - ulst.by));
       uldst.my = uldst.d * tmp;
@@ -326,58 +325,58 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
 
     if (spd[0] >= 0.0) {
       // return Fl if flow is supersonic
-      wl(b, IDN, k, j, i) = fl.d;
-      wl(b, ivx, k, j, i) = fl.mx;
-      wl(b, ivy, k, j, i) = fl.my;
-      wl(b, ivz, k, j, i) = fl.mz;
-      wl(b, IEN, k, j, i) = fl.e;
-      wl(b, iBy, k, j, i) = fl.by;
-      wl(b, iBz, k, j, i) = fl.bz;
+      tmp(1 + ivx, IDN, k, j, i) = fl.d;
+      tmp(1 + ivx, ivx, k, j, i) = fl.mx;
+      tmp(1 + ivx, ivy, k, j, i) = fl.my;
+      tmp(1 + ivx, ivz, k, j, i) = fl.mz;
+      tmp(1 + ivx, IEN, k, j, i) = fl.e;
+      tmp(1 + ivx, iBy, k, j, i) = fl.by;
+      tmp(1 + ivx, iBz, k, j, i) = fl.bz;
     } else if (spd[4] <= 0.0) {
       // return Fr if flow is supersonic
-      wl(b, IDN, k, j, i) = fr.d;
-      wl(b, ivx, k, j, i) = fr.mx;
-      wl(b, ivy, k, j, i) = fr.my;
-      wl(b, ivz, k, j, i) = fr.mz;
-      wl(b, IEN, k, j, i) = fr.e;
-      wl(b, iBy, k, j, i) = fr.by;
-      wl(b, iBz, k, j, i) = fr.bz;
+      tmp(1 + ivx, IDN, k, j, i) = fr.d;
+      tmp(1 + ivx, ivx, k, j, i) = fr.mx;
+      tmp(1 + ivx, ivy, k, j, i) = fr.my;
+      tmp(1 + ivx, ivz, k, j, i) = fr.mz;
+      tmp(1 + ivx, IEN, k, j, i) = fr.e;
+      tmp(1 + ivx, iBy, k, j, i) = fr.by;
+      tmp(1 + ivx, iBz, k, j, i) = fr.bz;
     } else if (spd[1] >= 0.0) {
       // return Fl*
-      wl(b, IDN, k, j, i) = fl.d + ulst.d;
-      wl(b, ivx, k, j, i) = fl.mx + ulst.mx;
-      wl(b, ivy, k, j, i) = fl.my + ulst.my;
-      wl(b, ivz, k, j, i) = fl.mz + ulst.mz;
-      wl(b, IEN, k, j, i) = fl.e + ulst.e;
-      wl(b, iBy, k, j, i) = fl.by + ulst.by;
-      wl(b, iBz, k, j, i) = fl.bz + ulst.bz;
+      tmp(1 + ivx, IDN, k, j, i) = fl.d + ulst.d;
+      tmp(1 + ivx, ivx, k, j, i) = fl.mx + ulst.mx;
+      tmp(1 + ivx, ivy, k, j, i) = fl.my + ulst.my;
+      tmp(1 + ivx, ivz, k, j, i) = fl.mz + ulst.mz;
+      tmp(1 + ivx, IEN, k, j, i) = fl.e + ulst.e;
+      tmp(1 + ivx, iBy, k, j, i) = fl.by + ulst.by;
+      tmp(1 + ivx, iBz, k, j, i) = fl.bz + ulst.bz;
     } else if (spd[2] >= 0.0) {
       // return Fl**
-      wl(b, IDN, k, j, i) = fl.d + ulst.d + uldst.d;
-      wl(b, ivx, k, j, i) = fl.mx + ulst.mx + uldst.mx;
-      wl(b, ivy, k, j, i) = fl.my + ulst.my + uldst.my;
-      wl(b, ivz, k, j, i) = fl.mz + ulst.mz + uldst.mz;
-      wl(b, IEN, k, j, i) = fl.e + ulst.e + uldst.e;
-      wl(b, iBy, k, j, i) = fl.by + ulst.by + uldst.by;
-      wl(b, iBz, k, j, i) = fl.bz + ulst.bz + uldst.bz;
+      tmp(1 + ivx, IDN, k, j, i) = fl.d + ulst.d + uldst.d;
+      tmp(1 + ivx, ivx, k, j, i) = fl.mx + ulst.mx + uldst.mx;
+      tmp(1 + ivx, ivy, k, j, i) = fl.my + ulst.my + uldst.my;
+      tmp(1 + ivx, ivz, k, j, i) = fl.mz + ulst.mz + uldst.mz;
+      tmp(1 + ivx, IEN, k, j, i) = fl.e + ulst.e + uldst.e;
+      tmp(1 + ivx, iBy, k, j, i) = fl.by + ulst.by + uldst.by;
+      tmp(1 + ivx, iBz, k, j, i) = fl.bz + ulst.bz + uldst.bz;
     } else if (spd[3] > 0.0) {
       // return Fr**
-      wl(b, IDN, k, j, i) = fr.d + urst.d + urdst.d;
-      wl(b, ivx, k, j, i) = fr.mx + urst.mx + urdst.mx;
-      wl(b, ivy, k, j, i) = fr.my + urst.my + urdst.my;
-      wl(b, ivz, k, j, i) = fr.mz + urst.mz + urdst.mz;
-      wl(b, IEN, k, j, i) = fr.e + urst.e + urdst.e;
-      wl(b, iBy, k, j, i) = fr.by + urst.by + urdst.by;
-      wl(b, iBz, k, j, i) = fr.bz + urst.bz + urdst.bz;
+      tmp(1 + ivx, IDN, k, j, i) = fr.d + urst.d + urdst.d;
+      tmp(1 + ivx, ivx, k, j, i) = fr.mx + urst.mx + urdst.mx;
+      tmp(1 + ivx, ivy, k, j, i) = fr.my + urst.my + urdst.my;
+      tmp(1 + ivx, ivz, k, j, i) = fr.mz + urst.mz + urdst.mz;
+      tmp(1 + ivx, IEN, k, j, i) = fr.e + urst.e + urdst.e;
+      tmp(1 + ivx, iBy, k, j, i) = fr.by + urst.by + urdst.by;
+      tmp(1 + ivx, iBz, k, j, i) = fr.bz + urst.bz + urdst.bz;
     } else {
       // return Fr*
-      wl(b, IDN, k, j, i) = fr.d + urst.d;
-      wl(b, ivx, k, j, i) = fr.mx + urst.mx;
-      wl(b, ivy, k, j, i) = fr.my + urst.my;
-      wl(b, ivz, k, j, i) = fr.mz + urst.mz;
-      wl(b, IEN, k, j, i) = fr.e + urst.e;
-      wl(b, iBy, k, j, i) = fr.by + urst.by;
-      wl(b, iBz, k, j, i) = fr.bz + urst.bz;
+      tmp(1 + ivx, IDN, k, j, i) = fr.d + urst.d;
+      tmp(1 + ivx, ivx, k, j, i) = fr.mx + urst.mx;
+      tmp(1 + ivx, ivy, k, j, i) = fr.my + urst.my;
+      tmp(1 + ivx, ivz, k, j, i) = fr.mz + urst.mz;
+      tmp(1 + ivx, IEN, k, j, i) = fr.e + urst.e;
+      tmp(1 + ivx, iBy, k, j, i) = fr.by + urst.by;
+      tmp(1 + ivx, iBz, k, j, i) = fr.bz + urst.bz;
     }
   }
 };

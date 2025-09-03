@@ -14,6 +14,7 @@
 using namespace parthenon::package::prelude;
 
 namespace Hydro {
+using FluxReal = double;
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin);
 void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
@@ -39,8 +40,9 @@ extern InitPackageDataFun_t ProblemInitPackageData;
 extern std::function<AmrTag(MeshBlockData<Real> *mbd)> ProblemCheckRefinementBlock;
 
 template <Fluid fluid, Reconstruction recon, RiemannSolver rsolver>
-TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
-                           const Real gam0, const Real gam1, const Real beta_dt);
+TaskStatus CalculateFluxes(BlockList_t &blocks,
+                           parthenon::ParArray5DRaw<Hydro::FluxReal> tmp, const Real gam0,
+                           const Real gam1, const Real beta_dt);
 using FluxFun_t =
     decltype(CalculateFluxes<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>);
 
