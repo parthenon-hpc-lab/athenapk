@@ -1125,7 +1125,7 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
       //--------------------------------------------------------------------------------------
       // k-direction
       if (pmb->pmy_mesh->ndim >= 3) {
-        ReconstructPlainPerBlockScratch<recon, X3DIR>(kb, jb, ib, u0_prim, tmp);
+        ReconstructPlainPerBlock<recon, X3DIR>(kb, jb, ib, u0_prim, tmp);
 
         pmb->par_for(
             "x3 Riemann", kb.s, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
