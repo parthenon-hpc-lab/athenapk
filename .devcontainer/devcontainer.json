@@ -40,7 +40,5 @@
       "postCreateCommand": {
         "git" : "git submodule update --init",
         "clang-format" : "pip3 install --break-system-packages clang-format==11.0.1",
-        // until we have clangd in the image above
-        "clangd" : "pip3 install --break-system-packages clangd"
       }
     }

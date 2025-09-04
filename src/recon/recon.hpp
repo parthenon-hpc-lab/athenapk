@@ -240,8 +240,8 @@ void ReconstructPlainTile(parthenon::IndexRange kb, parthenon::IndexRange jb,
 template <Reconstruction recon, int XNDIR>
 void ReconstructPlainPerBlock(parthenon::IndexRange kb, parthenon::IndexRange jb,
                               parthenon::IndexRange ib,
-                              const parthenon::Variable<Real> &q,
-                              parthenon::ParArray5DRaw<Hydro::FluxReal> tmp) {
+                              const parthenon::Variable<Real> &q_,
+                              parthenon::ParArray5DRaw<Hydro::FluxReal> tmp_) {
 
   std::string recon_name = "unknown";
   if constexpr (recon == Reconstruction::dc) {
@@ -254,6 +254,10 @@ void ReconstructPlainPerBlock(parthenon::IndexRange kb, parthenon::IndexRange jb
     recon_name = "LIMOZ";
   } else if constexpr (recon == Reconstruction::ppm) {
     recon_name = "PPM";
+  } else if constexpr (recon == Reconstruction::ppm4) {
+    recon_name = "PPM4";
+  } else if constexpr (recon == Reconstruction::ppmx) {
+    recon_name = "PPMX";
   } else if constexpr (recon == Reconstruction::wenoz) {
     recon_name = "WENOZ";
   } else {
@@ -281,12 +285,14 @@ void ReconstructPlainPerBlock(parthenon::IndexRange kb, parthenon::IndexRange jb
   }
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "x" + std::to_string(XNDIR) + " recon " + recon_name,
-      DevExecSpace(), 0, q.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      DevExecSpace(), 0, q_.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int n, const int k, const int j, const int i) {
         // need redeclare here so that vars are captures by nvcc
         const auto ko = ko_;
         const auto jo = jo_;
         const auto io = io_;
+        const auto &tmp = tmp_;
+        const auto &q = q_;
         if constexpr (recon == Reconstruction::dc) {
           tmp(0, n, k + ko, j + jo, i + io) = tmp(1, n, k, j, i) = q(n, k, j, i);
         } else if constexpr (recon == Reconstruction::plm) {
@@ -306,6 +312,18 @@ void ReconstructPlainPerBlock(parthenon::IndexRange kb, parthenon::IndexRange jb
           // dx2 = dx2 * dx2;
           // WENO3(q(n, k - ko, j - jo, i - io), q(n, k, j, i), q(n, k + ko, j + jo, i +
           // io), tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i), dx2);
+        } else if constexpr (recon == Reconstruction::ppm4) {
+          PPM4<Hydro::FluxReal>(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io),
+                                q(n, k - ko, j - jo, i - io), q(n, k, j, i),
+                                q(n, k + ko, j + jo, i + io),
+                                q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
+                                tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
+        } else if constexpr (recon == Reconstruction::ppmx) {
+          PPMX<Hydro::FluxReal>(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io),
+                                q(n, k - ko, j - jo, i - io), q(n, k, j, i),
+                                q(n, k + ko, j + jo, i + io),
+                                q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
+                                tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
         } else if constexpr (recon == Reconstruction::ppm) {
           PPM<Hydro::FluxReal>(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io),
                                q(n, k - ko, j - jo, i - io), q(n, k, j, i),
