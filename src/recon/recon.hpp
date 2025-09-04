@@ -367,29 +367,12 @@ void ReconstructPlainPerBlockScratch(parthenon::IndexRange kb, parthenon::IndexR
     PARTHENON_FAIL("Unknown recon");
   }
 
-  // index offsets in prim stencil
-  int ko_ = 0;
-  int jo_ = 0;
-  int io_ = 0;
-  if constexpr (XNDIR == parthenon::X1DIR) {
-    io_ = 1;
-    ib.s -= 1;
-    ib.e += 1;
-  } else if constexpr (XNDIR == parthenon::X2DIR) {
-    jo_ = 1;
-    jb.s -= 1;
-    jb.e += 1;
-  } else if constexpr (XNDIR == parthenon::X3DIR) {
-    ko_ = 1;
-    kb.s -= 1;
-    kb.e += 1;
-  } else {
-    PARTHENON_FAIL("Unknown XNDIR: " + std::to_string(XNDIR));
-  }
-
   const int cache_level = 0; // use actual scratch pad
   using Cache1D = parthenon::ScratchPad1D<Hydro::FluxReal>;
-  size_t cache_size_in_bytes = Cache1D::shmem_size(ib.size()) * 5;
+  const int ni = ib.size();
+  const int is = ib.s;
+  const int ie = ib.e;
+  size_t cache_size_in_bytes = Cache1D::shmem_size(ni) * 5;
 
   parthenon::par_for_outer(
       DEFAULT_OUTER_LOOP_PATTERN,
@@ -399,14 +382,14 @@ void ReconstructPlainPerBlockScratch(parthenon::IndexRange kb, parthenon::IndexR
         // need redeclare here so that vars are captures by nvcc
         const auto &tmp = tmp_;
         const auto &q = q_;
-        Cache1D km2(member.team_scratch(cache_level), ib.size());
-        Cache1D km1(member.team_scratch(cache_level), ib.size());
-        Cache1D kn0(member.team_scratch(cache_level), ib.size());
-        Cache1D kp1(member.team_scratch(cache_level), ib.size());
-        Cache1D kp2(member.team_scratch(cache_level), ib.size());
+        Cache1D km2(member.team_scratch(cache_level), ni);
+        Cache1D km1(member.team_scratch(cache_level), ni);
+        Cache1D kn0(member.team_scratch(cache_level), ni);
+        Cache1D kp1(member.team_scratch(cache_level), ni);
+        Cache1D kp2(member.team_scratch(cache_level), ni);
 
         // Fill initial pencils
-        parthenon::par_for_inner(member, ib.s, ib.e, [&](const int i) {
+        parthenon::par_for_inner(member, is, ie, [&](const int i) {
           km2(i) = q(n, kb.s - 1 - 2, j, i);
           km1(i) = q(n, kb.s - 1 - 1, j, i);
           kn0(i) = q(n, kb.s - 1 + 0, j, i);
@@ -416,10 +399,10 @@ void ReconstructPlainPerBlockScratch(parthenon::IndexRange kb, parthenon::IndexR
         member.team_barrier();
 
         for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
-          parthenon::par_for_inner(member, ib.s, ib.e,
+          parthenon::par_for_inner(member, is, ie,
                                    [&](const int i) { kp2(i) = q(n, k + 2, j, i); });
           member.team_barrier();
-          parthenon::par_for_inner(member, ib.s, ib.e, [&](const int i) {
+          parthenon::par_for_inner(member, is, ie, [&](const int i) {
             if constexpr (recon == Reconstruction::dc) {
               tmp(0, n, k + 1, j, i) = tmp(1, n, k, j, i) = q(n, k, j, i);
             } else if constexpr (recon == Reconstruction::plm) {
