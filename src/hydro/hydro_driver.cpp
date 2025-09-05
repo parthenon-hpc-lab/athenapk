@@ -14,6 +14,7 @@
 #include "amr_criteria/refinement_package.hpp"
 #include "basic_types.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
+#include "kokkos_types.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include "utils/error_checking.hpp"
 #include <parthenon/parthenon.hpp>
@@ -405,6 +406,21 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       pmb->meshblock_data.Add("u1", u0);
     }
   }
+  // Ensure temp buffer has correct size and is allocated
+  if (stage == 1) {
+    auto pmb = blocks[0];
+    const auto nxi = pmb->cellbounds.ncellsi(IndexDomain::entire);
+    const auto nxj = pmb->cellbounds.ncellsj(IndexDomain::entire);
+    const auto nxk = pmb->cellbounds.ncellsk(IndexDomain::entire);
+    if (tmp.extent(3) != nxi) {
+      PARTHENON_REQUIRE_THROWS(hydro_pkg->Param<int>("nscalars") == 0,
+                               "Needs adjustmentment for scalar support.");
+      const auto nhydro = hydro_pkg->Param<int>("nhydro");
+      // index 0 comp 0 and 1 are for left and right states
+      // index 0 comp 2-4 are for fluxes
+      tmp = parthenon::ParArray5DRaw<FluxReal>("tmp", 5, nhydro, nxk, nxj, nxi);
+    }
+  }
 
   // calculate magnetic tower scaling
   if ((stage == 1) && hydro_pkg->AllParams().hasKey("magnetic_tower_power_scaling") &&
@@ -490,7 +506,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           },
           // First order flux correction needs the original prim variables in the
           // during the correction.
-          u0.get(), u1.get(), hydro_pkg->Param<bool>("first_order_flux_correct"));
+          // u0.get(), u1.get(), hydro_pkg->Param<bool>("first_order_flux_correct"));
+          // Disalbed for now becaseu prim is only OneCopy and given our FOFC
+          // implementation it's actually not clear if this is required/correct
+          u0.get(), u1.get(), false);
     }
   }
 
@@ -507,7 +526,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
-    auto calc_flux = tl.AddTask(none, calc_flux_fun, mu0.get(), mu1.get(),
+    auto calc_flux = tl.AddTask(none, calc_flux_fun, blocks, tmp,
                                 integrator->gam0[stage - 1], integrator->gam1[stage - 1],
                                 integrator->beta[stage - 1] * integrator->dt);
 

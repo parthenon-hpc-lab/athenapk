@@ -7,8 +7,11 @@
 //========================================================================================
 
 // Parthenon headers
+#include "kokkos_types.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
+
+#include "hydro.hpp"
 
 using namespace parthenon::driver::prelude;
 
@@ -25,6 +28,9 @@ class HydroDriver : public MultiStageDriver {
   //       DriverUtils::ConstructAndExecuteBlockTasks (driver.hpp)
   //         AdvectionDriver::MakeTaskList (advection.cpp)
   auto MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskCollection;
+
+ private:
+  parthenon::ParArray5DRaw<FluxReal> tmp;
 };
 
 } // namespace Hydro

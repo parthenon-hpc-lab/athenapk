@@ -85,8 +85,8 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
 
       //--- Step 3.  Compute sound speed in L,R, and Roe-averaged states
 
-      const Real cl = eos.SoundSpeed(wli);
-      const Real cr = eos.SoundSpeed(wri);
+      const Real cl = eos.SoundSpeed(wli[IDN], wli[IPR]);
+      const Real cr = eos.SoundSpeed(wri[IDN], wri[IPR]);
       Real q = hroe - 0.5 * (SQR(wroe[IV1]) + SQR(wroe[IV2]) + SQR(wroe[IV3]));
       const Real a = (q < 0.0) ? 0.0 : std::sqrt(gm1 * q);
 

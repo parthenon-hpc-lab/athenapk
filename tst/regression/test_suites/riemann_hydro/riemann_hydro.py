@@ -21,18 +21,28 @@ sys.dont_write_bytecode = True
 
 method_cfgs = [
     {"nx1": 1024, "integrator": "vl2", "recon": "plm", "riemann": "hllc"},
-    {"nx1": 64, "integrator": "rk1", "recon": "dc", "riemann": "hlle"},
     {"nx1": 64, "integrator": "rk1", "recon": "dc", "riemann": "hllc"},
-    {"nx1": 64, "integrator": "vl2", "recon": "plm", "riemann": "hlle"},
     {"nx1": 64, "integrator": "vl2", "recon": "plm", "riemann": "hllc"},
-    {"nx1": 64, "integrator": "rk3", "recon": "weno3", "riemann": "hlle"},
-    {"nx1": 64, "integrator": "rk3", "recon": "weno3", "riemann": "hllc"},
-    {"nx1": 64, "integrator": "rk3", "recon": "limo3", "riemann": "hlle"},
-    {"nx1": 64, "integrator": "rk3", "recon": "limo3", "riemann": "hllc"},
-    {"nx1": 64, "integrator": "rk3", "recon": "ppm", "riemann": "hlle"},
+    {"nx1": 64, "integrator": "vl2", "recon": "ppm", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "vl2", "recon": "ppm4", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "vl2", "recon": "ppmx", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "vl2", "recon": "wenoz", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "vl2", "recon": "wenozaoah", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "vl2", "recon": "mp5", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk2", "recon": "plm", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk2", "recon": "ppm", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk2", "recon": "ppm4", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk2", "recon": "ppmx", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk2", "recon": "wenoz", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk2", "recon": "wenozaoah", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk2", "recon": "mp5", "riemann": "hllc"},
     {"nx1": 64, "integrator": "rk3", "recon": "ppm", "riemann": "hllc"},
-    {"nx1": 64, "integrator": "rk3", "recon": "wenoz", "riemann": "hlle"},
+    {"nx1": 64, "integrator": "rk3", "recon": "ppm4", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk3", "recon": "ppmx", "riemann": "hllc"},
     {"nx1": 64, "integrator": "rk3", "recon": "wenoz", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk3", "recon": "wenozaoah", "riemann": "hllc"},
+    {"nx1": 64, "integrator": "rk3", "recon": "mp5", "riemann": "hllc"},
+    #    {"nx1": 64, "integrator": "rk3", "recon": "wenoz", "riemann": "hllc"},
 ]
 
 # Following Toro Sec. 10.8 these are rho_l, u_l, p_l, rho_r, u_r, p_r, x0, and t_end, title
@@ -85,7 +95,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"parthenon/time/integrator={integrator}",
             f"hydro/reconstruction={recon}",
             "parthenon/mesh/nghost=%d"
-            % (3 if (recon == "ppm" or recon == "wenoz") else 2),
+            % (3 if ("ppm" in recon or "wenoz" in recon or recon == "mp5") else 2),
             f"hydro/riemann={riemann}",
             f"parthenon/output0/id={step}",
             f"problem/sod/rho_l={rho_l}",
@@ -115,13 +125,14 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         test_success = True
 
-        fig, p = plt.subplots(
-            3, len(init_cond_cfgs), figsize=(3 * len(init_cond_cfgs), 8.0)
-        )
-
+        ref = None
         for step in range(len(all_cfgs)):
             method, init_cond = all_cfgs[step]
             col = init_cond_cfgs.index(init_cond)
+            if col == 0:
+                fig, p = plt.subplots(
+                    3, len(init_cond_cfgs), figsize=(3 * len(init_cond_cfgs), 8.0)
+                )
 
             data_filename = f"{parameters.output_path}/parthenon.{step + 1}.final.phdf"
             data_file = phdf.phdf(data_filename)
@@ -140,24 +151,31 @@ class TestCase(utils.test_case.TestCaseAbs):
             )
 
             lw = 0.75
+            if ref is None:
+                ref = (xx, rho, vx, pres)
+            else:
+                p[0, 0].plot(ref[0], ref[1], label="ref", lw=lw)
+                p[1, 0].plot(ref[0], ref[2], label="ref", lw=lw)
+                p[2, 0].plot(ref[0], ref[3], label="ref", lw=lw)
             p[0, col].plot(xx, rho, label=label, lw=lw)
             p[1, col].plot(xx, vx, label=label, lw=lw)
             p[2, col].plot(xx, pres, label=label, lw=lw)
 
-        p[0, 0].set_ylabel("rho")
-        p[1, 0].set_ylabel("vx")
-        p[2, 0].set_ylabel("press")
+            p[0, 0].set_ylabel("rho")
+            p[1, 0].set_ylabel("vx")
+            p[2, 0].set_ylabel("press")
 
-        for i in range(len(init_cond_cfgs)):
-            p[-1, i].set_xlabel("x")
-            p[0, i].set_title(init_cond_cfgs[i][-1])
+            for i in range(len(init_cond_cfgs)):
+                p[-1, i].set_xlabel("x")
+                p[0, i].set_title(init_cond_cfgs[i][-1])
 
-        p[0, -1].legend(loc="upper left", bbox_to_anchor=(1, 1))
+            p[0, -1].legend(loc="lower left", bbox_to_anchor=(0, 0))
 
-        fig.savefig(
-            os.path.join(parameters.output_path, "shock_tube.png"),
-            bbox_inches="tight",
-            dpi=300,
-        )
+            if col == 2:
+                fig.savefig(
+                    os.path.join(parameters.output_path, f"shock_tube_{label}.png"),
+                    bbox_inches="tight",
+                    dpi=300,
+                )
 
         return test_success

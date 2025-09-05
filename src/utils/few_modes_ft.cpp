@@ -108,7 +108,7 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   }
   PARTHENON_REQUIRE_THROWS(uses_single_pack,
                            "Few modes FT currently needs parthenon/mesh/packs_per_rank=1 "
-                           "to work because of global reductions.")
+                           "to work because of global reductions.");
 
   const auto Lx1 = pm->mesh_size.xmax(X1DIR) - pm->mesh_size.xmin(X1DIR);
   const auto Lx2 = pm->mesh_size.xmax(X2DIR) - pm->mesh_size.xmin(X2DIR);

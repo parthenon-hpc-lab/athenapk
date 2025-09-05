@@ -26,6 +26,7 @@
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
+#include "hydro_driver.hpp"
 #include "impl/Kokkos_Profiling.hpp"
 #include "interface/metadata.hpp"
 #include "interface/params.hpp"
@@ -323,6 +324,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (recon_str == "ppm") {
     recon = Reconstruction::ppm;
     recon_need_nghost = 3;
+  } else if (recon_str == "ppm4") {
+    recon = Reconstruction::ppm4;
+    recon_need_nghost = 3;
+  } else if (recon_str == "ppmx") {
+    recon = Reconstruction::ppmx;
+    recon_need_nghost = 3;
   } else if (recon_str == "limo3") {
     recon = Reconstruction::limo3;
     recon_need_nghost = 2;
@@ -331,6 +338,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     recon_need_nghost = 2;
   } else if (recon_str == "wenoz") {
     recon = Reconstruction::wenoz;
+    recon_need_nghost = 3;
+  } else if (recon_str == "wenozaoah") {
+    recon = Reconstruction::wenozaoah;
+    recon_need_nghost = 3;
+  } else if (recon_str == "mp5") {
+    recon = Reconstruction::mp5;
     recon_need_nghost = 3;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
@@ -393,6 +406,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::euler, Reconstruction::dc, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::plm, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::ppm4, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::ppmx, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::wenozaoah, RiemannSolver::hllc>(
+      flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::mp5, RiemannSolver::hllc>(flux_functions);
   // add_flux_fun<Fluid::euler,
   // Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
   // add_flux_fun<Fluid::euler, Reconstruction::limo3,
@@ -412,9 +431,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::ppm4, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::ppmx, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::wenozaoah, RiemannSolver::hlld>(
+      flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::mp5, RiemannSolver::hlld>(flux_functions);
 
   // flux used in all stages expect the first. First stage is set below based on integr.
   FluxFun_t *flux_other_stage = nullptr;
@@ -886,7 +910,7 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         w[IPR] = prim(IPR, k, j, i);
         Real lambda_max_x, lambda_max_y, lambda_max_z;
         if constexpr (fluid == Fluid::euler) {
-          lambda_max_x = eos.SoundSpeed(w);
+          lambda_max_x = eos.SoundSpeed(w[IDN], w[IPR]);
           lambda_max_y = lambda_max_x;
           lambda_max_z = lambda_max_x;
 
@@ -1045,30 +1069,19 @@ TaskStatus CalculateFluxesTight(std::shared_ptr<MeshData<Real>> &md) {
 
 // Calculate fluxes using scratch pad memory, i.e., over cached pencils in i-dir.
 template <Fluid fluid, Reconstruction recon, RiemannSolver rsolver>
-TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
+TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxReal> tmp,
                            const Real gam0_, const Real gam1_, const Real beta_dt_) {
-  auto pmb = u0_data->GetBlockData(0)->GetBlockPointer();
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  using Hydro::FluxReal;
+  auto pmb0 = blocks[0];
+  IndexRange ib = pmb0->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb0->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb0->cellbounds.GetBoundsK(IndexDomain::interior);
 
   auto const gam0 = gam0_;
   auto const gam1 = gam1_;
   auto const beta_dt = beta_dt_;
 
-  auto pkg = pmb->packages.Get("Hydro");
-  auto const &u0_cons_pack = u0_data->PackVariables(std::vector<std::string>{"cons"});
-  auto const &u1_cons_pack = u1_data->PackVariables(std::vector<std::string>{"cons"});
-  auto const &u0_prim_pack = u0_data->PackVariables(std::vector<std::string>{"prim"});
-  using parthenon::PDOpt;
-  auto desc_wlc = parthenon::MakePackDescriptor(
-      pkg.get(), std::vector<std::string>{"cons"}, std::vector<parthenon::MetadataFlag>{},
-      std::set<PDOpt>{PDOpt::Coarse});
-  auto u0_wl_cpack = desc_wlc.GetPack(u0_data);
-  auto desc_wrc = parthenon::MakePackDescriptor(
-      pkg.get(), std::vector<std::string>{"prim"}, std::vector<parthenon::MetadataFlag>{},
-      std::set<PDOpt>{PDOpt::Coarse});
-  auto u0_wr_cpack = desc_wrc.GetPack(u0_data);
+  auto pkg = pmb0->packages.Get("Hydro");
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
 
@@ -1076,191 +1089,182 @@ TaskStatus CalculateFluxes(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                            AdiabaticGLMMHDEOS>::type>("eos");
 
-  auto num_scratch_vars = nhydro + nscalars;
-
   // Hyperbolic divergence cleaning speed for GLM MHD
-  Real c_h = 0.0;
+  Hydro::FluxReal c_h = 0.0;
   if (fluid == Fluid::glmmhd) {
-    c_h = pkg->Param<Real>("c_h");
+    c_h = static_cast<Hydro::FluxReal>(pkg->Param<Real>("c_h"));
   }
+
+  const auto ndim = pmb0->pmy_mesh->ndim;
 
   // const int scratch_level =
   // pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
-  const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
+  const int nx1 = pmb0->cellbounds.ncellsi(IndexDomain::entire);
 
   // parthenon::ScratchPad2D<Real>::shmem_size(num_scratch_vars, nx1) * 3;
 
   auto riemann = Riemann<fluid, rsolver>();
+  for (auto pmb : blocks) {
+    auto &u0_prim = pmb->meshblock_data.Get("base")->Get("prim");
 
-  const auto dx1 = pmb->coords.CellWidth<X1DIR>(0, 0, 0);
-
-  // Original "full" IndexDomain
-  const auto ibf = u0_data->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  const auto jbf = u0_data->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  const auto kbf = u0_data->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-  // Half size of IndexDomains
-  const auto nih = (ibf.e - ibf.s + 1) / 2;
-  const auto njh = (jbf.e - jbf.s + 1) / 2;
-  const auto nkh = (kbf.e - kbf.s + 1) / 2;
-  // Important, this assumes that dx1=dx2=dx3! (same in Riemann solve where flx is set)
-  // Offsets for wl/wr in each block
-  int iwoff = 0;
-  int jwoff = 0;
-  int kwoff = 0;
-  auto set_indices = [&](const int d) {
-    iwoff = 0;
-    jwoff = 0;
-    kwoff = 0;
-    if (d == 0) {
-      ib.s = ibf.s;
-      jb.s = jbf.s;
-      kb.s = kbf.s;
-      ib.e = ibf.s + nih - 1;
-      jb.e = jbf.s + njh - 1;
-      kb.e = kbf.s + nkh - 1;
-    } else if (d == 1) {
-      ib.s = ibf.s + nih;
-      jb.s = jbf.s;
-      kb.s = kbf.s;
-      ib.e = ibf.e;
-      jb.e = jbf.s + njh - 1;
-      kb.e = kbf.s + nkh - 1;
-      iwoff = nih;
-    } else if (d == 2) {
-      ib.s = ibf.s;
-      jb.s = jbf.s + njh;
-      kb.s = kbf.s;
-      ib.e = ibf.s + nih - 1;
-      jb.e = jbf.e;
-      kb.e = kbf.s + nkh - 1;
-      jwoff = njh;
-    } else if (d == 3) {
-      ib.s = ibf.s + nih;
-      jb.s = jbf.s + njh;
-      kb.s = kbf.s;
-      ib.e = ibf.e;
-      jb.e = jbf.e;
-      kb.e = kbf.s + nkh - 1;
-      iwoff = nih;
-      jwoff = njh;
-    } else if (d == 4) {
-      ib.s = ibf.s;
-      jb.s = jbf.s;
-      kb.s = kbf.s + nkh;
-      ib.e = ibf.s + nih - 1;
-      jb.e = jbf.s + njh - 1;
-      kb.e = kbf.e;
-      kwoff = nkh;
-    } else if (d == 5) {
-      ib.s = ibf.s + nih;
-      jb.s = jbf.s;
-      kb.s = kbf.s + nkh;
-      ib.e = ibf.e;
-      jb.e = jbf.s + njh - 1;
-      kb.e = kbf.e;
-      iwoff = nih;
-      kwoff = nkh;
-    } else if (d == 6) {
-      ib.s = ibf.s;
-      jb.s = jbf.s + njh;
-      kb.s = kbf.s + nkh;
-      ib.e = ibf.s + nih - 1;
-      jb.e = jbf.e;
-      kb.e = kbf.e;
-      jwoff = njh;
-      kwoff = nkh;
-    } else if (d == 7) {
-      ib.s = ibf.s + nih;
-      jb.s = jbf.s + njh;
-      kb.s = kbf.s + nkh;
-      ib.e = ibf.e;
-      jb.e = jbf.e;
-      kb.e = kbf.e;
-      iwoff = nih;
-      jwoff = njh;
-      kwoff = nkh;
-    }
-  };
-  // Given that we use u0_cons_pack in the x1 fluxdiv update, we have to update all x1
-  // fluxes first before doing the other fluxes (that just add)
-  for (int d = 0; d < 8; d++) {
-    set_indices(d);
+    // Given that we use u0_cons_pack in the x1 fluxdiv update, we have to update all x1
+    // fluxes first before doing the other fluxes (that just add)
     // std::cerr << "block bounds are kbs " << kb.s << " kb.e " << kb.e << " jbs " << jb.s
     // << " jbe " << jb.e << " ibs " << ib.s << " ibe " << ib.e << "\n";
     // ReconstructPlain<recon, X1DIR>(kb, jb, ib, u0_prim_pack, u0_wl_pack,
     // u0_wr_pack);
-    ReconstructPlainTile<recon, X1DIR>(kb, jb, ib, u0_prim_pack, u0_wl_cpack, u0_wr_cpack,
-                                       kwoff, jwoff, iwoff);
+    ReconstructPlainPerBlock<recon, X1DIR>(kb, jb, ib, u0_prim, tmp);
     pmb->par_for(
-        "x1 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s - kwoff, kb.e - kwoff,
-        jb.s - jwoff, jb.e - jwoff, ib.s - iwoff, ib.e - iwoff + 1,
-        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          riemann.Solve(b, k, j, i, IV1, u0_wl_cpack, u0_wr_cpack, eos, c_h);
+        "x1 Riemann", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          riemann.Solve(k, j, i, IV1, tmp, eos, c_h);
         });
-    pmb->par_for(
-        "UpdateFluxDiv x1", 0, u0_cons_pack.GetDim(5) - 1, 0, u0_cons_pack.GetDim(4) - 1,
-        kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-          auto &wl = u0_wl_cpack(b, v);
-          u0_cons_pack(b, v, k, j, i) = gam0 * u0_cons_pack(b, v, k, j, i) +
-                                        gam1 * u1_cons_pack(b, v, k, j, i) -
-                                        beta_dt *
-                                            (wl(k - kwoff, j - jwoff, i - iwoff + 1) -
-                                             wl(k - kwoff, j - jwoff, i - iwoff)) /
-                                            dx1;
-        });
-  }
-  //--------------------------------------------------------------------------------------
-  // j-direction
-  if (pmb->pmy_mesh->ndim >= 2) {
-    for (int d = 0; d < 8; d++) {
-      set_indices(d);
-      ReconstructPlainTile<recon, X2DIR>(kb, jb, ib, u0_prim_pack, u0_wl_cpack,
-                                         u0_wr_cpack, kwoff, jwoff, iwoff);
+
+    //--------------------------------------------------------------------------------------
+    // j-direction
+    if (ndim >= 2) {
+      ReconstructPlainPerBlock<recon, X2DIR>(kb, jb, ib, u0_prim, tmp);
       pmb->par_for(
-          "x2 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s - kwoff, kb.e - kwoff,
-          jb.s - jwoff, jb.e - jwoff + 1, ib.s - iwoff, ib.e - iwoff,
-          KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-            riemann.Solve(b, k, j, i, IV2, u0_wl_cpack, u0_wr_cpack, eos, c_h);
+          "x2 Riemann", kb.s, kb.e, jb.s, jb.e + 1, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int k, const int j, const int i) {
+            riemann.Solve(k, j, i, IV2, tmp, eos, c_h);
           });
 
-      const auto dx2 = pmb->coords.CellWidth<X2DIR>(0, 0, 0);
-      pmb->par_for(
-          "UpdateFluxDiv x2", 0, u0_cons_pack.GetDim(5) - 1, 0,
-          u0_cons_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-            auto &wl = u0_wl_cpack(b, v);
-            u0_cons_pack(b, v, k, j, i) -= beta_dt *
-                                           (wl(k - kwoff, j - jwoff + 1, i - iwoff) -
-                                            wl(k - kwoff, j - jwoff, i - iwoff)) /
-                                           dx2;
-          });
+      //--------------------------------------------------------------------------------------
+      // k-direction
+      if (ndim >= 3) {
+        ReconstructPlainPerBlock<recon, X3DIR>(kb, jb, ib, u0_prim, tmp);
+
+        pmb->par_for(
+            "x3 Riemann", kb.s, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
+            KOKKOS_LAMBDA(const int k, const int j, const int i) {
+              riemann.Solve(k, j, i, IV3, tmp, eos, c_h);
+            });
+      }
     }
-  }
-  //--------------------------------------------------------------------------------------
-  // k-direction
-  if (pmb->pmy_mesh->ndim >= 3) {
-    for (int d = 0; d < 8; d++) {
-      set_indices(d);
-      ReconstructPlainTile<recon, X3DIR>(kb, jb, ib, u0_prim_pack, u0_wl_cpack,
-                                         u0_wr_cpack, kwoff, jwoff, iwoff);
 
+    const auto dx1 = pmb->coords.CellWidth<X1DIR>(0, 0, 0);
+    const auto dx2 = pmb->coords.CellWidth<X2DIR>(0, 0, 0);
+    const auto dx3 = pmb->coords.CellWidth<X3DIR>(0, 0, 0);
+    auto &u0_cons = pmb->meshblock_data.Get("base")->Get("cons").data;
+    auto &u1_cons = pmb->meshblock_data.Get("u1")->Get("cons").data;
+
+    if (pkg->Param<bool>("first_order_flux_correct")) {
+      constexpr auto NVAR = GetNVars<fluid>();
+      auto llf = Riemann<fluid, RiemannSolver::llf>();
+
+      std::int64_t num_corrected, num_need_floor;
+      // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
+      // of a single cell at the same time. So the neighboring cells need to be rechecked
+      // with the corrected fluxes as the corrected fluxes in one cell may result in the
+      // need to correct all the fluxes of an originally "good" neighboring cell.
+      size_t num_attempts = 0;
+      do {
+        num_corrected = 0;
+
+        Kokkos::parallel_reduce(
+            "FirstOrderFluxCorrect",
+            Kokkos::MDRangePolicy<Kokkos::Rank<3>>(DevExecSpace(), {kb.s, jb.s, ib.s},
+                                                   {kb.e + 1, jb.e + 1, ib.e + 1},
+                                                   {1, 1, ib.e + 1 - ib.s}),
+            KOKKOS_LAMBDA(const int k, const int j, const int i,
+                          std::int64_t &lnum_corrected, std::int64_t &lnum_need_floor) {
+              // In principle, the u_cons.fluxes could be updated in parallel by a
+              // different thread resulting in a race conditon here. However, if the
+              // fluxes of a cell have been updated (anywhere) then the entire kernel will
+              // be called again anyway, and, at that point the already fixed
+              // u0_cons.fluxes will automaticlly be used here.
+              Real new_cons[NVAR];
+              for (auto v = 0; v < NVAR; v++) {
+                new_cons[v] =
+                    gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
+                    beta_dt * (tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1;
+                if (ndim >= 2) {
+                  new_cons[v] -=
+                      beta_dt * (tmp(3, v, k, j + 1, i) - tmp(3, v, k, j, i)) / dx2;
+                }
+                if (ndim >= 3) {
+                  new_cons[v] -=
+                      beta_dt * (tmp(4, v, k + 1, j, i) - tmp(4, v, k, j, i)) / dx3;
+                }
+              }
+
+              // no need to include gamma - 1 as we only care for negative values
+              auto new_p =
+                  new_cons[IEN] -
+                  0.5 * (SQR(new_cons[IM1]) + SQR(new_cons[IM2]) + SQR(new_cons[IM3])) /
+                      new_cons[IDN];
+              if constexpr (fluid == Fluid::glmmhd) {
+                new_p -=
+                    0.5 * (SQR(new_cons[IB1]) + SQR(new_cons[IB2]) + SQR(new_cons[IB3]));
+              }
+              // no correction required
+              if (new_cons[IDN] > 0.0 && new_p > 0.0) {
+                return;
+              }
+              // if already tried 3 times and only pressure is negative, then we'll rely
+              // on the pressure floor during ConsToPrim conversion
+              if (num_attempts > 2 && new_cons[IDN] > 0.0 && new_p < 0.0) {
+                lnum_need_floor += 1;
+                return;
+              }
+              // In principle, there could be a racecondion as this loop goes over all
+              // k,j,i and we updating the i+1 flux here. However, the results are
+              // idential because u0_prim is never updated in this kernel so we don't
+              // worry about it.
+              // TODO(pgrete) as we need to keep the function signature idential for now
+              // (due to Cuda compiler bug) we could potentially template these function
+              // and get rid of the `if constexpr`
+              llf.Solve(eos, k, j, i, IV1, u0_prim, tmp, c_h);
+              llf.Solve(eos, k, j, i + 1, IV1, u0_prim, tmp, c_h);
+
+              if (ndim >= 2) {
+                llf.Solve(eos, k, j, i, IV2, u0_prim, tmp, c_h);
+                llf.Solve(eos, k, j + 1, i, IV2, u0_prim, tmp, c_h);
+              }
+              if (ndim >= 3) {
+                llf.Solve(eos, k, j, i, IV3, u0_prim, tmp, c_h);
+                llf.Solve(eos, k + 1, j, i, IV3, u0_prim, tmp, c_h);
+              }
+              lnum_corrected += 1;
+            },
+            Kokkos::Sum<std::int64_t>(num_corrected),
+            Kokkos::Sum<std::int64_t>(num_need_floor));
+        // TODO(pgrete) make this optional and global (potentially store values in
+        // Params) std::cout << "[" << parthenon::Globals::my_rank << "] Attempt: " <<
+        // num_attempts
+        //           << " Corrected (center): " << num_corrected
+        //           << " Failed (will rely on floor): " << num_need_floor << std::endl;
+        num_attempts += 1;
+      } while (num_corrected > 0 && num_attempts < 4);
+    }
+
+    if (pmb->pmy_mesh->ndim == 1) {
       pmb->par_for(
-          "x3 Riemann", 0, u0_cons_pack.GetDim(5) - 1, kb.s - kwoff, kb.e - kwoff + 1,
-          jb.s - jwoff, jb.e - jwoff, ib.s - iwoff, ib.e - iwoff,
-          KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-            riemann.Solve(b, k, j, i, IV3, u0_wl_cpack, u0_wr_cpack, eos, c_h);
+          "UpdateFluxDiv x1", 0, u0_cons.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+          ib.e, KOKKOS_LAMBDA(const int v, const int k, const int j, const int i) {
+            u0_cons(v, k, j, i) =
+                gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
+                beta_dt * (tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1;
           });
-      const auto dx3 = pmb->coords.CellWidth<X3DIR>(0, 0, 0);
+    } else if (pmb->pmy_mesh->ndim == 2) {
       pmb->par_for(
-          "UpdateFluxDiv x3", 0, u0_cons_pack.GetDim(5) - 1, 0,
-          u0_cons_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-            auto &wl = u0_wl_cpack(b, v);
-            u0_cons_pack(b, v, k, j, i) -= beta_dt *
-                                           (wl(k - kwoff + 1, j - jwoff, i - iwoff) -
-                                            wl(k - kwoff, j - jwoff, i - iwoff)) /
-                                           dx3;
+          "UpdateFluxDiv x12", 0, u0_cons.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+          ib.e, KOKKOS_LAMBDA(const int v, const int k, const int j, const int i) {
+            u0_cons(v, k, j, i) =
+                gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
+                beta_dt * ((tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1 +
+                           (tmp(3, v, k, j + 1, i) - tmp(3, v, k, j, i)) / dx2);
+          });
+    } else {
+      pmb->par_for(
+          "UpdateFluxDiv x123", 0, u0_cons.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+          ib.e, KOKKOS_LAMBDA(const int v, const int k, const int j, const int i) {
+            u0_cons(v, k, j, i) =
+                gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
+                beta_dt * ((tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1 +
+                           (tmp(3, v, k, j + 1, i) - tmp(3, v, k, j, i)) / dx2 +
+                           (tmp(4, v, k + 1, j, i) - tmp(4, v, k, j, i)) / dx3);
           });
     }
   }
@@ -1284,6 +1288,8 @@ template <Fluid fluid>
 TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                                  const Real gam0_, const Real gam1_,
                                  const Real beta_dt_) {
+  PARTHENON_FAIL("This FOFC is currently disabled/not working.")
+#if 0
   // Work around for CUDA <=11.6
   const Real gam0 = gam0_;
   const Real gam1 = gam1_;
@@ -1397,6 +1403,7 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
     //           << " Failed (will rely on floor): " << num_need_floor << std::endl;
     num_attempts += 1;
   } while (num_corrected > 0 && num_attempts < 4);
+#endif
 
   return TaskStatus::complete;
 }

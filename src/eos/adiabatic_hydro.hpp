@@ -40,9 +40,7 @@ class AdiabaticHydroEOS : public EquationOfState {
   // \brief returns adiabatic sound speed given vector of primitive variables
   // TODO(pgrete): need to fix idx defs
   KOKKOS_INLINE_FUNCTION
-  Real SoundSpeed(const Real prim[NHYDRO]) const {
-    return std::sqrt(gamma_ * prim[IPR] / prim[IDN]);
-  }
+  Real SoundSpeed(const Real d, const Real p) const { return std::sqrt(gamma_ * p / d); }
 
   //----------------------------------------------------------------------------------------
   // \!fn Real EquationOfState::ConsToPrim(View4D cons, View4D prim, const int& k, const

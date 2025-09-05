@@ -43,8 +43,8 @@ template <>
 struct Riemann<Fluid::euler, RiemannSolver::llf> {
   static KOKKOS_INLINE_FUNCTION void Solve(const AdiabaticHydroEOS &eos, const int k,
                                            const int j, const int i, const int ivx,
-                                           const VariablePack<Real> &prim,
-                                           VariableFluxPack<Real> &cons,
+                                           const Variable<Real> &prim,
+                                           parthenon::ParArray5DRaw<Hydro::FluxReal> tmp,
                                            const Real /* c_h */) {
     const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
@@ -100,8 +100,8 @@ struct Riemann<Fluid::euler, RiemannSolver::llf> {
 
     //--- Step 3.  Compute max wave speed in L,R states (see Toro eq. 10.43)
 
-    qa = eos.SoundSpeed(wli);
-    qb = eos.SoundSpeed(wri);
+    qa = eos.SoundSpeed(wli[IDN], wli[IPR]);
+    qb = eos.SoundSpeed(wri[IDN], wri[IPR]);
     Real a = fmax((fabs(wli[IV1]) + qa), (fabs(wri[IV1]) + qb));
 
     //--- Step 4.  Compute difference in L/R states dU, multiplied by max wave speed
@@ -115,27 +115,24 @@ struct Riemann<Fluid::euler, RiemannSolver::llf> {
 
     //--- Step 5. Compute the LLF flux at interface (see Toro eq. 10.42).
 
-    cons.flux(ivx, IDN, k, j, i) = 0.5 * (fsum.d - du.d);
-    cons.flux(ivx, ivx, k, j, i) = 0.5 * (fsum.mx - du.mx);
-    cons.flux(ivx, ivy, k, j, i) = 0.5 * (fsum.my - du.my);
-    cons.flux(ivx, ivz, k, j, i) = 0.5 * (fsum.mz - du.mz);
-    cons.flux(ivx, IEN, k, j, i) = 0.5 * (fsum.e - du.e);
+    tmp(1 + ivx, IDN, k, j, i) = 0.5 * (fsum.d - du.d);
+    tmp(1 + ivx, ivx, k, j, i) = 0.5 * (fsum.mx - du.mx);
+    tmp(1 + ivx, ivy, k, j, i) = 0.5 * (fsum.my - du.my);
+    tmp(1 + ivx, ivz, k, j, i) = 0.5 * (fsum.mz - du.mz);
+    tmp(1 + ivx, IEN, k, j, i) = 0.5 * (fsum.e - du.e);
 
     // Passive scalar fluxes
-    for (auto n = Hydro::GetNVars<Fluid::euler>(); n < cons.GetDim(4); ++n) {
-      if (cons.flux(ivx, IDN, k, j, i) >= 0.0) {
+    for (auto n = Hydro::GetNVars<Fluid::euler>(); n < prim.GetDim(4); ++n) {
+      if (tmp(1 + ivx, IDN, k, j, i) >= 0.0) {
         if (ivx == 1) {
-          cons.flux(ivx, n, k, j, i) =
-              cons.flux(ivx, IDN, k, j, i) * prim(n, k, j, i - 1);
+          tmp(1 + ivx, n, k, j, i) = tmp(1 + ivx, IDN, k, j, i) * prim(n, k, j, i - 1);
         } else if (ivx == 2) {
-          cons.flux(ivx, n, k, j, i) =
-              cons.flux(ivx, IDN, k, j, i) * prim(n, k, j - 1, i);
+          tmp(1 + ivx, n, k, j, i) = tmp(1 + ivx, IDN, k, j, i) * prim(n, k, j - 1, i);
         } else if (ivx == 3) {
-          cons.flux(ivx, n, k, j, i) =
-              cons.flux(ivx, IDN, k, j, i) * prim(n, k - 1, j, i);
+          tmp(1 + ivx, n, k, j, i) = tmp(1 + ivx, IDN, k, j, i) * prim(n, k - 1, j, i);
         }
       } else {
-        cons.flux(ivx, n, k, j, i) = cons.flux(ivx, IDN, k, j, i) * prim(n, k, j, i);
+        tmp(1 + ivx, n, k, j, i) = tmp(1 + ivx, IDN, k, j, i) * prim(n, k, j, i);
       }
     }
   }

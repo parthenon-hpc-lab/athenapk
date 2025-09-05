@@ -20,13 +20,13 @@ function(setup_test_both dir arg test_labels)
 endfunction()
 
 setup_test_both("riemann_hydro" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sod.in --num_steps 39" "other")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sod.in --num_steps 66" "other")
 
 setup_test_both("turbulence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/turbulence.in --num_steps 1" "other")
 
 setup_test_both("convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 24" "convergence")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 48" "convergence")
 
 setup_test_both("mhd_convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 48" "convergence")
