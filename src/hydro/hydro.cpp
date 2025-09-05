@@ -339,6 +339,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (recon_str == "wenoz") {
     recon = Reconstruction::wenoz;
     recon_need_nghost = 3;
+  } else if (recon_str == "wenozaoah") {
+    recon = Reconstruction::wenozaoah;
+    recon_need_nghost = 3;
+  } else if (recon_str == "mp5") {
+    recon = Reconstruction::mp5;
+    recon_need_nghost = 3;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
   }
@@ -402,6 +408,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::euler, Reconstruction::ppm, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::ppm4, RiemannSolver::hllc>(flux_functions);
   add_flux_fun<Fluid::euler, Reconstruction::ppmx, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::wenoz, RiemannSolver::hllc>(flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::wenozaoah, RiemannSolver::hllc>(
+      flux_functions);
+  add_flux_fun<Fluid::euler, Reconstruction::mp5, RiemannSolver::hllc>(flux_functions);
   // add_flux_fun<Fluid::euler,
   // Reconstruction::weno3, RiemannSolver::hllc>(flux_functions);
   // add_flux_fun<Fluid::euler, Reconstruction::limo3,
@@ -426,6 +436,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>(flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::wenozaoah, RiemannSolver::hlld>(
+      flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::mp5, RiemannSolver::hlld>(flux_functions);
 
   // flux used in all stages expect the first. First stage is set below based on integr.
   FluxFun_t *flux_other_stage = nullptr;

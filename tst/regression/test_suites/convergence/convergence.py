@@ -32,16 +32,23 @@ sys.dont_write_bytecode = True
 # if this is updated make sure to update the assert statements for the number of MPI ranks, too
 lin_res = [16, 32, 64, 128]  # resolution for linear convergence
 method_cfgs = [
-    {"integrator": "rk1", "recon": "dc"},
-    {"integrator": "rk1", "recon": "dc", "riemann": "llf"},
-    {"integrator": "vl2", "recon": "plm"},
-    {"integrator": "vl2", "recon": "weno3"},
-    {"integrator": "rk2", "recon": "plm"},
-    {"integrator": "rk2", "recon": "weno3"},
+    #    {"integrator": "vl2", "recon": "plm"},
+    {"integrator": "vl2", "recon": "ppm"},
+    {"integrator": "vl2", "recon": "mp5"},
+    {"integrator": "vl2", "recon": "wenozaoah"},
+    #    {"integrator": "vl2", "recon": "ppm4"},
+    {"integrator": "vl2", "recon": "wenoz"},
+    #    {"integrator": "rk2", "recon": "plm"},
+    {"integrator": "rk2", "recon": "ppm"},
+    #    {"integrator": "rk2", "recon": "ppm4"},
+    {"integrator": "rk2", "recon": "wenoz"},
+    {"integrator": "rk2", "recon": "mp5"},
+    {"integrator": "rk2", "recon": "wenozaoah"},
     {"integrator": "rk3", "recon": "ppm"},
-    {"integrator": "rk3", "recon": "weno3"},
-    {"integrator": "rk3", "recon": "limo3"},
+    #    {"integrator": "rk3", "recon": "ppm4"},
     {"integrator": "rk3", "recon": "wenoz"},
+    {"integrator": "rk3", "recon": "mp5"},
+    {"integrator": "rk3", "recon": "wenozaoah"},
 ]
 
 
@@ -88,7 +95,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         if "riemann" in method_cfg.keys():
             riemann = method_cfg["riemann"]
         else:
-            riemann = "hlle"
+            riemann = "hllc"
         mb_nx1 = (2 * res) // parameters.num_ranks
         # ensure that nx1 is <= 128 when using scratch (V100 limit on test system)
         while mb_nx1 > 128:
@@ -102,7 +109,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/mesh/nx3=%d" % res,
             "parthenon/meshblock/nx3=%d" % res,
             "parthenon/mesh/nghost=%d"
-            % (3 if (recon == "ppm" or recon == "wenoz") else 2),
+            % (3 if ("ppm" in recon or "wenoz" in recon or recon == "mp5") else 2),
             "parthenon/time/integrator=%s" % integrator,
             "hydro/reconstruction=%s" % recon,
             "hydro/riemann=%s" % riemann,
@@ -145,7 +152,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         if len(lines) != n_res * n_meth + 1:
             print(
                 "Missing lines in output file. Expected ",
-                n_res * n_method + 1,
+                n_res * n_meth + 1,
                 ", but got ",
                 len(lines),
             )
@@ -163,7 +170,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         if data[10, 4] > 1.547584e-08:
             analyze_status = False
 
-        markers = "ov^<>sp*hXD"
+        markers = "ov^<>sp*hXDPH8123"
         for i, cfg in enumerate(method_cfgs):
             plt.plot(
                 data[i * n_res : (i + 1) * n_res, 0],
@@ -194,6 +201,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         plt.savefig(
             os.path.join(parameters.output_path, "linearwave-errors.png"),
             bbox_inches="tight",
+            dpi=300,
         )
 
         return analyze_status

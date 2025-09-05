@@ -33,7 +33,19 @@ enum {
 enum { IV1 = 1, IV2 = 2, IV3 = 3, IPR = 4 };
 
 enum class RiemannSolver { undefined, none, hlle, llf, hllc, hlld };
-enum class Reconstruction { undefined, dc, plm, ppm, ppm4, ppmx, wenoz, weno3, limo3 };
+enum class Reconstruction {
+  undefined,
+  dc,
+  plm,
+  ppm,
+  ppm4,
+  ppmx,
+  wenoz,
+  weno3,
+  limo3,
+  wenozaoah,
+  mp5
+};
 enum class Integrator { undefined, rk1, rk2, vl2, rk3 };
 enum class Fluid { undefined, euler, glmmhd };
 enum class Cooling { none, tabular };
