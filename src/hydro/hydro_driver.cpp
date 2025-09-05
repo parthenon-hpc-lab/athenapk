@@ -506,7 +506,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           },
           // First order flux correction needs the original prim variables in the
           // during the correction.
-          u0.get(), u1.get(), hydro_pkg->Param<bool>("first_order_flux_correct"));
+          // u0.get(), u1.get(), hydro_pkg->Param<bool>("first_order_flux_correct"));
+          // Disalbed for now becaseu prim is only OneCopy and given our FOFC
+          // implementation it's actually not clear if this is required/correct
+          u0.get(), u1.get(), false);
     }
   }
 

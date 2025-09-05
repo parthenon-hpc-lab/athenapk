@@ -1079,6 +1079,8 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
     c_h = static_cast<Hydro::FluxReal>(pkg->Param<Real>("c_h"));
   }
 
+  const auto ndim = pmb0->pmy_mesh->ndim;
+
   // const int scratch_level =
   // pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb0->cellbounds.ncellsi(IndexDomain::entire);
@@ -1088,7 +1090,6 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
   auto riemann = Riemann<fluid, rsolver>();
   for (auto pmb : blocks) {
     auto &u0_prim = pmb->meshblock_data.Get("base")->Get("prim");
-    const auto dx1 = pmb->coords.CellWidth<X1DIR>(0, 0, 0);
 
     // Given that we use u0_cons_pack in the x1 fluxdiv update, we have to update all x1
     // fluxes first before doing the other fluxes (that just add)
@@ -1103,8 +1104,125 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
           riemann.Solve(k, j, i, IV1, tmp, eos, c_h);
         });
 
+    //--------------------------------------------------------------------------------------
+    // j-direction
+    if (ndim >= 2) {
+      ReconstructPlainPerBlock<recon, X2DIR>(kb, jb, ib, u0_prim, tmp);
+      pmb->par_for(
+          "x2 Riemann", kb.s, kb.e, jb.s, jb.e + 1, ib.s, ib.e,
+          KOKKOS_LAMBDA(const int k, const int j, const int i) {
+            riemann.Solve(k, j, i, IV2, tmp, eos, c_h);
+          });
+
+      //--------------------------------------------------------------------------------------
+      // k-direction
+      if (ndim >= 3) {
+        ReconstructPlainPerBlock<recon, X3DIR>(kb, jb, ib, u0_prim, tmp);
+
+        pmb->par_for(
+            "x3 Riemann", kb.s, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
+            KOKKOS_LAMBDA(const int k, const int j, const int i) {
+              riemann.Solve(k, j, i, IV3, tmp, eos, c_h);
+            });
+      }
+    }
+
+    const auto dx1 = pmb->coords.CellWidth<X1DIR>(0, 0, 0);
+    const auto dx2 = pmb->coords.CellWidth<X2DIR>(0, 0, 0);
+    const auto dx3 = pmb->coords.CellWidth<X3DIR>(0, 0, 0);
     auto &u0_cons = pmb->meshblock_data.Get("base")->Get("cons").data;
     auto &u1_cons = pmb->meshblock_data.Get("u1")->Get("cons").data;
+
+    if (pkg->Param<bool>("first_order_flux_correct")) {
+      constexpr auto NVAR = GetNVars<fluid>();
+      auto llf = Riemann<fluid, RiemannSolver::llf>();
+
+      std::int64_t num_corrected, num_need_floor;
+      // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
+      // of a single cell at the same time. So the neighboring cells need to be rechecked
+      // with the corrected fluxes as the corrected fluxes in one cell may result in the
+      // need to correct all the fluxes of an originally "good" neighboring cell.
+      size_t num_attempts = 0;
+      do {
+        num_corrected = 0;
+
+        Kokkos::parallel_reduce(
+            "FirstOrderFluxCorrect",
+            Kokkos::MDRangePolicy<Kokkos::Rank<3>>(DevExecSpace(), {kb.s, jb.s, ib.s},
+                                                   {kb.e + 1, jb.e + 1, ib.e + 1},
+                                                   {1, 1, ib.e + 1 - ib.s}),
+            KOKKOS_LAMBDA(const int k, const int j, const int i,
+                          std::int64_t &lnum_corrected, std::int64_t &lnum_need_floor) {
+              // In principle, the u_cons.fluxes could be updated in parallel by a
+              // different thread resulting in a race conditon here. However, if the
+              // fluxes of a cell have been updated (anywhere) then the entire kernel will
+              // be called again anyway, and, at that point the already fixed
+              // u0_cons.fluxes will automaticlly be used here.
+              Real new_cons[NVAR];
+              for (auto v = 0; v < NVAR; v++) {
+                new_cons[v] =
+                    gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
+                    beta_dt * (tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1;
+                if (ndim >= 2) {
+                  new_cons[v] -=
+                      beta_dt * (tmp(3, v, k, j + 1, i) - tmp(3, v, k, j, i)) / dx2;
+                }
+                if (ndim >= 3) {
+                  new_cons[v] -=
+                      beta_dt * (tmp(4, v, k + 1, j, i) - tmp(4, v, k, j, i)) / dx3;
+                }
+              }
+
+              // no need to include gamma - 1 as we only care for negative values
+              auto new_p =
+                  new_cons[IEN] -
+                  0.5 * (SQR(new_cons[IM1]) + SQR(new_cons[IM2]) + SQR(new_cons[IM3])) /
+                      new_cons[IDN];
+              if constexpr (fluid == Fluid::glmmhd) {
+                new_p -=
+                    0.5 * (SQR(new_cons[IB1]) + SQR(new_cons[IB2]) + SQR(new_cons[IB3]));
+              }
+              // no correction required
+              if (new_cons[IDN] > 0.0 && new_p > 0.0) {
+                return;
+              }
+              // if already tried 3 times and only pressure is negative, then we'll rely
+              // on the pressure floor during ConsToPrim conversion
+              if (num_attempts > 2 && new_cons[IDN] > 0.0 && new_p < 0.0) {
+                lnum_need_floor += 1;
+                return;
+              }
+              // In principle, there could be a racecondion as this loop goes over all
+              // k,j,i and we updating the i+1 flux here. However, the results are
+              // idential because u0_prim is never updated in this kernel so we don't
+              // worry about it.
+              // TODO(pgrete) as we need to keep the function signature idential for now
+              // (due to Cuda compiler bug) we could potentially template these function
+              // and get rid of the `if constexpr`
+              llf.Solve(eos, k, j, i, IV1, u0_prim, tmp, c_h);
+              llf.Solve(eos, k, j, i + 1, IV1, u0_prim, tmp, c_h);
+
+              if (ndim >= 2) {
+                llf.Solve(eos, k, j, i, IV2, u0_prim, tmp, c_h);
+                llf.Solve(eos, k, j + 1, i, IV2, u0_prim, tmp, c_h);
+              }
+              if (ndim >= 3) {
+                llf.Solve(eos, k, j, i, IV3, u0_prim, tmp, c_h);
+                llf.Solve(eos, k + 1, j, i, IV3, u0_prim, tmp, c_h);
+              }
+              lnum_corrected += 1;
+            },
+            Kokkos::Sum<std::int64_t>(num_corrected),
+            Kokkos::Sum<std::int64_t>(num_need_floor));
+        // TODO(pgrete) make this optional and global (potentially store values in
+        // Params) std::cout << "[" << parthenon::Globals::my_rank << "] Attempt: " <<
+        // num_attempts
+        //           << " Corrected (center): " << num_corrected
+        //           << " Failed (will rely on floor): " << num_need_floor << std::endl;
+        num_attempts += 1;
+      } while (num_corrected > 0 && num_attempts < 4);
+    }
+
     if (pmb->pmy_mesh->ndim == 1) {
       pmb->par_for(
           "UpdateFluxDiv x1", 0, u0_cons.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
@@ -1113,49 +1231,25 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
                 gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
                 beta_dt * (tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1;
           });
-    }
-    //--------------------------------------------------------------------------------------
-    // j-direction
-    if (pmb->pmy_mesh->ndim >= 2) {
-      ReconstructPlainPerBlock<recon, X2DIR>(kb, jb, ib, u0_prim, tmp);
+    } else if (pmb->pmy_mesh->ndim == 2) {
       pmb->par_for(
-          "x2 Riemann", kb.s, kb.e, jb.s, jb.e + 1, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int k, const int j, const int i) {
-            riemann.Solve(k, j, i, IV2, tmp, eos, c_h);
+          "UpdateFluxDiv x12", 0, u0_cons.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+          ib.e, KOKKOS_LAMBDA(const int v, const int k, const int j, const int i) {
+            u0_cons(v, k, j, i) =
+                gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
+                beta_dt * ((tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1 +
+                           (tmp(3, v, k, j + 1, i) - tmp(3, v, k, j, i)) / dx2);
           });
-
-      const auto dx2 = pmb->coords.CellWidth<X2DIR>(0, 0, 0);
-      if (pmb->pmy_mesh->ndim == 2) {
-        pmb->par_for(
-            "UpdateFluxDiv x12", 0, u0_cons.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-            ib.e, KOKKOS_LAMBDA(const int v, const int k, const int j, const int i) {
-              u0_cons(v, k, j, i) =
-                  gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
-                  beta_dt * ((tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1 +
-                             (tmp(3, v, k, j + 1, i) - tmp(3, v, k, j, i)) / dx2);
-            });
-      }
-      //--------------------------------------------------------------------------------------
-      // k-direction
-      if (pmb->pmy_mesh->ndim >= 3) {
-        ReconstructPlainPerBlock<recon, X3DIR>(kb, jb, ib, u0_prim, tmp);
-
-        pmb->par_for(
-            "x3 Riemann", kb.s, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
-            KOKKOS_LAMBDA(const int k, const int j, const int i) {
-              riemann.Solve(k, j, i, IV3, tmp, eos, c_h);
-            });
-        const auto dx3 = pmb->coords.CellWidth<X3DIR>(0, 0, 0);
-        pmb->par_for(
-            "UpdateFluxDiv x123", 0, u0_cons.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-            ib.e, KOKKOS_LAMBDA(const int v, const int k, const int j, const int i) {
-              u0_cons(v, k, j, i) =
-                  gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
-                  beta_dt * ((tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1 +
-                             (tmp(3, v, k, j + 1, i) - tmp(3, v, k, j, i)) / dx2 +
-                             (tmp(4, v, k + 1, j, i) - tmp(4, v, k, j, i)) / dx3);
-            });
-      }
+    } else {
+      pmb->par_for(
+          "UpdateFluxDiv x123", 0, u0_cons.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+          ib.e, KOKKOS_LAMBDA(const int v, const int k, const int j, const int i) {
+            u0_cons(v, k, j, i) =
+                gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
+                beta_dt * ((tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1 +
+                           (tmp(3, v, k, j + 1, i) - tmp(3, v, k, j, i)) / dx2 +
+                           (tmp(4, v, k + 1, j, i) - tmp(4, v, k, j, i)) / dx3);
+          });
     }
   }
   return TaskStatus::complete;
@@ -1178,6 +1272,8 @@ template <Fluid fluid>
 TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                                  const Real gam0_, const Real gam1_,
                                  const Real beta_dt_) {
+  PARTHENON_FAIL("This FOFC is currently disabled/not working.")
+#if 0
   // Work around for CUDA <=11.6
   const Real gam0 = gam0_;
   const Real gam1 = gam1_;
@@ -1291,6 +1387,7 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
     //           << " Failed (will rely on floor): " << num_need_floor << std::endl;
     num_attempts += 1;
   } while (num_corrected > 0 && num_attempts < 4);
+#endif
 
   return TaskStatus::complete;
 }

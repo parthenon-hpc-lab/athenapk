@@ -414,6 +414,9 @@ void ReconstructPlainPerBlock(parthenon::IndexRange kb, parthenon::IndexRange jb
   } else {
     PARTHENON_FAIL("Unknown XNDIR: " + std::to_string(XNDIR));
   }
+  // ensure nvcc gets these vars from call params
+  const auto &tmp = tmp_;
+  const auto &q = q_;
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "x" + std::to_string(XNDIR) + " recon " + recon_name,
       DevExecSpace(), 0, q_.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -422,11 +425,11 @@ void ReconstructPlainPerBlock(parthenon::IndexRange kb, parthenon::IndexRange jb
         const auto ko = ko_;
         const auto jo = jo_;
         const auto io = io_;
-        const auto &tmp = tmp_;
-        const auto &q = q_;
-        if constexpr (recon == Reconstruction::dc) {
+        // Not using conexpr for cheapest version for variable capture
+        if (recon == Reconstruction::dc) {
           tmp(0, n, k + ko, j + jo, i + io) = tmp(1, n, k, j, i) = q(n, k, j, i);
-        } else if constexpr (recon == Reconstruction::plm) {
+        }
+        if constexpr (recon == Reconstruction::plm) {
           PLM<Hydro::FluxReal>(q(n, k - ko, j - jo, i - io), q(n, k, j, i),
                                q(n, k + ko, j + jo, i + io),
                                tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
