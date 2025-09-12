@@ -1,12 +1,7 @@
 // devcontainer.json
     {
       "name": "athenapk-dev",
-      "image": "ghcr.io/parthenon-hpc-lab/cuda12.8-mpi-hdf5-ascent",
-      // disable Dockerfile for now
-      //"build": {
-      //  // Path is relative to the devcontainer.json file.
-      //  "dockerfile": "Dockerfile"
-      //},
+      "image": "ghcr.io/parthenon-hpc-lab/cuda12.8-mpi-hdf5-opmd",
       "hostRequirements": {
         "cpus": 4
       },
@@ -38,9 +33,6 @@
       // but VSCode may try to configure CMake before they are fully checked-out.
       // workaround TBD
       "postCreateCommand": {
-        "git" : "git submodule update --init",
-        "clang-format" : "pip3 install --break-system-packages clang-format==11.0.1",
-        // until we have clangd in the image above
-        "clangd" : "pip3 install --break-system-packages clangd"
+        "git" : "git submodule update --init"
       }
     }
