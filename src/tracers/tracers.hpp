@@ -48,6 +48,8 @@ enum class TracerCriterion {
   DensityBelow,
   TemperatureAbove,
   TemperatureBelow,
+  Accretion,
+  Outflows,
   Jet
 };
 
