@@ -71,7 +71,7 @@ KOKKOS_INLINE_FUNCTION bool
 EvaluateCriterion(TracerCriterion crit, View4D prim, const Coordinates_t &coords,
                   const int k, const int j, const int i, const Real threshold,
                   const Real mbar_over_kb, const Real jet_radius, const Real jet_offset,
-                  const Real jet_thickness, const int ndim) {
+                  const Real jet_thickness, const Real accretion_radius, const int ndim) {
 
   // Loading coordinates
   const Real dx = coords.Dxc<1>(k, j, i);
@@ -91,6 +91,23 @@ EvaluateCriterion(TracerCriterion crit, View4D prim, const Coordinates_t &coords
   case TracerCriterion::TemperatureAbove:
     return mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i) >= threshold;
 
+  case TracerCriterion::Outflows: {
+    // Calculate radial velocity, check if above threshold
+    // Enforce second condition for temperature < 1e8 K (hardcoded atm)
+    const Real x = coords.Xc<1>(k, j, i);
+    const Real y = coords.Xc<2>(k, j, i);
+    const Real z = (ndim == 3) ? coords.Xc<3>(k, j, i) : 0.0;
+    const Real r = std::sqrt(x * x + y * y + z * z);
+    if (r == 0) return false; // Avoid division by zero
+    // Calculate radial velocity
+    const Real vel_x = prim(IV1, k, j, i);
+    const Real vel_y = prim(IV2, k, j, i);
+    const Real vel_z = (ndim == 3) ? prim(IV3, k, j, i) : 0.0;
+    const Real vel_r = (r > 0) ? (x * vel_x + y * vel_y + z * vel_z) / r : 0.0;
+    // Define temperature and enforce joint criterion
+    const Real T = mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i);
+    return (vel_r >= threshold) && (T < 1e8);
+  }
   case TracerCriterion::Jet: {
     // Coordinates of the cell center
     const Real x = coords.Xc<1>(k, j, i);
@@ -107,6 +124,21 @@ EvaluateCriterion(TracerCriterion crit, View4D prim, const Coordinates_t &coords
     } else {
       return false;
     }
+  }
+
+  case TracerCriterion::Accretion: {
+    const Real x = coords.Xc<1>(k, j, i);
+    const Real y = coords.Xc<2>(k, j, i);
+    const Real z = (ndim == 3) ? coords.Xc<3>(k, j, i) : 0.0;
+    const Real r = std::sqrt(x * x + y * y + z * z);
+    if (r == 0) return false;
+
+    const Real vel_x = prim(IV1, k, j, i);
+    const Real vel_y = prim(IV2, k, j, i);
+    const Real vel_z = (ndim == 3) ? prim(IV3, k, j, i) : 0.0;
+    const Real vel_r = (x * vel_x + y * vel_y + z * vel_z) / r;
+
+    return (r <= accretion_radius) && (vel_r < 0.0);
   }
 
   default:
@@ -219,10 +251,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         inj_crit = TracerCriterion::TemperatureAbove;
       } else if (injection_criterion == "temperature_below") {
         inj_crit = TracerCriterion::TemperatureBelow;
+      } else if (injection_criterion == "outflows") {
+        inj_crit = TracerCriterion::Outflows;
       } else if (injection_criterion == "jet") {
         inj_crit = TracerCriterion::Jet;
       } else {
-        PARTHENON_FAIL("No injection criterion has been set.");
+        PARTHENON_FAIL("swarm " + swarm_name + ": no injection criterion has been set.");
       }
 
       tracers_pkg->AddParam<>(swarm_name + "_injection_num_target", injection_num_target);
@@ -250,6 +284,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                                               -1); // If -1, particles are never removed
       tracers_pkg->AddParam<>(swarm_name + "_lifetime", lifetime);
 
+      // If needed, add accretion removal
+      const auto accretion_removal =
+          pin->GetOrAddBoolean("tracers", swarm_name + "_accretion_removal", false);
+      tracers_pkg->AddParam<>(swarm_name + "_accretion_removal", accretion_removal);
+
+      if (accretion_removal) {
+        TracerCriterion acr_rem = TracerCriterion::Accretion;
+        tracers_pkg->AddParam<>(swarm_name + "_accretion_removal_criterion", acr_rem);
+      }
       // If needed, add exception
       const auto removal_exception =
           pin->GetOrAddBoolean("tracers", swarm_name + "_removal_exception", false);
@@ -271,10 +314,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
           exc_crit = TracerCriterion::TemperatureAbove;
         } else if (removal_exception_criterion == "temperature_below") {
           exc_crit = TracerCriterion::TemperatureBelow;
+        } else if (removal_exception_criterion == "outflows") {
+          exc_crit = TracerCriterion::Outflows;
         } else if (removal_exception_criterion == "jet") {
           exc_crit = TracerCriterion::Jet;
         } else {
-          PARTHENON_FAIL("No removal exception criterion has been set.");
+          PARTHENON_FAIL("swarm " + swarm_name +
+                         ": no removal exception criterion has been set.");
         }
 
         // Add parameters to the tracer package
@@ -470,7 +516,7 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
                                 injection_threshold, mbar_over_kb, jet_radius, jet_offset,
-                                jet_thickness, ndim)) {
+                                jet_thickness, 0.0, ndim)) {
 
             auto seed = SeedFromIndices(k, j, i, pmb->gid,
                                         current_time); // deterministic seed function
@@ -524,7 +570,7 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
                                 injection_threshold, mbar_over_kb, jet_radius, jet_offset,
-                                jet_thickness, ndim)) {
+                                jet_thickness, 0.0, ndim)) {
 
             // Deterministic seed and random double, only depends on k,j,i
             auto seed = SeedFromIndices(k, j, i, pmb->gid, current_time);
@@ -580,6 +626,12 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto tracers_pkg = pmb->packages.Get("tracers");
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
 
+  // Accretion radius
+  Real accretion_radius = -1.0;
+  if (tracers_pkg->AllParams().hasKey("accretion_radius")) {
+    accretion_radius = tracers_pkg->Param<Real>("accretion_radius");
+  }
+
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
   // Looping on the N independent swarms
   for (const auto &swarm_name : swarm_names) {
@@ -602,7 +654,14 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
     auto &ltime = swarm->Get<Real>("lifetime").Get();
 
+    auto accretion_removal = tracers_pkg->Param<bool>(swarm_name + "_accretion_removal");
     auto removal_exception = tracers_pkg->Param<bool>(swarm_name + "_removal_exception");
+
+    TracerCriterion accretion_removal_criterion;
+    if (accretion_removal) {
+      accretion_removal_criterion = tracers_pkg->Param<TracerCriterion>(
+          swarm_name + "_accretion_removal_criterion");
+    }
 
     TracerCriterion removal_exception_criterion;
     Real removal_exception_threshold;
@@ -630,13 +689,23 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                 // Jet variables set to 0.0 as we don't need them here
                 keep_particle = EvaluateCriterion(
                     removal_exception_criterion, prim, coords, k, j, i,
-                    removal_exception_threshold, mbar_over_kb, 0.0, 0.0, 0.0, ndim);
+                    removal_exception_threshold, mbar_over_kb, 0.0, 0.0, 0.0, 0.0, ndim);
               }
 
               if (keep_particle) {
                 ltime(n) += lifetime;
               } else {
                 swarm_d.MarkParticleForRemoval(n);
+              }
+
+              if (accretion_removal) {
+                bool delete_particle = false;
+                delete_particle = EvaluateCriterion(
+                    accretion_removal_criterion, prim, coords, k, j, i, 0.0, mbar_over_kb,
+                    0.0, 0.0, 0.0, accretion_radius, ndim);
+                if (delete_particle) {
+                  swarm_d.MarkParticleForRemoval(n);
+                }
               }
             }
           }
@@ -657,10 +726,6 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
   // Checking geometry (2D vs 3D)
   auto nx3 = pin->GetInteger("parthenon/mesh", "nx3");
-
-  // This function is currently used to only seed tracers but it called every time the
-  // driver is executed (also also for restarts)
-  if (pmesh->is_restart) return;
 
   auto tracers_pkg = pmesh->packages.Get("tracers");
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
@@ -706,6 +771,13 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
         // Loading the swarm data
         auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get(swarm_name);
+
+        // If some particles already exist, we don't seed them again.
+        if (swarm->GetMaxActiveIndex() > 0) {
+          std::cout << "Swarm " << swarm_name << " already seeded in block " << pmb->gid
+                    << ". Skipping seeding." << std::endl;
+          continue;
+        }
         // Seed is meshblock gid for consistency across MPI decomposition
         RNGPool rng_pool(pmb->gid + rng_seed);
 
@@ -957,7 +1029,6 @@ FillTracers: calculate interpolated values of some fields (rho, vel, B, etc.) to
 damped into the output files.
 =============================================================================== */
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
-
   auto hydro_pkg = md->GetParentPointer()->packages.Get("Hydro");
   const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
 
@@ -1010,7 +1081,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
       auto &grad_pressure_y = swarm->Get<Real>("grad_pressure_y").Get();
       auto &grad_pressure_z = swarm->Get<Real>("grad_pressure_z").Get();
 
-      // mfournier: Additional variables: vorticity,compression
+      /* mfournier: Additional variables: vorticity,compression */
       auto &div_v = swarm->Get<Real>("div_v").Get();
       auto &rot_v = swarm->Get<Real>("rot_v").Get();
       // Check if passive scalar exists

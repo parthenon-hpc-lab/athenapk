@@ -557,7 +557,7 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
 
     // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
     // pull swarm vars
-    auto &rho = swarm->Get<Real>("rho").Get();
+    auto &rho = swarm->Get<Real>("density").Get();
     auto &s = swarm->Get<Real>("s").Get();
     auto &sdot = swarm->Get<Real>("sdot").Get();
 
