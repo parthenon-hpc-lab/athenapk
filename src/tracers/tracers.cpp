@@ -660,7 +660,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
   // This function is currently used to only seed tracers but it called every time the
   // driver is executed (also also for restarts)
-  if (pmesh->is_restart) return;
+  if (parthenon::Globals::is_restart) return;
 
   auto tracers_pkg = pmesh->packages.Get("tracers");
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
