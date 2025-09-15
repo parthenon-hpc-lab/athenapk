@@ -131,6 +131,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // General parameters
   // =====================================================================
 
+  // Storing seeding state (i.e. whether tracers have already been seeded up to now or
+  // not)
+  tracers_pkg->AddParam<>("initial_seed_done", false, Params::Mutability::Restart);
+
   // Storing advection_method into enum class
   AdvectMethod advection_method;
   if (advection_method_str == "vinterp") {
@@ -660,32 +664,19 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
   auto tracers_pkg = pmesh->packages.Get("tracers");
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
-  // This function is currently used to only seed tracers but it called every time the
-  // driver is executed (also also for restarts)
-  // Checking whether initialization is required
-  // Idea: loop on swarms
-  bool tracers_exist = false;
 
-  // Loop over all mesh blocks and all swarms
-  for (auto &pmb : pmesh->block_list) {
-    for (std::size_t k_population = 0; k_population < swarm_names.size();
-         ++k_population) {
-      const std::string &swarm_name = swarm_names[k_population];
+  // Checking whether seeding is needed or not
+  const auto initial_seed_done = tracers_pkg->Param<bool>("initial_seed_done");
 
-      // Get the swarm
-      auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get(swarm_name);
-
-      // Check maximum active index
-      if (swarm->GetMaxActiveIndex() > 0) {
-        tracers_exist = true;
-        break; // No need to check more
-      }
+  if (parthenon::Globals::my_rank == 0) {
+    if (initial_seed_done) {
+      std::cout << "[Tracer] Initial seeding already done, skipping." << std::endl;
+    } else {
+      std::cout << "[Tracer] Initial seeding not yet done, proceeding." << std::endl;
     }
-    if (tracers_exist) break;
   }
 
-  // Only seed if no tracers exist yet
-  if (tracers_exist) return;
+  if (initial_seed_done) return;
 
   auto hydro_pkg = pmesh->packages.Get("Hydro");
 
@@ -694,6 +685,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
     return;
   } else if (seed_method == "user") {
     ProblemSeedInitialTracers(pmesh, pin, tm);
+    tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
   } else if (seed_method == "random_per_block") {
     // Initialize random number generator pool
     int rng_seed = pin->GetOrAddInteger("tracers", "initial_rng_seed", 0);
@@ -818,6 +810,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
         Kokkos::deep_copy(off, host_off);
       }
+      tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
     }
   } else {
     PARTHENON_THROW("Unknown tracer initial_seed_method");
