@@ -658,12 +658,34 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   // Checking geometry (2D vs 3D)
   auto nx3 = pin->GetInteger("parthenon/mesh", "nx3");
 
-  // This function is currently used to only seed tracers but it called every time the
-  // driver is executed (also also for restarts)
-  if (parthenon::Globals::is_restart) return;
-
   auto tracers_pkg = pmesh->packages.Get("tracers");
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+  // This function is currently used to only seed tracers but it called every time the
+  // driver is executed (also also for restarts)
+  // Checking whether initialization is required
+  // Idea: loop on swarms
+  bool tracers_exist = false;
+
+  // Loop over all mesh blocks and all swarms
+  for (auto &pmb : pmesh->block_list) {
+    for (std::size_t k_population = 0; k_population < swarm_names.size();
+         ++k_population) {
+      const std::string &swarm_name = swarm_names[k_population];
+
+      // Get the swarm
+      auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get(swarm_name);
+
+      // Check maximum active index
+      if (swarm->GetMaxActiveIndex() > 0) {
+        tracers_exist = true;
+        break; // No need to check more
+      }
+    }
+    if (tracers_exist) break;
+  }
+
+  // Only seed if no tracers exist yet
+  if (tracers_exist) return;
 
   auto hydro_pkg = pmesh->packages.Get("Hydro");
 
