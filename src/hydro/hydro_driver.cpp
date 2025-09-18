@@ -646,7 +646,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // MPI reductions (rather than Parthenon provided reduction tasks that work with
     // arbitrary packs).
     PARTHENON_REQUIRE_THROWS(num_partitions == 1,
-                             "Only pack_size=-1 currently supported for tracers.")
+                             "Only packs_per_rank=1 currently supported for tracers.")
     TaskRegion &single_tasklist_per_pack_region_4 = tc.AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = single_tasklist_per_pack_region_4[i];
