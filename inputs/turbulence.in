@@ -48,7 +48,7 @@ x3max      = 1.0        # maximum value of X3
 ix3_bc     = periodic   # inner-X3 boundary flag
 ox3_bc     = periodic   # outer-X3 boundary flag
 
-pack_size = -1          # pack all blocks in a single pack (currently required)
+packs_per_rank = 1      # pack all blocks in a single pack (currently required)
 
 <parthenon/meshblock>
 nx1        = 64
