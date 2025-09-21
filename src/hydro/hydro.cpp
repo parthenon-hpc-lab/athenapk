@@ -816,6 +816,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                       "refinement/maxdensity_refine_above");
     pkg->AddParam<Real>("refinement/maxdensity_deref_below", deref_below);
     pkg->AddParam<Real>("refinement/maxdensity_refine_above", refine_above);
+  } else if (refine_str == "cubic") {
+    pkg->CheckRefinementBlock = refinement::other::Cubic;
+    const auto active = pin->GetOrAddBoolean("refinement", "active", false);
+    const auto refinement_width =
+        pin->GetOrAddReal("refinement", "refinement_width", 0.0);
+    const auto refinement_center_x =
+        pin->GetOrAddReal("refinement", "refinement_center_x", 0.0);
+    const auto refinement_center_y =
+        pin->GetOrAddReal("refinement", "refinement_center_y", 0.0);
+    const auto refinement_center_z =
+        pin->GetOrAddReal("refinement", "refinement_center_z", 0.0);
+    // Adding parameters
+    pkg->AddParam<>("refinement/active", active);
+    pkg->AddParam<>("refinement/refinement_width", refinement_width);
+    pkg->AddParam<>("refinement/refinement_center_x", refinement_center_x);
+    pkg->AddParam<>("refinement/refinement_center_y", refinement_center_y);
+    pkg->AddParam<>("refinement/refinement_center_z", refinement_center_z);
   } else if (refine_str == "user") {
     pkg->CheckRefinementBlock = Hydro::ProblemCheckRefinementBlock;
   }
