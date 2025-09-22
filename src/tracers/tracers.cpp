@@ -115,6 +115,46 @@ EvaluateCriterion(TracerCriterion crit, View4D prim, const Coordinates_t &coords
 }
 
 /* ===============================================================================
+CheckAccretionRemoval: custom function checking whether a given particle is within
+the accretion region and with its velocity vector pointing inward. If yes, flag it
+for removal.
+=============================================================================== */
+template <typename View4D>
+KOKKOS_INLINE_FUNCTION bool
+CheckAccretionRemoval(View4D prim, const Coordinates_t &coords, const int k, const int j,
+                      const int i, const Real accretion_radius, const int ndim) {
+
+  // Get cell center coordinates
+  const Real x_cell = coords.Xc<1>(k, j, i);
+  const Real y_cell = coords.Xc<2>(k, j, i);
+  const Real z_cell = (ndim == 3) ? coords.Xc<3>(k, j, i) : 0.0;
+
+  // Calculate distance from center (assuming center is at origin)
+  const Real r =
+      sqrt(x_cell * x_cell + y_cell * y_cell + ((ndim == 3) ? z_cell * z_cell : 0.0));
+
+  // Check if particle is within accretion radius
+  if (r >= accretion_radius) return false;
+
+  // Calculate radial velocity
+  const Real vx = prim(IV1, k, j, i);
+  const Real vy = prim(IV2, k, j, i);
+  const Real vz = (ndim == 3) ? prim(IV3, k, j, i) : 0.0;
+
+  // Radial unit vector
+  const Real r_inv = 1.0 / r;
+  const Real ur_x = x_cell * r_inv;
+  const Real ur_y = y_cell * r_inv;
+  const Real ur_z = (ndim == 3) ? z_cell * r_inv : 0.0;
+
+  // Radial velocity (dot product of velocity with radial unit vector)
+  const Real vr = vx * ur_x + vy * ur_y + ((ndim == 3) ? vz * ur_z : 0.0);
+
+  // Return true if radial velocity is negative (inward motion)
+  return vr < 0.0;
+}
+
+/* ===============================================================================
 Initialize: reads the input parameters, create the tracer package and create the
 swarm object of each individual populations of tracers.
 =============================================================================== */
@@ -236,6 +276,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
 
     // Tracer removal parameters.
+    // (CUSTOM function, just for the cluster setup: accretion removal)
+    const auto accretion_removal_enabled =
+        pin->GetOrAddBoolean("tracers", swarm_name + "_accretion_removal_enabled", false);
+    tracers_pkg->AddParam<>(swarm_name + "_accretion_removal_enabled",
+                            accretion_removal_enabled);
+
     // Particles are injected at t_inj, and destroyed after reaching t-t_ing >= lifetime
     // Some tracers can also survive removal if sitting in a cell that fulfill a certain
     // criterion. To activate such feature, removal_exception must be set to true, and a
@@ -390,7 +436,6 @@ and per unit time.
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
   auto *pmb = mbd->GetParentPointer();
-  auto gid = pmb->gid;
   auto &coords = pmb->coords;
   auto &prim = mbd->PackVariables(std::vector<std::string>{"prim"});
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
@@ -600,6 +645,12 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto tracers_pkg = pmb->packages.Get("tracers");
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
 
+  // Accretion removal
+  Real accretion_radius = -1.0;
+  if (tracers_pkg->AllParams().hasKey("accretion_radius")) {
+    accretion_radius = tracers_pkg->Param<Real>("accretion_radius");
+  }
+
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
   // Looping on the N independent swarms
   for (const auto &swarm_name : swarm_names) {
@@ -611,22 +662,26 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
 
     // Get meshblock data
+    auto accretion_removal_enabled =
+        tracers_pkg->Param<bool>(swarm_name + "_accretion_removal_enabled");
     auto removal_enabled = tracers_pkg->Param<bool>(swarm_name + "_removal_enabled");
-    // If the particles should not be removed, the routine ends here.
-    if (!removal_enabled) {
+    // If neither lifetime-based removal nor accretion-based removal is enabled, skip.
+    if (!removal_enabled && !accretion_removal_enabled) {
       continue;
     }
 
     // If removal is activated, load fields and params
-    auto lifetime = tracers_pkg->Param<Real>(swarm_name + "_lifetime");
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
-    auto &ltime = swarm->Get<Real>("lifetime").Get();
 
-    auto removal_exception = tracers_pkg->Param<bool>(swarm_name + "_removal_exception");
-
+    // Assigning default value
     TracerCriterion removal_exception_criterion;
-    Real removal_exception_threshold;
-    if (removal_exception) {
+    Real lifetime,removal_exception_threshold;
+    bool removal_exception = false;
+    auto ltime = t_inj.Get();
+    if (removal_enabled) {
+      lifetime = tracers_pkg->Param<Real>(swarm_name + "_lifetime");
+      ltime = swarm->Get<Real>("lifetime").Get();
+      removal_exception = tracers_pkg->Param<bool>(swarm_name + "_removal_exception");
       removal_exception_criterion = tracers_pkg->Param<TracerCriterion>(
           swarm_name + "_removal_exception_criterion");
       removal_exception_threshold =
@@ -643,21 +698,39 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             int k, j, i;
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-            if (current_time - t_inj(n) >= ltime(n)) {
-              bool keep_particle = false;
+            bool should_remove = false;
 
-              if (removal_exception) {
-                // Jet variables set to 0.0 as we don't need them here
-                keep_particle = EvaluateCriterion(
-                    removal_exception_criterion, prim, coords, k, j, i,
-                    removal_exception_threshold, mbar_over_kb, 0.0, 0.0, 0.0, ndim);
-              }
+            // Lifetime-based removal (only if enabled)
+            if (removal_enabled) {
+              if (current_time - t_inj(n) >= ltime(n)) {
+                bool keep_particle = false;
 
-              if (keep_particle) {
-                ltime(n) += lifetime;
-              } else {
-                swarm_d.MarkParticleForRemoval(n);
+                if (removal_exception) {
+                  // Jet variables set to 0.0 as we don't need them here
+                  keep_particle = EvaluateCriterion(
+                      removal_exception_criterion, prim, coords, k, j, i,
+                      removal_exception_threshold, mbar_over_kb, 0.0, 0.0, 0.0, ndim);
+                }
+
+                if (keep_particle) {
+                  ltime(n) += lifetime;
+                } else {
+                  should_remove = true;
+                }
               }
+            }
+
+            // Accretion-based removal (independent switch, but only if not already
+            // removed)
+            
+            if (accretion_removal_enabled && !should_remove) {
+              if (CheckAccretionRemoval(prim, coords, k, j, i, accretion_radius, ndim)) {
+                should_remove = true;
+              }
+            }
+            
+            if (should_remove) {
+              swarm_d.MarkParticleForRemoval(n);
             }
           }
         });
