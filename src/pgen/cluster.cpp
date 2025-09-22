@@ -111,10 +111,10 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 //========================================================================================
 
 void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *tracers_pkg) {
-
   Real jet_radius = 0.0;
   Real jet_offset = 0.0;
   Real jet_thickness = 0.0;
+  Real accretion_radius = 0.0;
 
   if (pin->DoesParameterExist("problem/cluster/agn_feedback", "kinetic_jet_radius")) {
     jet_radius = pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_radius");
@@ -140,10 +140,20 @@ void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *trac
               << std::endl;
   }
 
+  if (pin->DoesParameterExist("problem/cluster/agn_triggering", "accretion_radius")) {
+    accretion_radius = pin->GetReal("problem/cluster/agn_triggering", "accretion_radius");
+  } else {
+    std::cout
+        << "Parameter accretion_radius not found. Tracers will use default value 0.0."
+        << std::endl;
+  }
+
   // Register jet properties for restart
   tracers_pkg->AddParam<>("jet_radius", jet_radius, Params::Mutability::Restart);
   tracers_pkg->AddParam<>("jet_offset", jet_offset, Params::Mutability::Restart);
   tracers_pkg->AddParam<>("jet_thickness", jet_thickness, Params::Mutability::Restart);
+  tracers_pkg->AddParam<>("accretion_radius", accretion_radius,
+                          Params::Mutability::Restart);
 }
 
 //========================================================================================
