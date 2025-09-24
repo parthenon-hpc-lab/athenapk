@@ -13,7 +13,9 @@
 
 // C++ headers
 #include <algorithm> // min, max
+#include <array>
 #include <cmath>     // sqrt()
+#include <utility>
 #include <cstdio>    // fopen(), fprintf(), freopen()
 #include <iomanip>   // setw
 #include <iostream>  // endl
@@ -49,6 +51,7 @@
 #include "../reduction_utils.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
+#include "../utils/vertical_mean_profiles.hpp"
 #include "outputs/outputs.hpp"
 #include "pgen.hpp"
 #include "utils/error_checking.hpp"
@@ -56,22 +59,24 @@
 typedef Kokkos::complex<Real> Complex;
 using utils::few_modes_ft::FewModesFT;
 
-auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
-                               parthenon::MeshData<Real> *md)
-    -> MonotoneInterpolator<PinnedArray1D<Real>> {
-  // get MonotoneInterpolator for 1D profile
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
-  auto pkg = pmb->packages.Get("Hydro");
-
-  // get profiles and bins
-  PinnedArray1D<Real> profile_reduce_zbins("Bin centers", REDUCTION_ARRAY_SIZE);
-
+auto BuildReductionBins(parthenon::MeshData<Real> *md) -> PinnedArray1D<Real> {
+  PinnedArray1D<Real> bins("Bin centers", REDUCTION_ARRAY_SIZE);
   const Real x3min = md->GetParentPointer()->mesh_size.xmin(parthenon::X3DIR);
   const Real x3max = md->GetParentPointer()->mesh_size.xmax(parthenon::X3DIR);
   const Real dz_hist = (x3max - x3min) / REDUCTION_ARRAY_SIZE;
   for (int i = 0; i < REDUCTION_ARRAY_SIZE; ++i) {
-    profile_reduce_zbins(i) = dz_hist * (Real(i) + 0.5) + x3min;
+    bins(i) = dz_hist * (Real(i) + 0.5) + x3min;
   }
+  return bins;
+}
+
+auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
+                               parthenon::MeshData<Real> *md)
+    -> MonotoneInterpolator<PinnedArray1D<Real>> {
+  // get MonotoneInterpolator for 1D profile
+  auto profile_reduce_zbins = BuildReductionBins(md);
+  const Real x3min = md->GetParentPointer()->mesh_size.xmin(parthenon::X3DIR);
+  const Real x3max = md->GetParentPointer()->mesh_size.xmax(parthenon::X3DIR);
 
   // get profile from device
   auto profile_reduce = profile_reduce_dev.GetHostMirrorAndCopy();
@@ -97,17 +102,8 @@ auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
 void WriteProfileToFile(parthenon::ParArray1D<Real> &profile_reduce_dev,
                         parthenon::MeshData<Real> *md, const parthenon::SimTime &time,
                         const std::string &filename) {
-  // get MonotoneInterpolator for 1D profile
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
-
   // get bins
-  PinnedArray1D<Real> profile_bins("Bin centers", REDUCTION_ARRAY_SIZE);
-  const Real x3min = md->GetParentPointer()->mesh_size.xmin(parthenon::X3DIR);
-  const Real x3max = md->GetParentPointer()->mesh_size.xmax(parthenon::X3DIR);
-  const Real dz_hist = (x3max - x3min) / REDUCTION_ARRAY_SIZE;
-  for (int i = 0; i < REDUCTION_ARRAY_SIZE; ++i) {
-    profile_bins(i) = dz_hist * (Real(i) + 0.5) + x3min;
-  }
+  auto profile_bins = BuildReductionBins(md);
 
   // get profile
   auto profile = profile_reduce_dev.GetHostMirrorAndCopy();
@@ -1131,100 +1127,23 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   const Real mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
   const Real mmw = mu * units.atomic_mass_unit(); // mean molecular weight
   const Real kboltz = units.k_boltzmann();
-  const Real mass_unit = units.code_mass_cgs();
   const Real velocity_unit = units.code_length_cgs() / units.code_time_cgs();
   const Real vol_unit = std::pow(units.code_length_cgs(), 3);
   const Real Edot_unit = units.code_energy_cgs() / (vol_unit * units.code_time_cgs());
 
-  // perform reductions to compute average vertical profiles
-  parthenon::ParArray1D<Real> rho_mean("rho_mean", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> P_mean("P_mean", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> K_mean("K_mean", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> T_mean("T_mean", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> heatFlux_mean("scaledHeatFlux_mean",
-                                            REDUCTION_ARRAY_SIZE); // rho * v_z * T
-  parthenon::ParArray1D<Real> massFlux_mean("massFlux_mean",
-                                            REDUCTION_ARRAY_SIZE); // rho * v_z
-  parthenon::ParArray1D<Real> turbHeat_mean("turbHeat_mean",
-                                            REDUCTION_ARRAY_SIZE); // a \dot v
+  auto mean_profiles = util::ComputeAvgProfile1D(md.get(), gam, kboltz, mmw,
+                                                 velocity_unit, vol_unit, Edot_unit);
 
-  parthenon::ParArray1D<Real> v1_mean("v1_mean", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> v2_mean("v2_mean", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> v3_mean("v3_mean", REDUCTION_ARRAY_SIZE);
-
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &turbHeat_pack =
-      md->PackVariables(std::vector<std::string>{"turbulent_heating"});
-
-  auto f_rho = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &prim = prim_pack(b);
-    return prim(IDN, k, j, i);
-  };
-  auto f_P = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &prim = prim_pack(b);
-    return prim(IPR, k, j, i);
-  };
-  auto f_K = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &prim = prim_pack(b);
-    const Real rho = prim(IDN, k, j, i);
-    const Real P = prim(IPR, k, j, i);
-    const Real K = P / std::pow(rho, gam);
-    return K;
-  };
-  auto f_T = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &prim = prim_pack(b);
-    const Real rho = prim(IDN, k, j, i);
-    const Real P = prim(IPR, k, j, i);
-    const Real T = P / (kboltz * rho / mmw);
-    return T;
-  };
-  auto f_heatFlux_cgs = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &prim = prim_pack(b);
-    const Real rho = prim(IDN, k, j, i);
-    const Real vz = prim(IV3, k, j, i);
-    const Real P = prim(IPR, k, j, i);
-    const Real T = P / (kboltz * rho / mmw);   // K
-    const Real n_cgs = (rho / mmw) / vol_unit; // cm^-3
-    const Real vz_cgs = vz * velocity_unit;    // cm/s
-    return vz_cgs * (n_cgs * T);
-  };
-  auto f_massFlux_cgs = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &prim = prim_pack(b);
-    const Real rho = prim(IDN, k, j, i);
-    const Real vz = prim(IV3, k, j, i);
-    const Real n_cgs = (rho / mmw) / vol_unit; // cm^-3
-    const Real vz_cgs = vz * velocity_unit;    // cm/s
-    return vz_cgs * n_cgs;
-  };
-  auto f_turbWork_cgs = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &turbHeat = turbHeat_pack(b);
-    const Real dE_dt = turbHeat(0, k, j, i);
-    return dE_dt * Edot_unit; // ergs/s/cm^3
-  };
-
-  auto f_v1 = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &prim = prim_pack(b);
-    return prim(IV1, k, j, i); // vx
-  };
-  auto f_v2 = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &prim = prim_pack(b);
-    return prim(IV2, k, j, i); // vy
-  };
-  auto f_v3 = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &prim = prim_pack(b);
-    return prim(IV3, k, j, i); // vz
-  };
-
-  ComputeAvgProfile1D(rho_mean, md.get(), f_rho);
-  ComputeAvgProfile1D(P_mean, md.get(), f_P);
-  ComputeAvgProfile1D(K_mean, md.get(), f_K);
-  ComputeAvgProfile1D(T_mean, md.get(), f_T);
-  ComputeAvgProfile1D(heatFlux_mean, md.get(), f_heatFlux_cgs);
-  ComputeAvgProfile1D(massFlux_mean, md.get(), f_massFlux_cgs);
-  ComputeAvgProfile1D(turbHeat_mean, md.get(), f_turbWork_cgs);
-  ComputeAvgProfile1D(v1_mean, md.get(), f_v1);
-  ComputeAvgProfile1D(v2_mean, md.get(), f_v2);
-  ComputeAvgProfile1D(v3_mean, md.get(), f_v3);
+  auto &rho_mean = mean_profiles.rho_mean;
+  auto &P_mean = mean_profiles.P_mean;
+  auto &K_mean = mean_profiles.K_mean;
+  auto &T_mean = mean_profiles.T_mean;
+  auto &heatFlux_mean = mean_profiles.heatFlux_mean;
+  auto &massFlux_mean = mean_profiles.massFlux_mean;
+  auto &turbHeat_mean = mean_profiles.turbHeat_mean;
+  auto &v1_mean = mean_profiles.v1_mean;
+  auto &v2_mean = mean_profiles.v2_mean;
+  auto &v3_mean = mean_profiles.v3_mean;
 
   // compute interpolants
   MonotoneInterpolator<PinnedArray1D<Real>> rhoMeanInterp =
@@ -1421,31 +1340,19 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   const auto &dv_y = md->PackVariables(std::vector<std::string>{"dv_y"});
   const auto &dv_z = md->PackVariables(std::vector<std::string>{"dv_z"});
 
-  ComputeRmsProfile1D(
-      drho_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
-        auto const &var = drho(b);
-        return var(0, k, j, i);
-      });
-  ComputeRmsProfile1D(
-      dP_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
-        auto const &var = dP(b);
-        return var(0, k, j, i);
-      });
-  ComputeRmsProfile1D(
-      dK_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
-        auto const &var = dK(b);
-        return var(0, k, j, i);
-      });
-  ComputeRmsProfile1D(
-      dT_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
-        auto const &var = dT(b);
-        return var(0, k, j, i);
-      });
-  ComputeRmsProfile1D(
-      mach_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
-        auto const &var = mach_sonic(b);
-        return var(0, k, j, i);
-      });
+  auto compute_scalar_rms = [&](parthenon::ParArray1D<Real> &dest, const auto &pack) {
+    ComputeRmsProfile1D(
+        dest, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
+          auto const &var = pack(b);
+          return var(0, k, j, i);
+        });
+  };
+
+  compute_scalar_rms(drho_rms, drho);
+  compute_scalar_rms(dP_rms, dP);
+  compute_scalar_rms(dK_rms, dK);
+  compute_scalar_rms(dT_rms, dT);
+  compute_scalar_rms(mach_rms, mach_sonic);
   ComputeRmsProfile1D(
       dv_xy_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
         auto const &dv_x_var = dv_x(b);
@@ -1455,11 +1362,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
         const Real dv_parallel = std::sqrt(dv1 * dv1 + dv2 * dv2);
         return dv_parallel;
       });
-  ComputeRmsProfile1D(
-      dv_z_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
-        auto const &var = dv_z(b);
-        return var(0, k, j, i);
-      });
+  compute_scalar_rms(dv_z_rms, dv_z);
 
   auto filename = [=](const char *basename, unsigned int ncycles) {
     std::ostringstream count_str;
@@ -1469,24 +1372,26 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
   };
 
   // save rms profiles to files
-
-  WriteProfileToFile(drho_rms, md.get(), time, filename("drho_rms", noutputs));
-  WriteProfileToFile(dP_rms, md.get(), time, filename("dP_rms", noutputs));
-  WriteProfileToFile(dK_rms, md.get(), time, filename("dK_rms", noutputs));
-  WriteProfileToFile(dT_rms, md.get(), time, filename("dT_rms", noutputs));
-  WriteProfileToFile(mach_rms, md.get(), time, filename("mach_rms", noutputs));
-  WriteProfileToFile(dv_xy_rms, md.get(), time, filename("dv_xy_rms", noutputs));
-  WriteProfileToFile(dv_z_rms, md.get(), time, filename("dv_z_rms", noutputs));
+  const std::array rms_outputs{
+      std::pair{&drho_rms, "drho_rms"},  std::pair{&dP_rms, "dP_rms"},
+      std::pair{&dK_rms, "dK_rms"},      std::pair{&dT_rms, "dT_rms"},
+      std::pair{&mach_rms, "mach_rms"},  std::pair{&dv_xy_rms, "dv_xy_rms"},
+      std::pair{&dv_z_rms, "dv_z_rms"}};
+  for (const auto &[profile, name] : rms_outputs) {
+    WriteProfileToFile(*profile, md.get(), time, filename(name, noutputs));
+  }
 
   // save avg profiles to file
-  WriteProfileToFile(rho_mean, md.get(), time, filename("rho_avg", noutputs));
-  WriteProfileToFile(P_mean, md.get(), time, filename("P_avg", noutputs));
-  WriteProfileToFile(K_mean, md.get(), time, filename("K_avg", noutputs));
-  WriteProfileToFile(T_mean, md.get(), time, filename("T_avg", noutputs));
-  WriteProfileToFile(heatFlux_mean, md.get(), time, filename("heatFlux_avg", noutputs));
-  WriteProfileToFile(massFlux_mean, md.get(), time, filename("massFlux_avg", noutputs));
-  WriteProfileToFile(turbHeat_mean, md.get(), time, filename("turbHeat_avg", noutputs));
-  WriteProfileToFile(tc_tff_mean, md.get(), time, filename("tc_tff_avg", noutputs));
+  const std::array mean_outputs{
+      std::pair{&rho_mean, "rho_avg"},        std::pair{&P_mean, "P_avg"},
+      std::pair{&K_mean, "K_avg"},            std::pair{&T_mean, "T_avg"},
+      std::pair{&heatFlux_mean, "heatFlux_avg"},
+      std::pair{&massFlux_mean, "massFlux_avg"},
+      std::pair{&turbHeat_mean, "turbHeat_avg"},
+      std::pair{&tc_tff_mean, "tc_tff_avg"}};
+  for (const auto &[profile, name] : mean_outputs) {
+    WriteProfileToFile(*profile, md.get(), time, filename(name, noutputs));
+  }
 
   ++noutputs;
 }
