@@ -100,36 +100,6 @@ auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
   return interpProfile;
 }
 
-void WriteProfileToFile(parthenon::ParArray1D<Real> &profile_reduce_dev,
-                        parthenon::MeshData<Real> *md, const parthenon::SimTime &time,
-                        const std::string &filename) {
-  // get bins
-  auto profile_bins = BuildReductionBins(md);
-
-  // get profile
-  auto profile = profile_reduce_dev.GetHostMirrorAndCopy();
-  PARTHENON_REQUIRE(profile_bins.size() == profile.size(),
-                    "bins must have the same size as profile!");
-
-  if (parthenon::Globals::my_rank == 0) {
-    // open CSV file (only on rank 0)
-    std::ofstream csvfile;
-    csvfile.open(filename);
-    csvfile.precision(17);
-
-    // write header
-    csvfile << "# time = " << time.time << "\n";
-    csvfile << "# bin_value profile_value\n";
-
-    // write data
-    for (size_t i = 0; i < profile.size(); ++i) {
-      csvfile << profile_bins(i) << " ";
-      csvfile << profile(i) << "\n";
-    }
-    csvfile.close();
-  }
-}
-
 namespace precipitator {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
@@ -866,94 +836,6 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           });
     } // end fill cooling time
   }   // end fill derived fields
-
-  // compute mean tc_tff profile
-  const auto &tc_tff_pack = md->PackVariables(std::vector<std::string>{"tcool_over_tff"});
-  parthenon::ParArray1D<Real> tc_tff_mean("tc_tff_mean", REDUCTION_ARRAY_SIZE);
-  auto f_tc_tff = KOKKOS_LAMBDA(int b, int k, int j, int i) {
-    auto &tc_tff = tc_tff_pack(b);
-    return tc_tff(0, k, j, i);
-  };
-  ComputeAvgProfile1D(tc_tff_mean, md.get(), f_tc_tff);
-
-  // write rms profiles to disk
-
-  static int noutputs = 0;
-  if (parthenon::Globals::my_rank == 0) {
-    std::cout << "writing profiles (noutputs = " << noutputs << ")...\n";
-  }
-
-  parthenon::ParArray1D<Real> drho_rms("rms_drho", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> dP_rms("rms_dP", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> dK_rms("rms_dK", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> dT_rms("rms_dT", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> mach_rms("rms_mach", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> dv_xy_rms("rms_dv_xy", REDUCTION_ARRAY_SIZE);
-  parthenon::ParArray1D<Real> dv_z_rms("rms_dv_z", REDUCTION_ARRAY_SIZE);
-
-  const auto &drho = md->PackVariables(std::vector<std::string>{"drho_over_rho"});
-  const auto &dP = md->PackVariables(std::vector<std::string>{"dP_over_P"});
-  const auto &dK = md->PackVariables(std::vector<std::string>{"dK_over_K"});
-  const auto &dT = md->PackVariables(std::vector<std::string>{"dT_over_T"});
-  const auto &mach_sonic = md->PackVariables(std::vector<std::string>{"mach_sonic"});
-  const auto &dv_x = md->PackVariables(std::vector<std::string>{"dv_x"});
-  const auto &dv_y = md->PackVariables(std::vector<std::string>{"dv_y"});
-  const auto &dv_z = md->PackVariables(std::vector<std::string>{"dv_z"});
-
-  auto compute_scalar_rms = [&](parthenon::ParArray1D<Real> &dest, const auto &pack) {
-    ComputeRmsProfile1D(
-        dest, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
-          auto const &var = pack(b);
-          return var(0, k, j, i);
-        });
-  };
-
-  compute_scalar_rms(drho_rms, drho);
-  compute_scalar_rms(dP_rms, dP);
-  compute_scalar_rms(dK_rms, dK);
-  compute_scalar_rms(dT_rms, dT);
-  compute_scalar_rms(mach_rms, mach_sonic);
-  ComputeRmsProfile1D(
-      dv_xy_rms, md.get(), KOKKOS_LAMBDA(int b, int k, int j, int i) {
-        auto const &dv_x_var = dv_x(b);
-        auto const &dv_y_var = dv_y(b);
-        const Real dv1 = dv_x_var(0, k, j, i);
-        const Real dv2 = dv_y_var(0, k, j, i);
-        const Real dv_parallel = std::sqrt(dv1 * dv1 + dv2 * dv2);
-        return dv_parallel;
-      });
-  compute_scalar_rms(dv_z_rms, dv_z);
-
-  auto filename = [=](const char *basename, unsigned int ncycles) {
-    std::ostringstream count_str;
-    count_str << basename;
-    count_str << std::setw(5) << std::setfill('0') << ncycles << ".csv";
-    return count_str.str();
-  };
-
-  // save rms profiles to files
-  const std::array rms_outputs{
-      std::pair{&drho_rms, "drho_rms"},  std::pair{&dP_rms, "dP_rms"},
-      std::pair{&dK_rms, "dK_rms"},      std::pair{&dT_rms, "dT_rms"},
-      std::pair{&mach_rms, "mach_rms"},  std::pair{&dv_xy_rms, "dv_xy_rms"},
-      std::pair{&dv_z_rms, "dv_z_rms"}};
-  for (const auto &[profile, name] : rms_outputs) {
-    WriteProfileToFile(*profile, md.get(), time, filename(name, noutputs));
-  }
-
-  // save avg profiles to file
-  const std::array mean_outputs{
-      std::pair{&rho_mean, "rho_avg"},        std::pair{&P_mean, "P_avg"},
-      std::pair{&K_mean, "K_avg"},            std::pair{&T_mean, "T_avg"},
-      std::pair{&heatFlux_mean, "heatFlux_avg"},
-      std::pair{&massFlux_mean, "massFlux_avg"},
-      std::pair{&turbHeat_mean, "turbHeat_avg"},
-      std::pair{&tc_tff_mean, "tc_tff_avg"}};
-  for (const auto &[profile, name] : mean_outputs) {
-    WriteProfileToFile(*profile, md.get(), time, filename(name, noutputs));
-  }
-
-  ++noutputs;
 }
 
 } // namespace precipitator
