@@ -198,25 +198,17 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("dT_over_T", m);
 
-  // add \delta vx field
-  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("dv_x", m);
-  // add \delta vy field
-  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("dv_y", m);
-  // add \delta vz field
-  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("dv_z", m);
+  // add velocity fluctuation vector field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy, Metadata::Vector},
+               std::vector<int>({3}),
+               std::vector<std::string>{"dv_x", "dv_y", "dv_z"});
+  pkg->AddField("dv", m);
 
-  // add accel_x field
-  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("accel_x", m);
-  // add accel_y field
-  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("accel_y", m);
-  // add accel_z field
-  m = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
-  pkg->AddField("accel_z", m);
+  // add acceleration vector field
+  m = Metadata({Metadata::Cell, Metadata::OneCopy, Metadata::Vector},
+               std::vector<int>({3}),
+               std::vector<std::string>{"accel_x", "accel_y", "accel_z"});
+  pkg->AddField("accel", m);
 
   const Units units(pin);
   Kokkos::Random_XorShift64_Pool<> random_pool(/*seed=*/12345);
@@ -694,9 +686,7 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
     auto &dK = data->Get("dK_over_K").data;
     auto &dT = data->Get("dT_over_T").data;
 
-    auto &dv_x = data->Get("dv_x").data;
-    auto &dv_y = data->Get("dv_y").data;
-    auto &dv_z = data->Get("dv_z").data;
+    auto &dv = data->Get("dv").data;
 
     auto &coords = pmb->coords;
     IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
@@ -761,9 +751,9 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
           temperature(k, j, i) = T;
           mach_sonic(k, j, i) = M_s;
           plasma_beta(k, j, i) = beta;
-          dv_x(k, j, i) = dv1 * velocity_unit * 1.0e-5; // km/s
-          dv_y(k, j, i) = dv2 * velocity_unit * 1.0e-5; // km/s
-          dv_z(k, j, i) = dv3 * velocity_unit * 1.0e-5; // km/s
+          dv(0, k, j, i) = dv1 * velocity_unit * 1.0e-5; // km/s
+          dv(1, k, j, i) = dv2 * velocity_unit * 1.0e-5; // km/s
+          dv(2, k, j, i) = dv3 * velocity_unit * 1.0e-5; // km/s
         });
 
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");

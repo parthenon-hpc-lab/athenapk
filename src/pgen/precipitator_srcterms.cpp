@@ -115,9 +115,7 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
     auto v_norm = std::sqrt(v2_sum / (Lx * Ly * Lz) / (SQR(sigma_v)));
 
     auto turbHeat_pack = md->PackVariables(std::vector<std::string>{"turbulent_heating"});
-    auto accel_x_pack = md->PackVariables(std::vector<std::string>{"accel_x"});
-    auto accel_y_pack = md->PackVariables(std::vector<std::string>{"accel_y"});
-    auto accel_z_pack = md->PackVariables(std::vector<std::string>{"accel_z"});
+    auto accel_pack = md->PackVariables(std::vector<std::string>{"accel"});
 
     pmb->par_for(
         "apply_perturb_v", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -130,12 +128,10 @@ void TurbSrcTerm(MeshData<Real> *md, const parthenon::SimTime /*time*/, const Re
           }
           const Real dv_z = perturb_pack(b, 2, k, j, i) / v_norm;
 
-          const auto &accel_x = accel_x_pack(b);
-          const auto &accel_y = accel_y_pack(b);
-          const auto &accel_z = accel_z_pack(b);
-          accel_x(0, k, j, i) = dv_x;
-          accel_y(0, k, j, i) = dv_y;
-          accel_z(0, k, j, i) = dv_z;
+          const auto &accel = accel_pack(b);
+          accel(0, k, j, i) = dv_x;
+          accel(1, k, j, i) = dv_y;
+          accel(2, k, j, i) = dv_z;
 
           const auto &u = cons(b);
           const Real rho = u(IDN, k, j, i);

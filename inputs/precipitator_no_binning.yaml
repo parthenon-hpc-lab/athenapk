@@ -124,6 +124,4 @@
          - "dK_over_K"
          - "dT_over_T"
          - "dP_over_P"
-         - "dv_x"
-         - "dv_y"
-         - "dv_z"
+         - "dv"

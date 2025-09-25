@@ -1,0 +1,132 @@
+################################################################################
+# Input file for testing hydrostatic equilbrium setup for galaxy cluster-like
+# objects 
+################################################################################
+<comment>
+problem   = Galaxy Cluster Hydrostatic Equilibrium Test
+
+<job>
+problem_id = cluster   # problem ID: basename of output filenames
+
+<parthenon/output1>
+file_type  = hst       # History data dump
+dt         = 1e-3      # time increment between outputs
+
+<parthenon/output2>
+file_type  = hdf5      # HDF5 data dump
+variables  = prim      # Variables to be output
+dt         = 1.e-3     # Time increment between outputs
+id         = prim      # Name to append to output
+
+<parthenon/time>
+cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1         # cycle limit
+tlim       = 0.1	# 100 Myr
+integrator  = rk2       # time integration algorithm
+
+
+<parthenon/mesh>
+refinement  = static
+nghost = 2
+
+nx1        = 128       # Number of zones in X1-direction
+x1min      =-0.1       # minimum value of X1
+x1max      = 0.1       # maximum value of X1
+ix1_bc     = periodic
+ox1_bc     = periodic
+
+nx2        = 128       # Number of zones in X2-direction
+x2min      =-0.1       # minimum value of X2
+x2max      = 0.1       # maximum value of X2
+ix2_bc     = periodic
+ox2_bc     = periodic
+
+nx3        = 128       # Number of zones in X3-direction
+x3min      =-0.1       # minimum value of X3
+x3max      = 0.1       # maximum value of X3
+ix3_bc     = periodic
+ox3_bc     = periodic
+
+
+<parthenon/static_refinement0>
+x1min = -0.0125
+x1max =  0.0125
+x2min = -0.0125
+x2max =  0.0125
+x3min = -0.0125
+x3max =  0.0125
+level = 2
+
+
+<parthenon/meshblock>
+nx1        = 32        # Number of zones in X1-direction
+nx2        = 32        # Number of zones in X2-direction
+nx3        = 32        # Number of zones in X3-direction
+
+<hydro>
+fluid = glmmhd
+gamma = 1.6666666666666667 # gamma = C_p/C_v
+eos = adiabatic
+riemann = lhlld
+reconstruction = plm
+first_order_flux_correct = true
+use_scratch = false
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+He_mass_fraction = 0.25
+
+<units>
+#Units parameters
+#Note: All other parameters for the cluster are in terms of these units
+code_length_cgs = 3.085677580962325e+24 # 1 Mpc in cm
+code_mass_cgs = 1.98841586e+47          # 1e14 Msun in g
+code_time_cgs = 3.15576e+16             # 1 Gyr in s
+
+<problem/cluster>
+hubble_parameter = 0.0715898515654728
+
+<problem/cluster/gravity>
+
+#Which gravitational fields to include
+include_nfw_g = True
+which_bcg_g = HERNQUIST
+include_smbh_g = True
+
+#NFW parameters
+c_nfw = 6.0
+m_nfw_200 = 10.0
+
+#BCG parameters
+m_bcg_s = 0.001
+r_bcg_s = 0.004
+
+#SMBH parameters
+m_smbh = 1.0e-06
+
+#Smooth gravity at origin, for numerical reasons
+g_smoothing_radius = 1e-6
+
+#Include gravity as a source term
+gravity_srcterm = true
+
+
+<problem/cluster/entropy_profile>
+#Entropy profile parameters
+k_0 = 8.851337676479303e-121
+k_100 = 1.3277006514718954e-119
+r_k = 0.1
+alpha_k = 1.1
+
+<problem/cluster/hydrostatic_equilibrium>
+
+#Fix density at radius to close system of equations
+r_fix = 2.0
+rho_fix = 0.01477557589278723
+
+#Building the radii at which to sample initial rho,P
+r_sampling = 4.0
+
+test_he_sphere = true
+
+<problem/cluster/snia_feedback>
+disabled               = True
