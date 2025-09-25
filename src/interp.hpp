@@ -43,13 +43,13 @@ class MonotoneInterpolator {
 };
 
 template <>
-auto MonotoneInterpolator<std::vector<Real>>::ConstructVectorContainer(size_t size)
+inline auto MonotoneInterpolator<std::vector<Real>>::ConstructVectorContainer(size_t size)
     -> std::vector<Real> {
   return std::vector<Real>(size);
 }
 
 template <>
-auto MonotoneInterpolator<PinnedArray1D<Real>>::ConstructVectorContainer(size_t size)
+inline auto MonotoneInterpolator<PinnedArray1D<Real>>::ConstructVectorContainer(size_t size)
     -> PinnedArray1D<Real> {
   return PinnedArray1D<Real>("d", size);
 }
