@@ -252,12 +252,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   const Real PI_Kp = pin->GetReal("precipitator", "thermostat_Kp");
   pkg->AddParam("PI_controller_Kp", PI_Kp, parthenon::Params::Mutability::Restart);
 
-#if 0
-  // K_i feedback loop constant [dimensionless)
-  const Real PI_Ki = pin->GetReal("precipitator", "thermostat_Ki");
-  pkg->AddParam("PI_controller_Ki", PI_Ki, parthenon::Params::Mutability::Restart);
-#endif
-
   /************************************************************
    * Initialize the hydrostatic profile
    ************************************************************/
@@ -375,13 +369,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   hydro_pkg->AddParam<>("sigma_v", sigma_v);
 
   if (sigma_v > 0) {
-#if 0
-    // the maximum height at which to drive turbulence
-    const Real max_height_driving = pin->GetReal("precipitator/driving", "max_height");
-    hydro_pkg->AddParam<Real>("max_height_driving", max_height_driving,
-                              parthenon::Params::Mutability::Restart);
-#endif
-
     auto k_peak_v = pin->GetReal("precipitator/driving", "k_peak");
     // NOTE: in 2D, there are only 12 modes when k_peak == 2
     auto num_modes_v = pin->GetOrAddInteger("precipitator/driving", "num_modes", 40);
