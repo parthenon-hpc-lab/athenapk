@@ -7,6 +7,7 @@
 //  \brief  Class for computing AGN triggering from Bondi-like and cold gas accretion
 
 #include <cmath>
+#include <array>
 #include <fstream> // for ofstream
 #include <limits>
 
@@ -18,6 +19,7 @@
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
 #include <parthenon/package.hpp>
+#include <utils/reductions.hpp>
 
 // Athena headers
 #include "../../eos/adiabatic_glmmhd.hpp"
@@ -30,6 +32,11 @@
 
 namespace cluster {
 using namespace parthenon;
+
+namespace {
+AllReduce<std::array<Real, 1>> agn_cold_mass_reduce;
+AllReduce<std::array<Real, 4>> agn_triggering_quantities_reduce;
+} // namespace
 
 AGNTriggeringMode ParseAGNTriggeringMode(const std::string &mode_str) {
 
@@ -442,42 +449,47 @@ AGNTriggeringReduceTriggering(parthenon::MeshData<parthenon::Real> *md,
 
 parthenon::TaskStatus
 AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg) {
-#ifdef MPI_PARALLEL
   const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
   switch (agn_triggering.triggering_mode_) {
   case AGNTriggeringMode::COLD_GAS: {
-
-    Real accretion_rate = hydro_pkg->Param<Real>("agn_triggering_cold_mass");
-    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &accretion_rate, 1,
-                                      MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
-    hydro_pkg->UpdateParam("agn_triggering_cold_mass", accretion_rate);
-    break;
+    if (!agn_cold_mass_reduce.active) {
+      agn_cold_mass_reduce.val[0] = hydro_pkg->Param<Real>("agn_triggering_cold_mass");
+      agn_cold_mass_reduce.StartReduce(MPI_SUM);
+    }
+    auto status = agn_cold_mass_reduce.CheckReduce();
+    if (status == TaskStatus::complete) {
+      hydro_pkg->UpdateParam("agn_triggering_cold_mass", agn_cold_mass_reduce.val[0]);
+    }
+    return status;
   }
   case AGNTriggeringMode::BOOSTED_BONDI:
   case AGNTriggeringMode::BOOTH_SCHAYE: {
-    Real triggering_quantities[] = {
-        hydro_pkg->Param<Real>("agn_triggering_total_mass"),
-        hydro_pkg->Param<Real>("agn_triggering_mass_weighted_density"),
-        hydro_pkg->Param<Real>("agn_triggering_mass_weighted_velocity"),
-        hydro_pkg->Param<Real>("agn_triggering_mass_weighted_cs"),
-    };
-
-    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &triggering_quantities, 4,
-                                      MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
-
-    hydro_pkg->UpdateParam("agn_triggering_total_mass", triggering_quantities[0]);
-    hydro_pkg->UpdateParam("agn_triggering_mass_weighted_density",
-                           triggering_quantities[1]);
-    hydro_pkg->UpdateParam("agn_triggering_mass_weighted_velocity",
-                           triggering_quantities[2]);
-    hydro_pkg->UpdateParam("agn_triggering_mass_weighted_cs", triggering_quantities[3]);
-    break;
+    if (!agn_triggering_quantities_reduce.active) {
+      agn_triggering_quantities_reduce.val = {
+          hydro_pkg->Param<Real>("agn_triggering_total_mass"),
+          hydro_pkg->Param<Real>("agn_triggering_mass_weighted_density"),
+          hydro_pkg->Param<Real>("agn_triggering_mass_weighted_velocity"),
+          hydro_pkg->Param<Real>("agn_triggering_mass_weighted_cs"),
+      };
+      agn_triggering_quantities_reduce.StartReduce(MPI_SUM);
+    }
+    auto status = agn_triggering_quantities_reduce.CheckReduce();
+    if (status == TaskStatus::complete) {
+      hydro_pkg->UpdateParam("agn_triggering_total_mass",
+                             agn_triggering_quantities_reduce.val[0]);
+      hydro_pkg->UpdateParam("agn_triggering_mass_weighted_density",
+                             agn_triggering_quantities_reduce.val[1]);
+      hydro_pkg->UpdateParam("agn_triggering_mass_weighted_velocity",
+                             agn_triggering_quantities_reduce.val[2]);
+      hydro_pkg->UpdateParam("agn_triggering_mass_weighted_cs",
+                             agn_triggering_quantities_reduce.val[3]);
+    }
+    return status;
   }
   case AGNTriggeringMode::NONE: {
-    break;
+    return TaskStatus::complete;
   }
   }
-#endif
   return TaskStatus::complete;
 }
 
