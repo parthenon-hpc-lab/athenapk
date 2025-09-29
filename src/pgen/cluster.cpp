@@ -16,6 +16,7 @@
 
 // C++ headers
 #include <algorithm> // min, max
+#include <array>
 #include <cmath>     // sqrt()
 #include <cstdio>    // fopen(), fprintf(), freopen()
 #include <iostream>  // endl
@@ -28,6 +29,7 @@
 #include "Kokkos_MathematicalFunctions.hpp"
 #include "basic_types.hpp"
 #include "kokkos_abstraction.hpp"
+#include "utils/reductions.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
 #include "parthenon_array_generic.hpp"
@@ -710,10 +712,14 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         },
         v2_sum);
 
-#ifdef MPI_PARALLEL
-    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &v2_sum, 1, MPI_PARTHENON_REAL,
-                                      MPI_SUM, MPI_COMM_WORLD));
-#endif // MPI_PARALLEL
+    {
+      parthenon::AllReduce<std::array<Real, 1>> v2_reduce;
+      v2_reduce.val[0] = v2_sum;
+      v2_reduce.StartReduce(MPI_SUM);
+      while (v2_reduce.CheckReduce() != parthenon::TaskStatus::complete) {
+      }
+      v2_sum = v2_reduce.val[0];
+    }
 
     const auto Lx = pmesh->mesh_size.xmax(X1DIR) - pmesh->mesh_size.xmin(X1DIR);
     const auto Ly = pmesh->mesh_size.xmax(X2DIR) - pmesh->mesh_size.xmin(X2DIR);
@@ -788,10 +794,14 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         },
         b2_sum);
 
-#ifdef MPI_PARALLEL
-    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &b2_sum, 1, MPI_PARTHENON_REAL,
-                                      MPI_SUM, MPI_COMM_WORLD));
-#endif // MPI_PARALLEL
+    {
+      parthenon::AllReduce<std::array<Real, 1>> b2_reduce;
+      b2_reduce.val[0] = b2_sum;
+      b2_reduce.StartReduce(MPI_SUM);
+      while (b2_reduce.CheckReduce() != parthenon::TaskStatus::complete) {
+      }
+      b2_sum = b2_reduce.val[0];
+    }
 
     const auto Lx = pmesh->mesh_size.xmax(X1DIR) - pmesh->mesh_size.xmin(X1DIR);
     const auto Ly = pmesh->mesh_size.xmax(X2DIR) - pmesh->mesh_size.xmin(X2DIR);

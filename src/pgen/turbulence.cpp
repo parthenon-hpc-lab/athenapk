@@ -9,8 +9,11 @@
 
 // C++ headers
 #include <algorithm> // min, max
+#include <array>
 #include <cmath>     // log
+#include <cstdint>
 #include <cstring>   // strcmp()
+#include <fstream>   // ofstream
 
 // Parthenon headers
 #include "basic_types.hpp"
@@ -23,6 +26,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <vector>
 
 // AthenaPK headers
 #include "../main.hpp"
@@ -30,6 +34,7 @@
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
 #include "utils/error_checking.hpp"
+#include "utils/reductions.hpp"
 
 namespace turbulence {
 using namespace parthenon::package::prelude;
@@ -322,10 +327,14 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         },
         mag_en_sum);
 
-#ifdef MPI_PARALLEL
-    PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &mag_en_sum, 1, MPI_PARTHENON_REAL,
-                                      MPI_SUM, MPI_COMM_WORLD));
-#endif // MPI_PARALLEL
+    {
+      parthenon::AllReduce<std::array<Real, 1>> mag_reduce;
+      mag_reduce.val[0] = mag_en_sum;
+      mag_reduce.StartReduce(MPI_SUM);
+      while (mag_reduce.CheckReduce() != parthenon::TaskStatus::complete) {
+      }
+      mag_en_sum = mag_reduce.val[0];
+    }
 
     b_norm = std::sqrt(mag_en_sum / (Lx * Ly * Lz) / (0.5 * b0 * b0));
     if (parthenon::Globals::my_rank == 0) {
@@ -392,7 +401,7 @@ void Perturb(MeshData<Real> *md, const Real dt) {
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto acc_pack = md->PackVariables(std::vector<std::string>{"acc"});
 
-  Kokkos::Array<Real, 4> sums{{0.0, 0.0, 0.0, 0.0}};
+  std::array<Real, 4> sums{{0.0, 0.0, 0.0, 0.0}};
   Kokkos::parallel_reduce(
       "forcing: calc mean momenum",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
@@ -409,11 +418,14 @@ void Perturb(MeshData<Real> *md, const Real dt) {
       },
       sums[0], sums[1], sums[2], sums[3]);
 
-#ifdef MPI_PARALLEL
-  // Sum the perturbations over all processors
-  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, sums.data(), 4, MPI_PARTHENON_REAL,
-                                    MPI_SUM, MPI_COMM_WORLD));
-#endif // MPI_PARALLEL
+  {
+    parthenon::AllReduce<std::array<Real, 4>> sums_reduce;
+    sums_reduce.val = sums;
+    sums_reduce.StartReduce(MPI_SUM);
+    while (sums_reduce.CheckReduce() != parthenon::TaskStatus::complete) {
+    }
+    sums = sums_reduce.val;
+  }
 
   pmb->par_reduce(
       "forcing: remove mean momentum and calc norm", 0, acc_pack.GetDim(5) - 1, 0, 2,
@@ -426,11 +438,14 @@ void Perturb(MeshData<Real> *md, const Real dt) {
       },
       sums[0]);
 
-#ifdef MPI_PARALLEL
-  // Sum the perturbations over all processors
-  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, sums.data(), 1, MPI_PARTHENON_REAL,
-                                    MPI_SUM, MPI_COMM_WORLD));
-#endif // MPI_PARALLEL
+  {
+    parthenon::AllReduce<std::array<Real, 1>> amp_reduce;
+    amp_reduce.val[0] = sums[0];
+    amp_reduce.StartReduce(MPI_SUM);
+    while (amp_reduce.CheckReduce() != parthenon::TaskStatus::complete) {
+    }
+    sums[0] = amp_reduce.val[0];
+  }
 
   const auto Lx =
       pmb->pmy_mesh->mesh_size.xmax(X1DIR) - pmb->pmy_mesh->mesh_size.xmin(X1DIR);
@@ -586,19 +601,21 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   // Results still live in device memory. Copy to host for global reduction and output.
   auto corr_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), corr);
-#ifdef MPI_PARALLEL
-  if (parthenon::Globals::my_rank == 0) {
-    PARTHENON_MPI_CHECK(MPI_Reduce(MPI_IN_PLACE, corr_h.data(), corr_h.GetSize(),
-                                   MPI_PARTHENON_REAL, MPI_SUM, 0, MPI_COMM_WORLD));
-    PARTHENON_MPI_CHECK(MPI_Reduce(MPI_IN_PLACE, &num_particles_total, 1, MPI_INT64_T,
-                                   MPI_SUM, 0, MPI_COMM_WORLD));
-  } else {
-    PARTHENON_MPI_CHECK(MPI_Reduce(corr_h.data(), corr_h.data(), corr_h.GetSize(),
-                                   MPI_PARTHENON_REAL, MPI_SUM, 0, MPI_COMM_WORLD));
-    PARTHENON_MPI_CHECK(MPI_Reduce(&num_particles_total, &num_particles_total, 1,
-                                   MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD));
+  std::vector<Real> corr_sum(corr_h.data(), corr_h.data() + corr_h.size());
+  parthenon::AllReduce<std::vector<Real>> corr_reduce;
+  corr_reduce.val = corr_sum;
+  corr_reduce.StartReduce(MPI_SUM);
+  while (corr_reduce.CheckReduce() != parthenon::TaskStatus::complete) {
   }
-#endif
+  corr_sum = corr_reduce.val;
+  std::copy(corr_sum.begin(), corr_sum.end(), corr_h.data());
+
+  parthenon::AllReduce<std::array<int64_t, 1>> particle_reduce;
+  particle_reduce.val[0] = num_particles_total;
+  particle_reduce.StartReduce(MPI_SUM);
+  while (particle_reduce.CheckReduce() != parthenon::TaskStatus::complete) {
+  }
+  num_particles_total = particle_reduce.val[0];
   if (parthenon::Globals::my_rank == 0) {
     // Turn sum into mean
     for (int i = 0; i < n_lookback + 1; i++) {
