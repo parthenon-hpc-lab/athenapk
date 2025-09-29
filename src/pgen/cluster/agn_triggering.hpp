@@ -8,6 +8,9 @@
 //! \file agn_triggering.hpp
 //  \brief  Class for computing AGN triggering from Bondi-like and cold gas accretion
 
+// Standard library
+#include <array>
+
 // parthenon headers
 #include <basic_types.hpp>
 #include <interface/state_descriptor.hpp>
@@ -15,6 +18,7 @@
 #include <mesh/mesh.hpp>
 #include <parameter_input.hpp>
 #include <parthenon/package.hpp>
+#include <utils/reductions.hpp>
 
 // AthenaPK headers
 #include "../../units.hpp"
@@ -53,7 +57,7 @@ class AGNTriggering {
   const parthenon::Real bondi_beta_;
 
   // Used in timestep estimation
-  const parthenon::Real accretion_cfl_;
+ const parthenon::Real accretion_cfl_;
 
   // Useful for debugging
   const bool remove_accreted_mass_;
@@ -64,6 +68,10 @@ class AGNTriggering {
   // included in Parthenon phdf outputs.
   const bool write_to_file_;
   const std::string triggering_filename_;
+
+  mutable parthenon::AllReduce<std::array<parthenon::Real, 1>> agn_cold_mass_reduce_;
+  mutable parthenon::AllReduce<std::array<parthenon::Real, 4>>
+      agn_triggering_quantities_reduce_;
 
   AGNTriggering(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg,
                 const std::string &block = "problem/cluster/agn_triggering");

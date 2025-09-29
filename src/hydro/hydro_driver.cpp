@@ -33,11 +33,6 @@ using namespace parthenon::driver::prelude;
 
 namespace Hydro {
 
-namespace {
-using MagneticTowerContribArray = std::array<parthenon::Real, 2>;
-parthenon::AllReduce<MagneticTowerContribArray> magnetic_tower_contrib_reduce;
-} // namespace
-
 HydroDriver::HydroDriver(ParameterInput *pin, ApplicationInput *app_in, Mesh *pm)
     : MultiStageDriver(pin, app_in, pm) {
   // fail if these are not specified in the input file
@@ -443,19 +438,19 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           reducer->val[1] = hydro_pkg->Param<Real>("magnetic_tower_quadratic_contrib");
           return TaskStatus::complete;
         },
-        &magnetic_tower_contrib_reduce, hydro_pkg.get());
+        &magnetic_tower_contrib_reduce_, hydro_pkg.get());
     auto start_reduce_magnetic_tower_power_contrib = tl.AddTask(
         gather_magnetic_tower_power_contrib,
         [](parthenon::AllReduce<MagneticTowerContribArray> *reducer) {
           return reducer->StartReduce(MPI_SUM);
         },
-        &magnetic_tower_contrib_reduce);
+        &magnetic_tower_contrib_reduce_);
     auto finish_reduce_magnetic_tower_power_contrib = tl.AddTask(
         start_reduce_magnetic_tower_power_contrib,
         [](parthenon::AllReduce<MagneticTowerContribArray> *reducer) {
           return reducer->CheckReduce();
         },
-        &magnetic_tower_contrib_reduce);
+        &magnetic_tower_contrib_reduce_);
     auto reduce_magnetic_tower_power_contrib = tl.AddTask(
         finish_reduce_magnetic_tower_power_contrib,
         [](parthenon::AllReduce<MagneticTowerContribArray> *reducer,
@@ -464,7 +459,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           hydro_pkg->UpdateParam("magnetic_tower_quadratic_contrib", reducer->val[1]);
           return TaskStatus::complete;
         },
-        &magnetic_tower_contrib_reduce, hydro_pkg.get());
+        &magnetic_tower_contrib_reduce_, hydro_pkg.get());
   }
 
   // First add split sources before the main time integration

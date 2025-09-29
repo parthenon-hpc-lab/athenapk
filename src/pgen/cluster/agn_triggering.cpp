@@ -33,11 +33,6 @@
 namespace cluster {
 using namespace parthenon;
 
-namespace {
-AllReduce<std::array<Real, 1>> agn_cold_mass_reduce;
-AllReduce<std::array<Real, 4>> agn_triggering_quantities_reduce;
-} // namespace
-
 AGNTriggeringMode ParseAGNTriggeringMode(const std::string &mode_str) {
 
   if (mode_str == "COLD_GAS") {
@@ -452,37 +447,39 @@ AGNTriggeringMPIReduceTriggering(parthenon::StateDescriptor *hydro_pkg) {
   const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
   switch (agn_triggering.triggering_mode_) {
   case AGNTriggeringMode::COLD_GAS: {
-    if (!agn_cold_mass_reduce.active) {
-      agn_cold_mass_reduce.val[0] = hydro_pkg->Param<Real>("agn_triggering_cold_mass");
-      agn_cold_mass_reduce.StartReduce(MPI_SUM);
+    if (!agn_triggering.agn_cold_mass_reduce_.active) {
+      agn_triggering.agn_cold_mass_reduce_.val[0] =
+          hydro_pkg->Param<Real>("agn_triggering_cold_mass");
+      agn_triggering.agn_cold_mass_reduce_.StartReduce(MPI_SUM);
     }
-    auto status = agn_cold_mass_reduce.CheckReduce();
+    auto status = agn_triggering.agn_cold_mass_reduce_.CheckReduce();
     if (status == TaskStatus::complete) {
-      hydro_pkg->UpdateParam("agn_triggering_cold_mass", agn_cold_mass_reduce.val[0]);
+      hydro_pkg->UpdateParam("agn_triggering_cold_mass",
+                             agn_triggering.agn_cold_mass_reduce_.val[0]);
     }
     return status;
   }
   case AGNTriggeringMode::BOOSTED_BONDI:
   case AGNTriggeringMode::BOOTH_SCHAYE: {
-    if (!agn_triggering_quantities_reduce.active) {
-      agn_triggering_quantities_reduce.val = {
+    if (!agn_triggering.agn_triggering_quantities_reduce_.active) {
+      agn_triggering.agn_triggering_quantities_reduce_.val = {
           hydro_pkg->Param<Real>("agn_triggering_total_mass"),
           hydro_pkg->Param<Real>("agn_triggering_mass_weighted_density"),
           hydro_pkg->Param<Real>("agn_triggering_mass_weighted_velocity"),
           hydro_pkg->Param<Real>("agn_triggering_mass_weighted_cs"),
       };
-      agn_triggering_quantities_reduce.StartReduce(MPI_SUM);
+      agn_triggering.agn_triggering_quantities_reduce_.StartReduce(MPI_SUM);
     }
-    auto status = agn_triggering_quantities_reduce.CheckReduce();
+    auto status = agn_triggering.agn_triggering_quantities_reduce_.CheckReduce();
     if (status == TaskStatus::complete) {
       hydro_pkg->UpdateParam("agn_triggering_total_mass",
-                             agn_triggering_quantities_reduce.val[0]);
+                             agn_triggering.agn_triggering_quantities_reduce_.val[0]);
       hydro_pkg->UpdateParam("agn_triggering_mass_weighted_density",
-                             agn_triggering_quantities_reduce.val[1]);
+                             agn_triggering.agn_triggering_quantities_reduce_.val[1]);
       hydro_pkg->UpdateParam("agn_triggering_mass_weighted_velocity",
-                             agn_triggering_quantities_reduce.val[2]);
+                             agn_triggering.agn_triggering_quantities_reduce_.val[2]);
       hydro_pkg->UpdateParam("agn_triggering_mass_weighted_cs",
-                             agn_triggering_quantities_reduce.val[3]);
+                             agn_triggering.agn_triggering_quantities_reduce_.val[3]);
     }
     return status;
   }

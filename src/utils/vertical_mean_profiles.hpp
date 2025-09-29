@@ -25,7 +25,6 @@
 
 // AthenaPK headers
 #include "../profile.hpp"
-#include "../reduction_utils.hpp"
 
 namespace util {
 
@@ -41,17 +40,17 @@ struct VerticalMeanProfiles {
   parthenon::ParArray1D<parthenon::Real> v2_mean;
   parthenon::ParArray1D<parthenon::Real> v3_mean;
 
-  VerticalMeanProfiles()
-      : rho_mean("rho_mean", REDUCTION_ARRAY_SIZE),
-        P_mean("P_mean", REDUCTION_ARRAY_SIZE),
-        K_mean("K_mean", REDUCTION_ARRAY_SIZE),
-        T_mean("T_mean", REDUCTION_ARRAY_SIZE),
-        heatFlux_mean("scaledHeatFlux_mean", REDUCTION_ARRAY_SIZE),
-        massFlux_mean("massFlux_mean", REDUCTION_ARRAY_SIZE),
-        turbHeat_mean("turbHeat_mean", REDUCTION_ARRAY_SIZE),
-        v1_mean("v1_mean", REDUCTION_ARRAY_SIZE),
-        v2_mean("v2_mean", REDUCTION_ARRAY_SIZE),
-        v3_mean("v3_mean", REDUCTION_ARRAY_SIZE) {}
+  explicit VerticalMeanProfiles(int num_bins)
+      : rho_mean("rho_mean", num_bins),
+        P_mean("P_mean", num_bins),
+        K_mean("K_mean", num_bins),
+        T_mean("T_mean", num_bins),
+        heatFlux_mean("scaledHeatFlux_mean", num_bins),
+        massFlux_mean("massFlux_mean", num_bins),
+        turbHeat_mean("turbHeat_mean", num_bins),
+        v1_mean("v1_mean", num_bins),
+        v2_mean("v2_mean", num_bins),
+        v3_mean("v3_mean", num_bins) {}
 };
 
 inline auto ComputeAvgProfile1D(parthenon::MeshData<parthenon::Real> *md,
@@ -59,7 +58,9 @@ inline auto ComputeAvgProfile1D(parthenon::MeshData<parthenon::Real> *md,
                                 parthenon::Real mmw, parthenon::Real velocity_unit,
                                 parthenon::Real vol_unit,
                                 parthenon::Real Edot_unit) -> VerticalMeanProfiles {
-  VerticalMeanProfiles profiles;
+  const int num_bins =
+      md->GetParentPointer()->mesh_size.nx(parthenon::X3DIR); // parthenon/mesh/nx3
+  VerticalMeanProfiles profiles(num_bins);
 
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &turbHeat_pack =

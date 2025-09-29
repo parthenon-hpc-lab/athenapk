@@ -48,7 +48,6 @@
 #include "../interp.hpp"
 #include "../main.hpp"
 #include "../profile.hpp"
-#include "../reduction_utils.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
 #include "../utils/precipitator_profile.hpp"
@@ -61,11 +60,14 @@ typedef Kokkos::complex<Real> Complex;
 using utils::few_modes_ft::FewModesFT;
 
 auto BuildReductionBins(parthenon::MeshData<Real> *md) -> PinnedArray1D<Real> {
-  PinnedArray1D<Real> bins("Bin centers", REDUCTION_ARRAY_SIZE);
+  const int num_bins =
+      md->GetParentPointer()->mesh_size.nx(parthenon::X3DIR); // parthenon/mesh/nx3
+  PARTHENON_REQUIRE(num_bins > 0, "parthenon/mesh/nx3 must be positive");
+  PinnedArray1D<Real> bins("Bin centers", num_bins);
   const Real x3min = md->GetParentPointer()->mesh_size.xmin(parthenon::X3DIR);
   const Real x3max = md->GetParentPointer()->mesh_size.xmax(parthenon::X3DIR);
-  const Real dz_hist = (x3max - x3min) / REDUCTION_ARRAY_SIZE;
-  for (int i = 0; i < REDUCTION_ARRAY_SIZE; ++i) {
+  const Real dz_hist = (x3max - x3min) / static_cast<Real>(num_bins);
+  for (int i = 0; i < num_bins; ++i) {
     bins(i) = dz_hist * (Real(i) + 0.5) + x3min;
   }
   return bins;
@@ -78,6 +80,9 @@ auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
   auto profile_reduce_zbins = BuildReductionBins(md);
   const Real x3min = md->GetParentPointer()->mesh_size.xmin(parthenon::X3DIR);
   const Real x3max = md->GetParentPointer()->mesh_size.xmax(parthenon::X3DIR);
+  PARTHENON_REQUIRE(profile_reduce_dev.extent_int(0) ==
+                        static_cast<int>(profile_reduce_zbins.size()),
+                    "1D profile size must match parthenon/mesh/nx3");
 
   // get profile from device
   auto profile_reduce = profile_reduce_dev.GetHostMirrorAndCopy();
@@ -230,8 +235,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
    ************************************************************/
 
   // store PI error integral over time
-  parthenon::ParArray1D<Real> PI_error_integral("PI_error_integral",
-                                                REDUCTION_ARRAY_SIZE);
+  const int nx3 = pin->GetInteger("parthenon/mesh", "nx3");
+  PARTHENON_REQUIRE(nx3 > 0, "parthenon/mesh/nx3 must be positive");
+  parthenon::ParArray1D<Real> PI_error_integral("PI_error_integral", nx3);
   pkg->AddParam("PI_error_integral", PI_error_integral,
                 parthenon::Params::Mutability::Restart);
 

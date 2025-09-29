@@ -25,7 +25,6 @@
 #include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../interp.hpp"
 #include "../profile.hpp"
-#include "../reduction_utils.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
 #include "utils/error_checking.hpp"
@@ -233,7 +232,9 @@ void MagicHeatingSrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Rea
   const Real kboltz = units.k_boltzmann();
   const Real c_v = (kboltz / mmw) / gm1;
 
-  parthenon::ParArray1D<Real> error_profile("error_profile", REDUCTION_ARRAY_SIZE);
+  const int num_bins =
+      md->GetParentPointer()->mesh_size.nx(parthenon::X3DIR); // parthenon/mesh/nx3
+  parthenon::ParArray1D<Real> error_profile("error_profile", num_bins);
   const Real T_target = pkg->Param<Real>("PI_controller_temperature");
 
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
