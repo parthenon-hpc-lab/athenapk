@@ -9,10 +9,12 @@
 //  \brief Compute a 1D axis-aligned profile of a user-specified scalar quantity.
 //========================================================================================
 
+#include "basic_types.hpp"
 #include "interface/mesh_data.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/mesh.hpp"
 #include "reduction_utils.hpp"
+#include "utils/reductions.hpp"
 
 template <typename Function>
 void ComputeAvgProfile1D(parthenon::ParArray1D<parthenon::Real> &profile_dev,
@@ -78,13 +80,14 @@ void ComputeAvgProfile1D(parthenon::ParArray1D<parthenon::Real> &profile_dev,
   for (size_t i = 0; i < size; i++) {
     profile(i) += profile_sum.data[i];
   }
-  profile_dev.DeepCopy(profile);
 
-  // Compute global reduction
+  profile_dev.DeepCopy(profile);
 #ifdef MPI_PARALLEL
-  // Perform blocking MPI_Allreduce on the host to sum up the local reductions.
-  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, profile_dev.data(), profile_dev.size(),
-                                    MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
+  parthenon::AllReduce<parthenon::ParArray1D<parthenon::Real>> profile_reduce;
+  profile_reduce.val = profile_dev;
+  profile_reduce.StartReduce(MPI_SUM);
+  while (profile_reduce.CheckReduce() != parthenon::TaskStatus::complete) {
+  }
 #endif
 }
 
@@ -109,3 +112,4 @@ void ComputeRmsProfile1D(parthenon::ParArray1D<parthenon::Real> &profile_dev,
 }
 
 #endif // PROFILE_HPP_
+
