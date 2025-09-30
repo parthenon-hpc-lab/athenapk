@@ -26,6 +26,7 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "globals.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
@@ -95,7 +96,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   // This function is currently used to only seed tracers but it called every time the
   // driver is executed (also also for restarts)
-  if (pmesh->is_restart) return;
+  if (parthenon::Globals::is_restart) return;
 
   auto tracers_pkg = pmesh->packages.Get("tracers");
 
