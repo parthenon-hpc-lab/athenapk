@@ -85,3 +85,8 @@ if (AthenaPK_ENABLE_TESTING)
   add_subdirectory(tst/regression)
 endif()
 
+set(FFTW_INCLUDE_DIR "/p/software/default/stages/2025/software/FFTW/3.3.10-GCC-13.3.0/include")
+set(FFTW_LIBRARY "/p/software/default/stages/2025/software/FFTW/3.3.10-GCC-13.3.0/lib/libfftw3.so")
+
+include_directories(${FFTW_INCLUDE_DIR})
+target_link_libraries(athenaPK PRIVATE ${FFTW_LIBRARY})

@@ -83,6 +83,9 @@ int main(int argc, char *argv[]) {
   } else if (problem == "advection") {
     pman.app_input->InitUserMeshData = advection::InitUserMeshData;
     pman.app_input->ProblemGenerator = advection::ProblemGenerator;
+  } else if (problem == "stochastic_B_field") {
+    pman.app_input->InitUserMeshData = stochastic_B_field::InitUserMeshData;
+    pman.app_input->ProblemGenerator = stochastic_B_field::ProblemGenerator;
   } else if (problem == "orszag_tang") {
     pman.app_input->ProblemGenerator = orszag_tang::ProblemGenerator;
   } else if (problem == "diffusion") {

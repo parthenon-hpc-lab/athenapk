@@ -25,4 +25,5 @@ target_sources(athenaPK PRIVATE
     rand_blast.cpp
     sod.cpp
     turbulence.cpp
+    stochastic_B_field.cpp
     )
