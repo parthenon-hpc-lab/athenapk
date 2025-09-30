@@ -91,6 +91,7 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
             ScratchPad2D<Real> &qr, const parthenon::VariablePack<Real> &phi,
             const parthenon::VariablePack<Real> &phi_zface) {
   const auto nvar = q.GetDim(4);
+  const auto face_el = parthenon::TopologicalElement::F3;
   for (auto n = 0; n < nvar; ++n) {
 #ifdef WELL_BALANCED
     if (n == IPR || n == IDN) {
@@ -107,8 +108,8 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
           const Real p_over_rho = q(IPR, k, j, i) / q(IDN, k, j, i);
           std::array<Real, 3> sphi{phi(0, k - 1, j, i), phi(0, k, j, i),
                                    phi(0, k + 1, j, i)};
-          std::array<Real, 2> sphi_faces{phi_zface(0, k, j, i),
-                                         phi_zface(0, k + 1, j, i)};
+          std::array<Real, 2> sphi_faces{phi_zface(face_el, 0, k, j, i),
+                                         phi_zface(face_el, 0, k + 1, j, i)};
           // ql is ql_kp1 and qr is qr_k
           PLM_balanced(q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i), p_over_rho,
                        sphi, sphi_faces, ql(n, i), qr(n, i));

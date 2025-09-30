@@ -174,6 +174,7 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   auto grav_pack = md->PackVariables(std::vector<std::string>{"grav_phi"});
   auto grav_zface_pack = md->PackVariables(std::vector<std::string>{"grav_phi_zface"});
+  constexpr auto face_el = parthenon::TopologicalElement::F3;
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -200,8 +201,8 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
 
         const Real v_z = p3 / rho;
 
-        const Real phi_zminus = grav_phi_zface(0, k, j, i);
-        const Real phi_zplus = grav_phi_zface(0, k + 1, j, i);
+        const Real phi_zminus = grav_phi_zface(face_el, 0, k, j, i);
+        const Real phi_zplus = grav_phi_zface(face_el, 0, k + 1, j, i);
 
         const Real Eint = Etot - KE_old;
         const Real p_i = Eint * gm1;

@@ -153,7 +153,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto m = Metadata({Metadata::Cell, Metadata::OneCopy, Metadata::Restart},
                     std::vector<int>({1}));
   pkg->AddField("grav_phi", m);
-  m = Metadata({Metadata::Cell, Metadata::OneCopy, Metadata::Restart},
+  m = Metadata({Metadata::Face, Metadata::OneCopy, Metadata::Restart},
                std::vector<int>({1}));
   pkg->AddField("grav_phi_zface", m);
 
@@ -522,17 +522,18 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi, false);
 
   auto grav_phi_zface = rc->PackVariables(std::vector<std::string>{"grav_phi_zface"});
+  constexpr auto face_el = parthenon::TopologicalElement::F3;
 
-  IndexRange ibe = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-  IndexRange jbe = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-  IndexRange kbe = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+  IndexRange ibe = pmb->cellbounds.GetBoundsI(IndexDomain::entire, face_el);
+  IndexRange jbe = pmb->cellbounds.GetBoundsJ(IndexDomain::entire, face_el);
+  IndexRange kbe = pmb->cellbounds.GetBoundsK(IndexDomain::entire, face_el);
 
   if (uniform_init == 1) { // no gravity
     parthenon::par_for(
         DEFAULT_LOOP_PATTERN, "SetGravPotentialFaces", parthenon::DevExecSpace(), 0, 0,
         kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
         KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
-          grav_phi_zface(0, k, j, i) = 0;
+          grav_phi_zface(face_el, 0, k, j, i) = 0;
         });
   } else { // with gravity
     parthenon::par_for(
@@ -542,7 +543,7 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
           // Calculate height
           const Real zmin_cgs = std::abs(coords.Xf<3>(k)) * code_length_cgs;
           const Real phi_iminus = P_rho_profile->phi(zmin_cgs) / code_potential_cgs;
-          grav_phi_zface(0, k, j, i) = phi_iminus;
+          grav_phi_zface(face_el, 0, k, j, i) = phi_iminus;
         });
   }
 
@@ -763,7 +764,8 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
         });
 
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
-    auto const &grav_phi_zface = data->Get("grav_phi_zface").data;
+    const auto grav_phi_zface_pack =
+        data->PackVariables(std::vector<std::string>{"grav_phi_zface"});
 
     // fill cooling time
     if (enable_cooling == Cooling::tabular) {
@@ -802,10 +804,12 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
             const Real t_cool = std::abs(eint / edot);
 
             // compute potential at center and faces
-            const Real phi_zminus = grav_phi_zface(0, k, j, i);
+            const Real phi_zminus =
+                grav_phi_zface_pack(parthenon::TopologicalElement::F3, 0, k, j, i);
             Real phi_zplus = NAN;
             if (k < kb.e) {
-              phi_zplus = grav_phi_zface(0, k + 1, j, i);
+              phi_zplus =
+                  grav_phi_zface_pack(parthenon::TopologicalElement::F3, 0, k + 1, j, i);
             }
             const Real g_z = -(phi_zplus - phi_zminus) / dx3;
 
