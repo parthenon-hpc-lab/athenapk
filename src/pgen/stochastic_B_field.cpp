@@ -43,6 +43,20 @@ int Nx, Ny, Nz;
 int Ntot; 
 std::vector<double> Bx_real, By_real, Bz_real;
 
+// Define power-spectrum for the B field - Normalization is set by B_rms in the input file
+//double PowerSpectrum(double k, double k0, double n_spectrum) {
+//    return std::pow(k/k0, -n_spectrum);
+//}
+
+double PowerSpectrum(double k, double kI, double n1, double n2,
+                                      double alpha) {
+    // Smooth double power law with 
+    // P(k) ~ k^n1 for k << kI
+    // P(k) ~ k^-n2 for k >> kI
+    // alpha controls the sharpness of the transition
+    return std::pow(k, n1) * std::pow(1.0 + std::pow(k / kI, alpha), -(n2+n1)/alpha);
+}
+
 void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   // Create magnetic field modes in fourier space, then transform to real space.
   // This is done at once for the entire domain, then each CPU/GPU gets its own
@@ -51,6 +65,11 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   // -----------------------------
   // Box and simulation parameters
   // -----------------------------
+
+  // Check if AMR is enabled - currently, AMR results in segfaults
+  if (mesh->adaptive) {
+        std::cerr << "WARNING: Adaptive Mesh Refinement is enabled. "
+                  << "Stochastic B-field initialization may behave unexpectedly. Expect Segfaults.\n";}
 
   // Get global number of cells 
   Nx = pin->GetInteger("parthenon/mesh", "nx1");
@@ -71,8 +90,10 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 
   const auto kmax = pin->GetOrAddReal("problem/stochastic_B_field", "kmax", 0.25 * Nx);
   const auto B_rms = pin->GetOrAddReal("problem/stochastic_B_field", "B_rms", 1e-3);
-  const auto k0 = pin->GetOrAddReal("problem/stochastic_B_field", "k0", 1);
-  const auto n_spectrum = pin->GetOrAddReal("problem/stochastic_B_field", "n_spectrum", 5.0/3.0);
+  const auto kI = pin->GetOrAddReal("problem/stochastic_B_field", "kI", 10);
+  const auto n1 = pin->GetOrAddReal("problem/stochastic_B_field", "n1", 4.0);
+  const auto n2 = pin->GetOrAddReal("problem/stochastic_B_field", "n2", 5.0/3.0);
+  const auto alpha = pin->GetOrAddReal("problem/stochastic_B_field", "alpha", 2.0);
 
   Ntot = Nx*Ny*Nz; // total number of cells
 
@@ -89,7 +110,7 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 
   // physical k-values:
   const auto kmax_phys = kmax * (2.0 * M_PI / Lx);
-  const auto k0_phys = k0 * (2.0 * M_PI / Lx);
+  const auto kI_phys = kI * (2.0 * M_PI / Lx);
 
 
   // -----------------------------
@@ -131,7 +152,7 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
                   continue;
               
               // --- amplitude scaled for desired power spectrum ---
-              double amplitude = std::pow(kmag/k0_phys, -n_spectrum/2.0) / std::sqrt(3.0);
+              double amplitude = std::sqrt(PowerSpectrum(kmag, kI_phys, n1, n2, alpha));
 
               // --- random phase ---
               double phi1 = dist_phase(rng);
@@ -147,10 +168,6 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
               bx -= kdotb * kx_phys;
               by -= kdotb * ky_phys;
               bz -= kdotb * kz_phys;
-
-              // Debug: check that k . B = 0
-              kdotb = kx_phys*bx + ky_phys*by + kz_phys*bz;
-              if (std::abs(kdotb) > 1e-10) std::cout << "kdotb (should be ~0) = " << kdotb << std::endl;
 
               Bx_hat[idx] = bx;
               By_hat[idx] = by;
@@ -287,27 +304,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   }
   // copy initialized vars to device
   u_dev.DeepCopy(u);
-
-  // Simple host-side finite check (place where `u` is host-visible)
-for (int k = kb.s; k <= kb.e; ++k) {
-  for (int j = jb.s; j <= jb.e; ++j) {
-    for (int i = ib.s; i <= ib.e; ++i) {
-      for (int n = 0; n < u.GetDim(0); ++n) { // or use known NHYDRO etc.
-        double val = u(n,k,j,i);
-        if (!std::isfinite(val)) {
-          std::cerr << "FATAL: non-finite conserved value at cell (i,j,k)=("
-                    << i << "," << j << "," << k << ") var=" << n
-                    << " val=" << val 
-                    << std::endl;
-          std::abort();
-        }
-      }
-    }
-  }
-}
-
-std::cout<<"Problem Generator ran successfully"<<std::endl;
-
 }
 
 } // namespace stochastic_B_field
