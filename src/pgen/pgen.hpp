@@ -17,7 +17,6 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin);
 
 } // namespace stochastic_B_field
 
-
 namespace linear_wave {
 using namespace parthenon::driver::prelude;
 
