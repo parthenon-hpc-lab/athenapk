@@ -70,9 +70,7 @@ code_time_cgs = 3.15576e+16             # 1 Gyr in s
 
 <cooling>
 enable_cooling = tabular
-table_filename = schure.cooling
-log_temp_col = 0
-log_lambda_col = 1
+table_filename = schure.cooling_1.0Z
 lambda_units_cgs = 1 #erg cm^3/s in cgs, as used in schure.cooling
 
 integrator = rk12

@@ -1,9 +1,9 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2021-2024, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 <comment>
-problem   = Thermal diffusion setup
+problem   = Diffusion setup (for thermal, momentum and Ohmic diffusion tests)
 
 <job>
 problem_id = diffusion
@@ -14,7 +14,8 @@ Bx = 1.0     # Bx for x1 step function (permutated for iprobs in other direction
 By = 0.0     # By for x1 step function (permutated for iprobs in other directions)
 
 #iprob = 10   # Diffusion of Gaussian profile in x1 direction
-sigma = 0.1  # standard deviation of Gaussian for iprob=10
+t0 = 0.5      # Temporal offset for initial Gaussian profile
+amp = 1e-6    # Amplitude of Gaussian profile
 
 iprob = 20   # ring diffusion in x1-x2 plane; 21 for x2-x3 plane; 22 for x3-x1 plane
 
@@ -59,8 +60,17 @@ reconstruction = dc
 gamma = 2.0
 
 <diffusion>
-conduction = thermal_diff
+integrator = rkl2
+conduction = anisotropic
+conduction_coeff = fixed
 thermal_diff_coeff_code = 0.01
+viscosity = none            # none (disabled), isotropic, or anisotropic
+viscosity_coeff = fixed
+mom_diff_coeff_code = 0.25
+resistivity = none          # none (disabled) or ohmic
+resistivity_coeff = fixed
+ohm_diff_coeff_code = 0.25
+rkl2_max_dt_ratio = 100.0
 
 <parthenon/output0>
 file_type = hdf5
