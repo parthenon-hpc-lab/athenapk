@@ -27,20 +27,45 @@
 #include <coordinates/coordinates.hpp>
 #include <mesh/domain.hpp>
 #include <mesh/meshblock_pack.hpp>
+#include <type_traits>
 
 // AthenaPK headers
 #include "../../main.hpp"
 
 namespace geometric {
 
+namespace detail {
+
+template <typename Coord>
+KOKKOS_INLINE_FUNCTION parthenon::Real CoordSrc1i(const Coord &coords,
+                                                  const int i) {
+  using CoordT = std::decay_t<Coord>;
+  if constexpr (std::is_same_v<CoordT, parthenon::UniformCartesian>) {
+    return 0.0;
+  } else {
+    return coords.CoordSrc1i(i);
+  }
+}
+
+template <typename Coord>
+KOKKOS_INLINE_FUNCTION parthenon::Real CoordSrc2i(const Coord &coords,
+                                                  const int i) {
+  using CoordT = std::decay_t<Coord>;
+  if constexpr (std::is_same_v<CoordT, parthenon::UniformCartesian>) {
+    return 0.0;
+  } else {
+    return coords.CoordSrc2i(i);
+  }
+}
+
+} // namespace detail
+
 void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                       const parthenon::Real beta_dt) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
-  const auto &coords0 = pmb->coords;
-
-  if ( std::is_same<decltype(coords0),parthenon::UniformCartesian>::value ){
-    //No geometric source terms for UniformCartesian
+  if constexpr (std::is_same_v<parthenon::Coordinates_t, parthenon::UniformCartesian>) {
+    // No geometric source terms for UniformCartesian
     return;
   }
 
@@ -95,13 +120,13 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         //}
         // }
 
-        cons(IM1, k, j, i) += beta_dt * m_pp * coords.CoordSrc1i(i);
+        cons(IM1, k, j, i) += beta_dt * m_pp * detail::CoordSrc1i(coords, i);
 
         const Real x_i   = coords.Xf<X1DIR>(i);
         const Real x_ip1 = coords.Xf<X1DIR>(i+1);
 
         // Stone et. al. 2020 Eq. 18
-        cons(IM2, k, j, i) -= beta_dt * coords.CoordSrc2i(i) *
+        cons(IM2, k, j, i) -= beta_dt * detail::CoordSrc2i(coords, i) *
           (x_i   * cons.flux(X1DIR, IM2, k, j, i) +
            x_ip1 * cons.flux(X1DIR, IM2, k, j, i + 1));
 
@@ -116,8 +141,8 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           const auto &coords = cons_pack.GetCoords(b);
           const Real rp = coords.Xf<X1DIR>(i + 1);
           const Real rm = coords.Xf<X1DIR>(i);
-          const Real coord_src1_r = coords.CoordSrc1i(i);
-          const Real coord_src2_r = coords.CoordSrc2i(i);
+          const Real coord_src1_r = detail::CoordSrc1i(coords, i);
+          const Real coord_src2_r = detail::CoordSrc2i(coords, i);
 
           Real m_ii =
             prim(IDN, k, j, i) * (SQR(prim(IM2, k, j, i)) + SQR(prim(IM3, k, j, i)));

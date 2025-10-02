@@ -128,6 +128,24 @@ void GetCylCoord(const UniformCartesian& coords,Real &rad,Real &phi,Real &z,int 
 
 template<>
 KOKKOS_INLINE_FUNCTION
+Real CoordSrc1(const UniformCartesian&, const int) {
+  return 0.0;
+}
+
+template<>
+KOKKOS_INLINE_FUNCTION
+Real PhySrc1(const UniformCartesian&, const int) {
+  return 0.0;
+}
+
+template<>
+KOKKOS_INLINE_FUNCTION
+Real PhySrc2(const UniformCartesian&, const int) {
+  return 0.0;
+}
+
+template<>
+KOKKOS_INLINE_FUNCTION
 void GetCylCoord(const UniformCylindrical& coords,Real &rad,Real &phi,Real &z,int i,int j,int k){
   rad=coords.Xc<X1DIR>(i);
   phi=coords.Xc<X2DIR>(j);
