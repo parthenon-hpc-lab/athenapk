@@ -42,8 +42,19 @@ KOKKOS_INLINE_FUNCTION parthenon::Real CoordSrc1i(const Coord &coords,
   using CoordT = std::decay_t<Coord>;
   if constexpr (std::is_same_v<CoordT, parthenon::UniformCartesian>) {
     return 0.0;
+  } else if constexpr (std::is_same_v<CoordT, parthenon::UniformCylindrical>) {
+    const Real rm = coords.template Xf<parthenon::X1DIR>(i);
+    const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
+    const Real denom = rp + rm;
+    return (denom != 0.0) ? (2.0 / denom) : 0.0;
+  } else if constexpr (std::is_same_v<CoordT, parthenon::UniformSpherical>) {
+    const Real rm = coords.template Xf<parthenon::X1DIR>(i);
+    const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
+    const Real num = rp * rp - rm * rm;
+    const Real denom = rp * rp * rp - rm * rm * rm;
+    return (denom != 0.0) ? (1.5 * num / denom) : 0.0;
   } else {
-    return coords.CoordSrc1i(i);
+    return 0.0;
   }
 }
 
@@ -53,8 +64,18 @@ KOKKOS_INLINE_FUNCTION parthenon::Real CoordSrc2i(const Coord &coords,
   using CoordT = std::decay_t<Coord>;
   if constexpr (std::is_same_v<CoordT, parthenon::UniformCartesian>) {
     return 0.0;
+  } else if constexpr (std::is_same_v<CoordT, parthenon::UniformCylindrical>) {
+    const Real rm = coords.template Xf<parthenon::X1DIR>(i);
+    const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
+    const Real denom = rp * rp - rm * rm;
+    return (denom != 0.0) ? (1.0 / denom) : 0.0;
+  } else if constexpr (std::is_same_v<CoordT, parthenon::UniformSpherical>) {
+    const Real rm = coords.template Xf<parthenon::X1DIR>(i);
+    const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
+    const Real denom = rp * rp * rp - rm * rm * rm;
+    return (denom != 0.0) ? (3.0 / denom) : 0.0;
   } else {
-    return coords.CoordSrc2i(i);
+    return 0.0;
   }
 }
 

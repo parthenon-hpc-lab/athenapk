@@ -164,39 +164,48 @@ void GetCylCoord(const UniformSpherical& coords,Real &rad,Real &phi,Real &z,int 
 template<>
 KOKKOS_INLINE_FUNCTION
 Real CoordSrc1(const UniformCylindrical& coords, const int i){
-  return coords.Dxf<1,1>(i)/coords.Coord_vol_i_(i);
+  const Real rm = coords.template Xf<parthenon::X1DIR>(i);
+  const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
+  const Real denom = rp + rm;
+  return (denom != 0.0) ? (2.0 / denom) : 0.0;
 }
 
 template<>
 KOKKOS_INLINE_FUNCTION
 Real PhySrc1(const UniformCylindrical& coords, const int i){
-  return 1./( coords.Xc<1>(i)*coords.Xf<1>(i) );
+  const Real rc = coords.template Xc<parthenon::X1DIR>(i);
+  const Real rf = coords.template Xf<parthenon::X1DIR>(i);
+  return 1.0 / (rc * rf);
 }
 
 template<>
 KOKKOS_INLINE_FUNCTION
 Real PhySrc2(const UniformCylindrical& coords, const int i){
-  return 1./( coords.Xc<1>(i)*coords.Xf<1>(i+1) );
+  const Real rc = coords.template Xc<parthenon::X1DIR>(i);
+  const Real rf = coords.template Xf<parthenon::X1DIR>(i + 1);
+  return 1.0 / (rc * rf);
 }
 
 template<>
 KOKKOS_INLINE_FUNCTION
 Real CoordSrc1(const UniformSpherical& coords, const int i){
-  const Real rm = coords.Xf<1>(i);
-  const Real rp = coords.Xf<1>(i+1);
+  const Real rm = coords.template Xf<parthenon::X1DIR>(i);
+  const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
   return (0.5*(SQR(rp) - SQR(rm)))/( ONE_3RD*( std::pow(rp,3) - std::pow(rm,3)) );
 }
 
 template<>
 KOKKOS_INLINE_FUNCTION
 Real PhySrc1(const UniformSpherical& coords, const int i){
-  return 1./( SQR(coords.Xc<1>(i)) );
+  const Real rc = coords.template Xc<parthenon::X1DIR>(i);
+  return 1.0 / SQR(rc);
 }
 
 template<>
 KOKKOS_INLINE_FUNCTION
 Real PhySrc2(const UniformSpherical& coords, const int i){
-  return 1./( SQR(coords.Xc<1>(i)) );
+  const Real rc = coords.template Xc<parthenon::X1DIR>(i);
+  return 1.0 / SQR(rc);
 }
 
 
@@ -332,7 +341,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 //----------------------------------------------------------------------------------------
 //! User-defined boundary Conditions: sets solution in ghost zones to initial values
 void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-  std::shared_ptr<MeshBlock> pmb = mbd->GetBlockPointer();
+  auto *pmb = mbd->GetBlockPointer();
   auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
   // TODO(pgrete) Add par_for_bndry to Parthenon without requiring nb
   const auto nb = IndexRange{0, 0};
@@ -342,7 +351,8 @@ void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>>
   if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformCylindrical>::value ){
     pmb->par_for_bndry(
       "DiskBoundary::UniformCylindrical", nb, domain, parthenon::TopologicalElement::CC,
-      coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
+      coarse, false,
+      KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
         const auto &coords = cons.GetCoords();
         Real rad,phi,z;
         GetCylCoord(coords,rad,phi,z,i,j,k);
@@ -359,7 +369,8 @@ void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>>
   } else if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformSpherical>::value ){
     pmb->par_for_bndry(
       "DiskBoundary::UniformSpherical", nb, domain, parthenon::TopologicalElement::CC,
-      coarse, KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
+      coarse, false,
+      KOKKOS_LAMBDA(const int, const int &k, const int &j, const int &i) {
         const auto &coords = cons.GetCoords();
         Real rad,phi,z;
         GetCylCoord(coords,rad,phi,z,i,j,k);
