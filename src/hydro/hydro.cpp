@@ -8,6 +8,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 // Parthenon headers
@@ -38,6 +39,79 @@
 #include "srcterms/geometric_srcterm.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
+#include <cmath>
+
+namespace {
+
+template <typename Coord>
+KOKKOS_INLINE_FUNCTION Real GeometryDlogA(const Coord &coords, const int dir,
+                                          const int i, const int j, const int k) {
+  using parthenon::X1DIR;
+  using parthenon::X2DIR;
+  using parthenon::X3DIR;
+
+  if constexpr (std::is_same_v<Coord, parthenon::UniformCartesian>) {
+    return 0.0;
+  } else if constexpr (std::is_same_v<Coord, parthenon::UniformCylindrical>) {
+    if (dir == X1DIR) {
+      return geometric::detail::CoordSrc1i(coords, i);
+    }
+    return 0.0;
+  } else if constexpr (std::is_same_v<Coord, parthenon::UniformSpherical>) {
+    if (dir == X1DIR) {
+      return geometric::detail::CoordSrc1i(coords, i);
+    }
+    if (dir == X2DIR) {
+      Real theta_c = coords.template Xc<X2DIR>(j);
+      Real rs = geometric::detail::CoordSrc1i(coords, i);
+      Real s = std::sin(theta_c);
+      if (s == 0.0) return 0.0;
+      Real cot_theta = std::cos(theta_c) / s;
+      return rs * cot_theta;
+    }
+    return 0.0;
+  } else {
+    return 0.0;
+  }
+}
+
+KOKKOS_INLINE_FUNCTION Real LimitDlogA(const Real dt, const Real dloga, const Real cell_width,
+                                       const Real cs, const Real vn) {
+  if (dt <= 0.0 || dloga == 0.0 || cell_width <= 0.0 || cs <= 0.0) {
+    return 0.0;
+  }
+  const Real courn = dt / cell_width * (cs + std::abs(vn));
+  const Real denom = cs * dt * std::abs(dloga);
+  if (denom <= 0.0) {
+    return dloga;
+  }
+  const Real eta = std::max(0.0, (1.0 - courn) / denom);
+  const Real limiter = std::min(eta, 1.0);
+  return limiter * dloga;
+}
+
+KOKKOS_INLINE_FUNCTION void ApplyGeometricHalfStep(const Real dt, const Real gamma,
+                                                   const Real dloga, const Real cell_width,
+                                                   Real &rho, const Real vn, Real &pressure) {
+  if (dloga == 0.0) {
+    return;
+  }
+  constexpr Real kFloor = 1e-20;
+  rho = std::max(rho, kFloor);
+  pressure = std::max(pressure, kFloor);
+  const Real cs2 = gamma * pressure / rho;
+  if (cs2 <= 0.0) {
+    return;
+  }
+  const Real cs = std::sqrt(cs2);
+  const Real dlogatmp = LimitDlogA(dt, dloga, cell_width, cs, vn);
+  const Real delta_rho = -0.5 * dt * rho * vn * dlogatmp;
+  const Real delta_p = delta_rho * cs2;
+  rho = std::max(rho + delta_rho, kFloor);
+  pressure = std::max(pressure + delta_p, kFloor);
+}
+
+} // namespace
 
 using namespace parthenon::package::prelude;
 
@@ -231,8 +305,9 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     hydro_pkg->Param<GLMMHD::SourceFun_t>("glmmhd_source")(md, beta_dt);
   }
-  // add geomtric source terms
-  geometric::GeometricSrcTerm(md, beta_dt);
+  if (!hydro_pkg->Param<bool>("flux_geometry_correction")) {
+    geometric::GeometricSrcTerm(md, beta_dt);
+  }
 
   const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
 
@@ -305,6 +380,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<>("fluid", fluid);
   pkg->AddParam<>("nhydro", nhydro);
   pkg->AddParam<>("calc_c_h", calc_c_h);
+  pkg->AddParam<Real>("dt_stage", 0.0, Params::Mutability::Mutable);
+  pkg->AddParam<>("flux_geometry_correction", true);
   // Following params should (currently) be present independent of solver because
   // they're all used in the main loop.
   // TODO(pgrete) think about which approach (selective versus always is preferable)
@@ -1065,6 +1142,12 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
   auto const &prim_in = md->PackVariables(std::vector<std::string>{"prim"});
 
+  const bool use_geom = pkg->Param<bool>("flux_geometry_correction");
+  const Real dt_stage = pkg->Param<Real>("dt_stage");
+  const Real gamma = eos.GetGamma();
+  const int is = ib.s;
+  const int ie = ib.e;
+
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
   const int nx1 = pmb->cellbounds.ncellsi(IndexDomain::entire);
@@ -1088,6 +1171,42 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
+
+        if (use_geom && dt_stage > 0.0) {
+          if constexpr (!std::is_same_v<parthenon::Coordinates_t,
+                                        parthenon::UniformCartesian>) {
+            const auto coords = cons.GetCoords();
+            const Real local_dt = dt_stage;
+            parthenon::par_for_inner(member, is, ie + 1, [&](const int i_face) {
+              const int cell_left = i_face - 1;
+              const int cell_right = i_face;
+
+              const Real dloga_left = GeometryDlogA(coords, parthenon::X1DIR, cell_left, j, k);
+              if (dloga_left != 0.0) {
+                Real rho = wl(IDN, i_face);
+                const Real vn = wl(IV1, i_face);
+                Real pressure = wl(IPR, i_face);
+                const Real dx = coords.Dxc<parthenon::X1DIR>(cell_left);
+                ApplyGeometricHalfStep(local_dt, gamma, dloga_left, dx, rho, vn, pressure);
+                wl(IDN, i_face) = rho;
+                wl(IPR, i_face) = pressure;
+              }
+
+              const Real dloga_right =
+                  GeometryDlogA(coords, parthenon::X1DIR, cell_right, j, k);
+              if (dloga_right != 0.0) {
+                Real rho = wr(IDN, i_face);
+                const Real vn = wr(IV1, i_face);
+                Real pressure = wr(IPR, i_face);
+                const Real dx = coords.Dxc<parthenon::X1DIR>(cell_right);
+                ApplyGeometricHalfStep(local_dt, gamma, dloga_right, dx, rho, vn, pressure);
+                wr(IDN, i_face) = rho;
+                wr(IPR, i_face) = pressure;
+              }
+            });
+            member.team_barrier();
+          }
+        }
 
         riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         member.team_barrier();
@@ -1135,6 +1254,44 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             member.team_barrier();
 
             if (j > jb.s - 1) {
+              if (use_geom && dt_stage > 0.0) {
+                if constexpr (!std::is_same_v<parthenon::Coordinates_t,
+                                              parthenon::UniformCartesian>) {
+                  const auto coords = cons.GetCoords();
+                  const Real local_dt = dt_stage;
+                  parthenon::par_for_inner(member, il, iu, [&](const int i_idx) {
+                    const int cell_left = j - 1;
+                    const int cell_right = j;
+
+                    const Real dloga_left = GeometryDlogA(
+                        coords, parthenon::X2DIR, i_idx, cell_left, k);
+                    if (dloga_left != 0.0) {
+                      Real rho = wl(IDN, i_idx);
+                      const Real vn = wl(IV2, i_idx);
+                      Real pressure = wl(IPR, i_idx);
+                      const Real dy = coords.Dxc<parthenon::X2DIR>(cell_left);
+                      ApplyGeometricHalfStep(local_dt, gamma, dloga_left, dy, rho, vn,
+                                             pressure);
+                      wl(IDN, i_idx) = rho;
+                      wl(IPR, i_idx) = pressure;
+                    }
+
+                    const Real dloga_right = GeometryDlogA(
+                        coords, parthenon::X2DIR, i_idx, cell_right, k);
+                    if (dloga_right != 0.0) {
+                      Real rho = wr(IDN, i_idx);
+                      const Real vn = wr(IV2, i_idx);
+                      Real pressure = wr(IPR, i_idx);
+                      const Real dy = coords.Dxc<parthenon::X2DIR>(cell_right);
+                      ApplyGeometricHalfStep(local_dt, gamma, dloga_right, dy, rho, vn,
+                                             pressure);
+                      wr(IDN, i_idx) = rho;
+                      wr(IPR, i_idx) = pressure;
+                    }
+                  });
+                  member.team_barrier();
+                }
+              }
               riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
               member.team_barrier();
 
@@ -1183,6 +1340,44 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             member.team_barrier();
 
             if (k > kb.s - 1) {
+              if (use_geom && dt_stage > 0.0) {
+                if constexpr (!std::is_same_v<parthenon::Coordinates_t,
+                                              parthenon::UniformCartesian>) {
+                  const auto coords = cons.GetCoords();
+                  const Real local_dt = dt_stage;
+                  parthenon::par_for_inner(member, il, iu, [&](const int i_idx) {
+                    const int cell_left = k - 1;
+                    const int cell_right = k;
+
+                    const Real dloga_left = GeometryDlogA(
+                        coords, parthenon::X3DIR, i_idx, j, cell_left);
+                    if (dloga_left != 0.0) {
+                      Real rho = wl(IDN, i_idx);
+                      const Real vn = wl(IV3, i_idx);
+                      Real pressure = wl(IPR, i_idx);
+                      const Real dz = coords.Dxc<parthenon::X3DIR>(cell_left);
+                      ApplyGeometricHalfStep(local_dt, gamma, dloga_left, dz, rho, vn,
+                                             pressure);
+                      wl(IDN, i_idx) = rho;
+                      wl(IPR, i_idx) = pressure;
+                    }
+
+                    const Real dloga_right = GeometryDlogA(
+                        coords, parthenon::X3DIR, i_idx, j, cell_right);
+                    if (dloga_right != 0.0) {
+                      Real rho = wr(IDN, i_idx);
+                      const Real vn = wr(IV3, i_idx);
+                      Real pressure = wr(IPR, i_idx);
+                      const Real dz = coords.Dxc<parthenon::X3DIR>(cell_right);
+                      ApplyGeometricHalfStep(local_dt, gamma, dloga_right, dz, rho, vn,
+                                             pressure);
+                      wr(IDN, i_idx) = rho;
+                      wr(IPR, i_idx) = pressure;
+                    }
+                  });
+                  member.team_barrier();
+                }
+              }
               riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               member.team_barrier();
 

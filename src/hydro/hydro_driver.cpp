@@ -347,6 +347,8 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
+  const Real stage_dt = integrator->beta[stage - 1] * integrator->dt;
+  hydro_pkg->UpdateParam("dt_stage", stage_dt);
 
   TaskID none(0);
   // Number of task lists that can be executed indepenently and thus *may*

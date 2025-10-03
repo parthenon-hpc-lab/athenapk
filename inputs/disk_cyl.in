@@ -2,8 +2,8 @@
 # Copyright (c) 2020-2023, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
-<comment>
-problem = Keplerian disk in cylindrical coordinates
+#<comment>
+#problem = Keplerian disk in cylindrical coordinates
 
 <job>
 problem_id = disk
@@ -11,25 +11,27 @@ problem_id = disk
 <parthenon/mesh>
 refinement = none
 nghost = 2
-coord = cylindrical
 
+# R
 nx1 = 64
 x1min = 0.5
 x1max = 2.0
 ix1_bc = user
 ox1_bc = user
 
+# z
 nx2 = 256
-x2min = 0.0
-x2max = 6.2831853071795862
-ix2_bc = periodic 
-ox2_bc = periodic 
+x2min = -0.5
+x2max = 0.5
+ix2_bc = user
+ox2_bc = user
 
+# phi
 nx3 = 1
-x3min = -0.5
-x3max = 0.5
-ix3_bc = user
-ox3_bc = user
+x3min = 0.0
+x3max = 6.2831853071795862
+ix3_bc = periodic
+ox3_bc = periodic
 
 <parthenon/meshblock>
 nx1 = 64
@@ -38,7 +40,7 @@ nx3 = 1
 
 <parthenon/output0>
 file_type = hdf5
-dt          = 6.28    # time increment between outputs
+dt          = 0.01
 variables = prim
 id = prim
 use_final_label = false
@@ -52,13 +54,13 @@ use_final_label = false
 integrator = vl2
 cfl = 0.3
 tlim = 628.
-#nlim = 1
 
 <hydro>
 fluid = euler
 eos = adiabatic
 riemann = hlle
 reconstruction = plm
+first_order_flux_correct = true
 gamma           = 1.66666667 # gamma = C_p/C_v
 
 <problem/disk>
@@ -68,4 +70,3 @@ rho0        = 1.0
 p0_over_rho0  = 0.01
 pslope      = -0.5
 dslope      = -2.25
-

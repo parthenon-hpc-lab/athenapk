@@ -56,6 +56,7 @@ Real PoverRho(const Real rad, const Real phi, const Real z);
 KOKKOS_INLINE_FUNCTION
 Real VelProfileCyl(const Real rad, const Real phi, const Real z);
 
+
 class StratifiedDisk {
  public:
   StratifiedDisk() {}
@@ -194,6 +195,7 @@ KOKKOS_INLINE_FUNCTION Real PhySrc2(const UniformSpherical &coords, const int i)
   return 1.0 / SQR(rc);
 }
 
+
 template <class Coords>
 void PointMassSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                       const Real beta_dt_) {
@@ -227,9 +229,21 @@ void PointMassSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
         Real src = beta_dt * den * CoordSrc1(coords, i) * gm0 / coords.Xc<1>(i);
         cons(IM1, k, j, i) -= src;
         cons(IEN, k, j, i) -=
-            beta_dt * 0.5 *
-            (PhySrc1(coords, i) * cons.flux(X1DIR, IDN, k, j, i) * gm0 +
-             PhySrc2(coords, i) * cons.flux(X1DIR, IDN, k, j, i + 1) * gm0);
+            beta_dt * 0.5 * (PhySrc1(coords, i) * cons.flux(X1DIR, IDN, k, j, i) * gm0 +
+                             PhySrc2(coords, i) * cons.flux(X1DIR, IDN, k, j, i + 1) * gm0);
+
+        if constexpr (std::is_same<Coords, parthenon::UniformCylindrical>::value) {
+          const Real R = coords.Xc<X1DIR>(i);
+          const Real zc = coords.Xc<X3DIR>(k);
+          const Real r2 = R * R + zc * zc;
+          if (r2 > 0.0) {
+            const Real accel_z = -gm0 * zc / (r2 * std::sqrt(r2));
+            const Real m3_old = cons(IM3, k, j, i);
+            cons(IM3, k, j, i) += beta_dt * den * accel_z;
+            const Real m3_new = cons(IM3, k, j, i);
+            cons(IEN, k, j, i) += 0.5 * (SQR(m3_new) - SQR(m3_old)) / den;
+          }
+        }
       });
 }
 
@@ -314,6 +328,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IEN, k, j, i) +=
             0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
             u(IDN, k, j, i);
+
       }
     }
   }
@@ -323,6 +338,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   return;
 }
+
+
 
 //----------------------------------------------------------------------------------------
 //! User-defined boundary Conditions: sets solution in ghost zones to initial values
