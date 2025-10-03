@@ -29,9 +29,9 @@
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
-#include <globals.hpp>
 #include "utils/error_checking.hpp"
 #include "utils/interpolation.hpp"
+#include <globals.hpp>
 
 // AthenaPK headers
 #include "../main.hpp"

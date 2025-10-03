@@ -18,7 +18,6 @@
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
 #include <parthenon/package.hpp>
-#include <fstream>
 
 // Athena headers
 #include "../../eos/adiabatic_glmmhd.hpp"

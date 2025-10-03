@@ -65,7 +65,8 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
       wri[IV3] = wr(ivz, i);
       wri[IPR] = wr(IPR, i);
 
-      // Changes from Upstream Public AthenaPK to compute wavespeeds from Roe-averaged states.
+      // Changes from Upstream Public AthenaPK to compute wavespeeds from Roe-averaged
+      // states.
       //--- Step 2.  Compute Roe-averaged state
       Real sqrtdl = std::sqrt(wli[IDN]);
       Real sqrtdr = std::sqrt(wri[IDN]);

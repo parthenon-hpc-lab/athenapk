@@ -129,8 +129,9 @@ int main(int argc, char *argv[]) {
         [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
           disk::DiskBoundary(IndexDomain::outer_x1, mbd, coarse);
         });
-    if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformCylindrical>::value ){
-      //Fixed z-boundary 
+    if constexpr (std::is_same<parthenon::Coordinates_t,
+                               parthenon::UniformCylindrical>::value) {
+      // Fixed z-boundary
       pman.app_input->RegisterBoundaryCondition(
           parthenon::BoundaryFace::inner_x3,
           [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
@@ -141,8 +142,9 @@ int main(int argc, char *argv[]) {
           [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
             disk::DiskBoundary(IndexDomain::outer_x3, mbd, coarse);
           });
-    } else if constexpr (std::is_same<parthenon::Coordinates_t,parthenon::UniformSpherical>::value ){
-      //Fixed theta-boundary
+    } else if constexpr (std::is_same<parthenon::Coordinates_t,
+                                      parthenon::UniformSpherical>::value) {
+      // Fixed theta-boundary
       pman.app_input->RegisterBoundaryCondition(
           parthenon::BoundaryFace::inner_x2,
           [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
@@ -154,8 +156,7 @@ int main(int argc, char *argv[]) {
             disk::DiskBoundary(IndexDomain::outer_x2, mbd, coarse);
           });
     }
-  }
-  else {
+  } else {
     // parthenon throw error message for the invalid problem
     std::stringstream msg;
     msg << "Problem ID '" << problem << "' is not implemented yet.";
