@@ -77,14 +77,6 @@ else()
   find_package(parthenon REQUIRED)
 endif()
 
-if(TARGET parthenon)
-  # Inject a pre-include shim so Parthenon can build against older bundled
-  # Kokkos releases lacking the SequentialHostInit allocation property.
-  target_compile_options(parthenon PUBLIC
-    -include
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/kokkos_sequential_host_init_shim.hpp)
-endif()
-
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(src)
 
