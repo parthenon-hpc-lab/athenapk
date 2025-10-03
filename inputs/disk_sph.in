@@ -38,13 +38,13 @@ nx3 = 256
 
 <parthenon/output0>
 file_type = hdf5
-dt =  6.28
+dt =  0.01
 variables = prim
 id = prim
 
 <parthenon/time>
-integrator = vl2
-cfl = 0.3
+integrator = rk2
+cfl = 0.2
 tlim = 628.
 nlim = -1
 
@@ -53,6 +53,7 @@ fluid = euler
 eos = adiabatic
 riemann = hlle
 reconstruction = plm
+first_order_flux_correct = true
 gamma           = 1.66666667 # gamma = C_p/C_v
 
 <problem/disk>
