@@ -133,14 +133,14 @@ int main(int argc, char *argv[]) {
                                parthenon::UniformCylindrical>::value) {
       // Fixed z-boundary
       pman.app_input->RegisterBoundaryCondition(
-          parthenon::BoundaryFace::inner_x2,
+          parthenon::BoundaryFace::inner_x3,
           [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-            disk::DiskBoundary(IndexDomain::inner_x2, mbd, coarse);
+            disk::DiskBoundary(IndexDomain::inner_x3, mbd, coarse);
           });
       pman.app_input->RegisterBoundaryCondition(
-          parthenon::BoundaryFace::outer_x2,
+          parthenon::BoundaryFace::outer_x3,
           [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-            disk::DiskBoundary(IndexDomain::outer_x2, mbd, coarse);
+            disk::DiskBoundary(IndexDomain::outer_x3, mbd, coarse);
           });
     } else if constexpr (std::is_same<parthenon::Coordinates_t,
                                       parthenon::UniformSpherical>::value) {
