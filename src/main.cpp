@@ -119,43 +119,6 @@ int main(int argc, char *argv[]) {
     pman.app_input->InitUserMeshData = disk::InitUserMeshData;
     pman.app_input->ProblemGenerator = disk::ProblemGenerator;
     Hydro::ProblemSourceUnsplit = disk::DiskUnsplitSrcTerm;
-    pman.app_input->RegisterBoundaryCondition(
-        parthenon::BoundaryFace::inner_x1,
-        [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-          disk::DiskBoundary(IndexDomain::inner_x1, mbd, coarse);
-        });
-    pman.app_input->RegisterBoundaryCondition(
-        parthenon::BoundaryFace::outer_x1,
-        [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-          disk::DiskBoundary(IndexDomain::outer_x1, mbd, coarse);
-        });
-    if constexpr (std::is_same<parthenon::Coordinates_t,
-                               parthenon::UniformCylindrical>::value) {
-      // Fixed z-boundary
-      pman.app_input->RegisterBoundaryCondition(
-          parthenon::BoundaryFace::inner_x3,
-          [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-            disk::DiskBoundary(IndexDomain::inner_x3, mbd, coarse);
-          });
-      pman.app_input->RegisterBoundaryCondition(
-          parthenon::BoundaryFace::outer_x3,
-          [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-            disk::DiskBoundary(IndexDomain::outer_x3, mbd, coarse);
-          });
-    } else if constexpr (std::is_same<parthenon::Coordinates_t,
-                                      parthenon::UniformSpherical>::value) {
-      // Fixed theta-boundary
-      pman.app_input->RegisterBoundaryCondition(
-          parthenon::BoundaryFace::inner_x2,
-          [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-            disk::DiskBoundary(IndexDomain::inner_x2, mbd, coarse);
-          });
-      pman.app_input->RegisterBoundaryCondition(
-          parthenon::BoundaryFace::outer_x2,
-          [](std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-            disk::DiskBoundary(IndexDomain::outer_x2, mbd, coarse);
-          });
-    }
   } else {
     // parthenon throw error message for the invalid problem
     std::stringstream msg;

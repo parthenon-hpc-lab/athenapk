@@ -16,14 +16,14 @@ coord = spherical
 nx1 = 64
 x1min = 0.5
 x1max = 2.0
-ix1_bc = user
-ox1_bc = user
+ix1_bc = reflecting
+ox1_bc = reflecting
 
 nx2 = 32
 x2min       = 1.2458
 x2max       = 1.8958
-ix2_bc = user
-ox2_bc = user
+ix2_bc = reflecting
+ox2_bc = reflecting
 
 nx3 = 256
 x3min = 0
