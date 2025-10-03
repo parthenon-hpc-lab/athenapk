@@ -32,9 +32,9 @@ ix3_bc      = periodic
 ox3_bc      = periodic
 
 <parthenon/meshblock>
-nx1 = 64
+nx1 = 32
 nx2 = 32
-nx3 = 256
+nx3 = 32
 
 <parthenon/output0>
 file_type = hdf5
