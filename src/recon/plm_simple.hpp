@@ -40,7 +40,6 @@ void PLM(const Real &q_im1, const Real &q_i, const Real &q_ip1, Real &ql_ip1,
   qr_i = q_i - dqm;
 }
 
-
 // Curvilinear PLM reconstruction which heavily borrows from Athena++'s
 // Reconstruction::PiecewiseLinearX functions in src/reconstruct/plm_simple.cpp
 KOKKOS_INLINE_FUNCTION
@@ -62,14 +61,14 @@ void PLM(const Real &q_im1, const Real &q_i, const Real &q_ip1, Real &ql_ip1, Re
   Real cb = dxc_m / (xc - xf);
   // (modified) VL limiter (Mignone eq 37)
   // (dQ^F term from eq 31 pulled into eq 37, then multiply by (dQ^F/dQ^F)^2)
-  Real dqm = (dq2 * (cf * dqB + cb * dqF) /
-              (SQR(dqB) + SQR(dqF) + dq2 * (cf + cb - 2.0)));
+  Real dqm =
+      (dq2 * (cf * dqB + cb * dqF) / (SQR(dqB) + SQR(dqF) + dq2 * (cf + cb - 2.0)));
   if (dq2 <= 0.0) dqm = 0.0; // ---> no concern for divide-by-0 in above line
 
   // Real v = dqB/dqF;
   // monotoniced central (MC) limiter (Mignone eq 38)
   // (std::min calls should avoid issue if divide-by-zero causes v=Inf)
-  //dqm(n,i) = dqF*std::max(0.0, std::min(0.5*(1.0 + v), std::min(cf, cb*v)));
+  // dqm(n,i) = dqF*std::max(0.0, std::min(0.5*(1.0 + v), std::min(cf, cb*v)));
 
   // compute ql_(i+1/2) and qr_(i-1/2) using limited slopes
   ql_ip1 = q_i + ((xf_p - xc) / dxf) * dqm;
@@ -96,7 +95,8 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
       if constexpr (std::is_same<Coordinates_t, parthenon::UniformCartesian>::value) {
         if constexpr (XNDIR == X1DIR) {
           // ql is ql_ip1 and qr is qr_i
-          PLM(q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1), ql(n, i + 1), qr(n, i));
+          PLM(q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1), ql(n, i + 1),
+              qr(n, i));
         } else if constexpr (XNDIR == X2DIR) {
           // ql is ql_jp1 and qr is qr_j
           PLM(q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i), ql(n, i), qr(n, i));

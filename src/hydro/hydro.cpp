@@ -892,13 +892,11 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
             fmin(min_dt, coords.CellWidth<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
         if (ndim > 1) {
           min_dt =
-              fmin(min_dt,
-                   coords.CellWidth<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
+              fmin(min_dt, coords.CellWidth<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
         }
         if (ndim > 2) {
           min_dt =
-              fmin(min_dt,
-                   coords.CellWidth<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
+              fmin(min_dt, coords.CellWidth<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
         }
       },
       Kokkos::Min<Real>(min_dt_hyperbolic));

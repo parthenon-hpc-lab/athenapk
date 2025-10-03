@@ -90,7 +90,7 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   const int ndim = pmb->pmy_mesh->ndim;
   const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
-  //const auto &viscosity  = hydro_pkg->Param<Viscosity>("viscosity");
+  // const auto &viscosity  = hydro_pkg->Param<Viscosity>("viscosity");
 
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
