@@ -145,7 +145,11 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           const Real cmMcp = abs(cos(coords.Xf<X2DIR>(j)) - cos(coords.Xf<X2DIR>(j + 1)));
 
           const Real coord_src1_t = (sp - sm) / cmMcp;
-          const Real coord_src2_t = coord_src1_t / (sm + sp);
+          const Real denom = sm + sp;
+          Real coord_src2_t = 0.0;
+          if (denom != 0.0) {
+            coord_src2_t = coord_src1_t / denom;
+          }
 
           Real m_pp = prim(IDN, k, j, i) * SQR(prim(IM3, k, j, i));
           m_pp += prim(IEN, k, j, i);
@@ -162,9 +166,11 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
           cons(IM2, k, j, i) += beta_dt * coord_src1_r * coord_src1_t * m_pp;
           if (ndim > 1) {
-            cons(IM3, k, j, i) -= beta_dt * coord_src1_r * coord_src2_t *
-                                  (sm * cons.flux(X2DIR, IM3, k, j, i) +
-                                   sp * cons.flux(X2DIR, IM3, k, j + 1, i));
+            if (denom != 0.0) {
+              cons(IM3, k, j, i) -= beta_dt * coord_src1_r * coord_src2_t *
+                                    (sm * cons.flux(X2DIR, IM3, k, j, i) +
+                                     sp * cons.flux(X2DIR, IM3, k, j + 1, i));
+            }
           } else {
             Real m_ph = prim(IDN, k, j, i) * prim(IM3, k, j, i) * prim(IM2, k, j, i);
             if (mhd_enabled) {
