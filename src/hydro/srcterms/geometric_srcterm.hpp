@@ -65,13 +65,17 @@ KOKKOS_INLINE_FUNCTION parthenon::Real CoordSrc2i(const Coord &coords, const int
   } else if constexpr (std::is_same_v<CoordT, parthenon::UniformCylindrical>) {
     const Real rm = coords.template Xf<parthenon::X1DIR>(i);
     const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
-    const Real denom = rp * rp - rm * rm;
-    return (denom != 0.0) ? (1.0 / denom) : 0.0;
+    const Real dr = rp - rm;
+    const Real volume = 0.5 * (rp * rp - rm * rm);
+    const Real denom = (rp + rm) * volume;
+    return (denom != 0.0) ? (dr / denom) : 0.0;
   } else if constexpr (std::is_same_v<CoordT, parthenon::UniformSpherical>) {
     const Real rm = coords.template Xf<parthenon::X1DIR>(i);
     const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
-    const Real denom = rp * rp * rp - rm * rm * rm;
-    return (denom != 0.0) ? (3.0 / denom) : 0.0;
+    const Real dr = rp - rm;
+    const Real volume = (1.0 / 3.0) * (rp * rp * rp - rm * rm * rm);
+    const Real denom = (rp + rm) * volume;
+    return (denom != 0.0) ? (dr / denom) : 0.0;
   } else {
     return 0.0;
   }
