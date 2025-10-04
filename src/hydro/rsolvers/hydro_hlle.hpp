@@ -65,8 +65,6 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
       wri[IV3] = wr(ivz, i);
       wri[IPR] = wr(IPR, i);
 
-      // Changes from Upstream Public AthenaPK to compute wavespeeds from Roe-averaged
-      // states.
       //--- Step 2.  Compute Roe-averaged state
       Real sqrtdl = std::sqrt(wli[IDN]);
       Real sqrtdr = std::sqrt(wri[IDN]);
@@ -77,7 +75,7 @@ struct Riemann<Fluid::euler, RiemannSolver::hlle> {
       wroe[IV2] = (sqrtdl * wli[IV2] + sqrtdr * wri[IV2]) * isdlpdr;
       wroe[IV3] = (sqrtdl * wli[IV3] + sqrtdr * wri[IV3]) * isdlpdr;
 
-      // Following Roe (1981), the enthalpy H=(E+P)/d is averaged for adiabatic flows,
+      // Following Roe(1981), the enthalpy H=(E+P)/d is averaged for adiabatic flows,
       // rather than E or P directly.  sqrtdl*hl = sqrtdl*(el+pl)/dl = (el+pl)/sqrtdl
       const Real el = wli[IPR] * igm1 +
                       0.5 * wli[IDN] * (SQR(wli[IV1]) + SQR(wli[IV2]) + SQR(wli[IV3]));
