@@ -126,9 +126,10 @@ PRhoProfile<GravitationalField, EntropyProfile>
 HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
     IndexRange ib, IndexRange jb, IndexRange kb, parthenon::Coordinates_t coords) const {
 
-  PARTHENON_REQUIRE(typeid(parthenon::Coordinates_t) == typeid(parthenon::UniformCartesian),
-		    "Non-cartesian coords not implemented!");
-  
+  PARTHENON_REQUIRE(typeid(parthenon::Coordinates_t) ==
+                        typeid(parthenon::UniformCartesian),
+                    "Non-cartesian coords not implemented!");
+
   /************************************************************
    * Define R mesh to integrate pressure along
    *
