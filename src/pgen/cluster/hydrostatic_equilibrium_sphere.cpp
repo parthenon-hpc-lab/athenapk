@@ -15,7 +15,7 @@
 #include <limits>
 
 // Parthenon headers
-#include <coordinates/uniform_cartesian.hpp>
+#include <coordinates/coordinates.hpp>
 #include <globals.hpp>
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
@@ -124,9 +124,11 @@ std::ostream &PRhoProfile<GravitationalField, EntropyProfile>::write_to_ostream(
 template <typename GravitationalField, typename EntropyProfile>
 PRhoProfile<GravitationalField, EntropyProfile>
 HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
-    IndexRange ib, IndexRange jb, IndexRange kb,
-    parthenon::UniformCartesian coords) const {
+    IndexRange ib, IndexRange jb, IndexRange kb, parthenon::Coordinates_t coords) const {
 
+  PARTHENON_REQUIRE(typeid(parthenon::Coordinates_t) == typeid(parthenon::UniformCartesian),
+		    "Non-cartesian coords not implemented!");
+  
   /************************************************************
    * Define R mesh to integrate pressure along
    *
