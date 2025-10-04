@@ -9,6 +9,7 @@
 //  \brief Class for initializing a sphere in hydrostatic equiblibrium
 
 // Parthenon headers
+#include <coordinates/coordinates.hpp>
 #include <mesh/domain.hpp>
 #include <parameter_input.hpp>
 
@@ -138,8 +139,7 @@ class HydrostaticEquilibriumSphere {
 
   PRhoProfile<GravitationalField, EntropyProfile>
   generate_P_rho_profile(parthenon::IndexRange ib, parthenon::IndexRange jb,
-                         parthenon::IndexRange kb,
-                         parthenon::UniformCartesian coords) const;
+                         parthenon::IndexRange kb, parthenon::Coordinates_t coords) const;
 
   PRhoProfile<GravitationalField, EntropyProfile>
   generate_P_rho_profile(const parthenon::Real r_start, const parthenon::Real r_end,

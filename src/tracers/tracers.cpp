@@ -32,6 +32,7 @@
 #include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 #include "utils/interpolation.hpp"
+#include <globals.hpp>
 
 // AthenaPK headers
 #include "../main.hpp"

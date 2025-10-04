@@ -4,6 +4,17 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+// © 2024. Triad National Security, LLC. All rights reserved.
+//
+// This program was produced under U.S. Government contract 89233218CNA000001 for Los
+// Alamos National Laboratory (LANL), which is operated by Triad National Security, LLC
+// for the U.S. Department of Energy/National Nuclear Security Administration. All rights
+// in the program are reserved by Triad National Security, LLC, and the U.S. Department of
+// Energy/National Nuclear Security Administration. The Government is granted for itself
+// and others acting on its behalf a nonexclusive, paid-up, irrevocable worldwide license
+// in this material to reproduce, prepare. derivative works, distribute copies to the
+// public, perform publicly and display publicly, and to permit others to do so.
+
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -39,6 +50,7 @@
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
+#include "srcterms/geometric_srcterm.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
 #include "utils/reductions.hpp"
@@ -235,6 +247,9 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     hydro_pkg->Param<GLMMHD::SourceFun_t>("glmmhd_source")(md, beta_dt);
   }
+  // add geomtric source terms
+  geometric::GeometricSrcTerm(md, beta_dt);
+
   const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
 
   if (enable_cooling == Cooling::tabular) {
@@ -916,14 +931,14 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
           PARTHENON_FAIL("Unknown fluid in EstimateTimestep");
         }
         min_dt.value =
-            fmin(min_dt.value, coords.Dxc<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
+            fmin(min_dt.value, coords.CellWidth<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
         if (ndim > 1) {
           min_dt.value =
-              fmin(min_dt.value, coords.Dxc<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
+              fmin(min_dt.value, coords.CellWidth<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
         }
         if (ndim > 2) {
           min_dt.value =
-              fmin(min_dt.value, coords.Dxc<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
+              fmin(min_dt.value, coords.CellWidth<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
         }
 
         CellPrimValues this_cell{w[IDN], w[IV1], w[IV2], w[IV3], w[IPR], B1, B2, B3};
