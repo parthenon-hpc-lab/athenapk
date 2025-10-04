@@ -4,8 +4,8 @@
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file disk.cpp
-//! \brief Initializes stratified Keplerian accretion disk in cylindrical and
-//! spherical polar coordinates.  Initial conditions are in vertical hydrostatic eqm.
+//! \brief Initializes stratified Keplerian accretion disk on spherical polar grids.
+//! Initial conditions are computed assuming vertical hydrostatic equilibrium.
 //!
 //! Heavily borrows from the disk problem in Athena++ in src/pgen/disk.cpp
 
@@ -28,7 +28,6 @@
 namespace disk {
 using namespace parthenon::driver::prelude;
 using parthenon::UniformCartesian;
-using parthenon::UniformCylindrical;
 using parthenon::UniformSpherical;
 using parthenon::X1DIR;
 using parthenon::X2DIR;
@@ -137,42 +136,11 @@ KOKKOS_INLINE_FUNCTION Real PhySrc2(const UniformCartesian &, const int) {
 }
 
 template <>
-KOKKOS_INLINE_FUNCTION void GetCylCoord(const UniformCylindrical &coords, Real &rad,
-                                        Real &phi, Real &z, int i, int j, int k) {
-  rad = coords.Xc<X1DIR>(i);
-  phi = coords.Xc<X2DIR>(j);
-  z = coords.Xc<X3DIR>(k);
-}
-
-template <>
 KOKKOS_INLINE_FUNCTION void GetCylCoord(const UniformSpherical &coords, Real &rad,
                                         Real &phi, Real &z, int i, int j, int k) {
-  // FIXME(forrestglines): These coordinates are dubious
   rad = std::abs(coords.Xc<X1DIR>(i) * std::sin(coords.Xc<X2DIR>(j)));
-  phi = coords.Xc<X3DIR>(i);
   z = coords.Xc<X1DIR>(i) * std::cos(coords.Xc<X2DIR>(j));
-}
-
-template <>
-KOKKOS_INLINE_FUNCTION Real CoordSrc1(const UniformCylindrical &coords, const int i) {
-  const Real rm = coords.template Xf<parthenon::X1DIR>(i);
-  const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
-  const Real denom = rp + rm;
-  return (denom != 0.0) ? (2.0 / denom) : 0.0;
-}
-
-template <>
-KOKKOS_INLINE_FUNCTION Real PhySrc1(const UniformCylindrical &coords, const int i) {
-  const Real rc = coords.template Xc<parthenon::X1DIR>(i);
-  const Real rf = coords.template Xf<parthenon::X1DIR>(i);
-  return 1.0 / (rc * rf);
-}
-
-template <>
-KOKKOS_INLINE_FUNCTION Real PhySrc2(const UniformCylindrical &coords, const int i) {
-  const Real rc = coords.template Xc<parthenon::X1DIR>(i);
-  const Real rf = coords.template Xf<parthenon::X1DIR>(i + 1);
-  return 1.0 / (rc * rf);
+  phi = coords.Xc<X3DIR>(k);
 }
 
 template <>
@@ -252,10 +220,9 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   sd = StratifiedDisk(pin);
   gamma_m1 = pin->GetReal("hydro", "gamma") - 1.0;
 
-  PARTHENON_REQUIRE(
-      (std::is_same<parthenon::Coordinates_t, parthenon::UniformCylindrical>::value) ||
-          (std::is_same<parthenon::Coordinates_t, parthenon::UniformSpherical>::value),
-      "disk pgen requires AthenaPK compiled for UniformCylindrical or UniformSpherical");
+  if (!std::is_same<parthenon::Coordinates_t, parthenon::UniformSpherical>::value) {
+    PARTHENON_FAIL("disk pgen requires AthenaPK compiled for UniformSpherical");
+  }
 }
 
 //========================================================================================
@@ -297,11 +264,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         u(IDN, k, j, i) = den;
         u(IM1, k, j, i) = 0.0;
         if constexpr (std::is_same<parthenon::Coordinates_t,
-                                   parthenon::UniformCylindrical>::value) {
-          u(IM2, k, j, i) = den * vel;
-          u(IM3, k, j, i) = 0.0;
-        } else if constexpr (std::is_same<parthenon::Coordinates_t,
-                                          parthenon::UniformSpherical>::value) {
+                                   parthenon::UniformSpherical>::value) {
           u(IM2, k, j, i) = 0.0;
           u(IM3, k, j, i) = den * vel;
         } else {

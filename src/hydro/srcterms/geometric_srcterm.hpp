@@ -4,11 +4,7 @@
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file geometric_srcterm.hpp
-//  \brief Defines geometric source terms for cylindrical and spherical grid
-//
-//  The cylindrical source term heavily borrows from the
-//  Cylindrical::AddCoordTermsDivergence  in Athena++ in
-//  src/coordinates/cylindrical.cpp
+//  \brief Defines geometric source terms for spherical grids
 //
 //  The spherical source term heavily borrows from the
 //  SphericalPolar::AddCoordTermsDivergence  in Athena++ in
@@ -41,11 +37,6 @@ KOKKOS_INLINE_FUNCTION parthenon::Real CoordSrc1i(const Coord &coords, const int
   using CoordT = std::decay_t<Coord>;
   if constexpr (std::is_same_v<CoordT, parthenon::UniformCartesian>) {
     return 0.0;
-  } else if constexpr (std::is_same_v<CoordT, parthenon::UniformCylindrical>) {
-    const Real rm = coords.template Xf<parthenon::X1DIR>(i);
-    const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
-    const Real denom = rp + rm;
-    return (denom != 0.0) ? (2.0 / denom) : 0.0;
   } else if constexpr (std::is_same_v<CoordT, parthenon::UniformSpherical>) {
     const Real rm = coords.template Xf<parthenon::X1DIR>(i);
     const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
@@ -62,13 +53,6 @@ KOKKOS_INLINE_FUNCTION parthenon::Real CoordSrc2i(const Coord &coords, const int
   using CoordT = std::decay_t<Coord>;
   if constexpr (std::is_same_v<CoordT, parthenon::UniformCartesian>) {
     return 0.0;
-  } else if constexpr (std::is_same_v<CoordT, parthenon::UniformCylindrical>) {
-    const Real rm = coords.template Xf<parthenon::X1DIR>(i);
-    const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
-    const Real dr = rp - rm;
-    const Real volume = 0.5 * (rp * rp - rm * rm);
-    const Real denom = (rp + rm) * volume;
-    return (denom != 0.0) ? (dr / denom) : 0.0;
   } else if constexpr (std::is_same_v<CoordT, parthenon::UniformSpherical>) {
     const Real rm = coords.template Xf<parthenon::X1DIR>(i);
     const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
@@ -115,49 +99,7 @@ void GeometricSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   // const to &visflx_pack = md->PackVariables(std::vector<std::string>{"visflx"});
 
   if constexpr (std::is_same<parthenon::Coordinates_t,
-                             parthenon::UniformCylindrical>::value) {
-    parthenon::par_for(
-        DEFAULT_LOOP_PATTERN, "GeometricSrcTerm::UniformCylindrical",
-        parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e,
-        ib.s, ib.e,
-        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-          // Add the geometric source terms to the momentum equations following Skinner &
-          // Ostriker 2010
-          auto &cons = cons_pack(b);
-          auto &prim = prim_pack(b);
-          const auto &coords = cons_pack.GetCoords(b);
-          // Skinner & Ostriker 2010 Eq. 11a
-          // src_r = <M_phiphi><1/r>
-          // M_phiphi = rho * v_phi^2 - B_phi^2 + P + |B|^2/2
-          // P* = P + |B|^2/2
-          Real m_pp = prim(IDN, k, j, i) * SQR(prim(IV2, k, j, i));
-          m_pp += prim(IPR, k, j, i); // for adiabatic case
-          if (mhd_enabled) {
-            //|B|^2/2 - B_phi^2
-            m_pp += 0.5 * (SQR(prim(IB1, k, j, i)) - SQR(prim(IB2, k, j, i)) +
-                           SQR(prim(IB3, k, j, i)));
-          }
-          // TO-DO list
-          // if (!STS_ENABLED) {
-          // if (useVisc) {
-          //  auto &visflx = visflx_pack(b);
-          //  int jp1=j+ndim/2;
-          //  m_pp += 0.5*(visflx(0,k,jp1,i) + visflx(0,k,j,i)); //[X2DIR](IM2,k,j,i)
-          //}
-          // }
-
-          cons(IM1, k, j, i) += beta_dt * m_pp * detail::CoordSrc1i(coords, i);
-
-          const Real x_i = coords.Xf<X1DIR>(i);
-          const Real x_ip1 = coords.Xf<X1DIR>(i + 1);
-
-          // Stone et. al. 2020 Eq. 18
-          cons(IM2, k, j, i) -= beta_dt * detail::CoordSrc2i(coords, i) *
-                                (x_i * cons.flux(X1DIR, IM2, k, j, i) +
-                                 x_ip1 * cons.flux(X1DIR, IM2, k, j, i + 1));
-        });
-  } else if constexpr (std::is_same<parthenon::Coordinates_t,
-                                    parthenon::UniformSpherical>::value) {
+                             parthenon::UniformSpherical>::value) {
     parthenon::par_for(
         DEFAULT_LOOP_PATTERN, "GeometricSrcTerm", parthenon::DevExecSpace(), 0,
         cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
