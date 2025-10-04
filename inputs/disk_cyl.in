@@ -16,8 +16,8 @@ coord = cylindrical
 nx1 = 64
 x1min = 0.5
 x1max = 2.0
-ix1_bc = user
-ox1_bc = user
+ix1_bc = reflecting
+ox1_bc = reflecting
 
 nx2 = 256
 x2min = 0.0
@@ -25,20 +25,20 @@ x2max = 6.2831853071795862
 ix2_bc = periodic 
 ox2_bc = periodic 
 
-nx3 = 1
+nx3 = 32
 x3min = -0.5
 x3max = 0.5
-ix3_bc = user
-ox3_bc = user
+ix3_bc = reflecting
+ox3_bc = reflecting
 
 <parthenon/meshblock>
-nx1 = 64
-nx2 = 256
-nx3 = 1
+nx1 = 32
+nx2 = 32
+nx3 = 32
 
 <parthenon/output0>
 file_type = hdf5
-dt          = 6.28    # time increment between outputs
+dt          = 0.01
 variables = prim
 id = prim
 use_final_label = false
