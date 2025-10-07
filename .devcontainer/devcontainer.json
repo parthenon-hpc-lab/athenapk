@@ -2,6 +2,10 @@
     {
       "name": "athenapk-dev",
       "image": "ghcr.io/parthenon-hpc-lab/cuda12.8-mpi-hdf5-opmd",
+      // Somehow required to make GPUs work inside docker on the CI machine.
+      // Just passing the runtime and/or --gpus=all works initially but then
+      // the GPU disappears in the active container.
+      "runArgs": ["--privileged"],
       "hostRequirements": {
         "cpus": 4
       },
@@ -20,7 +24,8 @@
             "tomoki1207.pdf",
             "ms-vscode.cmake-tools",
             "ms-vsliveshare.vsliveshare",
-            "xaver.clang-format"
+            "xaver.clang-format",
+            "ms-python.black-formatter"
         ]
         }
       },
