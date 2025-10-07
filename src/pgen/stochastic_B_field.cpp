@@ -43,11 +43,9 @@ int Nx, Ny, Nz;
 int Ntot; 
 std::vector<double> Bx_real, By_real, Bz_real;
 
-// Define power-spectrum for the B field - Normalization is set by B_rms in the input file
-//double PowerSpectrum(double k, double k0, double n_spectrum) {
-//    return std::pow(k/k0, -n_spectrum);
-//}
-
+// Define the desired power-spectrum E_k. It is defined such that 
+// E = \int_0^\inf E_k dk. Thus, it is related to |B(k)| via
+// E_k = 4 \pi |B(k)|^2 k^2.
 double PowerSpectrum(double k, double kI, double n1, double n2,
                                       double alpha) {
     // Smooth double power law with 
@@ -151,8 +149,8 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
               if (i==0 && j==0 && k==0)
                   continue;
               
-              // --- amplitude scaled for desired power spectrum ---
-              double amplitude = std::sqrt(PowerSpectrum(kmag, kI_phys, n1, n2, alpha));
+              // --- amplitude scaled for desired power spectrum. Normalization is arbitrary rn. Will be set after fourier transform. ---
+              double amplitude = std::sqrt(PowerSpectrum(kmag, kI_phys, n1, n2, alpha)) / kmag ;
 
               // --- random phase ---
               double phi1 = dist_phase(rng);
