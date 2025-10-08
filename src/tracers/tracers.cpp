@@ -162,6 +162,29 @@ CheckAccretionRemoval(View4D prim, const Coordinates_t &coords,
   return (vr < 0.0);
 }
 
+template <typename View5D>
+KOKKOS_INLINE_FUNCTION Real InterpFvelX(const View5D fvel_pack, const int k, const int j, const int i, const Real delta_x_over_dx) {
+  // left face at i, right face at i+1
+  const auto fvel_x_lft = fvel_pack(TE::F1, 0, k, j, i);
+  const auto fvel_x_rgt = fvel_pack(TE::F1, 0, k, j, i + 1);
+  return (1.0 - delta_x_over_dx) * fvel_x_lft + delta_x_over_dx * fvel_x_rgt;
+}
+
+template <typename View5D>
+KOKKOS_INLINE_FUNCTION Real InterpFvelY(const View5D &fvel_pack, const int k, const int j, const int i, const Real delta_y_over_dy) {
+  // left face at j, right face at j+1 (note ordering in fvel_pack: TE::F2, 0, k, j, i)
+  const auto fvel_y_lft = fvel_pack(TE::F2, 0, k, j, i);
+  const auto fvel_y_rgt = fvel_pack(TE::F2, 0, k, j + 1, i);
+  return (1.0 - delta_y_over_dy) * fvel_y_lft + delta_y_over_dy * fvel_y_rgt;
+}
+
+template <typename View5D>
+KOKKOS_INLINE_FUNCTION Real InterpFvelZ(const View5D &fvel_pack, const int k, const int j, const int i, const Real delta_z_over_dz) {
+  // left face at k, right face at k+1 (TE::F3, 0, k, j, i)
+  const auto fvel_z_lft = fvel_pack(TE::F3, 0, k, j, i);
+  const auto fvel_z_rgt = fvel_pack(TE::F3, 0, k + 1, j, i);
+  return (1.0 - delta_z_over_dz) * fvel_z_lft + delta_z_over_dz * fvel_z_rgt;
+}
 
 /* ===============================================================================
 Initialize: reads the input parameters, create the tracer package and create the
@@ -1006,52 +1029,69 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
               }
             } else if (advection_method == AdvectMethod::Flux) {
 
+              // Current cell indices for the particle
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-              // Extracting the velocities of the left and right faces
-              // x-direction
-              const auto fvel_x_lft = fvel_pack(TE::F1, 0, k, j, i);
-              const auto fvel_x_rgt = fvel_pack(TE::F1, 0, k, j, i + 1);
-
-              // y-direction
-              const auto fvel_y_lft = fvel_pack(TE::F2, 0, k, j, i);
-              const auto fvel_y_rgt = fvel_pack(TE::F2, 0, k, j + 1, i);
-
-              /* Calculating the interpolated velocity */
-              // delta_x_over_dx is the distance between the tracer particle are the left
-              // face (so x_center - dx / 2)
+              // Compute delta factors relative to the left face (as before)
               const auto delta_x_over_dx =
                   (x(n) - (coords.Xc<1>(i) - coords.Dxc<1>(k, j, i) / 2)) /
                   coords.Dxc<1>(k, j, i);
-              const auto delta_y_over_dx =
+              const auto delta_y_over_dy =
                   (y(n) - (coords.Xc<2>(j) - coords.Dxc<2>(k, j, i) / 2)) /
                   coords.Dxc<2>(k, j, i);
 
-              // Interpolated velocities
-              const auto vel_x_new =
-                  (1 - delta_x_over_dx) * fvel_x_lft + delta_x_over_dx * fvel_x_rgt;
-              const auto vel_y_new =
-                  (1 - delta_y_over_dx) * fvel_y_lft + delta_y_over_dx * fvel_y_rgt;
+              // Interpolated velocities at current position (v^n)
+              const auto vel_x_curr = InterpFvelX(fvel_pack, k, j, i, delta_x_over_dx);
+              const auto vel_y_curr = InterpFvelY(fvel_pack, k, j, i, delta_y_over_dy);
 
-              // Full update using mean velocity
-              x(n) += dt * vel_x_new;
-              y(n) += dt * vel_y_new;
+              // Predictor positions (x^* = x^n + dt * v^n)
+              const auto x_star = x(n) + dt * vel_x_curr;
+              const auto y_star = y(n) + dt * vel_y_curr;
 
-              // First dimension in case of 3D
+              // For z/dimension 3:
+              Real vel_z_curr = 0.0;
+              Real z_star     = 0.0;
+              Real delta_z_over_dz = 0.0;
               if (ndim == 3) {
-
-                const auto fvel_z_lft = fvel_pack(TE::F3, 0, k, j, i);
-                const auto fvel_z_rgt = fvel_pack(TE::F3, 0, k + 1, j, i);
-
-                const auto delta_z_over_dx =
+                // compute z interpolation factor at current position
+                delta_z_over_dz =
                     (z(n) - (coords.Xc<3>(k) - coords.Dxc<3>(k, j, i) / 2)) /
                     coords.Dxc<3>(k, j, i);
-                const auto vel_z_new =
-                    (1 - delta_z_over_dx) * fvel_z_lft + delta_z_over_dx * fvel_z_rgt;
+                vel_z_curr = InterpFvelZ(fvel_pack, k, j, i, delta_z_over_dz);
+                z_star = z(n) + dt * vel_z_curr;
+              }
 
-                // Full update using mean velocity
-                z(n) += dt * vel_z_new;
+              // Determine cell indices for predictor position (x_star,y_star,z_star)
+              int k_star, j_star, i_star;
+              swarm_d.Xtoijk(x_star, y_star, (ndim == 3 ? z_star : 0.0), i_star, j_star, k_star);
+
+              // Compute delta factors at predictor position
+              const auto delta_x_over_dx_star =
+                  (x_star - (coords.Xc<1>(i_star) - coords.Dxc<1>(k_star, j_star, i_star) / 2)) /
+                  coords.Dxc<1>(k_star, j_star, i_star);
+              const auto delta_y_over_dy_star =
+                  (y_star - (coords.Xc<2>(j_star) - coords.Dxc<2>(k_star, j_star, i_star) / 2)) /
+                  coords.Dxc<2>(k_star, j_star, i_star);
+
+              // Interpolated velocities at predictor position (v^{*,n+1})
+              const auto vel_x_star = InterpFvelX(fvel_pack, k_star, j_star, i_star, delta_x_over_dx_star);
+              const auto vel_y_star = InterpFvelY(fvel_pack, k_star, j_star, i_star, delta_y_over_dy_star);
+
+              Real vel_z_star = 0.0;
+              if (ndim == 3) {
+                const auto delta_z_over_dz_star =
+                    (z_star - (coords.Xc<3>(k_star) - coords.Dxc<3>(k_star, j_star, i_star) / 2)) /
+                    coords.Dxc<3>(k_star, j_star, i_star);
+                vel_z_star = InterpFvelZ(fvel_pack, k_star, j_star, i_star, delta_z_over_dz_star);
+              }
+
+              // Full update using mean velocity (Heun / RK2)
+              x(n) += dt * 0.5 * (vel_x_curr + vel_x_star);
+              y(n) += dt * 0.5 * (vel_y_curr + vel_y_star);
+
+              if (ndim == 3) {
+                z(n) += dt * 0.5 * (vel_z_curr + vel_z_star);
               }
             }
             // The following call is required as it updates the internal block id
