@@ -5,7 +5,7 @@
 //========================================================================================
 //! \file stochastic_B_field.cpp
 //  \brief Problem generator for a uniform density, pressure, velocity field and 
-//  a stochastic non-helical magnetic field with a specified power spectrum
+//  a stochastic magnetic field with a specified power spectrum with tunable helicity
 //  in a periodic box. 
 //========================================================================================
 
@@ -92,6 +92,7 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   const auto n1 = pin->GetOrAddReal("problem/stochastic_B_field", "n1", 4.0);
   const auto n2 = pin->GetOrAddReal("problem/stochastic_B_field", "n2", 5.0/3.0);
   const auto alpha = pin->GetOrAddReal("problem/stochastic_B_field", "alpha", 2.0);
+  const auto helicity = pin->GetOrAddReal("problem/stochastic_B_field", "helicity", 0.0);
 
   Ntot = Nx*Ny*Nz; // total number of cells
 
@@ -106,10 +107,14 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
               << std::endl;
   }
 
+  // Catch unphysical helicity value:
+  if (helicity < -1.0 || helicity > 1.0) {
+    PARTHENON_FAIL("Stochastic B-field helicity must be between -1 and 1.");
+  }
+
   // physical k-values:
   const auto kmax_phys = kmax * (2.0 * M_PI / Lx);
   const auto kI_phys = kI * (2.0 * M_PI / Lx);
-
 
   // -----------------------------
   // Allocate Fourier-space arrays
@@ -121,6 +126,7 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   // -----------------------------
   std::mt19937 rng(42);
   std::uniform_real_distribution<double> dist_phase(0.0, 2.0*M_PI);
+  std::normal_distribution<double> dist_gauss(0.0, 1.0);
 
   // -----------------------------
   // Fill Fourier-space array
@@ -130,10 +136,10 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
       double kz_phys = 2.0*M_PI * kz / Lz;
 
       for (int j=0; j<Ny; j++) {
-          int ky = (j <= Ny/2) ? j : j - Ny;
+          int ky = (j <= Ny/2) ? j : j - Ny; // Before j \in {0, N_y}, now k \in {-N_y/2, N_y/2}
           double ky_phys = 2.0*M_PI * ky / Ly;
 
-          for (int i=0; i<=Nx/2; i++) {  // only half in x
+          for (int i=0; i<=Nx/2; i++) {  // only half in x; conjugate pairs will be mirrored along y,z plane
               int kx = i;
               double kx_phys = 2.0*M_PI * kx / Lx;
 
@@ -145,31 +151,72 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
               if (kmag > kmax_phys)
                   continue;
 
-              // --- skip DC and Nyquist ---
+              // --- skip DC ---
               if (i==0 && j==0 && k==0)
                   continue;
-              
-              // --- amplitude scaled for desired power spectrum. Normalization is arbitrary rn. Will be set after fourier transform. ---
-              double amplitude = std::sqrt(PowerSpectrum(kmag, kI_phys, n1, n2, alpha)) / kmag ;
 
-              // --- random phase ---
-              double phi1 = dist_phase(rng);
-              double phi2 = dist_phase(rng);
-              double phi3 = dist_phase(rng);
-              cplx bx = amplitude * std::exp(cplx(0.0, phi1));
-              cplx by = amplitude * std::exp(cplx(0.0, phi2));
-              cplx bz = amplitude * std::exp(cplx(0.0, phi3));
+              // --- compute stddev for Gaussian vector potential ---
+              // For a gaussian, sigma_A^2 ~ |A(k)|^2 
+              // and B(k) = ik x A(k) => |B(k)|^2 = k^2 |A(k)|^2 
+              // We want E_k ~ |B(k)|^2 k^2. Thus, |A(k)|^2 ~ E_k / k^4.  
+              double sigma_A = std::sqrt(PowerSpectrum(kmag, kI_phys, n1, n2, alpha) / (kmag * kmag * kmag * kmag ));
 
-              // project perpendicular to k
-              double kmag2 = kmag*kmag;
-              cplx kdotb = (kx_phys*bx + ky_phys*by + kz_phys*bz) / kmag2;
-              bx -= kdotb * kx_phys;
-              by -= kdotb * ky_phys;
-              bz -= kdotb * kz_phys;
+              // --- two independent Gaussian components in plane perpendicular to k ---
+              // First, find two perpendicular unit vectors
+              double ex1[3], ex2[3];
 
-              Bx_hat[idx] = bx;
-              By_hat[idx] = by;
-              Bz_hat[idx] = bz;
+              // arbitrary perpendicular vector
+              if (kx_phys != 0 || ky_phys != 0) {
+                  double norm = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys);
+                  ex1[0] = -ky_phys / norm; ex1[1] = kx_phys / norm; ex1[2] = 0.0;
+              } else {
+                  ex1[0] = 1.0; ex1[1] = 0.0; ex1[2] = 0.0;
+              }
+              // second perpendicular vector = k x ex1 / |k|
+              double kvec[3] = {kx_phys, ky_phys, kz_phys};
+              double k_norm = kmag;
+              ex2[0] = (kvec[1]*ex1[2] - kvec[2]*ex1[1]) / k_norm;
+              ex2[1] = (kvec[2]*ex1[0] - kvec[0]*ex1[2]) / k_norm;
+              ex2[2] = (kvec[0]*ex1[1] - kvec[1]*ex1[0]) / k_norm;
+
+              // --- Rotate basis vectos by random angle ---
+              double phi= dist_phase(rng);
+              double cphi = std::cos(phi);
+              double sphi = std::sin(phi);
+
+              double ex1r[3], ex2r[3];
+              for (int q = 0; q < 3; ++q) {
+                  ex1r[q] =  cphi * ex1[q] + sphi * ex2[q];
+                  ex2r[q] = -sphi * ex1[q] + cphi * ex2[q];
+              }
+
+              // --- Change to helical basis ---
+              // e_+, e_- complex helical basis vectors:
+              // e_+ = 1/(sqrt(2)) * (e_1 + i * e_2)
+              // e_- = 1/(sqrt(2)) * (e_1 - i * e_2)
+              std::complex<double> I(0.0, 1.0);
+              double sq2i = 1.0/std::sqrt(2.0);
+              cplx ep[3], em[3];
+              for (int q = 0; q < 3; ++q) {
+                ep[q] = sq2i * ( ex1r[q] + I * ex2r[q] );
+                em[q] = sq2i * ( ex1r[q] - I * ex2r[q] );
+              }
+
+              double sigma_plus  = sigma_A * std::sqrt((1.0 + helicity)/2.0);
+              double sigma_minus = sigma_A * std::sqrt((1.0 - helicity)/2.0);
+
+              std::complex<double> A1(sigma_plus * dist_gauss(rng), sigma_plus * dist_gauss(rng));
+              std::complex<double> A2(sigma_minus * dist_gauss(rng), sigma_minus * dist_gauss(rng));
+
+              // --- construct vector potential in Fourier space ---
+              std::complex<double> Ax = A1*ep[0] + A2*em[0];
+              std::complex<double> Ay = A1*ep[1] + A2*em[1];
+              std::complex<double> Az = A1*ep[2] + A2*em[2];
+
+              // --- Compute B(k) = i * (k x A(k)) ---
+              Bx_hat[idx] = I * ( ky_phys * Az - kz_phys * Ay );
+              By_hat[idx] = I * ( kz_phys * Ax - kx_phys * Az );
+              Bz_hat[idx] = I * ( kx_phys * Ay - ky_phys * Ax );
 
               // --- set conjugate for negative k ---
               int i_neg = (i == 0 || i == Nx/2) ? i : Nx - i;
@@ -177,9 +224,9 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
               int k_neg = (k == 0) ? 0 : Nz - k;
               int idx_neg = i_neg + Nx * (j_neg + Ny * k_neg);
 
-              Bx_hat[idx_neg] = std::conj(bx);
-              By_hat[idx_neg] = std::conj(by);
-              Bz_hat[idx_neg] = std::conj(bz);
+              Bx_hat[idx_neg] = std::conj(Bx_hat[idx]);
+              By_hat[idx_neg] = std::conj(By_hat[idx]);
+              Bz_hat[idx_neg] = std::conj(Bz_hat[idx]);
           }
       }
   }
