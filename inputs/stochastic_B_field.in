@@ -8,6 +8,10 @@ problem = Hydro setup with constant density and pressure
 <job>
 problem_id = stochastic_B_field
 
+<parthenon/output1>
+file_type  = hst        # History data dump
+dt         = 0.01       # time increment between outputs
+
 <parthenon/output2>
 file_type  = hdf5       # Binary data dump
 variables   = prim,acc   # variables to be output
@@ -21,15 +25,16 @@ p0   = 0.6
 vx   = 0.0
 vy   = 0.0
 vz   = 0.0
-kmax = 256.0	# Largest allowed mode in units of 2*pi/L_x where L_x is the box size as defined under <mesh>
+kmax = 128.0	# Largest allowed mode in units of 2*pi/L_x where L_x is the box size as defined under <mesh>
 		# This should be <= min(nx1, nx2, nx3)
 B_rms = 0.3
+helicity = 1.0  # Helicity fraction (between -1 and 1)
 
 # Double Power-law power  Spectrum params:
-kI = 80.0	# Power Spectrum peak in units of 2*pi/L 
+kI = 4.0	# Power Spectrum peak in units of 2*pi/L 
 n1 = 4.0	# power law index such that P ~ k^(n1) for k << kI
 n2 = 1.6666666666666667	# Power law index such that P ~ k^(-n2) for k >> KI
-alpha = 5.0	# Controls the sharpness of the transition between the two power laws
+alpha = 10.0	# Controls the sharpness of the transition between the two power laws
 
 <refinement>
 type                     = maxdensity
@@ -41,28 +46,28 @@ refinement = none
 numlevel = 3
 nghost = 2
 
-nx1 = 1024
+nx1 = 256
 x1min = -0.5
 x1max = 0.5
 ix1_bc = periodic
 ox1_bc = periodic
 
-nx2 = 1024
+nx2 = 256
 x2min = -0.5
 x2max = 0.5
 ix2_bc = periodic
 ox2_bc = periodic
 
-nx3 = 1024
+nx3 = 256
 x3min = -0.5
 x3max = 0.5
 ix3_bc = periodic
 ox3_bc = periodic
 
 <parthenon/meshblock>
-nx1=64
-nx2=64
-nx3=64
+nx1=32
+nx2=32
+nx3=32
 
 <parthenon/time>
 integrator = vl2
@@ -82,15 +87,15 @@ scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 pressure_floor = 1e-6
 e_floor = 1e-6
 
-<diffusion>
-integrator = rkl2
-conduction = none
-conduction_coeff = fixed
-thermal_diff_coeff_code = 0.01
-viscosity = none            # none (disabled), isotropic, or anisotropic
-viscosity_coeff = fixed
-mom_diff_coeff_code = 0.25
-resistivity = ohmic          # none (disabled) or ohmic
-resistivity_coeff = fixed
-ohm_diff_coeff_code = 0.0015
-rkl2_max_dt_ratio = 100.0
+#<diffusion>
+#integrator = rkl2
+#conduction = none
+#conduction_coeff = fixed
+#thermal_diff_coeff_code = 0.01
+#viscosity = none            # none (disabled), isotropic, or anisotropic
+#viscosity_coeff = fixed
+#mom_diff_coeff_code = 0.25
+#resistivity = ohmic          # none (disabled) or ohmic
+#resistivity_coeff = fixed
+#ohm_diff_coeff_code = 0.0015
+#rkl2_max_dt_ratio = 100.0
