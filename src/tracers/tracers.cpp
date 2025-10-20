@@ -121,9 +121,8 @@ for removal.
 =============================================================================== */
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION bool
-CheckAccretionRemoval(View4D prim, const Coordinates_t &coords,
-                      const int k, const int j, const int i,
-                      const Real accretion_radius, const int ndim) {
+CheckAccretionRemoval(View4D prim, const Coordinates_t &coords, const int k, const int j,
+                      const int i, const Real accretion_radius, const int ndim) {
 
   // Get cell center coordinates
   const Real x_cell = coords.Xc<1>(k, j, i);
@@ -131,8 +130,9 @@ CheckAccretionRemoval(View4D prim, const Coordinates_t &coords,
   const Real z_cell = (ndim == 3) ? coords.Xc<3>(k, j, i) : 0.0;
 
   // Calculate distance from center (assuming center is at origin)
-  const Real r2 = x_cell * x_cell + y_cell * y_cell + ((ndim == 3) ? z_cell * z_cell : 0.0);
-  const Real r  = std::sqrt(r2);
+  const Real r2 =
+      x_cell * x_cell + y_cell * y_cell + ((ndim == 3) ? z_cell * z_cell : 0.0);
+  const Real r = std::sqrt(r2);
 
   // Safeguard: avoid division by zero at the origin
   if (r == 0.0) {
@@ -151,39 +151,15 @@ CheckAccretionRemoval(View4D prim, const Coordinates_t &coords,
 
   // Radial unit vector
   const Real inv_r = 1.0 / r;
-  const Real ur_x  = x_cell * inv_r;
-  const Real ur_y  = y_cell * inv_r;
-  const Real ur_z  = (ndim == 3) ? z_cell * inv_r : 0.0;
+  const Real ur_x = x_cell * inv_r;
+  const Real ur_y = y_cell * inv_r;
+  const Real ur_z = (ndim == 3) ? z_cell * inv_r : 0.0;
 
   // Radial velocity (dot product of velocity with radial unit vector)
   const Real vr = vx * ur_x + vy * ur_y + ((ndim == 3) ? vz * ur_z : 0.0);
 
   // Return true if inside accretion region and moving inward
   return (vr < 0.0);
-}
-
-template <typename View5D>
-KOKKOS_INLINE_FUNCTION Real InterpFvelX(const View5D fvel_pack, const int k, const int j, const int i, const Real delta_x_over_dx) {
-  // left face at i, right face at i+1
-  const auto fvel_x_lft = fvel_pack(TE::F1, 0, k, j, i);
-  const auto fvel_x_rgt = fvel_pack(TE::F1, 0, k, j, i + 1);
-  return (1.0 - delta_x_over_dx) * fvel_x_lft + delta_x_over_dx * fvel_x_rgt;
-}
-
-template <typename View5D>
-KOKKOS_INLINE_FUNCTION Real InterpFvelY(const View5D &fvel_pack, const int k, const int j, const int i, const Real delta_y_over_dy) {
-  // left face at j, right face at j+1 (note ordering in fvel_pack: TE::F2, 0, k, j, i)
-  const auto fvel_y_lft = fvel_pack(TE::F2, 0, k, j, i);
-  const auto fvel_y_rgt = fvel_pack(TE::F2, 0, k, j + 1, i);
-  return (1.0 - delta_y_over_dy) * fvel_y_lft + delta_y_over_dy * fvel_y_rgt;
-}
-
-template <typename View5D>
-KOKKOS_INLINE_FUNCTION Real InterpFvelZ(const View5D &fvel_pack, const int k, const int j, const int i, const Real delta_z_over_dz) {
-  // left face at k, right face at k+1 (TE::F3, 0, k, j, i)
-  const auto fvel_z_lft = fvel_pack(TE::F3, 0, k, j, i);
-  const auto fvel_z_rgt = fvel_pack(TE::F3, 0, k + 1, j, i);
-  return (1.0 - delta_z_over_dz) * fvel_z_lft + delta_z_over_dz * fvel_z_rgt;
 }
 
 /* ===============================================================================
@@ -213,6 +189,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     advection_method = AdvectMethod::VInterp;
   } else if (advection_method_str == "fluxinterp") {
     advection_method = AdvectMethod::Flux;
+  } else if (advection_method_str == "montecarlo") {
+    advection_method = AdvectMethod::MonteCarlo;
   } else {
     advection_method = AdvectMethod::None;
     PARTHENON_FAIL("Invalid advection_method: " + advection_method_str);
@@ -239,6 +217,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     m = Metadata({Metadata::Face, Metadata::Derived, Metadata::OneCopy},
                  std::vector<int>({1}));
     tracers_pkg->AddField("fvel", m); // face-centered velocity
+  } else if (advection_method == AdvectMethod::MonteCarlo) {
+    // For Monte Carlo, need to save a copy of the mass of each cell before its
+    // value is updated by the fluxes (c.f. hydro.cpp)
+    m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+                 std::vector<int>({1}));
+    tracers_pkg->AddField("M_cell", m); // cell mass
   }
   // Offsets for the tracer's ids
   const int tracers_n_populations = static_cast<int>(swarm_names.size());
@@ -256,12 +240,18 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     const auto rng_seed =
         pin->GetOrAddInteger("tracers", swarm_name + "_initial_rng_seed", 0);
 
-    // Number of tracers per cell in the initial injection (t=0)
+    // Number of tracers per cell in the initial injection (t=0).
+    // For both initial and dynamical injection, the seeding can be performed
+    // in a globally homogeneous way, i.e. so that the number density of tracers
+    // per unit volume is constant across meshblocks. This can be done by specifying
+    // a reference refinement level "reference_level". If default value (-1), the seeding
+    // is performed based on the regular tracers per cell approach.
     const auto rmax_center =
         pin->GetOrAddReal("tracers", swarm_name + "_rmax_center", -1.0);
     const auto num_tracers_per_cell =
         pin->GetOrAddReal("tracers", swarm_name + "_initial_num_tracers_per_cell", 0.0);
-
+    const auto reference_level =
+        pin->GetOrAddInteger("tracers", swarm_name + "_reference_level", -1);
     // Tracer injection parameters
     // - injection_num_target: target number of tracers per elligible cells
     // - injection_timescale:  time required to reach injection target
@@ -370,6 +360,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // Additional parameters
     // =====================================================================
     tracers_pkg->AddParam<>(swarm_name + "_num_tracers_per_cell", num_tracers_per_cell);
+    tracers_pkg->AddParam<>(swarm_name + "_reference_level", reference_level);
     tracers_pkg->AddParam<>(swarm_name + "_rmax_center", rmax_center);
     tracers_pkg->AddParam<>(swarm_name + "_rng_seed", rng_seed);
 
@@ -468,12 +459,16 @@ and per unit time.
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
   auto *pmb = mbd->GetParentPointer();
+  auto *pmesh = pmb->pmy_mesh;
   auto &coords = pmb->coords;
   auto &prim = mbd->PackVariables(std::vector<std::string>{"prim"});
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
   // Get meshblock data
   auto tracers_pkg = pmb->packages.Get("tracers");
   auto hydro_pkg = pmb->packages.Get("Hydro");
+
+  // Loading root grid level
+  const int root_level = pmesh->GetRootLevel();
 
   // Getting variable required for temperature
   auto current_time = tm.time;
@@ -509,6 +504,16 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     auto &swarm = sd->Get(swarm_name);
 
     auto rmax_center = tracers_pkg->Param<Real>(swarm_name + "_rmax_center");
+
+    // Calculate rescaling of num_tracer_per_cell in case of homogeneous seeding
+    Real scale = 1.0;
+    const auto reference_level = tracers_pkg->Param<int>(swarm_name + "_reference_level");
+
+    if (reference_level != -1) {
+      int level = pmb->loc.level() - root_level;
+      int dlevel = reference_level - level;
+      scale = std::pow(8.0, dlevel);
+    }
 
     // Get relevant variables for injection
     // - injection_num_tracers_per_cell: target number. Would result in
@@ -551,7 +556,8 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     // To be discussed: currently assumes that only one tracer is added per timestep and
     // per cell. (otherwise p_injection > 1 if injection_timescale = O(tm.dt)).
     int num_injected_tracers_in_block = 0;
-    Real p_injection = std::min(1.0, injection_num_target * tm.dt / injection_timescale);
+    Real p_injection =
+        std::min(1.0, injection_num_target * tm.dt / injection_timescale * scale);
 
     pmb->par_reduce(
         "InjectTracers::FindCells", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -707,7 +713,7 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
     // Assigning default value
     TracerCriterion removal_exception_criterion;
-    Real lifetime,removal_exception_threshold;
+    Real lifetime, removal_exception_threshold;
     bool removal_exception = false;
     auto ltime = t_inj.Get();
     if (removal_enabled) {
@@ -754,13 +760,13 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
             // Accretion-based removal (independent switch, but only if not already
             // removed)
-            
+
             if (accretion_removal_enabled && !should_remove) {
               if (CheckAccretionRemoval(prim, coords, k, j, i, accretion_radius, ndim)) {
                 should_remove = true;
               }
             }
-            
+
             if (should_remove) {
               swarm_d.MarkParticleForRemoval(n);
             }
@@ -780,11 +786,21 @@ condition.
 
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
 
+  // Loading root grid level
+  const int root_level = pmesh->GetRootLevel();
+
   // Checking geometry (2D vs 3D)
   auto nx3 = pin->GetInteger("parthenon/mesh", "nx3");
 
   auto tracers_pkg = pmesh->packages.Get("tracers");
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+
+  // Checking if the advection method is Monte Carlo
+  auto advection_method = tracers_pkg->Param<AdvectMethod>("advection_method");
+  bool cell_centered_injection = false;
+  if (advection_method == AdvectMethod::MonteCarlo) {
+    cell_centered_injection = true;
+  }
 
   // Checking whether seeding is needed or not
   const auto initial_seed_done = tracers_pkg->Param<bool>("initial_seed_done");
@@ -815,6 +831,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
     for (auto &pmb : pmesh->block_list) {
 
       // Loading the tracers_offsets field
+      const auto coords = pmb->coords;
       auto &mbd = pmb->meshblock_data.Get();
       auto &off = mbd->Get("tracers_offsets").data;
 
@@ -836,8 +853,18 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
             tracers_pkg->Param<Real>(swarm_name + "_num_tracers_per_cell");
         PARTHENON_REQUIRE_THROWS(num_tracers_per_cell >= 0.0,
                                  "Provided number of tracers is negative.");
-        const auto num_tracers_per_block =
-            static_cast<int>(pmesh->GetNumberOfMeshBlockCells() * num_tracers_per_cell);
+        const auto reference_level =
+            tracers_pkg->Param<int>(swarm_name + "_reference_level");
+
+        Real scale = 1.0; // Use Real instead of int
+        int level, dlevel;
+        if (reference_level != -1) {
+          level = pmb->loc.level() - root_level;
+          dlevel = reference_level - level;
+          scale = std::pow(8.0, dlevel);
+        }
+        const auto num_tracers_per_block = static_cast<int>(
+            pmesh->GetNumberOfMeshBlockCells() * num_tracers_per_cell * scale);
 
         // Loading the swarm data
         auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get(swarm_name);
@@ -893,12 +920,23 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
               auto rng_gen = rng_pool.get_state();
               const int n = new_particles_context.GetNewParticleIndex(new_n);
 
-              x(n) = x_min + rng_gen.drand() * (x_max - x_min);
-              y(n) = y_min + rng_gen.drand() * (y_max - y_min);
-              if (nx3 > 1) {
-                z(n) = z_min + rng_gen.drand() * (z_max - z_min);
+              const Real x_rand = x_min + rng_gen.drand() * (x_max - x_min);
+              const Real y_rand = y_min + rng_gen.drand() * (y_max - y_min);
+              const Real z_rand =
+                  (nx3 > 1) ? (z_min + rng_gen.drand() * (z_max - z_min)) : z_min;
+
+              if (cell_centered_injection) {
+                // Cell-centered seeding: find cell and place at center
+                int i, j, k;
+                swarm_d.Xtoijk(x_rand, y_rand, z_rand, i, j, k);
+
+                x(n) = coords.Xc<1>(i);
+                y(n) = coords.Xc<2>(j);
+                z(n) = (nx3 > 1) ? coords.Xc<3>(k) : z_min;
               } else {
-                z(n) = z_min;
+                x(n) = x_rand;
+                y(n) = y_rand;
+                z(n) = z_rand;
               }
 
               // Compute distance from box center (assumed to be at origin)
@@ -958,7 +996,7 @@ Two methods are implemented: velocity field interpolation (method 0), or advecti
 through face-centered velocity (recommended).
 =============================================================================== */
 
-TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
+TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
   auto *pmb = mbd->GetParentPointer();
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
@@ -972,11 +1010,20 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
   const auto &cons_pack = mbd->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
   const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
   const auto &coords = pmb->coords;
-
+  // For flux interpolation (if needed)
   auto fvel_pack = parthenon::VariablePack<parthenon::Real>{};
   if (advection_method == AdvectMethod::Flux) {
     fvel_pack = mbd->PackVariables(std::vector<std::string>{"fvel"});
   }
+  // For Monte Carlo method (if needed)
+  auto Mcell_pack = parthenon::VariablePack<parthenon::Real>{};
+  if (advection_method == AdvectMethod::MonteCarlo) {
+    Mcell_pack = mbd->PackVariables(std::vector<std::string>{"M_cell"});
+  }
+
+  // Random pool generator for Monte Carlo method
+  auto dt = tm.dt;
+  auto rng_pool = Kokkos::Random_XorShift64_Pool<>(tm.ncycle + pmb->gid);
 
   auto ndim = pmb->pmy_mesh->ndim;
 
@@ -1029,70 +1076,128 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
               }
             } else if (advection_method == AdvectMethod::Flux) {
 
+              int k, j, i;
+              swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+
+              // Extracting the velocities of the left and right faces
+              // x-direction
+              const auto fvel_x_lft = fvel_pack(TE::F1, 0, k, j, i);
+              const auto fvel_x_rgt = fvel_pack(TE::F1, 0, k, j, i + 1);
+
+              // y-direction
+              const auto fvel_y_lft = fvel_pack(TE::F2, 0, k, j, i);
+              const auto fvel_y_rgt = fvel_pack(TE::F2, 0, k, j + 1, i);
+
+              /* Calculating the interpolated velocity */
+              // delta_x_over_dx is the distance between the tracer particle are the left
+              // face (so x_center - dx / 2)
+              const auto delta_x_over_dx =
+                  (x(n) - (coords.Xc<1>(i) - coords.Dxc<1>(k, j, i) / 2)) /
+                  coords.Dxc<1>(k, j, i);
+              const auto delta_y_over_dx =
+                  (y(n) - (coords.Xc<2>(j) - coords.Dxc<2>(k, j, i) / 2)) /
+                  coords.Dxc<2>(k, j, i);
+
+              // Interpolated velocities
+              const auto vel_x_new =
+                  (1 - delta_x_over_dx) * fvel_x_lft + delta_x_over_dx * fvel_x_rgt;
+              const auto vel_y_new =
+                  (1 - delta_y_over_dx) * fvel_y_lft + delta_y_over_dx * fvel_y_rgt;
+
+              // Full update using mean velocity
+              x(n) += dt * vel_x_new;
+              y(n) += dt * vel_y_new;
+
+              // First dimension in case of 3D
+              if (ndim == 3) {
+
+                const auto fvel_z_lft = fvel_pack(TE::F3, 0, k, j, i);
+                const auto fvel_z_rgt = fvel_pack(TE::F3, 0, k + 1, j, i);
+
+                const auto delta_z_over_dx =
+                    (z(n) - (coords.Xc<3>(k) - coords.Dxc<3>(k, j, i) / 2)) /
+                    coords.Dxc<3>(k, j, i);
+                const auto vel_z_new =
+                    (1 - delta_z_over_dx) * fvel_z_lft + delta_z_over_dx * fvel_z_rgt;
+
+                // Full update using mean velocity
+                z(n) += dt * vel_z_new;
+              }
+
+            } else if (advection_method == AdvectMethod::MonteCarlo) {
               // Current cell indices for the particle
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-              // Compute delta factors relative to the left face (as before)
-              const auto delta_x_over_dx =
-                  (x(n) - (coords.Xc<1>(i) - coords.Dxc<1>(k, j, i) / 2)) /
-                  coords.Dxc<1>(k, j, i);
-              const auto delta_y_over_dy =
-                  (y(n) - (coords.Xc<2>(j) - coords.Dxc<2>(k, j, i) / 2)) /
-                  coords.Dxc<2>(k, j, i);
+              // Get the random number generator
+              auto rng_gen = rng_pool.get_state();
 
-              // Interpolated velocities at current position (v^n)
-              const auto vel_x_curr = InterpFvelX(fvel_pack, k, j, i, delta_x_over_dx);
-              const auto vel_y_curr = InterpFvelY(fvel_pack, k, j, i, delta_y_over_dy);
+              const Real Mi = Mcell_pack(0, k, j, i); // current cell mass
 
-              // Predictor positions (x^* = x^n + dt * v^n)
-              const auto x_star = x(n) + dt * vel_x_curr;
-              const auto y_star = y(n) + dt * vel_y_curr;
+              // Calculate each outgoing flux
+              const Real cell_surface = coords.Dxc<1>(i) * coords.Dxc<1>(i);
 
-              // For z/dimension 3:
-              Real vel_z_curr = 0.0;
-              Real z_star     = 0.0;
-              Real delta_z_over_dz = 0.0;
-              if (ndim == 3) {
-                // compute z interpolation factor at current position
-                delta_z_over_dz =
-                    (z(n) - (coords.Xc<3>(k) - coords.Dxc<3>(k, j, i) / 2)) /
-                    coords.Dxc<3>(k, j, i);
-                vel_z_curr = InterpFvelZ(fvel_pack, k, j, i, delta_z_over_dz);
-                z_star = z(n) + dt * vel_z_curr;
+              const Real dM_xp =
+                  fmax(cons_pack.flux(IV1, IDN, k, j, i + 1) * cell_surface * dt, 0.0);
+              const Real dM_xm =
+                  fmax(-cons_pack.flux(IV1, IDN, k, j, i) * cell_surface * dt, 0.0);
+              const Real dM_yp =
+                  fmax(cons_pack.flux(IV2, IDN, k, j + 1, i) * cell_surface * dt, 0.0);
+              const Real dM_ym =
+                  fmax(-cons_pack.flux(IV2, IDN, k, j, i) * cell_surface * dt, 0.0);
+              const Real dM_zp =
+                  fmax(cons_pack.flux(IV3, IDN, k + 1, j, i) * cell_surface * dt, 0.0);
+              const Real dM_zm =
+                  fmax(-cons_pack.flux(IV3, IDN, k, j, i) * cell_surface * dt, 0.0);
+
+              // Total outgoing flux (Delta M)
+              const Real dM_out = dM_xp + dM_xm + dM_yp + dM_ym + dM_zp + dM_zm;
+
+              // Calculate the first probability
+              const Real p_gas = (Mi > 0.0) ? dM_out / Mi : 0.0;
+
+              // Draw a first random number
+              const Real r = rng_gen.drand();
+
+              if (r >= p_gas) {
+                rng_pool.free_state(rng_gen);
+                return;
               }
 
-              // Determine cell indices for predictor position (x_star,y_star,z_star)
-              int k_star, j_star, i_star;
-              swarm_d.Xtoijk(x_star, y_star, (ndim == 3 ? z_star : 0.0), i_star, j_star, k_star);
+              const Real denom = (dM_out > 0.0) ? dM_out : 1.0;
 
-              // Compute delta factors at predictor position
-              const auto delta_x_over_dx_star =
-                  (x_star - (coords.Xc<1>(i_star) - coords.Dxc<1>(k_star, j_star, i_star) / 2)) /
-                  coords.Dxc<1>(k_star, j_star, i_star);
-              const auto delta_y_over_dy_star =
-                  (y_star - (coords.Xc<2>(j_star) - coords.Dxc<2>(k_star, j_star, i_star) / 2)) /
-                  coords.Dxc<2>(k_star, j_star, i_star);
+              const Real p_xp = dM_xp / denom;
+              const Real p_xm = dM_xm / denom;
+              const Real p_yp = dM_yp / denom;
+              const Real p_ym = dM_ym / denom;
+              const Real p_zp = dM_zp / denom;
 
-              // Interpolated velocities at predictor position (v^{*,n+1})
-              const auto vel_x_star = InterpFvelX(fvel_pack, k_star, j_star, i_star, delta_x_over_dx_star);
-              const auto vel_y_star = InterpFvelY(fvel_pack, k_star, j_star, i_star, delta_y_over_dy_star);
+              // Calculate second probability
+              Real r2 = rng_gen.drand();
+              int di = 0, dj = 0, dk = 0;
+              if ((r2 -= p_xp) < 0.0)
+                di = +1;
+              else if ((r2 -= p_xm) < 0.0)
+                di = -1;
+              else if ((r2 -= p_yp) < 0.0)
+                dj = +1;
+              else if ((r2 -= p_ym) < 0.0)
+                dj = -1;
+              else if ((r2 -= p_zp) < 0.0)
+                dk = +1;
+              else
+                dk = -1;
 
-              Real vel_z_star = 0.0;
-              if (ndim == 3) {
-                const auto delta_z_over_dz_star =
-                    (z_star - (coords.Xc<3>(k_star) - coords.Dxc<3>(k_star, j_star, i_star) / 2)) /
-                    coords.Dxc<3>(k_star, j_star, i_star);
-                vel_z_star = InterpFvelZ(fvel_pack, k_star, j_star, i_star, delta_z_over_dz_star);
-              }
+              // Index of the new cell
+              const int i_new = i + di;
+              const int j_new = j + dj;
+              const int k_new = k + dk;
 
-              // Full update using mean velocity (Heun / RK2)
-              x(n) += dt * 0.5 * (vel_x_curr + vel_x_star);
-              y(n) += dt * 0.5 * (vel_y_curr + vel_y_star);
-
-              if (ndim == 3) {
-                z(n) += dt * 0.5 * (vel_z_curr + vel_z_star);
-              }
+              // Updating position
+              x(n) = coords.Xc<1>(i_new);
+              y(n) = coords.Xc<2>(j_new);
+              z(n) = coords.Xc<3>(k_new);
+              rng_pool.free_state(rng_gen);
             }
             // The following call is required as it updates the internal block id
             // following the advection. The internal id is used in the subsequent task to
@@ -1102,8 +1207,126 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
           }
         });
   }
+
   return TaskStatus::complete;
 } // AdvectTracers
+
+/* ===============================================================================
+CenterTracers: if the advection method is Monte Carlo, tracers are always moved by
+one cell. So if ones is transmitted to a neighboring (thinner) refinement, it will
+initially sit at the middle of an oct. Following Cadiou et al. 2019, we randomly
+select one of the 8 cells belonging to that oct and replace the tracer in it. If
+the tracer was transmitted to a coarser region, its position is simply updated to
+the center of the host cell (see diagrams)
+=============================================================================== */
+TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
+
+  auto *pmb = mbd->GetParentPointer();
+  auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+  // Get tracer data
+  auto tracers_pkg = pmb->packages.Get("tracers");
+  auto advection_method = tracers_pkg->Param<AdvectMethod>("advection_method");
+  if (advection_method != AdvectMethod::MonteCarlo) {
+    return TaskStatus::complete;
+  }
+  auto block_level = pmb->loc.level();
+  auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+
+  // Looping on the N independent swarms
+  for (const auto &swarm_name : swarm_names) {
+    auto &swarm = sd->Get(swarm_name);
+
+    auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
+    auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
+    auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+    auto &level = swarm->Get<int>("level").Get();
+    auto &coords = pmb->coords;
+
+    // Swarm device context
+    auto swarm_d = swarm->GetDeviceContext();
+    auto rng_pool = Kokkos::Random_XorShift64_Pool<>(tm.ncycle + pmb->gid);
+
+    // update loop.
+    const int max_active_index = swarm->GetMaxActiveIndex();
+    pmb->par_for(
+        "CenterTracers::PartLoop", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+          if (swarm_d.IsActive(n)) {
+
+            // Recentering only if level has changed
+            const int particle_level = level(n);
+            // FillTracers hasn't yet been called, so particle_level corresponds to the
+            // refinement level before advection / communication.
+            if (particle_level < block_level) {
+
+              /* ======================================================================
+              Particle P just entered a more refined level. It sits at the center of the
+              oct (P' position). We select one of the 8 neighboring cell by randomly
+              generating displacement wrt to the oct center, and overwrite x/y/z(n) as
+              being the center of the obtained host cell (P* position).
+
+              +-------+---+---+
+              |       |   |   |
+              |   P------>P'--+
+              |       | P*|   |
+              +-------+---+---+
+
+              ====================================================================== */
+
+              // Particle just entered a more refined level
+              // It's at the center of an oct - randomly displace it to one of the 8 cells
+              auto rng_gen = rng_pool.get_state();
+              int chosen_cell = static_cast<int>(rng_gen.drand() * 8.0);
+              rng_pool.free_state(rng_gen); // Free immediately after use
+
+              // Get cell size at this level
+              const Real dx = coords.Dxc<1>(0);
+              const Real dy = coords.Dxc<2>(0);
+              const Real dz = coords.Dxc<3>(0);
+
+              // Offset the particles wrt to the oct center
+              int di = (chosen_cell & 1) ? 1 : -1;
+              int dj = (chosen_cell & 2) ? 1 : -1;
+              int dk = (chosen_cell & 4) ? 1 : -1;
+
+              // Calculate new position
+              x(n) += di * 0.25 * dx;
+              y(n) += dj * 0.25 * dy;
+              z(n) += dk * 0.25 * dz;
+
+              int k, j, i;
+              swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+
+              x(n) = coords.Xc<1>(i);
+              y(n) = coords.Xc<2>(j);
+              z(n) = coords.Xc<3>(k);
+
+            } else if (particle_level > block_level) {
+
+              /* ======================================================================
+              Particle P just entered a coarser level. It sits in the lower left
+              quarter of the coarser cell (P' position). Need to center it to the
+              actual coarser cell center (P* position).
+
+              +---+---+-------+
+              |   |   |       |
+              +---+---+   P*  |
+              |   | P-->P'    |
+              +---+---+-------+
+              ====================================================================== */
+
+              int k, j, i;
+              swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+
+              // Recentering position to the coarser cell center
+              x(n) = coords.Xc<1>(i);
+              y(n) = coords.Xc<2>(j);
+              z(n) = coords.Xc<3>(k);
+            }
+          }
+        });
+  }
+  return TaskStatus::complete;
+} // CenterTracers
 
 /* ===============================================================================
 FillTracers: calculate interpolated values of some fields (rho, vel, B, etc.) to

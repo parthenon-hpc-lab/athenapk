@@ -53,12 +53,12 @@ enum class TracerCriterion {
   Jet
 };
 
-enum class AdvectMethod { VInterp, Flux, None };
+enum class AdvectMethod { MonteCarlo, VInterp, Flux, None };
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
-TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt);
-
+TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
 using FillTracersFun_t = std::function<TaskStatus(
     MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)>;

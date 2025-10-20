@@ -637,11 +637,12 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto tracer_removal =
           tl.AddTask(tracer_inject, Tracers::RemoveTracers, mbd0.get(), tm);
       auto tracer_advect =
-          tl.AddTask(tracer_removal, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
+          tl.AddTask(tracer_removal, Tracers::AdvectTracers, mbd0.get(), tm);
       auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
                              BoundaryCommSubset::all);
       auto receive =
           tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+      auto center = tl.AddTask(receive, Tracers::CenterTracers, mbd0.get(), tm);
     }
     // TODO(pgrete) Fix/cleanup once we got swarm packs.
     // We need just a single region with a single task in order to be able to use plain
