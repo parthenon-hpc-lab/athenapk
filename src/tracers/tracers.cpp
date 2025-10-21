@@ -778,6 +778,11 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         const auto &y_max = pmb->coords.Xf<2>(jb.e + 1);
         const auto &z_max = pmb->coords.Xf<3>(kb.e + 1);
 
+        // Check if block fully outside of rmax_center, skip if needed
+        if (ShouldSkipBlock(x_min, x_max, y_min, y_max, z_min, z_max, rmax_center)) {
+          continue;
+        }
+
         // Create new particles and get accessor
         auto new_particles_context = swarm->AddEmptyParticles(num_tracers_per_block);
 
