@@ -59,6 +59,22 @@ enum class TracerCriterion {
 };
 
 /* ===============================================================================
+CalculateRefinementScale: rescale the number of particles to be added to a given 
+block to match the resolution of the `reference_level` refinement level
+=============================================================================== */
+
+KOKKOS_INLINE_FUNCTION
+Real CalculateRefinementScale(const int block_level, const int root_level,
+                               const int reference_level) {
+  if (reference_level == -1) {
+    return 1.0;
+  }
+  const int level = block_level - root_level;
+  const int dlevel = reference_level - level;
+  return Kokkos::pow(8.0, dlevel);
+}
+
+/* ===============================================================================
 ShouldSkipBlock: optionnally (if rmax_center > 0), will skip the InjectionTracers
 call for block fully outside of rmax_center
 =============================================================================== */
