@@ -1059,7 +1059,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   // If Monte-Carlo based advection, need to save the initial mass of each cell
   // before its value is being updated by the hydro solver.
   auto M_cell = parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>>{};
-  if (advection_method == AdvectMethod::MonteCarlo) {
+  if (tracers_enabled && advection_method == AdvectMethod::MonteCarlo) {
     M_cell = md->PackVariables(std::vector<std::string>{"M_cell"});
 
     parthenon::par_for(
