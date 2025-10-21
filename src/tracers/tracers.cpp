@@ -397,14 +397,7 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     auto rmax_center = tracers_pkg->Param<Real>(swarm_name + "_rmax_center");
 
     // Calculate rescaling of num_tracer_per_cell in case of homogeneous seeding
-    Real scale = 1.0;
     const auto reference_level = tracers_pkg->Param<int>(swarm_name + "_reference_level");
-
-    if (reference_level != -1) {
-      int level = pmb->loc.level() - root_level;
-      int dlevel = reference_level - level;
-      scale = std::pow(8.0, dlevel);
-    }
 
     // Get relevant variables for injection
     // - injection_num_tracers_per_cell: target number. Would result in
@@ -446,7 +439,9 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     if (ShouldSkipBlock(x_min, x_max, y_min, y_max, z_min, z_max, rmax_center)) {
       continue;
     }
-
+    // Check if reference level rescaling is needed
+    const Real scale = CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
+    
     // Simple test case: first calculate the number of cells fulfilling the criterion.
     // (modulo some stochastic factor)
     // To be discussed: currently assumes that only one tracer is added per timestep and
@@ -749,16 +744,11 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
             tracers_pkg->Param<Real>(swarm_name + "_num_tracers_per_cell");
         PARTHENON_REQUIRE_THROWS(num_tracers_per_cell >= 0.0,
                                  "Provided number of tracers is negative.");
+        // Optinal check for refinement level
         const auto reference_level =
             tracers_pkg->Param<int>(swarm_name + "_reference_level");
-
-        Real scale = 1.0; // Use Real instead of int
-        int level, dlevel;
-        if (reference_level != -1) {
-          level = pmb->loc.level() - root_level;
-          dlevel = reference_level - level;
-          scale = std::pow(8.0, dlevel);
-        }
+        const Real scale = CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
+        
         const auto num_tracers_per_block = static_cast<int>(
             pmesh->GetNumberOfMeshBlockCells() * num_tracers_per_cell * scale);
 
@@ -782,7 +772,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         if (ShouldSkipBlock(x_min, x_max, y_min, y_max, z_min, z_max, rmax_center)) {
           continue;
         }
-
+               
         // Create new particles and get accessor
         auto new_particles_context = swarm->AddEmptyParticles(num_tracers_per_block);
 
