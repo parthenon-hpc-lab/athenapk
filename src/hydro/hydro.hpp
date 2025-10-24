@@ -14,7 +14,7 @@
 using namespace parthenon::package::prelude;
 
 namespace Hydro {
-using FluxReal = double;
+using FluxReal = float;
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin);
 void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);

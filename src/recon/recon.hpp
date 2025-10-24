@@ -465,21 +465,21 @@ void ReconstructPlainPerBlock(parthenon::IndexRange kb, parthenon::IndexRange jb
                                q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
                                tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
         } else if constexpr (recon == Reconstruction::wenoz) {
-          WENOZ(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io), q(n, k - ko, j - jo, i - io),
-                q(n, k, j, i), q(n, k + ko, j + jo, i + io),
-                q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
-                tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
+          // WENOZ(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io), q(n, k - ko, j - jo, i - io),
+          // q(n, k, j, i), q(n, k + ko, j + jo, i + io),
+          // q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
+          // tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
         } else if constexpr (recon == Reconstruction::wenozaoah) {
-          WENO5ZAOAH(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io),
-                     q(n, k - ko, j - jo, i - io), q(n, k, j, i),
-                     q(n, k + ko, j + jo, i + io),
-                     q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
-                     tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
+          // WENO5ZAOAH(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io),
+          //  q(n, k - ko, j - jo, i - io), q(n, k, j, i),
+          //  q(n, k + ko, j + jo, i + io),
+          //  q(n, k + 2 * ko, j + 2 * jo, i + 2 * io),
+          //  tmp(0, n, k + ko, j + jo, i + io), tmp(1, n, k, j, i));
         } else if constexpr (recon == Reconstruction::mp5) {
-          MP5(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io), q(n, k - ko, j - jo, i - io),
-              q(n, k, j, i), q(n, k + ko, j + jo, i + io),
-              q(n, k + 2 * ko, j + 2 * jo, i + 2 * io), tmp(0, n, k + ko, j + jo, i + io),
-              tmp(1, n, k, j, i));
+          // MP5(q(n, k - 2 * ko, j - 2 * jo, i - 2 * io), q(n, k - ko, j - jo, i - io),
+          // q(n, k, j, i), q(n, k + ko, j + jo, i + io),
+          // q(n, k + 2 * ko, j + 2 * jo, i + 2 * io), tmp(0, n, k + ko, j + jo, i + io),
+          // tmp(1, n, k, j, i));
         }
       });
 }
@@ -576,8 +576,8 @@ void ReconstructPlainPerBlockScratch(parthenon::IndexRange kb, parthenon::IndexR
               PPM<Hydro::FluxReal>(km2(i), km1(i), kn0(i), kp1(i), kp2(i),
                                    tmp(0, n, k + 1, j, i), tmp(1, n, k, j, i));
             } else if constexpr (recon == Reconstruction::wenoz) {
-              WENOZ(km2(i), km1(i), kn0(i), kp1(i), kp2(i), tmp(0, n, k + 1, j, i),
-                    tmp(1, n, k, j, i));
+              // WENOZ(km2(i), km1(i), kn0(i), kp1(i), kp2(i), tmp(0, n, k + 1, j, i),
+              // tmp(1, n, k, j, i));
             }
           });
         }
