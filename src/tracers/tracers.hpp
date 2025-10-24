@@ -59,13 +59,13 @@ enum class TracerCriterion {
 };
 
 /* ===============================================================================
-CalculateRefinementScale: rescale the number of particles to be added to a given 
+CalculateRefinementScale: rescale the number of particles to be added to a given
 block to match the resolution of the `reference_level` refinement level
 =============================================================================== */
 
 KOKKOS_INLINE_FUNCTION
 Real CalculateRefinementScale(const int block_level, const int root_level,
-                               const int reference_level) {
+                              const int reference_level) {
   if (reference_level == -1) {
     return 1.0;
   }
@@ -80,30 +80,36 @@ call for block fully outside of rmax_center
 =============================================================================== */
 
 KOKKOS_INLINE_FUNCTION
-bool ShouldSkipBlock(Real x_min, Real x_max, Real y_min, Real y_max, Real z_min,
-                     Real z_max, Real rmax_center) {
-  // Only activate if rmax_center > 0
-  if (rmax_center <= 0.0) return false;
+bool ShouldSkipBlock(double x_min, double x_max, double y_min, double y_max, double z_min,
+                     double z_max, double rmax_center) {
+  // Sphere center at origin (0,0,0)
+  const double cx = 0.0;
+  const double cy = 0.0;
+  const double cz = 0.0;
 
-  Real dx = 0.0, dy = 0.0, dz = 0.0;
+  // Compute squared distance from sphere center to closest point of AABB
+  double dx = 0.0;
+  if (cx < x_min)
+    dx = x_min - cx;
+  else if (cx > x_max)
+    dx = cx - x_max;
 
-  if (x_min > 0.0)
-    dx = x_min;
-  else if (x_max < 0.0)
-    dx = -x_max;
+  double dy = 0.0;
+  if (cy < y_min)
+    dy = y_min - cy;
+  else if (cy > y_max)
+    dy = cy - y_max;
 
-  if (y_min > 0.0)
-    dy = y_min;
-  else if (y_max < 0.0)
-    dy = -y_max;
+  double dz = 0.0;
+  if (cz < z_min)
+    dz = z_min - cz;
+  else if (cz > z_max)
+    dz = cz - z_max;
 
-  if (z_min > 0.0)
-    dz = z_min;
-  else if (z_max < 0.0)
-    dz = -z_max;
+  double dist2 = dx * dx + dy * dy + dz * dz;
 
-  Real dist2 = dx * dx + dy * dy + dz * dz;
-  return dist2 > (rmax_center * rmax_center);
+  // Skip block if the closest distance > rmax_center
+  return dist2 > rmax_center * rmax_center;
 }
 
 /* ===============================================================================
