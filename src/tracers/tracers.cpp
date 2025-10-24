@@ -440,8 +440,9 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
       continue;
     }
     // Check if reference level rescaling is needed
-    const Real scale = CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
-    
+    const Real scale =
+        CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
+
     // Simple test case: first calculate the number of cells fulfilling the criterion.
     // (modulo some stochastic factor)
     // To be discussed: currently assumes that only one tracer is added per timestep and
@@ -603,18 +604,22 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
 
     // Assigning default value
+
     TracerCriterion removal_exception_criterion;
     Real lifetime, removal_exception_threshold;
     bool removal_exception = false;
     auto ltime = t_inj.Get();
+
     if (removal_enabled) {
       lifetime = tracers_pkg->Param<Real>(swarm_name + "_lifetime");
       ltime = swarm->Get<Real>("lifetime").Get();
       removal_exception = tracers_pkg->Param<bool>(swarm_name + "_removal_exception");
-      removal_exception_criterion = tracers_pkg->Param<TracerCriterion>(
-          swarm_name + "_removal_exception_criterion");
-      removal_exception_threshold =
-          tracers_pkg->Param<Real>(swarm_name + "_removal_exception_threshold");
+      if (removal_exception) {
+        removal_exception_criterion = tracers_pkg->Param<TracerCriterion>(
+            swarm_name + "_removal_exception_criterion");
+        removal_exception_threshold =
+            tracers_pkg->Param<Real>(swarm_name + "_removal_exception_threshold");
+      }
     }
 
     // Looping on the particles and check which ones need to be removed
@@ -666,6 +671,7 @@ TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
     swarm->RemoveMarkedParticles();
   }
+
   return TaskStatus::complete;
 }
 
@@ -679,7 +685,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
   // Loading root grid level
   const int root_level = pmesh->GetRootLevel();
-
+  const Real current_time = tm.time;
   // Checking geometry (2D vs 3D)
   auto nx3 = pin->GetInteger("parthenon/mesh", "nx3");
 
@@ -747,8 +753,9 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         // Optinal check for refinement level
         const auto reference_level =
             tracers_pkg->Param<int>(swarm_name + "_reference_level");
-        const Real scale = CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
-        
+        const Real scale =
+            CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
+
         const auto num_tracers_per_block = static_cast<int>(
             pmesh->GetNumberOfMeshBlockCells() * num_tracers_per_cell * scale);
 
@@ -772,7 +779,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         if (ShouldSkipBlock(x_min, x_max, y_min, y_max, z_min, z_max, rmax_center)) {
           continue;
         }
-               
+
         // Create new particles and get accessor
         auto new_particles_context = swarm->AddEmptyParticles(num_tracers_per_block);
 
@@ -786,7 +793,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         Real lifetime;
         auto ltime = t_inj.Get();
         if (removal_enabled) {
-          auto ltime = swarm->Get<Real>("lifetime").Get();
+          ltime = swarm->Get<Real>("lifetime").Get();
           lifetime = tracers_pkg->Param<Real>(swarm_name + "_lifetime");
         }
 
@@ -830,20 +837,18 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
                 z(n) = z_rand;
               }
 
-              // Compute distance from box center (assumed to be at origin)
+              // Update IDs and injection time / lifetime
+              id(n) = block_offset + n;
+              t_inj(n) = current_time;
+              if (removal_enabled) {
+                ltime(n) = rng_gen.drand() * lifetime;
+              }
+              // Remove particles outside of rmax_center if probided
               const Real r_center = std::sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
-
-              // Check if outside rmax, and mark for removal if so
               if (rmax_center != -1.0 && r_center > rmax_center) {
                 swarm_d.MarkParticleForRemoval(n);
                 rng_pool.free_state(rng_gen);
                 return;
-              }
-
-              id(n) = block_offset + n;
-              t_inj(n) = 0.0;
-              if (removal_enabled) {
-                ltime(n) = lifetime;
               }
 
               rng_pool.free_state(rng_gen);
@@ -979,7 +984,7 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               const auto fvel_y_lft = fvel_pack(TE::F2, 0, k, j, i);
               const auto fvel_y_rgt = fvel_pack(TE::F2, 0, k, j + 1, i);
 
-              /* Calculating the interpolated velocity */
+              // Calculating the interpolated velocity
               // delta_x_over_dx is the distance between the tracer particle are the left
               // face (so x_center - dx / 2)
               const auto delta_x_over_dx =
@@ -1149,61 +1154,56 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             // refinement level before advection / communication.
             if (particle_level < block_level) {
 
-              /* ======================================================================
-              Particle P just entered a more refined level. It sits at the center of the
-              oct (P' position). We select one of the 8 neighboring cell by randomly
-              generating displacement wrt to the oct center, and overwrite x/y/z(n) as
-              being the center of the obtained host cell (P* position).
+              // ======================================================================
+              // Particle P just entered a more refined level. It sits at the center of
+              // the oct (P' position). We select one of the 8 neighboring cell by
+              // randomly generating displacement wrt to the oct center, and overwrite
+              // x/y/z(n) as being the center of the obtained host cell (P* position).
 
-              +-------+---+---+
-              |       |   |   |
-              |   P------>P'--+
-              |       | P*|   |
-              +-------+---+---+
+              //   +-------+---+---+
+              //   |       |   |   |
+              //   |   P------>P'--+
+              //   |       | P*|   |
+              //   +-------+---+---+
 
-              ====================================================================== */
+              // ======================================================================
 
               // Particle just entered a more refined level
               // It's at the center of an oct - randomly displace it to one of the 8 cells
+              int k, j, i;
+              swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+
               auto rng_gen = rng_pool.get_state();
-              int chosen_cell = static_cast<int>(rng_gen.drand() * 8.0);
-              rng_pool.free_state(rng_gen); // Free immediately after use
 
-              // Get cell size at this level
-              const Real dx = coords.Dxc<1>(0);
-              const Real dy = coords.Dxc<2>(0);
-              const Real dz = coords.Dxc<3>(0);
+              // Draw a random integer between 0 and 7 inclusive
+              int chosen_cell = rng_gen.urand() % 8;
 
-              // Offset the particles wrt to the oct center
+              // Free RNG state immediately
+              rng_pool.free_state(rng_gen);
+
+              // Decode chosen_cell bits to determine direction
               int di = (chosen_cell & 1) ? 1 : -1;
               int dj = (chosen_cell & 2) ? 1 : -1;
               int dk = (chosen_cell & 4) ? 1 : -1;
 
-              // Calculate new position
-              x(n) += di * 0.25 * dx;
-              y(n) += dj * 0.25 * dy;
-              z(n) += dk * 0.25 * dz;
-
-              int k, j, i;
-              swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
-
-              x(n) = coords.Xc<1>(i);
-              y(n) = coords.Xc<2>(j);
-              z(n) = coords.Xc<3>(k);
+              // Move particle to one of the 8 subcell centers
+              x(n) = coords.Xc<1>(i + di);
+              y(n) = coords.Xc<2>(j + dj);
+              z(n) = coords.Xc<3>(k + dk);
 
             } else if (particle_level > block_level) {
 
-              /* ======================================================================
-              Particle P just entered a coarser level. It sits in the lower left
-              quarter of the coarser cell (P' position). Need to center it to the
-              actual coarser cell center (P* position).
+              // ======================================================================
+              // Particle P just entered a coarser level. It sits in the lower left
+              // quarter of the coarser cell (P' position). Need to center it to the
+              // actual coarser cell center (P* position).
 
-              +---+---+-------+
-              |   |   |       |
-              +---+---+   P*  |
-              |   | P-->P'    |
-              +---+---+-------+
-              ====================================================================== */
+              //   +---+---+-------+
+              //   |   |   |       |
+              //   +---+---+   P*  |
+              //   |   | P-->P'    |
+              //   +---+---+-------+
+              // ======================================================================
 
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
@@ -1216,6 +1216,7 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
           }
         });
   }
+
   return TaskStatus::complete;
 } // CenterTracers
 
