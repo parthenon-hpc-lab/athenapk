@@ -839,11 +839,15 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
               // Update IDs and injection time / lifetime
               id(n) = block_offset + n;
-              t_inj(n) = current_time;
+
               if (removal_enabled) {
-                ltime(n) = rng_gen.drand() * lifetime;
+                t_inj(n) = current_time;
+                ltime(n) = lifetime;
+              } else {
+                t_inj(n) = current_time;
               }
-              // Remove particles outside of rmax_center if probided
+
+              // Remove particles outside of rmax_center if provided
               const Real r_center = std::sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
               if (rmax_center != -1.0 && r_center > rmax_center) {
                 swarm_d.MarkParticleForRemoval(n);
