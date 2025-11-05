@@ -1,0 +1,96 @@
+<job>
+problem_id = precipitator   # problem ID: basename of output filenames
+
+<parthenon/output1>
+file_type  = hst       # History data dump
+dt         = 50.0      # time increment between outputs
+
+<parthenon/output2>
+file_type  = hdf5      # HDF5 data dump
+variables  = prim, drho_over_rho, dP_over_P, dK_over_K, dT_over_T, entropy, temperature, tcool_over_tff, plasma_beta, dv
+dt         = 50.0     # Time increment between outputs
+id         = prim      # Name to append to output
+
+<parthenon/output3>
+file_type   = rst        # Binary data dump
+dt          = 2000.0     # time increment between outputs
+id          = restart
+ghost_zones = 1
+
+<parthenon/time>
+cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1         # cycle limit
+tlim       = 1.0e4      # time limit
+integrator  = rk2       # time integration algorithm
+perf_cycle_offset  = 10 # interval for stdout summary info
+
+
+<parthenon/mesh>
+refinement  = static
+nghost = 4
+
+# R
+nx1        = 64        # Number of zones in X1-direction
+x1min      = 0.       # minimum value of X1
+x1max      = 100.0       # maximum value of X1
+ix1_bc     = reflecting
+ox1_bc     = reflecting
+
+# theta
+nx2 = 64
+x2min       = 0
+x2max       = 3.14159265358979323846
+ix2_bc 	    = reflecting
+ox2_bc 	    = reflecting
+
+# phi
+nx3 	    = 128
+x3min 	    = 0
+x3max 	    = 6.2831853071795862
+ix3_bc      = periodic
+ox3_bc      = periodic
+
+
+<parthenon/meshblock>
+nx1        = 32        # Number of zones in X1-direction
+nx2        = 32        # Number of zones in X2-direction
+nx3        = 32        # Number of zones in X3-direction
+
+<hydro>
+fluid = glmmhd
+gamma = 1.6666666666666667 # gamma = C_p/C_v
+eos = adiabatic
+riemann = lhlld
+reconstruction = plm
+first_order_flux_correct = true
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+He_mass_fraction = 0.25
+dfloor = 1454.4065594167007     # Msun kpc^(-3) == 1e-4 cm^{-3}
+Tfloor = 1.5e6                  # K
+
+<units>
+code_length_cgs = 3.086e21      # kpc
+code_mass_cgs = 1.98841586e+33  # Msun
+code_time_cgs = 3.15576e+13     # Myr
+
+<cooling>
+enable_cooling = tabular    # tabular
+integrator = rk12           # (townsend, rk12)
+table_filename = inputs/precipitator.cooling
+lambda_units_cgs = 1
+cfl = 1.0
+
+<precipitator>
+hse_profile_filename = inputs/hse_3.0.txt
+uniform_init = 0
+enable_heating = magic          # options: [magic, none]
+thermostat_temperature = 1.0e7  # K
+thermostat_Kp = 10.0            # time constant (inverse cooling times)
+h_smooth_heatcool_kpc = 5.0
+
+perturb_sin_drho_over_rho = 0.0
+perturb_kx = 16
+perturb_ky = 16
+perturb_kz = 32
+perturb_exponent = 1    # P(k) ~ k^(-2)

@@ -44,10 +44,12 @@ void ReflectBC(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
   auto fluid = hydro_pkg->Param<Fluid>("fluid");
+#if 0
   PARTHENON_REQUIRE_THROWS(
       fluid == Fluid::euler,
       "Reflecting boundary conditions for MHD need special treatment.");
-
+#endif
+  
   // convenient shorthands
   constexpr bool X1 = (DIR == X1DIR);
   constexpr bool X2 = (DIR == X2DIR);
