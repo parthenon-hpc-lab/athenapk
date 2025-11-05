@@ -220,18 +220,33 @@ KOKKOS_INLINE_FUNCTION typename std::enable_if<recon == Reconstruction::ppm, voi
 Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
             const int iu, const parthenon::VariablePack<Real> &q, ScratchPad2D<Real> &ql,
             ScratchPad2D<Real> &qr, const parthenon::VariablePack<Real> &phi,
-            const parthenon::VariablePack<Real> &phi_zface) {
+            const parthenon::VariablePack<Real> &phi_face) {
   const auto nvar = q.GetDim(4);
-  const auto face_el = parthenon::TopologicalElement::F3;
+  constexpr auto face_el = (XNDIR == parthenon::X1DIR) ? parthenon::TopologicalElement::F1 :
+                           (XNDIR == parthenon::X2DIR) ? parthenon::TopologicalElement::F2 :
+                           parthenon::TopologicalElement::F3;
   for (auto n = 0; n < nvar; ++n) {
 #ifdef WELL_BALANCED
     if (n == IPR || n == IDN) {
       // reconstruct pressure or density
       parthenon::par_for_inner(member, il, iu, [&](const int i) {
         if constexpr (XNDIR == parthenon::X1DIR) {
+          std::array<Real, 5> p_over_rho{q(IPR, k, j, i - 2) / q(IDN, k, j, i - 2),
+                                         q(IPR, k, j, i - 1) / q(IDN, k, j, i - 1),
+                                         q(IPR, k, j, i) / q(IDN, k, j, i),
+                                         q(IPR, k, j, i + 1) / q(IDN, k, j, i + 1),
+                                         q(IPR, k, j, i + 2) / q(IDN, k, j, i + 2)};
+
+          std::array<Real, 5> sphi{phi(0, k, j, i - 2), phi(0, k, j, i - 1),
+                                   phi(0, k, j, i), phi(0, k, j, i + 1),
+                                   phi(0, k, j, i + 2)};
+          std::array<Real, 2> sphi_faces{phi_face(face_el, 0, k, j, i),
+                                         phi_face(face_el, 0, k, j, i + 1)};
+
           // ql is ql_ip1 and qr is qr_i
-          PPM(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1),
-              q(n, k, j, i + 2), ql(n, i + 1), qr(n, i));
+          PPM_balanced(q(n, k, j, i - 2), q(n, k, j, i - 1), q(n, k, j, i),
+                       q(n, k, j, i + 1), q(n, k, j, i + 2), p_over_rho, sphi, sphi_faces,
+                       ql(n, i + 1), qr(n, i));
 
         } else if constexpr (XNDIR == parthenon::X2DIR) {
           // ql is ql_jp1 and qr is qr_j
@@ -248,8 +263,8 @@ Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const
           std::array<Real, 5> sphi{phi(0, k - 2, j, i), phi(0, k - 1, j, i),
                                    phi(0, k, j, i), phi(0, k + 1, j, i),
                                    phi(0, k + 2, j, i)};
-          std::array<Real, 2> sphi_faces{phi_zface(face_el, 0, k, j, i),
-                                         phi_zface(face_el, 0, k + 1, j, i)};
+          std::array<Real, 2> sphi_faces{phi_face(face_el, 0, k, j, i),
+                                         phi_face(face_el, 0, k + 1, j, i)};
 
           // ql is ql_kp1 and qr is qr_k
           PPM_balanced(q(n, k - 2, j, i), q(n, k - 1, j, i), q(n, k, j, i),

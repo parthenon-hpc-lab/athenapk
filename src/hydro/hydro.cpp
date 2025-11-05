@@ -1184,8 +1184,11 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
   // gravitational potential (needed for well-balancing)
   const auto &phi_in = md->PackVariables(std::vector<std::string>({"grav_phi"}));
-  const auto &phi_zface_in =
-      md->PackVariables(std::vector<std::string>({"grav_phi_zface"}));
+  // Try packing radial face field first (for spherical), fallback to z-face field
+  auto phi_face_in = md->PackVariables(std::vector<std::string>({"grav_phi_rface"}));
+  if (phi_face_in.GetDim(5) == 0) {
+    phi_face_in = md->PackVariables(std::vector<std::string>({"grav_phi_zface"}));
+  }
 
   const int scratch_level =
       pkg->Param<int>("scratch_level"); // 0 is actual scratch (tiny); 1 is HBM
@@ -1202,7 +1205,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
         const auto &prim = prim_in(b);
         const auto &phi = phi_in(b);
-        const auto &phi_zface = phi_zface_in(b);
+        const auto &phi_face = phi_face_in(b);
 
         auto &cons = cons_in(b);
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -1211,7 +1214,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
                                          num_scratch_vars, nx1);
         // get reconstructed state on faces
         Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr, phi,
-                                  phi_zface);
+                                  phi_face);
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
@@ -1248,7 +1251,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
           const auto &prim = prim_in(b);
           const auto &phi = phi_in(b);
-          const auto &phi_zface = phi_zface_in(b);
+          const auto &phi_face = phi_face_in(b);
 
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -1260,7 +1263,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
             Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr, phi,
-                                      phi_zface);
+                                      phi_face);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
@@ -1300,7 +1303,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
           const auto &prim = prim_in(b);
           const auto &phi = phi_in(b);
-          const auto &phi_zface = phi_zface_in(b);
+          const auto &phi_face = phi_face_in(b);
 
           auto &cons = cons_in(b);
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -1312,7 +1315,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
             Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr, phi,
-                                      phi_zface);
+                                      phi_face);
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 

@@ -24,28 +24,28 @@ class PrecipitatorProfile {
 
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION
   PrecipitatorProfile(const PrecipitatorProfile &rhs)
-      : z_min_(rhs.z_min_), z_max_(rhs.z_max_), z_(rhs.z_), rho_(rhs.rho_), P_(rhs.P_),
+      : r_min_(rhs.r_min_), r_max_(rhs.r_max_), r_(rhs.r_), rho_(rhs.rho_), P_(rhs.P_),
         phi_(rhs.phi_), bfield_(rhs.bfield_), spline_rho_(rhs.spline_rho_),
         spline_P_(rhs.spline_P_), spline_phi_(rhs.spline_phi_),
         spline_bfield_(rhs.spline_bfield_) {}
 
-  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real min() const { return z_min_; }
-  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real max() const { return z_max_; }
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real min() const { return r_min_; }
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real max() const { return r_max_; }
 
-  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real rho(Real z) const {
-    return spline_rho_(z);
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real rho(Real r) const {
+    return spline_rho_(r);
   }
 
-  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real P(Real z) const {
-    return spline_P_(z);
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real P(Real r) const {
+    return spline_P_(r);
   }
 
-  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real phi(Real z) const {
-    return spline_phi_(z);
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real phi(Real r) const {
+    return spline_phi_(r);
   }
 
-  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real bfield(Real z) const {
-    return spline_bfield_(z);
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real bfield(Real r) const {
+    return spline_bfield_(r);
   }
 
  private:
@@ -53,17 +53,17 @@ class PrecipitatorProfile {
                                   PinnedArray1D<Real>, PinnedArray1D<Real>>;
 
   static auto ReadProfile(const std::string &filename) -> ProfileTuple;
-  static auto GetZMin(const std::string &filename) -> Real;
-  static auto GetZMax(const std::string &filename) -> Real;
-  static auto GetZ(const std::string &filename) -> PinnedArray1D<Real>;
+  static auto GetRMin(const std::string &filename) -> Real;
+  static auto GetRMax(const std::string &filename) -> Real;
+  static auto GetR(const std::string &filename) -> PinnedArray1D<Real>;
   static auto GetRho(const std::string &filename) -> PinnedArray1D<Real>;
   static auto GetP(const std::string &filename) -> PinnedArray1D<Real>;
   static auto GetPhi(const std::string &filename) -> PinnedArray1D<Real>;
   static auto GetBField(const std::string &filename) -> PinnedArray1D<Real>;
 
-  Real z_min_{};
-  Real z_max_{};
-  PinnedArray1D<Real> z_{};
+  Real r_min_{};
+  Real r_max_{};
+  PinnedArray1D<Real> r_{};
   PinnedArray1D<Real> rho_{};
   PinnedArray1D<Real> P_{};
   PinnedArray1D<Real> phi_{};

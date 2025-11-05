@@ -3,12 +3,12 @@ problem_id = precipitator   # problem ID: basename of output filenames
 
 <parthenon/output1>
 file_type  = hst       # History data dump
-dt         = 50.0      # time increment between outputs
+dn         = 1         # output every cycle
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
 variables  = prim, drho_over_rho, dP_over_P, dK_over_K, dT_over_T, entropy, temperature, tcool_over_tff, plasma_beta, dv
-dt         = 50.0     # Time increment between outputs
+dn         = 1         # output every cycle
 id         = prim      # Name to append to output
 
 <parthenon/output3>
@@ -19,10 +19,10 @@ ghost_zones = 1
 
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
-nlim       = -1         # cycle limit
+nlim       = 1000       # cycle limit (set to small number for debugging)
 tlim       = 1.0e4      # time limit
 integrator  = rk2       # time integration algorithm
-perf_cycle_offset  = 10 # interval for stdout summary info
+perf_cycle_offset  = 1  # interval for stdout summary info (print every cycle)
 
 
 <parthenon/mesh>
@@ -30,21 +30,21 @@ refinement  = static
 nghost = 4
 
 # R
-nx1        = 64        # Number of zones in X1-direction
+nx1        = 32        # Number of zones in X1-direction
 x1min      = 0.       # minimum value of X1
 x1max      = 100.0       # maximum value of X1
 ix1_bc     = reflecting
 ox1_bc     = reflecting
 
 # theta
-nx2 = 64
+nx2	    = 32
 x2min       = 0
 x2max       = 3.14159265358979323846
 ix2_bc 	    = reflecting
 ox2_bc 	    = reflecting
 
 # phi
-nx3 	    = 128
+nx3 	    = 32
 x3min 	    = 0
 x3max 	    = 6.2831853071795862
 ix3_bc      = periodic
@@ -52,9 +52,9 @@ ox3_bc      = periodic
 
 
 <parthenon/meshblock>
-nx1        = 32        # Number of zones in X1-direction
-nx2        = 32        # Number of zones in X2-direction
-nx3        = 32        # Number of zones in X3-direction
+nx1        = 16        # Number of zones in X1-direction
+nx2        = 16        # Number of zones in X2-direction
+nx3        = 16        # Number of zones in X3-direction
 
 <hydro>
 fluid = glmmhd

@@ -173,8 +173,8 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   auto grav_pack = md->PackVariables(std::vector<std::string>{"grav_phi"});
-  auto grav_zface_pack = md->PackVariables(std::vector<std::string>{"grav_phi_zface"});
-  constexpr auto face_el = parthenon::TopologicalElement::F3;
+  auto grav_rface_pack = md->PackVariables(std::vector<std::string>{"grav_phi_rface"});
+  constexpr auto face_el = parthenon::TopologicalElement::F1;
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -190,32 +190,32 @@ void GravitySrcTerm(MeshData<Real> *md, const parthenon::SimTime, const Real dt)
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         auto &cons = cons_pack(b);
         auto &grav_phi = grav_pack(b);
-        auto &grav_phi_zface = grav_zface_pack(b);
+        auto &grav_phi_rface = grav_rface_pack(b);
 
         const Real rho = cons(IDN, k, j, i);
-        const Real p1 = cons(IM1, k, j, i);
+        Real p1 = cons(IM1, k, j, i);
         const Real p2 = cons(IM2, k, j, i);
-        Real p3 = cons(IM3, k, j, i);
+        const Real p3 = cons(IM3, k, j, i);
         const Real Etot = cons(IEN, k, j, i);
         const Real KE_old = 0.5 * (SQR(p1) + SQR(p2) + SQR(p3)) / rho;
 
-        const Real v_z = p3 / rho;
+        const Real v_r = p1 / rho;
 
-        const Real phi_zminus = grav_phi_zface(face_el, 0, k, j, i);
-        const Real phi_zplus = grav_phi_zface(face_el, 0, k + 1, j, i);
+        const Real phi_rminus = grav_phi_rface(face_el, 0, k, j, i);
+        const Real phi_rplus = grav_phi_rface(face_el, 0, k, j, i + 1);
 
         const Real Eint = Etot - KE_old;
         const Real p_i = Eint * gm1;
-        const Real phi_zcen = grav_phi(0, k, j, i);
+        const Real phi_rcen = grav_phi(0, k, j, i);
         const Real kT_over_mu = p_i / rho;
-        const Real p_hse_zplus = p_i * std::exp(-(phi_zplus - phi_zcen) / kT_over_mu);
-        const Real p_hse_zminus = p_i * std::exp(-(phi_zminus - phi_zcen) / kT_over_mu);
+        const Real p_hse_rplus = p_i * std::exp(-(phi_rplus - phi_rcen) / kT_over_mu);
+        const Real p_hse_rminus = p_i * std::exp(-(phi_rminus - phi_rcen) / kT_over_mu);
 
-        p3 += dt * (p_hse_zplus - p_hse_zminus) / dx3;
+        p1 += dt * (p_hse_rplus - p_hse_rminus) / dx1;
 
-        const Real dE = -dt * rho * v_z * (phi_zplus - phi_zminus) / dx3;
+        const Real dE = -dt * rho * v_r * (phi_rplus - phi_rminus) / dx1;
 
-        cons(IM3, k, j, i) = p3;
+        cons(IM1, k, j, i) = p1;
         cons(IEN, k, j, i) += dE;
       });
 }

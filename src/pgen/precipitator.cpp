@@ -109,7 +109,7 @@ namespace precipitator {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 
-void ReflectingInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
+void ReflectingInnerX1(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   MeshBlock *pmb = mbd->GetBlockPointer();
   auto cons_pack = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
 
@@ -117,16 +117,16 @@ void ReflectingInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   const auto nvar = cons_pack.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
     bool is_normal_dir = false;
-    if (n == IM3) {
+    if (n == IM1) {
       is_normal_dir = true;
     }
     IndexRange nv{n, n};
-    ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, cons_pack, nv, is_normal_dir,
+    ApplyBC<X1DIR, BCSide::Inner, BCType::Reflect>(pmb, cons_pack, nv, is_normal_dir,
                                                    coarse);
   }
 }
 
-void ReflectingOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
+void ReflectingOuterX1(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   MeshBlock *pmb = mbd->GetBlockPointer();
   auto cons_pack = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
 
@@ -134,11 +134,11 @@ void ReflectingOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   const auto nvar = cons_pack.GetDim(4);
   for (int n = 0; n < nvar; ++n) {
     bool is_normal_dir = false;
-    if (n == IM3) {
+    if (n == IM1) {
       is_normal_dir = true;
     }
     IndexRange nv{n, n};
-    ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, cons_pack, nv, is_normal_dir,
+    ApplyBC<X1DIR, BCSide::Outer, BCType::Reflect>(pmb, cons_pack, nv, is_normal_dir,
                                                    coarse);
   }
 }
@@ -155,7 +155,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   pkg->AddField("grav_phi", m);
   m = Metadata({Metadata::Face, Metadata::OneCopy, Metadata::Restart},
                std::vector<int>({1}));
-  pkg->AddField("grav_phi_zface", m);
+  pkg->AddField("grav_phi_rface", m);
 
   // add hydrostatic pressure, density fields
   m = Metadata({Metadata::Cell, Metadata::OneCopy, Metadata::Restart},
@@ -509,20 +509,20 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         DEFAULT_LOOP_PATTERN, "SetGravPotentialCells", parthenon::DevExecSpace(), 0, 0,
         kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
         KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
-          // Calculate height
-          const Real zcen = coords.Xc<3>(k);
-          const Real zcen_cgs = std::abs(zcen) * code_length_cgs;
-          const Real phi_i = P_rho_profile->phi(zcen_cgs);
+          // Calculate radius
+          const Real rcen = coords.Xc<1>(i);
+          const Real rcen_cgs = rcen * code_length_cgs;
+          const Real phi_i = P_rho_profile->phi(rcen_cgs);
           grav_phi(0, k, j, i) = phi_i / code_potential_cgs;
         });
   }
 
-  // ensure that the gravitational potential is reflected at x3-boundaries
-  ApplyBC<X3DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi, false);
-  ApplyBC<X3DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi, false);
+  // ensure that the gravitational potential is reflected at x1-boundaries
+  ApplyBC<X1DIR, BCSide::Inner, BCType::Reflect>(pmb, grav_phi, false);
+  ApplyBC<X1DIR, BCSide::Outer, BCType::Reflect>(pmb, grav_phi, false);
 
-  auto grav_phi_zface = rc->PackVariables(std::vector<std::string>{"grav_phi_zface"});
-  constexpr auto face_el = parthenon::TopologicalElement::F3;
+  auto grav_phi_rface = rc->PackVariables(std::vector<std::string>{"grav_phi_rface"});
+  constexpr auto face_el = parthenon::TopologicalElement::F1;
 
   IndexRange ibe = pmb->cellbounds.GetBoundsI(IndexDomain::entire, face_el);
   IndexRange jbe = pmb->cellbounds.GetBoundsJ(IndexDomain::entire, face_el);
@@ -533,17 +533,17 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         DEFAULT_LOOP_PATTERN, "SetGravPotentialFaces", parthenon::DevExecSpace(), 0, 0,
         kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
         KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
-          grav_phi_zface(face_el, 0, k, j, i) = 0;
+          grav_phi_rface(face_el, 0, k, j, i) = 0;
         });
   } else { // with gravity
     parthenon::par_for(
         DEFAULT_LOOP_PATTERN, "SetGravPotentialFaces", parthenon::DevExecSpace(), 0, 0,
         kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
         KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
-          // Calculate height
-          const Real zmin_cgs = std::abs(coords.Xf<3>(k)) * code_length_cgs;
-          const Real phi_iminus = P_rho_profile->phi(zmin_cgs) / code_potential_cgs;
-          grav_phi_zface(face_el, 0, k, j, i) = phi_iminus;
+          // Calculate radius
+          const Real rmin_cgs = coords.Xf<1>(i) * code_length_cgs;
+          const Real phi_iminus = P_rho_profile->phi(rmin_cgs) / code_potential_cgs;
+          grav_phi_rface(face_el, 0, k, j, i) = phi_iminus;
         });
   }
 
@@ -569,21 +569,21 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
         DEFAULT_LOOP_PATTERN, "SetHydrostaticProfileCells", parthenon::DevExecSpace(), 0,
         0, kbp.s, kbp.e, jbp.s, jbp.e, ibp.s, ibp.e,
         KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
-          // Calculate height
-          const Real zcen = coords.Xc<3>(k);
-          const Real zmin = std::abs(zcen) - 0.5 * dx3;
-          const Real zmax = std::abs(zcen) + 0.5 * dx3;
-          const Real zmin_cgs = zmin * code_length_cgs;
-          const Real zmax_cgs = zmax * code_length_cgs;
-          const Real dz_cgs = dx3 * code_length_cgs;
+          // Calculate radius
+          const Real rcen = coords.Xc<1>(i);
+          const Real rmin = rcen - 0.5 * dx1;
+          const Real rmax = rcen + 0.5 * dx1;
+          const Real rmin_cgs = rmin * code_length_cgs;
+          const Real rmax_cgs = rmax * code_length_cgs;
+          const Real dr_cgs = dx1 * code_length_cgs;
 
           parthenon::math::quadrature::gauss<Real, 7> quad;
-          auto p_hse = [=](Real z) { return P_rho_profile->P(z); };
-          auto rho_hse = [=](Real z) { return P_rho_profile->rho(z); };
-          auto b_hse = [=](Real z) { return P_rho_profile->bfield(z); };
-          const Real P_hse_avg = quad.integrate(p_hse, zmin_cgs, zmax_cgs) / dz_cgs;
-          const Real rho_hse_avg = quad.integrate(rho_hse, zmin_cgs, zmax_cgs) / dz_cgs;
-          const Real b_hse_avg = quad.integrate(b_hse, zmin_cgs, zmax_cgs) / dz_cgs;
+          auto p_hse = [=](Real r) { return P_rho_profile->P(r); };
+          auto rho_hse = [=](Real r) { return P_rho_profile->rho(r); };
+          auto b_hse = [=](Real r) { return P_rho_profile->bfield(r); };
+          const Real P_hse_avg = quad.integrate(p_hse, rmin_cgs, rmax_cgs) / dr_cgs;
+          const Real rho_hse_avg = quad.integrate(rho_hse, rmin_cgs, rmax_cgs) / dr_cgs;
+          const Real b_hse_avg = quad.integrate(b_hse, rmin_cgs, rmax_cgs) / dr_cgs;
 
           pressure_hse(0, k, j, i) = P_hse_avg / code_pressure_cgs;
           density_hse(0, k, j, i) = rho_hse_avg / code_density_cgs;
@@ -597,9 +597,10 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
         const Real rho = density_hse(0, k, j, i);
         const Real P = pressure_hse(0, k, j, i);
-        const Real Bx = bfield_hse(0, k, j, i);
-        const Real By = 0;
-        const Real Bz = 0;
+        // Purely toroidal (phi-direction) field for divergence-free B in spherical coords
+        const Real Bx = 0;  // B_r = 0
+        const Real By = 0;  // B_theta = 0
+        const Real Bz = bfield_hse(0, k, j, i);  // B_phi = B_0(r)
         const Real B_sq = SQR(Bx) + SQR(By) + SQR(Bz);
 
         Real drho_over_rho = 0.0;
@@ -764,8 +765,8 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
         });
 
     const auto &enable_cooling = pkg->Param<Cooling>("enable_cooling");
-    const auto grav_phi_zface_pack =
-        data->PackVariables(std::vector<std::string>{"grav_phi_zface"});
+    const auto grav_phi_rface_pack =
+        data->PackVariables(std::vector<std::string>{"grav_phi_rface"});
 
     // fill cooling time
     if (enable_cooling == Cooling::tabular) {
@@ -789,12 +790,12 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
             const Real P = prim(IPR, k, j, i);
 
             // compute instantaneous cooling rate
-            const Real z = coords.Xc<3>(k);
+            const Real r = coords.Xc<1>(i);
             const Real dVol = coords.CellVolume(ib.s, jb.s, kb.s);
             const Real eint = P / (rho * gm1);
 
-            // artificially limit temperature change in precipitator midplane
-            const Real taper_fac = SQR(SQR(std::tanh(std::abs(z) / h_smooth)));
+            // artificially limit temperature change near inner boundary
+            const Real taper_fac = SQR(SQR(std::tanh(r / h_smooth)));
 
             // compute instantaneous Edot
             const Real edot_tabulated = cooling_table_obj.DeDt(eint, rho);
@@ -804,18 +805,18 @@ void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
             const Real t_cool = std::abs(eint / edot);
 
             // compute potential at center and faces
-            const Real phi_zminus =
-                grav_phi_zface_pack(parthenon::TopologicalElement::F3, 0, k, j, i);
-            Real phi_zplus = NAN;
-            if (k < kb.e) {
-              phi_zplus =
-                  grav_phi_zface_pack(parthenon::TopologicalElement::F3, 0, k + 1, j, i);
+            const Real phi_rminus =
+                grav_phi_rface_pack(parthenon::TopologicalElement::F1, 0, k, j, i);
+            Real phi_rplus = NAN;
+            if (i < ib.e) {
+              phi_rplus =
+                  grav_phi_rface_pack(parthenon::TopologicalElement::F1, 0, k, j, i + 1);
             }
-            const Real g_z = -(phi_zplus - phi_zminus) / dx3;
+            const Real g_r = -(phi_rplus - phi_rminus) / dx1;
 
             // compute local t_ff
             const Real t_ff =
-                (z != 0.) ? std::sqrt(2.0 * std::abs(z) / std::abs(g_z)) : 0;
+                (r != 0.) ? std::sqrt(2.0 * r / std::abs(g_r)) : 0;
 
             // compute local tcool/tff
             const Real local_tc_tff = t_cool / t_ff;

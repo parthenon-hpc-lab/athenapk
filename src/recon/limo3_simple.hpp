@@ -91,7 +91,7 @@ KOKKOS_INLINE_FUNCTION typename std::enable_if<recon == Reconstruction::limo3, v
 Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
             const int iu, const parthenon::VariablePack<Real> &q, ScratchPad2D<Real> &ql,
             ScratchPad2D<Real> &qr, const parthenon::VariablePack<Real> &phi,
-            const parthenon::VariablePack<Real> &phi_zface) {
+            const parthenon::VariablePack<Real> &phi_face) {
   const auto nvar = q.GetDim(4);
   for (auto n = 0; n < nvar; ++n) {
     // Note, this may be unsafe as we implicitly assume how this function is called with
