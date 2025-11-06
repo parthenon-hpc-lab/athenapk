@@ -9,6 +9,7 @@
 
 // AthenaPK headers
 #include "../../main.hpp"
+#include "glmmhd.hpp"
 
 using namespace parthenon::package::prelude;
 
@@ -50,13 +51,7 @@ void DednerSource(MeshData<Real> *md, const Real beta_dt) {
           auto &cons = cons_pack(b);
           const auto &prim = prim_pack(b);
           const auto &coords = prim_pack.GetCoords(b);
-          const Real divB =
-              0.5 * ((prim(IB1, k, j, i + 1) - prim(IB1, k, j, i - 1)) /
-                         coords.Dxc<1>(k, j, i) +
-                     (prim(IB2, k, j + 1, i) - prim(IB2, k, j - 1, i)) /
-                         coords.Dxc<2>(k, j, i) +
-                     (prim(IB3, k + k_offset, j, i) - prim(IB3, k - k_offset, j, i)) /
-                         coords.Dxc<3>(k, j, i));
+          const Real divB = ComputeDivB(prim, coords, k, j, i, k_offset);
           cons(IM1, k, j, i) -= beta_dt * divB * prim(IB1, k, j, i);
           cons(IM2, k, j, i) -= beta_dt * divB * prim(IB2, k, j, i);
           cons(IM3, k, j, i) -= beta_dt * divB * prim(IB3, k, j, i);

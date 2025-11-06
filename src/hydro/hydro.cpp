@@ -200,13 +200,8 @@ Real HydroHst(MeshData<Real> *md) {
                   coords.CellVolume(k, j, i);
           // relative divergence of B error, i.e., L * |div(B)| / |B|
         } else if (hst == Hst::divb) {
-          Real divb =
-              (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) / coords.Dxc<1>(k, j, i) +
-              (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
-          if (three_d) {
-            divb += (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) /
-                    coords.Dxc<3>(k, j, i);
-          }
+          const int k_offset = three_d ? 1 : 0;
+          Real divb = Hydro::GLMMHD::ComputeDivB(cons, coords, k, j, i, k_offset);
 
           Real abs_b = std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                                  SQR(cons(IB3, k, j, i)));
