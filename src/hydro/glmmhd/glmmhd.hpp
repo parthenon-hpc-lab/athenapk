@@ -68,6 +68,49 @@ KOKKOS_INLINE_FUNCTION Real ComputeDivB(const FieldPack &field, const Coords &co
   }
 }
 
+// Helper function to compute B·∇ψ for extended divergence cleaning source term
+template <typename FieldPack, typename Coords>
+KOKKOS_INLINE_FUNCTION Real ComputeBdotGradPsi(const FieldPack &prim, const Coords &coords,
+                                                const int k, const int j, const int i,
+                                                const int k_offset) {
+  if constexpr (std::is_same<parthenon::Coordinates_t,
+                             parthenon::UniformSpherical>::value) {
+    // Spherical coordinates: B·∇ψ = Br*∂ψ/∂r + (Bθ/r)*∂ψ/∂θ + (Bφ/(r sinθ))*∂ψ/∂φ
+    const Real r = coords.template Xc<X1DIR>(i);
+    const Real theta = coords.template Xc<X2DIR>(j);
+    const Real sin_theta = sin(theta);
+
+    // Radial term: Br * ∂ψ/∂r
+    const Real dpsi_dr = (prim(IPS, k, j, i + 1) - prim(IPS, k, j, i - 1)) /
+                         (2.0 * coords.template Dxc<1>(k, j, i));
+    const Real term_r = prim(IB1, k, j, i) * dpsi_dr;
+
+    // Theta term: (Bθ/r) * ∂ψ/∂θ
+    const Real dpsi_dtheta = (prim(IPS, k, j + 1, i) - prim(IPS, k, j - 1, i)) /
+                             (2.0 * coords.template Dxc<2>(k, j, i));
+    const Real term_theta = prim(IB2, k, j, i) * dpsi_dtheta / r;
+
+    // Phi term: (Bφ/(r sinθ)) * ∂ψ/∂φ
+    Real term_phi = 0.0;
+    if (sin_theta != 0.0) {
+      const Real dpsi_dphi = (prim(IPS, k + k_offset, j, i) - prim(IPS, k - k_offset, j, i)) /
+                             (2.0 * coords.template Dxc<3>(k, j, i));
+      term_phi = prim(IB3, k, j, i) * dpsi_dphi / (r * sin_theta);
+    }
+
+    return term_r + term_theta + term_phi;
+  } else {
+    // Cartesian coordinates: B·∇ψ = Bx*∂ψ/∂x + By*∂ψ/∂y + Bz*∂ψ/∂z
+    return prim(IB1, k, j, i) * (prim(IPS, k, j, i + 1) - prim(IPS, k, j, i - 1)) /
+               (2.0 * coords.template Dxc<1>(k, j, i)) +
+           prim(IB2, k, j, i) * (prim(IPS, k, j + 1, i) - prim(IPS, k, j - 1, i)) /
+               (2.0 * coords.template Dxc<2>(k, j, i)) +
+           prim(IB3, k, j, i) *
+               (prim(IPS, k + k_offset, j, i) - prim(IPS, k - k_offset, j, i)) /
+               (2.0 * coords.template Dxc<3>(k, j, i));
+  }
+}
+
 template <bool extended>
 void DednerSource(MeshData<Real> *md, const Real beta_dt);
 

@@ -228,15 +228,17 @@ int main(int argc, char *argv[]) {
   const std::string REFLECTING = "reflecting";
   using BF = parthenon::BoundaryFace;
   using Hydro::BoundaryFunction::ReflectBC;
+  using Hydro::BoundaryFunction::ReflectBCSpherical;
   using parthenon::BoundaryFunction::BCSide;
   pman.app_input->RegisterBoundaryCondition(BF::inner_x1, REFLECTING,
                                             ReflectBC<X1DIR, BCSide::Inner>);
   pman.app_input->RegisterBoundaryCondition(BF::outer_x1, REFLECTING,
                                             ReflectBC<X1DIR, BCSide::Outer>);
+  // Use spherical-aware BC for X2 boundaries (polar axis)
   pman.app_input->RegisterBoundaryCondition(BF::inner_x2, REFLECTING,
-                                            ReflectBC<X2DIR, BCSide::Inner>);
+                                            ReflectBCSpherical<X2DIR, BCSide::Inner>);
   pman.app_input->RegisterBoundaryCondition(BF::outer_x2, REFLECTING,
-                                            ReflectBC<X2DIR, BCSide::Outer>);
+                                            ReflectBCSpherical<X2DIR, BCSide::Outer>);
   pman.app_input->RegisterBoundaryCondition(BF::inner_x3, REFLECTING,
                                             ReflectBC<X3DIR, BCSide::Inner>);
   pman.app_input->RegisterBoundaryCondition(BF::outer_x3, REFLECTING,

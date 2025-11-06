@@ -118,8 +118,9 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::lhlld> {
       const auto cfr =
           eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[IB1], wri[IB2], wri[IB3]);
 
-      spd[0] = std::min(wli[IV1] - cfl, wri[IV1] - cfr);
-      spd[4] = std::max(wli[IV1] + cfl, wri[IV1] + cfr);
+      // Include divergence cleaning wave speed c_h in wavespeed estimates
+      spd[0] = std::min({wli[IV1] - cfl, wri[IV1] - cfr, -c_h});
+      spd[4] = std::max({wli[IV1] + cfl, wri[IV1] + cfr,  c_h});
 
       Real cfmax = std::max(cfl, cfr);
       // if (wli[IV1] <= wri[IV1]) {

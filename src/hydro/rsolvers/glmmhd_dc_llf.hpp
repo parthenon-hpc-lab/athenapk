@@ -130,10 +130,11 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::llf> {
     fsum.e -= bxi * (wri[IB2] * wri[IV2] + wri[IB3] * wri[IV3]);
 
     //--- Step 3.  Compute max wave speed in L,R states (see Toro eq. 10.43)
+    //    Modified to include divergence cleaning wave speed c_h
 
     qa = eos.FastMagnetosonicSpeed(wli[IDN], wli[IPR], wli[IB1], wli[IB2], wli[IB3]);
     qb = eos.FastMagnetosonicSpeed(wri[IDN], wri[IPR], wri[IB1], wri[IB2], wri[IB3]);
-    Real a = fmax((fabs(wli[IV1]) + qa), (fabs(wri[IV1]) + qb));
+    Real a = std::max({(fabs(wli[IV1]) + qa), (fabs(wri[IV1]) + qb), c_h});
 
     //--- Step 4.  Compute difference in L/R states dU, multiplied by max wave speed
 

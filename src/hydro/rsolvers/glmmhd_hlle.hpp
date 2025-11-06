@@ -127,9 +127,10 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlle> {
       Real a = std::sqrt(cfsq);
 
       //--- Step 4. Compute the max/min wave speeds based on L/R and Roe-averaged values
+      //    Modified to include divergence cleaning wave speed c_h
 
-      Real al = std::min((wroe[IV1] - a), (wli[IV1] - cl));
-      Real ar = std::max((wroe[IV1] + a), (wri[IV1] + cr));
+      Real al = std::min({(wroe[IV1] - a), (wli[IV1] - cl), -c_h});
+      Real ar = std::max({(wroe[IV1] + a), (wri[IV1] + cr),  c_h});
 
       Real bp = ar > 0.0 ? ar : 0.0;
       Real bm = al < 0.0 ? al : 0.0;

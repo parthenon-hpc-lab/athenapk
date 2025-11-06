@@ -13,6 +13,7 @@
 
 #include "bvals/bvals.hpp"
 #include "mesh/meshblock.hpp"
+#include "main.hpp"
 
 #if 0
 // modification to parthenon/src/mesh/domain.hpp
@@ -134,6 +135,57 @@ void ApplyBC(parthenon::MeshBlock *pmb, parthenon::VariablePack<Real> &q, bool i
              bool coarse = false) {
   auto nvar = parthenon::IndexRange{0, q.GetDim(4) - 1};
   ApplyBC<DIR, SIDE, TYPE>(pmb, q, nvar, is_normal, coarse);
+}
+
+/**
+ * Specialized boundary condition for polar axis in spherical coordinates.
+ * At the polar axis (θ=0 or θ=π), magnetic field components Bθ and Bφ must vanish,
+ * as must velocity components vθ and vφ. This requires special reflection parities.
+ *
+ * Even parity (continuous across pole): ρ, vr, Br, ψ, energy
+ * Odd parity (antisymmetric, vanishes at pole): vθ, vφ, Bθ, Bφ
+ */
+template <BCSide SIDE>
+void ApplySphericalPolarAxisBC(parthenon::MeshBlock *pmb, parthenon::VariablePack<Real> &q,
+                                bool coarse = false) {
+  constexpr bool INNER = (SIDE == BCSide::Inner);
+  constexpr parthenon::BoundaryFace bface = INNER ? parthenon::BoundaryFace::inner_x2
+                                                   : parthenon::BoundaryFace::outer_x2;
+
+  // Check that we are actually on a physical boundary
+  if (!IsDomainBound(pmb, bface)) {
+    return;
+  }
+
+  const auto &bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
+  const auto &range = bounds.GetBoundsJ(parthenon::IndexDomain::interior);
+  const int ref = INNER ? range.s : range.e;
+
+  std::string label = INNER ? "SphericalPolarInnerX2" : "SphericalPolarOuterX2";
+
+  constexpr parthenon::IndexDomain domain =
+      INNER ? parthenon::IndexDomain::inner_x2 : parthenon::IndexDomain::outer_x2;
+
+  // Used for reflections
+  const int offset = 2 * ref + (INNER ? -1 : 1);
+
+  // apply rotation in phi (this is CRITICAL to avoid monopoles!!)
+  auto nvar = parthenon::IndexRange{0, q.GetDim(4) - 1};
+  const int k_mirror = (k + Nphi/2) % Nphi; // apply pi/2 rotation in phi at boundary
+
+  const bool fine = false;
+  pmb->par_for_bndry(
+      label, nvar, domain, parthenon::TopologicalElement::CC, coarse, fine,
+      KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+        if (!q.IsAllocated(l)) return;
+
+        // Determine parity based on component:
+        // Even parity (continuous): IDN, IM1, IEN, IB1, IPS
+        // Odd parity (antisymmetric): IM2, IM3, IB2, IB3
+        bool odd_parity = (l == IM2) || (l == IM3) || (l == IB2) || (l == IB3);
+
+        q(l, k, j, i) = (odd_parity ? -1.0 : 1.0) * q(l, k_mirror, offset - j, i);
+      });
 }
 
 #if 0

@@ -25,6 +25,7 @@
 #include "utils/error_checking.hpp"
 
 #include "../main.hpp"
+#include "../bc.hpp"
 
 namespace Hydro {
 namespace BoundaryFunction {
@@ -84,6 +85,32 @@ void ReflectBC(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
             (reflect ? -1.0 : 1.0) *
             cons(v, X3 ? offset - k : k, X2 ? offset - j : j, X1 ? offset - i : i);
       });
+}
+
+// Reflecting boundary condition that accounts for spherical coordinate singularities
+// For X2 boundaries in spherical coordinates, use polar axis BC
+// For other directions/coordinates, use standard reflect BC
+template <CoordinateDirection DIR, BCSide SIDE>
+void ReflectBCSpherical(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
+  MeshBlock *pmb = mbd->GetBlockPointer();
+
+  // Check if we're using spherical coordinates
+  const bool is_spherical =
+      std::is_same<parthenon::Coordinates_t, parthenon::UniformSpherical>::value;
+
+  // For X2 boundaries in spherical coordinates, use polar axis BC
+  if constexpr (DIR == X2DIR) {
+    if (is_spherical) {
+      auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
+      // Convert parthenon::BoundaryFunction::BCSide to local BCSide
+      constexpr ::BCSide local_side = (SIDE == BCSide::Inner) ? ::BCSide::Inner : ::BCSide::Outer;
+      ApplySphericalPolarAxisBC<local_side>(pmb, cons, coarse);
+      return;
+    }
+  }
+
+  // Otherwise, use standard reflecting BC
+  ReflectBC<DIR, SIDE>(mbd, coarse);
 }
 
 } // namespace BoundaryFunction

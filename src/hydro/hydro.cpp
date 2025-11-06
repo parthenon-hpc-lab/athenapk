@@ -93,17 +93,18 @@ Real CalculateGlobalMinDx(MeshData<Real> *md) {
 
   bool nx2 = prim_pack.GetDim(2) > 1;
   bool nx3 = prim_pack.GetDim(3) > 1;
+  // FIXME(bwibking): this *MUST* use physical cell widths, not coordinate spacings!!
   pmb->par_reduce(
       "CalculateGlobalMinDx", 0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmindx) {
         const auto &coords = prim_pack.GetCoords(b);
-        lmindx = fmin(lmindx, coords.Dxc<1>(k, j, i));
+        lmindx = fmin(lmindx, coords.CellWidth<1>(k, j, i));
         if (nx2) {
-          lmindx = fmin(lmindx, coords.Dxc<2>(k, j, i));
+          lmindx = fmin(lmindx, coords.CellWidth<2>(k, j, i));
         }
         if (nx3) {
-          lmindx = fmin(lmindx, coords.Dxc<3>(k, j, i));
+          lmindx = fmin(lmindx, coords.CellWidth<3>(k, j, i));
         }
       },
       Kokkos::Min<Real>(mindx));
@@ -868,6 +869,8 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
   const auto &eos_ =
       hydro_pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                                  AdiabaticGLMMHDEOS>::type>("eos");
+  // Get divergence cleaning wave speed for GLMMHD
+  const auto c_h_ = (fluid == Fluid::glmmhd) ? hydro_pkg->Param<Real>("c_h") : 0.0;
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -893,6 +896,7 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         // nvcc, which cannot determine captured variables only used within constexpr if.
         const auto &ndim = ndim_;
         const auto &eos = eos_;
+        const auto &c_h = c_h_;
 
         Real w[(NHYDRO)];
         w[IDN] = prim(IDN, k, j, i);
@@ -934,6 +938,14 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         if (ndim > 2) {
           min_dt.value =
               fmin(min_dt.value, coords.CellWidth<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
+        }
+
+        // For GLMMHD, also constrain timestep by divergence cleaning wave speed
+        if constexpr (fluid == Fluid::glmmhd) {
+          if (c_h > 0.0) {
+            const Real dx = coords.CellWidth<1>(k, j, i);
+            min_dt.value = fmin(min_dt.value, dx / c_h);
+          }
         }
 
         CellPrimValues this_cell{w[IDN], w[IV1], w[IV2], w[IV3], w[IPR], B1, B2, B3};
