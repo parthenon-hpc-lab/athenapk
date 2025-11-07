@@ -26,6 +26,7 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
+#include "../bvals/boundary_conditions_apk.hpp"
 #include "../eos/adiabatic_glmmhd.hpp"
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
@@ -165,7 +166,11 @@ Real HydroHst(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  auto bface_pack = md->PackVariables(std::vector<std::string>{"glmmhd_bface"});
   const bool three_d = cons_pack.GetNdim() == 3;
+  const bool has_theta = cons_pack.GetDim(2) > 1;
+  const bool has_phi = cons_pack.GetDim(3) > 1;
+  const bool has_bface = bface_pack.GetDim(5) > 0;
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -202,17 +207,49 @@ Real HydroHst(MeshData<Real> *md) {
           // relative divergence of B error, i.e., L * |div(B)| / |B|
         } else if (hst == Hst::divb) {
           const int k_offset = three_d ? 1 : 0;
-          Real divb = Hydro::GLMMHD::ComputeDivB(cons, coords, k, j, i, k_offset);
+          Real divb = 0.0;
+          if (has_bface) {
+            const auto &bface = bface_pack(b);
+            divb = Hydro::GLMMHD::ComputeDivB(cons, bface, coords, k, j, i, k_offset,
+                                              has_theta, has_phi);
+          } else {
+            divb = Hydro::GLMMHD::ComputeDivB(cons, coords, k, j, i, k_offset, has_theta,
+                                              has_phi);
+          }
 
           Real abs_b = std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                                  SQR(cons(IB3, k, j, i)));
 
-          lsum += (abs_b != 0) ? 0.5 *
-                                     (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) +
-                                                SQR(coords.Dxc<2>(k, j, i)) +
-                                                SQR(coords.Dxc<3>(k, j, i)))) *
-                                     std::abs(divb) / abs_b * coords.CellVolume(k, j, i)
-                               : 0; // Add zero when abs_b ==0
+          Real inv_dx_sum = 0.0;
+          int dim = 0;
+          const Real dx1 = coords.CellWidth<1>(k, j, i);
+          if (dx1 > 0.0) {
+            inv_dx_sum += 1.0 / dx1;
+            ++dim;
+          }
+          if (has_theta) {
+            const Real dx2 = coords.CellWidth<2>(k, j, i);
+            if (dx2 > 0.0) {
+              inv_dx_sum += 1.0 / dx2;
+              ++dim;
+            }
+          }
+          if (has_phi) {
+            const Real dx3 = coords.CellWidth<3>(k, j, i);
+            if (dx3 > 0.0) {
+              inv_dx_sum += 1.0 / dx3;
+              ++dim;
+            }
+          }
+          Real local_scale = dx1;
+          if (inv_dx_sum > 0.0) {
+            local_scale = static_cast<Real>(dim) / inv_dx_sum;
+          }
+
+          lsum += (abs_b != 0)
+                      ? 0.5 * local_scale * std::abs(divb) / abs_b *
+                            coords.CellVolume(k, j, i)
+                      : 0; // Add zero when abs_b ==0
         }
       },
       sum);
@@ -331,6 +368,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // hyperbolic timestep constraint
   pkg->AddParam<Real>("dt_hyp", std::numeric_limits<Real>::max(),
                       Params::Mutability::Mutable);
+
+  const bool log_spherical_bc = pin->GetOrAddBoolean("hydro", "log_spherical_bc", false);
+  pkg->AddParam<>("log_spherical_bc", log_spherical_bc);
 
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
@@ -820,6 +860,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                prim_labels);
   pkg->AddField("prim", m);
 
+  if (fluid == Fluid::glmmhd) {
+    auto m_face = Metadata({Metadata::Face, Metadata::Derived, Metadata::OneCopy},
+                           std::vector<int>({1}));
+    pkg->AddField("glmmhd_bface", m_face);
+  }
+
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
   if (refine_str == "pressure_gradient") {
     pkg->CheckRefinementBlock = refinement::gradient::PressureGradient;
@@ -856,6 +902,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   if (ProblemInitPackageData != nullptr) {
     ProblemInitPackageData(pin, pkg.get());
   }
+
+  // Note: Corner fix for spherical coordinates is handled in the driver
+  // as explicit tasks after boundary exchange, not as user boundary functions
 
   return pkg;
 }
@@ -1353,6 +1402,67 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   const auto &diffint = pkg->Param<DiffInt>("diffint");
   if (diffint == DiffInt::unsplit) {
     CalcDiffFluxes(pkg.get(), md.get());
+  }
+
+  return TaskStatus::complete;
+}
+
+TaskStatus StoreGLMFaceB(MeshData<Real> *md) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  if (hydro_pkg->Param<Fluid>("fluid") != Fluid::glmmhd) {
+    return TaskStatus::complete;
+  }
+
+  auto bface_pack = md->PackVariables(std::vector<std::string>{"glmmhd_bface"});
+  if (bface_pack.GetDim(5) == 0) {
+    return TaskStatus::complete;
+  }
+
+  std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
+  auto cons_pack = md->PackVariablesAndFluxes(flags_ind);
+
+  const Real c_h = hydro_pkg->Param<Real>("c_h");
+  if (c_h <= 0.0) return TaskStatus::complete;
+  const Real inv_ch2 = 1.0 / (c_h * c_h);
+
+  auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  constexpr auto face_x1 = parthenon::TopologicalElement::F1;
+  constexpr auto face_x2 = parthenon::TopologicalElement::F2;
+  constexpr auto face_x3 = parthenon::TopologicalElement::F3;
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "StoreGLMFaceB_X1", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        auto &cons = cons_pack(b);
+        auto &bface = bface_pack(b);
+        bface(face_x1, 0, k, j, i) = cons.flux(X1DIR, IPS, k, j, i) * inv_ch2;
+      });
+
+  if (pmb->pmy_mesh->ndim >= 2) {
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "StoreGLMFaceB_X2", parthenon::DevExecSpace(), 0,
+        cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e + 1, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          auto &cons = cons_pack(b);
+          auto &bface = bface_pack(b);
+          bface(face_x2, 0, k, j, i) = cons.flux(X2DIR, IPS, k, j, i) * inv_ch2;
+        });
+  }
+
+  if (pmb->pmy_mesh->ndim >= 3) {
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "StoreGLMFaceB_X3", parthenon::DevExecSpace(), 0,
+        cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          auto &cons = cons_pack(b);
+          auto &bface = bface_pack(b);
+          bface(face_x3, 0, k, j, i) = cons.flux(X3DIR, IPS, k, j, i) * inv_ch2;
+        });
   }
 
   return TaskStatus::complete;

@@ -77,10 +77,37 @@ void ReflectBC(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   const bool fine = false; // no usage of fine fields in AthenaPK for now
 
   const auto nv = IndexRange{0, cons.GetDim(4) - 1};
+
+  // Check if this is the inner radial boundary at the origin
+  const bool is_spherical =
+      std::is_same<parthenon::Coordinates_t, parthenon::UniformSpherical>::value;
+  bool is_origin = false;
+  if (is_spherical && (DIR == X1DIR) && INNER) {
+    const Real r_min = pmb->pmy_mesh->mesh_size.xmin(parthenon::X1DIR);
+    const Real r_max = pmb->pmy_mesh->mesh_size.xmax(parthenon::X1DIR);
+    const Real scale = std::max(std::abs(r_max), static_cast<Real>(1.0));
+    is_origin = std::abs(r_min) <= 1.0e-12 * scale;
+  }
+  const bool guard_theta_ghosts = is_spherical && (DIR == X1DIR);
+  const auto &j_int =
+      bounds.GetBoundsJ(IndexDomain::interior);
+  const int j_int_s = j_int.s;
+  const int j_int_e = j_int.e;
+
   pmb->par_for_bndry(
       "ReflectBC", nv, domain, parthenon::TopologicalElement::CC, coarse, fine,
       KOKKOS_LAMBDA(const int &v, const int &k, const int &j, const int &i) {
-        const bool reflect = v == DIR;
+        if (guard_theta_ghosts && (j < j_int_s || j > j_int_e)) return;
+        bool reflect = false;
+
+        if (is_origin) {
+          // At the origin in spherical coordinates, ALL magnetic field components are odd
+          reflect = (v == DIR) || (v == IB1) || (v == IB2) || (v == IB3);
+        } else {
+          // Standard reflecting BC: flip normal component only
+          reflect = v == DIR;
+        }
+
         cons(v, k, j, i) =
             (reflect ? -1.0 : 1.0) *
             cons(v, X3 ? offset - k : k, X2 ? offset - j : j, X1 ? offset - i : i);
@@ -111,6 +138,24 @@ void ReflectBCSpherical(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
 
   // Otherwise, use standard reflecting BC
   ReflectBC<DIR, SIDE>(mbd, coarse);
+}
+
+// Wrapper to call corner fix after all boundary conditions have been applied
+// This should be registered as a user boundary function on the last face (outer_x3)
+inline void ApplySphericalCornerFix(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
+  MeshBlock *pmb = mbd->GetBlockPointer();
+  auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
+  FixSphericalCorners(pmb, cons, coarse);
+}
+
+// Task function to fix corners after all boundary exchanges
+inline parthenon::TaskStatus ApplySphericalCornerFixTask(MeshData<Real> *md) {
+  for (int b = 0; b < md->NumBlocks(); ++b) {
+    auto pmb = md->GetBlockData(b)->GetBlockPointer();
+    auto cons = md->GetBlockData(b)->PackVariables(std::vector<std::string>{"cons"});
+    FixSphericalCorners(pmb, cons, false);
+  }
+  return parthenon::TaskStatus::complete;
 }
 
 } // namespace BoundaryFunction

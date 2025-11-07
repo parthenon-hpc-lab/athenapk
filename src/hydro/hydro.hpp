@@ -56,6 +56,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md);
 using FluxFun_t =
     decltype(CalculateFluxes<Fluid::euler, Reconstruction::dc, RiemannSolver::hlle>);
 
+TaskStatus StoreGLMFaceB(MeshData<Real> *md);
+
 template <Fluid fluid>
 TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_data,
                                  const Real gam0, const Real gam1, const Real beta_dt);

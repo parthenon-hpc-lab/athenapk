@@ -19,6 +19,7 @@
 #include "utils/error_checking.hpp"
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
+#include "../bvals/boundary_conditions_apk.hpp"
 #include "../eos/adiabatic_hydro.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
@@ -173,6 +174,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
                  const Real tau) {
 
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
+  const bool is_glmmhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
   auto mindt_diff = hydro_pkg->Param<Real>("dt_diff");
 
   // get number of RKL steps
@@ -271,7 +273,11 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
         rkl2_step_first | start_bnd, tl, base, pmesh->multilevel);
 
-    tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
+    // Fix corner ghost cells after all boundary conditions (including periodic)
+    auto fix_corners = tl.AddTask(bounds_exchange, Hydro::BoundaryFunction::ApplySphericalCornerFixTask,
+                                    base.get());
+
+    tl.AddTask(fix_corners, parthenon::Update::FillDerived<MeshData<Real>>,
                base.get());
   }
 
@@ -336,7 +342,11 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
           rkl2_step_other | start_bnd, tl, base, pmesh->multilevel);
 
-      tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
+      // Fix corner ghost cells after all boundary conditions (including periodic)
+      auto fix_corners = tl.AddTask(bounds_exchange, Hydro::BoundaryFunction::ApplySphericalCornerFixTask,
+                                      base.get());
+
+      tl.AddTask(fix_corners, parthenon::Update::FillDerived<MeshData<Real>>,
                  base.get());
     }
 
@@ -349,6 +359,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
+  const bool is_glmmhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
 
   TaskID none(0);
   // Number of task lists that can be executed indepenently and thus *may*
@@ -528,20 +539,25 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // TODO(pgrete) figure out what to do about the sources from the first stage
     // that are potentially disregarded when the (m)hd fluxes are corrected in the second
     // stage.
-    TaskID first_order_flux_correct = calc_flux;
+    TaskID flux_ready = calc_flux;
     if (hydro_pkg->Param<bool>("first_order_flux_correct")) {
       auto *first_order_flux_correct_fun =
           hydro_pkg->Param<FirstOrderFluxCorrectFun_t *>("first_order_flux_correct_fun");
-      first_order_flux_correct =
+      flux_ready =
           tl.AddTask(calc_flux, first_order_flux_correct_fun, mu0.get(), mu1.get(),
                      integrator->gam0[stage - 1], integrator->gam1[stage - 1],
                      integrator->beta[stage - 1] * integrator->dt);
     }
 
+    TaskID store_bface = flux_ready;
+    if (is_glmmhd) {
+      store_bface = tl.AddTask(flux_ready, StoreGLMFaceB, mu0.get());
+    }
+
     auto send_flx =
-        tl.AddTask(first_order_flux_correct, parthenon::LoadAndSendFluxCorrections, mu0);
+        tl.AddTask(store_bface, parthenon::LoadAndSendFluxCorrections, mu0);
     auto recv_flx = tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, mu0);
-    auto set_flx = tl.AddTask(recv_flx | first_order_flux_correct,
+    auto set_flx = tl.AddTask(recv_flx | store_bface,
                               parthenon::SetFluxCorrections, mu0);
 
     // compute the divergence of fluxes of conserved variables
@@ -578,8 +594,12 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // TODO(someone) experiment with split (local/nonlocal) comms with respect to
     // performance for various tests (static, amr, block sizes) and then decide on the
     // best impl. Go with default call (split local/nonlocal) for now.
-    parthenon::AddBoundaryExchangeTasks(source_split_first_order | start_bnd, tl, mu0,
+    auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(source_split_first_order | start_bnd, tl, mu0,
                                         pmesh->multilevel);
+
+    // Fix corner ghost cells after all boundary conditions (including periodic)
+    auto fix_corners = tl.AddTask(bounds_exchange, Hydro::BoundaryFunction::ApplySphericalCornerFixTask,
+                                    mu0.get());
   }
 
   TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);

@@ -7,7 +7,7 @@ dn         = 1         # output every cycle
 
 <parthenon/output2>
 file_type  = hdf5      # HDF5 data dump
-variables  = prim, drho_over_rho, dP_over_P, dK_over_K, dT_over_T, entropy, temperature, tcool_over_tff, plasma_beta, dv
+variables  = prim, drho_over_rho, dP_over_P, dK_over_K, dT_over_T, entropy, temperature, tcool_over_tff, plasma_beta, dv, divB
 dn         = 1         # output every cycle
 id         = prim      # Name to append to output
 
@@ -19,7 +19,7 @@ ghost_zones = 1
 
 <parthenon/time>
 cfl        = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
-nlim       = 1000       # cycle limit (set to small number for debugging)
+nlim       = 1000          # cycle limit (set to small number for debugging)
 tlim       = 1.0e4      # time limit
 integrator  = rk2       # time integration algorithm
 perf_cycle_offset  = 1  # interval for stdout summary info (print every cycle)
@@ -27,11 +27,11 @@ perf_cycle_offset  = 1  # interval for stdout summary info (print every cycle)
 
 <parthenon/mesh>
 refinement  = static
-nghost = 4
+nghost = 2
 
 # R
 nx1        = 32        # Number of zones in X1-direction
-x1min      = 0.       # minimum value of X1
+x1min      = 0.0       # minimum value of X1
 x1max      = 100.0       # maximum value of X1
 ix1_bc     = reflecting
 ox1_bc     = reflecting
@@ -54,16 +54,18 @@ ox3_bc      = periodic
 <parthenon/meshblock>
 nx1        = 16        # Number of zones in X1-direction
 nx2        = 16        # Number of zones in X2-direction
-nx3        = 16        # Number of zones in X3-direction
+nx3        = 32        # Number of zones in X3-direction
 
 <hydro>
 fluid = glmmhd
+glmmhd_source = dedner_extended
 gamma = 1.6666666666666667 # gamma = C_p/C_v
 eos = adiabatic
 riemann = lhlld
-reconstruction = plm
+reconstruction = dc
 first_order_flux_correct = true
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+log_spherical_bc = false
 
 He_mass_fraction = 0.25
 dfloor = 1454.4065594167007     # Msun kpc^(-3) == 1e-4 cm^{-3}

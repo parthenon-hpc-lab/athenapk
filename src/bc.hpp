@@ -157,11 +157,22 @@ void ApplySphericalPolarAxisBC(parthenon::MeshBlock *pmb, parthenon::VariablePac
     return;
   }
 
+  // Runtime check: this boundary condition requires a single MeshBlock in phi
+  const int total_nk = pmb->pmy_mesh->mesh_size.nx(parthenon::X3DIR);
+  const int block_nk = pmb->block_size.nx(parthenon::X3DIR);
+  PARTHENON_REQUIRE_THROWS(
+      total_nk == block_nk,
+      "Spherical polar axis BC requires single MeshBlock in phi direction");
+
   const auto &bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
   const auto &range = bounds.GetBoundsJ(parthenon::IndexDomain::interior);
   const int ref = INNER ? range.s : range.e;
 
   std::string label = INNER ? "SphericalPolarInnerX2" : "SphericalPolarOuterX2";
+
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const bool log_bc = hydro_pkg->Param<bool>("log_spherical_bc");
+  const int block_gid = pmb->gid;
 
   constexpr parthenon::IndexDomain domain =
       INNER ? parthenon::IndexDomain::inner_x2 : parthenon::IndexDomain::outer_x2;
@@ -169,9 +180,20 @@ void ApplySphericalPolarAxisBC(parthenon::MeshBlock *pmb, parthenon::VariablePac
   // Used for reflections
   const int offset = 2 * ref + (INNER ? -1 : 1);
 
-  // apply rotation in phi (this is CRITICAL to avoid monopoles!!)
+  // Get the k range to determine number of phi zones (interior only)
+  const auto &k_range = bounds.GetBoundsK(parthenon::IndexDomain::interior);
+  const int Nk = k_range.e - k_range.s + 1;
+  const auto &kb_all = bounds.GetBoundsK(parthenon::IndexDomain::entire);
+  const auto &ib = bounds.GetBoundsI(parthenon::IndexDomain::interior);
+  const int log_j_edge = INNER ? range.s - 1 : range.e + 1;
+  const int log_i_edge = ib.s;
+  const int k_entire_lo = kb_all.s;
+  const int k_entire_hi = kb_all.e;
+  const int k_sample_lo = k_range.s;
+  const int k_sample_hi = k_range.e;
+
+  // Apply rotation in phi (this is CRITICAL to avoid monopoles!!)
   auto nvar = parthenon::IndexRange{0, q.GetDim(4) - 1};
-  const int k_mirror = (k + Nphi/2) % Nphi; // apply pi/2 rotation in phi at boundary
 
   const bool fine = false;
   pmb->par_for_bndry(
@@ -179,13 +201,269 @@ void ApplySphericalPolarAxisBC(parthenon::MeshBlock *pmb, parthenon::VariablePac
       KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
         if (!q.IsAllocated(l)) return;
 
+        // Match PLUTO: enforce ψ=0 in polar ghost zones before copying other data
+        if (l == IPS) {
+          q(l, k, j, i) = 0.0;
+          return;
+        }
+
+        // Wrap the phi index into the interior range so ghost zones reuse valid data
+        int k_phys = k;
+        while (k_phys < k_range.s) k_phys += Nk;
+        while (k_phys > k_range.e) k_phys -= Nk;
+
+        // Apply π rotation in phi at the pole using the wrapped index
+        int k_rot = k_phys + Nk / 2;
+        // Wrap to interior range [k_range.s, k_range.e]
+        while (k_rot > k_range.e) k_rot -= Nk;
+        while (k_rot < k_range.s) k_rot += Nk;
+        const int k_mirror = k_rot;
+        const int j_mirror = offset - j;
+
         // Determine parity based on component:
         // Even parity (continuous): IDN, IM1, IEN, IB1, IPS
         // Odd parity (antisymmetric): IM2, IM3, IB2, IB3
         bool odd_parity = (l == IM2) || (l == IM3) || (l == IB2) || (l == IB3);
 
-        q(l, k, j, i) = (odd_parity ? -1.0 : 1.0) * q(l, k_mirror, offset - j, i);
+        q(l, k, j, i) = (odd_parity ? -1.0 : 1.0) * q(l, k_mirror, j_mirror, i);
+
+        const bool log_this = log_bc && (i == log_i_edge) && (j == log_j_edge) &&
+                               (l == IB2 || l == IB3) &&
+                               (k == k_entire_lo || k == k_entire_hi ||
+                                k == k_sample_lo || k == k_sample_hi);
+        if (log_this) {
+          const char *comp = (l == IB2) ? "B_theta" : "B_phi";
+          Kokkos::printf(
+              "[PolarBC gid=%d %s] k=%d (phys=%d)->%d j=%d->%d i=%d %s=% .6e (mirror=% .6e)\n",
+              block_gid, INNER ? "inner_x2" : "outer_x2", k, k_phys, k_mirror, j,
+              j_mirror, i, comp, q(l, k, j, i), q(l, k_mirror, j_mirror, i));
+        }
       });
+}
+
+/**
+ * Fix corner ghost cells in spherical coordinates to preserve divB = 0.
+ * This must be called after all regular boundary conditions have been applied.
+ * Corner cells are filled by extrapolating from edge ghost cells.
+ */
+inline void FixSphericalCorners(parthenon::MeshBlock *pmb, parthenon::VariablePack<Real> &q,
+                                 bool coarse = false) {
+  const bool is_spherical =
+      std::is_same<parthenon::Coordinates_t, parthenon::UniformSpherical>::value;
+
+  if (!is_spherical) return;
+
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const bool log_bc = hydro_pkg->Param<bool>("log_spherical_bc");
+  const int block_gid = pmb->gid;
+
+  const auto &bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
+
+  const auto &ib = bounds.GetBoundsI(parthenon::IndexDomain::interior);
+  const auto &jb = bounds.GetBoundsJ(parthenon::IndexDomain::interior);
+  const auto &kb = bounds.GetBoundsK(parthenon::IndexDomain::interior);
+
+  const auto &ib_all = bounds.GetBoundsI(parthenon::IndexDomain::entire);
+  const auto &jb_all = bounds.GetBoundsJ(parthenon::IndexDomain::entire);
+  const auto &kb_all = bounds.GetBoundsK(parthenon::IndexDomain::entire);
+
+  const int nghost_i = ib.s - ib_all.s;
+  const int nghost_j = jb.s - jb_all.s;
+  const int nghost_k = kb.s - kb_all.s;
+
+  auto nvar = parthenon::IndexRange{0, q.GetDim(4) - 1};
+
+  const int Nk = kb.e - kb.s + 1;
+
+  if (log_bc && IsDomainBound(pmb, parthenon::BoundaryFace::inner_x2)) {
+    const int j_ghost = jb.s - 1;
+    const int j_int = jb.s;
+    const int i_edge = ib.s;
+    const int k_sample1 = kb_all.s;
+    const int k_sample2 = kb_all.e;
+    const int k_sample3 = kb.s;
+    const int k_sample4 = kb.e;
+    pmb->par_for(
+        "LogPhiGhostInner", IB2, IB3, kb_all.s, kb_all.e, j_ghost, j_ghost, i_edge, i_edge,
+        KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+          if (l != IB2 && l != IB3) return;
+          bool sample = (k == k_sample1) || (k == k_sample2) || (k == k_sample3) ||
+                        (k == k_sample4);
+          if (!sample) return;
+          const char *comp = (l == IB2) ? "B_theta" : "B_phi";
+          int k_wrap = k;
+          while (k_wrap < kb.s) k_wrap += Nk;
+          while (k_wrap > kb.e) k_wrap -= Nk;
+          Kokkos::printf("[PostPeriodic gid=%d inner_x2] k=%d (wrap=%d) j=%d i=%d %s=% .6e "
+                         "(interior=% .6e)\n",
+                         block_gid, k, k_wrap, j, i, comp, q(l, k, j, i),
+                         q(l, k_wrap, j_int, i));
+        });
+  }
+
+  if (log_bc && IsDomainBound(pmb, parthenon::BoundaryFace::outer_x2)) {
+    const int j_ghost = jb.e + 1;
+    const int j_int = jb.e;
+    const int i_edge = ib.s;
+    const int k_sample1 = kb_all.s;
+    const int k_sample2 = kb_all.e;
+    const int k_sample3 = kb.s;
+    const int k_sample4 = kb.e;
+    pmb->par_for(
+        "LogPhiGhostOuter", IB2, IB3, kb_all.s, kb_all.e, j_ghost, j_ghost, i_edge, i_edge,
+        KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+          if (l != IB2 && l != IB3) return;
+          bool sample = (k == k_sample1) || (k == k_sample2) || (k == k_sample3) ||
+                        (k == k_sample4);
+          if (!sample) return;
+          const char *comp = (l == IB2) ? "B_theta" : "B_phi";
+          int k_wrap = k;
+          while (k_wrap < kb.s) k_wrap += Nk;
+          while (k_wrap > kb.e) k_wrap -= Nk;
+          Kokkos::printf("[PostPeriodic gid=%d outer_x2] k=%d (wrap=%d) j=%d i=%d %s=% .6e "
+                         "(interior=% .6e)\n",
+                         block_gid, k, k_wrap, j, i, comp, q(l, k, j, i),
+                         q(l, k_wrap, j_int, i));
+        });
+  }
+
+  // Fix corners at inner radial + polar boundaries
+  if (IsDomainBound(pmb, parthenon::BoundaryFace::inner_x1)) {
+    // Inner r + inner theta (south pole)
+    if (IsDomainBound(pmb, parthenon::BoundaryFace::inner_x2)) {
+      const int k_lo = kb.s;
+      const int k_hi = kb.e;
+      const int Nk = k_hi - k_lo + 1;
+      pmb->par_for(
+          "FixCorner_r_inner_theta_inner", nvar.s, nvar.e, kb_all.s, kb_all.e,
+          jb_all.s, jb.s - 1, ib_all.s, ib.s - 1,
+          KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+            if (!q.IsAllocated(l)) return;
+            const int i_edge = (i < ib.s) ? ib.s - 1 : i;
+            const int j_edge = (j < jb.s) ? jb.s - 1 : j;
+            int k_src = k;
+            while (k_src < k_lo) k_src += Nk;
+            while (k_src > k_hi) k_src -= Nk;
+            q(l, k, j, i) = q(l, k_src, j_edge, i_edge);
+          });
+    }
+
+    // Inner r + outer theta (north pole)
+    if (IsDomainBound(pmb, parthenon::BoundaryFace::outer_x2)) {
+      const int k_lo = kb.s;
+      const int k_hi = kb.e;
+      const int Nk = k_hi - k_lo + 1;
+      pmb->par_for(
+          "FixCorner_r_inner_theta_outer", nvar.s, nvar.e, kb_all.s, kb_all.e,
+          jb.e + 1, jb_all.e, ib_all.s, ib.s - 1,
+          KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+            if (!q.IsAllocated(l)) return;
+            const int i_edge = (i < ib.s) ? ib.s - 1 : i;
+            const int j_edge = (j > jb.e) ? jb.e + 1 : j;
+            int k_src = k;
+            while (k_src < k_lo) k_src += Nk;
+            while (k_src > k_hi) k_src -= Nk;
+            q(l, k, j, i) = q(l, k_src, j_edge, i_edge);
+          });
+    }
+  }
+
+  // Fix 3-way corners: r + theta + phi
+  if (IsDomainBound(pmb, parthenon::BoundaryFace::inner_x1)) {
+    // Inner r + inner theta + inner/outer phi
+      if (IsDomainBound(pmb, parthenon::BoundaryFace::inner_x2)) {
+        const int i_edge = ib.s - 1;
+        const int j_edge_inner = jb.s - 1;
+        const int k_lo = kb.s;
+        const int k_hi = kb.e;
+        const int Nk = k_hi - k_lo + 1;
+        pmb->par_for(
+            "FixCorner_r_theta_phi", nvar.s, nvar.e, kb_all.s, kb.s - 1,
+            jb_all.s, jb.s - 1, ib_all.s, ib.s - 1,
+            KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+              if (!q.IsAllocated(l)) return;
+              int k_src = k;
+              while (k_src < k_lo) k_src += Nk;
+              while (k_src > k_hi) k_src -= Nk;
+              Real old_val = q(l, k, j, i);
+              Real new_val = q(l, k_src, j_edge_inner, i_edge);
+              q(l, k, j, i) = new_val;
+              if (log_bc && (l == IB2 || l == IB3) && i == ib_all.s &&
+                  j == jb_all.s && (k == kb_all.s || k == kb.s - 1)) {
+                const char *comp = (l == IB2) ? "B_theta" : "B_phi";
+                Kokkos::printf("[CornerFix gid=%d inner_r theta_inner phi_lo] k=%d src=%d "
+                               "j=%d i=%d %s old=% .6e new=% .6e\n",
+                               block_gid, k, k_src, j, i, comp, old_val, new_val);
+              }
+            });
+        pmb->par_for(
+            "FixCorner_r_theta_phi2", nvar.s, nvar.e, kb.e + 1, kb_all.e,
+            jb_all.s, jb.s - 1, ib_all.s, ib.s - 1,
+            KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+              if (!q.IsAllocated(l)) return;
+              int k_src = k;
+              while (k_src < k_lo) k_src += Nk;
+              while (k_src > k_hi) k_src -= Nk;
+              Real old_val = q(l, k, j, i);
+              Real new_val = q(l, k_src, j_edge_inner, i_edge);
+              q(l, k, j, i) = new_val;
+              if (log_bc && (l == IB2 || l == IB3) && i == ib_all.s &&
+                  j == jb_all.s && (k == kb.e + 1 || k == kb_all.e)) {
+                const char *comp = (l == IB2) ? "B_theta" : "B_phi";
+                Kokkos::printf("[CornerFix gid=%d inner_r theta_inner phi_hi] k=%d src=%d "
+                               "j=%d i=%d %s old=% .6e new=% .6e\n",
+                               block_gid, k, k_src, j, i, comp, old_val, new_val);
+              }
+            });
+      }
+
+    // Inner r + outer theta + inner/outer phi
+    if (IsDomainBound(pmb, parthenon::BoundaryFace::outer_x2)) {
+      const int i_edge = ib.s - 1;
+        const int j_edge_outer = jb.e + 1;
+        const int k_lo = kb.s;
+        const int k_hi = kb.e;
+        const int Nk = k_hi - k_lo + 1;
+        pmb->par_for(
+            "FixCorner_r_theta_phi3", nvar.s, nvar.e, kb_all.s, kb.s - 1,
+            jb.e + 1, jb_all.e, ib_all.s, ib.s - 1,
+            KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+              if (!q.IsAllocated(l)) return;
+              int k_src = k;
+              while (k_src < k_lo) k_src += Nk;
+              while (k_src > k_hi) k_src -= Nk;
+              Real old_val = q(l, k, j, i);
+              Real new_val = q(l, k_src, j_edge_outer, i_edge);
+              q(l, k, j, i) = new_val;
+              if (log_bc && (l == IB2 || l == IB3) && i == ib_all.s &&
+                  j == jb.e + 1 && (k == kb_all.s || k == kb.s - 1)) {
+                const char *comp = (l == IB2) ? "B_theta" : "B_phi";
+                Kokkos::printf("[CornerFix gid=%d inner_r theta_outer phi_lo] k=%d src=%d "
+                               "j=%d i=%d %s old=% .6e new=% .6e\n",
+                               block_gid, k, k_src, j, i, comp, old_val, new_val);
+              }
+            });
+        pmb->par_for(
+            "FixCorner_r_theta_phi4", nvar.s, nvar.e, kb.e + 1, kb_all.e,
+            jb.e + 1, jb_all.e, ib_all.s, ib.s - 1,
+            KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+              if (!q.IsAllocated(l)) return;
+              int k_src = k;
+              while (k_src < k_lo) k_src += Nk;
+              while (k_src > k_hi) k_src -= Nk;
+              Real old_val = q(l, k, j, i);
+              Real new_val = q(l, k_src, j_edge_outer, i_edge);
+              q(l, k, j, i) = new_val;
+              if (log_bc && (l == IB2 || l == IB3) && i == ib_all.s &&
+                  j == jb.e + 1 && (k == kb.e + 1 || k == kb_all.e)) {
+                const char *comp = (l == IB2) ? "B_theta" : "B_phi";
+                Kokkos::printf("[CornerFix gid=%d inner_r theta_outer phi_hi] k=%d src=%d "
+                               "j=%d i=%d %s old=% .6e new=% .6e\n",
+                               block_gid, k, k_src, j, i, comp, old_val, new_val);
+              }
+            });
+      }
+  }
 }
 
 #if 0
