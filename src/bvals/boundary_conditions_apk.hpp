@@ -88,16 +88,9 @@ void ReflectBC(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
     const Real scale = std::max(std::abs(r_max), static_cast<Real>(1.0));
     is_origin = std::abs(r_min) <= 1.0e-12 * scale;
   }
-  const bool guard_theta_ghosts = is_spherical && (DIR == X1DIR);
-  const auto &j_int =
-      bounds.GetBoundsJ(IndexDomain::interior);
-  const int j_int_s = j_int.s;
-  const int j_int_e = j_int.e;
-
   pmb->par_for_bndry(
       "ReflectBC", nv, domain, parthenon::TopologicalElement::CC, coarse, fine,
       KOKKOS_LAMBDA(const int &v, const int &k, const int &j, const int &i) {
-        if (guard_theta_ghosts && (j < j_int_s || j > j_int_e)) return;
         bool reflect = false;
 
         if (is_origin) {
@@ -138,24 +131,6 @@ void ReflectBCSpherical(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) 
 
   // Otherwise, use standard reflecting BC
   ReflectBC<DIR, SIDE>(mbd, coarse);
-}
-
-// Wrapper to call corner fix after all boundary conditions have been applied
-// This should be registered as a user boundary function on the last face (outer_x3)
-inline void ApplySphericalCornerFix(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
-  MeshBlock *pmb = mbd->GetBlockPointer();
-  auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
-  FixSphericalCorners(pmb, cons, coarse);
-}
-
-// Task function to fix corners after all boundary exchanges
-inline parthenon::TaskStatus ApplySphericalCornerFixTask(MeshData<Real> *md) {
-  for (int b = 0; b < md->NumBlocks(); ++b) {
-    auto pmb = md->GetBlockData(b)->GetBlockPointer();
-    auto cons = md->GetBlockData(b)->PackVariables(std::vector<std::string>{"cons"});
-    FixSphericalCorners(pmb, cons, false);
-  }
-  return parthenon::TaskStatus::complete;
 }
 
 } // namespace BoundaryFunction

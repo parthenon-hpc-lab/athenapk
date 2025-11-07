@@ -248,16 +248,6 @@ int main(int argc, char *argv[]) {
 
   pman.ParthenonInitPackagesAndMesh();
 
-  // Polar-axis boundary conditions require a single MeshBlock spanning phi, matching PLUTO.
-  if (std::is_same<parthenon::Coordinates_t, parthenon::UniformSpherical>::value) {
-    const auto global_nphi = pman.pmesh->mesh_size.nx(parthenon::X3DIR);
-    const auto block_nphi = pman.pmesh->base_block_size.nx(parthenon::X3DIR);
-    PARTHENON_REQUIRE_THROWS(
-        global_nphi == block_nphi,
-        "Spherical polar coordinates currently require meshblock/nx3 equal to the global nx3 "
-        "(no decomposition in phi) to keep polar GLM boundary conditions well-defined.");
-  }
-
   // Startup the corresponding driver for the integrator
   if (parthenon::Globals::my_rank == 0) {
     std::cout << "Starting up hydro driver" << std::endl;

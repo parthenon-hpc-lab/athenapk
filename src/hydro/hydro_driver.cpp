@@ -273,11 +273,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
         rkl2_step_first | start_bnd, tl, base, pmesh->multilevel);
 
-    // Fix corner ghost cells after all boundary conditions (including periodic)
-    auto fix_corners = tl.AddTask(bounds_exchange, Hydro::BoundaryFunction::ApplySphericalCornerFixTask,
-                                    base.get());
-
-    tl.AddTask(fix_corners, parthenon::Update::FillDerived<MeshData<Real>>,
+    tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
                base.get());
   }
 
@@ -342,11 +338,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
           rkl2_step_other | start_bnd, tl, base, pmesh->multilevel);
 
-      // Fix corner ghost cells after all boundary conditions (including periodic)
-      auto fix_corners = tl.AddTask(bounds_exchange, Hydro::BoundaryFunction::ApplySphericalCornerFixTask,
-                                      base.get());
-
-      tl.AddTask(fix_corners, parthenon::Update::FillDerived<MeshData<Real>>,
+      tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
                  base.get());
     }
 
@@ -597,9 +589,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(source_split_first_order | start_bnd, tl, mu0,
                                         pmesh->multilevel);
 
-    // Fix corner ghost cells after all boundary conditions (including periodic)
-    auto fix_corners = tl.AddTask(bounds_exchange, Hydro::BoundaryFunction::ApplySphericalCornerFixTask,
-                                    mu0.get());
   }
 
   TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);
