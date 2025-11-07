@@ -36,10 +36,10 @@ x1max      = 100.0       # maximum value of X1
 ix1_bc     = reflecting
 ox1_bc     = reflecting
 
-# theta
+# theta (excise polar caps to avoid axis singularities)
 nx2	    = 32
-x2min       = 0
-x2max       = 3.14159265358979323846
+x2min       = 0.1
+x2max       = 3.041592653589793
 ix2_bc 	    = reflecting
 ox2_bc 	    = reflecting
 
@@ -52,8 +52,8 @@ ox3_bc      = periodic
 
 
 <parthenon/meshblock>
-nx1        = 16        # Number of zones in X1-direction
-nx2        = 16        # Number of zones in X2-direction
+nx1        = 32        # Number of zones in X1-direction
+nx2        = 32        # Number of zones in X2-direction
 nx3        = 32        # Number of zones in X3-direction
 
 <hydro>

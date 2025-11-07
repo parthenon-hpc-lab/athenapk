@@ -171,6 +171,12 @@ Real HydroHst(MeshData<Real> *md) {
   const bool has_theta = cons_pack.GetDim(2) > 1;
   const bool has_phi = cons_pack.GetDim(3) > 1;
   const bool has_bface = bface_pack.GetDim(5) > 0;
+  const bool is_glmmhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
+
+  if ((hst == Hst::divb) && is_glmmhd) {
+    PARTHENON_REQUIRE_THROWS(has_bface,
+                             "HydroHst(divb) requires glmmhd_bface for GLMMHD fluid.");
+  }
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -206,16 +212,11 @@ Real HydroHst(MeshData<Real> *md) {
                   coords.CellVolume(k, j, i);
           // relative divergence of B error, i.e., L * |div(B)| / |B|
         } else if (hst == Hst::divb) {
+          if (!is_glmmhd) return;
           const int k_offset = three_d ? 1 : 0;
-          Real divb = 0.0;
-          if (has_bface) {
-            const auto &bface = bface_pack(b);
-            divb = Hydro::GLMMHD::ComputeDivB(cons, bface, coords, k, j, i, k_offset,
-                                              has_theta, has_phi);
-          } else {
-            divb = Hydro::GLMMHD::ComputeDivB(cons, coords, k, j, i, k_offset, has_theta,
-                                              has_phi);
-          }
+          const auto &bface = bface_pack(b);
+          Real divb = Hydro::GLMMHD::ComputeDivB(cons, bface, coords, k, j, i, k_offset,
+                                                 has_theta, has_phi);
 
           Real abs_b = std::sqrt(SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
                                  SQR(cons(IB3, k, j, i)));

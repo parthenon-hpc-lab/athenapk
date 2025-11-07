@@ -94,8 +94,9 @@ void ReflectBC(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
         bool reflect = false;
 
         if (is_origin) {
-          // At the origin in spherical coordinates, ALL magnetic field components are odd
-          reflect = (v == DIR) || (v == IB1) || (v == IB2) || (v == IB3);
+          // At the origin in spherical coordinates, ALL velocity and magnetic components are odd
+          reflect = (v == DIR) || (v == IB1) || (v == IB2) || (v == IB3) ||
+                    (v == IM1) || (v == IM2) || (v == IM3);
         } else {
           // Standard reflecting BC: flip normal component only
           reflect = v == DIR;

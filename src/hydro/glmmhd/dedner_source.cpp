@@ -20,7 +20,8 @@ void DednerSource(MeshData<Real> *md, const Real beta_dt) {
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   auto bface_pack = md->PackVariables(std::vector<std::string>{"glmmhd_bface"});
-  const bool has_bface = bface_pack.GetDim(5) > 0;
+  PARTHENON_REQUIRE_THROWS(bface_pack.GetDim(5) > 0,
+                           "GLM DednerSource requires glmmhd_bface (face-centered B)");
   const int npacks = cons_pack.GetDim(5);
   Kokkos::View<int *> block_gids("glm_block_gids", npacks);
   auto block_gids_h = Kokkos::create_mirror_view(block_gids);
@@ -59,7 +60,6 @@ void DednerSource(MeshData<Real> *md, const Real beta_dt) {
         // TODO(pgrete) Once nvcc is fixed this could be constexpr if again
         auto &cons = cons_pack(b);
         const auto &prim = prim_pack(b);
-        const bool use_face = has_bface;
         Real divB = 0.0;
         const auto &coords = prim_pack.GetCoords(b);
         Real inv_dx_sum = 0.0;
@@ -88,13 +88,8 @@ void DednerSource(MeshData<Real> *md, const Real beta_dt) {
           local_scale = static_cast<Real>(dim) / inv_dx_sum;
         }
         const Real coeff = Kokkos::exp(-alpha * c_h * beta_dt / local_scale);
-        if (use_face) {
-          const auto &bface = bface_pack(b);
-          divB =
-              ComputeDivB(prim, bface, coords, k, j, i, k_offset, has_theta, has_phi);
-        } else {
-          divB = ComputeDivB(prim, coords, k, j, i, k_offset, has_theta, has_phi);
-        }
+        const auto &bface = bface_pack(b);
+        divB = ComputeDivB(prim, bface, coords, k, j, i, k_offset, has_theta, has_phi);
         if (log_bc && (i == ib.s || i == ib.s + 1) &&
             (j == jb.s || j == jb.e) &&
             (k == kb.s || k == kb.e)) {

@@ -185,12 +185,30 @@ void ApplySphericalPolarAxisBC(parthenon::MeshBlock *pmb, parthenon::VariablePac
   const int Nk = k_range.e - k_range.s + 1;
   const auto &kb_all = bounds.GetBoundsK(parthenon::IndexDomain::entire);
   const auto &ib = bounds.GetBoundsI(parthenon::IndexDomain::interior);
+  const auto &ib_all = bounds.GetBoundsI(parthenon::IndexDomain::entire);
+  const auto &jb_all = bounds.GetBoundsJ(parthenon::IndexDomain::entire);
   const int log_j_edge = INNER ? range.s - 1 : range.e + 1;
   const int log_i_edge = ib.s;
   const int k_entire_lo = kb_all.s;
   const int k_entire_hi = kb_all.e;
   const int k_sample_lo = k_range.s;
   const int k_sample_hi = k_range.e;
+
+  // Before applying the polar reflection, ensure phi-periodic wrapping is enforced on the
+  // ghost rings exactly as PLUTO does by calling PeriodicBoundary before PolarAxisBoundary.
+  const int j_ghost_lo = INNER ? jb_all.s : range.e + 1;
+  const int j_ghost_hi = INNER ? range.s - 1 : jb_all.e;
+  if (j_ghost_lo <= j_ghost_hi) {
+    pmb->par_for("PolarPhiPeriodic", 0, q.GetDim(4) - 1, kb_all.s, kb_all.e, j_ghost_lo,
+                 j_ghost_hi, ib_all.s, ib_all.e,
+                 KOKKOS_LAMBDA(const int &l, const int &k, const int &j, const int &i) {
+                   if (!q.IsAllocated(l)) return;
+                   int k_wrap = k;
+                   while (k_wrap < k_range.s) k_wrap += Nk;
+                   while (k_wrap > k_range.e) k_wrap -= Nk;
+                   q(l, k, j, i) = q(l, k_wrap, j, i);
+                 });
+  }
 
   // Apply rotation in phi (this is CRITICAL to avoid monopoles!!)
   auto nvar = parthenon::IndexRange{0, q.GetDim(4) - 1};

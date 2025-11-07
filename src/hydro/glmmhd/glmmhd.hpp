@@ -16,59 +16,6 @@ using namespace parthenon::package::prelude;
 
 namespace Hydro::GLMMHD {
 
-// Helper function to compute divergence of B field
-// Works with both primitive and conserved variables
-// Computes volume-integrated divB to avoid singularities at poles
-template <typename FieldPack, typename Coords>
-KOKKOS_INLINE_FUNCTION Real ComputeDivB(const FieldPack &field, const Coords &coords,
-                                        const int k, const int j, const int i,
-                                        const int k_offset, const bool has_theta,
-                                        const bool has_phi) {
-  if constexpr (std::is_same<parthenon::Coordinates_t,
-                             parthenon::UniformSpherical>::value) {
-    const Real cell_volume = coords.CellVolume(k, j, i);
-    auto face_avg = [](const Real a, const Real b) { return 0.5 * (a + b); };
-
-    // Radial flux through faces at i and i+1
-    const Real area_r_p = coords.template FaceArea<parthenon::X1DIR>(k, j, i + 1);
-    const Real area_r_m = coords.template FaceArea<parthenon::X1DIR>(k, j, i);
-    const Real flux_r =
-        area_r_p * face_avg(field(IB1, k, j, i + 1), field(IB1, k, j, i)) -
-        area_r_m * face_avg(field(IB1, k, j, i), field(IB1, k, j, i - 1));
-
-    // Theta flux through j faces
-    Real flux_theta = 0.0;
-    if (has_theta) {
-      const Real area_th_p = coords.template FaceArea<parthenon::X2DIR>(k, j + 1, i);
-      const Real area_th_m = coords.template FaceArea<parthenon::X2DIR>(k, j, i);
-      flux_theta =
-          area_th_p * face_avg(field(IB2, k, j + 1, i), field(IB2, k, j, i)) -
-          area_th_m * face_avg(field(IB2, k, j, i), field(IB2, k, j - 1, i));
-    }
-
-    // Phi flux through k faces (skip in 2D)
-    Real flux_phi = 0.0;
-    if (k_offset != 0 && has_phi) {
-      const Real area_phi_p =
-          coords.template FaceArea<parthenon::X3DIR>(k + k_offset, j, i);
-      const Real area_phi_m = coords.template FaceArea<parthenon::X3DIR>(k, j, i);
-      flux_phi =
-          area_phi_p * face_avg(field(IB3, k + k_offset, j, i), field(IB3, k, j, i)) -
-          area_phi_m * face_avg(field(IB3, k, j, i), field(IB3, k - k_offset, j, i));
-    }
-
-    return (flux_r + flux_theta + flux_phi) / cell_volume;
-  } else {
-    // Cartesian coordinates: ∇·B = ∂Bx/∂x + ∂By/∂y + ∂Bz/∂z
-    return 0.5 * ((field(IB1, k, j, i + 1) - field(IB1, k, j, i - 1)) /
-                      coords.template Dxc<1>(k, j, i) +
-                  (field(IB2, k, j + 1, i) - field(IB2, k, j - 1, i)) /
-                      coords.template Dxc<2>(k, j, i) +
-                  (field(IB3, k + k_offset, j, i) - field(IB3, k - k_offset, j, i)) /
-                      coords.template Dxc<3>(k, j, i));
-  }
-}
-
 template <typename FieldPack, typename FacePack, typename Coords>
 KOKKOS_INLINE_FUNCTION Real ComputeDivB(const FieldPack &field, const FacePack &bface,
                                         const Coords &coords, const int k, const int j,
@@ -106,7 +53,7 @@ KOKKOS_INLINE_FUNCTION Real ComputeDivB(const FieldPack &field, const FacePack &
     return (flux_r + flux_theta + flux_phi) / cell_volume;
   }
 
-  return ComputeDivB(field, coords, k, j, i, k_offset, has_theta, has_phi);
+  PARTHENON_FAIL("ComputeDivB requires face-centered magnetic fields (glmmhd_bface)");
 }
 
 // Helper function to compute B·∇ψ for extended divergence cleaning source term
