@@ -45,7 +45,8 @@ If you
 * have a general question or comment
 
 please either
-- open an issue/merge request, or
+- start a [discussion](https://github.com/parthenon-hpc-lab/athenapk/discussions) (preferred for general usage related questions), or
+- open an issue/merge request (preferred for code/development related items), or
 - contact us in the AthenaPK channel on matrix.org [#AthenaPK:matrix.org](https://app.element.io/#/room/#AthenaPK:matrix.org)
 
 ## Getting started
