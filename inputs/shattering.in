@@ -57,13 +57,14 @@ scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 
 Tfloor = 4e4                             # in K
 He_mass_fraction = 0.24
+first_order_flux_correct = true
 
 <cooling>
 enable_cooling = tabular                     # turn on with "tabular"
 table_filename = /workspaces/athenapk/inputs/cooling_tables/schure.cooling_1.0Z
 lambda_units_cgs = 1
 integrator = townsend 
-cfl = 1.0
+cfl = -1.0
 
 <units>
 #Units parameters
@@ -73,6 +74,6 @@ code_mass_cgs = 1.98841586e+33           # 1 M_sun
 code_time_cgs = 3.15576e+13              # 1 Myr
 
 <parthenon/output0>
-file_type = hdf5
+file_type = rst
 dt = 0.1
 variables = cons
