@@ -6,6 +6,17 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+// © 2024. Triad National Security, LLC. All rights reserved.
+//
+// This program was produced under U.S. Government contract 89233218CNA000001 for Los
+// Alamos National Laboratory (LANL), which is operated by Triad National Security, LLC
+// for the U.S. Department of Energy/National Nuclear Security Administration. All rights
+// in the program are reserved by Triad National Security, LLC, and the U.S. Department of
+// Energy/National Nuclear Security Administration. The Government is granted for itself
+// and others acting on its behalf a nonexclusive, paid-up, irrevocable worldwide license
+// in this material to reproduce, prepare. derivative works, distribute copies to the
+// public, perform publicly and display publicly, and to permit others to do so.
+
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -136,5 +147,16 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
                               const Real dt);
 void Cleanup();
 } // namespace turbulence
+
+namespace disk {
+using namespace parthenon::driver::prelude;
+
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void DiskUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                        const Real beta_dt);
+void DiskBoundary(const IndexDomain domain, std::shared_ptr<MeshBlockData<Real>> &mbd,
+                  bool coarse);
+} // namespace disk
 
 #endif // PGEN_PGEN_HPP_

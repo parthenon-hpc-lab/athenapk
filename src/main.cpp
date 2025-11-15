@@ -2,6 +2,17 @@
 // Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE");
 
+// © 2024. Triad National Security, LLC. All rights reserved.
+//
+// This program was produced under U.S. Government contract 89233218CNA000001 for Los
+// Alamos National Laboratory (LANL), which is operated by Triad National Security, LLC
+// for the U.S. Department of Energy/National Nuclear Security Administration. All rights
+// in the program are reserved by Triad National Security, LLC, and the U.S. Department of
+// Energy/National Nuclear Security Administration. The Government is granted for itself
+// and others acting on its behalf a nonexclusive, paid-up, irrevocable worldwide license
+// in this material to reproduce, prepare. derivative works, distribute copies to the
+// public, perform publicly and display publicly, and to permit others to do so.
+
 #include <sstream>
 
 // Parthenon headers
@@ -115,6 +126,10 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceFirstOrder = turbulence::Driving;
     pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
     pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
+  } else if (problem == "disk") {
+    pman.app_input->InitUserMeshData = disk::InitUserMeshData;
+    pman.app_input->ProblemGenerator = disk::ProblemGenerator;
+    Hydro::ProblemSourceUnsplit = disk::DiskUnsplitSrcTerm;
   } else {
     // parthenon throw error message for the invalid problem
     std::stringstream msg;

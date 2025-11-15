@@ -1,0 +1,300 @@
+//========================================================================================
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2023, Athena-Parthenon Collaboration. All rights reserved.
+// Licensed under the 3-clause BSD License, see LICENSE file for details
+//========================================================================================
+//! \file disk.cpp
+//! \brief Initializes stratified Keplerian accretion disk on spherical polar grids.
+//! Initial conditions are computed assuming vertical hydrostatic equilibrium.
+//!
+//! Heavily borrows from the disk problem in Athena++ in src/pgen/disk.cpp
+
+// © 2024. Triad National Security, LLC. All rights reserved.
+//
+// This program was produced under U.S. Government contract 89233218CNA000001 for Los
+// Alamos National Laboratory (LANL), which is operated by Triad National Security, LLC
+// for the U.S. Department of Energy/National Nuclear Security Administration. All rights
+// in the program are reserved by Triad National Security, LLC, and the U.S. Department of
+// Energy/National Nuclear Security Administration. The Government is granted for itself
+// and others acting on its behalf a nonexclusive, paid-up, irrevocable worldwide license
+// in this material to reproduce, prepare. derivative works, distribute copies to the
+// public, perform publicly and display publicly, and to permit others to do so.
+
+// C++ headers
+#include <cmath> // sqrt, atan2
+
+// Parthenon headers
+#include "mesh/mesh.hpp"
+#include <basic_types.hpp>
+#include <coordinates/coordinates.hpp>
+#include <defs.hpp>
+#include <interface/mesh_data.hpp>
+#include <interface/variable_pack.hpp>
+#include <parthenon/driver.hpp>
+#include <parthenon/package.hpp>
+
+// AthenaPK headers
+#include "../main.hpp"
+
+namespace disk {
+using namespace parthenon::driver::prelude;
+using parthenon::UniformCartesian;
+using parthenon::UniformSpherical;
+using parthenon::X1DIR;
+using parthenon::X2DIR;
+using parthenon::X3DIR;
+
+template <class Coords>
+KOKKOS_INLINE_FUNCTION void GetCylCoord(const Coords &coords, Real &rad, Real &phi,
+                                        Real &z, int i, int j, int k);
+
+template <class Coords>
+KOKKOS_INLINE_FUNCTION Real CoordSrc1(const Coords &coords, const int i);
+
+template <class Coords>
+KOKKOS_INLINE_FUNCTION Real PhySrc1(const Coords &coords, const int i);
+
+template <class Coords>
+KOKKOS_INLINE_FUNCTION Real PhySrc2(const Coords &coords, const int i);
+
+KOKKOS_INLINE_FUNCTION
+Real DenProfileCyl(const Real rad, const Real phi, const Real z);
+
+KOKKOS_INLINE_FUNCTION
+Real PoverRho(const Real rad, const Real phi, const Real z);
+
+KOKKOS_INLINE_FUNCTION
+Real VelProfileCyl(const Real rad, const Real phi, const Real z);
+
+class StratifiedDisk {
+ public:
+  StratifiedDisk() {}
+  StratifiedDisk(ParameterInput *pin)
+      : // Get parameters for gravitatonal potential of central point mass
+        gm0_(pin->GetOrAddReal("problem/disk", "GM", 0.0)),
+        r0_(pin->GetOrAddReal("problem/disk", "r0", 1.0)),
+        // Get parameters for initial density and velocity
+        rho0_(pin->GetReal("problem/disk", "rho0")),
+        dslope_(pin->GetOrAddReal("problem/disk", "dslope", 0.0)),
+        // Get parameters of initial pressure and cooling parameters
+        p0_over_rho0_(pin->GetOrAddReal("problem/disk", "p0_over_rho0", 0.0025)),
+        pslope_(pin->GetOrAddReal("problem/disk", "pslope", 0.0)),
+        dfloor_(pin->GetOrAddReal("hydro", "dfloor", -1.0)) {}
+  //----------------------------------------------------------------------------------------
+  //! computes density in cylindrical coordinates
+  KOKKOS_INLINE_FUNCTION
+  Real DenProfileCyl(const Real rad, const Real phi, const Real z) const {
+    Real den;
+    Real p_over_rho = PoverRho(rad, phi, z);
+    Real denmid = rho0_ * std::pow(rad / r0_, dslope_);
+    Real dentem = denmid * std::exp(gm0_ / p_over_rho *
+                                    (1. / std::sqrt(SQR(rad) + SQR(z)) - 1. / rad));
+    den = dentem;
+    return std::max(den, dfloor_);
+  }
+
+  //----------------------------------------------------------------------------------------
+  //! computes pressure/density in cylindrical coordinates
+  KOKKOS_INLINE_FUNCTION
+  Real PoverRho(const Real rad, const Real phi, const Real z) const {
+    return p0_over_rho0_ * std::pow(rad / r0_, pslope_);
+  }
+
+  //----------------------------------------------------------------------------------------
+  //! computes rotational velocity in cylindrical coordinates
+
+  KOKKOS_INLINE_FUNCTION
+  Real VelProfileCyl(const Real rad, const Real phi, const Real z) const {
+    Real p_over_rho = PoverRho(rad, phi, z);
+    Real vel = (dslope_ + pslope_) * p_over_rho / (gm0_ / rad) + (1.0 + pslope_) -
+               pslope_ * rad / std::sqrt(rad * rad + z * z);
+    vel = std::sqrt(gm0_ / rad) * std::sqrt(vel);
+    return vel;
+  }
+  // problem parameters which are useful to make global to this file
+  Real gm0_, r0_, rho0_, dslope_, p0_over_rho0_, pslope_;
+  Real dfloor_;
+} sd;
+Real gamma_m1;
+
+//----------------------------------------------------------------------------------------
+//! transform to cylindrical coordinate
+
+template <>
+KOKKOS_INLINE_FUNCTION void GetCylCoord(const UniformCartesian &coords, Real &rad,
+                                        Real &phi, Real &z, int i, int j, int k) {
+
+  const Real x = coords.Xc<X1DIR>(i);
+  const Real y = coords.Xc<X2DIR>(j);
+  rad = std::sqrt(SQR(x) + SQR(y));
+  phi = atan2(y, x);
+  z = coords.Xc<X3DIR>(k);
+}
+
+template <>
+KOKKOS_INLINE_FUNCTION Real CoordSrc1(const UniformCartesian &, const int) {
+  return 0.0;
+}
+
+template <>
+KOKKOS_INLINE_FUNCTION Real PhySrc1(const UniformCartesian &, const int) {
+  return 0.0;
+}
+
+template <>
+KOKKOS_INLINE_FUNCTION Real PhySrc2(const UniformCartesian &, const int) {
+  return 0.0;
+}
+
+template <>
+KOKKOS_INLINE_FUNCTION void GetCylCoord(const UniformSpherical &coords, Real &rad,
+                                        Real &phi, Real &z, int i, int j, int k) {
+  rad = std::abs(coords.Xc<X1DIR>(i) * std::sin(coords.Xc<X2DIR>(j)));
+  z = coords.Xc<X1DIR>(i) * std::cos(coords.Xc<X2DIR>(j));
+  phi = coords.Xc<X3DIR>(k);
+}
+
+template <>
+KOKKOS_INLINE_FUNCTION Real CoordSrc1(const UniformSpherical &coords, const int i) {
+  const Real rm = coords.template Xf<parthenon::X1DIR>(i);
+  const Real rp = coords.template Xf<parthenon::X1DIR>(i + 1);
+  return (0.5 * (SQR(rp) - SQR(rm))) / (ONE_3RD * (std::pow(rp, 3) - std::pow(rm, 3)));
+}
+
+template <>
+KOKKOS_INLINE_FUNCTION Real PhySrc1(const UniformSpherical &coords, const int i) {
+  const Real rc = coords.template Xc<parthenon::X1DIR>(i);
+  return 1.0 / SQR(rc);
+}
+
+template <>
+KOKKOS_INLINE_FUNCTION Real PhySrc2(const UniformSpherical &coords, const int i) {
+  const Real rc = coords.template Xc<parthenon::X1DIR>(i);
+  return 1.0 / SQR(rc);
+}
+
+template <class Coords>
+void PointMassSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                      const Real beta_dt_) {
+  using parthenon::IndexDomain;
+  using parthenon::IndexRange;
+  using parthenon::Real;
+
+  // Grab some necessary variables
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &cons_pack = md->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  const Real beta_dt = beta_dt_;
+  const Real gm0 = sd.gm0_;
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "PointMassSrcTerm", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+        auto &cons = cons_pack(b);
+        auto &prim = prim_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
+
+        Real rm = coords.Xf<1>(i);
+        Real rp = coords.Xf<1>(i + 1);
+        Real xc = coords.Xc<1>(i);
+
+        Real den = prim(IDN, k, j, i);
+        Real src = beta_dt * den * CoordSrc1(coords, i) * gm0 / coords.Xc<1>(i);
+        cons(IM1, k, j, i) -= src;
+        cons(IEN, k, j, i) -=
+            beta_dt * 0.5 *
+            (PhySrc1(coords, i) * cons.flux(X1DIR, IDN, k, j, i) * gm0 +
+             PhySrc2(coords, i) * cons.flux(X1DIR, IDN, k, j, i + 1) * gm0);
+      });
+}
+
+void DiskUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
+                        const Real beta_dt) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+
+  PointMassSrcTerm<parthenon::Coordinates_t>(md, tm, beta_dt);
+}
+
+//========================================================================================
+//! \fn void InitUserMeshData(ParameterInput *pin)
+//! \brief Function to initialize problem-specific data for entire mesh.  Can also be used
+//! to initialize variables which are global to (and therefore can be passed to) other
+//! functions in this file.
+//========================================================================================
+
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
+
+  sd = StratifiedDisk(pin);
+  gamma_m1 = pin->GetReal("hydro", "gamma") - 1.0;
+
+  if (!std::is_same<parthenon::Coordinates_t, parthenon::UniformSpherical>::value) {
+    PARTHENON_FAIL("disk pgen requires AthenaPK compiled for UniformSpherical");
+  }
+}
+
+//========================================================================================
+//! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
+//! \brief Initializes Keplerian accretion disk.
+//========================================================================================
+
+void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
+
+  const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
+
+  // initialize conserved variables
+  auto &mbd = pmb->meshblock_data.Get();
+  auto &u_dev = mbd->Get("cons").data;
+  auto &coords = pmb->coords;
+  // initializing on host
+  auto u = u_dev.GetHostMirrorAndCopy();
+
+  Real rad(0.0), phi(0.0), z(0.0);
+  Real den, vel;
+
+  //  Initialize density and momenta
+  for (int k = kb.s; k <= kb.e; k++) {
+    for (int j = jb.s; j <= jb.e; j++) {
+      for (int i = ib.s; i <= ib.e; i++) {
+        GetCylCoord(coords, rad, phi, z, i, j, k); // convert to cylindrical coordinates
+
+        // compute initial conditions in cylindrical coordinates
+        den = sd.DenProfileCyl(rad, phi, z);
+        vel = sd.VelProfileCyl(rad, phi, z);
+
+        u(IDN, k, j, i) = den;
+        u(IM1, k, j, i) = 0.0;
+        if constexpr (std::is_same<parthenon::Coordinates_t,
+                                   parthenon::UniformSpherical>::value) {
+          u(IM2, k, j, i) = 0.0;
+          u(IM3, k, j, i) = den * vel;
+        } else {
+          // fixme (forrestglines) Add name of coordinate system to error message
+          PARTHENON_FAIL("DiskBounday: Coordinate system no implemented");
+        }
+
+        Real p_over_rho = sd.PoverRho(rad, phi, z);
+        u(IEN, k, j, i) = p_over_rho * u(IDN, k, j, i) / gamma_m1;
+        u(IEN, k, j, i) +=
+            0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
+            u(IDN, k, j, i);
+      }
+    }
+  }
+
+  // copy initialized vars to device
+  u_dev.DeepCopy(u);
+
+  return;
+}
+} // namespace disk
