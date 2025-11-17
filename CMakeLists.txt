@@ -84,4 +84,3 @@ if (AthenaPK_ENABLE_TESTING)
   include(CTest)
   add_subdirectory(tst/regression)
 endif()
-

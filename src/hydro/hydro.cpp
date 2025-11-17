@@ -35,6 +35,7 @@
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
 #include "rsolvers/rsolvers.hpp"
+#include "srcterms/geometric_srcterm.hpp"
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
 
@@ -230,6 +231,9 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     hydro_pkg->Param<GLMMHD::SourceFun_t>("glmmhd_source")(md, beta_dt);
   }
+  // add geomtric source terms
+  geometric::GeometricSrcTerm(md, beta_dt);
+
   const auto &enable_cooling = hydro_pkg->Param<Cooling>("enable_cooling");
 
   if (enable_cooling == Cooling::tabular) {
@@ -884,12 +888,15 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         } else {
           PARTHENON_FAIL("Unknown fluid in EstimateTimestep");
         }
-        min_dt = fmin(min_dt, coords.Dxc<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
+        min_dt =
+            fmin(min_dt, coords.CellWidth<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
         if (ndim > 1) {
-          min_dt = fmin(min_dt, coords.Dxc<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
+          min_dt =
+              fmin(min_dt, coords.CellWidth<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
         }
         if (ndim > 2) {
-          min_dt = fmin(min_dt, coords.Dxc<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
+          min_dt =
+              fmin(min_dt, coords.CellWidth<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
         }
       },
       Kokkos::Min<Real>(min_dt_hyperbolic));

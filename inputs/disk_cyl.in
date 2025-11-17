@@ -1,0 +1,71 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2020-2023, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = Keplerian disk in cylindrical coordinates
+
+<job>
+problem_id = disk
+
+<parthenon/mesh>
+refinement = none
+nghost = 2
+coord = cylindrical
+
+nx1 = 64
+x1min = 0.5
+x1max = 2.0
+ix1_bc = reflecting
+ox1_bc = reflecting
+
+nx2 = 256
+x2min = 0.0
+x2max = 6.2831853071795862
+ix2_bc = periodic 
+ox2_bc = periodic 
+
+nx3 = 32
+x3min = -0.5
+x3max = 0.5
+ix3_bc = reflecting
+ox3_bc = reflecting
+
+<parthenon/meshblock>
+nx1 = 32
+nx2 = 32
+nx3 = 32
+
+<parthenon/output0>
+file_type = hdf5
+dt          = 0.01
+variables = prim
+id = prim
+use_final_label = false
+
+<parthenon/output1>
+file_type = hst
+dt          = 0.628    # time increment between outputs
+use_final_label = false
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.3
+tlim = 628.
+#nlim = 1
+
+<hydro>
+fluid = euler
+eos = adiabatic
+riemann = hlle
+reconstruction = plm
+gamma           = 1.66666667 # gamma = C_p/C_v
+
+<problem/disk>
+GM          = 1.0
+r0          = 1.0
+rho0        = 1.0
+p0_over_rho0  = 0.01
+pslope      = -0.5
+dslope      = -2.25
+

@@ -115,6 +115,10 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceFirstOrder = turbulence::Driving;
     pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
     pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
+  } else if (problem == "disk") {
+    pman.app_input->InitUserMeshData = disk::InitUserMeshData;
+    pman.app_input->ProblemGenerator = disk::ProblemGenerator;
+    Hydro::ProblemSourceUnsplit = disk::DiskUnsplitSrcTerm;
   } else {
     // parthenon throw error message for the invalid problem
     std::stringstream msg;
