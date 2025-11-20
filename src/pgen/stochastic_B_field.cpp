@@ -23,8 +23,10 @@
 #include <complex>
 #include <random>
 #include <vector>
+#include "hdf5.h"
 
-using cplx = std::complex<double>;
+using flt = double; // use this to switch between single/double precision globally. Note that a different FFTW version may be needed for single precision. 
+using cplx = std::complex<flt>;
 
 // Parthenon headers
 #include "config.hpp"
@@ -41,14 +43,14 @@ using namespace parthenon::driver::prelude;
 // Declare global variables for the problem
 int Nx, Ny, Nz;
 int Ntot; 
-std::vector<double> Bx_real, By_real, Bz_real;
+std::vector<flt> Bx_real, By_real, Bz_real;
 
 // Define the desired power-spectrum E_k. It is defined such that 
 // E = \int_0^\inf E_k dk. Thus, it is related to |B(k)| via
 // E_k = 4 \pi |B(k)|^2 k^2.
-double PowerSpectrum(double k, double kI, double n1, double n2,
-                                      double alpha) {
-    // Smooth double power law with 
+flt PowerSpectrum(flt k, flt kI, flt n1, flt n2,
+                                      flt alpha) {
+    // Smooth flt power law with 
     // P(k) ~ k^n1 for k << kI
     // P(k) ~ k^-n2 for k >> kI
     // alpha controls the sharpness of the transition
@@ -88,17 +90,17 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 
   const auto kmax = pin->GetOrAddReal("problem/stochastic_B_field", "kmax", 0.25 * Nx);
   const auto B_rms = pin->GetOrAddReal("problem/stochastic_B_field", "B_rms", 1e-3);
-  const auto kI = pin->GetOrAddReal("problem/stochastic_B_field", "kI", 10);
+  const auto kI = pin->GetOrAddReal("problem/stochastic_B_field", "kI", 10.0);
   const auto n1 = pin->GetOrAddReal("problem/stochastic_B_field", "n1", 4.0);
   const auto n2 = pin->GetOrAddReal("problem/stochastic_B_field", "n2", 5.0/3.0);
   const auto alpha = pin->GetOrAddReal("problem/stochastic_B_field", "alpha", 2.0);
   const auto helicity = pin->GetOrAddReal("problem/stochastic_B_field", "helicity", 0.0);
 
   Ntot = Nx*Ny*Nz; // total number of cells
-
+  
   // Quick check that kmax is not too large
   int Nmin = std::min({Nx, Ny, Nz});
-  double kmax_safe = 0.5 * Nmin;  // corresponds to ~0.5 * k_Nyquist
+  flt kmax_safe = 0.5 * Nmin;  // corresponds to ~0.5 * k_Nyquist
 
   if (kmax > kmax_safe) {
     std::cerr << "WARNING: kmax = " << kmax
@@ -119,31 +121,36 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   // -----------------------------
   // Allocate Fourier-space arrays
   // -----------------------------
-  std::vector<cplx> Bx_hat(Ntot), By_hat(Ntot), Bz_hat(Ntot);
+  //std::vector<cplx> Bx_hat(Ntot), By_hat(Ntot), Bz_hat(Ntot);
+  //std::vector<cplx> Ax_hat(Ntot), Ay_hat(Ntot), Az_hat(Ntot);
+
+  cplx* Bx_hat = (cplx*) fftw_malloc(sizeof(cplx) * Ntot);
+  cplx* By_hat = (cplx*) fftw_malloc(sizeof(cplx) * Ntot);
+  cplx* Bz_hat = (cplx*) fftw_malloc(sizeof(cplx) * Ntot);
 
   // -----------------------------
   // Random generator for phases
   // -----------------------------
   std::mt19937 rng(42);
-  std::uniform_real_distribution<double> dist_phase(0.0, 2.0*M_PI);
-  std::normal_distribution<double> dist_gauss(0.0, 1.0);
+  std::uniform_real_distribution<flt> dist_phase(0.0, 2.0*M_PI);
+  std::normal_distribution<flt> dist_gauss(0.0, 1.0);
 
   // -----------------------------
   // Fill Fourier-space array
   // -----------------------------
   for (int k=0; k<Nz; k++) {
       int kz = (k <= Nz/2) ? k : k - Nz;
-      double kz_phys = 2.0*M_PI * kz / Lz;
+      flt kz_phys = 2.0*M_PI * kz / Lz;
 
       for (int j=0; j<Ny; j++) {
           int ky = (j <= Ny/2) ? j : j - Ny; // Before j \in {0, N_y}, now k \in {-N_y/2, N_y/2}
-          double ky_phys = 2.0*M_PI * ky / Ly;
+          flt ky_phys = 2.0*M_PI * ky / Ly;
 
           for (int i=0; i<=Nx/2; i++) {  // only half in x; conjugate pairs will be mirrored along y,z plane
               int kx = i;
-              double kx_phys = 2.0*M_PI * kx / Lx;
+              flt kx_phys = 2.0*M_PI * kx / Lx;
 
-              double kmag = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys + kz_phys*kz_phys);
+              flt kmag = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys + kz_phys*kz_phys);
 
               int idx = i + Nx*(j + Ny*k);
 
@@ -159,32 +166,32 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
               // For a gaussian, sigma_A^2 ~ |A(k)|^2 
               // and B(k) = ik x A(k) => |B(k)|^2 = k^2 |A(k)|^2 
               // We want E_k ~ |B(k)|^2 k^2. Thus, |A(k)|^2 ~ E_k / k^4.  
-              double sigma_A = std::sqrt(PowerSpectrum(kmag, kI_phys, n1, n2, alpha) / (kmag * kmag * kmag * kmag ));
+              flt sigma_A = std::sqrt(PowerSpectrum(kmag, kI_phys, n1, n2, alpha) / (kmag * kmag * kmag * kmag ));
 
               // --- two independent Gaussian components in plane perpendicular to k ---
               // First, find two perpendicular unit vectors
-              double ex1[3], ex2[3];
+              flt ex1[3], ex2[3];
 
               // arbitrary perpendicular vector
               if (kx_phys != 0 || ky_phys != 0) {
-                  double norm = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys);
+                  flt norm = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys);
                   ex1[0] = -ky_phys / norm; ex1[1] = kx_phys / norm; ex1[2] = 0.0;
               } else {
                   ex1[0] = 1.0; ex1[1] = 0.0; ex1[2] = 0.0;
               }
               // second perpendicular vector = k x ex1 / |k|
-              double kvec[3] = {kx_phys, ky_phys, kz_phys};
-              double k_norm = kmag;
+              flt kvec[3] = {kx_phys, ky_phys, kz_phys};
+              flt k_norm = kmag;
               ex2[0] = (kvec[1]*ex1[2] - kvec[2]*ex1[1]) / k_norm;
               ex2[1] = (kvec[2]*ex1[0] - kvec[0]*ex1[2]) / k_norm;
               ex2[2] = (kvec[0]*ex1[1] - kvec[1]*ex1[0]) / k_norm;
 
               // --- Rotate basis vectos by random angle ---
-              double phi= dist_phase(rng);
-              double cphi = std::cos(phi);
-              double sphi = std::sin(phi);
+              flt phi= dist_phase(rng);
+              flt cphi = std::cos(phi);
+              flt sphi = std::sin(phi);
 
-              double ex1r[3], ex2r[3];
+              flt ex1r[3], ex2r[3];
               for (int q = 0; q < 3; ++q) {
                   ex1r[q] =  cphi * ex1[q] + sphi * ex2[q];
                   ex2r[q] = -sphi * ex1[q] + cphi * ex2[q];
@@ -194,24 +201,24 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
               // e_+, e_- complex helical basis vectors:
               // e_+ = 1/(sqrt(2)) * (e_1 + i * e_2)
               // e_- = 1/(sqrt(2)) * (e_1 - i * e_2)
-              std::complex<double> I(0.0, 1.0);
-              double sq2i = 1.0/std::sqrt(2.0);
+              cplx I(0.0, 1.0);
+              flt sq2i = 1.0/std::sqrt(2.0);
               cplx ep[3], em[3];
               for (int q = 0; q < 3; ++q) {
                 ep[q] = sq2i * ( ex1r[q] + I * ex2r[q] );
                 em[q] = sq2i * ( ex1r[q] - I * ex2r[q] );
               }
 
-              double sigma_plus  = sigma_A * std::sqrt((1.0 + helicity)/2.0);
-              double sigma_minus = sigma_A * std::sqrt((1.0 - helicity)/2.0);
+              flt sigma_plus  = sigma_A * std::sqrt((1.0 + helicity)/2.0);
+              flt sigma_minus = sigma_A * std::sqrt((1.0 - helicity)/2.0);
 
-              std::complex<double> A1(sigma_plus * dist_gauss(rng), sigma_plus * dist_gauss(rng));
-              std::complex<double> A2(sigma_minus * dist_gauss(rng), sigma_minus * dist_gauss(rng));
+              cplx A1(sigma_plus * dist_gauss(rng), sigma_plus * dist_gauss(rng));
+              cplx A2(sigma_minus * dist_gauss(rng), sigma_minus * dist_gauss(rng));
 
               // --- construct vector potential in Fourier space ---
-              std::complex<double> Ax = A1*ep[0] + A2*em[0];
-              std::complex<double> Ay = A1*ep[1] + A2*em[1];
-              std::complex<double> Az = A1*ep[2] + A2*em[2];
+              cplx Ax = A1*ep[0] + A2*em[0];
+              cplx Ay = A1*ep[1] + A2*em[1];
+              cplx Az = A1*ep[2] + A2*em[2];
 
               // --- Compute B(k) = i * (k x A(k)) ---
               Bx_hat[idx] = I * ( ky_phys * Az - kz_phys * Ay );
@@ -235,16 +242,16 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   // Inverse FFT to real space
   // -----------------------------
   fftw_plan plan_bx = fftw_plan_dft_3d(Nx, Ny, Nz,
-      reinterpret_cast<fftw_complex*>(Bx_hat.data()),
-      reinterpret_cast<fftw_complex*>(Bx_hat.data()),
+      reinterpret_cast<fftw_complex*>(Bx_hat),
+      reinterpret_cast<fftw_complex*>(Bx_hat),
       FFTW_BACKWARD, FFTW_ESTIMATE);
   fftw_plan plan_by = fftw_plan_dft_3d(Nx, Ny, Nz,
-      reinterpret_cast<fftw_complex*>(By_hat.data()),
-      reinterpret_cast<fftw_complex*>(By_hat.data()),
+      reinterpret_cast<fftw_complex*>(By_hat),
+      reinterpret_cast<fftw_complex*>(By_hat),
       FFTW_BACKWARD, FFTW_ESTIMATE);
   fftw_plan plan_bz = fftw_plan_dft_3d(Nx, Ny, Nz,
-      reinterpret_cast<fftw_complex*>(Bz_hat.data()),
-      reinterpret_cast<fftw_complex*>(Bz_hat.data()),
+      reinterpret_cast<fftw_complex*>(Bz_hat),
+      reinterpret_cast<fftw_complex*>(Bz_hat),
       FFTW_BACKWARD, FFTW_ESTIMATE);
 
   fftw_execute(plan_bx);
@@ -271,13 +278,13 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   }
 
   // 2. Compute RMS
-  double sumsq = 0.0;
+  flt sumsq = 0.0;
   for (int idx=0; idx<Ntot; idx++)
       sumsq += Bx_real[idx]*Bx_real[idx] + By_real[idx]*By_real[idx] + Bz_real[idx]*Bz_real[idx];
-  double current_rms = std::sqrt(sumsq / Ntot);
+  flt current_rms = std::sqrt(sumsq / Ntot);
 
   // 3. Rescale to desired RMS
-  double factor = B_rms / current_rms;
+  flt factor = B_rms / current_rms;
   for (int idx=0; idx<Ntot; idx++) {
       Bx_real[idx] *= factor;
       By_real[idx] *= factor;
