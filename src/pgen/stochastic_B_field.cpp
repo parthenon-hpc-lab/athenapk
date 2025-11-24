@@ -25,8 +25,7 @@
 #include <vector>
 #include "hdf5.h"
 
-using flt = double; // use this to switch between single/double precision globally. Note that a different FFTW version may be needed for single precision. 
-using cplx = std::complex<flt>;
+using cplx = std::complex<double>;
 
 // Parthenon headers
 #include "config.hpp"
@@ -44,40 +43,37 @@ namespace stochastic_B_field {
 using namespace parthenon::driver::prelude;
 using parthenon::IndexShape;
 
-// Declare global variables for the problem
-int Nx, Ny, Nz;
-int Ntot; 
-
 // Define the desired power-spectrum E_k. It is defined such that 
 // E = \int_0^\inf E_k dk. Thus, it is related to |B(k)| via
 // E_k = 4 \pi |B(k)|^2 k^2.
-flt PowerSpectrum(flt k, flt kI, flt n1, flt n2,
-                                      flt alpha) {
-    // Smooth flt power law with 
+
+double PowerSpectrum(double k, double kI, double n1, double n2,
+                                      double alpha) {
+    // Smooth double power law with 
     // P(k) ~ k^n1 for k << kI
     // P(k) ~ k^-n2 for k >> kI
     // alpha controls the sharpness of the transition
+    // Brms: normalization factor
     return std::pow(k, n1) * std::pow(1.0 + std::pow(k / kI, alpha), -(n2+n1)/alpha);
 }
 
-void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
+void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
+
+  // The current approach only works for pack size = -1 (all blocks in one pack. Assert this here:)
+  auto pack_size = pin->GetInteger("parthenon/mesh", "pack_size");
+  PARTHENON_REQUIRE_THROWS(pack_size == -1,
+                           "stochastic_B_field problem generator only works for pack_size = -1.");
+
   // Check if AMR is enabled - currently, AMR results in segfaults
-  if (mesh->adaptive) {
-        std::cerr << "WARNING: Adaptive Mesh Refinement is enabled. "
-                  << "Stochastic B-field initialization may behave unexpectedly. Expect Segfaults.\n";}
-}
-
-void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
-
-  // Get bounds of the current CPU/GPU's meshblock
-  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-
+  PARTHENON_REQUIRE_THROWS(pmesh->adaptive == false,
+                           "stochastic_B_field problem generator does not support AMR.");
+  
+  std::cout << "Initializing stochastic B-field..." << std::endl;
+  
   // Get global number of cells 
-  Nx = pin->GetInteger("parthenon/mesh", "nx1");
-  Ny = pin->GetInteger("parthenon/mesh", "nx2");
-  Nz = pin->GetInteger("parthenon/mesh", "nx3");
+  auto Nx = pin->GetInteger("parthenon/mesh", "nx1");
+  auto Ny = pin->GetInteger("parthenon/mesh", "nx2");
+  auto Nz = pin->GetInteger("parthenon/mesh", "nx3");
 
   assert(Nx == Ny && Ny == Nz);
   int N = Nx;
@@ -96,6 +92,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   assert(Lx == Ly && Ly == Lz);
   Real L = Lx;
+  std::cout << "Box size L = " << L << std::endl;
 
   // Read problem parameters
   const auto vx = pin->GetOrAddReal("problem/stochastic_B_field", "vx", 0.0);
@@ -108,18 +105,16 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto gm1 = (gam - 1.0);
 
   const auto kmax = pin->GetOrAddReal("problem/stochastic_B_field", "kmax", 0.25 * Nx);
-  const auto B_rms = pin->GetOrAddReal("problem/stochastic_B_field", "B_rms", 1e-3);
+  const auto B_rms = pin->GetOrAddReal("problem/stochastic_B_field", "B_rms", 0.3);
   const auto kI = pin->GetOrAddReal("problem/stochastic_B_field", "kI", 10.0);
   const auto n1 = pin->GetOrAddReal("problem/stochastic_B_field", "n1", 4.0);
   const auto n2 = pin->GetOrAddReal("problem/stochastic_B_field", "n2", 5.0/3.0);
   const auto alpha = pin->GetOrAddReal("problem/stochastic_B_field", "alpha", 2.0);
   const auto helicity = pin->GetOrAddReal("problem/stochastic_B_field", "helicity", 0.0);
-
-  Ntot = Nx*Ny*Nz; // total number of cells
   
   // Quick check that kmax is not too large
   int Nmin = std::min({Nx, Ny, Nz});
-  flt kmax_safe = 0.5 * Nmin;  // corresponds to ~0.5 * k_Nyquist
+  double kmax_safe = 0.5 * Nmin;  // corresponds to ~0.5 * k_Nyquist
 
   if (kmax > kmax_safe) {
     std::cerr << "WARNING: kmax = " << kmax
@@ -137,19 +132,19 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   const auto kmax_phys = kmax * (2.0 * M_PI / Lx);
   const auto kI_phys = kI * (2.0 * M_PI / Lx);
 
+  // Compute total energy in the specified k-range for normalization:
+  auto P = [=](double k) {
+    return PowerSpectrum(k, kI_phys, n1, n2, alpha);
+  };
+
   // -----------------------------
   // Random generator for phases
   // -----------------------------
   std::mt19937 rng(42);
-  std::uniform_real_distribution<flt> dist_phase(0.0, 2.0*M_PI);
-  std::normal_distribution<flt> dist_gauss(0.0, 1.0);
+  std::uniform_real_distribution<double> dist_phase(0.0, 2.0*M_PI);
+  std::normal_distribution<double> dist_gauss(0.0, 1.0);
 
-  // initialize conserved variables
-  auto &rc = pmb->meshblock_data.Get();
-  auto &u_dev = rc->Get("cons").data;
-  
-  // initializing on host
-  auto u = u_dev.GetHostMirrorAndCopy();
+  std::cout << "heffte setup..." << std::endl;
 
   // ------------------------------
   // heffte setup
@@ -162,7 +157,21 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   // check if the complex indexes have correct dimension
   assert(real_indexes.r2c(r2c_direction) == complex_indexes);
 
-  // Check if we have a contiguous block of data (over all rank-local blocks)
+  // Need to store this info in a way this can be used on device later
+  parthenon::ParArray2D<std::int64_t> loc_view("logical location of local blocks",
+                                               pmesh->GetNumMeshBlocksThisRank(), 3);
+  auto loc_view_h = loc_view.GetHostMirror();
+
+  std::cout << "Determining rank-local block logical locations..." << std::endl;
+
+  // Set rank local min and max logical locations.
+  // Also check if all blocks are on the same level (we use this check instead of
+  // checking for refinement=none because AMR could have been used to dynamically refine
+  // a simulation. We just need to ensure that all blocks are on the same level to
+  // create an effective uniform grid.)
+  const auto level =
+      pmesh->Forest().GetLegacyTreeLocation(pmesh->block_list[0]->loc).level();
+
   std::array local_loc_min{
       std::numeric_limits<std::int64_t>::max(),
       std::numeric_limits<std::int64_t>::max(),
@@ -173,23 +182,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       std::numeric_limits<std::int64_t>::min(),
       std::numeric_limits<std::int64_t>::min(),
   };
-
-  // construct local boxes for the FFT. The output domain must correspond to the Meshblock (*pmb). The input decomposition can be chosen freely by heffte.
-  auto *pmesh = pmb->pmy_mesh;
-  // at this point, I am just copying what was done in https://github.com/parthenon-hpc-lab/parthenon/blob/pgrete/enspec/example/energy_spectra/calc_spec.cpp from line 506 onwards. Except their inbox is our outbox since we are doing c2r.
   
-  // Need to store this info in a way this can be used on device later
-  parthenon::ParArray2D<std::int64_t> loc_view("logical location of local blocks",
-                                               pmesh->GetNumMeshBlocksThisRank(), 3);
-  auto loc_view_h = loc_view.GetHostMirror();
-
-  // Set rank local min and max logical locations.
-  // Also check if all blocks are on the same level (we use this check instead of
-  // checking for refinement=none because AMR could have been used to dynamically refine
-  // a simulation. We just need to ensure that all blocks are on the same level to
-  // create an effective uniform grid.)
-  const auto level =
-      pmesh->Forest().GetLegacyTreeLocation(pmesh->block_list[0]->loc).level();
   for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
     auto pmb = pmesh->block_list[b];
     const auto loc = pmesh->Forest().GetLegacyTreeLocation(pmb->loc);
@@ -241,13 +234,13 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   const auto block_size = pmesh->GetDefaultBlockSize();
   // block sizes
-  const auto nx1b = block_size.nx(parthenon::X1DIR);
-  const auto nx2b = block_size.nx(parthenon::X2DIR);
-  const auto nx3b = block_size.nx(parthenon::X3DIR);
+  const int nx1b = block_size.nx(parthenon::X1DIR);
+  const int nx2b = block_size.nx(parthenon::X2DIR);
+  const int nx3b = block_size.nx(parthenon::X3DIR);
   // all local blocks sizes (based on logical locations)
-  const auto nx1l = local_nlocs.at(0) * nx1b;
-  const auto nx2l = local_nlocs.at(1) * nx2b;
-  const auto nx3l = local_nlocs.at(2) * nx3b;
+  const int nx1l = local_nlocs.at(0) * nx1b;
+  const int nx2l = local_nlocs.at(1) * nx2b;
+  const int nx3l = local_nlocs.at(2) * nx3b;
   const int gis = local_loc_min.at(0) * nx1b;
   const int gjs = local_loc_min.at(1) * nx2b;
   const int gks = local_loc_min.at(2) * nx3b;
@@ -296,7 +289,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
               // For a gaussian, sigma_A^2 ~ |A(k)|^2 
               // and B(k) = ik x A(k) => |B(k)|^2 = k^2 |A(k)|^2 
               // We want E_k ~ |B(k)|^2 k^2. Thus, |A(k)|^2 ~ E_k / k^4.  
-              double sigma_A = std::sqrt(PowerSpectrum(kmag, kI_phys, n1, n2, alpha) / (kmag * kmag * kmag * kmag ));
+              double sigma_A = std::sqrt(P(kmag) / (kmag * kmag * kmag * kmag));
+
               // --- two independent Gaussian components in plane perpendicular to k ---
               // First, find two perpendicular unit vectors
               double ex1[3], ex2[3];
@@ -309,7 +303,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
                   ex1[0] = 1.0; ex1[1] = 0.0; ex1[2] = 0.0;
               }
               // second perpendicular vector = k x ex1 / |k|
-              double kvec[3] = {kx_phys, ky_phys, kz_phys};
+              double
+               kvec[3] = {kx_phys, ky_phys, kz_phys};
               double k_norm = kmag;
               ex2[0] = (kvec[1]*ex1[2] - kvec[2]*ex1[1]) / k_norm;
               ex2[1] = (kvec[2]*ex1[0] - kvec[0]*ex1[2]) / k_norm;
@@ -354,6 +349,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
               int idx = (i - inbox.low[2]) * local_plane
                         + (j - inbox.low[1]) * local_stride + k - inbox.low[0];
 
+              // make sure idx is in range:
+              assert(idx >= 0 && idx < fft.size_inbox());
+
               // --- Compute B(k) = i * (k x A(k)) ---
               Bx_hat[idx] = I * ( ky_phys * Az - kz_phys * Ay );
               By_hat[idx] = I * ( kz_phys * Ax - kx_phys * Az );
@@ -367,54 +365,87 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto By = fft.backward(By_hat, heffte::scale::full);
   auto Bz = fft.backward(Bz_hat, heffte::scale::full);
 
-  // Still need to normalize the field to get desired B_rms:
-  
-  // Loop over local meshblock and set the values: 
-  for (int k = kb.s; k <= kb.e; k++) {
-    for (int j = jb.s; j <= jb.e; j++) {
-      for (int i = ib.s; i <= ib.e; i++) {
-        Real rho = rho0;
-        u(IDN, k, j, i) = rho;
-        Real mx = rho * vx;
-        Real my = rho * vy;
-        Real mz = rho * vz;
-        u(IM1, k, j, i) = mx;
-        u(IM2, k, j, i) = my;
-        u(IM3, k, j, i) = mz;
+  // normalize to desired B_rms:
+  // compute current Brms (over all ranks)
+  double local_B2_sum = 0.0;
+  int local_num_cells = nx1l * nx2l * nx3l;
+  for (int idx = 0; idx < local_num_cells; idx++) {
+      local_B2_sum += (Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
+  }
+  double global_B2_sum = 0.0;
+  MPI_Allreduce(&local_B2_sum, &global_B2_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  double current_B_rms = std::sqrt(global_B2_sum / (Nx * Ny * Nz));
+  double norm_factor = B_rms / current_B_rms;
+  for (int idx = 0; idx < local_num_cells; idx++) {
+      Bx[idx] *= norm_factor;
+      By[idx] *= norm_factor;
+      Bz[idx] *= norm_factor;
+  }
 
-        // PROBLEM: These are local indices, need to get global indices. 
-        // FIX: use pmb->loc to get location of this meshblock in the global domain
-        // i.e. global index = local index + meshblock location * meshblock size
+  // Loop over meshblocks on this rank and initialize the variables:
+  for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
+    auto pmb = pmesh->block_list[b];
 
-        //auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);
+    // get local meshblock indices
+    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-        //int gi = i + loc.lx1() * pmb->block_size.nx(parthenon::X1DIR);
-        //int gj = j + loc.lx2() * pmb->block_size.nx(parthenon::X2DIR);
-        //int gk = k + loc.lx3() * pmb->block_size.nx(parthenon::X3DIR);
+    // initialize conserved variables
+    auto &rc = pmb->meshblock_data.Get();
+    auto &u_dev = rc->Get("cons").data;
+    
+    // initializing on host
+    auto u = u_dev.GetHostMirrorAndCopy();
+    
+    // Loop over local meshblock and set the values: 
+    for (int k = kb.s; k <= kb.e; k++) {
+      for (int j = jb.s; j <= jb.e; j++) {
+        for (int i = ib.s; i <= ib.e; i++) {
+          Real rho = rho0;
+          u(IDN, k, j, i) = rho;
+          Real mx = rho * vx;
+          Real my = rho * vy;
+          Real mz = rho * vz;
+          u(IM1, k, j, i) = mx;
+          u(IM2, k, j, i) = my;
+          u(IM3, k, j, i) = mz;
 
-        //int idx = gi + Nx * (gj + Ny * gk); // flattened index
-        //int idx = (gi - ib.s) + Nx * ((gj - jb.s) + Ny * (gk - kb.s));
-        
-        //if (idx >= Bx_real.size() || idx < 0) {
-        //  std::cerr << "ERROR: idx out of range! idx=" << idx << std::endl;
-        //  }
+          // determine global index corresponding to (i,j,k) in this meshblock
+          auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);
 
-        // Now we need to map (i,j,k) to the correct index in the FFT output arrays.
-        // I think the fft output vector is indexed locally. Which should correspond to (i - ib.s), (j - jb.s), (k - kb.s) in the meshblock.
-        int idx = (k - kb.s) * (nx1b * nx2b) + (j - jb.s) * nx1b + (i - ib.s); // this is assuming row-major order (x fastest) which is what heffte uses.
-        assert(idx >= 0 && idx < Bx.size());
+          // loc.l(i) gives the logical location of this meshblock along dimension i in the global domain.
+          // local_loc_min gives the smallest logical location of any meshblock on this rank.
+          // So loc.l(i) - local_loc_min[i] gives the rank-local logical location of this meshblock (always starting from 0):
+          int bix = loc.l(0) - local_loc_min[0]; 
+          int biy = loc.l(1) - local_loc_min[1]; // rank-local logical location
+          int biz = loc.l(2) - local_loc_min[2];
 
-        u(IB1, k, j, i) = Bx[idx];
-        u(IB2, k, j, i) = By[idx];
-        u(IB3, k, j, i) = Bz[idx];
+          // multiply by meshblock size to get starting index
+          int gi0 = bix * nx1b;
+          int gj0 = biy * nx2b;
+          int gk0 = biz * nx3b;
 
-        // Total energy (thermal + kinetic + magnetic); thermal energy calculated from ideal gas EOS
-        u(IEN, k, j, i) = p0 / gm1 + 0.5*(mx*mx + my*my + mz*mz)/rho + 0.5*(Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
+          // rank-domain index = meshblock starting index + local index within meshblock (subtracting ib.s, jb.s, kb.s because of ghost zones. Needs to start at 0)
+          int ii = gi0 + (i - ib.s);
+          int jj = gj0 + (j - jb.s);
+          int kk = gk0 + (k - kb.s);
+
+          // finally, flatten index assuming row-major order (x fastest):
+          int idx = (kk * nx2l + jj) * nx1l + ii;
+
+          u(IB1, k, j, i) = Bx[idx];
+          u(IB2, k, j, i) = By[idx];
+          u(IB3, k, j, i) = Bz[idx];
+
+          // Total energy (thermal + kinetic + magnetic); thermal energy calculated from ideal gas EOS
+          u(IEN, k, j, i) = p0 / gm1 + 0.5*(mx*mx + my*my + mz*mz)/rho + 0.5*(Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
+        }
       }
     }
-  }
   // copy initialized vars to device
   u_dev.DeepCopy(u);
-}
-
+  
+  } // for all meshblocks on this rank
+} // void ProblemGenerator
 } // namespace stochastic_B_field
