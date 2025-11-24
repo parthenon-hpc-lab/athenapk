@@ -57,11 +57,13 @@ int main(int argc, char *argv[]) {
   pman.app_input->PreStepMeshUserWorkInLoop = Hydro::PreStepMeshUserWorkInLoop;
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
 
-  if (problem == "linear_wave") {
+  if (problem == "stochastic_B_field") {
+    pman.app_input->MeshProblemGenerator = stochastic_B_field::ProblemGenerator;
+  }  else if (problem == "linear_wave") {
     pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
-  } else if (problem == "linear_wave_mhd") {
+  } /*else if (problem == "linear_wave_mhd") {
     pman.app_input->InitUserMeshData = linear_wave_mhd::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave_mhd::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = linear_wave_mhd::UserWorkAfterLoop;
@@ -108,7 +110,7 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
     Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
-  } else if (problem == "sod") {
+  }  else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {
     pman.app_input->MeshProblemGenerator = turbulence::ProblemGenerator;
@@ -118,10 +120,10 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceFirstOrder = turbulence::Driving;
     pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
     pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
-  } else {
+  } */ else {
     // parthenon throw error message for the invalid problem
     std::stringstream msg;
-    msg << "Problem ID '" << problem << "' is not implemented yet.";
+    msg << "Problem ID '" << problem << "' is not implemented yet. (Many problems are currently commented out in main.cpp to speed up build time)";
     PARTHENON_THROW(msg);
   }
 

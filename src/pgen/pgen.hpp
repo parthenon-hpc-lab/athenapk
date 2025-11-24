@@ -12,8 +12,7 @@
 namespace stochastic_B_field {
 using namespace parthenon::driver::prelude;
 
-void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
-void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin);
+void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md);
 
 } // namespace stochastic_B_field
 
