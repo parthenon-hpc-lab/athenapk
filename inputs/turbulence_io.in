@@ -12,7 +12,7 @@ dn                = 100
 id                = opmd
 single_precision_output = false
 coarsening_factor = 1
-backend_config    = openpmd.toml
+#backend_config    = openpmd_single_file.toml
 
 <parthenon/time>
 cfl = 0.3               # The Courant, Friedrichs, & Lewy (CFL) Number
