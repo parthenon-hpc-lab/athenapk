@@ -76,7 +76,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto Nz = pin->GetInteger("parthenon/mesh", "nx3");
 
   assert(Nx == Ny && Ny == Nz);
-  int N = Nx;
+  std::int64_t N = Nx;
 
   // get Box size
   const auto x1min = pin->GetReal("parthenon/mesh", "x1min");
@@ -113,7 +113,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   const auto helicity = pin->GetOrAddReal("problem/stochastic_B_field", "helicity", 0.0);
   
   // Quick check that kmax is not too large
-  int Nmin = std::min({Nx, Ny, Nz});
+  std::int64_t Nmin = std::min({Nx, Ny, Nz});
   double kmax_safe = 0.5 * Nmin;  // corresponds to ~0.5 * k_Nyquist
 
   if (kmax > kmax_safe) {
@@ -149,10 +149,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   // ------------------------------
   // heffte setup
   // ------------------------------
-  int r2c_direction = 0; // the dimension where the data will shrink
+  std::int64_t r2c_direction = 0; // the dimension where the data will shrink
   // construct global input/output boxes: 
   heffte::box3d<> real_indexes({0, 0, 0}, {Nx - 1, Ny - 1, Nz - 1});
-  heffte::box3d<> complex_indexes({0, 0, 0}, {Nx/2, Ny - 1, Nz - 1});
+  heffte::box3d<> complex_indexes({0, 0, 0}, {(Nx)/2, Ny - 1, Nz - 1});
+
+  // define dimensions of the complex inbox:
 
   // check if the complex indexes have correct dimension
   assert(real_indexes.r2c(r2c_direction) == complex_indexes);
@@ -262,102 +264,136 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   std::vector<std::complex<double>> By_hat(fft.size_inbox());
   std::vector<std::complex<double>> Bz_hat(fft.size_inbox());
   
+  std::cout << "inbox size: " << fft.size_inbox() << std::endl;
+
   // -----------------------------
   // Fill input (local chunk of Fourier-space array)
   // -----------------------------
   for(int i=inbox.low[2]; i <= inbox.high[2]; i++) {
-      int kz = (i <= N/2) ? i : i - N;
-      double kz_phys = 2.0*M_PI * kz / L;
-      for(int j=inbox.low[1]; j <= inbox.high[1]; j++) {
-          int ky = (j <= N/2) ? j : j - N; // Before j \in {0, N_y}, now k \in {-N_y/2, N_y/2}
-          double ky_phys = 2.0*M_PI * ky / L;
-          for(int k=inbox.low[0]; k <= inbox.high[0]; k++) {
-              int kx = k;
-              double kx_phys = 2.0*M_PI * kx / L;
+    int kz = (i <= N/2) ? i : i - N;
+    double kz_phys = 2.0*M_PI * kz / L;
+    for(int j=inbox.low[1]; j <= inbox.high[1]; j++) {
+      int ky = (j <= N/2) ? j : j - N; // Before j \in {0, N_y}, now k \in {-N_y/2, N_y/2}
+      double ky_phys = 2.0*M_PI * ky / L;
+      for(int k=inbox.low[0]; k <= inbox.high[0]; k++) {
+        int kx = k;
+        double kx_phys = 2.0*M_PI * kx / L;
 
-              double kmag = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys + kz_phys*kz_phys);
+        double kmag = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys + kz_phys*kz_phys);
 
-              // apply mode number cutoff
-              if (kmag > kmax_phys)
-                  continue;
+        // apply mode number cutoff
+        if (kmag > kmax_phys)
+            continue;
 
-              // --- skip DC ---
-              if (i==0 && j==0 && k==0)
-                  continue;
+        // --- skip DC ---
+        if (i==0 && j==0 && k==0)
+            continue;
 
-              // --- compute stddev for Gaussian vector potential ---
-              // For a gaussian, sigma_A^2 ~ |A(k)|^2 
-              // and B(k) = ik x A(k) => |B(k)|^2 = k^2 |A(k)|^2 
-              // We want E_k ~ |B(k)|^2 k^2. Thus, |A(k)|^2 ~ E_k / k^4.  
-              double sigma_A = std::sqrt(P(kmag) / (kmag * kmag * kmag * kmag));
+        // --- compute stddev for Gaussian vector potential ---
+        // For a gaussian, sigma_A^2 ~ |A(k)|^2 
+        // and B(k) = ik x A(k) => |B(k)|^2 = k^2 |A(k)|^2 
+        // We want E_k ~ |B(k)|^2 k^2. Thus, |A(k)|^2 ~ E_k / k^4.  
+        double sigma_A = std::sqrt(P(kmag) / (kmag * kmag * kmag * kmag));
 
-              // --- two independent Gaussian components in plane perpendicular to k ---
-              // First, find two perpendicular unit vectors
-              double ex1[3], ex2[3];
+        if (parthenon::Globals::my_rank == 0 && sigma_A == 0.0) {
+          std::cout << "Warning: sigma_A = 0 for k = " << kmag << "\n";
+        }
 
-              // arbitrary perpendicular vector
-              if (kx_phys != 0 || ky_phys != 0) {
-                  double norm = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys);
-                  ex1[0] = -ky_phys / norm; ex1[1] = kx_phys / norm; ex1[2] = 0.0;
-              } else {
-                  ex1[0] = 1.0; ex1[1] = 0.0; ex1[2] = 0.0;
-              }
-              // second perpendicular vector = k x ex1 / |k|
-              double
-               kvec[3] = {kx_phys, ky_phys, kz_phys};
-              double k_norm = kmag;
-              ex2[0] = (kvec[1]*ex1[2] - kvec[2]*ex1[1]) / k_norm;
-              ex2[1] = (kvec[2]*ex1[0] - kvec[0]*ex1[2]) / k_norm;
-              ex2[2] = (kvec[0]*ex1[1] - kvec[1]*ex1[0]) / k_norm;
+        // --- two independent Gaussian components in plane perpendicular to k ---
+        // First, find two perpendicular unit vectors
+        double ex1[3], ex2[3];
 
-              // --- Rotate basis vectos by random angle ---
-              double phi= dist_phase(rng);
-              double cphi = std::cos(phi);
-              double sphi = std::sin(phi);
-              double ex1r[3], ex2r[3];
-              for (int q = 0; q < 3; ++q) {
-                  ex1r[q] =  cphi * ex1[q] + sphi * ex2[q];
-                  ex2r[q] = -sphi * ex1[q] + cphi * ex2[q];
-              }
+        // arbitrary perpendicular vector
+        if (kx_phys != 0 || ky_phys != 0) {
+            double norm = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys);
+            ex1[0] = -ky_phys / norm; ex1[1] = kx_phys / norm; ex1[2] = 0.0;
+        } else {
+            ex1[0] = 1.0; ex1[1] = 0.0; ex1[2] = 0.0;
+        }
+        // second perpendicular vector = k x ex1 / |k|
+        double
+          kvec[3] = {kx_phys, ky_phys, kz_phys};
+        double k_norm = kmag;
+        ex2[0] = (kvec[1]*ex1[2] - kvec[2]*ex1[1]) / k_norm;
+        ex2[1] = (kvec[2]*ex1[0] - kvec[0]*ex1[2]) / k_norm;
+        ex2[2] = (kvec[0]*ex1[1] - kvec[1]*ex1[0]) / k_norm;
 
-              // --- Change to helical basis ---
-              // e_+, e_- complex helical basis vectors:
-              // e_+ = 1/(sqrt(2)) * (e_1 + i * e_2)
-              // e_- = 1/(sqrt(2)) * (e_1 - i * e_2)
-              cplx I(0.0, 1.0);
-              double sq2i = 1.0/std::sqrt(2.0);
-              cplx ep[3], em[3];
-              for (int q = 0; q < 3; ++q) {
-                  ep[q] = sq2i * ( ex1r[q] + I * ex2r[q] );
-                  em[q] = sq2i * ( ex1r[q] - I * ex2r[q] );
-              }
+        // --- Rotate basis vectos by random angle ---
+        double phi= dist_phase(rng);
+        double cphi = std::cos(phi);
+        double sphi = std::sin(phi);
+        double ex1r[3], ex2r[3];
+        for (int q = 0; q < 3; ++q) {
+            ex1r[q] =  cphi * ex1[q] + sphi * ex2[q];
+            ex2r[q] = -sphi * ex1[q] + cphi * ex2[q];
+        }
 
-              double sigma_plus  = sigma_A * std::sqrt((1.0 + helicity)/2.0);
-              double sigma_minus = sigma_A * std::sqrt((1.0 - helicity)/2.0);
+        // --- Change to helical basis ---
+        // e_+, e_- complex helical basis vectors:
+        // e_+ = 1/(sqrt(2)) * (e_1 + i * e_2)
+        // e_- = 1/(sqrt(2)) * (e_1 - i * e_2)
+        cplx I(0.0, 1.0);
+        double sq2i = 1.0/std::sqrt(2.0);
+        cplx ep[3], em[3];
+        for (int q = 0; q < 3; ++q) {
+            ep[q] = sq2i * ( ex1r[q] + I * ex2r[q] );
+            em[q] = sq2i * ( ex1r[q] - I * ex2r[q] );
+        }
 
-              cplx A1(sigma_plus * dist_gauss(rng), sigma_plus * dist_gauss(rng));
-              cplx A2(sigma_minus * dist_gauss(rng), sigma_minus * dist_gauss(rng));
+        double sigma_plus  = sigma_A * std::sqrt((1.0 + helicity)/2.0);
+        double sigma_minus = sigma_A * std::sqrt((1.0 - helicity)/2.0);
 
-              // --- construct vector potential in Fourier space ---
-              cplx Ax = A1*ep[0] + A2*em[0];
-              cplx Ay = A1*ep[1] + A2*em[1];
-              cplx Az = A1*ep[2] + A2*em[2];
+        cplx A1(sigma_plus * dist_gauss(rng), sigma_plus * dist_gauss(rng));
+        cplx A2(sigma_minus * dist_gauss(rng), sigma_minus * dist_gauss(rng));
 
-              // map global index to local index in input array
-              int local_plane  = inbox.size[0] * inbox.size[1]; // x*y
-              int local_stride = inbox.size[0];                  // x
-              int idx = (i - inbox.low[2]) * local_plane
-                        + (j - inbox.low[1]) * local_stride + k - inbox.low[0];
+        // --- construct vector potential in Fourier space ---
+        cplx Ax = A1*ep[0] + A2*em[0];
+        cplx Ay = A1*ep[1] + A2*em[1];
+        cplx Az = A1*ep[2] + A2*em[2];
 
-              // make sure idx is in range:
-              assert(idx >= 0 && idx < fft.size_inbox());
+        // map global index to local index in input array
+        std::int64_t local_plane  = (Nx/2 + 1) * Ny;    
+        std::int64_t local_stride = Nx/2 + 1;                  
+        std::int64_t idx = i * local_plane
+                  + j * local_stride + k;
 
-              // --- Compute B(k) = i * (k x A(k)) ---
-              Bx_hat[idx] = I * ( ky_phys * Az - kz_phys * Ay );
-              By_hat[idx] = I * ( kz_phys * Ax - kx_phys * Az );
-              Bz_hat[idx] = I * ( kx_phys * Ay - ky_phys * Ax );
-          }
+        std::cout<<"rank " << parthenon::Globals::my_rank 
+                 << *(Bx_hat.begin()) << " " << *(Bx_hat.end()) << "\n";
+
+        // make sure idx is in range:
+        assert(idx >= Bx_hat.begin() && idx <= Bx_hat.end());
+
+        // --- Compute B(k) = i * (k x A(k)) ---
+        Bx_hat[idx] = I * ( ky_phys * Az - kz_phys * Ay );
+        By_hat[idx] = I * ( kz_phys * Ax - kx_phys * Az );
+        Bz_hat[idx] = I * ( kx_phys * Ay - ky_phys * Ax );
+
+        //bool is_zero = (std::abs(Bx_hat[idx]) == 0.0 &&
+        //                std::abs(By_hat[idx]) == 0.0 &&
+        //                std::abs(Bz_hat[idx]) == 0.0);
+        //if (is_zero) {
+        //  std::cout << "Warning: got zero B_hat at k = (" << kx_phys << ", "
+        //            << ky_phys << ", " << kz_phys << ")\n";
+        //
       }
+    }
+  }
+
+  // after filling Bx_hat / By_hat / Bz_hat but before fft.backward()
+  // use 64-bit counters for safety
+  std::int64_t zero_local = 0;
+  const std::int64_t local_inbox = static_cast<std::int64_t>(fft.size_inbox());
+  for (std::int64_t ii = 0; ii < local_inbox; ++ii) {
+    if (std::abs(Bx_hat[ii]) == 0.0 && std::abs(By_hat[ii]) == 0.0 && std::abs(Bz_hat[ii]) == 0.0)
+      ++zero_local;
+  }
+  std::int64_t zero_global = 0;
+  MPI_Allreduce(&zero_local, &zero_global, 1, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
+
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "nonzero Fourier coefficients (global) = " << zero_global << "\n";
+    std::cout << "fft.size_inbox() = " << local_inbox << "\n";
+    std::cout << "inbox.size = [" << inbox.size[0] << "," << inbox.size[1] << "," << inbox.size[2] << "]\n";
   }
 
   // Perform the inverse FFT:
@@ -367,20 +403,20 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
   // normalize to desired B_rms:
   // compute current Brms (over all ranks)
-  double local_B2_sum = 0.0;
-  int local_num_cells = nx1l * nx2l * nx3l;
-  for (int idx = 0; idx < local_num_cells; idx++) {
-      local_B2_sum += (Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
-  }
-  double global_B2_sum = 0.0;
-  MPI_Allreduce(&local_B2_sum, &global_B2_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-  double current_B_rms = std::sqrt(global_B2_sum / (Nx * Ny * Nz));
-  double norm_factor = B_rms / current_B_rms;
-  for (int idx = 0; idx < local_num_cells; idx++) {
-      Bx[idx] *= norm_factor;
-      By[idx] *= norm_factor;
-      Bz[idx] *= norm_factor;
-  }
+  //double local_B2_sum = 0.0;
+  //std::int64_t local_num_cells = nx1l * nx2l * nx3l;
+  //for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
+  //    local_B2_sum += (Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
+  //}
+  //double global_B2_sum = 0.0;
+  //MPI_Allreduce(&local_B2_sum, &global_B2_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  //double current_B_rms = std::sqrt(global_B2_sum / (Nx * Ny * Nz));
+  //double norm_factor = B_rms / current_B_rms;
+  //for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
+  //    Bx[idx] *= norm_factor;
+  //    By[idx] *= norm_factor;
+  //    Bz[idx] *= norm_factor;
+  //}
 
   // Loop over meshblocks on this rank and initialize the variables:
   for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
@@ -432,7 +468,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           int kk = gk0 + (k - kb.s);
 
           // finally, flatten index assuming row-major order (x fastest):
-          int idx = (kk * nx2l + jj) * nx1l + ii;
+          std::int64_t idx = (kk * nx2l + jj) * nx1l + ii;
+
+          // make sure idx is in range
+          assert(idx >= 0 && idx < local_num_cells);
 
           u(IB1, k, j, i) = Bx[idx];
           u(IB2, k, j, i) = By[idx];
