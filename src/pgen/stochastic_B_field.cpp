@@ -227,11 +227,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   //#else
   //using backend_tag = heffte::backend::default_backend<heffte::tag::cpu>::type;
   //#endif
-
-  //if (parthenon::Globals::my_rank == 0)
-  //  std::cerr << "using backend: " << heffte::backend::name<backend_tag>() << "\n"; 
   
   // for now, always use CPU backend. Need to change input/output types when using GPU backend. 
+  // Since this is only executed once at the beginning of the simulation, this is acceptable for now.
   using backend_tag = heffte::backend::default_backend<heffte::tag::cpu>::type;
 
   const auto block_size = pmesh->GetDefaultBlockSize();
@@ -349,8 +347,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         cplx Ax = A1*ep[0] + A2*em[0];
         cplx Ay = A1*ep[1] + A2*em[1];
         cplx Az = A1*ep[2] + A2*em[2];
-
-        // map global index to local index in input array This currently assumes that there is only one MPI rank. In that case it works. How to generalize? 
         
         // local indices (starting at 0): 
         std::int64_t z_local = z - inbox.low[2];
@@ -362,39 +358,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         std::int64_t idx = z_local * local_plane
                   + y_local * local_stride + x_local;
 
-        // const std::int64_t idx = (k * nx2l + j) * nx1l + i;
-
         // --- Compute B(k) = i * (k x A(k)) ---
         Bx_hat[idx] = I * ( ky_phys * Az - kz_phys * Ay );
         By_hat[idx] = I * ( kz_phys * Ax - kx_phys * Az );
         Bz_hat[idx] = I * ( kx_phys * Ay - ky_phys * Ax );
-
-        //bool is_zero = (std::abs(Bx_hat[idx]) == 0.0 &&
-        //                std::abs(By_hat[idx]) == 0.0 &&
-        //                std::abs(Bz_hat[idx]) == 0.0);
-        //if (is_zero) {
-        //  std::cout << "Warning: got zero B_hat at k = (" << kx_phys << ", "
-        //            << ky_phys << ", " << kz_phys << ")\n";
-        //
       }
     }
-  }
-
-  // after filling Bx_hat / By_hat / Bz_hat but before fft.backward()
-  // use 64-bit counters for safety
-  std::int64_t zero_local = 0;
-  const std::int64_t local_inbox = static_cast<std::int64_t>(fft.size_inbox());
-  for (std::int64_t ii = 0; ii < local_inbox; ++ii) {
-    if (std::abs(Bx_hat[ii]) == 0.0 && std::abs(By_hat[ii]) == 0.0 && std::abs(Bz_hat[ii]) == 0.0)
-      ++zero_local;
-  }
-  std::int64_t zero_global = 0;
-  MPI_Allreduce(&zero_local, &zero_global, 1, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD);
-
-  if (parthenon::Globals::my_rank == 0) {
-    std::cout << "nonzero Fourier coefficients (global) = " << zero_global << "\n";
-    std::cout << "fft.size_inbox() = " << local_inbox << "\n";
-    std::cout << "inbox.size = [" << inbox.size[0] << "," << inbox.size[1] << "," << inbox.size[2] << "]\n";
   }
 
   // Perform the inverse FFT:
@@ -404,20 +373,20 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
   // normalize to desired B_rms:
   // compute current Brms (over all ranks)
-  //double local_B2_sum = 0.0;
-  //std::int64_t local_num_cells = nx1l * nx2l * nx3l;
-  //for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
-  //    local_B2_sum += (Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
-  //}
-  //double global_B2_sum = 0.0;
-  //MPI_Allreduce(&local_B2_sum, &global_B2_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-  //double current_B_rms = std::sqrt(global_B2_sum / (Nx * Ny * Nz));
-  //double norm_factor = B_rms / current_B_rms;
-  //for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
-  //    Bx[idx] *= norm_factor;
-  //    By[idx] *= norm_factor;
-  //    Bz[idx] *= norm_factor;
-  //}
+  double local_B2_sum = 0.0;
+  std::int64_t local_num_cells = nx1l * nx2l * nx3l;
+  for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
+      local_B2_sum += (Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
+  }
+  double global_B2_sum = 0.0;
+  MPI_Allreduce(&local_B2_sum, &global_B2_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  double current_B_rms = std::sqrt(global_B2_sum / (Nx * Ny * Nz));
+  double norm_factor = B_rms / current_B_rms;
+  for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
+      Bx[idx] *= norm_factor;
+      By[idx] *= norm_factor;
+      Bz[idx] *= norm_factor;
+  }
 
   // Loop over meshblocks on this rank and initialize the variables:
   for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
