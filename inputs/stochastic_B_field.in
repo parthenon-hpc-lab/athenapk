@@ -15,26 +15,32 @@ dt         = 0.01       # time increment between outputs
 <parthenon/output2>
 file_type  = hdf5       # Binary data dump
 variables   = prim,acc   # variables to be output
-dt         = 0.03        # time increment between outputs
+dt         = 1.0        # time increment between outputs
 id         = prim
 single_precision_output = true
 
+<parthenon/output3>
+file_type  = rst        # Binary data dump
+dt         = 1.0        # time increment between outputs
+id         = restart
+
 <problem/stochastic_B_field>
 rho0 = 1.0
-p0   = 0.6
+p0   = 1.0
 vx   = 0.0
 vy   = 0.0
 vz   = 0.0
-kmax = 128.0	# Largest allowed mode in units of 2*pi/L_x where L_x is the box size as defined under <mesh>
+kmax = 512.0	# Largest allowed mode in units of 2*pi/L_x where L_x is the box size as defined under <mesh>
 		# This should be <= min(nx1, nx2, nx3)
 B_rms = 0.3
-helicity = 1.0  # Helicity fraction (between -1 and 1)
 
 # Double Power-law power  Spectrum params:
-kI = 4.0	# Power Spectrum peak in units of 2*pi/L 
+kI = 80.0	# Power Spectrum peak in units of 2*pi/L 
 n1 = 4.0	# power law index such that P ~ k^(n1) for k << kI
 n2 = 1.6666666666666667	# Power law index such that P ~ k^(-n2) for k >> KI
 alpha = 10.0	# Controls the sharpness of the transition between the two power laws
+
+helicity = 0.0 # Helicity fraction (between -1 and 1)
 
 <refinement>
 type                     = maxdensity
@@ -43,31 +49,30 @@ maxdensity_refine_above  = 1.0001
 
 <parthenon/mesh>
 refinement = none
-numlevel = 3
 nghost = 2
 
-nx1 = 256
-x1min = -0.5
-x1max = 0.5
+nx1 = 1024
+x1min = -3.141593
+x1max = 3.141593
 ix1_bc = periodic
 ox1_bc = periodic
 
-nx2 = 256
-x2min = -0.5
-x2max = 0.5
+nx2 = 1024
+x2min = -3.141593
+x2max = 3.141593
 ix2_bc = periodic
 ox2_bc = periodic
 
-nx3 = 256
-x3min = -0.5
-x3max = 0.5
+nx3 = 1024
+x3min = -3.141593
+x3max = 3.141593
 ix3_bc = periodic
 ox3_bc = periodic
 
 <parthenon/meshblock>
-nx1=32
-nx2=32
-nx3=32
+nx1=128
+nx2=128
+nx3=128
 
 <parthenon/time>
 integrator = vl2
@@ -80,22 +85,23 @@ ncycle_out_mesh = -1000
 <hydro>
 fluid = glmmhd
 eos = adiabatic
-riemann = hlle
+riemann = hlld
+first_order_flux_correct = true
 reconstruction = plm
-gamma = 1.666666666666667 # gamma = C_p/C_v
+gamma = 1.0001 # gamma = C_p/C_v (makes the EOS approimately isothermal, P ~ rho) 
 scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
-pressure_floor = 1e-6
-e_floor = 1e-6
+# pressure_floor = 1e-6 # these should not be necessary.
+# e_floor = 1e-6
 
-#<diffusion>
-#integrator = rkl2
-#conduction = none
-#conduction_coeff = fixed
-#thermal_diff_coeff_code = 0.01
-#viscosity = none            # none (disabled), isotropic, or anisotropic
-#viscosity_coeff = fixed
-#mom_diff_coeff_code = 0.25
-#resistivity = ohmic          # none (disabled) or ohmic
-#resistivity_coeff = fixed
-#ohm_diff_coeff_code = 0.0015
-#rkl2_max_dt_ratio = 100.0
+<diffusion>
+integrator = unsplit 
+conduction = none
+conduction_coeff = fixed
+thermal_diff_coeff_code = 0.0
+viscosity = isotropic            # none (disabled), isotropic, or anisotropic
+viscosity_coeff = fixed
+mom_diff_coeff_code = 0.00005
+resistivity = ohmic          # none (disabled) or ohmic
+resistivity_coeff = fixed
+ohm_diff_coeff_code = 0.00005
+rkl2_max_dt_ratio = 100.0
