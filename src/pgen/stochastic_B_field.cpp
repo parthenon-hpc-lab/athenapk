@@ -263,20 +263,19 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   std::vector<std::complex<double>> Bx_hat(fft.size_inbox());
   std::vector<std::complex<double>> By_hat(fft.size_inbox());
   std::vector<std::complex<double>> Bz_hat(fft.size_inbox());
-  
-  std::cout << "inbox size: " << fft.size_inbox() << std::endl;
+
 
   // -----------------------------
   // Fill input (local chunk of Fourier-space array)
   // -----------------------------
-  for(int i=inbox.low[2]; i <= inbox.high[2]; i++) {
-    int kz = (i <= N/2) ? i : i - N;
+  for(int z=inbox.low[2]; z <= inbox.high[2]; z++) {
+    int kz = (z <= N/2) ? z : z - N;
     double kz_phys = 2.0*M_PI * kz / L;
-    for(int j=inbox.low[1]; j <= inbox.high[1]; j++) {
-      int ky = (j <= N/2) ? j : j - N; // Before j \in {0, N_y}, now k \in {-N_y/2, N_y/2}
+    for(int y=inbox.low[1]; y <= inbox.high[1]; y++) {
+      int ky = (y <= N/2) ? y : y - N; // Before j \in {0, N_y}, now k \in {-N_y/2, N_y/2}
       double ky_phys = 2.0*M_PI * ky / L;
-      for(int k=inbox.low[0]; k <= inbox.high[0]; k++) {
-        int kx = k;
+      for(int x=inbox.low[0]; x <= inbox.high[0]; x++) {
+        int kx = x;
         double kx_phys = 2.0*M_PI * kx / L;
 
         double kmag = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys + kz_phys*kz_phys);
@@ -286,7 +285,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             continue;
 
         // --- skip DC ---
-        if (i==0 && j==0 && k==0)
+        if (z==0 && y==0 && x==0)
             continue;
 
         // --- compute stddev for Gaussian vector potential ---
@@ -295,9 +294,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         // We want E_k ~ |B(k)|^2 k^2. Thus, |A(k)|^2 ~ E_k / k^4.  
         double sigma_A = std::sqrt(P(kmag) / (kmag * kmag * kmag * kmag));
 
-        if (parthenon::Globals::my_rank == 0 && sigma_A == 0.0) {
-          std::cout << "Warning: sigma_A = 0 for k = " << kmag << "\n";
-        }
+        //if (parthenon::Globals::my_rank == 0 && sigma_A == 0.0) {
+        //  std::cout << "Warning: sigma_A = 0 for k = " << kmag << "\n";
+        //}
 
         // --- two independent Gaussian components in plane perpendicular to k ---
         // First, find two perpendicular unit vectors
@@ -351,17 +350,19 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         cplx Ay = A1*ep[1] + A2*em[1];
         cplx Az = A1*ep[2] + A2*em[2];
 
-        // map global index to local index in input array
-        std::int64_t local_plane  = (Nx/2 + 1) * Ny;    
-        std::int64_t local_stride = Nx/2 + 1;                  
-        std::int64_t idx = i * local_plane
-                  + j * local_stride + k;
+        // map global index to local index in input array This currently assumes that there is only one MPI rank. In that case it works. How to generalize? 
+        
+        // local indices (starting at 0): 
+        std::int64_t z_local = z - inbox.low[2];
+        std::int64_t y_local = y - inbox.low[1];
+        std::int64_t x_local = x - inbox.low[0];
+        
+        std::int64_t local_plane  = inbox.size[0] * inbox.size[1];    
+        std::int64_t local_stride = inbox.size[0];                  
+        std::int64_t idx = z_local * local_plane
+                  + y_local * local_stride + x_local;
 
-        std::cout<<"rank " << parthenon::Globals::my_rank 
-                 << *(Bx_hat.begin()) << " " << *(Bx_hat.end()) << "\n";
-
-        // make sure idx is in range:
-        assert(idx >= Bx_hat.begin() && idx <= Bx_hat.end());
+        // const std::int64_t idx = (k * nx2l + j) * nx1l + i;
 
         // --- Compute B(k) = i * (k x A(k)) ---
         Bx_hat[idx] = I * ( ky_phys * Az - kz_phys * Ay );
