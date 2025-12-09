@@ -238,9 +238,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   const int nx2b = block_size.nx(parthenon::X2DIR);
   const int nx3b = block_size.nx(parthenon::X3DIR);
   // all local blocks sizes (based on logical locations)
-  const int nx1l = local_nlocs.at(0) * nx1b;
-  const int nx2l = local_nlocs.at(1) * nx2b;
-  const int nx3l = local_nlocs.at(2) * nx3b;
+  const std::int64_t nx1l = local_nlocs.at(0) * nx1b;
+  const std::int64_t nx2l = local_nlocs.at(1) * nx2b;
+  const std::int64_t nx3l = local_nlocs.at(2) * nx3b;
   const int gis = local_loc_min.at(0) * nx1b;
   const int gjs = local_loc_min.at(1) * nx2b;
   const int gks = local_loc_min.at(2) * nx3b;
@@ -291,10 +291,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         // and B(k) = ik x A(k) => |B(k)|^2 = k^2 |A(k)|^2 
         // We want E_k ~ |B(k)|^2 k^2. Thus, |A(k)|^2 ~ E_k / k^4.  
         double sigma_A = std::sqrt(P(kmag) / (kmag * kmag * kmag * kmag));
-
-        //if (parthenon::Globals::my_rank == 0 && sigma_A == 0.0) {
-        //  std::cout << "Warning: sigma_A = 0 for k = " << kmag << "\n";
-        //}
 
         // --- two independent Gaussian components in plane perpendicular to k ---
         // First, find two perpendicular unit vectors
@@ -371,10 +367,24 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto By = fft.backward(By_hat, heffte::scale::full);
   auto Bz = fft.backward(Bz_hat, heffte::scale::full);
 
+  // debug: print out first few B values:
+  for (int i = 0; i < 5; i++) {
+      std::cout << "Bx[" << i << "] = " << Bx[i] << std::endl;
+  }
+  for (int i = 0; i < 5; i++) {
+      std::cout << "By[" << i << "] = " << By[i] << std::endl;
+  }
+  for (int i = 0; i < 5; i++) {
+      std::cout << "Bz[" << i << "] = " << Bz[i] << std::endl;
+  }
+
   // normalize to desired B_rms:
   // compute current Brms (over all ranks)
   double local_B2_sum = 0.0;
-  std::int64_t local_num_cells = nx1l * nx2l * nx3l;
+  const std::int64_t local_num_cells =
+    int64_t(nx1l) * int64_t(nx2l) * int64_t(nx3l); // ensure int64_t multiplication
+  
+  std::cout<<"local num cells: "<<local_num_cells<<std::endl;
   for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
       local_B2_sum += (Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
   }
@@ -382,11 +392,17 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   MPI_Allreduce(&local_B2_sum, &global_B2_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   double current_B_rms = std::sqrt(global_B2_sum / (Nx * Ny * Nz));
   double norm_factor = B_rms / current_B_rms;
+
+  std::cout<<"norm factor: "<<norm_factor<<std::endl;
+  std::cout<<"current B_rms: "<<current_B_rms<<std::endl;
+
+  /*
   for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
       Bx[idx] *= norm_factor;
       By[idx] *= norm_factor;
       Bz[idx] *= norm_factor;
   }
+  */
 
   // Loop over meshblocks on this rank and initialize the variables:
   for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
@@ -447,8 +463,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           u(IB2, k, j, i) = By[idx];
           u(IB3, k, j, i) = Bz[idx];
 
-          // Total energy (thermal + kinetic + magnetic); thermal energy calculated from ideal gas EOS
+          if (idx < 10) std::cout<<"idx "<<idx<<" Bx "<<Bx[idx]<<std::endl;
+
+	  // Total energy (thermal + kinetic + magnetic); thermal energy calculated from ideal gas EOS
           u(IEN, k, j, i) = p0 / gm1 + 0.5*(mx*mx + my*my + mz*mz)/rho + 0.5*(Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
+
+
         }
       }
     }
