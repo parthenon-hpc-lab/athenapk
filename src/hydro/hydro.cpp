@@ -184,13 +184,12 @@ Real HydroHst(MeshData<Real> *md) {
           // relative divergence of B error, i.e., L * |div(B)| / |B| averaged over the domain
         } else if (hst == Hst::divb) {
           // get global domain volume for normalization:
-          Mesh *mesh = md->GetMeshPointer(); 
-          auto &ms = mesh->mesh_size;
-          Real box_vol = (ms.xmax_[0] - ms.xmin_[0]) * (ms.xmax_[1] - ms.xmin_[1]);
-          if (three_d) {
-            box_vol *= (ms.xmax_[2] - ms.xmin_[2]);
-          }
-
+          //Mesh *mesh = md->GetMeshPointer(); 
+          //auto &ms = mesh->mesh_size;
+          //Real box_vol = (ms.xmax_[0] - ms.xmin_[0]) * (ms.xmax_[1] - ms.xmin_[1]);
+          //if (three_d) {
+          //  box_vol *= (ms.xmax_[2] - ms.xmin_[2]);
+          //}
           Real divb =
               (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) / coords.Dxc<1>(k, j, i) +
               (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
@@ -206,7 +205,7 @@ Real HydroHst(MeshData<Real> *md) {
                                      (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) +
                                                 SQR(coords.Dxc<2>(k, j, i)) +
                                                 SQR(coords.Dxc<3>(k, j, i)))) *
-                                     std::abs(divb) / abs_b * coords.CellVolume(k, j, i) / box_vol
+                                     std::abs(divb) / abs_b * coords.CellVolume(k, j, i) // /box_vol
                                : 0; // Add zero when abs_b ==0
         }
       },
