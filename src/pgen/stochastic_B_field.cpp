@@ -389,20 +389,27 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       local_B2_sum += (Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
   }
   double global_B2_sum = 0.0;
+
+  // debug: print out rank and local_B2_sum
+  std::cout<<"rank "<<parthenon::Globals::my_rank<<" local_B2_sum: "<<local_B2_sum<<std::endl;
+
   MPI_Allreduce(&local_B2_sum, &global_B2_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-  double current_B_rms = std::sqrt(global_B2_sum / (Nx * Ny * Nz));
+
+  std::cout<<"global_B2_sum: "<<global_B2_sum<<std::endl;
+
+  std::int64_t denom_i = std::int64_t(Nx) * std::int64_t(Ny) * std::int64_t(Nz);
+
+  double current_B_rms = std::sqrt(global_B2_sum / denom_i);
   double norm_factor = B_rms / current_B_rms;
 
   std::cout<<"norm factor: "<<norm_factor<<std::endl;
   std::cout<<"current B_rms: "<<current_B_rms<<std::endl;
 
-  /*
   for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
       Bx[idx] *= norm_factor;
       By[idx] *= norm_factor;
       Bz[idx] *= norm_factor;
   }
-  */
 
   // Loop over meshblocks on this rank and initialize the variables:
   for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
