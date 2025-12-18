@@ -2,6 +2,20 @@
 
 ## Current develop (i.e., `main` branch)
 
+### Added (new features/APIs/variables/...)
+
+### Changed (changing behavior/API/variables/...)
+
+### Fixed (not changing behavior/API/variables/...)
+
+### Infrastructure
+
+### Removed (removing behavior/API/varaibles/...)
+
+### Incompatibilities (i.e. breaking changes)
+
+## Release 25.05
+
 ### IMPORTANT
 
 If you pulled from `main` after 11 Nov 24 ([[PR 124]](https://github.com/parthenon-hpc-lab/athenapk/pull/124))
@@ -26,6 +40,7 @@ refinement.
 - [[PR 128]](https://github.com/parthenon-hpc-lab/athenapk/pull/128) Fixed `dt_diff` in RKL2
 
 ### Infrastructure
+- [[PR 150]](https://github.com/parthenon-hpc-lab/athenapk/pull/150) Introduce CalVer and add CONTRIBUTING.md
 - [[PR 142]](https://github.com/parthenon-hpc-lab/athenapk/pull/142) Bump Kokkos 4.6.1 and Parthenon 25.05
 - [[PR 136]](https://github.com/parthenon-hpc-lab/athenapk/pull/136) Bump Kokkos 4.5.1 (for support of AMD APUs)
 - [[PR 129]](https://github.com/parthenon-hpc-lab/athenapk/pull/129) Bump Parthenon to support `dn` based outputs

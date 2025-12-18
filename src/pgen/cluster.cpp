@@ -462,7 +462,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 //! \fn void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md)
 //! \brief Generate problem data for all blocks on rank
 //
-// Note, this requires that parthenon/mesh/pack_size=-1 during initialization so that
+// Note, this requires that parthenon/mesh/packs_per_rank=1 during initialization so that
 // reductions work
 //========================================================================================
 
