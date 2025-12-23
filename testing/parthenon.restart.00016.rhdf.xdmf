@@ -1,0 +1,151 @@
+<?xml version="1.0" ?>
+<!DOCTYPE Xdmf SYSTEM "Xdmf.dtd">
+<Xdmf Version="3.0">
+<Information Name="TimeVaryingMetaData" Value="True"/>
+  <Domain>
+  <Grid Name="Mesh" GridType="Collection">
+    <Information Name="Cycle" Value="72"/>
+    <Time Value="16.1376"/>
+    <Grid GridType="Uniform" Name="0">
+      <Topology TopologyType="3DRectMesh" Dimensions="9 9 9"/>
+      <Geometry GeometryType="VXVYVZ">
+        <DataItem ItemType="HyperSlab" Dimensions="9">
+          <DataItem Dimensions="3 2" NumberType="Int" Format="XML">
+            0 0 1
+            1 1 9
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9" Name="x" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/Locations/x
+          </DataItem>
+        </DataItem>
+        <DataItem ItemType="HyperSlab" Dimensions="9">
+          <DataItem Dimensions="3 2" NumberType="Int" Format="XML">
+            0 0 1
+            1 1 9
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9" Name="y" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/Locations/y
+          </DataItem>
+        </DataItem>
+        <DataItem ItemType="HyperSlab" Dimensions="9">
+          <DataItem Dimensions="3 2" NumberType="Int" Format="XML">
+            0 0 1
+            1 1 9
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9" Name="z" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/Locations/z
+          </DataItem>
+        </DataItem>
+      </Geometry>
+      <Attribute Name="cons_density" Center="Cell">
+        <DataItem ItemType="HyperSlab" Dimensions="8 8 8">
+          <DataItem Dimensions="3 5" NumberType="Int" Format="XML">
+            0 0 0 0 0
+            1 1 1 1 1
+            1 1 8 8 8
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9 8 8 8" Name="cons" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/cons
+          </DataItem>
+        </DataItem>
+      </Attribute>
+      <Attribute Name="cons_momentum_density_1" Center="Cell">
+        <DataItem ItemType="HyperSlab" Dimensions="8 8 8">
+          <DataItem Dimensions="3 5" NumberType="Int" Format="XML">
+            0 1 0 0 0
+            1 1 1 1 1
+            1 1 8 8 8
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9 8 8 8" Name="cons" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/cons
+          </DataItem>
+        </DataItem>
+      </Attribute>
+      <Attribute Name="cons_momentum_density_2" Center="Cell">
+        <DataItem ItemType="HyperSlab" Dimensions="8 8 8">
+          <DataItem Dimensions="3 5" NumberType="Int" Format="XML">
+            0 2 0 0 0
+            1 1 1 1 1
+            1 1 8 8 8
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9 8 8 8" Name="cons" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/cons
+          </DataItem>
+        </DataItem>
+      </Attribute>
+      <Attribute Name="cons_momentum_density_3" Center="Cell">
+        <DataItem ItemType="HyperSlab" Dimensions="8 8 8">
+          <DataItem Dimensions="3 5" NumberType="Int" Format="XML">
+            0 3 0 0 0
+            1 1 1 1 1
+            1 1 8 8 8
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9 8 8 8" Name="cons" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/cons
+          </DataItem>
+        </DataItem>
+      </Attribute>
+      <Attribute Name="cons_total_energy_density" Center="Cell">
+        <DataItem ItemType="HyperSlab" Dimensions="8 8 8">
+          <DataItem Dimensions="3 5" NumberType="Int" Format="XML">
+            0 4 0 0 0
+            1 1 1 1 1
+            1 1 8 8 8
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9 8 8 8" Name="cons" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/cons
+          </DataItem>
+        </DataItem>
+      </Attribute>
+      <Attribute Name="cons_magnetic_field_1" Center="Cell">
+        <DataItem ItemType="HyperSlab" Dimensions="8 8 8">
+          <DataItem Dimensions="3 5" NumberType="Int" Format="XML">
+            0 5 0 0 0
+            1 1 1 1 1
+            1 1 8 8 8
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9 8 8 8" Name="cons" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/cons
+          </DataItem>
+        </DataItem>
+      </Attribute>
+      <Attribute Name="cons_magnetic_field_2" Center="Cell">
+        <DataItem ItemType="HyperSlab" Dimensions="8 8 8">
+          <DataItem Dimensions="3 5" NumberType="Int" Format="XML">
+            0 6 0 0 0
+            1 1 1 1 1
+            1 1 8 8 8
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9 8 8 8" Name="cons" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/cons
+          </DataItem>
+        </DataItem>
+      </Attribute>
+      <Attribute Name="cons_magnetic_field_3" Center="Cell">
+        <DataItem ItemType="HyperSlab" Dimensions="8 8 8">
+          <DataItem Dimensions="3 5" NumberType="Int" Format="XML">
+            0 7 0 0 0
+            1 1 1 1 1
+            1 1 8 8 8
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9 8 8 8" Name="cons" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/cons
+          </DataItem>
+        </DataItem>
+      </Attribute>
+      <Attribute Name="cons_magnetic_psi" Center="Cell">
+        <DataItem ItemType="HyperSlab" Dimensions="8 8 8">
+          <DataItem Dimensions="3 5" NumberType="Int" Format="XML">
+            0 8 0 0 0
+            1 1 1 1 1
+            1 1 8 8 8
+          </DataItem>
+          <DataItem Format="HDF" Dimensions="1 9 8 8 8" Name="cons" NumberType="Float" Precision="8">
+            parthenon.restart.00016.rhdf:/cons
+          </DataItem>
+        </DataItem>
+      </Attribute>
+    </Grid>
+    </Grid>
+  </Domain>
+</Xdmf>
