@@ -882,7 +882,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   // MPI reductions (rather than Parthenon provided reduction tasks that work with
   // arbitrary packs).
   PARTHENON_REQUIRE_THROWS(num_partitions == 1,
-                           "Only pack_size=-1 currently supported for tracers.")
+                           "Only packs_per_rank=1 currently supported for tracers.")
   auto &mu0 = pmesh->mesh_data.GetOrAdd("base", 0);
   FillTracers(mu0.get(), tm);
   if (ProblemFillTracers != nullptr) {
