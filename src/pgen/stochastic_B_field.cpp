@@ -144,135 +144,35 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   std::uniform_real_distribution<double> dist_phase(0.0, 2.0*M_PI);
   std::normal_distribution<double> dist_gauss(0.0, 1.0);
 
-  std::cout << "heffte setup..." << std::endl;
-
-  // ------------------------------
-  // heffte setup
-  // ------------------------------
-  std::int64_t r2c_direction = 0; // the dimension where the data will shrink
-  // construct global input/output boxes: 
-  heffte::box3d<> real_indexes({0, 0, 0}, {Nx - 1, Ny - 1, Nz - 1});
-  heffte::box3d<> complex_indexes({0, 0, 0}, {(Nx)/2, Ny - 1, Nz - 1});
-
-  // define dimensions of the complex inbox:
-
-  // check if the complex indexes have correct dimension
-  assert(real_indexes.r2c(r2c_direction) == complex_indexes);
-
-  // Need to store this info in a way this can be used on device later
-  parthenon::ParArray2D<std::int64_t> loc_view("logical location of local blocks",
-                                               pmesh->GetNumMeshBlocksThisRank(), 3);
-  auto loc_view_h = loc_view.GetHostMirror();
-
-  std::cout << "Determining rank-local block logical locations..." << std::endl;
-
-  // Set rank local min and max logical locations.
-  // Also check if all blocks are on the same level (we use this check instead of
-  // checking for refinement=none because AMR could have been used to dynamically refine
-  // a simulation. We just need to ensure that all blocks are on the same level to
-  // create an effective uniform grid.)
-  const auto level =
-      pmesh->Forest().GetLegacyTreeLocation(pmesh->block_list[0]->loc).level();
-
-  std::array local_loc_min{
-      std::numeric_limits<std::int64_t>::max(),
-      std::numeric_limits<std::int64_t>::max(),
-      std::numeric_limits<std::int64_t>::max(),
-  };
-  std::array local_loc_max{
-      std::numeric_limits<std::int64_t>::min(),
-      std::numeric_limits<std::int64_t>::min(),
-      std::numeric_limits<std::int64_t>::min(),
-  };
+  // Define FFT plan and retrieve needed quantities:
+  pmesh->GetFFTManager()->Initialize();
+  auto FFTManager = pmesh->GetFFTManager();
+  auto &fft = *(FFTManager->fft_plan_);
   
-  for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
-    auto pmb = pmesh->block_list[b];
-    const auto loc = pmesh->Forest().GetLegacyTreeLocation(pmb->loc);
-    for (int i = 0; i <= 2; i++) {
-      local_loc_min.at(i) = std::min(loc.l(i), local_loc_min.at(i));
-      local_loc_max.at(i) = std::max(loc.l(i), local_loc_max.at(i));
-      loc_view_h(b, i) = loc.l(i);
-    }
-    PARTHENON_REQUIRE_THROWS(loc.level() == level,
-                             "Not all blocks are on the same level.");
-  }
-
-  // convert global logical locations to rank-local logical locs
-  for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
-    for (int i = 0; i <= 2; i++) {
-      loc_view_h(b, i) -= local_loc_min.at(i);
-    }
-  }
-  Kokkos::deep_copy(loc_view, loc_view_h);
-
-  std::array local_nlocs{
-      (local_loc_max.at(0) - local_loc_min.at(0)) + 1,
-      (local_loc_max.at(1) - local_loc_min.at(1)) + 1,
-      (local_loc_max.at(2) - local_loc_min.at(2)) + 1,
-  };
-  const auto loc_max_vol = local_nlocs.at(0) * local_nlocs.at(1) * local_nlocs.at(2);
-  // std::cerr << "[" << parthenon::Globals::my_rank << "] got local vol of: " <<
-  // loc_max_vol << "\n";
-  PARTHENON_REQUIRE_THROWS(loc_max_vol == pmesh->GetNumMeshBlocksThisRank(),
-                           "Block coverage on rank cannot be matched to a contiguous "
-                           "array, which is required for FFTs. Try a different amount of "
-                           "ranks (one block per rank will always work).");
-
-  // TODO(pgrete) not nice, make nicer
-  //#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  //using backend_tag = heffte::backend::default_backend<heffte::tag::gpu>::type;
-  //PARTHENON_REQUIRE_THROWS(heffte::gpu::device_count() == 1,
-  //                         "To make this work, we need to ensure that Kokkos and heffte "
-  //                         "use the same GPUs. So hard fail for now.");
-  //#else
-  //using backend_tag = heffte::backend::default_backend<heffte::tag::cpu>::type;
-  //#endif
-  
-  // for now, always use CPU backend. Need to change input/output types when using GPU backend. 
-  // Since this is only executed once at the beginning of the simulation, this is acceptable for now.
-  using backend_tag = heffte::backend::default_backend<heffte::tag::cpu>::type;
-
-  const auto block_size = pmesh->GetDefaultBlockSize();
-  // block sizes
-  const int nx1b = block_size.nx(parthenon::X1DIR);
-  const int nx2b = block_size.nx(parthenon::X2DIR);
-  const int nx3b = block_size.nx(parthenon::X3DIR);
-  // all local blocks sizes (based on logical locations)
-  const std::int64_t nx1l = local_nlocs.at(0) * nx1b;
-  const std::int64_t nx2l = local_nlocs.at(1) * nx2b;
-  const std::int64_t nx3l = local_nlocs.at(2) * nx3b;
-  const int gis = local_loc_min.at(0) * nx1b;
-  const int gjs = local_loc_min.at(1) * nx2b;
-  const int gks = local_loc_min.at(2) * nx3b;
-  // fft() interface below requires box3d's of int (to we need to cast down)
-  const heffte::box3d<> outbox({gis, gjs, gks}, {static_cast<int>(gis + nx1l - 1),
-                                                static_cast<int>(gjs + nx2l - 1),
-                                                static_cast<int>(gks + nx3l - 1)});
-
-  // for the inbox, we let heffte decide the best decomposition: 
-  std::array<int, 3> proc_grid = heffte::proc_setup_min_surface(complex_indexes, parthenon::Globals::nranks);
-  std::vector<heffte::box3d<>> complex_boxes = heffte::split_world(complex_indexes, proc_grid);
-  heffte::box3d<> const inbox = complex_boxes[parthenon::Globals::my_rank];
-
-  // define the heffte class and the input and output geometry
-  heffte::fft3d_r2c<backend_tag> fft(outbox, inbox, r2c_direction, MPI_COMM_WORLD); // reversed because we are doing c2r (outbox = real, inbox = complex)
+  auto &local_loc_min = FFTManager->local_loc_min;
+  auto &nx1b = FFTManager->nx1b;
+  auto &nx2b = FFTManager->nx2b;
+  auto &nx3b = FFTManager->nx3b;
+  auto &nx1l = FFTManager->nx1l;
+  auto &nx2l = FFTManager->nx2l;
+  auto &nx3l = FFTManager->nx3l;
+  auto outbox = fft.outbox(); // FFT is r2c, so outbox is the complex box
 
   // we want to perform and inverse FFT (complex to real), so we need to create the input data accordingly: 
-  std::vector<std::complex<double>> Bx_hat(fft.size_inbox());
-  std::vector<std::complex<double>> By_hat(fft.size_inbox());
-  std::vector<std::complex<double>> Bz_hat(fft.size_inbox());
-
+  std::vector<std::complex<double>> Bx_hat(fft.size_outbox());
+  std::vector<std::complex<double>> By_hat(fft.size_outbox());
+  std::vector<std::complex<double>> Bz_hat(fft.size_outbox());
 
   // -----------------------------
   // Fill input (local chunk of Fourier-space array)
   // -----------------------------
-  for(int z=inbox.low[2]; z <= inbox.high[2]; z++) {
+  for(int z=outbox.low[2]; z <= outbox.high[2]; z++) {
     int kz = (z <= N/2) ? z : z - N;
     double kz_phys = 2.0*M_PI * kz / L;
-    for(int y=inbox.low[1]; y <= inbox.high[1]; y++) {
+    for(int y=outbox.low[1]; y <= outbox.high[1]; y++) {
       int ky = (y <= N/2) ? y : y - N; // Before j \in {0, N_y}, now k \in {-N_y/2, N_y/2}
       double ky_phys = 2.0*M_PI * ky / L;
-      for(int x=inbox.low[0]; x <= inbox.high[0]; x++) {
+      for(int x=outbox.low[0]; x <= outbox.high[0]; x++) {
         int kx = x;
         double kx_phys = 2.0*M_PI * kx / L;
 
@@ -345,12 +245,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         cplx Az = A1*ep[2] + A2*em[2];
         
         // local indices (starting at 0): 
-        std::int64_t z_local = z - inbox.low[2];
-        std::int64_t y_local = y - inbox.low[1];
-        std::int64_t x_local = x - inbox.low[0];
+        std::int64_t z_local = z - outbox.low[2];
+        std::int64_t y_local = y - outbox.low[1];
+        std::int64_t x_local = x - outbox.low[0];
         
-        std::int64_t local_plane  = inbox.size[0] * inbox.size[1];    
-        std::int64_t local_stride = inbox.size[0];                  
+        std::int64_t local_plane  = outbox.size[0] * outbox.size[1];    
+        std::int64_t local_stride = outbox.size[0];                  
         std::int64_t idx = z_local * local_plane
                   + y_local * local_stride + x_local;
 
@@ -412,6 +312,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   }
 
   // Loop over meshblocks on this rank and initialize the variables:
+
   for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
     auto pmb = pmesh->block_list[b];
 
@@ -472,9 +373,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
           if (idx < 10) std::cout<<"idx "<<idx<<" Bx "<<Bx[idx]<<std::endl;
 
-	  // Total energy (thermal + kinetic + magnetic); thermal energy calculated from ideal gas EOS
+	        // Total energy (thermal + kinetic + magnetic); thermal energy calculated from ideal gas EOS
           u(IEN, k, j, i) = p0 / gm1 + 0.5*(mx*mx + my*my + mz*mz)/rho + 0.5*(Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
-
 
         }
       }
