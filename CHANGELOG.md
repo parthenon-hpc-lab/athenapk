@@ -26,6 +26,7 @@ by adding an optional string as last argument to any `ParameterInput` `Get` or `
 ### Fixed (not changing behavior/API/variables/...)
 
 ### Infrastructure
+- [[PR 156]](https://github.com/parthenon-hpc-lab/athenapk/pull/156) Bump formatters to clang-format-20 and black 25.12
 - [[PR 146]](https://github.com/parthenon-hpc-lab/athenapk/pull/146) Bump Parthenon 25.12 and Kokkos 4.7.02
 
 ### Removed (removing behavior/API/varaibles/...)
