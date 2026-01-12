@@ -20,6 +20,7 @@ To enable, set `do_coalesced_comms=true` in the `<parthenon/mesh>` block of the 
 by adding an optional string as last argument to any `ParameterInput` `Get` or `GetOrAdd` call.
 
 ### Added (new features/APIs/variables/...)
+- [[PR 157]](https://github.com/parthenon-hpc-lab/athenapk/pull/157) Support injection of blobs with density/temp contrast in turbulence simulations
 
 ### Changed (changing behavior/API/variables/...)
 
