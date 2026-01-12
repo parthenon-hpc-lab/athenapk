@@ -90,18 +90,25 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   // The following restriction could technically be lifted if the turbulence driver is
   // directly embedded in the hydro driver rather than a user defined source as well as
-  // fixing the pack_size=-1 when using the Mesh- (not MeshBlock-)based problem generator.
-  // The restriction stems from requiring a collective MPI comm to normalize the
-  // acceleration and magnetic field, respectively. Note, that the restriction does not
-  // apply here, but for the ProblemGenerator() and Driving() function below. The check is
-  // just added here for convenience as this function is called during problem
+  // fixing the packs_per_rank=1 when using the Mesh- (not MeshBlock-)based problem
+  // generator. The restriction stems from requiring a collective MPI comm to normalize
+  // the acceleration and magnetic field, respectively. Note, that the restriction does
+  // not apply here, but for the ProblemGenerator() and Driving() function below. The
+  // check is just added here for convenience as this function is called during problem
   // initializtion. From my (pgrete) point of view, it's currently cleaner to keep things
   // separate and not touch the main driver at the expense of using one pack per rank --
   // which is typically fastest on devices anyway.
-  const auto pack_size = pin->GetInteger("parthenon/mesh", "pack_size");
-  PARTHENON_REQUIRE_THROWS(pack_size == -1,
-                           "Few modes FT currently needs parthenon/mesh/pack_size=-1 "
-                           "to work because of global reductions.")
+  bool uses_single_pack = false;
+  // need separate check due to new packs_per_rank parameter
+  if (pin->DoesParameterExist("parthenon/mesh", "pack_size")) {
+    uses_single_pack = pin->GetInteger("parthenon/mesh", "pack_size") == -1;
+    // one parameter has to exist
+  } else {
+    uses_single_pack = pin->GetInteger("parthenon/mesh", "packs_per_rank") == 1;
+  }
+  PARTHENON_REQUIRE_THROWS(uses_single_pack,
+                           "Few modes FT currently needs parthenon/mesh/packs_per_rank=1 "
+                           "to work because of global reductions.");
 
   const auto Lx1 = pm->mesh_size.xmax(X1DIR) - pm->mesh_size.xmin(X1DIR);
   const auto Lx2 = pm->mesh_size.xmax(X2DIR) - pm->mesh_size.xmin(X2DIR);
