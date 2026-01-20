@@ -107,9 +107,11 @@ class CoolingTableObj {
   parthenon::Real mbar_gm1_over_k_B_;
 
   // (Hydrogen mass fraction / hydrogen atomic mass)^2
-  parthenon::Real x_H_over_m_h2_;
+  
 
  public:
+ parthenon::Real x_H_over_m_h2_;
+ 
   CoolingTableObj()
       : log_lambdas_(), log_temp_start_(NAN), log_temp_final_(NAN), d_log_temp_(NAN),
         n_temp_(0), mbar_gm1_over_k_B_(NAN), x_H_over_m_h2_(NAN) {}
@@ -228,7 +230,7 @@ class TabularCooling {
   TabularCooling(parthenon::ParameterInput *pin,
                  std::shared_ptr<parthenon::StateDescriptor> hydro_pkg);
 
-  void SrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt) const;
+  void SrcTerm(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt, const parthenon::Real current_time) const;
 
   // Townsend 2009 exact integration scheme
   void TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
@@ -237,7 +239,7 @@ class TabularCooling {
   // (Adaptive) subcyling using a fixed integration scheme
   template <typename RKStepper>
   void SubcyclingFixedIntSrcTerm(parthenon::MeshData<parthenon::Real> *md,
-                                 const parthenon::Real dt,
+                                 const parthenon::Real dt, const parthenon::Real current_time,
                                  const RKStepper rk_stepper) const;
 
   parthenon::Real EstimateTimeStep(parthenon::MeshData<parthenon::Real> *md) const;

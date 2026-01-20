@@ -178,7 +178,7 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
   hydro_pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
   // Double check that tracers are also enabled in fluid solver
-  PARTHENON_REQUIRE_THROWS(!enable_tracer_ || hydro_pkg->Param<int>("nscalars") == 1,
+  PARTHENON_REQUIRE_THROWS(!enable_tracer_ || hydro_pkg->Param<int>("user_nscalars") == 1,
                            "Enabling tracer for AGN feedback requires hydro/nscalars=1");
 
   hydro_pkg->AddParam<>("agn_feedback", *this);
@@ -310,6 +310,8 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
       hydro_pkg->Param<JetCoordsFactory>("jet_coords_factory");
   const JetCoords jet_coords = jet_coords_factory.CreateJetCoords(time);
 
+  const int jet_scalar_idx = hydro_pkg->Param<int>("jet_scalar_idx");
+
   // Appy kinietic jet and thermal feedback
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HydroAGNFeedback::FeedbackSrcTerm",
@@ -372,7 +374,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             // material in the evolution of the jet. Eventually, we're just interested in
             // stuff that came from here.
             if (enable_tracer) {
-              cons(nhydro, k, j, i) = 1.0 * cons(IDN, k, j, i);
+              cons(jet_scalar_idx, k, j, i) = 1.0 * cons(IDN, k, j, i);
             }
 
             eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);

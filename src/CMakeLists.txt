@@ -26,6 +26,8 @@ add_executable(
         tracers/tracers.hpp
         utils/few_modes_ft.cpp
         utils/few_modes_ft.hpp
+        dust/dust.cpp
+        dust/dust.hpp
 )
 
 add_subdirectory(pgen)
