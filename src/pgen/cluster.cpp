@@ -389,6 +389,13 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 
   }
 
+    if (hydro_pkg->Param<bool>("dust_on")){
+      hydro_pkg->AddField("dm_dt_sputter", m);
+      hydro_pkg->AddField("dm_dt_accretion", m);
+      hydro_pkg->AddField("dm_dt_total", m);
+    }
+
+
 
   if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
     // alfven Mach number v_A/c_s
@@ -1049,6 +1056,11 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
       DustObj.code_to_microm_,
       
   };
+  DustDevObj.SetupDustDevice(pkg.get(), pmb);
+  // const auto  dust_cooling_mode_ = DustObj.dust_cooling_mode_;
+
+
+
 
   // get derived fields
   auto &log10_radius = data->Get("log10_cell_radius").data;
@@ -1124,19 +1136,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
           cooling_time(k, j, i) = (edot != 0) ? -eint / edot : NAN;
           gas_luminosity(k, j, i) = -edot;
         });
-
-        int dust_on = 0;
         if (pkg->Param<bool>("dust_on")){
           auto &cooling_time_with_dust = data->Get("cooling_time_with_dust").data;
-          auto &dust_luminosity = data->Get("dust_luminosity").data;
-
-          int DustPiecewiseMode_int = 0;
-          if(DustObj.piecewise_mode_ == dust::DustPiecewiseMode::LINEAR){
-            DustPiecewiseMode_int = 1;
-          } else if(DustObj.piecewise_mode_ == dust::DustPiecewiseMode::LOGLINEAR){
-            DustPiecewiseMode_int = 2;
-          } 
-          const int dust_scalar_idx_start = pkg->Param<int>("dust_scalar_idx_start");  
+          auto &dust_luminosity = data->Get("dust_luminosity").data; 
           pmb->par_for(
               "Cluster::UserWorkBeforeOutput::DustCoolingTime", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
               KOKKOS_LAMBDA(const int k, const int j, const int i) {
@@ -1149,10 +1151,10 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
                 Real temperature = mbar_gm1_over_kb * eint;
                 Real dust_dedT = 0;
                 if(dust_cooling_mode_ == dust::DustCoolingMode::DWEKWERNER1981){
-                dust_dedT = DustDevObj.DwekWernerCooling(temperature, rho, cooling_table_obj.x_H_over_m_h2_, dust_scalar_idx_start, k, j, i, cons, coords, DustPiecewiseMode_int);
+                dust_dedT = DustDevObj.DwekWernerCooling(temperature, rho, cooling_table_obj.x_H_over_m_h2_, DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords, DustDevObj.dust_piecewise_mode_int);
                 }
                 else if(dust_cooling_mode_ == dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED){
-                dust_dedT = DustDevObj.DwekWernerCoolingIntegrated(temperature, rho, cooling_table_obj.x_H_over_m_h2_, dust_scalar_idx_start, k, j, i, cons, coords, DustPiecewiseMode_int);
+                dust_dedT = DustDevObj.DwekWernerCoolingIntegrated(temperature, rho, cooling_table_obj.x_H_over_m_h2_, DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords, DustDevObj.dust_piecewise_mode_int);
                 }
                 Real edot_gas = gas_luminosity(k, j, i);
                 cooling_time_with_dust(k, j, i) = (dust_dedT+edot_gas != 0) ? -eint / (dust_dedT+edot_gas) : NAN;
@@ -1161,6 +1163,45 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
               });
         }
   }
+
+
+
+        if (pkg->Param<bool>("dust_on")){
+          auto &dm_dt_sputter_field = data->Get("dm_dt_sputter").data;
+          auto &dm_dt_accretion_field = data->Get("dm_dt_accretion").data;
+          auto &dm_dt_total_field = data->Get("dm_dt_total").data;
+          const int dust_scalar_idx_start = pkg->Param<int>("dust_scalar_idx_start");  
+          pmb->par_for(
+              "Cluster::UserWorkBeforeOutput::DustMassRates", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+              KOKKOS_LAMBDA(const int k, const int j, const int i) {
+                // get gas properties
+                const Real rho = prim(IDN, k, j, i);
+                const Real P = prim(IPR, k, j, i);
+                // compute cooling time
+                const Real eint = P / (rho * gm1);
+                Real temperature = mbar_gm1_over_kb * eint;
+              
+                const Real x = coords.Xc<1>(i);
+                const Real y = coords.Xc<2>(j);
+                const Real z = coords.Xc<3>(k);
+                Real volume = coords.CellVolume(k, j, i);
+
+                Real dm_dt_sputter = 0;
+                Real dm_dt_accretion = 0;
+                Real dm_dt_total = 0;
+
+                dust::GetMassChangeRatePerBin(temperature, rho, volume, k, j, i, x, y, z, cons, DustDevObj, dm_dt_sputter, dm_dt_accretion, dm_dt_total);
+
+                dm_dt_sputter_field(k,j,i) = dm_dt_sputter;
+                dm_dt_accretion_field(k,j,i) = dm_dt_accretion;
+                dm_dt_total_field(k,j,i) = dm_dt_total;
+          
+              });
+        }
+
+
+
+
 
 
 

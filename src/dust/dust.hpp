@@ -238,10 +238,9 @@ class Dust {
 
 
       // For the loglinear reconstruction, use Newton-Raphson to estimate the prefactor and index for the loglinear function in the bin
-      template <typename View4D>
       KOKKOS_INLINE_FUNCTION
-      void  DustGetLogLinKappaBetaInBin(Real &kappa_i, Real &beta_i, Real Ni, Real Mi, 
-          const Real code_to_microm, const int gs_i,  const int gc_i,const ParArray1D<Real> grainsize_bin_edges_microm, const ParArray1D<Real> grain_midbin_sizes_microm,
+      void  DustGetLogLinKappaBetaInBin(Real &kappa_i, Real &beta_i, const Real Ni, const Real Mi, 
+          const Real code_to_microm, const int gs_i,  const int gc_i, const ParArray1D<Real> grainsize_bin_edges_microm, const ParArray1D<Real> grain_midbin_sizes_microm,
           const ParArray1D<Real> single_grain_densities, const int do_delta_edge_scheme, const Real Mi_renorm_factor,  Real tol = 0.0001){  
         
         int n_iter = 0;
@@ -1035,15 +1034,11 @@ Real ComputeDwekWernerGrainCooling(
 
 
 
-void SetupDustForEvolutionandCoolingKernel(MeshData<Real> *md){
+
+
+
+void SetupDustDevice(parthenon::StateDescriptor *hydro_pkg, MeshBlock *pmb){
   //fjjcurrent
-
-  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
-
-
 
   // Consider Dust
   const auto &DustObj = hydro_pkg->Param<dust::Dust>("dust");
@@ -1069,9 +1064,6 @@ void SetupDustForEvolutionandCoolingKernel(MeshData<Real> *md){
 }else{
   we_have_dust_cooling = 0;
 }
- 
-  // Grab some necessary variables
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
 
   if(dust_subcycle_with_cooling == 1){
   if (parthenon::Globals::my_rank == 0) {printf("Dust: Will subcycle dust evolution with cooling \n");}
@@ -1138,7 +1130,6 @@ void SetupDustForEvolutionandCoolingKernel(MeshData<Real> *md){
   S_acc = 0.3;
   z_on_zsun = 0.33;
 
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
   const auto Lx =
       pmb->pmy_mesh->mesh_size.xmax(X1DIR) - pmb->pmy_mesh->mesh_size.xmin(X1DIR);
   const auto Ly =
@@ -1156,7 +1147,6 @@ void SetupDustForEvolutionandCoolingKernel(MeshData<Real> *md){
   code_to_megayear = 1./units.myr();
 
   if(agb_winds_on == 1){
-      // PGrete is there a cleaner/better way of packaging all these device-side views and variables?
       // For AGB winds
       agb_max_radius                                = hydro_pkg->Param<Real>("agb_max_radius");
       gamma_star                                    = hydro_pkg->Param<Real>("gamma_star");
@@ -1176,6 +1166,26 @@ void SetupDustForEvolutionandCoolingKernel(MeshData<Real> *md){
       // auto host_AGB_normalised_carbonaceous_number_distibution_array = Kokkos::create_mirror_view(agb_normalised_carbonaceous_number_distibution_array);
       // Kokkos::deep_copy(host_AGB_normalised_carbonaceous_number_distibution_array, agb_normalised_carbonaceous_number_distibution_array); 
   } // if(AGB_winds_on == 1)
+  } // if(dust_subcycle_with_cooling == 1)
+
+
+ } // SetupDustDevice
+
+
+void SetupDustForEvolutionandCoolingKernel(MeshData<Real> *md){
+  //fjjcurrent
+
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+
+  SetupDustDevice(hydro_pkg.get(), pmb);
+
+
+  // Grab some necessary variables
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
 
   // Create device views for storing the updated mass and grain number. These will be contributed to from many threads.
   Mj_new = Kokkos::View<Real******>("dust_Mj_new",num_grain_compositions, dust_num_grains_sizes, cons_pack.GetDim(5), 1+kb.e-kb.s, 1+jb.e-jb.s, 1+ib.e-ib.s);
@@ -1194,11 +1204,16 @@ void SetupDustForEvolutionandCoolingKernel(MeshData<Real> *md){
     Kokkos::deep_copy(heun_state_1, 0.);
     Kokkos::deep_copy(heun_state_2, 0.);
   } // (dust_integrator_int == 2)
-  } // if(dust_subcycle_with_cooling == 1)
-
-
  } // SetupDustForEvolutionandCoolingKernel
+
+
+
 }; // struct DustDevice
+
+
+
+
+
 
 
 KOKKOS_INLINE_FUNCTION
@@ -1317,7 +1332,7 @@ void DustSlopeLimitingLinSlope(const int index_into_Mi, const int index_into_Ni,
 
 // Calculate the grain size  change in an unsplit way for the sputtering and accretion
 KOKKOS_INLINE_FUNCTION
-Real DustCalculateAdotPerBin(const Real temperature, const int b, const int k, const int j, const int i, const parthenon::MeshBlockPack<VariablePack<Real>> &cons_pack, const DustDevice  &DustDevObj, Real &adot_sputter,Real &adot_accretion,Real &adot_total) {
+Real DustCalculateAdotPerBin(const Real temperature, const Real rho, const DustDevice  &DustDevObj, Real &adot_sputter,Real &adot_accretion,Real &adot_total) {
 // PGrete - I do the following for cleanliness, but I could just use the attributes directly here and in other kernels. Let me know if it is better to do that.
 const Real f_sput                      = DustDevObj.f_sput;
 const Real cm_to_microm                = DustDevObj.cm_to_microm;
@@ -1334,68 +1349,27 @@ const Real T_sput                      = DustDevObj.T_sput;
 int  gas_phase_accretion         = DustDevObj.gas_phase_accretion;
 const Real code_to_cm3                 = DustDevObj.code_to_cm3;
 const int  debug_flag_for_zero_bin_evolution = DustDevObj.debug_flag_for_zero_bin_evolution;
-const ParArray1D<Real> single_grain_densities      = DustDevObj.single_grain_densities;
-const ParArray1D<Real> grainsize_bin_edges_microm  = DustDevObj.grainsize_bin_edges_microm;
-const ParArray1D<Real> grain_midbin_sizes_microm   = DustDevObj.grain_midbin_sizes_microm;
-const Real whole_box_extent = DustDevObj.whole_box_extent;
 
-  auto &cons = cons_pack(b);
-  const auto coords = cons_pack.GetCoords(b);
-  const auto rho = cons_pack(b,IDN, k, j, i);
-  const auto x = coords.Xc<1>(i);
-  const auto y = coords.Xc<2>(j);
-  const auto z = coords.Xc<3>(k);
-  const auto r = Kokkos::sqrt(x * x + y * y + z * z);
 
     Real adot = 0.;
     adot_sputter = 0.;
     adot_accretion = 0.;
-    adot_total = 0,;
+    adot_total = 0.;
 
     if(sputtering == 1){
-      // printf("[FJJ Test] sputtering kernel \n");
       Real sput_prefac = - f_sput * (3.2 * 1e-18 * Kokkos::pow(cm_to_microm,4.)/seconds_to_code);
       Real sput_dens   =  (rho * Kokkos::pow(code_to_microm, -3.))/ mp;
       Real sput_T      =  Kokkos::pow(T_sput/temperature , 2.5) + 1;
       adot_sputter = sput_prefac * sput_dens / sput_T;
-      if(adot_sputter > 0 || adot_sputter != adot_sputter){
-        if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
-        // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e r=%e whole_box_extent=%e f_sput=%e rho =%e  adot_sputter=%e  sput_prefac=%e  sput_dens=%e  sput_T=%e  \n", x,y,z,r, whole_box_extent, f_sput, rho, adot_sputter,  sput_prefac,  sput_dens,  sput_T);
-        printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
-        }
-
-    
-      if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
-        printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
-        PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
-      }
-    
-        adot_sputter = 0.;
-        gas_phase_accretion = 0; // don;t do any dust updates if sputtering already is bad
-    }
       adot += adot_sputter; 
     }
     if(gas_phase_accretion == 1){
-      // printf("[FJJ Test]  metal accretion kernel \n");
       Real n_H = rho * x_H / units_mh;
       n_H /= code_to_cm3;
       adot_accretion = z_on_zsun * (n_H/1000.) * Kokkos::sqrt(temperature/10.) * (S_acc/0.3) / gigayear_to_code;
-      if(adot_accretion < 0 || adot_accretion != adot_accretion){
-        if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
-        printf("[FJJ DEBUG] Accretion is shrinking grains! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
-        }
-        
-      if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
-      printf("[FJJ DEBUG] Accretion is shrinking grains inside of the boundary! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
-      PARTHENON_REQUIRE(adot_accretion >= 0, "Accretion is shrinking grains!");
-      }
-
-      adot_accretion = 0.;
-
-    }
       adot += adot_accretion; 
     }
-    // printf("adot = %g \n", adot);
+
     if(debug_flag_for_zero_bin_evolution == 1){
       if(std::abs(adot) > 1e-20){
         printf("Bad adot with debug_flag_for_zero_bin_evolution = 1! adot = %g \n", adot);
@@ -1744,10 +1718,51 @@ void GetUpdated_MjNj_ThisCompositionHelper(
                   Real adot_sputter = 0.;
                   Real adot_accretion = 0.;
                   Real adot = 0.;
-                  DustCalculateAdotPerBin(temperature, b, k, j, i, cons_pack, DustDevObj,adot_sputter,adot_accretion,adot);
+                  const auto rho = cons_pack(b,IDN, k, j, i);
+                  DustCalculateAdotPerBin(temperature, rho, DustDevObj,adot_sputter,adot_accretion,adot);
+
+                const Real whole_box_extent = DustDevObj.whole_box_extent;
+                const auto coords = cons_pack.GetCoords(b);
+                const auto x = coords.Xc<1>(i);
+                const auto y = coords.Xc<2>(j);
+                const auto z = coords.Xc<3>(k);
+                const auto r = Kokkos::sqrt(x * x + y * y + z * z);
+                // Check correct signs. Don;t worry too much if very near a boundary, where densities might go weird
+                  if(adot_sputter > 0 || adot_sputter != adot_sputter){
+                    if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
+                    // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e r=%e whole_box_extent=%e f_sput=%e rho =%e  adot_sputter=%e  sput_prefac=%e  sput_dens=%e  sput_T=%e  \n", x,y,z,r, whole_box_extent, f_sput, rho, adot_sputter,  sput_prefac,  sput_dens,  sput_T);
+                    printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                    }
+                  adot_sputter = 0.;
+                  adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
+                  adot = 0.;
+                  if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
+                    printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                    PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
+                    }
+                  }
+                  if(adot_accretion < 0 || adot_accretion != adot_accretion){
+                    if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
+                    printf("[FJJ DEBUG] Accretion is shrinking grains! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
+                    }
+                    
+                  if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
+                  printf("[FJJ DEBUG] Accretion is shrinking grains inside of the boundary! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
+                  PARTHENON_REQUIRE(adot_accretion >= 0, "Accretion is shrinking grains!");
+                  }
+
+                  adot_sputter = 0.;
+                  adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
+                  adot = 0.;
+
+                }
                   PARTHENON_REQUIRE(a_dot_view(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) == 0.0, "Contributing a_dot_view to dirty array!")
                   a_dot_view(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) = adot;
                 }
+
+
+
+
               //EvolveDust_with_adot
               // Now we have the adot for each grainsize bin, we can update the mass and numbers
               // FJJ dust_num_grains_sizes + 1 for gs_j becuase we add a "ghost bin" above the 
@@ -2198,6 +2213,98 @@ void Dust::WriteAGBInjectionHistory(const int num_r_bins_, const HostView host_r
 
 
 
+
+
+KOKKOS_INLINE_FUNCTION
+void GetMassChangeRatePerBin(const Real temperature, const Real rho, const Real volume, const int k, const int j, const int i, const Real x, const Real y, const Real z, const parthenon::VariablePack<parthenon::Real> &cons, const DustDevice  &DustDevObj, Real &dm_dt_sputter, Real &dm_dt_accretion, Real &dm_dt_total){
+
+
+    const int  dust_scalar_idx_start = DustDevObj.dust_scalar_idx_start;
+    const int num_grain_compositions = DustDevObj.num_grain_compositions;
+    const int dust_num_grains_sizes = DustDevObj.dust_num_grains_sizes;
+    const Real mbar_gm1_over_kb = DustDevObj.mbar_gm1_over_kb;
+    const ParArray1D<Real>  single_grain_densities = DustDevObj.single_grain_densities;
+    const ParArray1D<Real>  grainsize_bin_edges_microm = DustDevObj.grainsize_bin_edges_microm;
+    const ParArray1D<Real>  grain_midbin_sizes_microm = DustDevObj.grain_midbin_sizes_microm;
+    const auto do_delta_edge_scheme = DustDevObj.do_delta_edge_scheme;
+    const Real code_to_microm = DustDevObj.code_to_microm;
+    const int dust_piecewise_mode_int = DustDevObj.dust_piecewise_mode_int;
+    const Real whole_box_extent = DustDevObj.whole_box_extent;
+    const auto r = Kokkos::sqrt(x * x + y * y + z * z);
+
+
+
+    Real mdot_sputter = 0.;
+    Real mdot_accretion = 0.;
+    Real mdot_total = 0.;
+
+    for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++){
+        Real rho_d = single_grain_densities[gc_i];          // code_mass / code_len^3
+        rho_d      = rho_d / Kokkos::pow(code_to_microm , 3.);     // code_mass / microM**3
+
+      for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i += 1){
+          Real adot_sputter = 0.;
+          Real adot_accretion = 0.;
+          Real adot_total = 0.;
+
+            DustCalculateAdotPerBin(temperature, rho, DustDevObj, adot_sputter, adot_accretion, adot_total);
+            
+            // Check correct signs. Don;t worry too much if very near a boundary, where densities might go weird
+              if(adot_sputter > 0 || adot_sputter != adot_sputter){
+                if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
+                // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e r=%e whole_box_extent=%e f_sput=%e rho =%e  adot_sputter=%e  sput_prefac=%e  sput_dens=%e  sput_T=%e  \n", x,y,z,r, whole_box_extent, f_sput, rho, adot_sputter,  sput_prefac,  sput_dens,  sput_T);
+                printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                }
+              adot_sputter = 0.;
+              adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
+              adot_total = 0.;
+              if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
+                printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
+                }
+              }
+              if(adot_accretion < 0 || adot_accretion != adot_accretion){
+                if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
+                printf("[FJJ DEBUG] Accretion is shrinking grains! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
+                }
+                
+              if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
+              printf("[FJJ DEBUG] Accretion is shrinking grains inside of the boundary! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
+              PARTHENON_REQUIRE(adot_accretion >= 0, "Accretion is shrinking grains!");
+              }
+
+              adot_sputter = 0.;
+              adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
+              adot_total = 0.;
+            }
+
+          Real beta_i ;
+          Real kappa_i ;
+          int index_into_Mi = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i)) + 1;
+          int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
+          Real Ni = cons(index_into_Ni, k, j, i) * volume;              // unitless
+          Real Mi = cons(index_into_Mi, k, j, i) * volume;              // in code_mass
+
+
+          if(dust_piecewise_mode_int == 2){
+            const Real Mi_renorm_factor = 1.;
+          dust::DustGetLogLinKappaBetaInBin(kappa_i, beta_i, Ni, Mi, code_to_microm, gs_i, gc_i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities, do_delta_edge_scheme, Mi_renorm_factor);
+          //calculate mdot from adot assuming constant adot in bin
+          Real aL = grainsize_bin_edges_microm[gs_i];       // Bin Lower   in MicroM
+          Real aU = grainsize_bin_edges_microm[gs_i + 1];   // Bin Upper   in MicroM
+          Real aM = grain_midbin_sizes_microm[gs_i];        // Bin mid     in MicroM
+          Real kap_p_thr = 3. + kappa_i;
+          Real adot_to_mdot_prefactor = (Kokkos::pow(aU, kap_p_thr)-Kokkos::pow(aL, kap_p_thr)) * (4. * Kokkos::numbers::pi * rho_d * beta_i) / kap_p_thr ;
+          mdot_sputter     += adot_to_mdot_prefactor*adot_sputter;           
+          mdot_accretion   += adot_to_mdot_prefactor*adot_accretion;             
+          mdot_total       += adot_to_mdot_prefactor*adot_total;      
+          } else{
+            // not supported yet
+            ;
+          }
+        } //gs_i
+            } //gc_i
+  }
 
 
 
