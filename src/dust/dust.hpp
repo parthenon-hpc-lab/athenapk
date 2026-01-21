@@ -240,9 +240,8 @@ class Dust {
       // For the loglinear reconstruction, use Newton-Raphson to estimate the prefactor and index for the loglinear function in the bin
       template <typename View4D>
       KOKKOS_INLINE_FUNCTION
-      void  DustGetLogLinKappaBetaInBin(Real &kappa_i, Real &beta_i, const int index_into_Mi, const int index_into_Ni, 
-          const Real code_to_microm, const int gs_i,  const int gc_i, const Real volume, const View4D cons, const int k,
-          const int j, const int i, const ParArray1D<Real> grainsize_bin_edges_microm, const ParArray1D<Real> grain_midbin_sizes_microm,
+      void  DustGetLogLinKappaBetaInBin(Real &kappa_i, Real &beta_i, Real Ni, Real Mi, 
+          const Real code_to_microm, const int gs_i,  const int gc_i,const ParArray1D<Real> grainsize_bin_edges_microm, const ParArray1D<Real> grain_midbin_sizes_microm,
           const ParArray1D<Real> single_grain_densities, const int do_delta_edge_scheme, const Real Mi_renorm_factor,  Real tol = 0.0001){  
         
         int n_iter = 0;
@@ -255,8 +254,6 @@ class Dust {
         Real Ni_reconstructed;
         Real Mi_reconstructed;
         
-        Real Ni = cons(index_into_Ni, k, j, i) * volume;              // unitless
-        Real Mi = cons(index_into_Mi, k, j, i) * volume;              // in code_mass
 
         // if we basically have no dust. Should never be reached.
         if(Ni < 1.e-100 || Mi < 1.e-100){
@@ -885,7 +882,9 @@ Real ComputeDwekWernerGrainCooling(
           
           } else if(dust_piecewise_mode_int == 2){ // LogLinear interpolation{
               const Real Mi_renorm_factor = 1;  // For cooling rates, we do not renorm Mi and Ni to low oom to reduce numerical errors.
-              dust::DustGetLogLinKappaBetaInBin(kappa_i, beta_i,index_into_Mi, index_into_Ni, code_to_microm, gs_i, gc_i, volume, cons, cons_k, cons_j, cons_i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities, do_delta_edge_scheme, Mi_renorm_factor);
+              Real Ni = cons(index_into_Ni, cons_k, cons_j, cons_i) * volume;              // unitless
+              Real Mi = cons(index_into_Mi, cons_k, cons_j, cons_i) * volume;              // in code_mass
+              dust::DustGetLogLinKappaBetaInBin(kappa_i, beta_i, Ni, Mi, code_to_microm, gs_i, gc_i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities, do_delta_edge_scheme, Mi_renorm_factor);
             }
             if(bin_a_min >= a_boundary_high && bin_a_max >= a_boundary_high ){
               // Do not split integral. Do all in one go -upper chi integral
@@ -1318,7 +1317,7 @@ void DustSlopeLimitingLinSlope(const int index_into_Mi, const int index_into_Ni,
 
 // Calculate the grain size  change in an unsplit way for the sputtering and accretion
 KOKKOS_INLINE_FUNCTION
-Real DustCalculateAdotPerBin(const Real temperature, const int b, const int k, const int j, const int i, const parthenon::MeshBlockPack<VariablePack<Real>> &cons_pack, const DustDevice  &DustDevObj) {
+Real DustCalculateAdotPerBin(const Real temperature, const int b, const int k, const int j, const int i, const parthenon::MeshBlockPack<VariablePack<Real>> &cons_pack, const DustDevice  &DustDevObj, Real &adot_sputter,Real &adot_accretion,Real &adot_total) {
 // PGrete - I do the following for cleanliness, but I could just use the attributes directly here and in other kernels. Let me know if it is better to do that.
 const Real f_sput                      = DustDevObj.f_sput;
 const Real cm_to_microm                = DustDevObj.cm_to_microm;
@@ -1349,12 +1348,16 @@ const Real whole_box_extent = DustDevObj.whole_box_extent;
   const auto r = Kokkos::sqrt(x * x + y * y + z * z);
 
     Real adot = 0.;
+    adot_sputter = 0.;
+    adot_accretion = 0.;
+    adot_total = 0,;
+
     if(sputtering == 1){
       // printf("[FJJ Test] sputtering kernel \n");
       Real sput_prefac = - f_sput * (3.2 * 1e-18 * Kokkos::pow(cm_to_microm,4.)/seconds_to_code);
       Real sput_dens   =  (rho * Kokkos::pow(code_to_microm, -3.))/ mp;
       Real sput_T      =  Kokkos::pow(T_sput/temperature , 2.5) + 1;
-      Real adot_sputter = sput_prefac * sput_dens / sput_T;
+      adot_sputter = sput_prefac * sput_dens / sput_T;
       if(adot_sputter > 0 || adot_sputter != adot_sputter){
         if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
         // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e r=%e whole_box_extent=%e f_sput=%e rho =%e  adot_sputter=%e  sput_prefac=%e  sput_dens=%e  sput_T=%e  \n", x,y,z,r, whole_box_extent, f_sput, rho, adot_sputter,  sput_prefac,  sput_dens,  sput_T);
@@ -1376,7 +1379,7 @@ const Real whole_box_extent = DustDevObj.whole_box_extent;
       // printf("[FJJ Test]  metal accretion kernel \n");
       Real n_H = rho * x_H / units_mh;
       n_H /= code_to_cm3;
-      Real adot_accretion = z_on_zsun * (n_H/1000.) * Kokkos::sqrt(temperature/10.) * (S_acc/0.3) / gigayear_to_code;
+      adot_accretion = z_on_zsun * (n_H/1000.) * Kokkos::sqrt(temperature/10.) * (S_acc/0.3) / gigayear_to_code;
       if(adot_accretion < 0 || adot_accretion != adot_accretion){
         if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
         printf("[FJJ DEBUG] Accretion is shrinking grains! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
@@ -1399,8 +1402,7 @@ const Real whole_box_extent = DustDevObj.whole_box_extent;
         PARTHENON_FAIL("Bad adot with debug_flag_for_zero_bin_evolution = 1!");
       }
     }
-
-    return adot;
+    adot_total = adot;
 }
 
 
@@ -1603,7 +1605,9 @@ const int do_delta_edge_scheme = DustDevObj.do_delta_edge_scheme;
         contributed_mass = DustGetContributedMassLinSlope(rho_d, Ni, aU_i, aL_i, x1, x2, adot_dt_this_i, aM_i, Si);
     }
       else if(dust_piecewise_mode_int == 2){
-        dust::DustGetLogLinKappaBetaInBin(kappa_i, beta_i,index_into_Mi, index_into_Ni, code_to_microm, gs_i, gc_i, volume, cons, k, j, i,
+        Real Ni = cons(index_into_Ni, k, j, i) * volume;              // unitless
+        Real Mi = cons(index_into_Mi, k, j, i) * volume;              // in code_mass
+        dust::DustGetLogLinKappaBetaInBin(kappa_i, beta_i, Ni, Mi, code_to_microm, gs_i, gc_i,
         grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities, do_delta_edge_scheme, Mi_renorm_factor);
         // FJJ Get result of eqn 37 of McKinnon+18, or the Loglinear equivalent
         // printf("Mi_renorm_factor = %e kappa_i = %e beta_i = %e \n", Mi_renorm_factor, kappa_i, beta_i);
@@ -1737,7 +1741,10 @@ void GetUpdated_MjNj_ThisCompositionHelper(
                   a_dot_view(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) = 0.0;
                 }
                 for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i += 1){
-                  Real adot  = DustCalculateAdotPerBin(temperature, b, k, j, i, cons_pack, DustDevObj);
+                  Real adot_sputter = 0.;
+                  Real adot_accretion = 0.;
+                  Real adot = 0.;
+                  DustCalculateAdotPerBin(temperature, b, k, j, i, cons_pack, DustDevObj,adot_sputter,adot_accretion,adot);
                   PARTHENON_REQUIRE(a_dot_view(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) == 0.0, "Contributing a_dot_view to dirty array!")
                   a_dot_view(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) = adot;
                 }
