@@ -1923,6 +1923,7 @@ void DustFilladotView(
 }
 
 // Do 1st order time integration for the dust integration
+template <class ScatAcc>
 KOKKOS_INLINE_FUNCTION
 void DustDoUpdateWithadotArray(
     const int gc_i, const int gs_i, const int gs_j,
@@ -1932,11 +1933,10 @@ void DustDoUpdateWithadotArray(
     const IndexRange &kb,
     const IndexRange &jb,
     const IndexRange &ib,
-    const Real sub_dt,
-    const View6DReal Mj_new,
-    const View6DReal Nj_new,
-    const View6DReal a_dot_view,
-    const Real dt
+    const Real dt,
+    ScatAcc  Mj_new,
+    ScatAcc Nj_new,
+    const View6DReal a_dot_view
   ){
     const int  dust_scalar_idx_start = DustDevObj.dust_scalar_idx_start;
     const int num_grain_compositions = DustDevObj.num_grain_compositions;

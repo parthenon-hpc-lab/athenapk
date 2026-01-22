@@ -1179,8 +1179,6 @@ void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
 
           DustDevObj.SetupDustForEvolutionandCoolingKernel(md);
           const auto  dust_cooling_mode_ = DustObj.dust_cooling_mode_;
-          
-
           const int  dust_scalar_idx_start = DustDevObj.dust_scalar_idx_start;
           const int num_grain_compositions = DustDevObj.num_grain_compositions;
           const int dust_num_grains_sizes = DustDevObj.dust_num_grains_sizes;
@@ -1217,6 +1215,15 @@ void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
           }
           Kokkos::deep_copy(device_r_bin_edges, host_r_bin_edges);
           // FJJ END of Machinery for recording the AGB wind mass contributions
+
+
+
+          // Need ScatterView accessors if we parallelise over gc_i, gs_i
+          Kokkos::Experimental::ScatterView<Real******> Mj_new_scatter_f(DustDevObj.Mj_new);
+          Kokkos::Experimental::ScatterView<Real******> Nj_new_scatter_f(DustDevObj.Nj_new);
+          Mj_new_scatter_f.reset();
+          Nj_new_scatter_f.reset();
+
 
 
         // FJJ TODO - think about whether to include the dust comp and size indices in the execution policy. Problem is that
@@ -1288,10 +1295,16 @@ void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
                                             DustDevObj.Nj_new,
                                             DustDevObj.a_dot_view);
               });
-          par_for(
+             par_for(
                 DEFAULT_LOOP_PATTERN, "Dust:DustUpdateNewNumberMassBins", DevExecSpace(), 0,
                 cons_pack.GetDim(5) - 1, 0, num_grain_compositions-1, 0, dust_num_grains_sizes-1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
                 KOKKOS_LAMBDA(const int &b, const int &gc_i,const int &gs_i, const int &k, const int &j, const int &i) {
+
+
+
+                // get race-safe accessors to gen contributions to Nj and Mj, parallelised over gc_i, gs_i
+                auto Mj_new_scatter_f_a = Mj_new_scatter_f.access();
+                auto Nj_new_scatter_f_a = Nj_new_scatter_f.access();
 
                 // FJJ I think range policy here is limited to 6, and also dont want to blow up 
                 // memory, so just do a simple loop here
@@ -1301,12 +1314,15 @@ void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
                                               DustDevObj,
                                               kb, jb, ib,
                                               dt,
-                                              DustDevObj.Mj_new,
-                                              DustDevObj.Nj_new,
-                                              DustDevObj.a_dot_view,
-                                            dt);
+                                              Mj_new_scatter_f_a,
+                                              Nj_new_scatter_f_a,
+                                              DustDevObj.a_dot_view
+                                            );
                 }
                 });
+
+                Kokkos::Experimental::contribute(DustDevObj.Mj_new, Mj_new_scatter_f);
+                Kokkos::Experimental::contribute(DustDevObj.Nj_new, Nj_new_scatter_f);
               
 
             par_for(

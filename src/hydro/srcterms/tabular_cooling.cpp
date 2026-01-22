@@ -342,18 +342,8 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
        
   };
   
-  int dust_subcycle_with_cooling = hydro_pkg->Param<bool>("dust_subcycle_with_cooling") ? 1 : 0;
-  const auto  dust_cooling_mode_ = DustObj.dust_cooling_mode_;
-
-  if(hydro_pkg->Param<bool>("dust_on")){
   DustDevObj.SetupDustForEvolutionandCoolingKernel(md);
-  } else{
-    DustDevObj.agb_winds_on = 0;
-    DustDevObj.dust_subcycle_with_cooling = 0;
-    DustDevObj.disable_all_gas_cooling_for_testing = 0;
-    DustDevObj.dust_piecewise_mode_int = 0;
-    DustDevObj.dust_scalar_idx_start = 0;
-  }
+  const auto  dust_cooling_mode_ = DustObj.dust_cooling_mode_;
   
   // FJJ Machinery for recording the AGB wind mass contributions
   int agb_history_num_rbins = 2; // some small number for low-memory usage if no AGB winds
