@@ -83,13 +83,13 @@ Real TurbulenceHst(MeshData<Real> *md) {
                            prim(IV2, k, j, i) * prim(IV2, k, j, i) +
                            prim(IV3, k, j, i) * prim(IV3, k, j, i));
 
-        const auto c_s =
-            std::sqrt(gamma * prim(IPR, k, j, i) / prim(IDN, k, j, i)); // speed of sound
+        const auto c_s = Kokkos::sqrt(gamma * prim(IPR, k, j, i) /
+                                      prim(IDN, k, j, i)); // speed of sound
 
         const auto e_kin = 0.5 * prim(IDN, k, j, i) * vel2;
 
         if (hst_quan == HstQuan::Ms) { // Ms
-          lsum += std::sqrt(vel2) / c_s * coords.CellVolume(k, j, i);
+          lsum += Kokkos::sqrt(vel2) / c_s * coords.CellVolume(k, j, i);
         }
 
         if (fluid == Fluid::glmmhd) {
@@ -100,7 +100,7 @@ Real TurbulenceHst(MeshData<Real> *md) {
           const auto e_mag = 0.5 * B2;
 
           if (hst_quan == HstQuan::Ma) { // Ma
-            lsum += std::sqrt(e_kin / e_mag) * coords.CellVolume(k, j, i);
+            lsum += Kokkos::sqrt(e_kin / e_mag) * coords.CellVolume(k, j, i);
           } else if (hst_quan == HstQuan::pb) { // plasma beta
             lsum += prim(IPR, k, j, i) / e_mag * coords.CellVolume(k, j, i);
           }
@@ -381,8 +381,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             const auto &coords = cons.GetCoords(b);
 
             if ((SQR(coords.Xc<1>(i) - x0) + SQR(coords.Xc<2>(j) - y0)) < rad * rad) {
-              a(b, 2, k, j, i) = (rad - std::sqrt(SQR(coords.Xc<1>(i) - x0) +
-                                                  SQR(coords.Xc<2>(j) - y0)));
+              a(b, 2, k, j, i) = (rad - Kokkos::sqrt(SQR(coords.Xc<1>(i) - x0) +
+                                                     SQR(coords.Xc<2>(j) - y0)));
             }
           });
     }
@@ -409,7 +409,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           if (b_config == 2) { // no net flux with sin(z) shape
             // sqrt(0.5) is used so that resulting e_mag is approx b_0^2/2 similar to
             // other b_configs
-            u(IB1, k, j, i) = b0 / std::sqrt(0.5) * std::sin(kz * coords.Xc<3>(k));
+            u(IB1, k, j, i) = b0 / Kokkos::sqrt(0.5) * Kokkos::sin(kz * coords.Xc<3>(k));
           }
 
           u(IB1, k, j, i) +=
@@ -749,7 +749,7 @@ void InjectBlob(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)
           const auto x = coords.Xc<1>(i) - loc_x;
           const auto y = coords.Xc<2>(j) - loc_y;
           const auto z = coords.Xc<3>(k) - loc_z;
-          const auto r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
+          const auto r = Kokkos::sqrt(SQR(x) + SQR(y) + SQR(z));
 
           if (r < radius) {
             const auto kin_en_density =
