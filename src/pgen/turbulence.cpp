@@ -231,12 +231,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto rescale_once_on_restart =
       pin->GetOrAddBoolean("problem/turbulence", "rescale_once_on_restart", false);
 
+  const bool r_at_time = rescale_once_at_time >= 0.0;
+  const bool r_at_cycle = rescale_once_at_cycle >= 0;
+  const bool r_on_rst = rescale_once_on_restart;
+
   PARTHENON_REQUIRE_THROWS(
-      (rescale_once_at_time < 0.0 && rescale_once_at_cycle < 0 &&
-       !rescale_once_on_restart) ||
-          (rescale_once_at_cycle * rescale_once_at_time < 0.0 &&
-           !rescale_once_on_restart) ||
-          (rescale_once_at_cycle * rescale_once_at_time > 0.0 && rescale_once_on_restart),
+      (r_at_time + r_at_cycle + r_on_rst) <= 1,
       "Rescaling should only be set for one option (or none at all).");
   // Make Params mutable as they're reset after rescale
   pkg->AddParam<>("turbulence/rescale_once_at_time", rescale_once_at_time, true);
@@ -260,11 +260,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto inject_once_on_restart =
       pin->GetOrAddBoolean("problem/turbulence", "inject_once_on_restart", false);
 
+  const bool i_at_time = inject_once_at_time >= 0.0;
+  const bool i_at_cycle = inject_once_at_cycle >= 0;
+  const bool i_on_rst = inject_once_on_restart;
+
   PARTHENON_REQUIRE_THROWS(
-      (inject_once_at_time < 0.0 && inject_once_at_cycle < 0 &&
-       !inject_once_on_restart) ||
-          (inject_once_at_cycle * inject_once_at_time < 0.0 && !inject_once_on_restart) ||
-          (inject_once_at_cycle * inject_once_at_time > 0.0 && inject_once_on_restart),
+      (i_at_time + i_at_cycle + i_on_rst) <= 1,
       "injectng should only be set for one option (or none at all).");
   // Make Params mutable as they're reset after inject
   pkg->AddParam<>("turbulence/inject_once_at_time", inject_once_at_time, true);
