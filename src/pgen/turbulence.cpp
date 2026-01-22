@@ -40,9 +40,6 @@ namespace turbulence {
 using namespace parthenon::package::prelude;
 using parthenon::DevMemSpace;
 using parthenon::ParArray2D;
-using parthenon::X1DIR;
-using parthenon::X2DIR;
-using parthenon::X3DIR;
 using utils::few_modes_ft::Complex;
 using utils::few_modes_ft::FewModesFT;
 
@@ -86,13 +83,13 @@ Real TurbulenceHst(MeshData<Real> *md) {
                            prim(IV2, k, j, i) * prim(IV2, k, j, i) +
                            prim(IV3, k, j, i) * prim(IV3, k, j, i));
 
-        const auto c_s =
-            std::sqrt(gamma * prim(IPR, k, j, i) / prim(IDN, k, j, i)); // speed of sound
+        const auto c_s = Kokkos::sqrt(gamma * prim(IPR, k, j, i) /
+                                      prim(IDN, k, j, i)); // speed of sound
 
         const auto e_kin = 0.5 * prim(IDN, k, j, i) * vel2;
 
         if (hst_quan == HstQuan::Ms) { // Ms
-          lsum += std::sqrt(vel2) / c_s * coords.CellVolume(k, j, i);
+          lsum += Kokkos::sqrt(vel2) / c_s * coords.CellVolume(k, j, i);
         }
 
         if (fluid == Fluid::glmmhd) {
@@ -103,7 +100,7 @@ Real TurbulenceHst(MeshData<Real> *md) {
           const auto e_mag = 0.5 * B2;
 
           if (hst_quan == HstQuan::Ma) { // Ma
-            lsum += std::sqrt(e_kin / e_mag) * coords.CellVolume(k, j, i);
+            lsum += Kokkos::sqrt(e_kin / e_mag) * coords.CellVolume(k, j, i);
           } else if (hst_quan == HstQuan::pb) { // plasma beta
             lsum += prim(IPR, k, j, i) / e_mag * coords.CellVolume(k, j, i);
           }
@@ -225,7 +222,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
       pfew_modes_ft->RestoreDist(iss);
     }
   }
-
   // Parameters to rescale the simulation to a target Mach number at a given cycle,
   // time, or restart
   auto rescale_once_at_time =
@@ -235,17 +231,21 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto rescale_once_on_restart =
       pin->GetOrAddBoolean("problem/turbulence", "rescale_once_on_restart", false);
 
+  const bool r_at_time = rescale_once_at_time >= 0.0;
+  const bool r_at_cycle = rescale_once_at_cycle >= 0;
+  const bool r_on_rst = rescale_once_on_restart;
+
   PARTHENON_REQUIRE_THROWS(
-      (rescale_once_at_time < 0.0 && rescale_once_at_cycle < 0 &&
-       !rescale_once_on_restart) ||
-          (rescale_once_at_cycle * rescale_once_at_time < 0.0 &&
-           !rescale_once_on_restart) ||
-          (rescale_once_at_cycle * rescale_once_at_time > 0.0 && rescale_once_on_restart),
+      (r_at_time + r_at_cycle + r_on_rst) <= 1,
       "Rescaling should only be set for one option (or none at all).");
   // Make Params mutable as they're reset after rescale
   pkg->AddParam<>("turbulence/rescale_once_at_time", rescale_once_at_time, true);
   pkg->AddParam<>("turbulence/rescale_once_at_cycle", rescale_once_at_cycle, true);
   pkg->AddParam<>("turbulence/rescale_once_on_restart", rescale_once_on_restart, true);
+  // reset restart logic in input file so that it's not parsed again upon second restart
+  if (rescale_once_on_restart) {
+    pin->SetBoolean("problem/turbulence", "rescale_once_on_restart", false);
+  }
 
   auto rescale_to_rms_Ms =
       pin->GetOrAddReal("problem/turbulence", "rescale_to_rms_Ms", -1.0);
@@ -260,16 +260,21 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto inject_once_on_restart =
       pin->GetOrAddBoolean("problem/turbulence", "inject_once_on_restart", false);
 
+  const bool i_at_time = inject_once_at_time >= 0.0;
+  const bool i_at_cycle = inject_once_at_cycle >= 0;
+  const bool i_on_rst = inject_once_on_restart;
+
   PARTHENON_REQUIRE_THROWS(
-      (inject_once_at_time < 0.0 && inject_once_at_cycle < 0 &&
-       !inject_once_on_restart) ||
-          (inject_once_at_cycle * inject_once_at_time < 0.0 && !inject_once_on_restart) ||
-          (inject_once_at_cycle * inject_once_at_time > 0.0 && inject_once_on_restart),
+      (i_at_time + i_at_cycle + i_on_rst) <= 1,
       "injectng should only be set for one option (or none at all).");
   // Make Params mutable as they're reset after inject
   pkg->AddParam<>("turbulence/inject_once_at_time", inject_once_at_time, true);
   pkg->AddParam<>("turbulence/inject_once_at_cycle", inject_once_at_cycle, true);
   pkg->AddParam<>("turbulence/inject_once_on_restart", inject_once_on_restart, true);
+  // reset restart logic in input file so that it's not parsed again upon second restart
+  if (inject_once_on_restart) {
+    pin->SetBoolean("problem/turbulence", "inject_once_on_restart", false);
+  }
 
   auto inject_n_blobs = pin->GetOrAddInteger("problem/turbulence", "inject_n_blobs", -1);
   pkg->AddParam<>("turbulence/inject_n_blobs", inject_n_blobs);
@@ -373,11 +378,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-  const auto pack_size = pin->GetInteger("parthenon/mesh", "pack_size");
+  const int num_partitions = pmesh->DefaultNumPartitions();
   PARTHENON_REQUIRE_THROWS(
-      pack_size == -1, "Turbulence problem generator currently relies on synchronous MPI "
-                       "Allreduce. Therefore, only a `parthenon/mesh/pack_size=-1` is "
-                       "supported. Please get in contact if this is an issue.");
+      num_partitions == 1,
+      "Turbulence problem generator currently relies on synchronous MPI Allreduce. "
+      "Therefore, only a `parthenon/mesh/pack_size=-1` is supported. Please get in "
+      "contact if this is an issue.");
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
@@ -421,8 +427,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             const auto &coords = cons.GetCoords(b);
 
             if ((SQR(coords.Xc<1>(i) - x0) + SQR(coords.Xc<2>(j) - y0)) < rad * rad) {
-              a(b, 2, k, j, i) = (rad - std::sqrt(SQR(coords.Xc<1>(i) - x0) +
-                                                  SQR(coords.Xc<2>(j) - y0)));
+              a(b, 2, k, j, i) = (rad - Kokkos::sqrt(SQR(coords.Xc<1>(i) - x0) +
+                                                     SQR(coords.Xc<2>(j) - y0)));
             }
           });
     }
@@ -449,7 +455,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           if (b_config == 2) { // no net flux with sin(z) shape
             // sqrt(0.5) is used so that resulting e_mag is approx b_0^2/2 similar to
             // other b_configs
-            u(IB1, k, j, i) = b0 / std::sqrt(0.5) * std::sin(kz * coords.Xc<3>(k));
+            u(IB1, k, j, i) = b0 / Kokkos::sqrt(0.5) * Kokkos::sin(kz * coords.Xc<3>(k));
           }
 
           u(IB1, k, j, i) +=
@@ -789,7 +795,7 @@ void InjectBlob(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)
           const auto x = coords.Xc<1>(i) - loc_x;
           const auto y = coords.Xc<2>(j) - loc_y;
           const auto z = coords.Xc<3>(k) - loc_z;
-          const auto r = std::sqrt(SQR(x) + SQR(y) + SQR(z));
+          const auto r = Kokkos::sqrt(SQR(x) + SQR(y) + SQR(z));
 
           if (r < radius) {
             const auto kin_en_density =

@@ -99,15 +99,12 @@ The injection is a one off mechanism controlled by the following parameters
 # only one of the following three conditions can be set at a given time
 inject_once_at_time = -1.0
 inject_once_at_cycle = -1
-inject_once_on_restart = false # should not be set in the input file, but only via the command line upon restart
-
+inject_once_on_restart = false
 inject_n_blobs = -1 # number of blob to inject
-
 # then for the given number of blobs follow parameters need to be given (starting to count with 0)
 inject_blob_radius_0 = ... # float, in code length units, no default value
 inject_blob_loc_0 = ...,...,... # location vector of three comma-separated floats, in code length units, no default value
 inject_blob_chi_0 = ... # float, dimensionless, no default value, density ratio to existing value
-
 inject_blob_radius_1 = ...
 ...
 ```
@@ -139,8 +136,7 @@ This can be done via the following parameters:
 # only one of the following three conditions can be set at a given time
 rescale_once_at_time = -1.0
 rescale_once_at_cycle = -1
-rescale_once_on_restart = false # should not be set in the input file, but only via the command line upon restart
-
+rescale_once_on_restart = false
 rescale_to_rms_Ms = -1.0
 ```
 
