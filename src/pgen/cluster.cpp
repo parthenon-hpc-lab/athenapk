@@ -95,6 +95,50 @@ void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
   stellar_feedback.FeedbackSrcTerm(md, dt, tm);
 
+  
+
+  if (hydro_pkg->Param<bool>("dust_on") && !hydro_pkg->Param<bool>("dust_subcycle_with_cooling")){
+    if(parthenon::Globals::my_rank == 0){
+      printf("Will update dust on cooling as a ClusterSplitSrcTerm \n");
+    }
+    dust::DustUpdateDriver(md, dt, tm);
+}
+
+// Turbulence driving (existing logic)
+  const bool drive_turbulence = hydro_pkg->Param<bool>("drive_turbulence");
+  if (drive_turbulence) {
+      if (parthenon::Globals::my_rank == 0) { printf("Will drive turbulence\n");}
+    ClusterGenerateDriving(md, dt);
+    ClusterApplyDrivingForces(md, dt);
+  }
+  
+  // Calculate global accretion by calling the encapsulated AGN triggering method
+  const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
+  const auto global_sink_data = agn_triggering.CalculateGlobalAccretion(md, tm);
+  
+
+  
+  // Update the black hole state using the returned accretion data
+  auto smbh_spin_sptr = hydro_pkg->Param<std::shared_ptr<BlackHoleSpin>>("smbh_spin_object");
+  BlackHoleSpin *smbh_spin_obj = smbh_spin_sptr.get();
+  smbh_spin_obj->UpdateBlackHoleStateFromGlobalAccretion(global_sink_data, tm, hydro_pkg.get());
+
+  // Print accretion rate to file for fine analysis
+  double total_accretion_rate = hydro_pkg->Param<Real>("total_accretion_rate");
+  // Only rank 0 writes the accretion rate
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  if (rank == 0) {
+    std::ofstream file("accretion.txt", std::ios::app);
+    if (file.is_open()) {
+      // file << std::setprecision(12) << std::fixed;
+      file << tm.time << " " << tm.dt << " " << total_accretion_rate << " "
+           << smbh_spin_obj->GetSMBHMass(hydro_pkg.get()) << std::endl;
+      file.close();
+    } else {
+      std::cerr << "Error: Unable to open file 'accretion.txt' for writing." << std::endl;
+    }
+  }
   ApplyClusterClips(md, tm, dt);
   const auto &DustObj = hydro_pkg->Param<dust::Dust>("dust");
   DustObj.MeasureAndRecordHistory(md, tm);

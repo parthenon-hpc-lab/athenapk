@@ -89,6 +89,10 @@ using View5DReal = Kokkos::View<Real*****>;
 enum class DustCoolingMode {OFF, DWEKWERNER1981, DWEKWERNER1981_INTEGRATED};
 enum class DustPiecewiseMode {LINEAR, LOGLINEAR};
 
+void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
+                                  const parthenon::Real dt,
+                                  const parthenon::SimTime &tm);
+
 KOKKOS_INLINE_FUNCTION
 double StablePowDiff(double xmin, double xmax, double p) {
   // FJJ - function to calculate stable differences of powers of 2 numbers, since the 2 
@@ -1065,8 +1069,6 @@ void SetupDustDevice(parthenon::StateDescriptor *hydro_pkg, MeshBlock *pmb){
   we_have_dust_cooling = 0;
 }
 
-  if(dust_subcycle_with_cooling == 1){
-  if (parthenon::Globals::my_rank == 0) {printf("Dust: Will subcycle dust evolution with cooling \n");}
   const auto units = hydro_pkg->Param<Units>("units");
   std::string dust_time_integrator = hydro_pkg->Param<std::string>("dust_time_integrator");
 
@@ -1166,7 +1168,7 @@ void SetupDustDevice(parthenon::StateDescriptor *hydro_pkg, MeshBlock *pmb){
       // auto host_AGB_normalised_carbonaceous_number_distibution_array = Kokkos::create_mirror_view(agb_normalised_carbonaceous_number_distibution_array);
       // Kokkos::deep_copy(host_AGB_normalised_carbonaceous_number_distibution_array, agb_normalised_carbonaceous_number_distibution_array); 
   } // if(AGB_winds_on == 1)
-  } // if(dust_subcycle_with_cooling == 1)
+
 
 
  } // SetupDustDevice

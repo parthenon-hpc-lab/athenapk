@@ -325,6 +325,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
 
   // Consider Dust
+  // FJJ TODO clean this up so if we do not evolve dust with subcycling, mem allocations are kept to a minimum
   const auto &DustObj = hydro_pkg->Param<dust::Dust>("dust");
 // Create a device-safe instance of the DustDevObj
   dust::DustDevice DustDevObj{
@@ -340,8 +341,10 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
               DustObj.code_to_microm_,
        
   };
-  DustDevObj.SetupDustForEvolutionandCoolingKernel(md);
+  int dust_subcycle_with_cooling = hydro_pkg->Param<bool>("dust_subcycle_with_cooling") ? 1 : 0;
   const auto  dust_cooling_mode_ = DustObj.dust_cooling_mode_;
+
+  DustDevObj.SetupDustForEvolutionandCoolingKernel(md);
   
   // FJJ Machinery for recording the AGB wind mass contributions
   int agb_history_num_rbins = 2; // some small number for low-memory usage if no AGB winds
@@ -372,9 +375,12 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
       }
   }
   Kokkos::deep_copy(device_r_bin_edges, host_r_bin_edges);
+  if(DustDevObj.dust_subcycle_with_cooling == 1){
+    if(Globals::my_rank == 0){
+      printf("Will update dust on cooling sub-cycle steps \n");
+    }
+  }
   // FJJ END of Machinery for recording the AGB wind mass contributions
-
-
                          
 
   // Grab some necessary variables
@@ -621,7 +627,6 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
                       cons_pack, DustDevObj, sub_dt / 2);
                     auto f_a_dust_agb_injected_mass_s = scatter_f_agb_injected_mass_s.access();
                     auto f_a_dust_agb_injected_mass_c = scatter_f_agb_injected_mass_c.access();
-                    auto f_a_stellar_mass             = scatter_f_stellar_mass.access();
                     if(rbin_idx != -1){
                       f_a_dust_agb_injected_mass_c[rbin_idx] += total_mass_C;
                       f_a_dust_agb_injected_mass_s[rbin_idx] += total_mass_S;
@@ -683,7 +688,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
       });
 
 
-    if(DustDevObj.agb_winds_on == 1 && DustObj.write_dust_history_to_file_){
+    if(DustDevObj.agb_winds_on == 1 && DustObj.write_dust_history_to_file_ && DustDevObj.dust_subcycle_with_cooling==1){
     Kokkos::Experimental::contribute(reduction_view_agb_injected_mass_c, scatter_f_agb_injected_mass_c);
     Kokkos::View<double*, Kokkos::LayoutRight, Kokkos::HostSpace> host_reduction_view_agb_injected_mass_c = Kokkos::create_mirror_view(reduction_view_agb_injected_mass_c);
     Kokkos::deep_copy(host_reduction_view_agb_injected_mass_c, reduction_view_agb_injected_mass_c);
