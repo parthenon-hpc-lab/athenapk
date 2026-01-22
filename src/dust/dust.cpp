@@ -85,7 +85,7 @@ Dust::Dust(parthenon::ParameterInput *pin,
     silicate_grains_(pin->GetOrAddBoolean("dust", "silicate_grains", false)),
     carbonaceous_grains_(pin->GetOrAddBoolean("dust", "carbonaceous_grains", false)),
     thermal_sputtering_(pin->GetOrAddBoolean("dust", "thermal_sputtering", false)),
-    agb_winds_(pin->GetOrAddBoolean("dust", "agb_winds", false)),
+    agb_winds_(pin->GetOrAddBoolean("dust", "AGB_winds", false)),
     num_grainsize_bins_(pin->GetOrAddInteger("dust", "num_grainsize_bins", 2)),
     grainsize_bins_low_edge_(pin->GetOrAddReal("dust", "grainsize_bins_low_edge", 1e-5)),
     grainsize_bins_high_edge_(pin->GetOrAddReal("dust", "grainsize_bins_high_edge", 1e-1)),
@@ -350,12 +350,12 @@ PARTHENON_REQUIRE(initial_dust_bin_mass_ratios_v_.size() == num_dust_bins, "Bad 
 
     // AGB winds
   if(agb_winds_){
-    const Real agb_max_radius                                = pin->GetOrAddReal("dust/agb_Winds", "agb_max_radius_in_kpc",std::numeric_limits<double>::max()) * units.kpc();
-    const Real gamma_star                                    = pin->GetOrAddReal("dust/agb_Winds", "gamma_star",-2.5);
-    const Real stellar_mass_cent                                    = pin->GetReal("dust/agb_Winds", "Mstar_cent_in_Msun") * units.msun(); // to CODE units
-    const Real stellar_density_profile_r_up                  = pin->GetReal("dust/agb_Winds", "R_upper_in_kpc")    * units.kpc(); // to CODE units
-    const Real stellar_density_profile_r_low                  = pin->GetReal("dust/agb_Winds", "R_lower_in_kpc")    * units.kpc(); // to CODE units
-    const Real sigma_agb                                     = pin->GetReal("dust/agb_Winds", "sigma_agb") ;
+    const Real agb_max_radius                                = pin->GetOrAddReal("dust/AGB_Winds", "AGB_max_radius_in_kpc",std::numeric_limits<double>::max()) * units.kpc();
+    const Real gamma_star                                    = pin->GetOrAddReal("dust/AGB_Winds", "gamma_star",-2.5);
+    const Real stellar_mass_cent                                    = pin->GetReal("dust/AGB_Winds", "Mstar_cent_in_Msun") * units.msun(); // to CODE units
+    const Real stellar_density_profile_r_up                  = pin->GetReal("dust/AGB_Winds", "R_upper_in_kpc")    * units.kpc(); // to CODE units
+    const Real stellar_density_profile_r_low                  = pin->GetReal("dust/AGB_Winds", "R_lower_in_kpc")    * units.kpc(); // to CODE units
+    const Real sigma_agb                                     = pin->GetReal("dust/AGB_Winds", "sigma_AGB") ;
 
 
     hydro_pkg->AddParam<>("agb_max_radius", agb_max_radius);
