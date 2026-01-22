@@ -1,0 +1,157 @@
+################################################################################
+# Input file for testing tracer particles injection in the jet
+
+################################################################################
+<comment>
+problem   = cluster
+
+<job>
+problem_id = cluster    # problem ID: basename of output filenames
+
+#########################################################
+#  Output files
+#########################################################
+<parthenon/output0>
+file_type  = rst        # restart data dump
+dt         = 0.1        # Time increment between outputs (2.00e+01 Myr)
+id         = restart
+hdf5_compression_level = 0
+
+#########################################################
+#  Time
+#########################################################
+
+<parthenon/time>
+cfl         = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+tlim        = 0.2        # time limit (4.00e+03 Myr)
+integrator  = vl2        # time integration algorithm
+ncycle_out_mesh = -100000
+
+#########################################################
+#  Mesh and refinement
+#########################################################
+
+<parthenon/mesh>
+refinement  = static
+nghost      = 2
+
+nx1         = 32        # Number of zones in X1-direction
+x1min       =-0.064     # minimum value of X1
+x1max       = 0.064     # maximum value of X1
+ix1_bc      = periodic        # inner-X1 boundary flag
+ox1_bc      = periodic        # outer-X1 boundary flag
+
+nx2         = 32        # Number of zones in X2-direction
+x2min       =-0.064     # minimum value of X2
+x2max       = 0.064     # maximum value of X2
+ix2_bc      = periodic        # inner-X2 boundary flag
+ox2_bc      = periodic        # outer-X2 boundary flag
+
+nx3         = 32        # Number of zones in X3-direction
+x3min       =-0.064     # minimum value of X3
+x3max       = 0.064     # maximum value of X3
+ix3_bc      = periodic        # inner-X3 boundary flag
+ox3_bc      = periodic        # outer-X3 boundary flag
+
+<parthenon/meshblock>
+nx1         = 8        # Number of zones in X1-direction
+nx2         = 8        # Number of zones in X2-direction
+nx3         = 8        # Number of zones in X3-direction
+
+#########################################################
+#  Tracer particles
+#########################################################
+
+<tracers>
+enabled = true
+advection_method = montecarlo
+swarm_names = tracers
+initial_seed_method = random_per_block
+tracers_initial_num_tracers_per_cell = 0.0
+tracers_injection_enabled = true
+tracers_injection_criterion = jet
+tracers_injection_threshold = 0.0   # Not needed
+tracers_injection_timescale = 0.01
+tracers_injection_num_target = 1
+
+#########################################################
+#  Hydro
+#########################################################
+
+<hydro>
+fluid          = euler
+gamma          = 1.6666666666666667 # gamma = C_p/C_v
+eos            = adiabatic
+riemann        = hllc
+reconstruction = plm
+use_scratch    = false
+scratch_level  = 0 # 0 is actual scratch (tiny); 1 is HBM
+Tceil          = inf # inf K
+vceil          = inf # inf c
+nscalars       = 0
+
+first_order_flux_correct = True
+He_mass_fraction         = 0.25
+
+#########################################################
+#  Units
+#########################################################
+
+<units>
+#Units parameters
+code_length_cgs = 3.085677580962325e+24 # 1.00e+03 kpc
+code_mass_cgs   = 1.98841586e+47 # 1.00e+14 Msun
+code_time_cgs   = 3.15576e+16 # 1.00e+03 Myr
+
+#########################################################
+#  Cooling
+#########################################################
+
+<cooling>
+enable_cooling   = none
+
+#########################################################
+#  Initial conditions
+#########################################################
+
+<problem/cluster>
+
+<problem/cluster/gravity>
+#Disable gravity as a source term
+gravity_srcterm = false
+
+<problem/cluster/uniform_gas>
+#Initialize with a uniform gas
+init_uniform_gas = true
+rho  = 147.7557589278723
+ux   = 0
+uy   = 0
+uz   = 0
+pres = 1.5454368403867562
+
+#########################################################
+#  AGN and stellar feedback
+#########################################################
+
+<problem/cluster/agn_triggering>
+triggering_mode   = NONE
+
+<problem/cluster/agn_feedback>
+enable_tracer     = false
+fixed_power       = 1e-4
+efficiency        = 0.001
+magnetic_fraction = 0.00
+thermal_fraction  = 0.00
+kinetic_fraction  = 1.00
+enable_magnetic_tower_mass_injection = False
+Tceil             = inf # inf K
+vceil             = inf # inf c
+
+thermal_radius           = 0.01
+kinetic_jet_radius       = 0.004
+kinetic_jet_thickness    = 0.002
+kinetic_jet_offset       = 0.002
+kinetic_jet_temperature  = 100000000.0 # 1.00e+08 K
+
+<problem/cluster/snia_feedback>
+disabled                 = True
