@@ -1100,11 +1100,11 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
       DustObj.code_to_microm_,
       
   };
+
+  if (pkg->Param<bool>("dust_on")){
   DustDevObj.SetupDustDevice(pkg.get(), pmb);
+  }
   // const auto  dust_cooling_mode_ = DustObj.dust_cooling_mode_;
-
-
-
 
   // get derived fields
   auto &log10_radius = data->Get("log10_cell_radius").data;

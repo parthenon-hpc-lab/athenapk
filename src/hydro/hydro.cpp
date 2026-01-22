@@ -728,6 +728,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
    ************************************************************/
   auto dust_on = pin->GetOrAddBoolean("dust", "active", false);
   pkg->AddParam<bool>("dust_on", dust_on);
+  if(!dust_on){
+    pkg->AddParam<std::string>("dust_time_integrator", "none");
+    pkg->AddParam<bool>("dust_subcycle_with_cooling", "false");
+    
+  }
 
 
 

@@ -1051,6 +1051,7 @@ void SetupDustDevice(parthenon::StateDescriptor *hydro_pkg, MeshBlock *pmb){
   auto dust_cooling_mode_ = DustObj.dust_cooling_mode_; 
   dust_subcycle_with_cooling = 0;
   if (hydro_pkg->Param<bool>("dust_on")){
+    
   dust_subcycle_with_cooling = hydro_pkg->Param<bool>("dust_subcycle_with_cooling") ? 1 : 0;
 
   we_have_dust_cooling = 1;
@@ -1071,11 +1072,12 @@ void SetupDustDevice(parthenon::StateDescriptor *hydro_pkg, MeshBlock *pmb){
 
   const auto units = hydro_pkg->Param<Units>("units");
   std::string dust_time_integrator = hydro_pkg->Param<std::string>("dust_time_integrator");
-
   if(dust_time_integrator == "euler"){
     dust_time_integrator_int = 1;
   } else if (dust_time_integrator == "heun"){
     dust_time_integrator_int = 2;
+  } else {
+    dust_time_integrator_int = -1;
   }
 
   dust_num_grains_sizes   = hydro_pkg->Param<int>("dust_num_grains_sizes");
@@ -1716,6 +1718,7 @@ void GetUpdated_MjNj_ThisCompositionHelper(
                   Nj_new(gc_i,  gs_i, b, k - kb.s, j - jb.s, i - ib.s) = 0.0;
                   a_dot_view(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) = 0.0;
                 }
+
                 for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i += 1){
                   Real adot_sputter = 0.;
                   Real adot_accretion = 0.;
@@ -1794,10 +1797,10 @@ void GetUpdated_MjNj_ThisCompositionHelper(
 
 
             
-// Do 1st order time integration for the dust integration, on a subcycling dt
-// FJJ TODO - this really can applied anywhere, not just subcycling, so maybe rename
+// Do 1st order time integration for the dust integration, on a subcycling dt, so we are not 
+// parallelised over gc_i and gs_i
 KOKKOS_INLINE_FUNCTION
-void DustDoUpdateStepEuler(
+void DustDoUpdateStepEulerInCoolingSubcycle(
     const Real internal_e,
     const int b, const int k, const int j, const int i, 
     const parthenon::MeshBlockPack<VariablePack<Real>> &cons_pack, 
@@ -1830,12 +1833,144 @@ void DustDoUpdateStepEuler(
                                           Nj_new,
                                           a_dot_view);
             } // int gc_i = 0; gc_i < num_grain_compositions; gc_i ++)
+
+
+
+
+
+
+
+          }
+
+
+
+
+// Do 1st order time integration for the dust integration
+KOKKOS_INLINE_FUNCTION
+void DustFilladotView(
+    const Real temperature,
+    const int gc_i, const int gs_i,
+    const int b, const int k, const int j, const int i, 
+    const parthenon::MeshBlockPack<VariablePack<Real>> &cons_pack, 
+    const DustDevice &DustDevObj,
+    const IndexRange &kb,
+    const IndexRange &jb,
+    const IndexRange &ib,
+    const Real sub_dt,
+    const View6DReal Mj_new,
+    const View6DReal Nj_new,
+    const View6DReal a_dot_view
+  ){
+              const int  dust_scalar_idx_start = DustDevObj.dust_scalar_idx_start;
+              const int num_grain_compositions = DustDevObj.num_grain_compositions;
+              const int dust_num_grains_sizes = DustDevObj.dust_num_grains_sizes;
+              const Real mbar_gm1_over_kb = DustDevObj.mbar_gm1_over_kb;
+              
+              // Dust_generate_adot
+
+                // reset these arrays for the new sub-cycle
+                Mj_new(gc_i,  gs_i, b, k - kb.s, j - jb.s, i - ib.s) = 0.0;
+                Nj_new(gc_i,  gs_i, b, k - kb.s, j - jb.s, i - ib.s) = 0.0;
+                a_dot_view(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) = 0.0;
+              
+
+                Real adot_sputter = 0.;
+                Real adot_accretion = 0.;
+                Real adot = 0.;
+                const auto rho = cons_pack(b,IDN, k, j, i);
+                
+
+                DustCalculateAdotPerBin(temperature, rho, DustDevObj,adot_sputter,adot_accretion,adot);
+
+                const Real whole_box_extent = DustDevObj.whole_box_extent;
+                const auto coords = cons_pack.GetCoords(b);
+                const auto x = coords.Xc<1>(i);
+                const auto y = coords.Xc<2>(j);
+                const auto z = coords.Xc<3>(k);
+                const auto r = Kokkos::sqrt(x * x + y * y + z * z);
+                // Check correct signs. Don;t worry too much if very near a boundary, where densities might go weird
+                  if(adot_sputter > 0 || adot_sputter != adot_sputter){
+                    if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
+                    // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e r=%e whole_box_extent=%e f_sput=%e rho =%e  adot_sputter=%e  sput_prefac=%e  sput_dens=%e  sput_T=%e  \n", x,y,z,r, whole_box_extent, f_sput, rho, adot_sputter,  sput_prefac,  sput_dens,  sput_T);
+                    printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                    }
+                  adot_sputter = 0.;
+                  adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
+                  adot = 0.;
+                  if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
+                    printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                    PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
+                    }
+                  }
+                  if(adot_accretion < 0 || adot_accretion != adot_accretion){
+                    if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
+                    printf("[FJJ DEBUG] Accretion is shrinking grains! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
+                    }
+                    
+                  if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
+                  printf("[FJJ DEBUG] Accretion is shrinking grains inside of the boundary! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
+                  PARTHENON_REQUIRE(adot_accretion >= 0, "Accretion is shrinking grains!");
+                  }
+
+                  adot_sputter = 0.;
+                  adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
+                  adot = 0.;
+
+                }
+                  PARTHENON_REQUIRE(a_dot_view(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) == 0.0, "Contributing a_dot_view to dirty array!")
+                  a_dot_view(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) = adot;
+               
 }
 
-// Do 2nd order time integration for the dust integration, on a subcycling dt
-// FJJ TODO - this really can applied anywhere, not just subcycling, so maybe rename
+// Do 1st order time integration for the dust integration
 KOKKOS_INLINE_FUNCTION
-void DustDoUpdateStepHeuns(
+void DustDoUpdateWithadotArray(
+    const int gc_i, const int gs_i, const int gs_j,
+    const int b, const int k, const int j, const int i, 
+    const parthenon::MeshBlockPack<VariablePack<Real>> &cons_pack, 
+    const DustDevice &DustDevObj,
+    const IndexRange &kb,
+    const IndexRange &jb,
+    const IndexRange &ib,
+    const Real sub_dt,
+    const View6DReal Mj_new,
+    const View6DReal Nj_new,
+    const View6DReal a_dot_view,
+    const Real dt
+  ){
+    const int  dust_scalar_idx_start = DustDevObj.dust_scalar_idx_start;
+    const int num_grain_compositions = DustDevObj.num_grain_compositions;
+    const int dust_num_grains_sizes = DustDevObj.dust_num_grains_sizes;
+    const Real mbar_gm1_over_kb = DustDevObj.mbar_gm1_over_kb;
+    //EvolveDust_with_adot
+    // Now we have the adot for each grainsize bin, we can update the mass and numbers
+    // FJJ dust_num_grains_sizes + 1 for gs_j becuase we add a "ghost bin" above the 
+    // highest tracked bin edge, which we need for Re-binning grains that get too large
+    auto adot_this_i = a_dot_view(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s);
+    int bins_overlap = 0;
+    Real contributed_number = 0.0;
+    Real contributed_mass = 0.0;
+    const Real Mi_renorm_factor = 1;
+    DustGetMassAndNumberUpdates(bins_overlap, contributed_number, contributed_mass, gc_i, gs_i, gs_j, b,  k, j, i, cons_pack, adot_this_i, DustDevObj, dt, Mi_renorm_factor);   
+    if(bins_overlap == 1){
+      // if Ghost bin, will rebin mass into final tracked bin
+      if(gs_j == dust_num_grains_sizes){
+      Mj_new(gc_i, dust_num_grains_sizes - 1, b, k - kb.s, j - jb.s, i - ib.s) += contributed_mass;
+      Nj_new(gc_i, dust_num_grains_sizes - 1, b, k - kb.s, j - jb.s, i - ib.s) += contributed_number;
+      } else{
+      Mj_new(gc_i, gs_j, b, k - kb.s, j - jb.s, i - ib.s) += contributed_mass;
+      Nj_new(gc_i, gs_j, b, k - kb.s, j - jb.s, i - ib.s) += contributed_number;      
+      }
+    } // if(bins_overlap == 1)
+
+  }
+
+
+
+// Do 2nd order time integration for the dust integration, on a subcycling dt, so we are not 
+// parallelised over gc_i and gs_i
+KOKKOS_INLINE_FUNCTION
+void DustDoUpdateStepHeunsInCoolingSubcycle(
     const Real internal_e,
     const int b, const int k, const int j, const int i, 
     const parthenon::MeshBlockPack<VariablePack<Real>> &cons_pack, 
