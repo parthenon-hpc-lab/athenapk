@@ -51,6 +51,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
   const auto &eceil = hydro_pkg->Param<Real>("cluster_eceil");
   const auto &vceil = hydro_pkg->Param<Real>("cluster_vceil");
   const auto &vAceil = hydro_pkg->Param<Real>("cluster_vAceil");
+  const auto &dtgfloor = hydro_pkg->Param<Real>("cluster_dtgfloor");
   const auto &clip_r = hydro_pkg->Param<Real>("cluster_clip_r");
 
   if (clip_r > 0 && (dfloor > 0 || eceil < std::numeric_limits<Real>::infinity() ||
@@ -72,7 +73,16 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
 
     const bool magnetic_fields = (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd);
     Real added_dfloor_mass = 0.0, removed_vceil_energy = 0.0, added_vAceil_mass = 0.0,
-         removed_eceil_energy = 0.0;
+         removed_eceil_energy = 0.0, added_dust_mass = 0.0;
+
+
+    Real num_grain_compositions, dust_num_grains_sizes, dust_scalar_idx_start;
+    const int dust_on = hydro_pkg->Param<bool>("dust_on") ? 1 : 0;
+    if(dust_on==1){
+      dust_num_grains_sizes   = hydro_pkg->Param<int>("dust_num_grains_sizes");
+      num_grain_compositions  = hydro_pkg->Param<int>("dust_num_grain_compositions");
+      dust_scalar_idx_start   = hydro_pkg->Param<int>("dust_scalar_idx_start");
+    }
 
     Kokkos::parallel_reduce(
         "Cluster::ApplyClusterClips",
@@ -82,7 +92,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
             {1, 1, 1, ib.e + 1 - ib.s}),
         KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                       Real &added_dfloor_mass_team, Real &removed_vceil_energy_team,
-                      Real &added_vAceil_mass_team, Real &removed_eceil_energy_team) {
+                      Real &added_vAceil_mass_team, Real &removed_eceil_energy_team, Real &added_dust_mass_team) {
           auto &cons = cons_pack(b);
           auto &prim = prim_pack(b);
           const auto &coords = cons_pack.GetCoords(b);
@@ -152,9 +162,45 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
                 prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
               }
             }
+
+
+            if(dust_on){
+              Real total_dust_density = 0.;
+              // sum dust mass over all size bins and compositions
+              for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++ ){
+                for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i ++ ){
+                    int index_into_Mi = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i)) + 1;
+                    int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
+                    total_dust_density += cons(index_into_Mi, k, j, i);
+                }
+              }
+              Real dtg_ratio =  total_dust_density/cons(IDN, k, j, i);
+              if(dtg_ratio<dtgfloor){
+                    // Update dtg ratio using the new density after clips applied
+                  added_dust_mass_team += (dtgfloor-dtg_ratio)*cons(IDN, k, j, i)*coords.CellVolume(k, j, i);
+                  const Real added_dust_factor = dtgfloor/dtg_ratio;
+                  for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++ ){
+                    for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i ++ ){
+                        int index_into_Mi = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i)) + 1;
+                        int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
+                        cons(index_into_Mi, k, j, i) = cons(index_into_Mi, k, j, i)*added_dust_factor;
+                        cons(index_into_Ni, k, j, i) = cons(index_into_Ni, k, j, i)*added_dust_factor;
+                    }
+                  }
+              }
+            }
+
+
+
+
+
           }
         },
-        added_dfloor_mass, removed_vceil_energy, added_vAceil_mass, removed_eceil_energy);
+        added_dfloor_mass, removed_dceil_mass, removed_vceil_energy, added_vAceil_mass, removed_eceil_energy, added_dust_mass);
+
+
+
+
 
     // Add the freshly added mass/removed energy to running totals
     hydro_pkg->UpdateParam("added_dfloor_mass",

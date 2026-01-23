@@ -318,6 +318,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
 
   // By default disable floors by setting a negative value
   Real dfloor = pin->GetOrAddReal("problem/cluster/clips", "dfloor", -1.0);
+  Real Tfloor = pin->GetOrAddReal("problem/cluster/clips", "Tfloor", -1.0);
+  Real pfloor = pin->GetOrAddReal("problem/cluster/clips", "pfloor", -1.0);
+  Real dtgfloor = pin->GetOrAddReal("problem/cluster/clips", "dtgfloor", -1.0);
 
   // By default disable ceilings by setting to infinity
   Real vceil = pin->GetOrAddReal("problem/cluster/clips", "vceil",
@@ -341,7 +344,13 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddParam("cluster_eceil", eceil);
   hydro_pkg->AddParam("cluster_vceil", vceil);
   hydro_pkg->AddParam("cluster_vAceil", vAceil);
+  hydro_pkg->AddParam("cluster_dtgfloor", dtgfloor);
   hydro_pkg->AddParam("cluster_clip_r", clip_r);
+
+
+  
+
+
 
   /************************************************************
    * Start running reductions into history outputs for clips, stellar mass, cold
