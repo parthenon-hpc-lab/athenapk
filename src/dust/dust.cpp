@@ -194,6 +194,9 @@ Dust::Dust(parthenon::ParameterInput *pin,
     if(init_profile_str_ == "vogelsberger_19"){
         init_profile_ = 2;
     }
+    if(init_profile_str_ == "stellar_profile"){
+        init_profile_ = 3;
+    }
 
     Real grain_mass;
     Real grain_radius_code;
@@ -255,6 +258,10 @@ PARTHENON_REQUIRE(initial_dust_bin_mass_ratios_v_.size() == num_dust_bins, "Bad 
   if(init_profile_str_ == "const_dtg"){
       init_dtg_mass_ratio_ = pin->GetReal("dust", "init_dtg_mass_ratio");
   }
+  if(init_profile_str_ == "stellar_profile"){
+      init_run_stellar_injection_time_ = pin->GetReal("dust", "init_run_stellar_injection_time");
+  }
+
   if(dust_cooling_mode_str_ == "Dwek_Werner1981" || dust_cooling_mode_str_ == "Dwek_Werner1981_INTEGRATED"){
       if(dust_cooling_mode_str_ == "Dwek_Werner1981"){dust_cooling_mode_ = DustCoolingMode::DWEKWERNER1981;}
       if(dust_cooling_mode_str_ == "Dwek_Werner1981_INTEGRATED"){dust_cooling_mode_ = DustCoolingMode::DWEKWERNER1981_INTEGRATED;}

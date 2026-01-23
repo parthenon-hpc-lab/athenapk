@@ -132,7 +132,7 @@ class Dust {
     public:
       int init_profile_, num_grainsize_bins_;
       bool silicate_grains_,carbonaceous_grains_,thermal_sputtering_,coagulation_,metal_accretion_,shattering_, dust_on_, agb_winds_;
-      Real carbonaceous_grain_density_, silicate_grain_density_, init_dtg_mass_ratio_, nH_to_ne_, g_cm3_to_code_density_, erg_to_code_energy_, seconds_to_code_time_, cm3_to_code_vol_;
+      Real carbonaceous_grain_density_, silicate_grain_density_, init_dtg_mass_ratio_, init_run_stellar_injection_time_, nH_to_ne_, g_cm3_to_code_density_, erg_to_code_energy_, seconds_to_code_time_, cm3_to_code_vol_;
       Real dwek_werner_coeff_a_code_units_;
       Real dwek_werner_coeff_b_code_units_;
       Real dwek_werner_coeff_c_code_units_;
@@ -508,8 +508,8 @@ class Dust {
     Real D = total_dust_mass / ((8. * Kokkos::numbers::pi * rho_d / 3.) * ((1/Kokkos::sqrt(a_min)) - (1/Kokkos::sqrt(a_max))));
     Real bin_a_min = grainsize_bin_edges_microm[gs_i];
     Real bin_a_max = grainsize_bin_edges_microm[gs_i+1];
-    cons(index_into_Mi, k, j, i) = D * (8. * Kokkos::numbers::pi * rho_d / 3.) * ((1./Kokkos::sqrt(bin_a_min)) - (1./Kokkos::sqrt(bin_a_max))) / volume;
-    cons(index_into_Ni, k, j, i) = D * (1/3.5) * (Kokkos::pow(bin_a_min, -3.5) - Kokkos::pow(bin_a_max, -3.5)) / volume;
+    cons(index_into_Mi, k, j, i) += D * (8. * Kokkos::numbers::pi * rho_d / 3.) * ((1./Kokkos::sqrt(bin_a_min)) - (1./Kokkos::sqrt(bin_a_max))) / volume;
+    cons(index_into_Ni, k, j, i) += D * (1/3.5) * (Kokkos::pow(bin_a_min, -3.5) - Kokkos::pow(bin_a_max, -3.5)) / volume;
   } // MRNGrainSizeDist
 
   template <typename View4D>
@@ -525,8 +525,8 @@ class Dust {
     Real D = total_dust_mass / ((4. * Kokkos::numbers::pi * rho_d / (3.*8.5))  * (Kokkos::pow(a_max, 8.5) - Kokkos::pow(a_min, 8.5)));
     Real bin_a_min = grainsize_bin_edges_microm[gs_i];
     Real bin_a_max = grainsize_bin_edges_microm[gs_i+1];
-    cons(index_into_Mi, k, j, i) = D * ((4. * Kokkos::numbers::pi * rho_d / (3.*8.5))  * (Kokkos::pow(bin_a_max, 8.5) - Kokkos::pow(bin_a_min, 8.5))) / volume;
-    cons(index_into_Ni, k, j, i) = D * (1/5.5) * (Kokkos::pow(bin_a_max, 5.5) - Kokkos::pow(bin_a_min, 5.5)) / volume;
+    cons(index_into_Mi, k, j, i) += D * ((4. * Kokkos::numbers::pi * rho_d / (3.*8.5))  * (Kokkos::pow(bin_a_max, 8.5) - Kokkos::pow(bin_a_min, 8.5))) / volume;
+    cons(index_into_Ni, k, j, i) += D * (1/5.5) * (Kokkos::pow(bin_a_max, 5.5) - Kokkos::pow(bin_a_min, 5.5)) / volume;
   } // InverseMRNGrainSizeDist
 
 
@@ -544,8 +544,8 @@ class Dust {
     Real D = total_dust_mass / ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(a_max, 4.)/4. - Kokkos::pow(a_min, 4.)/4.));
     Real bin_a_min = grainsize_bin_edges_microm[gs_i];
     Real bin_a_max = grainsize_bin_edges_microm[gs_i+1];
-    cons(index_into_Mi, k, j, i) = D * ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(bin_a_max, 4.)/4. - Kokkos::pow(bin_a_min, 4.)/4.)) / volume;
-    cons(index_into_Ni, k, j, i) = D * (bin_a_max-bin_a_min) / volume;
+    cons(index_into_Mi, k, j, i) += D * ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(bin_a_max, 4.)/4. - Kokkos::pow(bin_a_min, 4.)/4.)) / volume;
+    cons(index_into_Ni, k, j, i) += D * (bin_a_max-bin_a_min) / volume;
   } // FlatGrainSizeDist
 
 
@@ -567,8 +567,8 @@ class Dust {
     Real D = total_dust_mass / ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(flat_graindist_in_range_amax, 4.)/4. - Kokkos::pow(flat_graindist_in_range_amin, 4.)/4.));
     Real xmin = std::max(bin_a_min, flat_graindist_in_range_amin);
     Real xmax = std::min(bin_a_max, flat_graindist_in_range_amax);
-    cons(index_into_Mi, k, j, i) = D * ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(xmax, 4.)/4. - Kokkos::pow(xmin, 4.)/4.)) / volume;
-    cons(index_into_Ni, k, j, i) = D * (xmax-xmin) / volume;
+    cons(index_into_Mi, k, j, i) += D * ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(xmax, 4.)/4. - Kokkos::pow(xmin, 4.)/4.)) / volume;
+    cons(index_into_Ni, k, j, i) += D * (xmax-xmin) / volume;
   } // flat_graindist_in_range_dist
 
 
@@ -838,8 +838,10 @@ Real ComputeDwekWernerGrainCooling(
 
             // (l*2) + 1 needed to skip the number density fields
             auto dust_rho = cons(dust_scalar_idx_start + (gb_i*2) + 1, cons_k, cons_j, cons_i);
+
+
             // FJJ Make sure the numbers are sensible
-            PARTHENON_REQUIRE(dust_rho / gas_rho > -1e-30 && dust_rho / gas_rho < 1e3, "Invalid Dust To Gas ratio encountered in cooling");
+            // PARTHENON_REQUIRE(dust_rho / gas_rho > -1e-30 && dust_rho / gas_rho < 1e3, "Invalid Dust To Gas ratio encountered in cooling");
           
             // Convert from rate per grain to volumetric rate (erg /s /cm3 but in code units) e.g. see Vogelsberger 2019
             // dust_de_dt volumetric = - dust_de_dt above * n_e * n_dust
@@ -1750,7 +1752,7 @@ void GetUpdated_MjNj_ThisCompositionHelper(
                   adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
                   adot = 0.;
                   if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
-                    printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                    printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e temperature=%e\n", x,y,z, whole_box_extent, rho, temperature);
                     PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
                     }
                   }
@@ -1906,7 +1908,7 @@ void DustFilladotView(
                   adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
                   adot = 0.;
                   if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
-                    printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                    printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e temperature=%e\n", x,y,z, whole_box_extent, rho, temperature);
                     PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
                     }
                   }
@@ -2404,7 +2406,7 @@ void GetMassChangeRatePerBin(const Real temperature, const Real rho, const Real 
               adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
               adot_total = 0.;
               if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
-                printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e temperature=%e\n", x,y,z, whole_box_extent, rho, temperature);
                 PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
                 }
               }

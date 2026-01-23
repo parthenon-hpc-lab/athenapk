@@ -906,18 +906,22 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
        * Initialize dust
        ************************************************************/
       if(hydro_pkg->Param<bool>("dust_on")){
-        const auto &dust = hydro_pkg->Param<dust::Dust>("dust");
+        auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+
+
+        const auto &DustObj = hydro_pkg->Param<dust::Dust>("dust");
         Units units(pin);
         // Real gram_to_code = units.g();
         Real init_dtg_mass_ratio;
+        Real init_run_stellar_injection_time;
 
         int dust_scalar_idx_start = hydro_pkg->Param<int>("dust_scalar_idx_start");    
         int dust_scalar_idx_end   = hydro_pkg->Param<int>("dust_scalar_idx_end");  
         int dust_num_grains_sizes   = hydro_pkg->Param<int>("dust_num_grains_sizes");
         int num_grain_compositions    = hydro_pkg->Param<int>("dust_num_grain_compositions");
         int num_dust_bins = num_grain_compositions * dust_num_grains_sizes;
-        int dust_init_profile = dust.init_profile_;
-        // auto initial_dust_bin_mass_ratios =  dust.initial_dust_bin_mass_ratios_;
+        int dust_init_profile = DustObj.init_profile_;
+        // auto initial_dust_bin_mass_ratios =  DustObj.initial_dust_bin_mass_ratios_;
 
 
 
@@ -964,10 +968,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
 
 
-        const auto &grain_midbin_sizes_microm  = dust.grain_midbin_sizes_microm_;
-        const auto &single_grain_densities  = dust.single_grain_densities_;
-        // const auto &single_grain_masses  = dust.single_grain_masses_;
-        const auto &grainsize_bin_edges_microm  = dust.grainsize_bin_edges_microm_;
+        const auto &grain_midbin_sizes_microm  = DustObj.grain_midbin_sizes_microm_;
+        const auto &single_grain_densities  = DustObj.single_grain_densities_;
+        // const auto &single_grain_masses  = DustObj.single_grain_masses_;
+        const auto &grainsize_bin_edges_microm  = DustObj.grainsize_bin_edges_microm_;
 
 
         hydro_pkg->AddParam<>("dust_grainsize_bin_edges_microM", grainsize_bin_edges_microm);
@@ -987,9 +991,13 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         }
         else if(dust_init_profile == 1){
             // Constant DTG ratio
-            init_dtg_mass_ratio = dust.init_dtg_mass_ratio_;
+            init_dtg_mass_ratio = DustObj.init_dtg_mass_ratio_;
           } else if(dust_init_profile == 2) {
             ; //We have Vogelsberger_DTG profile
+          }
+          else if(dust_init_profile == 3){
+            // Run the stellar injection model for init_run_stellar_injection_time to give init conds
+            init_run_stellar_injection_time = DustObj.init_run_stellar_injection_time_;
           }
           else{
             PARTHENON_FAIL("Dust init_profile not implemented yet");
@@ -997,6 +1005,25 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
           dust_scalar_idx_start = hydro_pkg->Param<int>("dust_scalar_idx_start");
           dust_scalar_idx_end = hydro_pkg->Param<int>("dust_scalar_idx_end");
+
+
+
+          dust::DustDevice DustDevObj{
+                      DustObj.grain_midbin_sizes_microm_,
+                      DustObj.grainsize_bin_edges_microm_,
+                      DustObj.single_grain_masses_,
+                      DustObj.single_grain_densities_,
+                      DustObj.nH_to_ne_,
+                      DustObj.dwek_werner_coeff_a_code_units_,
+                      DustObj.dwek_werner_coeff_b_code_units_,
+                      DustObj.dwek_werner_coeff_c_code_units_, 
+                      DustObj.dwek_werner_regime_coeff_, 
+                      DustObj.code_to_microm_,
+              
+          };
+          DustDevObj.SetupDustDevice(hydro_pkg.get(), pmb);
+          const auto &dtgfloor = hydro_pkg->Param<Real>("cluster_dtgfloor");
+
 
           parthenon::par_for(
             "Dust:Initialise Dust Fields", 0, num_blocks - 1, 0, num_dust_bins - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -1025,36 +1052,75 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               else if(dust_init_profile == 2){
               Real vogelsberger_DTG = dust::Vogelsberger19InitialDTG(r, r200);
               total_dust_mass = u(IDN, k, j, i)*vogelsberger_DTG * volume;
-              } else {
+              } else if(dust_init_profile == 3){
+                Real total_mass_C = 0.; // Total Mass, not a density
+                Real total_mass_S = 0.; // Total Mass, not a density
+                Real stellar_mass_this_cell = 0;
+                DustAddAGBWindContribution(total_mass_C,total_mass_S, stellar_mass_this_cell, b, k, j, i, 
+                  cons_pack, DustDevObj, init_run_stellar_injection_time);
+                  Real total_dust_density = 0.;
+                  // sum dust mass over all size bins and compositions
+                  for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++ ){
+                    for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i ++ ){
+                        int index_into_Mi = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i)) + 1;
+                        int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
+                        total_dust_density += cons(b, index_into_Mi, k, j, i);
+                    }
+                  }
+                  Real dtg_ratio =  total_dust_density/cons(b, IDN, k, j, i);
+                  // does not inkect above the minimum amount of mass into the cell
+                  if(dtg_ratio<dtgfloor){
+                        // Update dtg ratio using the new density after clips applied
+                      total_dust_mass = (dtgfloor-dtg_ratio)*cons(b, IDN, k, j, i)*coords.CellVolume(k, j, i); // This is the mass to top-up the cell if the stellar profile 
+                      printf("total_dust_mass to top up = %e dtg_ratio = %e carbonaceous_grain_mass_fraction = %e \n", total_dust_mass, dtg_ratio, carbonaceous_grain_mass_fraction);
+                }
+              }
+                else{
                 PARTHENON_FAIL("No DTG prescription set");
               }
 
-              int grain_size_bin = dust_i % dust_num_grains_sizes;
-              int idx_into_grain_compositions = (dust_i - grain_size_bin) /  dust_num_grains_sizes;
 
-              // normalise the masses if more than one grain
-              if(carbonaceous_grains == 1 && silicate_grains == 1){
-              if(idx_into_grain_compositions == 0){
-                total_dust_mass = total_dust_mass * carbonaceous_grain_mass_fraction /(carbonaceous_grain_mass_fraction + silicate_grain_mass_fraction);
-              }
-              else if(idx_into_grain_compositions == 1){
-                total_dust_mass = total_dust_mass * silicate_grain_mass_fraction /(carbonaceous_grain_mass_fraction + silicate_grain_mass_fraction);
-              }
-            }
+                // DustAddAGBWindContribution self consistentlky adds the dust to the fields, so dont repeat
+                // this for dust_init_profile == 3
+                int grain_size_bin = dust_i % dust_num_grains_sizes;
+                int idx_into_grain_compositions = (dust_i - grain_size_bin) /  dust_num_grains_sizes;
 
-            if(init_grainsize_distribution == 0){
-              dust::MRNGrainSizeDist(total_dust_mass,mass_index, number_index, code_to_microm, grain_size_bin, idx_into_grain_compositions,  volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
-            } else             if(init_grainsize_distribution == 1){
-              dust::InverseMRNGrainSizeDist(total_dust_mass,mass_index, number_index, code_to_microm, grain_size_bin, idx_into_grain_compositions,  volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
-            } else             if(init_grainsize_distribution == 2){
-              dust::FlatGrainSizeDist(total_dust_mass,mass_index, number_index, code_to_microm, grain_size_bin, idx_into_grain_compositions,  volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
-            }else if(init_grainsize_distribution == 3){
-              dust::FlatGrainSizeDistInRange(total_dust_mass,mass_index, number_index, code_to_microm, grain_size_bin, idx_into_grain_compositions,  volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities, flat_graindist_in_range_amin, flat_graindist_in_range_amax);
-              
-            }  
-            else{
-              PARTHENON_FAIL("Initial grainsize dist not supported")
-            }
+
+                // normalise the masses if more than one grain
+                if(carbonaceous_grains == 1 && silicate_grains == 1){
+                if(idx_into_grain_compositions == 0){
+                  total_dust_mass = total_dust_mass * carbonaceous_grain_mass_fraction /(carbonaceous_grain_mass_fraction + silicate_grain_mass_fraction);
+                }
+                else if(idx_into_grain_compositions == 1){
+                  total_dust_mass = total_dust_mass * silicate_grain_mass_fraction /(carbonaceous_grain_mass_fraction + silicate_grain_mass_fraction);
+                }
+              }
+
+
+              if(dust_init_profile != 3){
+                // Make sure these fields are zerod before adding to them, if we didnt do the stellar injection step
+                  for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++ ){
+                    for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i ++ ){
+                        int index_into_Mi = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i)) + 1;
+                        int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
+                        cons(b, index_into_Mi, k, j, i) = 0;
+                        cons(b, index_into_Ni, k, j, i) = 0;
+                    }
+                  }
+                }
+
+              if(init_grainsize_distribution == 0){
+                dust::MRNGrainSizeDist(total_dust_mass,mass_index, number_index, code_to_microm, grain_size_bin, idx_into_grain_compositions, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
+              } else             if(init_grainsize_distribution == 1){
+                dust::InverseMRNGrainSizeDist(total_dust_mass,mass_index, number_index, code_to_microm, grain_size_bin, idx_into_grain_compositions, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
+              } else             if(init_grainsize_distribution == 2){
+                dust::FlatGrainSizeDist(total_dust_mass,mass_index, number_index, code_to_microm, grain_size_bin, idx_into_grain_compositions, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
+              }else if(init_grainsize_distribution == 3){
+                dust::FlatGrainSizeDistInRange(total_dust_mass,mass_index, number_index, code_to_microm, grain_size_bin, idx_into_grain_compositions, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities, flat_graindist_in_range_amin, flat_graindist_in_range_amax);
+              }  
+              else{
+                PARTHENON_FAIL("Initial grainsize dist not supported")
+              }
           }); // Dust:Initialise Dust Fields
 
 } //if(hydro_pkg->Param<bool>("dust_on"))
