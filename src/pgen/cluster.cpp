@@ -1089,14 +1089,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
 
             // Make sure these fields are zerod before adding to them
-              for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++ ){
-                for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i ++ ){
-                    int index_into_Mi = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i)) + 1;
-                    int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
-                    cons(b, index_into_Mi, k, j, i) = 0;
-                    cons(b, index_into_Ni, k, j, i) = 0;
-                }
-              }
+              cons(b, mass_index, k, j, i) = 0;
+              cons(b, number_index, k, j, i) = 0;
 
               if(init_grainsize_distribution == 0){
                 dust::MRNGrainSizeDist(total_dust_mass,mass_index, number_index, code_to_microm, grain_size_bin, idx_into_grain_compositions, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
