@@ -953,6 +953,9 @@ Real ComputeDwekWernerGrainCooling(
               dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, a_boundary_low, a_boundary_high, temperature, ne_over_V,  1, Ni);
               dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, a_boundary_high, bin_a_max, temperature, ne_over_V,  0, Ni);
               }
+            } else {printf("a_boundary_low = %g, a_boundary_high = %g gs_i = %d temperature  %g grain_midbin_sizes_microm[gs_i] = %g Kokkos::pow(grain_midbin_sizes_microm[gs_i],"
+              " 2.0/3.0) = %g dwek_werner_regime_coeff = %g \n", a_boundary_low, a_boundary_high, gs_i, temperature, grain_midbin_sizes_microm[gs_i], Kokkos::pow(grain_midbin_sizes_microm[gs_i], 2.0/3.0), dwek_werner_regime_coeff);
+                PARTHENON_FAIL("Bad value of chi in dwek_werner_cooling");
             }
             }
           else{PARTHENON_FAIL("Bad integrated_rates value");}

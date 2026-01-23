@@ -420,12 +420,14 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // Wrap DeDt into a functor for the RKStepper
         auto DeDt_wrapper = [&](const Real t, const Real e, bool &valid) {
           Real gas_dedT = cooling_table_obj.DeDt(e, rho, valid); // in dimensions of erg cm^3/s but in code units
-          if(DustDevObj.we_have_dust_cooling == 0){
+          if(DustDevObj.we_have_dust_cooling == 0 || !valid){
             return gas_dedT;
           }
           else{
           Real dust_de_dt;
           Real temperature = mbar_gm1_over_kb * e;
+
+
           
           if(dust_cooling_mode_ == DustCoolingMode::DWEKWERNER1981){
           dust_de_dt = DustDevObj.DwekWernerCooling(temperature, rho, cooling_table_obj.x_H_over_m_h2_, DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords, DustDevObj.dust_piecewise_mode_int);
