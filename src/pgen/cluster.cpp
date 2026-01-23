@@ -434,9 +434,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   }
 
     if (hydro_pkg->Param<bool>("dust_on")){
-      hydro_pkg->AddField("dm_dt_sputter", m);
-      hydro_pkg->AddField("dm_dt_accretion", m);
-      hydro_pkg->AddField("dm_dt_total", m);
+      hydro_pkg->AddField("dm_dt_density_sputter", m);
+      hydro_pkg->AddField("dm_dt_density_accretion", m);
+      hydro_pkg->AddField("dm_dt_density_total", m);
     }
 
 
@@ -1211,9 +1211,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
 
 
         if (pkg->Param<bool>("dust_on")){
-          auto &dm_dt_sputter_field = data->Get("dm_dt_sputter").data;
-          auto &dm_dt_accretion_field = data->Get("dm_dt_accretion").data;
-          auto &dm_dt_total_field = data->Get("dm_dt_total").data;
+          auto &dm_dt_density_sputter_field = data->Get("dm_dt_density_sputter").data;
+          auto &dm_dt_density_accretion_field = data->Get("dm_dt_density_accretion").data;
+          auto &dm_dt_density_total_field = data->Get("dm_dt_density_total").data;
           const int dust_scalar_idx_start = pkg->Param<int>("dust_scalar_idx_start");  
           pmb->par_for(
               "Cluster::UserWorkBeforeOutput::DustMassRates", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -1236,9 +1236,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
 
                 dust::GetMassChangeRatePerBin(temperature, rho, volume, k, j, i, x, y, z, cons, DustDevObj, dm_dt_sputter, dm_dt_accretion, dm_dt_total);
 
-                dm_dt_sputter_field(k,j,i) = dm_dt_sputter;
-                dm_dt_accretion_field(k,j,i) = dm_dt_accretion;
-                dm_dt_total_field(k,j,i) = dm_dt_total;
+                dm_dt_density_sputter_field(k,j,i) = dm_dt_sputter / volume;
+                dm_dt_density_accretion_field(k,j,i) = dm_dt_accretion / volume;
+                dm_dt_density_total_field(k,j,i) = dm_dt_total / volume;
           
               });
         }
