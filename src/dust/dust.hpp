@@ -2379,9 +2379,9 @@ void GetMassChangeRatePerBin(const Real temperature, const Real rho, const Real 
 
 
 
-    Real mdot_sputter = 0.;
-    Real mdot_accretion = 0.;
-    Real mdot_total = 0.;
+    dm_dt_sputter = 0.;
+    dm_dt_accretion = 0.;
+    dm_dt_total = 0.;
 
     for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++){
         Real rho_d = single_grain_densities[gc_i];          // code_mass / code_len^3
@@ -2440,9 +2440,9 @@ void GetMassChangeRatePerBin(const Real temperature, const Real rho, const Real 
           Real aM = grain_midbin_sizes_microm[gs_i];        // Bin mid     in MicroM
           Real kap_p_thr = 3. + kappa_i;
           Real adot_to_mdot_prefactor = (Kokkos::pow(aU, kap_p_thr)-Kokkos::pow(aL, kap_p_thr)) * (4. * Kokkos::numbers::pi * rho_d * beta_i) / kap_p_thr ;
-          mdot_sputter     += adot_to_mdot_prefactor*adot_sputter;           
-          mdot_accretion   += adot_to_mdot_prefactor*adot_accretion;             
-          mdot_total       += adot_to_mdot_prefactor*adot_total;      
+          dm_dt_sputter     += adot_to_mdot_prefactor*adot_sputter;           
+          dm_dt_accretion   += adot_to_mdot_prefactor*adot_accretion;             
+          dm_dt_total       += adot_to_mdot_prefactor*adot_total;      
           } else{
             // not supported yet
             ;
