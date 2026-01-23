@@ -508,8 +508,8 @@ class Dust {
     Real D = total_dust_mass / ((8. * Kokkos::numbers::pi * rho_d / 3.) * ((1/Kokkos::sqrt(a_min)) - (1/Kokkos::sqrt(a_max))));
     Real bin_a_min = grainsize_bin_edges_microm[gs_i];
     Real bin_a_max = grainsize_bin_edges_microm[gs_i+1];
-    cons(index_into_Mi, k, j, i) += D * (8. * Kokkos::numbers::pi * rho_d / 3.) * ((1./Kokkos::sqrt(bin_a_min)) - (1./Kokkos::sqrt(bin_a_max))) / volume;
-    cons(index_into_Ni, k, j, i) += D * (1/3.5) * (Kokkos::pow(bin_a_min, -3.5) - Kokkos::pow(bin_a_max, -3.5)) / volume;
+    cons(index_into_Mi, k, j, i) = D * (8. * Kokkos::numbers::pi * rho_d / 3.) * ((1./Kokkos::sqrt(bin_a_min)) - (1./Kokkos::sqrt(bin_a_max))) / volume;
+    cons(index_into_Ni, k, j, i) = D * (1/3.5) * (Kokkos::pow(bin_a_min, -3.5) - Kokkos::pow(bin_a_max, -3.5)) / volume;
   } // MRNGrainSizeDist
 
   template <typename View4D>
@@ -525,8 +525,8 @@ class Dust {
     Real D = total_dust_mass / ((4. * Kokkos::numbers::pi * rho_d / (3.*8.5))  * (Kokkos::pow(a_max, 8.5) - Kokkos::pow(a_min, 8.5)));
     Real bin_a_min = grainsize_bin_edges_microm[gs_i];
     Real bin_a_max = grainsize_bin_edges_microm[gs_i+1];
-    cons(index_into_Mi, k, j, i) += D * ((4. * Kokkos::numbers::pi * rho_d / (3.*8.5))  * (Kokkos::pow(bin_a_max, 8.5) - Kokkos::pow(bin_a_min, 8.5))) / volume;
-    cons(index_into_Ni, k, j, i) += D * (1/5.5) * (Kokkos::pow(bin_a_max, 5.5) - Kokkos::pow(bin_a_min, 5.5)) / volume;
+    cons(index_into_Mi, k, j, i) = D * ((4. * Kokkos::numbers::pi * rho_d / (3.*8.5))  * (Kokkos::pow(bin_a_max, 8.5) - Kokkos::pow(bin_a_min, 8.5))) / volume;
+    cons(index_into_Ni, k, j, i) = D * (1/5.5) * (Kokkos::pow(bin_a_max, 5.5) - Kokkos::pow(bin_a_min, 5.5)) / volume;
   } // InverseMRNGrainSizeDist
 
 
@@ -544,8 +544,8 @@ class Dust {
     Real D = total_dust_mass / ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(a_max, 4.)/4. - Kokkos::pow(a_min, 4.)/4.));
     Real bin_a_min = grainsize_bin_edges_microm[gs_i];
     Real bin_a_max = grainsize_bin_edges_microm[gs_i+1];
-    cons(index_into_Mi, k, j, i) += D * ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(bin_a_max, 4.)/4. - Kokkos::pow(bin_a_min, 4.)/4.)) / volume;
-    cons(index_into_Ni, k, j, i) += D * (bin_a_max-bin_a_min) / volume;
+    cons(index_into_Mi, k, j, i) = D * ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(bin_a_max, 4.)/4. - Kokkos::pow(bin_a_min, 4.)/4.)) / volume;
+    cons(index_into_Ni, k, j, i) = D * (bin_a_max-bin_a_min) / volume;
   } // FlatGrainSizeDist
 
 
@@ -567,8 +567,8 @@ class Dust {
     Real D = total_dust_mass / ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(flat_graindist_in_range_amax, 4.)/4. - Kokkos::pow(flat_graindist_in_range_amin, 4.)/4.));
     Real xmin = std::max(bin_a_min, flat_graindist_in_range_amin);
     Real xmax = std::min(bin_a_max, flat_graindist_in_range_amax);
-    cons(index_into_Mi, k, j, i) += D * ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(xmax, 4.)/4. - Kokkos::pow(xmin, 4.)/4.)) / volume;
-    cons(index_into_Ni, k, j, i) += D * (xmax-xmin) / volume;
+    cons(index_into_Mi, k, j, i) = D * ((4. * Kokkos::numbers::pi * rho_d / 3.)  * (Kokkos::pow(xmax, 4.)/4. - Kokkos::pow(xmin, 4.)/4.)) / volume;
+    cons(index_into_Ni, k, j, i) = D * (xmax-xmin) / volume;
   } // flat_graindist_in_range_dist
 
 
