@@ -1042,6 +1042,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
               int mass_index = dust_scalar_idx_start + (dust_i*2) + 1;
               int number_index = dust_scalar_idx_start + (dust_i*2);
+              int grain_size_bin = dust_i % dust_num_grains_sizes;
+              int idx_into_grain_compositions = (dust_i - grain_size_bin) /  dust_num_grains_sizes;
+              
               Real volume = coords.CellVolume(k, j, i);
               Real total_dust_mass = 0.; 
               Real total_injected_dust_mass = 0.;
@@ -1065,19 +1068,23 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                   total_dust_mass = total_mass_C + total_mass_S;
                   total_dust_mass = std::max(total_dust_mass, dtgfloor*cons(b, IDN, k, j, i)*coords.CellVolume(k, j, i));
                   // Below we Undo the stellar-updates of the cons fields (cons(b, index_into_Mi, k, j, i) = 0 etc), because we may inject this dust mass with a DIFFERENT grainsize distribution
+
+                  // Set the grain fractions to match the stellar source
+                  // Need to do it in this convoluted way to enable inclusion of dtgfloor with whole total_dust_mass above
+                   if(idx_into_grain_compositions == 0){
+                      total_dust_mass = total_dust_mass * total_mass_C /(total_mass_C + total_mass_S);
+                    }
+                    else if(idx_into_grain_compositions == 1){
+                      total_dust_mass = total_dust_mass * total_mass_S /(total_mass_C + total_mass_S);
+                }
+
               }
                 else{
                 PARTHENON_FAIL("No DTG prescription set");
               }
 
-
-                // DustAddAGBWindContribution self consistentlky adds the dust to the fields, so dont repeat
-                // this for dust_init_profile == 3
-                int grain_size_bin = dust_i % dust_num_grains_sizes;
-                int idx_into_grain_compositions = (dust_i - grain_size_bin) /  dust_num_grains_sizes;
-
-
                 // normalise the masses if more than one grain
+              if(dust_init_profile != 3){
                 if(carbonaceous_grains == 1 && silicate_grains == 1){
                 if(idx_into_grain_compositions == 0){
                   total_dust_mass = total_dust_mass * carbonaceous_grain_mass_fraction /(carbonaceous_grain_mass_fraction + silicate_grain_mass_fraction);
@@ -1086,7 +1093,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                   total_dust_mass = total_dust_mass * silicate_grain_mass_fraction /(carbonaceous_grain_mass_fraction + silicate_grain_mass_fraction);
                 }
               }
-
+            }
 
             // Make sure these fields are zerod before adding to them
               cons(b, mass_index, k, j, i) = 0;
