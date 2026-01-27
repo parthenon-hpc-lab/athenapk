@@ -57,8 +57,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
   tracer_pkg->AddSwarm(swarm_name, swarm_metadata);
   Metadata real_swarmvalue_metadata({Metadata::Real});
-  tracer_pkg->AddSwarmValue("id", swarm_name,
-                            Metadata({Metadata::Integer, Metadata::Restart}));
 
   // TODO(pgrete) Add CheckDesired/required for vars
   // thermo variables
@@ -149,7 +147,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
       auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
       auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
       auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
-      auto &id = swarm->Get<int>("id").Get();
+      auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
 
       auto swarm_d = swarm->GetDeviceContext();
 
