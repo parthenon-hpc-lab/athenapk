@@ -75,7 +75,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   const bool mhd = pin->GetString("hydro", "fluid") == "glmmhd";
 
   PARTHENON_REQUIRE_THROWS(
-      pin->GetString("parthenon/mesh", "refinement") != "adaptive",
+      !pin->DoesParameterExist("parthenon/mesh", "refinement") ||
+          pin->GetString("parthenon/mesh", "refinement") != "adaptive",
       "Tracers/swarms currently only supported on non-adaptive meshes.");
 
   if (mhd) {
