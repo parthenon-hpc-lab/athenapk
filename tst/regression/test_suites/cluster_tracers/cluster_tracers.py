@@ -5,15 +5,9 @@
 # ========================================================================================
 
 # Modules
-import math
 import numpy as np
-import matplotlib
-
-matplotlib.use("agg")
-import matplotlib.pylab as plt
+import pickle
 import sys
-import os
-import itertools
 import utils.test_case
 
 """ To prevent littering up imported folders with .pyc files or __pycache_ folder"""
@@ -47,180 +41,10 @@ class TestCase(utils.test_case.TestCaseAbs):
         # Loading the data
         data = phdf.phdf(f"{parameters.output_path}/parthenon.restart.final.rhdf")
         tracers = data.GetSwarm("tracers")
-        xs = tracers.x
-        ys = tracers.y
-        zs = tracers.z
         ids = tracers.id
 
-        print("Analysis step. Number of tracers found: ", len(xs))
+        print("Analysis step. Number of tracers found: ", len(ids))
         print("Now checking success conditions")
-
-        ref_data = np.array(
-            [
-                0.002000,
-                -0.018000,
-                -0.010000,
-                0.006000,
-                0.002000,
-                -0.010000,
-                0.002000,
-                -0.010000,
-                0.002000,
-                -0.002000,
-                0.002000,
-                -0.010000,
-                0.006000,
-                -0.002000,
-                -0.006000,
-                -0.006000,
-                0.002000,
-                -0.006000,
-                -0.002000,
-                0.002000,
-                -0.010000,
-                0.002000,
-                -0.014000,
-                -0.018000,
-                0.006000,
-                -0.006000,
-                -0.018000,
-                -0.006000,
-                -0.010000,
-                -0.006000,
-                0.002000,
-                -0.014000,
-                -0.006000,
-                -0.006000,
-                -0.010000,
-                0.002000,
-                -0.006000,
-                -0.006000,
-                -0.014000,
-                -0.002000,
-                0.002000,
-                -0.006000,
-                -0.010000,
-                -0.002000,
-                0.002000,
-                -0.002000,
-                0.006000,
-                -0.006000,
-                0.002000,
-                0.010000,
-                -0.010000,
-                -0.010000,
-                0.002000,
-                -0.002000,
-                -0.014000,
-                0.002000,
-                -0.002000,
-                0.002000,
-                -0.018000,
-                -0.006000,
-                -0.010000,
-                -0.002000,
-                -0.006000,
-                -0.002000,
-                -0.010000,
-                -0.010000,
-                -0.002000,
-                0.002000,
-                -0.002000,
-                0.006000,
-                0.002000,
-                -0.002000,
-                -0.006000,
-                -0.006000,
-                0.006000,
-                -0.010000,
-                -0.006000,
-                -0.006000,
-                -0.018000,
-                -0.014000,
-                -0.002000,
-                -0.006000,
-                -0.006000,
-                0.002000,
-                -0.002000,
-                0.002000,
-                -0.006000,
-                0.002000,
-                0.002000,
-                -0.014000,
-                -0.006000,
-                -0.002000,
-                -0.006000,
-                -0.010000,
-                -0.002000,
-                -0.006000,
-                0.006000,
-                0.006000,
-                -0.002000,
-                0.006000,
-                -0.002000,
-                0.002000,
-                0.010000,
-                0.002000,
-                -0.018000,
-                0.010000,
-                0.006000,
-                -0.002000,
-                0.006000,
-                0.002000,
-                -0.002000,
-                -0.002000,
-                0.002000,
-                -0.002000,
-                -0.002000,
-                0.002000,
-                -0.002000,
-                0.002000,
-                0.010000,
-                0.018000,
-                0.006000,
-                0.010000,
-                -0.002000,
-                0.002000,
-                -0.002000,
-                0.006000,
-                0.006000,
-                0.006000,
-                -0.002000,
-                -0.002000,
-                0.014000,
-                0.006000,
-                -0.002000,
-                0.006000,
-                -0.002000,
-                0.018000,
-                0.002000,
-                0.006000,
-                0.014000,
-                0.006000,
-                0.002000,
-                0.010000,
-                0.002000,
-                0.014000,
-                0.006000,
-                0.006000,
-                0.002000,
-                0.014000,
-                -0.002000,
-                0.006000,
-                0.010000,
-                0.018000,
-                0.002000,
-                0.006000,
-                -0.002000,
-                0.018000,
-                0.010000,
-                0.002000,
-                -0.002000,
-                -0.002000,
-                0.006000,
-                -0.002000,
-            ]
-        )
 
         # Check that IDs are unique
         if len(ids) != len(np.unique(ids)):
@@ -229,23 +53,48 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # Sort by ID so comparison is deterministic
         order = np.argsort(ids)
-        zs_sorted = zs[order]
+
+        # For reference: this is how the ref data was stored
+        # all_var_data = {}
+        # for var in tracers.variables:
+        #    var_data = tracers.Get(var)
+        #    all_var_data[var] = var_data[order]
+
+        # with open("ref_data.pkl", "wb") as outfile:
+        #    pickle.dump(all_var_data, outfile)
+
+        with open(f"{parameters.test_path}/ref_data.pkl", "rb") as infile:
+            ref_data = pickle.load(infile)
 
         # Check that the shapes match
-        if zs_sorted.shape != ref_data.shape:
+        if ids.shape != ref_data["swarm.id"].shape:
             print(
-                f"TEST FAIL: shape mismatch: zs {zs_sorted.shape}, ref_data {ref_data.shape}"
+                f"TEST FAIL: shape mismatch: ids {ids.shape}, ref_data {ref_data['swarm.id'].shape}"
             )
             success = False
         else:
             # Compare with a small tolerance (floating-point safety)
             tol = 1e-12
-            if not np.allclose(zs_sorted, ref_data, atol=tol):
-                diff = zs_sorted - ref_data
-                print("TEST FAIL: zs differ from reference!")
-                print("Max difference:", np.max(np.abs(diff)))
-                success = False
-            else:
-                print("Successful match for tracers z-positions.")
+            for var in tracers.variables:
+                if var not in ref_data.keys():
+                    print(f"TEST FAIL: Missing swarm var '{var}' in ref data.")
+                    success = False
+                    continue
+
+                var_data = tracers.Get(var)
+                if not np.allclose(var_data[order], ref_data[var], atol=tol):
+                    diff = var_data[order] - ref_data[var]
+                    print(f"TEST FAIL: swarm var '{var}' differs from reference!")
+                    print("Max difference:", np.max(np.abs(diff)))
+                    success = False
+
+            # Finally check that there's no unexpected extra data
+            for ref_var in ref_data.keys():
+                if ref_var not in tracers.variables:
+                    print(f"TEST FAIL: Got extra swarm var '{var}' missing in ref data")
+                    success = False
+
+        if success:
+            print("Successful match for all tracer data.")
 
         return success
