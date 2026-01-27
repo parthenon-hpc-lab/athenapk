@@ -360,6 +360,7 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
   // Loading root grid level
   const int root_level = pmesh->GetRootLevel();
+  const int gid = pmb->gid;
 
   // Getting variable required for temperature
   auto current_time = tm.time;
@@ -467,7 +468,7 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                                 injection_threshold, mbar_over_kb, jet_radius, jet_offset,
                                 jet_thickness, ndim)) {
 
-            auto seed = SeedFromIndices(k, j, i, pmb->gid,
+            auto seed = SeedFromIndices(k, j, i, gid,
                                         current_time); // deterministic seed function
             auto rnd = random_double(seed);
             if (rnd < p_injection) {
@@ -522,7 +523,7 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                                 jet_thickness, ndim)) {
 
             // Deterministic seed and random double, only depends on k,j,i
-            auto seed = SeedFromIndices(k, j, i, pmb->gid, current_time);
+            auto seed = SeedFromIndices(k, j, i, gid, current_time);
             auto rnd = random_double(seed);
 
             if (rnd < p_injection) {
