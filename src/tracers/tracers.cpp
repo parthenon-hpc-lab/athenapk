@@ -26,6 +26,7 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "globals.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
@@ -99,6 +100,14 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   if (parthenon::Globals::is_restart) return;
 
   auto tracers_pkg = pmesh->packages.Get("tracers");
+
+  PARTHENON_REQUIRE_THROWS(
+      !pin->DoesParameterExist("tracers", "num_tracers_per_cell"),
+      "'tracers/num_tracers_per_cell' parameter has been deprecated. Please update your "
+      "input file to use 'tracers/initial_seed_method=random_per_block' with "
+      "'tracers/initial_num_tracers_per_cell=NUMBER'.");
+
+  pin->GetOrAddReal("tracers", "initial_num_tracers_per_cell", 0.0);
 
   const auto seed_method = pin->GetOrAddString("tracers", "initial_seed_method", "none");
   if (seed_method == "none") {

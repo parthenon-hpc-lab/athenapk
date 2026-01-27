@@ -298,7 +298,19 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *tracer_pkg) {
   const auto swarm_name = tracer_pkg->Param<std::string>("swarm_name");
 
-  const auto n_lookback = pin->GetOrAddInteger("tracers", "n_lookback", -1);
+  // The legacy version (that was already used in sims for paper) was a bad choice as
+  // it leaks information from sth problem specific to the tracers package.
+  // The following logic is added for compatiblity with existing data (updating options
+  // on the go).
+  int n_lookback = -1;
+  if (pin->DoesParameterExist("tracers", "n_lookback")) {
+    n_lookback = pin->GetInteger("tracers", "n_lookback");
+  } else {
+    n_lookback = pin->GetOrAddInteger("turbulence", "n_lookback", -1,
+                                      "Number of time bins for particle's s=ln(rho) "
+                                      "history in turbulence simulations.");
+  }
+
   PARTHENON_REQUIRE_THROWS(n_lookback == 40 || n_lookback == 56, "Unknown lookback time");
   // list of cycles between updating statistics
   // 0,    1,    2,    4,    8,    16,   32,   64,   128,
