@@ -84,7 +84,6 @@ gamma          = 1.6666666666666667 # gamma = C_p/C_v
 eos            = adiabatic
 riemann        = hllc
 reconstruction = plm
-use_scratch    = false
 scratch_level  = 0 # 0 is actual scratch (tiny); 1 is HBM
 Tceil          = inf # inf K
 vceil          = inf # inf c
