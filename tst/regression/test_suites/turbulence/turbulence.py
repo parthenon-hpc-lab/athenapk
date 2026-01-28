@@ -20,8 +20,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/output2/dt=-1",  # disable prim outputs
             "parthenon/output3/dt=10",  # set a large dt to get a final rst output
             "tracers/enabled=true",  # enable tracers via cmd line arguments
+            "tracers/advection_method=vinterp",
             "tracers/initial_seed_method=random_per_block",
-            "tracers/initial_num_tracers_per_cell=0.001953125",  # eff. 512 tracers in 64^3
+            "tracers/swarm_names=tracers",
+            "tracers/tracers_initial_num_tracers_per_cell=0.001953125",  # eff. 512 tracers in 64^3
             "turbulence/n_lookback=40",  # keep track of 40 time bins
         ]
 

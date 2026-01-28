@@ -95,6 +95,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   // Setting up useful fields (face-centered velocity, IDs offsets),
   // also checking the integrator choice in case of flux-based advection
+  PARTHENON_REQUIRE_THROWS(pin->DoesParameterExist("tracers", "swarm_names"),
+                           "Need to define at least one particle population via "
+                           "'swarm_names' when tracers are enabled.");
   auto swarm_names = pin->GetVector<std::string>("tracers", "swarm_names");
   tracers_pkg->AddParam<>("swarm_names", swarm_names);
 
@@ -684,10 +687,12 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   auto tracers_pkg = pmesh->packages.Get("tracers");
 
   PARTHENON_REQUIRE_THROWS(
-      !pin->DoesParameterExist("tracers", "num_tracers_per_cell"),
-      "'tracers/num_tracers_per_cell' parameter has been deprecated. Please update your "
+      (!pin->DoesParameterExist("tracers", "num_tracers_per_cell") &&
+       !pin->DoesParameterExist("tracers", "initial_num_tracers_per_cell")),
+      "'tracers/num_tracers_per_cell' and 'tracers/initial_num_tracers_per_cell' "
+      "parameters have been deprecated. Please update your "
       "input file to use 'tracers/initial_seed_method=random_per_block' with "
-      "'tracers/initial_num_tracers_per_cell=NUMBER'.");
+      "'tracers/SWARM_NAME_initial_num_tracers_per_cell=NUMBER'.");
 
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
