@@ -1258,8 +1258,8 @@ void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
         if(DustDevObj.agb_winds_on == 1){
         par_for(
               DEFAULT_LOOP_PATTERN, "Dust:DustAGBFirstUpdateStep", DevExecSpace(), 0,
-              cons_pack.GetDim(5) - 1, 0, num_grain_compositions-1, 0, dust_num_grains_sizes-1,  kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-              KOKKOS_LAMBDA(const int &b, const int &gc_i, const int &gs_i, const int &k, const int &j, const int &i) {
+              cons_pack.GetDim(5) - 1,  kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+              KOKKOS_LAMBDA(const int &b,const int &k, const int &j, const int &i) {
 
               auto &cons = cons_pack(b);
               auto &prim = prim_pack(b);
@@ -1354,8 +1354,8 @@ void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
 
             par_for(
                 DEFAULT_LOOP_PATTERN, "Dust:DustFinalUpdateStep", DevExecSpace(), 0,
-                cons_pack.GetDim(5) - 1, 0, num_grain_compositions-1, 0, dust_num_grains_sizes-1,  kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-                KOKKOS_LAMBDA(const int &b, const int &gc_i, const int &gs_i, const int &k, const int &j, const int &i) {
+                cons_pack.GetDim(5) - 1,  kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+                KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
 
                 auto &cons = cons_pack(b);
                 auto &prim = prim_pack(b);
@@ -1363,15 +1363,23 @@ void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
                 const auto volume =  coords.CellVolume(k, j, i);
                 // Update cons variables from Mj_new, Nj_new obtained  performing the conservative update
 
-                // WriteNewDust_with_adot
-                int index_into_Ni = DustDevObj.dust_scalar_idx_start + (gc_i * 2 * DustDevObj.dust_num_grains_sizes) + (2*gs_i);
-                int index_into_Mi = index_into_Ni + 1;
-                cons(index_into_Ni, k, j, i)  = std::max(DustDevObj.Nj_new(gc_i, gs_i,b, k - kb.s, j - jb.s, i - ib.s) / volume, 0.);
-                cons(index_into_Mi, k, j, i)  = std::max(DustDevObj.Mj_new(gc_i, gs_i,b, k - kb.s, j - jb.s, i - ib.s) / volume, 0.);
-                
-                // Just triple make sure the values are updated in both cons and cons_pack FJJ remove later once verified
-                KOKKOS_ASSERT(cons(index_into_Mi, k, j, i) == cons_pack(b,index_into_Mi, k, j, i));
-                KOKKOS_ASSERT(cons(index_into_Ni, k, j, i) == cons_pack(b,index_into_Ni, k, j, i));
+
+                  for(int gc_i = 0; gc_i < num_grain_compositions; gc_i++){
+                    for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i++){
+
+                      // WriteNewDust_with_adot
+                      int index_into_Ni = DustDevObj.dust_scalar_idx_start + (gc_i * 2 * DustDevObj.dust_num_grains_sizes) + (2*gs_i);
+                      int index_into_Mi = index_into_Ni + 1;
+                      cons(index_into_Ni, k, j, i)  = std::max(DustDevObj.Nj_new(gc_i, gs_i,b, k - kb.s, j - jb.s, i - ib.s) / volume, 0.);
+                      cons(index_into_Mi, k, j, i)  = std::max(DustDevObj.Mj_new(gc_i, gs_i,b, k - kb.s, j - jb.s, i - ib.s) / volume, 0.);
+                      
+                      // Just triple make sure the values are updated in both cons and cons_pack FJJ remove later once verified
+                      KOKKOS_ASSERT(cons(index_into_Mi, k, j, i) == cons_pack(b,index_into_Mi, k, j, i));
+                      KOKKOS_ASSERT(cons(index_into_Ni, k, j, i) == cons_pack(b,index_into_Ni, k, j, i));
+                    }
+                  }
+
+
 
             
             if(DustDevObj.agb_winds_on == 1){
@@ -1405,11 +1413,15 @@ void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
               // slope limiting if the reconstruction method is linear, like in McKinnon
               // int gb_i = (gc_i*grain_midbin_sizes_microm.extent(0)) + gs_i; 
                 // WriteNewDust_with_adot
+                  for(int gc_i = 0; gc_i < num_grain_compositions; gc_i++){
+                    for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i++){
                 int index_into_Ni = DustDevObj.dust_scalar_idx_start + (gc_i * 2 * DustDevObj.dust_num_grains_sizes) + (2*gs_i);
                 int index_into_Mi = index_into_Ni + 1;
                 DustSlopeLimitingLinSlope(index_into_Mi, index_into_Ni,DustDevObj.code_to_microm, gs_i, gc_i, volume, cons, k, j, i, DustDevObj.grainsize_bin_edges_microm, DustDevObj.grain_midbin_sizes_microm, DustDevObj.single_grain_densities, 0); 
                 DustSlopeLimitingLinSlope(index_into_Mi, index_into_Ni,DustDevObj.code_to_microm, gs_i, gc_i, volume, cons, k, j, i, DustDevObj.grainsize_bin_edges_microm, DustDevObj.grain_midbin_sizes_microm, DustDevObj.single_grain_densities, 1);
-                } // slope_limiting == 1
+                    }
+                  }  
+              } // slope_limiting == 1
               });
 
           if(DustDevObj.agb_winds_on == 1 && DustObj.write_dust_history_to_file_){
