@@ -295,15 +295,75 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   }
 }
 
-void ProblemInitTracerData(ParameterInput * /*pin*/,
-                           parthenon::StateDescriptor *tracer_pkg) {
-  // Number of lookback times to be stored (in powers of 2,
-  // i.e., 12 allows to go from 0, 2^0 = 1, 2^1 = 2, 2^2 = 4, ..., 2^10 = 1024 cycles)
-  const int n_lookback = 12; // could even be made an input parameter if required/desired
-                             // (though it should probably not be changeable for restarts)
-  tracer_pkg->AddParam("turbulence/n_lookback", n_lookback);
-
+void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *tracer_pkg) {
   const auto swarm_name = tracer_pkg->Param<std::string>("swarm_name");
+
+  // The legacy version (that was already used in sims for paper) was a bad choice as
+  // it leaks information from sth problem specific to the tracers package.
+  // The following logic is added for compatiblity with existing data (updating options
+  // on the go).
+  int n_lookback = -1;
+  if (pin->DoesParameterExist("tracers", "n_lookback")) {
+    n_lookback = pin->GetInteger("tracers", "n_lookback");
+  } else if (pin->DoesParameterExist("turbulence", "n_lookback")) {
+    n_lookback = pin->GetInteger("turbulence", "n_lookback",
+                                 "Number of time bins for particle's s=ln(rho) "
+                                 "history in turbulence simulations.");
+    //  tracer density history tracking disabled
+  } else {
+    return;
+  }
+
+  PARTHENON_REQUIRE_THROWS(n_lookback == 40 || n_lookback == 56, "Unknown lookback time");
+  // list of cycles between updating statistics
+  // 0,    1,    2,    4,    8,    16,   32,   64,   128,
+  // then followed depending on n_lookback.
+  // Not using a DualView as (re)storing a DualView through Params is currently not
+  // supported/tested.
+  parthenon::HostArray1D<int> dncycles_h("dncycles_h", n_lookback);
+  dncycles_h(0) = 0;
+  int idx = 1;
+  int dncycle = 1;
+  while (dncycle < 256) {
+    dncycles_h(idx) = dncycle;
+    dncycle *= 2;
+    idx++;
+  }
+  // then 128 steps till 4096 followed by 256 steps up to 8192
+  if (n_lookback == 56) {
+    while (dncycle < 4096) {
+      dncycles_h(idx) = dncycle;
+      dncycle += 128;
+      idx++;
+    }
+    while (dncycle <= 8192) {
+      dncycles_h(idx) = dncycle;
+      dncycle += 256;
+      idx++;
+    }
+    // following 128, then 256,  384,  512,  640,  768,
+    // 896,  1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, 2560, 3072, 3584, 4096,
+    // 4608, 5120, 5632, 6144, 6656, 7168, 7680, 8192, 8704, 9216, 9728, 10240
+  } else if (n_lookback == 40) {
+    while (dncycle < 2048) {
+      dncycles_h(idx) = dncycle;
+      dncycle += 128;
+      idx++;
+    }
+    while (dncycle <= 10240) {
+      dncycles_h(idx) = dncycle;
+      dncycle += 512;
+      idx++;
+    }
+  } else {
+    PARTHENON_THROW(
+        "This line should not be reached as invalid n_lookback are caught above.");
+  }
+  auto dncycles_d =
+      Kokkos::create_mirror_view_and_copy(parthenon::DevMemSpace(), dncycles_h);
+  tracer_pkg->AddParam("turbulence/n_lookback", n_lookback);
+  tracer_pkg->AddParam("turbulence/dncycles_h", dncycles_h);
+  tracer_pkg->AddParam("turbulence/dncycles_d", dncycles_d);
   // Using a vector to reduce code duplication.
   Metadata vreal_swarmvalue_metadata(
       {Metadata::Real, Metadata::Vector, Metadata::Restart},
@@ -875,21 +935,34 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
 
 TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
                               const Real dt) {
+
   const auto current_cycle = tm.ncycle;
 
+  auto hydro_pkg = md->GetParentPointer()->packages.Get("Hydro");
+  const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
+
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
+
+  // check if density tracing is used
+  if (!tracers_pkg->AllParams().hasKey("turbulence/n_lookback")) {
+    return TaskStatus::complete;
+  }
+
   const auto n_lookback = tracers_pkg->Param<int>("turbulence/n_lookback");
+
+  const auto dncycles_d =
+      tracers_pkg->Param<parthenon::ParArray1D<int>>("turbulence/dncycles_d");
+  const auto dncycles_h =
+      tracers_pkg->Param<parthenon::HostArray1D<int>>("turbulence/dncycles_h");
   // Params (which is storing t_lookback) is shared across all blocks so we update it
-  // outside the block loop. Note, that this is a standard vector, so it cannot be used
-  // in the kernel (but also don't need to be used as can directly update it)
+  // outside the block loop. Note, that this is a standard vector, so it cannot be used in
+  // the kernel (but also don't need to be used as can directly update it)
   auto t_lookback = tracers_pkg->Param<std::vector<Real>>("turbulence/t_lookback");
-  auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
   auto idx = n_lookback - 1;
-  while (dncycle > 0) {
-    if (current_cycle % dncycle == 0) {
+  while (idx > 0) {
+    if (current_cycle % (dncycles_h(idx) - dncycles_h(idx - 1)) == 0) {
       t_lookback[idx] = t_lookback[idx - 1];
     }
-    dncycle /= 2;
     idx -= 1;
   }
   t_lookback[0] = tm.time;
@@ -898,12 +971,13 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   // TODO(pgrete) Benchmark atomic and potentially update to proper reduction instead of
   // atomics.
-  //  Used for the parallel reduction. Could be reused but this way it's initalized to
-  //  0.
+  //  Used for the parallel reduction. Could be reused but this way it's initalized to 0.
   // n_lookback + 1 as it also carries <s> and <sdot>
   parthenon::ParArray2D<Real> corr("tracer correlations", 2, n_lookback + 1);
   int64_t num_particles_total = 0;
 
+  // Get hydro/mhd fluid vars over all blocks
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
     auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
@@ -922,14 +996,12 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
     pmb->par_for(
         "Turbulence::Fill Tracers", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
           if (swarm_d.IsActive(n)) {
-            auto dncycle = static_cast<int>(Kokkos::pow(2, n_lookback - 2));
             auto s_idx = n_lookback - 1;
-            while (dncycle > 0) {
-              if (current_cycle % dncycle == 0) {
+            while (s_idx > 0) {
+              if (current_cycle % (dncycles_d(s_idx) - dncycles_d(s_idx - 1)) == 0) {
                 s(s_idx, n) = s(s_idx - 1, n);
                 sdot(s_idx, n) = sdot(s_idx - 1, n);
               }
-              dncycle /= 2;
               s_idx -= 1;
             }
             s(0, n) = Kokkos::log(rho(n));
@@ -948,6 +1020,10 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
     num_particles_total += swarm->GetNumActive();
   } // loop over all blocks on this rank (this MeshData container)
 
+  // Safetey check (for now)
+  PARTHENON_REQUIRE_THROWS(md->NumBlocks() ==
+                               md->GetMeshPointer()->GetNumMeshBlocksThisRank(),
+                           "The following reduction assumes pack_size=-1.");
   // Results still live in device memory. Copy to host for global reduction and output.
   auto corr_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), corr);
 #ifdef MPI_PARALLEL

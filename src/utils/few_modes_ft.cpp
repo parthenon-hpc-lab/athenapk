@@ -207,7 +207,6 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
 
   const auto num_modes = num_modes_;
 
-  Complex I(0.0, 1.0);
   auto &random_num = random_num_;
 
   // get a set of random numbers from the CPU so that they are deterministic
