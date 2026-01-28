@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 // Tracer implementation refactored from https://github.com/lanl/phoebus
@@ -296,19 +296,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // packages.
     const bool mhd = pin->GetString("hydro", "fluid") == "glmmhd";
 
-    // Check if tracers/swarms are compatible with the mesh refinement type
-    const std::string mesh_refinement = pin->GetString("parthenon/mesh", "refinement");
-    const bool is_adaptive = (mesh_refinement == "adaptive");
-
-    bool is_cubic_refinement = false;
-    if (is_adaptive) {
-      const std::string refinement_type = pin->GetString("refinement", "type");
-      is_cubic_refinement = (refinement_type == "cubic");
-    }
-
-    PARTHENON_REQUIRE_THROWS(!is_adaptive || is_cubic_refinement,
-                             "Tracers/swarms currently only supported on non-adaptive "
-                             "meshes or with cubic adaptive refinement.");
+    PARTHENON_REQUIRE_THROWS(
+        !pin->DoesParameterExist("parthenon/mesh", "refinement") ||
+            pin->GetString("parthenon/mesh", "refinement") != "adaptive",
+        "Tracers/swarms currently only supported on non-adaptive meshes.");
 
     if (mhd) {
       tracers_pkg->AddSwarmValue("B_x", swarm_name, real_swarmvalue_metadata);
@@ -691,6 +682,13 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   auto nx3 = pin->GetInteger("parthenon/mesh", "nx3");
 
   auto tracers_pkg = pmesh->packages.Get("tracers");
+
+  PARTHENON_REQUIRE_THROWS(
+      !pin->DoesParameterExist("tracers", "num_tracers_per_cell"),
+      "'tracers/num_tracers_per_cell' parameter has been deprecated. Please update your "
+      "input file to use 'tracers/initial_seed_method=random_per_block' with "
+      "'tracers/initial_num_tracers_per_cell=NUMBER'.");
+
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
   // Checking if the advection method is Monte Carlo

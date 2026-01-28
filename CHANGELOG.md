@@ -4,6 +4,12 @@
 
 ### General notes
 
+Particle ids have been updated in Parthenon to be `uint64` and added by default.
+Thus, the original "`id`" tracer variable has been removed in favor of the Parthenon default version.
+Access to that `id` is done via `auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();`
+and via `swarm.id` in the `phdf` python tools.
+Other postprocessing tools, like VisIt will automatically identify the new field.
+
 From updated Parthenon submodule:
 
 - `packs_per_rank` can now be used instead of `pack_size` in the `<parthenon/mesh>` input block.
@@ -20,6 +26,7 @@ To enable, set `do_coalesced_comms=true` in the `<parthenon/mesh>` block of the 
 by adding an optional string as last argument to any `ParameterInput` `Get` or `GetOrAdd` call.
 
 ### Added (new features/APIs/variables/...)
+- [[PR 158]](https://github.com/parthenon-hpc-lab/athenapk/pull/158) Update particle id handling (now automated `uint64`). Extend particle history lookback in turbulence pgen and include in turbulence test
 - [[PR 157]](https://github.com/parthenon-hpc-lab/athenapk/pull/157) Support injection of blobs with density/temp contrast in turbulence simulations
 
 ### Changed (changing behavior/API/variables/...)
