@@ -305,10 +305,13 @@ void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *trac
   int n_lookback = -1;
   if (pin->DoesParameterExist("tracers", "n_lookback")) {
     n_lookback = pin->GetInteger("tracers", "n_lookback");
+  } else if (pin->DoesParameterExist("turbulence", "n_lookback")) {
+    n_lookback = pin->GetInteger("turbulence", "n_lookback",
+                                 "Number of time bins for particle's s=ln(rho) "
+                                 "history in turbulence simulations.");
+    //  tracer density history tracking disabled
   } else {
-    n_lookback = pin->GetOrAddInteger("turbulence", "n_lookback", -1,
-                                      "Number of time bins for particle's s=ln(rho) "
-                                      "history in turbulence simulations.");
+    return;
   }
 
   PARTHENON_REQUIRE_THROWS(n_lookback == 40 || n_lookback == 56, "Unknown lookback time");
@@ -939,6 +942,12 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
   const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
 
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
+
+  // check if density tracing is used
+  if (!tracers_pkg->AllParams().hasKey("turbulence/n_lookback")) {
+    return TaskStatus::complete;
+  }
+
   const auto n_lookback = tracers_pkg->Param<int>("turbulence/n_lookback");
 
   const auto dncycles_d =
