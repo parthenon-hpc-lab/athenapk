@@ -81,9 +81,11 @@ num_modes    = 30       # number of wavemodes
 
 <tracers>
 enabled = true
+advection_method = vinterp
 initial_seed_method  = random_per_block    # alternative: user
-initial_num_tracers_per_cell = 0.125
-initial_rng_seed = 42   # optional
+swarm_names = tracers
+tracers_initial_num_tracers_per_cell = 0.125
+tracers_initial_rng_seed = 42   # optional
 
 <modes>
 k_1_0    = +2
