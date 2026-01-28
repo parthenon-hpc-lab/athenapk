@@ -498,7 +498,7 @@ class Dust {
 
   template <typename View4D>
   KOKKOS_INLINE_FUNCTION
-  void MRNGrainSizeDist(const Real total_dust_mass, const int index_into_Mi, const int index_into_Ni, const Real code_to_microm,  const int gs_i, const int gc_i, const Real volume, const View4D cons, const int k, const int j, const int i, const ParArray1D<Real> grainsize_bin_edges_microm, const ParArray1D<Real> grain_midbin_sizes_microm, const ParArray1D<Real> single_grain_densities){
+  void MRNGrainSizeDist(const Real total_dust_mass, const int index_into_Mi, const int index_into_Ni, const Real code_to_microm,  const int gs_i, const int gc_i, const Real volume,  const View4D cons, const int k, const int j, const int i, const ParArray1D<Real> grainsize_bin_edges_microm, const ParArray1D<Real> grain_midbin_sizes_microm, const ParArray1D<Real> single_grain_densities){
     // FJJ TODO implement StablePowDiff here
     const int n_edges = grainsize_bin_edges_microm.extent(0);
     const Real a_max = grainsize_bin_edges_microm(n_edges - 1);
@@ -510,8 +510,23 @@ class Dust {
     Real D = total_dust_mass / ((8. * Kokkos::numbers::pi * rho_d / 3.) * ((1/Kokkos::sqrt(a_min)) - (1/Kokkos::sqrt(a_max))));
     Real bin_a_min = grainsize_bin_edges_microm[gs_i];
     Real bin_a_max = grainsize_bin_edges_microm[gs_i+1];
+    
     cons(index_into_Mi, k, j, i) = D * (8. * Kokkos::numbers::pi * rho_d / 3.) * ((1./Kokkos::sqrt(bin_a_min)) - (1./Kokkos::sqrt(bin_a_max))) / volume;
+    if(std::abs(cons(index_into_Mi, k, j, i))<1e-80){
+      printf("cons(index_into_Mi, k, j, i)=%e A=%e B=%e C=%e index_into_Mi=%d index_into_Ni=%d i=%d j=%d k=%d \n", cons(index_into_Mi, k, j, i), D * (8. * Kokkos::numbers::pi * rho_d / 3.) * ((1./Kokkos::sqrt(bin_a_min)) - (1./Kokkos::sqrt(bin_a_max))) / volume ,(1./Kokkos::sqrt(bin_a_min)),(1./Kokkos::sqrt(bin_a_max)), index_into_Mi, index_into_Ni,i,j,k);
+    }
     cons(index_into_Ni, k, j, i) = D * (1/3.5) * (Kokkos::pow(bin_a_min, -3.5) - Kokkos::pow(bin_a_max, -3.5)) / volume;
+    if(std::abs(cons(index_into_Mi, k, j, i))<1e-80){
+      printf("after Ni cons(index_into_Mi, k, j, i)=%e A=%e B=%e C=%e index_into_Mi=%d index_into_Ni=%d i=%d j=%d k=%d \n",cons(index_into_Mi, k, j, i), D * (8. * Kokkos::numbers::pi * rho_d / 3.) * ((1./Kokkos::sqrt(bin_a_min)) - (1./Kokkos::sqrt(bin_a_max))) / volume ,(1./Kokkos::sqrt(bin_a_min)),(1./Kokkos::sqrt(bin_a_max)), index_into_Mi, index_into_Ni,i,j,k);
+    }
+
+    // if(std::abs(cons(index_into_Ni, k, j, i))<1e-50){
+    //   printf("cons(index_into_Ni, k, j, i)=%e bin_a_min=%e bin_a_max=%e volume=%e \n", cons(index_into_Ni, k, j, i), bin_a_min, bin_a_max, volume );
+    // }
+    //   if(std::abs(cons(index_into_Mi, k, j, i))<1e-50){
+    //   printf("after Ni cons(index_into_Mi, k, j, i)=%e bin_a_min=%e bin_a_max=%e volume=%e D=%e total_dust_mass=%e\n", cons(index_into_Mi, k, j, i), bin_a_min, bin_a_max, volume, D, total_dust_mass );
+    //   printf("after Ni A=%e B=%e C=%e index_into_Mi=%d index_into_Ni=%d \n", (8. * Kokkos::numbers::pi * rho_d / 3.) * ((1./Kokkos::sqrt(bin_a_min)) - (1./Kokkos::sqrt(bin_a_max))),(1./Kokkos::sqrt(bin_a_min)),(1./Kokkos::sqrt(bin_a_max)), index_into_Mi, index_into_Ni);
+    // }
   } // MRNGrainSizeDist
 
   template <typename View4D>
@@ -1773,6 +1788,93 @@ for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++ ){
 
 
 
+  KOKKOS_INLINE_FUNCTION
+void DustAddAGBWindContribution(Real &total_mass_C,Real &total_mass_S,Real &stellar_mass_this_cell,const int gs_i, const int gc_i, const int b, const int k, const int j, const int i, const parthenon::MeshBlockPack<VariablePack<Real>> &cons_pack, const DustDevice  &DustDevObj, const Real dt) {
+// FJJ for PGrete - AGB wind injection still needs to be fully tested in-depth e.g. with a one-zone model comparison, but initial tests looked good.            
+const int  dust_num_grains_sizes       = DustDevObj.dust_num_grains_sizes;
+const int  dust_scalar_idx_start       = DustDevObj.dust_scalar_idx_start;
+const ParArray1D<Real> single_grain_densities      = DustDevObj.single_grain_densities;
+const ParArray1D<Real> grainsize_bin_edges_microm  = DustDevObj.grainsize_bin_edges_microm;
+const ParArray1D<Real> grain_midbin_sizes_microm   = DustDevObj.grain_midbin_sizes_microm;
+
+const Real             agb_max_radius  = DustDevObj.agb_max_radius;
+const Real             gamma_star  = DustDevObj.gamma_star;
+const Real             stellar_mass_cent  = DustDevObj.stellar_mass_cent;
+const Real             stellar_density_profile_r_low  = DustDevObj.stellar_density_profile_r_low;
+const Real             stellar_density_profile_r_up  = DustDevObj.stellar_density_profile_r_up;
+const Real             dust_return_silicates_mass_fraction_per_megayear  = DustDevObj.dust_return_silicates_mass_fraction_per_megayear;
+const Real             dust_return_carbon_mass_fraction_per_megayear  = DustDevObj.dust_return_carbon_mass_fraction_per_megayear;
+const Real             code_to_megayear  = DustDevObj.code_to_megayear;
+const int              num_grain_compositions  = DustDevObj.num_grain_compositions;
+const int              carbonaceous_grains  = DustDevObj.carbonaceous_grains;
+const int              silicate_grains  = DustDevObj.silicate_grains;
+const ParArray1D<Real> agb_normalised_carbonaceous_mass_distribution_array = DustDevObj.agb_normalised_carbonaceous_mass_distribution_array;
+const ParArray1D<Real> agb_normalised_carbonaceous_number_distribution_array = DustDevObj.agb_normalised_carbonaceous_number_distribution_array;
+const ParArray1D<Real> agb_normalised_silicate_mass_distribution_array = DustDevObj.agb_normalised_silicate_mass_distribution_array;
+const ParArray1D<Real> agb_normalised_silicate_number_distribution_array = DustDevObj.agb_normalised_silicate_number_distribution_array;
+
+const auto &coords = cons_pack.GetCoords(b);
+
+const auto x = coords.Xc<1>(i);
+const auto y = coords.Xc<2>(j);
+const auto z = coords.Xc<3>(k);
+
+const auto r = Kokkos::sqrt(x * x + y * y + z * z);
+if (r > agb_max_radius) {
+  return;
+}
+
+const Real volume = coords.CellVolume(k, j, i);
+Real M_star_this_cell;
+//fjjcurrent
+if(DustDevObj.stellar_radial_profile == StellarRadialProfile::POWER_LAW){
+M_star_this_cell             = StellarDensityAtRadiusPowerLaw(r, gamma_star,  stellar_mass_cent, stellar_density_profile_r_low, stellar_density_profile_r_up) * volume;
+} else if(DustDevObj.stellar_radial_profile == StellarRadialProfile::PRUGNIELSIMIEN){
+M_star_this_cell             =  PrugnielSimienStellarRhoProfile(r, DustDevObj.sersic_n, DustDevObj.sersic_Re, DustDevObj.stellar_profile_norm, stellar_density_profile_r_low, stellar_density_profile_r_up) * volume;
+} else{
+  PARTHENON_FAIL("Stellar Density Function Invalid");
+}
+
+
+stellar_mass_this_cell = M_star_this_cell;
+Real added_silicate_mass      = dust_return_silicates_mass_fraction_per_megayear * M_star_this_cell * dt * code_to_megayear;
+Real added_carbonaceous_mass  = dust_return_carbon_mass_fraction_per_megayear  * M_star_this_cell * dt * code_to_megayear;
+
+// printf("Stellar density = %e radius = %e stellar_density_profile_r_low = %e \n", M_star_this_cell/volume, r, stellar_density_profile_r_low);
+
+    int index_into_Mi = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i)) + 1;
+    int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
+    if(carbonaceous_grains == 1 && silicate_grains == 1){
+      if(gc_i == 0){
+              cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i] / volume);
+              cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_number_distribution_array[gs_i] / volume);
+              total_mass_C += (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i]);
+            }
+            else if(gc_i == 1){
+              cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i] / volume);
+              cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_number_distribution_array[gs_i] / volume);
+              total_mass_S += (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
+            }
+      } else if(carbonaceous_grains == 1){
+        cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i] / volume);
+        cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_number_distribution_array[gs_i] / volume);
+        total_mass_C += (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i]);
+      } else if(silicate_grains == 1){
+        cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i] / volume);
+        cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_number_distribution_array[gs_i] / volume);
+        total_mass_S +=  (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
+      }
+  } // DustAddAGBWindContribution
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1823,13 +1925,14 @@ void GetUpdated_MjNj_ThisCompositionHelper(
                     // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e r=%e whole_box_extent=%e f_sput=%e rho =%e  adot_sputter=%e  sput_prefac=%e  sput_dens=%e  sput_T=%e  \n", x,y,z,r, whole_box_extent, f_sput, rho, adot_sputter,  sput_prefac,  sput_dens,  sput_T);
                     printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
                     }
-                  adot_sputter = 0.;
-                  adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
-                  adot = 0.;
                   if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
                     printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e temperature=%e\n", x,y,z, whole_box_extent, rho, temperature);
                     PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
+                    PARTHENON_REQUIRE(adot_sputter == adot_sputter , "adot_sputter is nan!");
                     }
+                    adot_sputter = 0.;
+                    adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
+                    adot = 0.;
                   }
                   if(adot_accretion < 0 || adot_accretion != adot_accretion){
                     if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
@@ -1839,6 +1942,7 @@ void GetUpdated_MjNj_ThisCompositionHelper(
                   if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
                   printf("[FJJ DEBUG] Accretion is shrinking grains inside of the boundary! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
                   PARTHENON_REQUIRE(adot_accretion >= 0, "Accretion is shrinking grains!");
+                  PARTHENON_REQUIRE(adot_accretion == adot_accretion , "adot_accretion is nan!");
                   }
 
                   adot_sputter = 0.;
@@ -1979,13 +2083,14 @@ void DustFilladotView(
                     // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e r=%e whole_box_extent=%e f_sput=%e rho =%e  adot_sputter=%e  sput_prefac=%e  sput_dens=%e  sput_T=%e  \n", x,y,z,r, whole_box_extent, f_sput, rho, adot_sputter,  sput_prefac,  sput_dens,  sput_T);
                     printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
                     }
+                  if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
+                    printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e temperature=%e\n", x,y,z, whole_box_extent, rho, temperature);
+                    PARTHENON_REQUIRE(adot_sputter <= 0 , "Sputtering is growing grains!");
+                    PARTHENON_REQUIRE(adot_sputter == adot_sputter , "adot_sputter is nan!");
+                    }
                   adot_sputter = 0.;
                   adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
                   adot = 0.;
-                  if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
-                    printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e temperature=%e\n", x,y,z, whole_box_extent, rho, temperature);
-                    PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
-                    }
                   }
                   if(adot_accretion < 0 || adot_accretion != adot_accretion){
                     if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
@@ -1995,6 +2100,7 @@ void DustFilladotView(
                   if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
                   printf("[FJJ DEBUG] Accretion is shrinking grains inside of the boundary! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
                   PARTHENON_REQUIRE(adot_accretion >= 0, "Accretion is shrinking grains!");
+                  PARTHENON_REQUIRE(adot_accretion == adot_accretion , "adot_sputter is nan!");
                   }
 
                   adot_sputter = 0.;
@@ -2475,24 +2581,24 @@ void GetMassChangeRatePerBin(const Real temperature, const Real rho, const Real 
               if(adot_sputter > 0 || adot_sputter != adot_sputter){
                 if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
                 // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e r=%e whole_box_extent=%e f_sput=%e rho =%e  adot_sputter=%e  sput_prefac=%e  sput_dens=%e  sput_T=%e  \n", x,y,z,r, whole_box_extent, f_sput, rho, adot_sputter,  sput_prefac,  sput_dens,  sput_T);
-                printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                printf("[FJJ DEBUG] Sputtering is growing grains in GetMassChangePerBin! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                }
+              if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
+                printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary in GetMassChangePerBin! x=%e y =%e z=%e whole_box_extent=%e rho =%e temperature=%e\n", x,y,z, whole_box_extent, rho, temperature);
+                PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains in GetMassChangePerBin!");
                 }
               adot_sputter = 0.;
               adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
               adot_total = 0.;
-              if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
-                printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e temperature=%e\n", x,y,z, whole_box_extent, rho, temperature);
-                PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
-                }
               }
               if(adot_accretion < 0 || adot_accretion != adot_accretion){
                 if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
-                printf("[FJJ DEBUG] Accretion is shrinking grains! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
+                printf("[FJJ DEBUG] Accretion is shrinking grains in GetMassChangePerBin! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
                 }
                 
               if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
-              printf("[FJJ DEBUG] Accretion is shrinking grains inside of the boundary! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
-              PARTHENON_REQUIRE(adot_accretion >= 0, "Accretion is shrinking grains!");
+              printf("[FJJ DEBUG] Accretion is shrinking grains inside of the boundary in GetMassChangePerBin! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
+              PARTHENON_REQUIRE(adot_accretion >= 0, "Accretion is shrinking grains in GetMassChangePerBin!");
               }
 
               adot_sputter = 0.;

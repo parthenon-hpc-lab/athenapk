@@ -1327,8 +1327,6 @@ void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
                 cons_pack.GetDim(5) - 1, 0, num_grain_compositions-1, 0, dust_num_grains_sizes-1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
                 KOKKOS_LAMBDA(const int &b, const int &gc_i,const int &gs_i, const int &k, const int &j, const int &i) {
 
-
-
                 // get race-safe accessors to gen contributions to Nj and Mj, parallelised over gc_i, gs_i
                 auto Mj_new_scatter_f_a = Mj_new_scatter_f.access();
                 auto Nj_new_scatter_f_a = Nj_new_scatter_f.access();
