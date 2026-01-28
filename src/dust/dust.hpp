@@ -87,6 +87,8 @@ using View6DReal = Kokkos::View<Real******>;
 using View5DReal = Kokkos::View<Real*****>;
 
 enum class DustCoolingMode {OFF, DWEKWERNER1981, DWEKWERNER1981_INTEGRATED};
+enum class StellarRadialProfile {POWER_LAW, PRUGNIELSIMIEN};
+//fjjcurrent
 enum class DustPiecewiseMode {LINEAR, LOGLINEAR};
 
 void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md,
@@ -635,6 +637,9 @@ struct DustDevice {
     // AGB vars
     Real agb_max_radius;
     Real gamma_star;
+    Real sersic_n;
+    Real sersic_Re;
+    Real stellar_profile_norm;
     Real stellar_mass_cent;
     Real stellar_density_profile_r_low;
     Real stellar_density_profile_r_up;
@@ -1164,8 +1169,20 @@ void SetupDustDevice(parthenon::StateDescriptor *hydro_pkg, MeshBlock *pmb){
 
   if(agb_winds_on == 1){
       // For AGB winds
+
+    //fjjcurrent
+    stellar_radial_profile = hydro_pkg->Param<StellarRadialProfile>("stellar_radial_profile");
+     if(stellar_radial_profile == StellarRadialProfile::POWER_LAW){
+      gamma_star = hydro_pkg->Param<Real>("gamma_star");
+     } else
+     if(stellar_radial_profile == StellarRadialProfile::PRUGNIELSIMIEN){
+      sersic_n = hydro_pkg->Param<Real>("sersic_n");
+      sersic_Re = hydro_pkg->Param<Real>("sersic_Re");
+      stellar_profile_norm = hydro_pkg->Param<Real>("stellar_profile_norm");
+     }
+
+
       agb_max_radius                                = hydro_pkg->Param<Real>("agb_max_radius");
-      gamma_star                                    = hydro_pkg->Param<Real>("gamma_star");
       stellar_mass_cent                                    = hydro_pkg->Param<Real>("stellar_mass_cent");
       stellar_density_profile_r_low                  = hydro_pkg->Param<Real>("stellar_density_profile_r_low");
       stellar_density_profile_r_up                  = hydro_pkg->Param<Real>("stellar_density_profile_r_up");
@@ -1227,13 +1244,59 @@ void SetupDustForEvolutionandCoolingKernel(MeshData<Real> *md){
 }; // struct DustDevice
 
 
+KOKKOS_INLINE_FUNCTION
+Real PrugnielSimienStellarRhoProfile(const Real r, const Real n, const Real Re, const Real rho_0, const Real stellar_density_profile_r_low, const Real stellar_density_profile_r_up){
+  // printf("r = %e, n  = %e, Re  = %e, rho_0 = %e, stellar_density_profile_r_low  = %e, stellar_density_profile_r_up  = %e \n", r , n  , Re  , rho_0 , stellar_density_profile_r_low  , stellar_density_profile_r_up);
+  if(r < stellar_density_profile_r_low || r > stellar_density_profile_r_up){ return 0.;}
+	const Real b = 2*n - 1./3. + 0.009876/n; // approx given in 10.1111/j.1365-2966.2005.09269.x
+	PARTHENON_REQUIRE(n < 10. && n > 0.6, "Need n < 10. && n > 0.6 in PrugnielSimienStellarRhoProfile");
+	const Real p = 1. - 0.6097/n + 0.05563/(n*n);
+	Real rho_r = rho_0 * Kokkos::pow(r/Re, -p) * Kokkos::exp(-b * Kokkos::pow(r/Re, 1./n));
+	return rho_r;
+}
 
+
+KOKKOS_INLINE_FUNCTION
+Real PrugnielSimienStellarRhoProfile(const Real r, const Real n, const Real Re, const Real rho_0){
+	const Real b = 2*n - 1./3. + 0.009876/n; // approx given in 10.1111/j.1365-2966.2005.09269.x
+	PARTHENON_REQUIRE(n < 10. && n > 0.6, "Need n < 10. && n > 0.6 in PrugnielSimienStellarRhoProfile");
+	const Real p = 1. - 0.6097/n + 0.05563/(n*n);
+	Real rho_r = rho_0 * Kokkos::pow(r/Re, -p) * Kokkos::exp(-b * Kokkos::pow(r/Re, 1./n));
+	return rho_r;
+}
+
+
+
+inline // inline here so all similar functions can be together
+Real PrugnielSimienStellardM(const Real r, const Real n, const Real Re, const Real rho_0){
+	return 4. * Kokkos::numbers::pi * r*r * PrugnielSimienStellarRhoProfile(r, n, Re, rho_0);
+}
+
+inline // inline here so all similar functions can be together
+Real GetPrugnielSimienNorm(const Real Mstar_cent, const Real R_low,const Real R_up, const Real n, const Real Re){
+  // printf("In Norm Mstar_cent = %e, n  = %e, Re  = %e,  stellar_density_profile_r_low  = %e, stellar_density_profile_r_up  = %e \n", Mstar_cent , n  , Re  ,  R_low  , R_up);
+	const int n_integration_steps = 100000;
+	const Real dR = (R_up - R_low)/n_integration_steps;
+	Real result = 0.;
+	// Integrate using Simpson's rule. There is an an analytic form in 10.1111/j.1365-2966.2005.09269.x
+	// But this is simpler and must only be done once
+	for(int i = 0; i < n_integration_steps; i++){
+		Real a = R_low + (i*dR);
+		Real b = a + dR;
+		Real f_a = PrugnielSimienStellardM(a, n, Re, 1);
+		Real f_b = PrugnielSimienStellardM(b, n, Re, 1);
+		Real f_ab_2 = PrugnielSimienStellardM((a+b)/2., n, Re, 1);
+		Real dresult = (f_a + f_b + 4.*f_ab_2) * (dR/6.);
+		result = result + dresult;
+	}
+	return Mstar_cent/result;
+}
 
 
 
 
 KOKKOS_INLINE_FUNCTION
-Real StellarDensityAtRadius(const Real r, const Real gamma_star,  const Real stellar_mass_cent, const Real stellar_density_profile_r_low, const Real stellar_density_profile_r_up){
+Real StellarDensityAtRadiusPowerLaw(const Real r, const Real gamma_star,  const Real stellar_mass_cent, const Real stellar_density_profile_r_low, const Real stellar_density_profile_r_up){
   // FJJ TODO only calculate the norm once and store it
 // Returns stellar density at a radius based on logarithmic profile, normalised to total BCG stellar mass
 // rho_star = D * r^gamma, D is a norm const
@@ -1663,7 +1726,17 @@ if (r > agb_max_radius) {
 }
 
 const Real volume = coords.CellVolume(k, j, i);
-const Real M_star_this_cell             = StellarDensityAtRadius(r, gamma_star,  stellar_mass_cent, stellar_density_profile_r_low, stellar_density_profile_r_up) * volume;
+Real M_star_this_cell;
+//fjjcurrent
+if(DustDevObj.stellar_radial_profile == StellarRadialProfile::POWER_LAW){
+M_star_this_cell             = StellarDensityAtRadiusPowerLaw(r, gamma_star,  stellar_mass_cent, stellar_density_profile_r_low, stellar_density_profile_r_up) * volume;
+} else if(DustDevObj.stellar_radial_profile == StellarRadialProfile::PRUGNIELSIMIEN){
+M_star_this_cell             =  PrugnielSimienStellarRhoProfile(r, DustDevObj.sersic_n, DustDevObj.sersic_Re, DustDevObj.stellar_profile_norm, stellar_density_profile_r_low, stellar_density_profile_r_up) * volume;
+} else{
+  PARTHENON_FAIL("Stellar Density Function Invalid");
+}
+
+
 stellar_mass_this_cell = M_star_this_cell;
 Real added_silicate_mass      = dust_return_silicates_mass_fraction_per_megayear * M_star_this_cell * dt * code_to_megayear;
 Real added_carbonaceous_mass  = dust_return_carbon_mass_fraction_per_megayear  * M_star_this_cell * dt * code_to_megayear;

@@ -358,15 +358,35 @@ PARTHENON_REQUIRE(initial_dust_bin_mass_ratios_v_.size() == num_dust_bins, "Bad 
     // AGB winds
   if(agb_winds_){
     const Real agb_max_radius                                = pin->GetOrAddReal("dust/AGB_Winds", "AGB_max_radius_in_kpc",std::numeric_limits<double>::max()) * units.kpc();
-    const Real gamma_star                                    = pin->GetOrAddReal("dust/AGB_Winds", "gamma_star",-2.5);
     const Real stellar_mass_cent                                    = pin->GetReal("dust/AGB_Winds", "Mstar_cent_in_Msun") * units.msun(); // to CODE units
     const Real stellar_density_profile_r_up                  = pin->GetReal("dust/AGB_Winds", "R_upper_in_kpc")    * units.kpc(); // to CODE units
     const Real stellar_density_profile_r_low                  = pin->GetReal("dust/AGB_Winds", "R_lower_in_kpc")    * units.kpc(); // to CODE units
-    const Real sigma_agb                                     = pin->GetReal("dust/AGB_Winds", "sigma_AGB") ;
+    const Real sigma_agb                                      = pin->GetReal("dust/AGB_Winds", "sigma_AGB") ;
 
+    std::string stellar_radial_profile_str = pin->GetString("dust/AGB_Winds", "stellar_radial_profile");
+    hydro_pkg->AddParam<>("stellar_radial_profile_str", stellar_radial_profile_str);
+    StellarRadialProfile stellar_radial_profile;
+    if(stellar_radial_profile_str == "power_law"){
+      stellar_radial_profile = StellarRadialProfile::POWER_LAW;
+      hydro_pkg->AddParam<>("stellar_radial_profile", stellar_radial_profile);
+      const Real gamma_star = pin->GetOrAddReal("dust/AGB_Winds", "gamma_star",-2.2); // From Cappellari Paper 10.1088/2041-8205/804/1/L21
+      hydro_pkg->AddParam<>("gamma_star", gamma_star);
+    } else if(stellar_radial_profile_str == "prugniel_simien"){
+      stellar_radial_profile = StellarRadialProfile::PRUGNIELSIMIEN;
+      hydro_pkg->AddParam<>("stellar_radial_profile", stellar_radial_profile);
+      const Real sersic_n = pin->GetReal("dust/AGB_Winds", "sersic_n");
+      const Real sersic_Re = pin->GetReal("dust/AGB_Winds", "sersic_Re");
+      hydro_pkg->AddParam<>("sersic_n", sersic_n);
+      hydro_pkg->AddParam<>("sersic_Re", sersic_Re);
+
+      const Real stellar_profile_norm = GetPrugnielSimienNorm(stellar_mass_cent, stellar_density_profile_r_low, stellar_density_profile_r_up, sersic_n, sersic_Re);
+      hydro_pkg->AddParam<>("stellar_profile_norm", stellar_profile_norm);
+
+    } else{
+      PARTHENON_FAIL("If AGB Winds On, Must Specify stellar_radial_profile either power_law or prugniel_simien");
+    }
 
     hydro_pkg->AddParam<>("agb_max_radius", agb_max_radius);
-    hydro_pkg->AddParam<>("gamma_star", gamma_star);
     hydro_pkg->AddParam<>("stellar_mass_cent", stellar_mass_cent);
     hydro_pkg->AddParam<>("stellar_density_profile_r_low", stellar_density_profile_r_low);
     hydro_pkg->AddParam<>("stellar_density_profile_r_up", stellar_density_profile_r_up);
