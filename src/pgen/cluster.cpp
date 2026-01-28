@@ -1072,9 +1072,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
                   if(std::abs(total_mass_C + total_mass_S) < 1e-50){
                     // We are outside of the radius range for the stellar injection. Get the silicate-to-carbonacous ratio
-                    // direct from the arrays e.g. agb_normalised_carbonaceous_mass_distibution_array[gs_i] and agb_normalised_silicate_number_distibution_array[gs_i]
-                    total_mass_C = DustDevObj.agb_normalised_carbonaceous_mass_distibution_array[gs_i];
-                    total_mass_S = DustDevObj.agb_normalised_silicate_number_distibution_array[gs_i];
+                    // direct from the arrays e.g. agb_normalised_carbonaceous_mass_distribution_array[gs_i] and agb_normalised_silicate_number_distribution_array[gs_i]
+                    total_mass_C = DustDevObj.agb_normalised_carbonaceous_mass_distribution_array[gs_i];
+                    total_mass_S = DustDevObj.agb_normalised_silicate_number_distribution_array[gs_i];
                   }
 
 

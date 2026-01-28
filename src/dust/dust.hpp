@@ -643,10 +643,12 @@ struct DustDevice {
     Real code_to_megayear;
     int carbonaceous_grains;
     int  silicate_grains;
-    ParArray1D<Real> agb_normalised_carbonaceous_mass_distibution_array;
-    ParArray1D<Real> agb_normalised_carbonaceous_number_distibution_array;
-    ParArray1D<Real> agb_normalised_silicate_mass_distibution_array;
-    ParArray1D<Real> agb_normalised_silicate_number_distibution_array;
+    ParArray1D<Real> agb_normalised_carbonaceous_mass_distribution_array;
+    ParArray1D<Real> agb_normalised_carbonaceous_number_distribution_array;
+    ParArray1D<Real> agb_normalised_silicate_mass_distribution_array;
+    ParArray1D<Real> agb_normalised_silicate_number_distribution_array;
+    StellarRadialProfile stellar_radial_profile;
+    //fjjcurrent
 
 
 
@@ -1173,12 +1175,12 @@ void SetupDustDevice(parthenon::StateDescriptor *hydro_pkg, MeshBlock *pmb){
 
       
       // ParArray of distribution over grain size bins with a normalised mass
-      agb_normalised_silicate_mass_distibution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_silicate_mass_distibution_array");
-      agb_normalised_silicate_number_distibution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_silicate_number_distibution_array");
-      agb_normalised_carbonaceous_mass_distibution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_carbonaceous_mass_distibution_array");
-      agb_normalised_carbonaceous_number_distibution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_carbonaceous_number_distibution_array");
-      // auto host_AGB_normalised_carbonaceous_number_distibution_array = Kokkos::create_mirror_view(agb_normalised_carbonaceous_number_distibution_array);
-      // Kokkos::deep_copy(host_AGB_normalised_carbonaceous_number_distibution_array, agb_normalised_carbonaceous_number_distibution_array); 
+      agb_normalised_silicate_mass_distribution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_silicate_mass_distribution_array");
+      agb_normalised_silicate_number_distribution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_silicate_number_distribution_array");
+      agb_normalised_carbonaceous_mass_distribution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_carbonaceous_mass_distribution_array");
+      agb_normalised_carbonaceous_number_distribution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_carbonaceous_number_distribution_array");
+      // auto host_AGB_normalised_carbonaceous_number_distribution_array = Kokkos::create_mirror_view(agb_normalised_carbonaceous_number_distribution_array);
+      // Kokkos::deep_copy(host_AGB_normalised_carbonaceous_number_distribution_array, agb_normalised_carbonaceous_number_distribution_array); 
   } // if(AGB_winds_on == 1)
 
 
@@ -1644,10 +1646,10 @@ const Real             code_to_megayear  = DustDevObj.code_to_megayear;
 const int              num_grain_compositions  = DustDevObj.num_grain_compositions;
 const int              carbonaceous_grains  = DustDevObj.carbonaceous_grains;
 const int              silicate_grains  = DustDevObj.silicate_grains;
-const ParArray1D<Real> agb_normalised_carbonaceous_mass_distibution_array = DustDevObj.agb_normalised_carbonaceous_mass_distibution_array;
-const ParArray1D<Real> agb_normalised_carbonaceous_number_distibution_array = DustDevObj.agb_normalised_carbonaceous_number_distibution_array;
-const ParArray1D<Real> agb_normalised_silicate_mass_distibution_array = DustDevObj.agb_normalised_silicate_mass_distibution_array;
-const ParArray1D<Real> agb_normalised_silicate_number_distibution_array = DustDevObj.agb_normalised_silicate_number_distibution_array;
+const ParArray1D<Real> agb_normalised_carbonaceous_mass_distribution_array = DustDevObj.agb_normalised_carbonaceous_mass_distribution_array;
+const ParArray1D<Real> agb_normalised_carbonaceous_number_distribution_array = DustDevObj.agb_normalised_carbonaceous_number_distribution_array;
+const ParArray1D<Real> agb_normalised_silicate_mass_distribution_array = DustDevObj.agb_normalised_silicate_mass_distribution_array;
+const ParArray1D<Real> agb_normalised_silicate_number_distribution_array = DustDevObj.agb_normalised_silicate_number_distribution_array;
 
 const auto &coords = cons_pack.GetCoords(b);
 
@@ -1673,23 +1675,23 @@ for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++ ){
       int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
     if(carbonaceous_grains == 1 && silicate_grains == 1){
       if(gc_i == 0){
-              cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distibution_array[gs_i] / volume);
-              cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_number_distibution_array[gs_i] / volume);
-              total_mass_C += (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distibution_array[gs_i]);
+              cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i] / volume);
+              cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_number_distribution_array[gs_i] / volume);
+              total_mass_C += (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i]);
             }
             else if(gc_i == 1){
-              cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_mass_distibution_array[gs_i] / volume);
-              cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_number_distibution_array[gs_i] / volume);
-              total_mass_S += (added_silicate_mass *  agb_normalised_silicate_mass_distibution_array[gs_i]);
+              cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i] / volume);
+              cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_number_distribution_array[gs_i] / volume);
+              total_mass_S += (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
             }
       } else if(carbonaceous_grains == 1){
-        cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distibution_array[gs_i] / volume);
-        cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_number_distibution_array[gs_i] / volume);
-        total_mass_C += (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distibution_array[gs_i]);
+        cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i] / volume);
+        cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_number_distribution_array[gs_i] / volume);
+        total_mass_C += (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i]);
       } else if(silicate_grains == 1){
-        cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_mass_distibution_array[gs_i] / volume);
-        cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_number_distibution_array[gs_i] / volume);
-        total_mass_S +=  (added_silicate_mass *  agb_normalised_silicate_mass_distibution_array[gs_i]);
+        cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i] / volume);
+        cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_number_distribution_array[gs_i] / volume);
+        total_mass_S +=  (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
       }
       }
     }

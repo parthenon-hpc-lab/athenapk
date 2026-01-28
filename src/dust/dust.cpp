@@ -379,10 +379,10 @@ PARTHENON_REQUIRE(initial_dust_bin_mass_ratios_v_.size() == num_dust_bins, "Bad 
 
 
     if(carbonaceous_grains_){
-    auto agb_normalised_carbonaceous_number_distibution_array = ParArray1D<Real>("agb_normalised_carbonaceous_number_distibution_array", num_grainsize_bins_); // ParArray of distribution over grain size bins with a normalised mass
-    auto agb_normalised_carbonaceous_mass_distibution_array   = ParArray1D<Real>("agb_normalised_carbonaceous_mass_distibution_array", num_grainsize_bins_); // ParArray of distribution over grain size bins with a normalised mass
-    auto host_agb_normalised_carbonaceous_number_distibution_array = Kokkos::create_mirror_view(agb_normalised_carbonaceous_number_distibution_array);
-    auto host_agb_normalised_carbonaceous_mass_distibution_array = Kokkos::create_mirror_view(agb_normalised_carbonaceous_mass_distibution_array);
+    auto agb_normalised_carbonaceous_number_distribution_array = ParArray1D<Real>("agb_normalised_carbonaceous_number_distribution_array", num_grainsize_bins_); // ParArray of distribution over grain size bins with a normalised mass
+    auto agb_normalised_carbonaceous_mass_distribution_array   = ParArray1D<Real>("agb_normalised_carbonaceous_mass_distribution_array", num_grainsize_bins_); // ParArray of distribution over grain size bins with a normalised mass
+    auto host_agb_normalised_carbonaceous_number_distribution_array = Kokkos::create_mirror_view(agb_normalised_carbonaceous_number_distribution_array);
+    auto host_agb_normalised_carbonaceous_mass_distribution_array = Kokkos::create_mirror_view(agb_normalised_carbonaceous_mass_distribution_array);
 
     Real total_dist_mass_for_norm = 0.;
     for (unsigned int i = 0; i < num_grainsize_bins_; i++) {
@@ -399,23 +399,23 @@ PARTHENON_REQUIRE(initial_dust_bin_mass_ratios_v_.size() == num_dust_bins, "Bad 
       Real a_lower = host_grainsize_bin_edges_microm[i];
       Real rho_d = carbonaceous_grain_density_;                  // code_mass/code_len^3
       rho_d      = rho_d / Kokkos::pow(code_to_microm_ , 3);  // code_mass / microM**3
-      host_agb_normalised_carbonaceous_mass_distibution_array[i] = AGBWindIntegratedMassDistribution(a_upper, a_lower, sigma_agb, a_agb, rho_d) * C_norm_agb_dist;
-      host_agb_normalised_carbonaceous_number_distibution_array[i] = AGBWindIntegratedNumberDistribution(a_upper, a_lower, sigma_agb, a_agb) * C_norm_agb_dist;
-      check_norm += host_agb_normalised_carbonaceous_mass_distibution_array[i];
+      host_agb_normalised_carbonaceous_mass_distribution_array[i] = AGBWindIntegratedMassDistribution(a_upper, a_lower, sigma_agb, a_agb, rho_d) * C_norm_agb_dist;
+      host_agb_normalised_carbonaceous_number_distribution_array[i] = AGBWindIntegratedNumberDistribution(a_upper, a_lower, sigma_agb, a_agb) * C_norm_agb_dist;
+      check_norm += host_agb_normalised_carbonaceous_mass_distribution_array[i];
     }
 
 
     PARTHENON_REQUIRE(std::abs(check_norm - 1.0) < 1e-10, "check_norm for AGB wind dist != 1!");
     // Copy into device memory
-    Kokkos::deep_copy(agb_normalised_carbonaceous_mass_distibution_array, host_agb_normalised_carbonaceous_mass_distibution_array);
-    Kokkos::deep_copy(agb_normalised_carbonaceous_number_distibution_array, host_agb_normalised_carbonaceous_number_distibution_array);
-    hydro_pkg->AddParam<>("agb_normalised_carbonaceous_mass_distibution_array", agb_normalised_carbonaceous_mass_distibution_array);
-    hydro_pkg->AddParam<>("agb_normalised_carbonaceous_number_distibution_array", agb_normalised_carbonaceous_number_distibution_array);
+    Kokkos::deep_copy(agb_normalised_carbonaceous_mass_distribution_array, host_agb_normalised_carbonaceous_mass_distribution_array);
+    Kokkos::deep_copy(agb_normalised_carbonaceous_number_distribution_array, host_agb_normalised_carbonaceous_number_distribution_array);
+    hydro_pkg->AddParam<>("agb_normalised_carbonaceous_mass_distribution_array", agb_normalised_carbonaceous_mass_distribution_array);
+    hydro_pkg->AddParam<>("agb_normalised_carbonaceous_number_distribution_array", agb_normalised_carbonaceous_number_distribution_array);
 
     // Write the AGB yield distribution to file for post-run reference
     if(parthenon::Globals::my_rank == 0){
     // Create and open a file
-    std::ofstream file("./agb_normalised_carbonaceous_number_distibution_array.txt");
+    std::ofstream file("./agb_normalised_carbonaceous_number_distribution_array.txt");
 
     // Check if file opened successfully
     if (!file) {
@@ -424,7 +424,7 @@ PARTHENON_REQUIRE(initial_dust_bin_mass_ratios_v_.size() == num_dust_bins, "Bad 
     }
     // Write each element on a new line (column format)
     for (int i = 0; i < num_grainsize_bins_; ++i) {
-        file << host_grainsize_bin_edges_microm[i] << " - " << host_grainsize_bin_edges_microm[i+1] << ":  " << host_agb_normalised_carbonaceous_number_distibution_array[i] << std::endl;
+        file << host_grainsize_bin_edges_microm[i] << " - " << host_grainsize_bin_edges_microm[i+1] << ":  " << host_agb_normalised_carbonaceous_number_distribution_array[i] << std::endl;
     }
     // Close the file
     file.close();
@@ -434,10 +434,10 @@ PARTHENON_REQUIRE(initial_dust_bin_mass_ratios_v_.size() == num_dust_bins, "Bad 
 
 
     if(silicate_grains_){
-      auto agb_normalised_silicate_number_distibution_array = ParArray1D<Real>("agb_normalised_silicate_number_distibution_array", num_grainsize_bins_); // ParArray of distribution over grain size bins with a normalised mass
-      auto agb_normalised_silicate_mass_distibution_array = ParArray1D<Real>("agb_normalised_silicate_mass_distibution_array", num_grainsize_bins_); // ParArray of distribution over grain size bins with a normalised mass
-      auto host_agb_normalised_silicate_number_distibution_array = Kokkos::create_mirror_view(agb_normalised_silicate_number_distibution_array);
-      auto host_agb_normalised_silicate_mass_distibution_array = Kokkos::create_mirror_view(agb_normalised_silicate_mass_distibution_array);
+      auto agb_normalised_silicate_number_distribution_array = ParArray1D<Real>("agb_normalised_silicate_number_distribution_array", num_grainsize_bins_); // ParArray of distribution over grain size bins with a normalised mass
+      auto agb_normalised_silicate_mass_distribution_array = ParArray1D<Real>("agb_normalised_silicate_mass_distribution_array", num_grainsize_bins_); // ParArray of distribution over grain size bins with a normalised mass
+      auto host_agb_normalised_silicate_number_distribution_array = Kokkos::create_mirror_view(agb_normalised_silicate_number_distribution_array);
+      auto host_agb_normalised_silicate_mass_distribution_array = Kokkos::create_mirror_view(agb_normalised_silicate_mass_distribution_array);
 
       Real total_dist_mass_for_norm = 0.;
       for (unsigned int i = 0; i < num_grainsize_bins_; i++) {
@@ -454,24 +454,24 @@ PARTHENON_REQUIRE(initial_dust_bin_mass_ratios_v_.size() == num_dust_bins, "Bad 
         Real a_lower = host_grainsize_bin_edges_microm[i];
         Real rho_d = silicate_grain_density_; // code_mass/code_len^3
         rho_d      = rho_d / Kokkos::pow(code_to_microm_ , 3);  // code_mass / microM**3
-        host_agb_normalised_silicate_mass_distibution_array[i] = AGBWindIntegratedMassDistribution(a_upper, a_lower, sigma_agb, a_agb, rho_d) * C_norm_agb_dist;
-        host_agb_normalised_silicate_number_distibution_array[i] = AGBWindIntegratedNumberDistribution(a_upper, a_lower, sigma_agb, a_agb) * C_norm_agb_dist;
-        check_norm += host_agb_normalised_silicate_mass_distibution_array[i];
+        host_agb_normalised_silicate_mass_distribution_array[i] = AGBWindIntegratedMassDistribution(a_upper, a_lower, sigma_agb, a_agb, rho_d) * C_norm_agb_dist;
+        host_agb_normalised_silicate_number_distribution_array[i] = AGBWindIntegratedNumberDistribution(a_upper, a_lower, sigma_agb, a_agb) * C_norm_agb_dist;
+        check_norm += host_agb_normalised_silicate_mass_distribution_array[i];
       }
 
 
 
       PARTHENON_REQUIRE(std::abs(check_norm - 1.0) < 1e-10, "check_norm for AGB wind dist != 1!");
       // Copy into device memory
-      Kokkos::deep_copy(agb_normalised_silicate_mass_distibution_array, host_agb_normalised_silicate_mass_distibution_array);
-      Kokkos::deep_copy(agb_normalised_silicate_number_distibution_array, host_agb_normalised_silicate_number_distibution_array);
-      hydro_pkg->AddParam<>("agb_normalised_silicate_mass_distibution_array", agb_normalised_silicate_mass_distibution_array);
-      hydro_pkg->AddParam<>("agb_normalised_silicate_number_distibution_array", agb_normalised_silicate_number_distibution_array);
+      Kokkos::deep_copy(agb_normalised_silicate_mass_distribution_array, host_agb_normalised_silicate_mass_distribution_array);
+      Kokkos::deep_copy(agb_normalised_silicate_number_distribution_array, host_agb_normalised_silicate_number_distribution_array);
+      hydro_pkg->AddParam<>("agb_normalised_silicate_mass_distribution_array", agb_normalised_silicate_mass_distribution_array);
+      hydro_pkg->AddParam<>("agb_normalised_silicate_number_distribution_array", agb_normalised_silicate_number_distribution_array);
 
       // Write the AGB yield distribution to file for post-run reference
       if(parthenon::Globals::my_rank == 0){
       // Create and open a file
-      std::ofstream file("./agb_normalised_silicate_number_distibution_array.txt");
+      std::ofstream file("./agb_normalised_silicate_number_distribution_array.txt");
 
       // Check if file opened successfully
       if (!file) {
@@ -480,7 +480,7 @@ PARTHENON_REQUIRE(initial_dust_bin_mass_ratios_v_.size() == num_dust_bins, "Bad 
       }
       // Write each element on a new line (column format)
       for (int i = 0; i < num_grainsize_bins_; ++i) {
-          file << host_grainsize_bin_edges_microm[i] << " - " << host_grainsize_bin_edges_microm[i+1] << ":  " << host_agb_normalised_silicate_number_distibution_array[i] << std::endl;
+          file << host_grainsize_bin_edges_microm[i] << " - " << host_grainsize_bin_edges_microm[i+1] << ":  " << host_agb_normalised_silicate_number_distribution_array[i] << std::endl;
       }
       // Close the file
       file.close();
