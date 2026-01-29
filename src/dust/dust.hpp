@@ -1789,7 +1789,7 @@ for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++ ){
 
 
   KOKKOS_INLINE_FUNCTION
-void DustAddAGBWindContribution(Real &total_mass_C,Real &total_mass_S,Real &stellar_mass_this_cell,const int gs_i, const int gc_i, const int b, const int k, const int j, const int i, const parthenon::MeshBlockPack<VariablePack<Real>> &cons_pack, const DustDevice  &DustDevObj, const Real dt) {
+void DustCalculateAGBWindContribution(Real &total_mass_C,Real &total_mass_S, Real &total_mass_over_whole_dist_and_comps, Real &stellar_mass_this_cell,const int b, const int k, const int j, const int i, const parthenon::MeshBlockPack<VariablePack<Real>> &cons_pack, const DustDevice  &DustDevObj, const Real dt) {
 // FJJ for PGrete - AGB wind injection still needs to be fully tested in-depth e.g. with a one-zone model comparison, but initial tests looked good.            
 const int  dust_num_grains_sizes       = DustDevObj.dust_num_grains_sizes;
 const int  dust_scalar_idx_start       = DustDevObj.dust_scalar_idx_start;
@@ -1842,28 +1842,40 @@ Real added_carbonaceous_mass  = dust_return_carbon_mass_fraction_per_megayear  *
 
 // printf("Stellar density = %e radius = %e stellar_density_profile_r_low = %e \n", M_star_this_cell/volume, r, stellar_density_profile_r_low);
 
+for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++ ){
+  for(int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i ++ ){
     int index_into_Mi = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i)) + 1;
     int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
     if(carbonaceous_grains == 1 && silicate_grains == 1){
       if(gc_i == 0){
-              cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i] / volume);
-              cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_number_distribution_array[gs_i] / volume);
               total_mass_C += (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i]);
+              total_mass_over_whole_dist_and_comps += (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i]);
             }
             else if(gc_i == 1){
-              cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i] / volume);
-              cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_number_distribution_array[gs_i] / volume);
-              total_mass_S += (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
+              total_mass_S +=  (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
+              total_mass_over_whole_dist_and_comps += (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
             }
       } else if(carbonaceous_grains == 1){
-        cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i] / volume);
-        cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_carbonaceous_mass *  agb_normalised_carbonaceous_number_distribution_array[gs_i] / volume);
         total_mass_C += (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i]);
+        total_mass_over_whole_dist_and_comps += (added_carbonaceous_mass *  agb_normalised_carbonaceous_mass_distribution_array[gs_i]);
       } else if(silicate_grains == 1){
-        cons_pack(b, index_into_Mi, k, j, i) = cons_pack(b, index_into_Mi, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i] / volume);
-        cons_pack(b, index_into_Ni, k, j, i) = cons_pack(b, index_into_Ni, k, j, i) + (added_silicate_mass *  agb_normalised_silicate_number_distribution_array[gs_i] / volume);
         total_mass_S +=  (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
+        total_mass_over_whole_dist_and_comps +=  (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
       }
+
+
+
+
+
+  }
+}
+
+
+
+
+
+
+
   } // DustAddAGBWindContribution
 
 
