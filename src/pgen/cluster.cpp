@@ -1066,25 +1066,30 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                 Real stellar_mass_this_cell = 0;
                 DustAddAGBWindContribution(total_mass_C,total_mass_S, stellar_mass_this_cell, gs_i, gc_i, b, k, j, i, 
                   cons_pack, DustDevObj, init_run_stellar_injection_time);
+                  // printf("A) total_mass_C=%e total_mass_S=%e \n",total_mass_C,total_mass_S);
                   // insert the amount of dust added by stellar injection, or the minimum amount allowed by the floor:
                   total_dust_mass = total_mass_C + total_mass_S;
+                  // printf("AB) total_mass_C=%e total_mass_S=%e \n",total_mass_C,total_mass_S);
                   total_dust_mass = std::max(total_dust_mass, dtgfloor*u(IDN, k, j, i)*volume);
 
                   // Below we Undo the stellar-updates of the cons fields (cons(b, index_into_Mi, k, j, i) = 0 etc), because we may inject this dust mass with a DIFFERENT grainsize distribution
                   if(std::abs(total_mass_C + total_mass_S) < 1e-50){
                     // We are outside of the radius range for the stellar injection. Get the silicate-to-carbonacous ratio
                     // direct from the arrays e.g. agb_normalised_carbonaceous_mass_distribution_array[gs_i] and agb_normalised_silicate_number_distribution_array[gs_i]
-                    total_mass_C = DustDevObj.agb_normalised_carbonaceous_mass_distribution_array[gs_i];
-                    total_mass_S = DustDevObj.agb_normalised_silicate_mass_distribution_array[gs_i];
+                    total_mass_C = DustDevObj.dust_return_carbon_mass_fraction_per_megayear;
+                    total_mass_S = DustDevObj.dust_return_silicates_mass_fraction_per_megayear;
+                    // printf("B) total_mass_C=%e total_mass_S=%e \n",total_mass_C,total_mass_S);
                   }
                   // Set the grain fractions to match the stellar source
                   // Need to do it in this convoluted way to enable inclusion of dtgfloor with whole total_dust_mass above
-                   if(gc_i == 0){
+                   if(carbonaceous_grains == 1 && silicate_grains == 1){ 
+                      if(gc_i == 0){
                       total_dust_mass = total_dust_mass * total_mass_C /(total_mass_C + total_mass_S);
                     }
                     else if(gc_i == 1){
                       total_dust_mass = total_dust_mass * total_mass_S /(total_mass_C + total_mass_S);
                 }
+              }
 
               }
                 else{
