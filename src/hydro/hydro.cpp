@@ -38,7 +38,6 @@
 #include "srcterms/tabular_cooling.hpp"
 #include "utils/error_checking.hpp"
 
-
 // Dust headers
 #include "../dust/dust.hpp"
 
@@ -239,10 +238,10 @@ TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real b
   if (enable_cooling == Cooling::tabular) {
     const TabularCooling &tabular_cooling =
         hydro_pkg->Param<TabularCooling>("tabular_cooling");
-    const Real current_time = tm.time; // FJJ needed for writing dust history files from within subcycling
+    const Real current_time =
+        tm.time; // FJJ needed for writing dust history files from within subcycling
     tabular_cooling.SrcTerm(md, beta_dt, current_time);
   }
-
 
   if (ProblemSourceUnsplit != nullptr) {
     ProblemSourceUnsplit(md, tm, beta_dt);
@@ -722,20 +721,16 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     PARTHENON_FAIL("AthenaPK hydro: Unknown EOS");
   }
 
-
   /************************************************************
    * Read Dust 1 before tabular cooling to ensure correct scheme
    ************************************************************/
   auto dust_on = pin->GetOrAddBoolean("dust", "active", false);
   pkg->AddParam<bool>("dust_on", dust_on);
-  if(!dust_on){
+  if (!dust_on) {
     pkg->AddParam<std::string>("dust_time_integrator", "none");
     pkg->AddParam<bool>("dust_subcycle_with_cooling", "false");
     pkg->AddParam<int>("dust_num_grains_sizes", 0);
-    
   }
-
-
 
   /************************************************************
    * Read Tabular Cooling
@@ -797,100 +792,97 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     prim_labels.emplace_back("scalar_" + std::to_string(i));
     running_scalar_idx += 1;
   }
-  if(nscalars >=1){
-  pkg->AddParam<int>("jet_scalar_idx", nhydro);
-  } else{
+  if (nscalars >= 1) {
+    pkg->AddParam<int>("jet_scalar_idx", nhydro);
+  } else {
     pkg->AddParam<int>("jet_scalar_idx", -1);
   }
-
-
-
-
 
   /************************************************************
    * Read Dust 2
    ************************************************************/
   dust::Dust dust(pin, pkg.get());
-  auto disable_all_gas_cooling_for_testing = pin->GetOrAddBoolean("dust", "disable_all_gas_cooling_for_testing", false);
-  pkg->AddParam<int>("disable_all_gas_cooling_for_testing", disable_all_gas_cooling_for_testing ? 1 : 0);
+  auto disable_all_gas_cooling_for_testing =
+      pin->GetOrAddBoolean("dust", "disable_all_gas_cooling_for_testing", false);
+  pkg->AddParam<int>("disable_all_gas_cooling_for_testing",
+                     disable_all_gas_cooling_for_testing ? 1 : 0);
 
-  if(dust_on){
+  if (dust_on) {
 
+    auto num_grain_size_bins = pin->GetInteger("dust", "num_grainsize_bins");
+    auto carbonaceous_grains = pin->GetOrAddBoolean("dust", "carbonaceous_grains", false);
+    auto silicate_grains = pin->GetOrAddBoolean("dust", "silicate_grains", false);
+    auto dust_subcycle_with_cooling = pin->GetOrAddBoolean("dust", "subcycle", true);
+    auto dust_time_integrator = pin->GetString("dust", "time_integrator");
+    PARTHENON_REQUIRE(dust_time_integrator == "euler" || dust_time_integrator == "heun",
+                      "Invalid dust time integrator!");
+    auto max_frac_change_in_dust_bin = pin->GetOrAddReal("dust", "max_dM_in_bin", -1.);
+    pkg->AddParam<bool>("dust_subcycle_with_cooling", dust_subcycle_with_cooling);
+    pkg->AddParam<std::string>("dust_time_integrator", dust_time_integrator);
+    std::vector<std::string> dust_var_names = {"density"};
 
+    int num_dust_vars = dust_var_names.size();
+    int num_grain_compositions = (carbonaceous_grains + silicate_grains);
+    int num_dust_bins = num_grain_compositions * num_grain_size_bins;
+    int num_dust_scalars =
+        2 * num_dust_bins * num_dust_vars; // 2 since we must store both mass and density
+                                           // for the piecewise linear/loglinear schemes
 
-  
-  auto num_grain_size_bins = pin->GetInteger("dust", "num_grainsize_bins");
-  auto carbonaceous_grains = pin->GetOrAddBoolean("dust", "carbonaceous_grains", false);
-  auto silicate_grains     = pin->GetOrAddBoolean("dust", "silicate_grains", false);
-  auto dust_subcycle_with_cooling = pin->GetOrAddBoolean("dust", "subcycle", true);
-  auto dust_time_integrator = pin->GetString("dust", "time_integrator");
-  PARTHENON_REQUIRE(dust_time_integrator == "euler" || dust_time_integrator == "heun", "Invalid dust time integrator!");
-  auto max_frac_change_in_dust_bin = pin->GetOrAddReal("dust", "max_dM_in_bin", -1.);
-  pkg->AddParam<bool>("dust_subcycle_with_cooling", dust_subcycle_with_cooling);
-  pkg->AddParam<std::string>("dust_time_integrator", dust_time_integrator);
-  std::vector<std::string> dust_var_names = {"density"};
+    pkg->AddParam<Real>("max_frac_change_in_dust_bin", max_frac_change_in_dust_bin);
 
-  int num_dust_vars = dust_var_names.size();
-  int num_grain_compositions = (carbonaceous_grains + silicate_grains);
-  int num_dust_bins = num_grain_compositions*num_grain_size_bins;
-  int num_dust_scalars = 2 * num_dust_bins * num_dust_vars; // 2 since we must store both mass and density for the piecewise linear/loglinear schemes
+    // pkg->AddParam<int>("dust_num_grains_bins", num_dust_scalars);
+    pkg->AddParam<int>("dust_num_grain_compositions", num_grain_compositions);
+    pkg->AddParam<int>("dust_num_grains_sizes", num_grain_size_bins);
 
-  pkg->AddParam<Real>("max_frac_change_in_dust_bin", max_frac_change_in_dust_bin);
+    pkg->AddParam<int>("dust_scalar_idx_start",
+                       running_scalar_idx); // taking into account the jet_scalar
+    pkg->AddParam<int>("dust_scalar_idx_end", running_scalar_idx + num_dust_scalars - 1);
+    running_scalar_idx += num_dust_scalars;
 
-  // pkg->AddParam<int>("dust_num_grains_bins", num_dust_scalars);
-  pkg->AddParam<int>("dust_num_grain_compositions", num_grain_compositions);
-  pkg->AddParam<int>("dust_num_grains_sizes", num_grain_size_bins);
+    // Athena++ code paper: "**Ci (primitive variable) is the specific density of each
+    // scalar and (ρCi) is the mass of each scalar species (conserved variable).**"
+    // in ConstoPrim for tracer: prim(n, k, j, i) = cons(n, k, j, i) * di. with di =
+    // 1/cons(IDN, k, j, i); So cons = prim * density
 
-  pkg->AddParam<int>("dust_scalar_idx_start", running_scalar_idx); // taking into account the jet_scalar
-  pkg->AddParam<int>("dust_scalar_idx_end", running_scalar_idx+num_dust_scalars-1);
-  running_scalar_idx += num_dust_scalars;
-
-  // Athena++ code paper: "**Ci (primitive variable) is the specific density of each 
-  // scalar and (ρCi) is the mass of each scalar species (conserved variable).**"
-  // in ConstoPrim for tracer: prim(n, k, j, i) = cons(n, k, j, i) * di. with di = 1/cons(IDN, k, j, i);
-  // So cons = prim * density
-
-
-
-  std::vector<std::string> dust_grain_compositions_names = {};
-  // Order is carbonaceous_grains, silicate_grains
-  if(carbonaceous_grains){
-    dust_grain_compositions_names.emplace_back("carbonaceous");
-  for (auto j = 0; j < num_grain_size_bins; j++) {
-    cons_labels.emplace_back("dust_carbonaceous_grain_number_density_" + std::to_string(j));
-    prim_labels.emplace_back("dust_carbonaceous_grain_number_density_" + std::to_string(j));
-      cons_labels.emplace_back("dust_carbonaceous_grain_mass_density_" + std::to_string(j));
-    prim_labels.emplace_back("dust_carbonaceous_grain_mass_density_" + std::to_string(j));
-  }
-}
-  if(silicate_grains){
-    dust_grain_compositions_names.emplace_back("silicate");
-  for (auto j = 0; j < num_grain_size_bins; j++) {
-    cons_labels.emplace_back("dust_silicate_grain_number_density_" + std::to_string(j));
-    prim_labels.emplace_back("dust_silicate_grain_number_density_" + std::to_string(j));
-    cons_labels.emplace_back("dust_silicate_grain_mass_density_" + std::to_string(j));
-    prim_labels.emplace_back("dust_silicate_grain_mass_density_" + std::to_string(j));
+    std::vector<std::string> dust_grain_compositions_names = {};
+    // Order is carbonaceous_grains, silicate_grains
+    if (carbonaceous_grains) {
+      dust_grain_compositions_names.emplace_back("carbonaceous");
+      for (auto j = 0; j < num_grain_size_bins; j++) {
+        cons_labels.emplace_back("dust_carbonaceous_grain_number_density_" +
+                                 std::to_string(j));
+        prim_labels.emplace_back("dust_carbonaceous_grain_number_density_" +
+                                 std::to_string(j));
+        cons_labels.emplace_back("dust_carbonaceous_grain_mass_density_" +
+                                 std::to_string(j));
+        prim_labels.emplace_back("dust_carbonaceous_grain_mass_density_" +
+                                 std::to_string(j));
+      }
     }
-  }
+    if (silicate_grains) {
+      dust_grain_compositions_names.emplace_back("silicate");
+      for (auto j = 0; j < num_grain_size_bins; j++) {
+        cons_labels.emplace_back("dust_silicate_grain_number_density_" +
+                                 std::to_string(j));
+        prim_labels.emplace_back("dust_silicate_grain_number_density_" +
+                                 std::to_string(j));
+        cons_labels.emplace_back("dust_silicate_grain_mass_density_" + std::to_string(j));
+        prim_labels.emplace_back("dust_silicate_grain_mass_density_" + std::to_string(j));
+      }
+    }
 
-// Use ints for easy capture into Kokkos lambdas
-pkg->AddParam("dust_carbonaceous_grains", carbonaceous_grains ? 1 : 0 );
-pkg->AddParam("dust_silicate_grains",     silicate_grains ? 1 : 0 );
-pkg->AddParam("dust_grain_compositions_names", dust_grain_compositions_names);
+    // Use ints for easy capture into Kokkos lambdas
+    pkg->AddParam("dust_carbonaceous_grains", carbonaceous_grains ? 1 : 0);
+    pkg->AddParam("dust_silicate_grains", silicate_grains ? 1 : 0);
+    pkg->AddParam("dust_grain_compositions_names", dust_grain_compositions_names);
 
-  // std::cout << "num_dust_scalars" << num_dust_scalars << std::endl;
-} // if dust_on
+    // std::cout << "num_dust_scalars" << num_dust_scalars << std::endl;
+  } // if dust_on
 
-
-
-
-
-
-
-pkg->AddParam("user_nscalars", nscalars); // the user-input nscalars (e.g. without dust...)
-nscalars = running_scalar_idx - nhydro;
-pkg->AddParam("nscalars", nscalars);
-
+  pkg->AddParam("user_nscalars",
+                nscalars); // the user-input nscalars (e.g. without dust...)
+  nscalars = running_scalar_idx - nhydro;
+  pkg->AddParam("nscalars", nscalars);
 
   Metadata m(
       {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
