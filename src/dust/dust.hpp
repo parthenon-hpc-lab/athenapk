@@ -1205,12 +1205,15 @@ void SetupDustDevice(parthenon::StateDescriptor *hydro_pkg, MeshBlock *pmb){
       dust_return_silicates_mass_fraction_per_megayear = hydro_pkg->Param<Real>("dust_return_silicates_mass_fraction_per_megayear");
 
 
-      
+       if(silicate_grains){
       // ParArray of distribution over grain size bins with a normalised mass
       agb_normalised_silicate_mass_distribution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_silicate_mass_distribution_array");
       agb_normalised_silicate_number_distribution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_silicate_number_distribution_array");
+    }
+      if(carbonaceous_grains){
       agb_normalised_carbonaceous_mass_distribution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_carbonaceous_mass_distribution_array");
       agb_normalised_carbonaceous_number_distribution_array  = hydro_pkg->Param<ParArray1D<Real>>("agb_normalised_carbonaceous_number_distribution_array");
+      }
       // auto host_AGB_normalised_carbonaceous_number_distribution_array = Kokkos::create_mirror_view(agb_normalised_carbonaceous_number_distribution_array);
       // Kokkos::deep_copy(host_AGB_normalised_carbonaceous_number_distribution_array, agb_normalised_carbonaceous_number_distribution_array); 
   } // if(AGB_winds_on == 1)

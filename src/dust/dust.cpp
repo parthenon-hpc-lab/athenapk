@@ -1152,6 +1152,16 @@ input.Open(table_filename.c_str(), IOWrapper::FileMode::read);
 
     auto dust_return_carbon_per_megayear = IntegrateAGBReturnOverIMF(m_star, m_carbon_v);  // in Msun/Msun   per Myr  (so is a mass fraction really)
     auto dust_return_silicates_per_megayear = IntegrateAGBReturnOverIMF(m_star, m_silicates_v);  // in Msun/Msun   per Myr  (so is a mass fraction really)
+    int carbonaceous_grains = hydro_pkg->Param<int>("dust_carbonaceous_grains");
+    int silicate_grains     = hydro_pkg->Param<int>("dust_silicate_grains");
+
+    if(!carbonaceous_grains){
+      dust_return_carbon_per_megayear = 0.;
+    }
+    if(!silicate_grains){
+      dust_return_silicates_per_megayear = 0.;
+    }
+
 
     if (parthenon::Globals::my_rank == 0) {
     printf("AGB Winds Info: dust_return_carbon_per_megayear = %g Msun/ Myr of dust per stellar mass of stars per Myr\n", dust_return_carbon_per_megayear);

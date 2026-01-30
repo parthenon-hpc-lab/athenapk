@@ -731,6 +731,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   if(!dust_on){
     pkg->AddParam<std::string>("dust_time_integrator", "none");
     pkg->AddParam<bool>("dust_subcycle_with_cooling", "false");
+    pkg->AddParam<int>("dust_num_grains_sizes", 0);
     
   }
 

@@ -1049,6 +1049,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
               Real volume = coords.CellVolume(k, j, i);
               Real total_dust_mass = 0.; 
+              Real total_dust_mass_this_gc_i;
               Real total_injected_dust_mass = 0.;
 
               if(init_uniform_gas_local || dust_init_profile == 1){
@@ -1077,20 +1078,30 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                 Real renorm_fractor_for_dtgfloor = std::max(total_mass_over_whole_dist_and_comps, dtgfloor*u(IDN, k, j, i)*volume ) / total_mass_over_whole_dist_and_comps;
                 total_mass_C *= renorm_fractor_for_dtgfloor;
                 total_mass_S *= renorm_fractor_for_dtgfloor;
-                total_dust_mass = total_mass_C + total_mass_S; // ONLY ONE of these is non-zero, depending on value of gc_i
+                //if total_mass_C == 0 or total_mass_S == 0 we are outside range of AGB winds, so need to be clever how we get the S/C ratio
+                if(carbonaceous_grains == 1 && silicate_grains == 1){
+                  if(gc_i == 0){
+                    total_dust_mass_this_gc_i = total_mass_C;
+                        }
+                  else if(gc_i == 1){
+                    total_dust_mass_this_gc_i = total_mass_S;
+                        }
+                  } else {
+                    total_dust_mass_this_gc_i = total_dust_mass; // Only one of these will be non-zero in this case if we only have 1 composition
+                  } 
                 } else {
 
                 //if total_mass_C == 0 or total_mass_S == 0 we are outside range of AGB winds, so need to be clever how we get the S/C ratio
                 if(carbonaceous_grains == 1 && silicate_grains == 1){
+                  const Real C_ratio = DustDevObj.dust_return_carbon_mass_fraction_per_megayear/(DustDevObj.dust_return_carbon_mass_fraction_per_megayear+DustDevObj.dust_return_silicates_mass_fraction_per_megayear);
                   if(gc_i == 0 && total_mass_C < 1e-50){
-                        total_dust_mass = DustDevObj.dust_return_carbon_mass_fraction_per_megayear*dtgfloor*u(IDN, k, j, i)*volume;
+                        total_dust_mass_this_gc_i = C_ratio*dtgfloor*u(IDN, k, j, i)*volume;
                         }
                         else if(gc_i == 1 && total_mass_S < 1e-50){
-                          total_dust_mass = DustDevObj.dust_return_silicates_mass_fraction_per_megayear*dtgfloor*u(IDN, k, j, i)*volume;
+                          total_dust_mass_this_gc_i = (1.-C_ratio)*dtgfloor*u(IDN, k, j, i)*volume;
                         }
                   } else {
-                    total_dust_mass = dtgfloor*u(IDN, k, j, i)*volume;
-
+                    total_dust_mass_this_gc_i = dtgfloor*u(IDN, k, j, i)*volume;
                   } 
 
               }
@@ -1104,12 +1115,15 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               if(dust_init_profile != 3){
                 if(carbonaceous_grains == 1 && silicate_grains == 1){
                 if(gc_i == 0){
-                  total_dust_mass = total_dust_mass * carbonaceous_grain_mass_fraction /(carbonaceous_grain_mass_fraction + silicate_grain_mass_fraction);
+                  total_dust_mass_this_gc_i = total_dust_mass * carbonaceous_grain_mass_fraction /(carbonaceous_grain_mass_fraction + silicate_grain_mass_fraction);
                 }
                 else if(gc_i == 1){
-                  total_dust_mass = total_dust_mass * silicate_grain_mass_fraction /(carbonaceous_grain_mass_fraction + silicate_grain_mass_fraction);
+                  total_dust_mass_this_gc_i = total_dust_mass * silicate_grain_mass_fraction /(carbonaceous_grain_mass_fraction + silicate_grain_mass_fraction);
                 }
+              } else{
+                total_dust_mass_this_gc_i = total_dust_mass;
               }
+
             }
 
 
@@ -1118,21 +1132,21 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               u(index_into_Ni, k, j, i) = 0;
 
               if(init_grainsize_distribution == 0){
-                dust::MRNGrainSizeDist(total_dust_mass,index_into_Mi, index_into_Ni, code_to_microm, gs_i, gc_i, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
+                dust::MRNGrainSizeDist(total_dust_mass_this_gc_i,index_into_Mi, index_into_Ni, code_to_microm, gs_i, gc_i, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
               } else             if(init_grainsize_distribution == 1){
-                dust::InverseMRNGrainSizeDist(total_dust_mass,index_into_Mi, index_into_Ni, code_to_microm, gs_i, gc_i, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
+                dust::InverseMRNGrainSizeDist(total_dust_mass_this_gc_i,index_into_Mi, index_into_Ni, code_to_microm, gs_i, gc_i, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
               } else             if(init_grainsize_distribution == 2){
-                dust::FlatGrainSizeDist(total_dust_mass,index_into_Mi, index_into_Ni, code_to_microm, gs_i, gc_i, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
+                dust::FlatGrainSizeDist(total_dust_mass_this_gc_i,index_into_Mi, index_into_Ni, code_to_microm, gs_i, gc_i, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities);
               }else if(init_grainsize_distribution == 3){
-                dust::FlatGrainSizeDistInRange(total_dust_mass,index_into_Mi, index_into_Ni, code_to_microm, gs_i, gc_i, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities, flat_graindist_in_range_amin, flat_graindist_in_range_amax);
+                dust::FlatGrainSizeDistInRange(total_dust_mass_this_gc_i,index_into_Mi, index_into_Ni, code_to_microm, gs_i, gc_i, volume, u, k, j, i, grainsize_bin_edges_microm, grain_midbin_sizes_microm, single_grain_densities, flat_graindist_in_range_amin, flat_graindist_in_range_amax);
               }  
               else{
-                PARTHENON_FAIL("Initial grainsize dist not supported")
+                PARTHENON_FAIL("Initial grainsize dist not supported");
               }
 
 
               if( std::abs(u(index_into_Mi, k, j, i)) <1e-80 || std::abs(u(index_into_Ni, k, j, i)) <1e-80){
-                printf("u(index_into_Mi, k, j, i)=%e u(index_into_Ni, k, j, i)=%e total_dust_mass=%e init_grainsize_distribution=%d r = %e \n", u(index_into_Mi, k, j, i),u(index_into_Ni, k, j, i),total_dust_mass,init_grainsize_distribution, r);
+                printf("u(index_into_Mi, k, j, i)=%e u(index_into_Ni, k, j, i)=%e total_dust_mass_this_gc_i=%e init_grainsize_distribution=%d r = %e \n", u(index_into_Mi, k, j, i),u(index_into_Ni, k, j, i),total_dust_mass_this_gc_i,init_grainsize_distribution, r);
               }
           }); // Dust:Initialise Dust Fields
 
