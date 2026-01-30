@@ -1065,17 +1065,15 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                 Real total_mass_C = 0; // Total Mass, not a density
                 Real total_mass_S = 0; // Total Mass, not a density
                 Real stellar_mass_this_cell = 0;
-                Real total_mass_over_whole_dist_and_comps = 0;
-                DustCalculateAGBWindContribution(total_mass_C,total_mass_S, total_mass_over_whole_dist_and_comps, stellar_mass_this_cell, b, k, j, i, 
+                DustCalculateAGBWindContribution(total_mass_C,total_mass_S, total_dust_mass, stellar_mass_this_cell, b, k, j, i, 
                   cons_pack, DustDevObj, init_run_stellar_injection_time);
                   // printf("A) total_mass_C=%e total_mass_S=%e \n",total_mass_C,total_mass_S);
                   // insert the amount of dust added by stellar injection, or the minimum amount allowed by the floor:
 
 
-                total_dust_mass = total_mass_C + total_mass_S; 
                 
-                if(total_mass_over_whole_dist_and_comps > 1e-50){
-                Real renorm_fractor_for_dtgfloor = std::max(total_mass_over_whole_dist_and_comps, dtgfloor*u(IDN, k, j, i)*volume ) / total_mass_over_whole_dist_and_comps;
+                if(total_dust_mass > 1e-50){
+                Real renorm_fractor_for_dtgfloor = std::max(total_dust_mass, dtgfloor*u(IDN, k, j, i)*volume ) / total_dust_mass;
                 total_mass_C *= renorm_fractor_for_dtgfloor;
                 total_mass_S *= renorm_fractor_for_dtgfloor;
                 //if total_mass_C == 0 or total_mass_S == 0 we are outside range of AGB winds, so need to be clever how we get the S/C ratio
@@ -1087,7 +1085,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                     total_dust_mass_this_gc_i = total_mass_S;
                         }
                   } else {
-                    total_dust_mass_this_gc_i = total_dust_mass; // Only one of these will be non-zero in this case if we only have 1 composition
+                    total_dust_mass_this_gc_i = total_dust_mass *renorm_fractor_for_dtgfloor; // Only one of these will be non-zero in this case if we only have 1 composition
                   } 
                 } else {
 

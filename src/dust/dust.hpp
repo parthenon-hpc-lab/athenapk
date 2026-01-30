@@ -1328,11 +1328,7 @@ if(!(gamma_star > -3.001 && gamma_star < -2.999)){ // Guard against gamma_star =
 Real norm_n = stellar_mass_cent * gthr;
 Real norm_d = 4. * Kokkos::numbers::pi * (Kokkos::pow(stellar_density_profile_r_up, gthr) - Kokkos::pow(stellar_density_profile_r_low, gthr));
 norm = norm_n/norm_d;
-
-
-
 } else {
-printf("Doing log routine! \n");
  norm = stellar_mass_cent * 1./ (4. * Kokkos::numbers::pi * Kokkos::log(stellar_density_profile_r_up/stellar_density_profile_r_low));
 }
 // printf("r = %e norm = %e gamma_star = %e stellar_density_profile_r_low =%e stellar_density_profile_r_up=%e stellar_mass_cent=%e\n", r, norm, gamma_star, stellar_density_profile_r_low, stellar_density_profile_r_up, stellar_mass_cent);
@@ -1865,10 +1861,6 @@ for(int gc_i = 0; gc_i < num_grain_compositions; gc_i ++ ){
         total_mass_S +=  (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
         total_mass_over_whole_dist_and_comps +=  (added_silicate_mass *  agb_normalised_silicate_mass_distribution_array[gs_i]);
       }
-
-
-
-
 
   }
 }
