@@ -1246,7 +1246,7 @@ struct DustDevice {
       }
     }
     return dust_de_dt / gas_rho; // volumetric to specific
-  }                              // Real DwekWernerCooling
+  } // Real DwekWernerCooling
 
   // Wrapper to call the integrated version of DwekWernerCooling, to enable
   // testing/comparison with non-integrated rate
@@ -1509,7 +1509,7 @@ struct DustDevice {
       Kokkos::deep_copy(heun_state_1, 0.);
       Kokkos::deep_copy(heun_state_2, 0.);
     } // (dust_integrator_int == 2)
-  }   // SetupDustForEvolutionandCoolingKernel
+  } // SetupDustForEvolutionandCoolingKernel
 
 }; // struct DustDevice
 
@@ -2392,8 +2392,8 @@ void GetUpdated_MjNj_ThisCompositionHelper(
           Nj_new(gc_i, gs_j, b, k - kb.s, j - jb.s, i - ib.s) += contributed_number;
         }
       } // if(bins_overlap == 1)
-    }   // gs_j
-  }     // gs_i
+    } // gs_j
+  } // gs_i
 }
 
 // Do 1st order time integration for the dust integration, on a subcycling dt, so we are
@@ -3090,7 +3090,7 @@ void GetMassChangeRatePerBin(const Real temperature, const Real rho, const Real 
         ;
       }
     } // gs_i
-  }   // gc_i
+  } // gc_i
 }
 
 } // namespace dust
