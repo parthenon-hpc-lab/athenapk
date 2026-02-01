@@ -14,6 +14,7 @@
 #include "amr_criteria/refinement_package.hpp"
 #include "basic_types.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
+#include "globals.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include "utils/error_checking.hpp"
 #include <parthenon/parthenon.hpp>
@@ -575,6 +576,29 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto fill_derived =
         tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
   }
+  // Report numerical fixes.
+  // We do this before the STS task because if there are issues from the diffusive fluxes,
+  // we're in real trouble.
+  TaskRegion &report_fixes_region = tc.AddRegion(1);
+  auto &tl = report_fixes_region[0];
+  tl.AddTask(
+      none,
+      [](Mesh *pmesh, StateDescriptor *hydro_pkg, const int stage) {
+        if (parthenon::Globals::my_rank == 0) {
+          std::stringstream msg;
+          msg << "Fixes employed in stage " << stage << " (with "
+              << pmesh->GetTotalCells() << " cells): ";
+          if (hydro_pkg->Param<bool>("first_order_flux_correct")) {
+            msg << hydro_pkg->Param<std::int64_t>("fixed_num_cells_fofc") << " FOFC. ";
+          }
+          std::cout << msg.str() << "\n";
+        }
+
+        hydro_pkg->UpdateParam("fixed_num_cells_fofc", 0); // reset counter for next stage
+        return TaskStatus::complete;
+      },
+      pmesh, hydro_pkg.get(), stage);
+
   const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
   // If any tasks modify the conserved variables before this place and after FillDerived,
   // then the STS tasks should be updated to not assume prim and cons are in sync.
