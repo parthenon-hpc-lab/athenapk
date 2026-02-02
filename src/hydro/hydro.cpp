@@ -1322,7 +1322,7 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
   // update central counter
   const auto counter = pkg->Param<std::int64_t>("fixed_num_cells_fofc");
-  pkg->UpdateParam("fixed_num_cells_fofc", counter + num_corrected);
+  pkg->UpdateParam<std::int64_t>("fixed_num_cells_fofc", counter + num_corrected);
 
   return TaskStatus::complete;
 }

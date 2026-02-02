@@ -594,7 +594,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           std::cout << msg.str() << "\n";
         }
 
-        hydro_pkg->UpdateParam("fixed_num_cells_fofc", 0); // reset counter for next stage
+        // reset counter for next stage
+        hydro_pkg->UpdateParam<std::int64_t>("fixed_num_cells_fofc", 0);
         return TaskStatus::complete;
       },
       pmesh, hydro_pkg.get(), stage);
