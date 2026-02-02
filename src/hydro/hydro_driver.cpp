@@ -591,10 +591,25 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           if (hydro_pkg->Param<bool>("first_order_flux_correct")) {
             msg << hydro_pkg->Param<std::int64_t>("fixed_num_cells_fofc") << " FOFC. ";
           }
+          if (hydro_pkg->Param<Real>("dfloor") > 0.0) {
+            msg << hydro_pkg->Param<std::int64_t>("fixed_num_cells_floor_rho")
+                << " dfloor. ";
+          }
+          if (hydro_pkg->Param<Real>("pfloor") > 0.0) {
+            msg << hydro_pkg->Param<std::int64_t>("fixed_num_cells_floor_pres")
+                << " pfloor. ";
+          }
+          if (hydro_pkg->Param<Real>("Tfloor") > 0.0) {
+            msg << hydro_pkg->Param<std::int64_t>("fixed_num_cells_floor_temp")
+                << " Tfloor. ";
+          }
           std::cout << msg.str() << "\n";
         }
 
         // reset counter for next stage
+        hydro_pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_rho", 0);
+        hydro_pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_pres", 0);
+        hydro_pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_temp", 0);
         hydro_pkg->UpdateParam<std::int64_t>("fixed_num_cells_fofc", 0);
         return TaskStatus::complete;
       },

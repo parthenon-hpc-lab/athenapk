@@ -522,6 +522,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
       efloor = Tfloor / mbar_over_kb / (gamma - 1.0);
     }
+    pkg->AddParam<>("dfloor", dfloor);
+    pkg->AddParam<>("pfloor", pfloor);
+    pkg->AddParam<>("Tfloor", Tfloor);
 
     // By default disable ceilings by setting to infinity
     Real vceil =
