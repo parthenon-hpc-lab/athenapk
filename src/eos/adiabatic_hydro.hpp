@@ -187,7 +187,6 @@ class AdiabaticHydroEOS : public EquationOfState {
     // apply density floor, without changing momentum or energy
     u_d = w_d;
 
-    Real di = 1.0 / u_d;
     u_m1 = w_d * w_vx;
     u_m2 = w_d * w_vy;
     u_m3 = w_d * w_vz;

@@ -63,9 +63,10 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
   // int& j, const int& i) \brief Fills an array of primitives given an array of
   // conserveds, potentially updating the conserved with floors
   template <typename View4D>
-  KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro,
-                                         const int &nscalars, const int &k, const int &j,
-                                         const int &i) const {
+  KOKKOS_INLINE_FUNCTION int ConsToPrim(View4D cons, View4D prim, const int &nhydro,
+                                        const int &nscalars, const int &k, const int &j,
+                                        const int &i) const {
+    int floors_used = 0;
     auto gam = GetGamma();
     auto gm1 = gam - 1.0;
     auto density_floor_ = GetDensityFloor();
@@ -95,13 +96,19 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
     Real &w_Bz = prim(IB3, k, j, i);
     Real &w_psi = prim(IPS, k, j, i);
 
+    PARTHENON_REQUIRE(u_d != 0.0,
+                      "Densities should never be exactly 0! This points to working with "
+                      "some default initialized and/or uninitialized data.");
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
     PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
                       "Got negative density. Consider enabling first-order flux "
                       "correction or setting a reasonble density floor.");
     // apply density floor, without changing momentum or energy
-    u_d = (u_d > density_floor_) ? u_d : density_floor_;
+    if (u_d < density_floor_) {
+      u_d = density_floor_;
+      floors_used = floors_used | 1; // set density floor flag
+    }
     w_d = u_d;
 
     Real di = 1.0 / u_d;
@@ -146,6 +153,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
       // apply pressure floor, correct total energy
       u_e = (pressure_floor_ / gm1) + e_k + e_B;
       w_p = pressure_floor_;
+      floors_used = floors_used | 2; // set pressure floor flag
     }
 
     // temperature (internal energy) based pressure floor
@@ -154,6 +162,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
       // apply temperature floor, correct total energy
       u_e = (u_d * e_floor_) + e_k + e_B;
       w_p = eff_pressure_floor;
+      floors_used = floors_used | 4; // set temperture floor flag
     }
 
     // temperature (internal energy) based pressure ceiling
@@ -168,6 +177,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
     for (auto n = nhydro; n < nhydro + nscalars; ++n) {
       prim(n, k, j, i) = cons(n, k, j, i) * di;
     }
+    return floors_used;
   }
 
  private:
