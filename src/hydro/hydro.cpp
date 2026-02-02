@@ -316,6 +316,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   // counter for first order flux correction cells
   pkg->AddParam<std::int64_t>("fixed_num_cells_fofc", 0, Params::Mutability::Mutable);
+  pkg->AddParam<std::int64_t>("fixed_num_cells_floor_rho", 0,
+                              Params::Mutability::Mutable);
+  pkg->AddParam<std::int64_t>("fixed_num_cells_floor_pres", 0,
+                              Params::Mutability::Mutable);
+  pkg->AddParam<std::int64_t>("fixed_num_cells_floor_temp", 0,
+                              Params::Mutability::Mutable);
 
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
