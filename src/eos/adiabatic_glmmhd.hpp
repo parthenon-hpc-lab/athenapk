@@ -15,6 +15,7 @@
 // Athena headers
 #include "../main.hpp"
 #include "eos.hpp"
+#include "utils/error_checking.hpp"
 
 using parthenon::MeshBlock;
 using parthenon::MeshBlockData;
@@ -30,6 +31,9 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
         gamma_{gamma} {}
 
   void ConservedToPrimitive(MeshData<Real> *md) const override;
+  void PrimitiveToConserved(MeshData<Real> *md) const override {
+    PARTHENON_FAIL("needs impl.");
+  }
 
   KOKKOS_INLINE_FUNCTION
   Real GetGamma() const { return gamma_; }

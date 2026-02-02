@@ -32,6 +32,7 @@
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
+#include "interface/metadata.hpp"
 #include "interface/params.hpp"
 #include "outputs/outputs.hpp"
 #include "prolongation/custom_ops.hpp"
@@ -216,6 +217,12 @@ void ConsToPrim(MeshData<Real> *md) {
   const auto &eos =
       md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro")->Param<T>("eos");
   eos.ConservedToPrimitive(md);
+}
+template <class T>
+void PrimToCons(MeshData<Real> *md) {
+  const auto &eos =
+      md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro")->Param<T>("eos");
+  eos.PrimitiveToConserved(md);
 }
 
 // Add unsplit sources, i.e., source that are integrated in all stages of the
@@ -493,6 +500,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     Units units(pin, pkg);
   }
 
+  const auto prolong_prims = pin->GetOrAddBoolean("hydro", "prolongate_prims", false);
+  pkg->AddParam<>("prolongate_prims", prolong_prims);
+
   auto eos_str = pin->GetString("hydro", "eos");
   if (eos_str == "adiabatic") {
     Real gamma = pin->GetReal("hydro", "gamma");
@@ -717,7 +727,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     if (fluid == Fluid::euler) {
       AdiabaticHydroEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
       pkg->AddParam<>("eos", eos);
-      pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
+      if (prolong_prims) {
+        pkg->PreCommFillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
+        pkg->FillDerivedMesh = PrimToCons<AdiabaticHydroEOS>;
+      } else {
+        pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
+      }
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::euler>;
     } else if (fluid == Fluid::glmmhd) {
       AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
@@ -787,15 +802,32 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     prim_labels.emplace_back("scalar_" + std::to_string(i));
   }
 
-  Metadata m(
-      {Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
-      std::vector<int>({nhydro + nscalars}), cons_labels);
+  Metadata m;
+  // In principle, it'd be nicer to work with .Set(), but see
+  // https://github.com/parthenon-hpc-lab/parthenon/issues/844 so let's
+  // be safe than sorry.
+  if (prolong_prims) {
+    // no FillGhost here
+    m = Metadata({Metadata::Cell, Metadata::Independent, Metadata::WithFluxes},
+                 std::vector<int>({nhydro + nscalars}), cons_labels);
+  } else {
+    m = Metadata({Metadata::Cell, Metadata::Independent, Metadata::FillGhost,
+                  Metadata::WithFluxes},
+                 std::vector<int>({nhydro + nscalars}), cons_labels);
+  }
   m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
                           parthenon::refinement_ops::RestrictAverage>();
   pkg->AddField("cons", m);
 
-  m = Metadata({Metadata::Cell, Metadata::Derived}, std::vector<int>({nhydro + nscalars}),
-               prim_labels);
+  if (prolong_prims) {
+    m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::FillGhost},
+                 std::vector<int>({nhydro + nscalars}), prim_labels);
+    m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
+                            parthenon::refinement_ops::RestrictAverage>();
+  } else {
+    m = Metadata({Metadata::Cell, Metadata::Derived},
+                 std::vector<int>({nhydro + nscalars}), prim_labels);
+  }
   pkg->AddField("prim", m);
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");

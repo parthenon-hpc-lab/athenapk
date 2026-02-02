@@ -31,6 +31,7 @@ class AdiabaticHydroEOS : public EquationOfState {
         gamma_{gamma} {}
 
   void ConservedToPrimitive(MeshData<Real> *md) const override;
+  void PrimitiveToConserved(MeshData<Real> *md) const override;
 
   KOKKOS_INLINE_FUNCTION
   Real GetGamma() const { return gamma_; }
@@ -149,6 +150,55 @@ class AdiabaticHydroEOS : public EquationOfState {
       prim(n, k, j, i) = cons(n, k, j, i) * di;
     }
     return floors_used;
+  }
+
+  //----------------------------------------------------------------------------------------
+  // \!fn Real EquationOfState::PrimToCons(View4D cons, View4D prim, const int& k, const
+  // int& j, const int& i) \brief Fills an array of conservatives given an array of
+  // primities, currently without floors
+  template <typename View4D>
+  KOKKOS_INLINE_FUNCTION void PrimToCons(View4D cons, View4D prim, const int &nhydro,
+                                         const int &nscalars, const int &k, const int &j,
+                                         const int &i) const {
+    Real gm1 = GetGamma() - 1.0;
+
+    Real &u_d = cons(IDN, k, j, i);
+    Real &u_m1 = cons(IM1, k, j, i);
+    Real &u_m2 = cons(IM2, k, j, i);
+    Real &u_m3 = cons(IM3, k, j, i);
+    Real &u_e = cons(IEN, k, j, i);
+
+    Real &w_d = prim(IDN, k, j, i);
+    Real &w_vx = prim(IV1, k, j, i);
+    Real &w_vy = prim(IV2, k, j, i);
+    Real &w_vz = prim(IV3, k, j, i);
+    Real &w_p = prim(IPR, k, j, i);
+
+    PARTHENON_REQUIRE(w_d != 0.0,
+                      "Densities should never be exactly 0! This points to working with "
+                      "some default initialized and/or uninitialized data.");
+    PARTHENON_REQUIRE(w_d > 0.0,
+                      "Got negative density. Might need to impl floors here too.");
+    PARTHENON_REQUIRE(w_p != 0.0,
+                      "Pressure should never be exactly 0! This points to working with "
+                      "some default initialized and/or uninitialized data.");
+    PARTHENON_REQUIRE(w_p > 0.0,
+                      "Got negative pressure. Might need to impl floors here too.");
+    // apply density floor, without changing momentum or energy
+    u_d = w_d;
+
+    Real di = 1.0 / u_d;
+    u_m1 = w_d * w_vx;
+    u_m2 = w_d * w_vy;
+    u_m3 = w_d * w_vz;
+
+    const Real e_k = 0.5 * w_d * (SQR(w_vx) + SQR(w_vy) + SQR(w_vz));
+    u_e = e_k + w_p / gm1;
+
+    // Convert passive scalars
+    for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+      cons(n, k, j, i) = prim(n, k, j, i) * w_d;
+    }
   }
 
  private:

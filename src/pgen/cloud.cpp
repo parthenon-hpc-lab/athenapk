@@ -149,9 +149,9 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 
 void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
-  auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
   const auto nhydro = hydro_pkg->Param<int>("nhydro");
   const auto nscalars = hydro_pkg->Param<int>("nscalars");

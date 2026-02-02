@@ -260,6 +260,10 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto rkl2_step_first = tl.AddTask(init_MY0, RKL2StepFirst, Y0.get(), base.get(),
                                       Yjm2.get(), MY0.get(), s_rkl, tau);
 
+    // if prolongate on prims is done then this is a ConsToPrim call. Otherwise, noop.
+    auto precomm_fill_derived =
+        tl.AddTask(rkl2_step_first, parthenon::Update::PreCommFillDerived<MeshData<Real>>,
+                   base.get());
     // Update ghost cells of Y1 (as MY1 is calculated for each Y_j).
     // Y1 stored in "base", see rkl2_step_first task.
     // Update ghost cells (local and non local), prolongate and apply bound cond.
@@ -268,7 +272,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     // best impl. Go with default call (split local/nonlocal) for now.
     // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
     auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
-        rkl2_step_first | start_bnd, tl, base, pmesh->multilevel);
+        precomm_fill_derived | start_bnd, tl, base, pmesh->multilevel);
 
     tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
                base.get());
@@ -326,6 +330,10 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
           tl.AddTask(set_flx, RKL2StepOther, Y0.get(), base.get(), Yjm2.get(), MY0.get(),
                      mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
 
+      // if prolongate on prims is done then this is a ConsToPrim call. Otherwise, noop.
+      auto precomm_fill_derived =
+          tl.AddTask(rkl2_step_other,
+                     parthenon::Update::PreCommFillDerived<MeshData<Real>>, base.get());
       // update ghost cells of base (currently storing Yj)
       // Update ghost cells (local and non local), prolongate and apply bound cond.
       // TODO(someone) experiment with split (local/nonlocal) comms with respect to
@@ -333,7 +341,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       // best impl. Go with default call (split local/nonlocal) for now.
       // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
       auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
-          rkl2_step_other | start_bnd, tl, base, pmesh->multilevel);
+          precomm_fill_derived | start_bnd, tl, base, pmesh->multilevel);
 
       tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
                  base.get());
@@ -561,11 +569,15 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(source_split_strang_final, AddSplitSourcesFirstOrder, mu0.get(), tm);
     }
 
+    // if prolongate on prims is done then this is a ConsToPrim call. Otherwise, noop.
+    auto precomm_fill_derived =
+        tl.AddTask(source_split_first_order,
+                   parthenon::Update::PreCommFillDerived<MeshData<Real>>, mu0.get());
     // Update ghost cells (local and non local), prolongate and apply bound cond.
     // TODO(someone) experiment with split (local/nonlocal) comms with respect to
     // performance for various tests (static, amr, block sizes) and then decide on the
     // best impl. Go with default call (split local/nonlocal) for now.
-    parthenon::AddBoundaryExchangeTasks(source_split_first_order | start_bnd, tl, mu0,
+    parthenon::AddBoundaryExchangeTasks(precomm_fill_derived | start_bnd, tl, mu0,
                                         pmesh->multilevel);
   }
 

@@ -38,6 +38,7 @@ class EquationOfState {
         internal_e_floor_(internal_e_floor), velocity_ceiling_(velocity_ceiling),
         internal_e_ceiling_(internal_e_ceiling) {}
   virtual void ConservedToPrimitive(MeshData<Real> *md) const = 0;
+  virtual void PrimitiveToConserved(MeshData<Real> *md) const = 0;
 
   KOKKOS_INLINE_FUNCTION
   Real GetPressureFloor() const { return pressure_floor_; }

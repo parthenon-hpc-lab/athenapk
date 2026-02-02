@@ -69,3 +69,35 @@ void AdiabaticHydroEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_temp",
                                  floor_temp_pkg + floor_temp);
 }
+
+//----------------------------------------------------------------------------------------
+// \!fn void EquationOfState::PrimitiveToConserved(
+//           Container<Real> &rc,
+//           int il, int iu, int jl, int ju, int kl, int ku)
+// \brief Converts primitive to conserved variables in adiabatic hydro.
+// Not using any floors here and failing loudly because those fixes
+// are applied in ConsToPrim call. Should discss advantags and disadvantages of this
+// approach.
+void AdiabaticHydroEOS::PrimitiveToConserved(MeshData<Real> *md) const {
+  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  auto const prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  auto ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  auto jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  auto kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
+
+  auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const auto nhydro = pkg->Param<int>("nhydro");
+  const auto nscalars = pkg->Param<int>("nscalars");
+
+  auto this_on_device = (*this);
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "PrimitiveToConserved", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        auto &cons = cons_pack(b);
+        const auto &prim = prim_pack(b);
+
+        this_on_device.PrimToCons(cons, prim, nhydro, nscalars, k, j, i);
+      });
+}
