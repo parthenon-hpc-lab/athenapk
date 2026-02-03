@@ -18,12 +18,10 @@
 #include <iostream>  // endl
 #include <sstream>   // stringstream
 #include <stdexcept> // runtime_error
-#include <fftw3.h>
 #include <string>    // c_str()
 #include <complex>
 #include <random>
 #include <vector>
-#include "hdf5.h"
 
 using cplx = std::complex<double>;
 
@@ -32,9 +30,6 @@ using cplx = std::complex<double>;
 #include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
-
-// heffte headers
-#include "heffte.h"
 
 // AthenaPK headers
 #include "../main.hpp"
@@ -69,7 +64,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                            "stochastic_B_field problem generator does not support AMR.");
   
   std::cout << "Initializing stochastic B-field..." << std::endl;
-  
+
   // Get global number of cells 
   auto Nx = pin->GetInteger("parthenon/mesh", "nx1");
   auto Ny = pin->GetInteger("parthenon/mesh", "nx2");
@@ -132,36 +127,46 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   const auto kmax_phys = kmax * (2.0 * M_PI / Lx);
   const auto kI_phys = kI * (2.0 * M_PI / Lx);
 
-  // Compute total energy in the specified k-range for normalization:
+  // Define the power spectrum function
   auto P = [=](double k) {
     return PowerSpectrum(k, kI_phys, n1, n2, alpha);
   };
 
-  // -----------------------------
   // Random generator for phases
-  // -----------------------------
   std::mt19937 rng(42);
   std::uniform_real_distribution<double> dist_phase(0.0, 2.0*M_PI);
   std::normal_distribution<double> dist_gauss(0.0, 1.0);
 
-  // Define FFT plan and retrieve needed quantities:
-  pmesh->GetFFTManager()->Initialize();
-  auto FFTManager = pmesh->GetFFTManager();
-  auto &fft = *(FFTManager->fft_plan_);
+  auto UniformGridHelper = pmesh->GetUniformGridHelper();
   
-  auto &local_loc_min = FFTManager->local_loc_min;
-  auto &nx1b = FFTManager->nx1b;
-  auto &nx2b = FFTManager->nx2b;
-  auto &nx3b = FFTManager->nx3b;
-  auto &nx1l = FFTManager->nx1l;
-  auto &nx2l = FFTManager->nx2l;
-  auto &nx3l = FFTManager->nx3l;
-  auto outbox = fft.outbox(); // FFT is r2c, so outbox is the complex box
+  auto &local_loc_min = UniformGridHelper->local_loc_min;
+  auto &block_size = UniformGridHelper->block_size;
+  auto &nx1b = block_size[0];
+  auto &nx2b = block_size[1];
+  auto &nx3b = block_size[2];
+  auto &local_mesh_size = UniformGridHelper->local_mesh_size;
+  auto &nx1l = local_mesh_size[0];
+  auto &nx2l = local_mesh_size[1];
+  auto &nx3l = local_mesh_size[2];
 
-  // we want to perform and inverse FFT (complex to real), so we need to create the input data accordingly: 
-  std::vector<std::complex<double>> Bx_hat(fft.size_outbox());
-  std::vector<std::complex<double>> By_hat(fft.size_outbox());
-  std::vector<std::complex<double>> Bz_hat(fft.size_outbox());
+  auto fftManager = pmesh->GetFFTManager();
+  auto outbox = fftManager->fourier_space_box();
+
+  std::cout<<"size_fourier_space_box: "
+           <<fftManager->size_fourier_space_box()
+           <<std::endl;
+
+  parthenon::ParArray1D<std::complex<double>> Bx_hat("Bx_hat", fftManager->size_fourier_space_box());
+  parthenon::ParArray1D<std::complex<double>> By_hat("By_hat", fftManager->size_fourier_space_box());
+  parthenon::ParArray1D<std::complex<double>> Bz_hat("Bz_hat", fftManager->size_fourier_space_box());
+  parthenon::ParArray1D<double> Bx("Bx", fftManager->size_real_space_box());
+  parthenon::ParArray1D<double> By("By", fftManager->size_real_space_box());
+  parthenon::ParArray1D<double> Bz("Bz", fftManager->size_real_space_box());
+
+  // Host copy to fill fourier space arrays:
+  auto Bx_hat_h = Bx_hat.GetHostMirror();
+  auto By_hat_h = By_hat.GetHostMirror();
+  auto Bz_hat_h = Bz_hat.GetHostMirror();
 
   // -----------------------------
   // Fill input (local chunk of Fourier-space array)
@@ -253,66 +258,70 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         std::int64_t local_stride = outbox.size[0];                  
         std::int64_t idx = z_local * local_plane
                   + y_local * local_stride + x_local;
+        
+        // assert idx is in range
+        assert(idx >= 0 && idx < fftManager->size_fourier_space_box());
 
         // --- Compute B(k) = i * (k x A(k)) ---
-        Bx_hat[idx] = I * ( ky_phys * Az - kz_phys * Ay );
-        By_hat[idx] = I * ( kz_phys * Ax - kx_phys * Az );
-        Bz_hat[idx] = I * ( kx_phys * Ay - ky_phys * Ax );
+        Bx_hat_h[idx] = I * ( ky_phys * Az - kz_phys * Ay );
+        By_hat_h[idx] = I * ( kz_phys * Ax - kx_phys * Az );
+        Bz_hat_h[idx] = I * ( kx_phys * Ay - ky_phys * Ax );
       }
     }
   }
 
+  // Copy back to device:
+  Bx_hat.DeepCopy(Bx_hat_h);
+  By_hat.DeepCopy(By_hat_h);
+  Bz_hat.DeepCopy(Bz_hat_h);
+
   // Perform the inverse FFT:
-  auto Bx = fft.backward(Bx_hat, heffte::scale::full);
-  auto By = fft.backward(By_hat, heffte::scale::full);
-  auto Bz = fft.backward(Bz_hat, heffte::scale::full);
+  fftManager->Backward(Bx_hat, Bx);
+  fftManager->Backward(By_hat, By);
+  fftManager->Backward(Bz_hat, Bz);
 
-  // debug: print out first few B values:
-  for (int i = 0; i < 5; i++) {
-      std::cout << "Bx[" << i << "] = " << Bx[i] << std::endl;
-  }
-  for (int i = 0; i < 5; i++) {
-      std::cout << "By[" << i << "] = " << By[i] << std::endl;
-  }
-  for (int i = 0; i < 5; i++) {
-      std::cout << "Bz[" << i << "] = " << Bz[i] << std::endl;
-  }
-
-  // normalize to desired B_rms:
-  // compute current Brms (over all ranks)
   double local_B2_sum = 0.0;
+
   const std::int64_t local_num_cells =
-    int64_t(nx1l) * int64_t(nx2l) * int64_t(nx3l); // ensure int64_t multiplication
-  
-  std::cout<<"local num cells: "<<local_num_cells<<std::endl;
-  for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
-      local_B2_sum += (Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
-  }
+      int64_t(nx1l) * int64_t(nx2l) * int64_t(nx3l);
+
+  Kokkos::parallel_reduce(
+      "ComputeLocalB2",
+      Kokkos::RangePolicy<std::int64_t>(0, local_num_cells),
+      KOKKOS_LAMBDA(const std::int64_t idx, double& lsum) {
+          lsum += Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx];
+      },
+      local_B2_sum
+  );
+
   double global_B2_sum = 0.0;
-
-  // debug: print out rank and local_B2_sum
-  std::cout<<"rank "<<parthenon::Globals::my_rank<<" local_B2_sum: "<<local_B2_sum<<std::endl;
-
   MPI_Allreduce(&local_B2_sum, &global_B2_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-  std::cout<<"global_B2_sum: "<<global_B2_sum<<std::endl;
-
-  std::int64_t denom_i = std::int64_t(Nx) * std::int64_t(Ny) * std::int64_t(Nz);
-
+  const std::int64_t denom_i = int64_t(Nx) * int64_t(Ny) * int64_t(Nz);
   double current_B_rms = std::sqrt(global_B2_sum / denom_i);
   double norm_factor = B_rms / current_B_rms;
 
-  std::cout<<"norm factor: "<<norm_factor<<std::endl;
-  std::cout<<"current B_rms: "<<current_B_rms<<std::endl;
+  std::cout << "norm factor: " << norm_factor 
+            << ", current B_rms: " << current_B_rms << std::endl;
 
-  for (std::int64_t idx = 0; idx < local_num_cells; idx++) {
-      Bx[idx] *= norm_factor;
-      By[idx] *= norm_factor;
-      Bz[idx] *= norm_factor;
-  }
+  Kokkos::parallel_for(
+    "NormalizeB",
+    Kokkos::RangePolicy<std::int64_t>(0, local_num_cells),
+    KOKKOS_LAMBDA(const std::int64_t idx) {
+        Bx[idx] *= norm_factor;
+        By[idx] *= norm_factor;
+        Bz[idx] *= norm_factor;
+    }
+  );
+
+  std::cout<<"did the normalization"<<std::endl;
+
+  // Copy back to host for meshblock distribution
+  auto Bx_h = Bx.GetHostMirrorAndCopy();
+  auto By_h = By.GetHostMirrorAndCopy();
+  auto Bz_h = Bz.GetHostMirrorAndCopy();
 
   // Loop over meshblocks on this rank and initialize the variables:
-
   for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
     auto pmb = pmesh->block_list[b];
 
@@ -367,14 +376,13 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           // make sure idx is in range
           assert(idx >= 0 && idx < local_num_cells);
 
-          u(IB1, k, j, i) = Bx[idx];
-          u(IB2, k, j, i) = By[idx];
-          u(IB3, k, j, i) = Bz[idx];
+          u(IB1, k, j, i) = Bx_h[idx];
+          u(IB2, k, j, i) = By_h[idx];
+          u(IB3, k, j, i) = Bz_h[idx];
 
-          if (idx < 10) std::cout<<"idx "<<idx<<" Bx "<<Bx[idx]<<std::endl;
-
+          if (idx < 10) std::cout<<"idx "<<idx<<" Bx "<<Bx_h[idx]<<std::endl;
 	        // Total energy (thermal + kinetic + magnetic); thermal energy calculated from ideal gas EOS
-          u(IEN, k, j, i) = p0 / gm1 + 0.5*(mx*mx + my*my + mz*mz)/rho + 0.5*(Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx]);
+          u(IEN, k, j, i) = p0 / gm1 + 0.5*(mx*mx + my*my + mz*mz)/rho + 0.5*(Bx_h[idx]*Bx_h[idx] + By_h[idx]*By_h[idx] + Bz_h[idx]*Bz_h[idx]);
 
         }
       }
