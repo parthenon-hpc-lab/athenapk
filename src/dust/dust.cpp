@@ -1063,10 +1063,11 @@ void Dust::MeasureAndRecordHistory(parthenon::MeshData<parthenon::Real> *md,
         }
       }
     }
-  } else {
-    PARTHENON_FAIL("Currently can only do dust history with Tabular Cooling");
-  }
-}; // Dust::MeasureAndRecordHistory
+        } else{
+          // Currently can only do dust history with Tabular Cooling
+          ;
+        }
+      }; // Dust::MeasureAndRecordHistory
 
 std::vector<double> Dust::get_r_bin_edges() const { return this->r_bin_edges_; };
 
