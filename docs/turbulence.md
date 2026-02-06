@@ -38,7 +38,6 @@ rseed        = 20190729 # random seed of the OU forcing process
 sol_weight   = 1.0      # solenoidal weight of the acceleration field
 accel_rms    = 0.5      # root mean square value of the acceleration field
 num_modes    = 30       # number of wavemodes
-
 <modes>
 k_1_0	= +2
 k_1_1	= -1

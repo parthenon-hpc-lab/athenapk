@@ -85,3 +85,23 @@ if (AthenaPK_ENABLE_TESTING)
   add_subdirectory(tst/regression)
 endif()
 
+set(FFTW_INCLUDE_DIR "/p/software/default/stages/2025/software/FFTW/3.3.10-GCC-13.3.0/include")
+set(FFTW_LIBRARY "/p/software/default/stages/2025/software/FFTW/3.3.10-GCC-13.3.0/lib/libfftw3.so")
+
+include_directories(${FFTW_INCLUDE_DIR})
+target_link_libraries(athenaPK PRIVATE ${FFTW_LIBRARY})
+
+# HeFFTe paths
+set(HEFFTE_INCLUDE_DIR "/p/home/jusers/kasselmann1/juwels/heffte_gpu/include")
+set(HEFFTE_LIBRARY "/p/home/jusers/kasselmann1/juwels/heffte_gpu/lib64/libheffte.so")  # adjust if static: libheffte.a
+
+# HeFFTe paths
+set(HEFFTE_INCLUDE_DIR "/p/home/jusers/kasselmann1/juwels/heffte_gpu/include")
+set(HEFFTE_LIBRARY "/p/home/jusers/kasselmann1/juwels/heffte_gpu/lib64/libheffte.so")  # adjust if static: libheffte.a
+
+# Attach include path directly to the target
+target_include_directories(athenaPK PRIVATE ${HEFFTE_INCLUDE_DIR})
+
+# Link library to the target
+target_link_libraries(athenaPK PRIVATE ${HEFFTE_LIBRARY})
+

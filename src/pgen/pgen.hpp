@@ -9,6 +9,13 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
+namespace stochastic_B_field {
+using namespace parthenon::driver::prelude;
+
+void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md);
+
+} // namespace stochastic_B_field
+
 namespace linear_wave {
 using namespace parthenon::driver::prelude;
 
