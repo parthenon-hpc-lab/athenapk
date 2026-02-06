@@ -276,9 +276,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   Bz_hat.DeepCopy(Bz_hat_h);
 
   // Perform the inverse FFT:
-  fftManager->Backward(Bx_hat, Bx);
-  fftManager->Backward(By_hat, By);
-  fftManager->Backward(Bz_hat, Bz);
+  fftManager->Backward(Bx_hat.data(), Bx.data());
+  fftManager->Backward(By_hat.data(), By.data());
+  fftManager->Backward(Bz_hat.data(), Bz.data());
 
   double local_B2_sum = 0.0;
 
