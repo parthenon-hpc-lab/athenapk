@@ -63,8 +63,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   PARTHENON_REQUIRE_THROWS(pmesh->adaptive == false,
                            "stochastic_B_field problem generator does not support AMR.");
   
-  std::cout << "Initializing stochastic B-field..." << std::endl;
-
   // Get global number of cells 
   auto Nx = pin->GetInteger("parthenon/mesh", "nx1");
   auto Ny = pin->GetInteger("parthenon/mesh", "nx2");
@@ -87,7 +85,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
   assert(Lx == Ly && Ly == Lz);
   Real L = Lx;
-  std::cout << "Box size L = " << L << std::endl;
 
   // Read problem parameters
   const auto vx = pin->GetOrAddReal("problem/stochastic_B_field", "vx", 0.0);
@@ -151,10 +148,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
   auto fftManager = pmesh->GetFFTManager();
   auto outbox = fftManager->fourier_space_box();
-
-  std::cout<<"size_fourier_space_box: "
-           <<fftManager->size_fourier_space_box()
-           <<std::endl;
 
   parthenon::ParArray1D<std::complex<double>> Bx_hat("Bx_hat", fftManager->size_fourier_space_box());
   parthenon::ParArray1D<std::complex<double>> By_hat("By_hat", fftManager->size_fourier_space_box());
@@ -301,9 +294,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   double current_B_rms = std::sqrt(global_B2_sum / denom_i);
   double norm_factor = B_rms / current_B_rms;
 
-  std::cout << "norm factor: " << norm_factor 
-            << ", current B_rms: " << current_B_rms << std::endl;
-
   Kokkos::parallel_for(
     "NormalizeB",
     Kokkos::RangePolicy<std::int64_t>(0, local_num_cells),
@@ -313,8 +303,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         Bz[idx] *= norm_factor;
     }
   );
-
-  std::cout<<"did the normalization"<<std::endl;
 
   // Copy back to host for meshblock distribution
   auto Bx_h = Bx.GetHostMirrorAndCopy();
@@ -380,7 +368,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           u(IB2, k, j, i) = By_h[idx];
           u(IB3, k, j, i) = Bz_h[idx];
 
-          if (idx < 10) std::cout<<"idx "<<idx<<" Bx "<<Bx_h[idx]<<std::endl;
 	        // Total energy (thermal + kinetic + magnetic); thermal energy calculated from ideal gas EOS
           u(IEN, k, j, i) = p0 / gm1 + 0.5*(mx*mx + my*my + mz*mz)/rho + 0.5*(Bx_h[idx]*Bx_h[idx] + By_h[idx]*By_h[idx] + Bz_h[idx]*Bz_h[idx]);
 
