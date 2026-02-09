@@ -876,8 +876,72 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     pkg->AddParam("dust_silicate_grains", silicate_grains ? 1 : 0);
     pkg->AddParam("dust_grain_compositions_names", dust_grain_compositions_names);
 
-    // std::cout << "num_dust_scalars" << num_dust_scalars << std::endl;
-  } // if dust_on
+  // std::cout << "num_dust_scalars" << num_dust_scalars << std::endl;
+
+
+
+
+
+      // Precompute cooling tables. Only do on one rank since we will write to file. just run on host
+      std::string file_tag = "dust_cooling_table.txt";
+      std::string folder_path;
+      folder_path = "./dust_cool_table/";
+      pkg->AddParam("dust_cooling_table_path", std::filesystem::current_path().string() + "/" + folder_path + file_tag);
+      if (parthenon::Globals::my_rank == 0){
+        const auto &DustObj = pkg->Param<dust::Dust>("dust");
+        std::string column_name;
+        std::ostringstream oss;
+        // oss << std::setw(3) << std::setfill('0') << dust_i;
+        oss.str("");     // clear the string buffer
+        oss.clear();     // reset error/EOF flags
+        // Check if folder exists, if not create it
+        std::filesystem::create_directories(folder_path);
+        std::ofstream cool_file;
+        std::cout << "currentdir = "
+          << std::filesystem::current_path()
+          << '\n';
+        
+        cool_file.open(folder_path + file_tag, std::ofstream::out | std::ofstream::trunc); // overwrite if exists
+        if( !cool_file.is_open() )
+            std::cerr << "Error: Unable to open file 'dust_cooling_table.txt' for writing." << std::endl;
+
+        for(int gs_i = 0; gs_i < num_grain_size_bins; gs_i++){
+          if(gs_i == 0){
+            cool_file << "T (K)" <<  "|" ;
+          }
+          cool_file << std::setprecision(5) << pkg->Param<std::vector<Real>>("host_grain_midbin_sizes_microm")[gs_i] <<  "|";
+        }
+        cool_file << "\n";
+        
+        printf("num_grain_size_bins=%d \n",num_grain_size_bins);
+        for(Real temp = 0.; temp <= 9.; temp+= 0.1){
+        for(int gs_i = 0; gs_i < num_grain_size_bins; gs_i++){
+          const Real dust_de_dt_this_grain_bin = dust::PreComputeDwekWernerGrainCooling(
+            Kokkos::pow(10., temp),
+            gs_i, 
+            DustObj.dwek_werner_regime_coeff_,
+            DustObj.dwek_werner_coeff_a_code_units_,
+            DustObj.dwek_werner_coeff_b_code_units_,
+            DustObj.dwek_werner_coeff_c_code_units_,
+            pkg->Param<std::vector<Real>>("host_grain_midbin_sizes_microm")
+          );
+        printf("Kokkos::pow(10., temp)=%e gs_i = %d dust_de_dt_this_grain_bin=%e \n", Kokkos::pow(10., temp), gs_i, dust_de_dt_this_grain_bin);
+        if(gs_i == 0){
+          cool_file << std::setprecision(5) << temp <<  "| " ;
+        }
+        cool_file << std::setprecision(5) << Kokkos::log10(Kokkos::abs(dust_de_dt_this_grain_bin)) <<  " " ;
+      }
+      cool_file << std::endl;
+      }
+      cool_file.close();
+    }
+
+
+
+
+
+
+} // if dust_on
 
   pkg->AddParam("user_nscalars",
                 nscalars); // the user-input nscalars (e.g. without dust...)

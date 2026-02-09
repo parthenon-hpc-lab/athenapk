@@ -92,6 +92,55 @@ enum class DustPiecewiseMode { LINEAR, LOGLINEAR };
 void DustUpdateDriver(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt,
                       const parthenon::SimTime &tm);
 
+void FailOnNegativeT(parthenon::MeshData<parthenon::Real> *md,
+                                  const parthenon::Real dt,
+                                  const parthenon::SimTime &tm,
+                                  const int INT_TAG,
+                                  const int FAIL = 1);
+void ForcePositiveT(parthenon::MeshData<parthenon::Real> *md,
+                                  const parthenon::Real dt,
+                                  const parthenon::SimTime &tm);
+                                  
+
+
+
+
+// This function splits the cooling integral up depending on which Dwek-Werner regimes are intersected, then handles the 
+// calls to the DW functions, resulting in a single final dust cooling rate
+template <typename myView>
+KOKKOS_INLINE_FUNCTION
+Real PreComputeDwekWernerGrainCooling(
+    const Real temperature,
+    const int gs_i, 
+    const Real dwek_werner_regime_coeff,
+    const Real dwek_werner_coeff_a_code_units,
+    const Real dwek_werner_coeff_b_code_units,
+    const Real dwek_werner_coeff_c_code_units,
+    const myView grain_midbin_sizes_microm
+) {
+            // Grain sizes in the following are in micro-meters
+            // The coefficients are in code units and calculated once earlier for efficiency
+              // printf("[FJJ DEBUG] Doing non-integrated cooling \n");
+              // PARTHENON_REQUIRE(dust_piecewise_mode_int == 1, "Non-integrated cooling not implemented for loglinear interpolation - bin midpoint is fuzzy");
+            constexpr Real chi_low_regime = 1.5;
+            constexpr Real chi_high_regime = 4.5;
+            Real chi =  dwek_werner_regime_coeff * Kokkos::pow(grain_midbin_sizes_microm[gs_i], 2.0/3.0) / temperature ;
+            Real dust_de_dt_this_grain_bin = 0.;
+            // Dwek & Werner 1981 A13  / electron_density
+            if(chi >= chi_high_regime){
+                dust_de_dt_this_grain_bin = dwek_werner_coeff_a_code_units * Kokkos::pow(grain_midbin_sizes_microm[gs_i], 2) * Kokkos::pow(temperature, 3.0/2.0);
+            }
+            else if(chi >= chi_low_regime){
+                dust_de_dt_this_grain_bin = dwek_werner_coeff_b_code_units * Kokkos::pow(grain_midbin_sizes_microm[gs_i], 2.41) * Kokkos::pow(temperature, 0.88);
+            }
+            else if(chi>0){
+                dust_de_dt_this_grain_bin = dwek_werner_coeff_c_code_units * Kokkos::pow(grain_midbin_sizes_microm[gs_i], 3);
+            }
+              return dust_de_dt_this_grain_bin;
+}
+
+
+
 KOKKOS_INLINE_FUNCTION
 double StablePowDiff(double xmin, double xmax, double p) {
   // FJJ - function to calculate stable differences of powers of 2 numbers, since the 2
@@ -1074,161 +1123,113 @@ struct DustDevice {
             do_delta_edge_scheme, Mi_renorm_factor);
       }
 
-      // Index guide 0=upper, 1=middle, 2=lower
-      if (bin_a_min >= a_boundary_high && bin_a_max >= a_boundary_high) {
-        // Do not split integral. Do all in one go -upper chi integral
-        if (dust_piecewise_mode_int == 1) { // Linear interpolation
-          dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLinSlopeHelper(
-              Ni, Si, bin_a_min, bin_a_max, bin_a_mid, bin_a_width, temperature,
-              ne_over_V, 0);
-        } else if (dust_piecewise_mode_int == 2) { // LogLinear interpolation{
-          dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(
-              kappa_i, beta_i, bin_a_min, bin_a_max, temperature, ne_over_V, 0, Ni);
-        }
-      } else if (bin_a_min >= a_boundary_low && bin_a_max >= a_boundary_low &&
-                 bin_a_min < a_boundary_high && bin_a_max < a_boundary_high) {
-        // Do not split integral. Do all in one go -middle chi integral
-        if (dust_piecewise_mode_int == 1) { // Linear interpolation
-          dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLinSlopeHelper(
-              Ni, Si, bin_a_min, bin_a_max, bin_a_mid, bin_a_width, temperature,
-              ne_over_V, 1);
-        } else if (dust_piecewise_mode_int == 2) { // LogLinear interpolation{
-          dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(
-              kappa_i, beta_i, bin_a_min, bin_a_max, temperature, ne_over_V, 1, Ni);
-        }
-      } else if (bin_a_min < a_boundary_low && bin_a_max < a_boundary_low) {
-        // Do not split integral. Do all in one go -lower chi integral
-        if (dust_piecewise_mode_int == 1) { // Linear interpolation
-          dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLinSlopeHelper(
-              Ni, Si, bin_a_min, bin_a_max, bin_a_mid, bin_a_width, temperature,
-              ne_over_V, 2);
-        } else if (dust_piecewise_mode_int == 2) { // LogLinear interpolation{
-          dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(
-              kappa_i, beta_i, bin_a_min, bin_a_max, temperature, ne_over_V, 2, Ni);
-        }
-      } else if (bin_a_min < a_boundary_low && bin_a_max >= a_boundary_low &&
-                 bin_a_max < a_boundary_high) {
-        // Split integral between middle and lower chi integrals
-        // KOKKOS_ASSERT(a_boundary_low <= bin_a_max && a_boundary_low >= bin_a_min); //
-        // sanity check that the boundary value does lie in this a-range for the bin
-        if (dust_piecewise_mode_int == 1) { // Linear interpolation
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(
-              Ni, Si, bin_a_min, a_boundary_low, bin_a_mid, bin_a_width, temperature,
-              ne_over_V, 2);
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(
-              Ni, Si, a_boundary_low, bin_a_max, bin_a_mid, bin_a_width, temperature,
-              ne_over_V, 1);
-        } else if (dust_piecewise_mode_int == 2) { // LogLinear interpolation{
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(
-              kappa_i, beta_i, bin_a_min, a_boundary_low, temperature, ne_over_V, 2, Ni);
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(
-              kappa_i, beta_i, a_boundary_low, bin_a_max, temperature, ne_over_V, 1, Ni);
-        }
-      } else if (bin_a_min < a_boundary_high && bin_a_min >= a_boundary_low &&
-                 bin_a_max >= a_boundary_high) {
-        // Split integral between middle and upper chi integrals
-        // KOKKOS_ASSERT(a_boundary_high <= bin_a_max && a_boundary_high >= bin_a_min); //
-        // sanity check that the boundary value does lie in this a-range for the bin
-        if (dust_piecewise_mode_int == 1) { // Linear interpolation
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(
-              Ni, Si, bin_a_min, a_boundary_high, bin_a_mid, bin_a_width, temperature,
-              ne_over_V, 1);
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(
-              Ni, Si, a_boundary_high, bin_a_max, bin_a_mid, bin_a_width, temperature,
-              ne_over_V, 0);
-        } else if (dust_piecewise_mode_int == 2) { // LogLinear interpolation{
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(
-              kappa_i, beta_i, bin_a_min, a_boundary_high, temperature, ne_over_V, 1, Ni);
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(
-              kappa_i, beta_i, a_boundary_high, bin_a_max, temperature, ne_over_V, 0, Ni);
-        }
-      } else if (bin_a_min < a_boundary_low && bin_a_max >= a_boundary_high) {
-        // Split integral between all 3 chi integrals
-        KOKKOS_ASSERT(a_boundary_low <= bin_a_max &&
-                      a_boundary_low >=
-                          bin_a_min); // sanity check that the boundary value does lie in
-                                      // this a-range for the bin
-        KOKKOS_ASSERT(a_boundary_high <= bin_a_max &&
-                      a_boundary_high >=
-                          bin_a_min); // sanity check that the boundary value does lie in
-                                      // this a-range for the bin
-        if (dust_piecewise_mode_int == 1) { // Linear interpolation
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(
-              Ni, Si, bin_a_min, a_boundary_low, bin_a_mid, bin_a_width, temperature,
-              ne_over_V, 2);
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(
-              Ni, Si, a_boundary_low, a_boundary_high, bin_a_mid, bin_a_width,
-              temperature, ne_over_V, 1);
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(
-              Ni, Si, a_boundary_high, bin_a_max, bin_a_mid, bin_a_width, temperature,
-              ne_over_V, 0);
-        } else if (dust_piecewise_mode_int == 2) { // LogLinear interpolation{
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(
-              kappa_i, beta_i, bin_a_min, a_boundary_low, temperature, ne_over_V, 2, Ni);
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(
-              kappa_i, beta_i, a_boundary_low, a_boundary_high, temperature, ne_over_V, 1,
-              Ni);
-          dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(
-              kappa_i, beta_i, a_boundary_high, bin_a_max, temperature, ne_over_V, 0, Ni);
-        }
-      } else {
-        printf("a_boundary_low = %g, a_boundary_high = %g gs_i = %d temperature  %g "
-               "grain_midbin_sizes_microm[gs_i] = %g "
-               "Kokkos::pow(grain_midbin_sizes_microm[gs_i],"
-               " 2.0/3.0) = %g dwek_werner_regime_coeff = %g \n",
-               a_boundary_low, a_boundary_high, gs_i, temperature,
-               grain_midbin_sizes_microm[gs_i],
-               Kokkos::pow(grain_midbin_sizes_microm[gs_i], 2.0 / 3.0),
-               dwek_werner_regime_coeff);
-        PARTHENON_FAIL("Bad value of chi in dwek_werner_cooling");
-      }
-    } else {
-      PARTHENON_FAIL("Bad integrated_rates value");
-    }
-    PARTHENON_REQUIRE(dust_de_dt_this_grain_bin == dust_de_dt_this_grain_bin,
-                      "dust_de_dt_this_grain_bin is NaN!!");
-    return dust_de_dt_this_grain_bin; // return volumetric rate
-  }
+            // Index guide 0=upper, 1=middle, 2=lower
+            if(bin_a_min >= a_boundary_high && bin_a_max >= a_boundary_high ){
+              // Do not split integral. Do all in one go -upper chi integral
+              if(dust_piecewise_mode_int == 1){ // Linear interpolation  
+              dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLinSlopeHelper(Ni, Si, bin_a_min, bin_a_max, bin_a_mid, bin_a_width, temperature, ne_over_V,  0);
+              } else if(dust_piecewise_mode_int == 2){ // LogLinear interpolation{
+              dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, bin_a_min, bin_a_max,  temperature, ne_over_V,  0, Ni);                
+              }
+            }
+            else if(bin_a_min >= a_boundary_low && bin_a_max >= a_boundary_low && bin_a_min < a_boundary_high && bin_a_max < a_boundary_high ){
+              // Do not split integral. Do all in one go -middle chi integral
+              if(dust_piecewise_mode_int == 1){ // Linear interpolation
+              dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLinSlopeHelper(Ni, Si, bin_a_min, bin_a_max, bin_a_mid, bin_a_width, temperature, ne_over_V,  1);
+              } else if(dust_piecewise_mode_int == 2){ // LogLinear interpolation{
+              dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, bin_a_min, bin_a_max,  temperature, ne_over_V,  1, Ni);
+              }
+            }
+            else if(bin_a_min < a_boundary_low && bin_a_max < a_boundary_low ){
+              // Do not split integral. Do all in one go -lower chi integral
+              if(dust_piecewise_mode_int == 1){ // Linear interpolation
+              dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLinSlopeHelper(Ni, Si, bin_a_min, bin_a_max, bin_a_mid, bin_a_width, temperature, ne_over_V,  2);
+              } else if(dust_piecewise_mode_int == 2){ // LogLinear interpolation{
+              dust_de_dt_this_grain_bin = DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, bin_a_min, bin_a_max,  temperature, ne_over_V,  2, Ni);
+              }
+            }
+            else if(bin_a_min < a_boundary_low && bin_a_max >= a_boundary_low && bin_a_max < a_boundary_high ){
+              // Split integral between middle and lower chi integrals
+              // KOKKOS_ASSERT(a_boundary_low <= bin_a_max && a_boundary_low >= bin_a_min); // sanity check that the boundary value does lie in this a-range for the bin
+              if(dust_piecewise_mode_int == 1){ // Linear interpolation
+              dust_de_dt_this_grain_bin +=  DwekWernerGrainCoolingIntegralsLinSlopeHelper(Ni, Si, bin_a_min, a_boundary_low, bin_a_mid, bin_a_width, temperature, ne_over_V,  2);
+              dust_de_dt_this_grain_bin +=  DwekWernerGrainCoolingIntegralsLinSlopeHelper(Ni, Si, a_boundary_low, bin_a_max, bin_a_mid, bin_a_width, temperature, ne_over_V,  1);
+              } else if(dust_piecewise_mode_int == 2){ // LogLinear interpolation{
+              dust_de_dt_this_grain_bin +=  DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, bin_a_min, a_boundary_low,  temperature, ne_over_V,  2, Ni);
+              dust_de_dt_this_grain_bin +=  DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, a_boundary_low, bin_a_max,  temperature, ne_over_V,  1, Ni);                
+              }
+            }
+            else if(bin_a_min < a_boundary_high && bin_a_min >= a_boundary_low && bin_a_max >= a_boundary_high){
+              // Split integral between middle and upper chi integrals
+              // KOKKOS_ASSERT(a_boundary_high <= bin_a_max && a_boundary_high >= bin_a_min); // sanity check that the boundary value does lie in this a-range for the bin
+              if(dust_piecewise_mode_int == 1){ // Linear interpolation
+              dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(Ni, Si, bin_a_min, a_boundary_high, bin_a_mid, bin_a_width, temperature, ne_over_V,  1);
+              dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(Ni, Si, a_boundary_high, bin_a_max, bin_a_mid, bin_a_width, temperature, ne_over_V,  0);
+              } else if(dust_piecewise_mode_int == 2){ // LogLinear interpolation{
+              dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, bin_a_min, a_boundary_high, temperature, ne_over_V,  1, Ni);
+              dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, a_boundary_high, bin_a_max, temperature, ne_over_V,  0, Ni);    
+              }
+            }
+            else if(bin_a_min < a_boundary_low && bin_a_max >= a_boundary_high){
+              // Split integral between all 3 chi integrals
+              KOKKOS_ASSERT(a_boundary_low <= bin_a_max && a_boundary_low >= bin_a_min); // sanity check that the boundary value does lie in this a-range for the bin
+              KOKKOS_ASSERT(a_boundary_high <= bin_a_max && a_boundary_high >= bin_a_min); // sanity check that the boundary value does lie in this a-range for the bin
+              if(dust_piecewise_mode_int == 1){ // Linear interpolation
+              dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(Ni, Si, bin_a_min, a_boundary_low, bin_a_mid, bin_a_width, temperature, ne_over_V,  2);
+              dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(Ni, Si, a_boundary_low, a_boundary_high, bin_a_mid, bin_a_width, temperature, ne_over_V,  1);
+              dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLinSlopeHelper(Ni, Si, a_boundary_high, bin_a_max, bin_a_mid, bin_a_width, temperature, ne_over_V,  0);
+              } else if(dust_piecewise_mode_int == 2){ // LogLinear interpolation{
+              dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, bin_a_min, a_boundary_low, temperature, ne_over_V,  2, Ni);
+              dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, a_boundary_low, a_boundary_high, temperature, ne_over_V,  1, Ni);
+              dust_de_dt_this_grain_bin += DwekWernerGrainCoolingIntegralsLogLinSlopeHelper(kappa_i, beta_i, a_boundary_high, bin_a_max, temperature, ne_over_V,  0, Ni);
+              }
+            } else {printf("a_boundary_low = %g, a_boundary_high = %g gs_i = %d temperature  %g grain_midbin_sizes_microm[gs_i] = %g Kokkos::pow(grain_midbin_sizes_microm[gs_i],"
+              " 2.0/3.0) = %g dwek_werner_regime_coeff = %g \n", a_boundary_low, a_boundary_high, gs_i, temperature, grain_midbin_sizes_microm[gs_i], Kokkos::pow(grain_midbin_sizes_microm[gs_i], 2.0/3.0), dwek_werner_regime_coeff);
+                PARTHENON_FAIL("Bad value of chi in dwek_werner_cooling");
+            }
+            }
+          else{PARTHENON_FAIL("Bad integrated_rates value");}
+        PARTHENON_REQUIRE(dust_de_dt_this_grain_bin == dust_de_dt_this_grain_bin, "dust_de_dt_this_grain_bin is NaN!!");
+        return  dust_de_dt_this_grain_bin; // return volumetric rate
+}
 
-  // top-level function to call for DW dust cooling. Can decide here to do for single size
-  // bin or for all bins
-  KOKKOS_INLINE_FUNCTION
-  Real DwekWernerCooling(const Real temperature, const Real gas_rho,
-                         const Real x_H_over_m_h2_, const int dust_scalar_idx_start,
-                         const int cons_k, const int cons_j, const int cons_i,
-                         const parthenon::VariablePack<parthenon::Real> &cons,
-                         const Coordinates_t &coords, const int dust_piecewise_mode_int,
-                         const int single_dust_bin = -1,
-                         const int integrated_rates = 0) const {
-    Real dust_de_dt = 0.;
-    int dust_num_grains_sizes = grain_midbin_sizes_microm.extent(0);
-    if (single_dust_bin > -1) {
-      // do single dust bin, for histories file
-      // get the grain type and size indices
-      const int gs_i =
-          single_dust_bin % dust_num_grains_sizes; // remainder  - gives size index
-      const int gc_i = (single_dust_bin - gs_i) /
-                       dust_num_grains_sizes; // quotient - gives composition index
-      int index_into_Mi =
-          dust_scalar_idx_start + (2 * ((gc_i * dust_num_grains_sizes) + gs_i)) + 1;
-      int index_into_Ni =
-          dust_scalar_idx_start + (2 * ((gc_i * dust_num_grains_sizes) + gs_i));
-      if (cons(index_into_Ni, cons_k, cons_j, cons_i) < 1e-100 &&
-          cons(index_into_Mi, cons_k, cons_j, cons_i) < 1e-100) {
-        return 0.;
-      }
-      dust_de_dt += ComputeDwekWernerGrainCooling(
-          temperature, gas_rho, x_H_over_m_h2_, single_dust_bin, gs_i, gc_i,
-          dust_scalar_idx_start, cons_k, cons_j, cons_i, cons, coords,
-          dust_piecewise_mode_int, integrated_rates);
-    } else { // over all dust bins
-      for (int gc_i = 0; gc_i < single_grain_densities.extent(0);
-           gc_i++) { // loop over grain compositions
-        for (int gs_i = 0; gs_i < grain_midbin_sizes_microm.extent(0);
-             gs_i++) { // loop over grain sizes
-          // get correct index into cons_pack subview for this grain type and size bin
-          int gb_i =
-              (gc_i * grain_midbin_sizes_microm.extent(0)) + gs_i; // l = dust bin index
+
+
+
+
+    
+    // top-level function to call for DW dust cooling. Can decide here to do for single size bin or for all bins
+    KOKKOS_INLINE_FUNCTION 
+    Real DwekWernerCooling(const Real temperature, const Real gas_rho, const Real x_H_over_m_h2_ , const int dust_scalar_idx_start, const int cons_k, const int cons_j, const int cons_i, const parthenon::VariablePack<parthenon::Real> &cons, const Coordinates_t &coords, const int dust_piecewise_mode_int, const int single_dust_bin = -1, const int integrated_rates = 0) const {
+        Real dust_de_dt = 0.;
+        int dust_num_grains_sizes = grain_midbin_sizes_microm.extent(0);
+        if(single_dust_bin>-1){ 
+            // do single dust bin, for histories file
+            // get the grain type and size indices
+            const int gs_i = single_dust_bin % dust_num_grains_sizes; //remainder  - gives size index
+            const int gc_i = (single_dust_bin - gs_i) / dust_num_grains_sizes; //quotient - gives composition index
+            int index_into_Mi = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i)) + 1;
+            int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
+            if(cons(index_into_Ni, cons_k, cons_j, cons_i) < 1e-100 && cons(index_into_Mi, cons_k, cons_j, cons_i) < 1e-100 ){
+              return 0.;
+            }
+            dust_de_dt += ComputeDwekWernerGrainCooling(
+            temperature,
+            gas_rho,
+            x_H_over_m_h2_,
+            single_dust_bin, gs_i, gc_i,
+            dust_scalar_idx_start,
+            cons_k, cons_j, cons_i,
+            cons, 
+            coords,
+            dust_piecewise_mode_int,
+            integrated_rates
+        );
+        } else { // over all dust bins
+        for(int gc_i = 0; gc_i < single_grain_densities.extent(0); gc_i++){ // loop over grain compositions
+            for(int gs_i = 0; gs_i < grain_midbin_sizes_microm.extent(0); gs_i++){ // loop over grain sizes
+            //get correct index into cons_pack subview for this grain type and size bin
+            int gb_i = (gc_i*grain_midbin_sizes_microm.extent(0)) + gs_i;  // l = dust bin index
 
           int index_into_Mi =
               dust_scalar_idx_start + (2 * ((gc_i * dust_num_grains_sizes) + gs_i)) + 1;

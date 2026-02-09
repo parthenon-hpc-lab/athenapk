@@ -305,10 +305,10 @@ Dust::Dust(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg
   // Copy into device memory
   Kokkos::deep_copy(grain_midbin_sizes_microm_, host_grain_midbin_sizes_microm);
 
-  grainsize_bin_edges_microm_ = ParArray1D<Real>("grainsize_bin_edges_microm",
-                                                 grainsize_bin_edges_microm_v_.size());
-  auto host_grainsize_bin_edges_microm =
-      Kokkos::create_mirror_view(grainsize_bin_edges_microm_);
+  hydro_pkg->AddParam<>("host_grain_midbin_sizes_microm", grain_midbin_sizes_microm_v_);
+
+  grainsize_bin_edges_microm_ = ParArray1D<Real>("grainsize_bin_edges_microm", grainsize_bin_edges_microm_v_.size());
+  auto host_grainsize_bin_edges_microm = Kokkos::create_mirror_view(grainsize_bin_edges_microm_);
   for (unsigned int i = 0; i < grainsize_bin_edges_microm_v_.size(); i++) {
     host_grainsize_bin_edges_microm(i) =
         grainsize_bin_edges_microm_v_[i]; // convert from micro meters
