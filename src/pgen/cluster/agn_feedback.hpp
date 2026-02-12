@@ -49,6 +49,9 @@ class AGNFeedback {
 
   const bool enable_magnetic_tower_mass_injection_;
 
+  // Triggering mode
+  const std::string triggering_mode_str_;
+
   AGNFeedback(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
 
   parthenon::Real GetFeedbackPower(parthenon::StateDescriptor *hydro_pkg) const;

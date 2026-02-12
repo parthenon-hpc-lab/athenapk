@@ -111,6 +111,8 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
                           const parthenon::SimTime &tm);
 void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                            const Real beta_dt);
+void UpdateSubclusterPosition(MeshData<Real> *md, const parthenon::SimTime &tm,
+                              const Real dt);
 void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                          const Real beta_dt);
 parthenon::Real ClusterEstimateTimestep(MeshData<Real> *md);

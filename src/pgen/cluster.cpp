@@ -60,6 +60,123 @@ using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
 
+void UpdateSubclusterPosition(MeshData<Real> *md, const parthenon::SimTime &tm,
+                              const Real dt) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  // Get current subcluster state
+  Real subcluster_x = hydro_pkg->Param<Real>("subcluster_x");
+  Real subcluster_y = hydro_pkg->Param<Real>("subcluster_y");
+  Real subcluster_z = hydro_pkg->Param<Real>("subcluster_z");
+  Real subcluster_vx = hydro_pkg->Param<Real>("subcluster_vx");
+  Real subcluster_vy = hydro_pkg->Param<Real>("subcluster_vy");
+  Real subcluster_vz = hydro_pkg->Param<Real>("subcluster_vz");
+
+  // Get gravity objects
+  const auto &cluster_gravity = hydro_pkg->Param<ClusterGravity>("cluster_gravity");
+  const auto &subcluster_gravity = hydro_pkg->Param<ClusterGravity>("subcluster_gravity");
+
+  // Calculate distance from main cluster center (assumed to be at origin)
+  Real r = std::sqrt(subcluster_x * subcluster_x + subcluster_y * subcluster_y +
+                     subcluster_z * subcluster_z);
+
+  // Get gravitational field magnitude at current position
+  Real g_mag = 0.0;
+  Real g_sub_mag = 0.0;
+  if (hydro_pkg->Param<bool>("gravity_srcterm_subcluster")) {
+    // Use cluster gravity if enabled
+    // Subcluster gravity is also needed for inertial forces
+    g_mag = cluster_gravity.g_from_r(r);
+    g_sub_mag = subcluster_gravity.g_from_r(r);
+  }
+
+  // Calculate acceleration components (pointing toward main cluster center)
+  Real ax_current, ay_current, az_current;
+  if (r > 0.0) {
+    // Main cluster acceleration term
+    ax_current = -g_mag * subcluster_x / r;
+    ay_current = -g_mag * subcluster_y / r;
+    az_current = -g_mag * subcluster_z / r;
+    // Inertial forces
+    ax_current += g_sub_mag * subcluster_x / r;
+    ay_current += g_sub_mag * subcluster_y / r;
+    az_current += g_sub_mag * subcluster_z / r;
+  } else {
+    // Handle case where subcluster is exactly at center
+    ax_current = ay_current = az_current = 0.0;
+  }
+
+  // Get time step information
+  const Real time_current = tm.time;
+  const Real dt_current = dt;
+
+  // Check if this is the first time step (t = 0)
+  const Real eps = 10.0 * std::numeric_limits<Real>::epsilon();
+  if (time_current <= eps) {
+    // Initial step: use equations (15) and (16)
+    // x1_i = x0_i + v0_i * dt0
+    Real new_x = subcluster_x + subcluster_vx * dt_current;
+    Real new_y = subcluster_y + subcluster_vy * dt_current;
+    Real new_z = subcluster_z + subcluster_vz * dt_current;
+
+    // v1/2_i = v0_i + (1/2) * a0_i * dt0
+    Real new_vx = subcluster_vx + 0.5 * ax_current * dt_current;
+    Real new_vy = subcluster_vy + 0.5 * ay_current * dt_current;
+    Real new_vz = subcluster_vz + 0.5 * az_current * dt_current;
+
+    // Store updated values
+    hydro_pkg->UpdateParam<Real>("subcluster_x", new_x);
+    hydro_pkg->UpdateParam<Real>("subcluster_y", new_y);
+    hydro_pkg->UpdateParam<Real>("subcluster_z", new_z);
+    hydro_pkg->UpdateParam<Real>("subcluster_vx", new_vx);
+    hydro_pkg->UpdateParam<Real>("subcluster_vy", new_vy);
+    hydro_pkg->UpdateParam<Real>("subcluster_vz", new_vz);
+    // Store current acceleration for next step
+    hydro_pkg->UpdateParam<Real>("subcluster_ax_prev", ax_current);
+    hydro_pkg->UpdateParam<Real>("subcluster_ay_prev", ay_current);
+    hydro_pkg->UpdateParam<Real>("subcluster_az_prev", az_current);
+    // Store current timestep for next step
+    hydro_pkg->UpdateParam<Real>("subcluster_dt_prev", dt_current);
+
+  } else {
+    // For n >= 1, we need previous timestep and acceleration
+    const Real dt_prev = hydro_pkg->Param<Real>("subcluster_dt_prev");
+    const Real ax_prev = hydro_pkg->Param<Real>("subcluster_ax_prev");
+    const Real ay_prev = hydro_pkg->Param<Real>("subcluster_ay_prev");
+    const Real az_prev = hydro_pkg->Param<Real>("subcluster_az_prev");
+
+    // Calculate coefficients C_n and D_n from equations (19) and (20)
+    Real C_n = 0.5 * dt_current + (1.0 / 3.0) * dt_prev +
+               (1.0 / 6.0) * (dt_current * dt_current) / dt_prev;
+    Real D_n = (1.0 / 6.0) * (dt_prev - (dt_current * dt_current) / dt_prev);
+
+    // Update velocity using equation (17): v^(n+1/2)_i = v^(n-1/2)_i + C_n * a^n_i + D_n
+    // * a^(n-1)_i
+    Real new_vx = subcluster_vx + C_n * ax_current + D_n * ax_prev;
+    Real new_vy = subcluster_vy + C_n * ay_current + D_n * ay_prev;
+    Real new_vz = subcluster_vz + C_n * az_current + D_n * az_prev;
+
+    // Update position using equation (18): x^(n+1)_i = x^n_i + v^(n+1/2)_i * dt_n
+    Real new_x = subcluster_x + new_vx * dt_current;
+    Real new_y = subcluster_y + new_vy * dt_current;
+    Real new_z = subcluster_z + new_vz * dt_current;
+
+    // Store updated values
+    hydro_pkg->UpdateParam<Real>("subcluster_x", new_x);
+    hydro_pkg->UpdateParam<Real>("subcluster_y", new_y);
+    hydro_pkg->UpdateParam<Real>("subcluster_z", new_z);
+    hydro_pkg->UpdateParam<Real>("subcluster_vx", new_vx);
+    hydro_pkg->UpdateParam<Real>("subcluster_vy", new_vy);
+    hydro_pkg->UpdateParam<Real>("subcluster_vz", new_vz);
+
+    // Store current acceleration and timestep for next iteration
+    hydro_pkg->UpdateParam<Real>("subcluster_ax_prev", ax_current);
+    hydro_pkg->UpdateParam<Real>("subcluster_ay_prev", ay_current);
+    hydro_pkg->UpdateParam<Real>("subcluster_az_prev", az_current);
+    hydro_pkg->UpdateParam<Real>("subcluster_dt_prev", dt_current);
+  }
+}
+
 void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                            const Real beta_dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
@@ -70,7 +187,37 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
     const ClusterGravity &cluster_gravity =
         hydro_pkg->Param<ClusterGravity>("cluster_gravity");
 
-    GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
+    GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity, 0, 0, 0);
+    if (hydro_pkg->Param<bool>("subcluster")) {
+      // If subcluster is enabled, apply gravitational field source term for it
+      const Real subcluster_x = hydro_pkg->Param<Real>("subcluster_x");
+      const Real subcluster_y = hydro_pkg->Param<Real>("subcluster_y");
+      const Real subcluster_z = hydro_pkg->Param<Real>("subcluster_z");
+      auto subcluster_gravity = hydro_pkg->Param<ClusterGravity>("subcluster_gravity");
+      GravitationalFieldSrcTerm(md, beta_dt, subcluster_gravity, subcluster_x,
+                                subcluster_y, subcluster_z);
+      // Add non-inertial source term for subcluster
+      // First calculating the gravitational acceleration at the subcluster position
+      const Real dx = subcluster_x;
+      const Real dy = subcluster_y;
+      const Real dz = subcluster_z;
+      const Real r = std::sqrt(dx * dx + dy * dy + dz * dz);
+      const Real g_r = subcluster_gravity.g_from_r(r);
+
+      Real g_subcluster_x = 0.0;
+      Real g_subcluster_y = 0.0;
+      Real g_subcluster_z = 0.0;
+
+      if (r > 0.0) {
+        // Need minus sign as the acceleration is retried in
+        // HomogeneousAccelerationSrcTerm
+        g_subcluster_x = g_r * dx / r;
+        g_subcluster_y = g_r * dy / r;
+        g_subcluster_z = g_r * dz / r;
+      }
+      HomogeneousAccelerationSrcTerm(md, beta_dt, g_subcluster_x, g_subcluster_y,
+                                     g_subcluster_z);
+    }
   }
 
   const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
@@ -82,6 +229,7 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   const auto &snia_feedback = hydro_pkg->Param<SNIAFeedback>("snia_feedback");
   snia_feedback.FeedbackSrcTerm(md, beta_dt, tm);
 };
+
 void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                          const Real dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
@@ -90,6 +238,11 @@ void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   stellar_feedback.FeedbackSrcTerm(md, dt, tm);
 
   ApplyClusterClips(md, tm, dt);
+
+  // Update the subcluster position
+  if (hydro_pkg->Param<bool>("subcluster")) {
+    UpdateSubclusterPosition(md, tm, dt);
+  }
 }
 
 Real ClusterEstimateTimestep(MeshData<Real> *md) {
@@ -116,7 +269,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   /************************************************************
    * Read Uniform Gas
    ************************************************************/
-
   const bool init_uniform_gas =
       pin->GetOrAddBoolean("problem/cluster/uniform_gas", "init_uniform_gas", false);
   hydro_pkg->AddParam<>("init_uniform_gas", init_uniform_gas);
@@ -175,28 +327,67 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    * Read Cluster Gravity Parameters
    ************************************************************/
 
-  // Build cluster_gravity object
-  ClusterGravity cluster_gravity(pin, hydro_pkg);
-  // hydro_pkg->AddParam<>("cluster_gravity", cluster_gravity);
-
   // Include gravity as a source term during evolution
   const bool gravity_srcterm =
       pin->GetBoolean("problem/cluster/gravity", "gravity_srcterm");
   hydro_pkg->AddParam<>("gravity_srcterm", gravity_srcterm);
+  const bool gravity_srcterm_subcluster = pin->GetOrAddBoolean(
+      "problem/cluster/gravity", "gravity_srcterm_subcluster", false);
+  hydro_pkg->AddParam<>("gravity_srcterm_subcluster", gravity_srcterm_subcluster);
+  hydro_pkg->AddParam<>("maincluster_total_mass", 0.0, Params::Mutability::Restart);
+
+  // Build cluster_gravity object
+  ClusterGravity cluster_gravity(pin, hydro_pkg, false);
 
   /************************************************************
    * Read Initial Entropy Profile
    ************************************************************/
 
   // Build entropy_profile object
-  ACCEPTEntropyProfile entropy_profile(pin);
+  ACCEPTEntropyProfile entropy_profile(pin, false);
 
   /************************************************************
    * Build Hydrostatic Equilibrium Sphere
    ************************************************************/
 
   HydrostaticEquilibriumSphere hse_sphere(pin, hydro_pkg, cluster_gravity,
-                                          entropy_profile);
+                                          entropy_profile, false);
+
+  /************************************************************
+   * Same for the subcluster if needed
+   ************************************************************/
+  const bool subcluster =
+      pin->GetOrAddBoolean("problem/cluster/gravity", "subcluster", false);
+  hydro_pkg->AddParam<>("subcluster", subcluster);
+  if (subcluster) {
+    // First, read the input parameters and store them in the hydro package
+    auto subcluster_x = pin->GetOrAddReal("problem/cluster/gravity", "subcluster_x", 0.0);
+    auto subcluster_y = pin->GetOrAddReal("problem/cluster/gravity", "subcluster_y", 0.5);
+    auto subcluster_z = pin->GetOrAddReal("problem/cluster/gravity", "subcluster_z", 0.5);
+    auto subcluster_vx =
+        pin->GetOrAddReal("problem/cluster/gravity", "subcluster_vx", 0.0);
+    auto subcluster_vy =
+        pin->GetOrAddReal("problem/cluster/gravity", "subcluster_vy", 0.0);
+    auto subcluster_vz =
+        pin->GetOrAddReal("problem/cluster/gravity", "subcluster_vz", 0.0);
+    hydro_pkg->AddParam<>("subcluster_total_mass", 0.0, Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("subcluster_x", subcluster_x, Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("subcluster_y", subcluster_y, Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("subcluster_z", subcluster_z, Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("subcluster_vx", subcluster_vx, Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("subcluster_vy", subcluster_vy, Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("subcluster_vz", subcluster_vz, Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("subcluster_ax_prev", 0.0, Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("subcluster_ay_prev", 0.0, Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("subcluster_az_prev", 0.0, Params::Mutability::Restart);
+    hydro_pkg->AddParam<>("subcluster_dt_prev", 0.0, Params::Mutability::Restart);
+
+    // Then, get the appropriate gravitational field parameters
+    auto subcluster_gravity = ClusterGravity(pin, hydro_pkg, true);
+    auto subcluster_entropy = ACCEPTEntropyProfile(pin, true);
+    auto subcluster_hse_sphere = HydrostaticEquilibriumSphere(
+        pin, hydro_pkg, subcluster_gravity, subcluster_entropy, true);
+  }
 
   /************************************************************
    * Read Precessing Jet Coordinate system
@@ -519,33 +710,70 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       /************************************************************
        * Initialize a HydrostaticEquilibriumSphere
        ************************************************************/
+      // Retrieve both main and subcluster profiles
       const auto &he_sphere =
           hydro_pkg
               ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
-                  "hydrostatic_equilibirum_sphere");
+                  "hydrostatic_equilibrium_sphere");
 
-      const auto P_rho_profile = he_sphere.generate_P_rho_profile(ib, jb, kb, coords);
+      const auto &subcluster_he_sphere =
+          hydro_pkg
+              ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
+                  "subcluster_hydrostatic_equilibrium_sphere");
 
-      // initialize conserved variables
+      // Load subcluster position
+      const Real x_sub = hydro_pkg->Param<Real>("subcluster_x");
+      const Real y_sub = hydro_pkg->Param<Real>("subcluster_y");
+      const Real z_sub = hydro_pkg->Param<Real>("subcluster_z");
+
+      // Generate pressure-density profiles
+      const auto P_rho_profile =
+          he_sphere.generate_P_rho_profile(ib, jb, kb, coords, 0, 0, 0);
+      const auto subcluster_P_rho_profile = subcluster_he_sphere.generate_P_rho_profile(
+          ib, jb, kb, coords, x_sub, y_sub, z_sub);
+
+      // Initialize conserved variables with both main + subcluster contributions
       parthenon::par_for(
-          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::UniformGas",
+          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::DualClusterGas",
           parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
           KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-            // Calculate radius
-            const Real r = sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) +
-                                coords.Xc<2>(j) * coords.Xc<2>(j) +
-                                coords.Xc<3>(k) * coords.Xc<3>(k));
+            const Real x = coords.Xc<1>(i);
+            const Real y = coords.Xc<2>(j);
+            const Real z = coords.Xc<3>(k);
 
-            // Get pressure and density from generated profile
-            const Real P_r = P_rho_profile.P_from_r(r);
-            const Real rho_r = P_rho_profile.rho_from_r(r);
+            // Distances to main cluster (assumed at origin) and subcluster
+            const Real r_main = sqrt(x * x + y * y + z * z);
+            const Real dx = x - x_sub;
+            const Real dy = y - y_sub;
+            const Real dz = z - z_sub;
+            const Real r_sub = sqrt(dx * dx + dy * dy + dz * dz);
 
-            // Fill conserved states, 0 initial velocity
-            u(IDN, k, j, i) = rho_r;
+            // Get pressure and density from both profiles
+            const Real P_main = P_rho_profile.P_from_r(r_main);
+            const Real rho_main = P_rho_profile.rho_from_r(r_main);
+
+            const Real P_sub = subcluster_P_rho_profile.P_from_r(r_sub);
+            const Real rho_sub = subcluster_P_rho_profile.rho_from_r(r_sub);
+
+            Real P_total = 0.0;
+            Real rho_total = 0.0;
+
+            if (P_main > 0.0 && rho_main > 0.0) {
+              P_total += P_main;
+              rho_total += rho_main;
+            }
+
+            if (P_sub > 0.0 && rho_sub > 0.0) {
+              P_total += P_sub;
+              rho_total += rho_sub;
+            }
+
+            // Fill conserved states
+            u(IDN, k, j, i) = rho_total;
             u(IM1, k, j, i) = 0.0;
             u(IM2, k, j, i) = 0.0;
             u(IM3, k, j, i) = 0.0;
-            u(IEN, k, j, i) = P_r / gm1;
+            u(IEN, k, j, i) = P_total / gm1;
           });
     }
 

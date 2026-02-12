@@ -39,25 +39,26 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
     HydrostaticEquilibriumSphere(ParameterInput *pin,
                                  parthenon::StateDescriptor *hydro_pkg,
                                  GravitationalField gravitational_field,
-                                 EntropyProfile entropy_profile)
+                                 EntropyProfile entropy_profile, bool subcluster)
     : gravitational_field_(gravitational_field), entropy_profile_(entropy_profile) {
   Units units(pin);
-
+  std::string prefix = subcluster ? "subcluster_" : "";
   mh_ = units.mh();
   k_boltzmann_ = units.k_boltzmann();
 
   mu_ = hydro_pkg->Param<Real>("mu");
   mu_e_ = hydro_pkg->Param<Real>("mu_e");
 
-  r_fix_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "r_fix",
+  r_fix_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", prefix + "r_fix",
                              1953.9724519818478 * units.kpc());
-  rho_fix_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "rho_fix",
-                               8.607065015897638e-30 * units.g() / pow(units.kpc(), 3));
+  rho_fix_ =
+      pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", prefix + "rho_fix",
+                        8.607065015897638e-30 * units.g() / pow(units.kpc(), 3));
   const Real gam = pin->GetReal("hydro", "gamma");
   const Real gm1 = (gam - 1.0);
 
-  r_sampling_ =
-      pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium", "r_sampling", 4.0);
+  r_sampling_ = pin->GetOrAddReal("problem/cluster/hydrostatic_equilibrium",
+                                  prefix + "r_sampling", 4.0);
 
   // Test out the HSE sphere if requested
   const bool test_he_sphere = pin->GetOrAddBoolean(
@@ -82,8 +83,11 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::
       test_he_file.close();
     }
   }
-
-  hydro_pkg->AddParam<>("hydrostatic_equilibirum_sphere", *this);
+  if (subcluster) {
+    hydro_pkg->AddParam<>("subcluster_hydrostatic_equilibrium_sphere", *this);
+  } else {
+    hydro_pkg->AddParam<>("hydrostatic_equilibrium_sphere", *this);
+  }
 }
 
 /************************************************************
@@ -124,8 +128,9 @@ std::ostream &PRhoProfile<GravitationalField, EntropyProfile>::write_to_ostream(
 template <typename GravitationalField, typename EntropyProfile>
 PRhoProfile<GravitationalField, EntropyProfile>
 HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho_profile(
-    IndexRange ib, IndexRange jb, IndexRange kb,
-    parthenon::UniformCartesian coords) const {
+    IndexRange ib, IndexRange jb, IndexRange kb, parthenon::UniformCartesian coords,
+    parthenon::Real cluster_x, parthenon::Real cluster_y,
+    parthenon::Real cluster_z) const {
 
   /************************************************************
    * Define R mesh to integrate pressure along
@@ -157,10 +162,14 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
   for (int k = kb.s; k <= kb.e; k++) {
     for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
+        const Real x = coords.Xc<1>(i);
+        const Real y = coords.Xc<2>(j);
+        const Real z = coords.Xc<3>(k);
 
         const Real r =
-            sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) + coords.Xc<2>(j) * coords.Xc<2>(j) +
-                 coords.Xc<3>(k) * coords.Xc<3>(k));
+            sqrt((x - cluster_x) * (x - cluster_x) + (y - cluster_y) * (y - cluster_y) +
+                 (z - cluster_z) * (z - cluster_z));
+
         r_start = std::min(r, r_start);
         r_end = std::max(r, r_end);
       }

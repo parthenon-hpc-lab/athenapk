@@ -22,15 +22,17 @@ class ACCEPTEntropyProfile {
   // Entropy Profile
   parthenon::Real k_0_, k_100_, r_k_, alpha_k_;
 
-  ACCEPTEntropyProfile(parthenon::ParameterInput *pin) {
+  ACCEPTEntropyProfile(parthenon::ParameterInput *pin, bool subcluster) {
     Units units(pin);
-
-    k_0_ = pin->GetOrAddReal("problem/cluster/entropy_profile", "k_0",
+    std::string prefix = subcluster ? "subcluster_" : "";
+    k_0_ = pin->GetOrAddReal("problem/cluster/entropy_profile", prefix + "k_0",
                              20 * units.kev() * units.cm() * units.cm());
-    k_100_ = pin->GetOrAddReal("problem/cluster/entropy_profile", "k_100",
+    k_100_ = pin->GetOrAddReal("problem/cluster/entropy_profile", prefix + "k_100",
                                120 * units.kev() * units.cm() * units.cm());
-    r_k_ = pin->GetOrAddReal("problem/cluster/entropy_profile", "r_k", 100 * units.kpc());
-    alpha_k_ = pin->GetOrAddReal("problem/cluster/entropy_profile", "alpha_k", 1.75);
+    r_k_ = pin->GetOrAddReal("problem/cluster/entropy_profile", prefix + "r_k",
+                             100 * units.kpc());
+    alpha_k_ =
+        pin->GetOrAddReal("problem/cluster/entropy_profile", prefix + "alpha_k", 1.75);
   }
 
   // Get entropy from radius, using broken power law profile for entropy

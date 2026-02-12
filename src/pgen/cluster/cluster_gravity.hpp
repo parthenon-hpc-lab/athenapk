@@ -31,6 +31,11 @@ class ClusterGravity {
   BCG which_bcg_g_;
   bool include_smbh_g_;
 
+  // Mass parameters to be stored in hydro_pkg
+  parthenon::Real m_nfw_200_; // NFW mass at r_200
+  parthenon::Real m_bcg_s_;   // BCG mass
+  parthenon::Real m_smbh_;    // SMBH mass
+
   // NFW Parameters
   parthenon::Real r_nfw_s_;
   // G , Mass, and Constants rolled into one
@@ -112,14 +117,16 @@ class ClusterGravity {
   //
   // ClusterGravity(parthenon::ParameterInput *pin) is used in SNIAFeedback to
   // calculate the BCG density profile
-  ClusterGravity(parthenon::ParameterInput *pin) {
+  ClusterGravity(parthenon::ParameterInput *pin, bool subcluster = false) {
     Units units(pin);
 
+    // If subcluster is true, reading same parameters with a "subcluster_" prefix
+    const std::string prefix = subcluster ? "subcluster_" : "";
     // Determine which element to include
     include_nfw_g_ =
-        pin->GetOrAddBoolean("problem/cluster/gravity", "include_nfw_g", false);
+        pin->GetOrAddBoolean("problem/cluster/gravity", prefix + "include_nfw_g", false);
     const std::string which_bcg_g_str =
-        pin->GetOrAddString("problem/cluster/gravity", "which_bcg_g", "NONE");
+        pin->GetOrAddString("problem/cluster/gravity", prefix + "which_bcg_g", "NONE");
     if (which_bcg_g_str == "NONE") {
       which_bcg_g_ = BCG::NONE;
     } else if (which_bcg_g_str == "HERNQUIST") {
@@ -132,7 +139,7 @@ class ClusterGravity {
     }
 
     include_smbh_g_ =
-        pin->GetOrAddBoolean("problem/cluster/gravity", "include_smbh_g", false);
+        pin->GetOrAddBoolean("problem/cluster/gravity", prefix + "include_smbh_g", false);
 
     // Initialize the NFW Profile
     const parthenon::Real hubble_parameter = pin->GetOrAddReal(
@@ -140,33 +147,98 @@ class ClusterGravity {
     const parthenon::Real rho_crit = 3 * hubble_parameter * hubble_parameter /
                                      (8 * M_PI * units.gravitational_constant());
 
-    const parthenon::Real M_nfw_200 =
-        pin->GetOrAddReal("problem/cluster/gravity", "m_nfw_200", 8.5e14 * units.msun());
+    const parthenon::Real M_nfw_200 = pin->GetOrAddReal(
+        "problem/cluster/gravity", prefix + "m_nfw_200", 8.5e14 * units.msun());
     const parthenon::Real c_nfw =
-        pin->GetOrAddReal("problem/cluster/gravity", "c_nfw", 6.81);
+        pin->GetOrAddReal("problem/cluster/gravity", prefix + "c_nfw", 6.81);
     r_nfw_s_ = calc_R_nfw_s(rho_crit, M_nfw_200, c_nfw);
     g_const_nfw_ = calc_g_const_nfw(units.gravitational_constant(), M_nfw_200, c_nfw);
 
     // Initialize the BCG Profile
-    alpha_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "alpha_bcg_s", 0.1);
-    beta_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "beta_bcg_s", 1.43);
-    const parthenon::Real M_bcg_s =
-        pin->GetOrAddReal("problem/cluster/gravity", "m_bcg_s", 7.5e10 * units.msun());
-    r_bcg_s_ = pin->GetOrAddReal("problem/cluster/gravity", "r_bcg_s", 4 * units.kpc());
+    alpha_bcg_s_ =
+        pin->GetOrAddReal("problem/cluster/gravity", prefix + "alpha_bcg_s", 0.1);
+    beta_bcg_s_ =
+        pin->GetOrAddReal("problem/cluster/gravity", prefix + "beta_bcg_s", 1.43);
+    const parthenon::Real M_bcg_s = pin->GetOrAddReal(
+        "problem/cluster/gravity", prefix + "m_bcg_s", 7.5e10 * units.msun());
+    r_bcg_s_ =
+        pin->GetOrAddReal("problem/cluster/gravity", prefix + "r_bcg_s", 4 * units.kpc());
     g_const_bcg_ = calc_g_const_bcg(units.gravitational_constant(), which_bcg_g_, M_bcg_s,
                                     r_bcg_s_, alpha_bcg_s_, beta_bcg_s_);
 
-    const parthenon::Real m_smbh =
-        pin->GetOrAddReal("problem/cluster/gravity", "m_smbh", 3.4e8 * units.msun());
-    g_const_smbh_ = calc_g_const_smbh(units.gravitational_constant(), m_smbh),
+    // Save cluster masses in private variables
+    if (include_nfw_g_) {
+      m_nfw_200_ = M_nfw_200;
+    } else {
+      m_nfw_200_ = 0.0;
+    }
+    if (which_bcg_g_ == BCG::HERNQUIST) {
+      m_bcg_s_ = M_bcg_s;
+    } else {
+      m_bcg_s_ = 0.0;
+    }
+    // Note: for the subcluster, SMBH should be disabled. Throws an error if enabled
+    if (include_smbh_g_) {
+      if (subcluster) {
+        std::stringstream msg;
+        msg << "### FATAL ERROR in function [ClusterGravity::ClusterGravity]" << std::endl
+            << "Subcluster gravity should not include SMBH" << std::endl;
+        PARTHENON_FAIL(msg);
+      } else {
+        const parthenon::Real m_smbh =
+            pin->GetOrAddReal("problem/cluster/gravity", "m_smbh", 3.4e8 * units.msun());
+        g_const_smbh_ = calc_g_const_smbh(units.gravitational_constant(), m_smbh);
+        m_smbh_ = m_smbh;
+      }
+    } else {
+      // If SMBH is not included, set the mass to zero
+      m_smbh_ = 0.0;
+    }
 
     smoothing_r_ =
-        pin->GetOrAddReal("problem/cluster/gravity", "g_smoothing_radius", 0.0);
+        pin->GetOrAddReal("problem/cluster/gravity", prefix + "g_smoothing_radius", 0.0);
   }
 
-  ClusterGravity(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg)
-      : ClusterGravity(pin) {
-    hydro_pkg->AddParam<>("cluster_gravity", *this);
+  // Adding a third parameter in ClusterGravity, a boolean "subcluster", to indicate if
+  // the current call is meant for the main or the sub cluster.
+  ClusterGravity(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg,
+                 bool subcluster)
+      : ClusterGravity(pin, subcluster) {
+    // Need to add a "sub" prefix to distinguish between main and subcluster
+    // like: if subcluster is true, then add "subcluster_gravity" and if not, then add
+    // "cluster_gravity"
+    if (subcluster) {
+      hydro_pkg->AddParam<>("subcluster_gravity", *this);
+      if (include_nfw_g_) {
+        hydro_pkg->UpdateParam(
+            "subcluster_total_mass",
+            hydro_pkg->Param<parthenon::Real>("subcluster_total_mass") + m_nfw_200_);
+      }
+      if (which_bcg_g_ == BCG::HERNQUIST) {
+        hydro_pkg->UpdateParam(
+            "subcluster_total_mass",
+            hydro_pkg->Param<parthenon::Real>("subcluster_total_mass") + m_bcg_s_);
+      }
+    } else { // Main cluster
+      hydro_pkg->AddParam<>("cluster_gravity", *this);
+      if (include_nfw_g_) {
+        hydro_pkg->UpdateParam(
+            "maincluster_total_mass",
+            hydro_pkg->Param<parthenon::Real>("maincluster_total_mass") + m_nfw_200_);
+      }
+      if (which_bcg_g_ == BCG::HERNQUIST) {
+        hydro_pkg->UpdateParam(
+            "maincluster_total_mass",
+            hydro_pkg->Param<parthenon::Real>("maincluster_total_mass") + m_bcg_s_);
+      }
+      // If SMBH is included, add its mass to the main cluster total mass
+      // Note: this is only for the main cluster, not the subcluster
+      if (include_smbh_g_) {
+        hydro_pkg->UpdateParam(
+            "maincluster_total_mass",
+            hydro_pkg->Param<parthenon::Real>("maincluster_total_mass") + m_smbh_);
+      }
+    }
   }
 
   // Inline functions to compute gravitational acceleration

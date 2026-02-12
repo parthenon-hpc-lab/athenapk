@@ -55,7 +55,9 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddBoolean("problem/cluster/agn_feedback", "enable_tracer", false)),
       disabled_(pin->GetOrAddBoolean("problem/cluster/agn_feedback", "disabled", false)),
       enable_magnetic_tower_mass_injection_(pin->GetOrAddBoolean(
-          "problem/cluster/agn_feedback", "enable_magnetic_tower_mass_injection", true)) {
+          "problem/cluster/agn_feedback", "enable_magnetic_tower_mass_injection", true)),
+      triggering_mode_str_(pin->GetOrAddString("problem/cluster/agn_triggering",
+                                               "triggering_mode", "NONE")) {
 
   // Normalize the thermal, kinetic, and magnetic fractions to sum to 1.0
   const Real total_frac = thermal_fraction_ + kinetic_fraction_ + magnetic_fraction_;
@@ -237,6 +239,10 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   const Real power = GetFeedbackPower(hydro_pkg.get());
   const Real mass_rate = GetFeedbackMassRate(hydro_pkg.get());
+
+  if (triggering_mode_str_ == "SINK") {
+    return;
+  }
 
   if (power == 0 || disabled_) {
     // No AGN feedback, return
