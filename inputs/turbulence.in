@@ -1,6 +1,6 @@
 <comment>
 problem   = Turbulence with parabolic forcing profile (using few driving modes)
-reference = to be written, see https://gitlab.com/pgrete/kathena/wikis/turbulence for now
+reference = https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/turbulence.md
 
 <job>
 problem_id = turbulence
@@ -48,7 +48,7 @@ x3max      = 1.0        # maximum value of X3
 ix3_bc     = periodic   # inner-X3 boundary flag
 ox3_bc     = periodic   # outer-X3 boundary flag
 
-pack_size = -1          # pack all blocks in a single pack (currently required)
+packs_per_rank = 1      # pack all blocks in a single pack (currently required)
 
 <parthenon/meshblock>
 nx1        = 64

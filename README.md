@@ -22,6 +22,7 @@ Current features include
     - unsplit
     - operator-split, second-order RKL2 supertimestepping
   - optically thin cooling based on tabulated cooling tables with either Townsend 2009 exact integration or operator-split subcycling
+  - tracer particles
 - static and adaptive mesh refinement
 - problem generators for
   - linear waves
@@ -44,7 +45,8 @@ If you
 * have a general question or comment
 
 please either
-- open an issue/merge request, or
+- start a [discussion](https://github.com/parthenon-hpc-lab/athenapk/discussions) (preferred for general usage related questions), or
+- open an issue/merge request (preferred for code/development related items), or
 - contact us in the AthenaPK channel on matrix.org [#AthenaPK:matrix.org](https://app.element.io/#/room/#AthenaPK:matrix.org)
 
 ## Getting started
@@ -84,7 +86,7 @@ The following examples are a few standard cases.
 
 Most simple configuration (only CPU, no MPI).
 The `Kokkos_ARCH_...` parameter should be adjusted to match the target machine where AthenaPK will be executed.
-A full list of architecture keywords is available on the [Kokkos wiki](https://kokkos.github.io/kokkos-core-wiki/keywords.html#architecture-keywords).
+A full list of architecture keywords is available on the [Kokkos wiki](https://kokkos.org/kokkos-core-wiki/get-started/configuration-guide.html#keywords-arch).
 
     # configure with enabling Intel Broadwell or similar architecture (AVX2) instructions
     cmake -S. -Bbuild-host -DKokkos_ARCH_BDW=ON -DPARTHENON_DISABLE_MPI=ON

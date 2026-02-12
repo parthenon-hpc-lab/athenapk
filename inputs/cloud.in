@@ -31,7 +31,7 @@ x3max = 750
 ix3_bc = outflow
 ox3_bc = outflow
 
-pack_size = -1      # number of MeshBlock per MeshBlockPack
+packs_per_rank = 1      # pack all blocks in a single pack (currently required)
 
 <parthenon/meshblock>
 nx1=64
