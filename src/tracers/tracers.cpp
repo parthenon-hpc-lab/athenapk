@@ -26,6 +26,7 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "globals.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
@@ -56,8 +57,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
   tracer_pkg->AddSwarm(swarm_name, swarm_metadata);
   Metadata real_swarmvalue_metadata({Metadata::Real});
-  tracer_pkg->AddSwarmValue("id", swarm_name,
-                            Metadata({Metadata::Integer, Metadata::Restart}));
 
   // TODO(pgrete) Add CheckDesired/required for vars
   // thermo variables
@@ -75,7 +74,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   const bool mhd = pin->GetString("hydro", "fluid") == "glmmhd";
 
   PARTHENON_REQUIRE_THROWS(
-      pin->GetString("parthenon/mesh", "refinement") != "adaptive",
+      !pin->DoesParameterExist("parthenon/mesh", "refinement") ||
+          pin->GetString("parthenon/mesh", "refinement") != "adaptive",
       "Tracers/swarms currently only supported on non-adaptive meshes.");
 
   if (mhd) {
@@ -95,9 +95,17 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   // This function is currently used to only seed tracers but it called every time the
   // driver is executed (also also for restarts)
-  if (pmesh->is_restart) return;
+  if (parthenon::Globals::is_restart) return;
 
   auto tracers_pkg = pmesh->packages.Get("tracers");
+
+  PARTHENON_REQUIRE_THROWS(
+      !pin->DoesParameterExist("tracers", "num_tracers_per_cell"),
+      "'tracers/num_tracers_per_cell' parameter has been deprecated. Please update your "
+      "input file to use 'tracers/initial_seed_method=random_per_block' with "
+      "'tracers/initial_num_tracers_per_cell=NUMBER'.");
+
+  pin->GetOrAddReal("tracers", "initial_num_tracers_per_cell", 0.0);
 
   const auto seed_method = pin->GetOrAddString("tracers", "initial_seed_method", "none");
   if (seed_method == "none") {
@@ -139,7 +147,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
       auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
       auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
       auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
-      auto &id = swarm->Get<int>("id").Get();
+      auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
 
       auto swarm_d = swarm->GetDeviceContext();
 
@@ -178,7 +186,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   // MPI reductions (rather than Parthenon provided reduction tasks that work with
   // arbitrary packs).
   PARTHENON_REQUIRE_THROWS(num_partitions == 1,
-                           "Only pack_size=-1 currently supported for tracers.")
+                           "Only packs_per_rank=1 currently supported for tracers.")
   auto &mu0 = pmesh->mesh_data.GetOrAdd("base", 0);
   FillTracers(mu0.get(), tm);
   if (ProblemFillTracers != nullptr) {

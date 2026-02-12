@@ -15,7 +15,7 @@ else()
     "For further directions open an issue on GitLab.")
 endif()
 
-project(athenaPK LANGUAGES CXX)
+project(athenaPK VERSION 25.05 LANGUAGES CXX)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

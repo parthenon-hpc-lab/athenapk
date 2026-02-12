@@ -77,7 +77,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             xs = tracers.x
             ys = tracers.y
             zs = tracers.z
-            ids = tracers.Get("id")
+            ids = tracers.id
 
             idx_ids_sorted = np.argsort(ids)
 

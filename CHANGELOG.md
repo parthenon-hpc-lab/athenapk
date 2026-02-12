@@ -2,6 +2,50 @@
 
 ## Current develop (i.e., `main` branch)
 
+### General notes
+
+Particle ids have been updated in Parthenon to be `uint64` and added by default.
+Thus, the original "`id`" tracer variable has been removed in favor of the Parthenon default version.
+Access to that `id` is done via `auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();`
+and via `swarm.id` in the `phdf` python tools.
+Other postprocessing tools, like VisIt will automatically identify the new field.
+
+From updated Parthenon submodule:
+
+- `packs_per_rank` can now be used instead of `pack_size` in the `<parthenon/mesh>` input block.
+It is the new default (i.e., it's set automatically when it's not present in the input file)
+because it result in better load balance.
+- For simulation on (AMD) GPUs with AMR and many blocks per rank, the number of MPI messages in flight
+(especially during mesh refinement) could sometimes cause "Memory access fault by GPU".
+This is related to how the MPI library and hardware manage handles to communication buffer in device memory.
+To circumvent this issue, Parthenon now supports [coalesced communication](https://parthenon-hpc-lab.github.io/parthenon/develop/src/boundary_communication.html#coalesced-mpi-communication)
+where multiple messages between ranks are combined.
+This comes at a small performance cost (due to the additional packing and unpacking of messages).
+To enable, set `do_coalesced_comms=true` in the `<parthenon/mesh>` block of the input file.
+- Input parameters can now be [automatically documented](https://github.com/parthenon-hpc-lab/parthenon/pull/1283)
+by adding an optional string as last argument to any `ParameterInput` `Get` or `GetOrAdd` call.
+
+### Added (new features/APIs/variables/...)
+- [[PR 158]](https://github.com/parthenon-hpc-lab/athenapk/pull/158) Update particle id handling (now automated `uint64`). Extend particle history lookback in turbulence pgen and include in turbulence test
+- [[PR 157]](https://github.com/parthenon-hpc-lab/athenapk/pull/157) Support injection of blobs with density/temp contrast in turbulence simulations
+
+### Changed (changing behavior/API/variables/...)
+
+### Fixed (not changing behavior/API/variables/...)
+
+### Infrastructure
+- [[PR 149]](https://github.com/parthenon-hpc-lab/athenapk/pull/149) Allow triggering of pipelines manually
+- [[PR 156]](https://github.com/parthenon-hpc-lab/athenapk/pull/156) Bump formatters to clang-format-20 and black 25.12
+- [[PR 146]](https://github.com/parthenon-hpc-lab/athenapk/pull/146) Bump Parthenon 25.12 and Kokkos 4.7.02
+
+### Removed (removing behavior/API/varaibles/...)
+
+### Incompatibilities (i.e. breaking changes)
+- [[PR 146]](https://github.com/parthenon-hpc-lab/athenapk/pull/146) `pmesh->is_restart` removed. Use `arthenon::Globals::is_restart` instead.
+
+
+## Release 25.05
+
 ### IMPORTANT
 
 If you pulled from `main` after 11 Nov 24 ([[PR 124]](https://github.com/parthenon-hpc-lab/athenapk/pull/124))
@@ -11,7 +55,7 @@ refinement.
 
 ### Added (new features/APIs/variables/...)
 - [[PR 140]](https://github.com/parthenon-hpc-lab/athenapk/pull/140) Add hydro reflecting boundary conditions
-- [[PR102]](https://github.com/parthenon-hpc-lab/athenapk/pull/102) Add support for tracer particles
+- [[PR 102]](https://github.com/parthenon-hpc-lab/athenapk/pull/102) Add support for tracer particles
 - [[PR 89]](https://github.com/parthenon-hpc-lab/athenapk/pull/89) Add viscosity and resistivity
 - [[PR 1]](https://github.com/parthenon-hpc-lab/athenapk/pull/1) Add isotropic thermal conduction and RKL2 supertimestepping
 
@@ -26,6 +70,7 @@ refinement.
 - [[PR 128]](https://github.com/parthenon-hpc-lab/athenapk/pull/128) Fixed `dt_diff` in RKL2
 
 ### Infrastructure
+- [[PR 150]](https://github.com/parthenon-hpc-lab/athenapk/pull/150) Introduce CalVer and add CONTRIBUTING.md
 - [[PR 142]](https://github.com/parthenon-hpc-lab/athenapk/pull/142) Bump Kokkos 4.6.1 and Parthenon 25.05
 - [[PR 136]](https://github.com/parthenon-hpc-lab/athenapk/pull/136) Bump Kokkos 4.5.1 (for support of AMD APUs)
 - [[PR 129]](https://github.com/parthenon-hpc-lab/athenapk/pull/129) Bump Parthenon to support `dn` based outputs
