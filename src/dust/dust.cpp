@@ -646,24 +646,25 @@ void Dust::MeasureAndRecordHistory(parthenon::MeshData<parthenon::Real> *md,
   Real cm3_to_code_vol_ = units.cm() * units.cm() * units.cm();
   Real msun_to_code_mass = units.msun();
 
-  int we_have_dust_cooling;
-  auto dust_cooling_mode_ = this->dust_cooling_mode_;
-  //  std::optional<Real> nH_to_ne;
-  if (hydro_pkg->Param<bool>("dust_on")) {
-    we_have_dust_cooling = 1;
-    // nH_to_ne = hydro_pkg->Param<Real>("nH_to_ne");
-
-    switch (dust_cooling_mode_) {
-    case dust::DustCoolingMode::OFF:
-      we_have_dust_cooling = 0;
-    case dust::DustCoolingMode::DWEKWERNER1981:
-      break;
-    case dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED:
-      break;
-    }
-  } else {
-    we_have_dust_cooling = 0;
-  }
+        int we_have_dust_cooling;
+        auto dust_cooling_mode_ = this->dust_cooling_mode_;
+        //  std::optional<Real> nH_to_ne;
+        if (hydro_pkg->Param<bool>("dust_on")){
+        we_have_dust_cooling = 1;
+        // nH_to_ne = hydro_pkg->Param<Real>("nH_to_ne");
+        
+        switch(dust_cooling_mode_) {
+          case dust::DustCoolingMode::OFF:
+              we_have_dust_cooling = 0;
+              break;
+          case dust::DustCoolingMode::DWEKWERNER1981:
+              break;
+          case dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED:
+              break;
+        }
+      }else{
+        we_have_dust_cooling = 0;
+      }
 
   int dust_scalar_idx_start = hydro_pkg->Param<int>("dust_scalar_idx_start");
   int dust_scalar_idx_end = hydro_pkg->Param<int>("dust_scalar_idx_end");

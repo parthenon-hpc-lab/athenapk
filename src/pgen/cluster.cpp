@@ -1186,7 +1186,8 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
     nH_to_ne = pkg->Param<Real>("nH_to_ne");
     switch (dust_cooling_mode_) {
     case dust::DustCoolingMode::OFF:
-      we_have_dust_cooling = 0;
+        we_have_dust_cooling = 0;
+        break;
     case dust::DustCoolingMode::DWEKWERNER1981:
       break;
     case dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED:
