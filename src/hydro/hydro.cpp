@@ -879,10 +879,51 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // std::cout << "num_dust_scalars" << num_dust_scalars << std::endl;
 
 
+  const auto &DustObj = pkg->Param<dust::Dust>("dust");
+  if(DustObj.dust_cooling_mode_ == dust::DustCoolingMode::DWEKWERNER1981){
+
+  const int dust_cool_table_N_Tbins = pin->GetInteger("dust", "dust_cool_table_N_Tbins");
+  // H is same as in https://arxiv.org/pdf/2402.18515 eqn 1, just in code units
+  auto dust_cool_table_array_logH = parthenon::ParArray2D<Real>("dust_cool_table", num_grain_size_bins, dust_cool_table_N_Tbins);
+  auto dust_cool_table_array_logtemp = parthenon::ParArray1D<Real>("dust_cool_table_array_logtemp", dust_cool_table_N_Tbins);
+  auto host_dust_cool_table_array_logH = Kokkos::create_mirror_view(dust_cool_table_array_logH);
+  auto host_dust_cool_table_array_logtemp = Kokkos::create_mirror_view(dust_cool_table_array_logtemp);
+  for(int temp_i = 0.; temp_i < dust_cool_table_N_Tbins; temp_i++){
+    Real temp = 0. + temp_i*((9.-0.)/dust_cool_table_N_Tbins); // from 1 to 1e9K in log-equal steps
+    host_dust_cool_table_array_logtemp(temp_i) = temp;
+    // printf("temp_i=%d host_dust_cool_table_array_logtemp(temp_i) =%e \n",temp_i, host_dust_cool_table_array_logtemp(temp_i) );
+    for(int gs_i = 0; gs_i < num_grain_size_bins; gs_i++){
+
+    const Real dust_de_dt_this_grain_bin = dust::PreComputeDwekWernerGrainCooling(
+      Kokkos::pow(10., temp),
+      gs_i, 
+      DustObj.dwek_werner_regime_coeff_,
+      DustObj.dwek_werner_coeff_a_code_units_,
+      DustObj.dwek_werner_coeff_b_code_units_,
+      DustObj.dwek_werner_coeff_c_code_units_,
+      pkg->Param<std::vector<Real>>("host_grain_midbin_sizes_microm")
+    );
+    host_dust_cool_table_array_logH(gs_i, temp_i) = log10(dust_de_dt_this_grain_bin);
+  }
+}
+  // Copy into device memory
+  Kokkos::deep_copy(dust_cool_table_array_logH, host_dust_cool_table_array_logH);
+  Kokkos::deep_copy(dust_cool_table_array_logtemp, host_dust_cool_table_array_logtemp);
+
+  pkg->AddParam("dust_cool_table_array_logH",dust_cool_table_array_logH);
+  pkg->AddParam("dust_cool_table_array_logtemp",dust_cool_table_array_logtemp);
+  pkg->AddParam("host_dust_cool_table_array_logtemp",host_dust_cool_table_array_logtemp);
+  pkg->AddParam("dustcool_log_temp_start",host_dust_cool_table_array_logtemp[0]);
+  const int n_temp_dust = static_cast<int>(host_dust_cool_table_array_logtemp.size());
+  pkg->AddParam("dustcool_n_temp_dust",n_temp_dust);
+  pkg->AddParam("dustcool_log_temp_final",host_dust_cool_table_array_logtemp[n_temp_dust-1]);
+  pkg->AddParam("dustcool_d_log_temp", host_dust_cool_table_array_logtemp[1] - host_dust_cool_table_array_logtemp[0]);
+  pkg->AddParam("dust_cool_table_N_Tbins",dust_cool_table_N_Tbins);
+  // printf("dustcool_d_log_temp=%e \n", host_dust_cool_table_array_logtemp[1] - host_dust_cool_table_array_logtemp[0]);
+  // printf("A dustcool_gog_temp_start = %e host_dust_cool_table_array_logtemp[0]=%e \n", pkg->Param<Real>("dustcool_log_temp_start"),host_dust_cool_table_array_logtemp[0]);
 
 
-
-      // Precompute cooling tables. Only do on one rank since we will write to file. just run on host
+      // Precompute cooling tables to write to file just for user interest. Only do on one rank since we will write to file. just run on host
       std::string file_tag = "dust_cooling_table.txt";
       std::string folder_path;
       folder_path = "./dust_cool_table/";
@@ -907,7 +948,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
         for(int gs_i = 0; gs_i < num_grain_size_bins; gs_i++){
           if(gs_i == 0){
-            cool_file << "T (K)" <<  "|" ;
+            cool_file << "# T (K)" <<  "|" ;
           }
           cool_file << std::setprecision(5) << pkg->Param<std::vector<Real>>("host_grain_midbin_sizes_microm")[gs_i] <<  "|";
         }
@@ -925,9 +966,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
             DustObj.dwek_werner_coeff_c_code_units_,
             pkg->Param<std::vector<Real>>("host_grain_midbin_sizes_microm")
           );
-        printf("Kokkos::pow(10., temp)=%e gs_i = %d dust_de_dt_this_grain_bin=%e \n", Kokkos::pow(10., temp), gs_i, dust_de_dt_this_grain_bin);
+        // printf("Kokkos::pow(10., temp)=%e gs_i = %d dust_de_dt_this_grain_bin=%e \n", Kokkos::pow(10., temp), gs_i, dust_de_dt_this_grain_bin);
         if(gs_i == 0){
-          cool_file << std::setprecision(5) << temp <<  "| " ;
+          cool_file << std::setprecision(5) << temp <<  " " ;
         }
         cool_file << std::setprecision(5) << Kokkos::log10(Kokkos::abs(dust_de_dt_this_grain_bin)) <<  " " ;
       }
@@ -936,6 +977,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       cool_file.close();
     }
 
+  }
 
 
 

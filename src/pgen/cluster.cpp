@@ -1300,28 +1300,26 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
             const Real rho = prim(IDN, k, j, i);
             const Real P = prim(IPR, k, j, i);
 
-            // compute cooling time
-            const Real eint = P / (rho * gm1);
-            Real temperature = mbar_gm1_over_kb * eint;
-            Real dust_dedT = 0;
-            if (dust_cooling_mode_ == dust::DustCoolingMode::DWEKWERNER1981) {
-              dust_dedT = DustDevObj.DwekWernerCooling(
-                  temperature, rho, cooling_table_obj.x_H_over_m_h2_,
-                  DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords,
-                  DustDevObj.dust_piecewise_mode_int);
-            } else if (dust_cooling_mode_ ==
-                       dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED) {
-              dust_dedT = DustDevObj.DwekWernerCoolingIntegrated(
-                  temperature, rho, cooling_table_obj.x_H_over_m_h2_,
-                  DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords,
-                  DustDevObj.dust_piecewise_mode_int);
-            }
-            Real edot_gas = gas_luminosity(k, j, i);
-            cooling_time_with_dust(k, j, i) =
-                (dust_dedT + edot_gas != 0) ? -eint / (dust_dedT + edot_gas) : NAN;
-            dust_luminosity(k, j, i) = -dust_dedT;
-          });
-    }
+                // compute cooling time
+                const Real eint = P / (rho * gm1);
+                Real temperature = mbar_gm1_over_kb * eint;
+                Real dust_de_dt = 0;
+                if(dust_cooling_mode_ == dust::DustCoolingMode::DWEKWERNER1981){
+                  if(DustDevObj.dustCoolTableNTbins > 0){
+                    dust_de_dt = DustDevObj.DwekWernerCoolingLookup(temperature, rho, cooling_table_obj.x_H_over_m_h2_, k, j, i, cons, coords);
+                  }else{
+                    dust_de_dt = DustDevObj.DwekWernerCooling(temperature, rho, cooling_table_obj.x_H_over_m_h2_, DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords, DustDevObj.dust_piecewise_mode_int);
+                  }
+                }
+                else if(dust_cooling_mode_ == dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED){
+                dust_de_dt = DustDevObj.DwekWernerCoolingIntegrated(temperature, rho, cooling_table_obj.x_H_over_m_h2_, DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords, DustDevObj.dust_piecewise_mode_int);
+                }
+                Real edot_gas = gas_luminosity(k, j, i);
+                cooling_time_with_dust(k, j, i) = (dust_de_dt+edot_gas != 0) ? -eint / (dust_de_dt+edot_gas) : NAN;
+                dust_luminosity(k, j, i) = -dust_de_dt;
+          
+              });
+        }
   }
 
   if (pkg->Param<bool>("dust_on")) {

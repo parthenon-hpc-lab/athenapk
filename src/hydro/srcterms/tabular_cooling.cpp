@@ -344,10 +344,18 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
       DustObj.code_to_microm_,
 
   };
+            // printf("C DustDevObj=%d DustObj=%d \n",DustDevObj.grain_midbin_sizes_microm.extent(0), DustObj.grain_midbin_sizes_microm_.extent(0));
+            // printf("C2 DustDevObj=%d DustObj=%d \n",DustDevObj.single_grain_densities.extent(0), DustObj.single_grain_densities_.extent(0));
 
-  DustDevObj.SetupDustForEvolutionandCoolingKernel(md);
-  const auto dust_cooling_mode_ = DustObj.dust_cooling_mode_;
+            DustDevObj.SetupDustForEvolutionandCoolingKernel(md);
+  const auto  dust_cooling_mode_ = DustObj.dust_cooling_mode_;
+  std::string dust_cooling_table_path;
 
+  int dust_on = hydro_pkg->Param<bool>("dust_on") ? 1 : 0;
+  if(dust_on and dust_cooling_mode_ != dust::DustCoolingMode::OFF){
+    dust_cooling_table_path = hydro_pkg->Param<std::string>("dust_cooling_table_path");
+  }
+  
   // FJJ Machinery for recording the AGB wind mass contributions
   int agb_history_num_rbins = 2; // some small number for low-memory usage if no AGB winds
   std::vector<double> r_bin_edges;
@@ -437,17 +445,23 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
             Real dust_de_dt;
             Real temperature = mbar_gm1_over_kb * e;
 
-            if (dust_cooling_mode_ == DustCoolingMode::DWEKWERNER1981) {
-              dust_de_dt = DustDevObj.DwekWernerCooling(
-                  temperature, rho, cooling_table_obj.x_H_over_m_h2_,
-                  DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords,
-                  DustDevObj.dust_piecewise_mode_int);
-            } else if (dust_cooling_mode_ == DustCoolingMode::DWEKWERNER1981_INTEGRATED) {
-              dust_de_dt = DustDevObj.DwekWernerCoolingIntegrated(
-                  temperature, rho, cooling_table_obj.x_H_over_m_h2_,
-                  DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords,
-                  DustDevObj.dust_piecewise_mode_int);
-            }
+
+          
+          if(dust_cooling_mode_ == DustCoolingMode::DWEKWERNER1981){
+            // printf("temp 1 %e \n", temperature);
+          
+          if(DustDevObj.dustCoolTableNTbins > 0){
+          dust_de_dt = DustDevObj.DwekWernerCoolingLookup(temperature, rho, cooling_table_obj.x_H_over_m_h2_, k, j, i, cons, coords);
+          }else{
+          dust_de_dt = DustDevObj.DwekWernerCooling(temperature, rho, cooling_table_obj.x_H_over_m_h2_, DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords, DustDevObj.dust_piecewise_mode_int);
+          }
+          // if(fabs((dust_de_dt-dust_de_dt2)/dust_de_dt2) > 0.5){
+            // printf("dust_de_dt_lookup=%e dust_de_dt_orig=%e \n",dust_de_dt,dust_de_dt2);
+          // }
+          }
+          else if(dust_cooling_mode_ == DustCoolingMode::DWEKWERNER1981_INTEGRATED){
+          dust_de_dt = DustDevObj.DwekWernerCoolingIntegrated(temperature, rho, cooling_table_obj.x_H_over_m_h2_, DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords, DustDevObj.dust_piecewise_mode_int);
+          }
 
             if (DustDevObj.disable_all_gas_cooling_for_testing == 1) {
               // only include dust cooling
@@ -951,9 +965,8 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
                               DustObj.code_to_microm_
 
   };
-  // printf("[FJJ DEBUG] DustDevObj.code_to_microm = %g in TabularCooling \n",
-  // DustDevObj.code_to_microm);
-
+  DustDevObj.SetupDustForEvolutionandCoolingKernel(md);
+  // printf("[FJJ DEBUG] DustDevObj.code_to_microm = %g in TabularCooling \n", DustDevObj.code_to_microm);
   Kokkos::parallel_reduce(
       "TabularCooling::TimeStep",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
@@ -974,16 +987,15 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
           auto &cons = cons_pack(b);
           auto &coords = cons_pack.GetCoords(b);
           Real temperature = mbar_gm1_over_kb * internal_e;
-
-          if (dust_cooling_mode_ == DustCoolingMode::DWEKWERNER1981) {
-            dust_de_dt = DustDevObj.DwekWernerCooling(
-                temperature, rho, cooling_table_obj.x_H_over_m_h2_, dust_scalar_idx_start,
-                k, j, i, cons, coords, dust_piecewise_mode_int);
-          } else if (dust_cooling_mode_ ==
-                     dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED) {
-            dust_de_dt = DustDevObj.DwekWernerCoolingIntegrated(
-                temperature, rho, cooling_table_obj.x_H_over_m_h2_, dust_scalar_idx_start,
-                k, j, i, cons, coords, dust_piecewise_mode_int);
+          
+          if(dust_cooling_mode_ == DustCoolingMode::DWEKWERNER1981){
+            if(DustDevObj.dustCoolTableNTbins > 0){
+              dust_de_dt = DustDevObj.DwekWernerCoolingLookup(temperature, rho, cooling_table_obj.x_H_over_m_h2_, k, j, i, cons, coords);
+            }else{
+              dust_de_dt = DustDevObj.DwekWernerCooling(temperature, rho, cooling_table_obj.x_H_over_m_h2_, dust_scalar_idx_start, k, j, i, cons, coords, dust_piecewise_mode_int);
+            } 
+          } else if(dust_cooling_mode_ == dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED){
+          dust_de_dt = DustDevObj.DwekWernerCoolingIntegrated(temperature, rho, cooling_table_obj.x_H_over_m_h2_, dust_scalar_idx_start, k, j, i, cons, coords, dust_piecewise_mode_int);
           }
         } else {
           dust_de_dt = 0.;

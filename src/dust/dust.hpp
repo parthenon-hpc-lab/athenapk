@@ -780,23 +780,34 @@ struct DustDevice {
   Real code_to_microm;
   int do_delta_edge_scheme;
 
-  // optionals
-  int dust_time_integrator_int = 0;
-  int agb_winds_on = 0;
-  int we_have_dust_cooling = 0;
-  int dust_subcycle_with_cooling = 0;
-  int dust_scalar_idx_start = 0;
-  int dust_piecewise_mode_int = 0;
-  int num_grain_compositions = 0;
-  int dust_num_grains_sizes = 0;
-  int disable_all_gas_cooling_for_testing = 0;
-  int slope_limiting = 0;
-  Kokkos::View<Real ******> Mj_new{};
-  Kokkos::View<Real ******> Nj_new{};
-  Kokkos::View<Real ******> a_dot_view{};
-  Kokkos::View<Real *****> heun_state_0{};
-  Kokkos::View<Real *****> heun_state_1{};
-  Kokkos::View<Real *****> heun_state_2{};
+    // optionals
+    int dust_time_integrator_int  = 0;
+    int agb_winds_on  = 0;
+    int we_have_dust_cooling  = 0;
+    int dust_subcycle_with_cooling  = 0;
+    int dust_scalar_idx_start = 0;
+    int dust_piecewise_mode_int = 0;
+    int num_grain_compositions  = 0;
+    int dust_num_grains_sizes = 0;
+    int disable_all_gas_cooling_for_testing = 0;
+    int slope_limiting  = 0;
+    Kokkos::View<Real******> Mj_new{};
+    Kokkos::View<Real******> Nj_new{};
+    Kokkos::View<Real******> a_dot_view{};
+    Kokkos::View<Real*****> heun_state_0{};
+    Kokkos::View<Real*****> heun_state_1{};
+    Kokkos::View<Real*****> heun_state_2{};
+
+
+    // Cooling
+    ParArray2D<Real> dust_cool_table_array_logH;
+    ParArray1D<Real> dust_cool_table_array_logtemp;
+    Real log_temp_start;
+    Real log_temp_final;
+    Real d_log_temp;
+    int n_temp_dust;
+    int dustCoolTableNTbins;
+
 
   // grain evolution vars
   Real f_sput;
@@ -1042,20 +1053,20 @@ struct DustDevice {
         PARTHENON_FAIL("Bad value of chi in dwek_werner_cooling");
       }
 
-      // (l*2) + 1 needed to skip the number density fields
-      auto dust_rho =
-          cons(dust_scalar_idx_start + (gb_i * 2) + 1, cons_k, cons_j, cons_i);
+            // (l*2) + 1 needed to skip the number density fields
+            auto dust_rho = cons(dust_scalar_idx_start + (gb_i*2) + 1, cons_k, cons_j, cons_i);
 
-      // FJJ Make sure the numbers are sensible
-      // PARTHENON_REQUIRE(dust_rho / gas_rho > -1e-30 && dust_rho / gas_rho < 1e3,
-      // "Invalid Dust To Gas ratio encountered in cooling");
 
-      // Convert from rate per grain to volumetric rate (erg /s /cm3 but in code units)
-      // e.g. see Vogelsberger 2019 dust_de_dt volumetric = - dust_de_dt above * n_e *
-      // n_dust
-      Real number_density_this_grain = dust_rho / single_grain_masses[gb_i];
-      dust_de_dt_this_grain_bin =
-          -dust_de_dt_this_grain_bin * n_e * (number_density_this_grain);
+
+            // FJJ Make sure the numbers are sensible
+            // PARTHENON_REQUIRE(dust_rho / gas_rho > -1e-30 && dust_rho / gas_rho < 1e3, "Invalid Dust To Gas ratio encountered in cooling");
+          
+            // Convert from rate per grain to volumetric rate (erg /s /cm3 but in code units) e.g. see Vogelsberger 2019
+            // dust_de_dt volumetric = - dust_de_dt above * n_e * n_dust
+            Real number_density_this_grain = dust_rho / single_grain_masses[gb_i];
+            // printf("DEBUGA! gs_i=%d gc_i=%d H=%e n_e=%e number_density_this_grain=%e dwek_werner_coeff_a_code_units=%e \n", gs_i, gc_i,dust_de_dt_this_grain_bin, n_e, number_density_this_grain, dwek_werner_coeff_a_code_units);
+
+            dust_de_dt_this_grain_bin = -dust_de_dt_this_grain_bin * n_e * number_density_this_grain;
 
     } // (integrated_rates == 0)
     else if (integrated_rates == 1) {
@@ -1292,8 +1303,98 @@ struct DustDevice {
                              dust_piecewise_mode_int, single_dust_bin, integrated_rates);
   } // Real DwekWernerCoolingIntegrated
 
-  void SetupDustDevice(parthenon::StateDescriptor *hydro_pkg, MeshBlock *pmb) {
-    // fjjcurrent
+
+
+
+    // top-level function to call for DW dust cooling. Can decide here to do for single size bin or for all bins
+    KOKKOS_INLINE_FUNCTION 
+    Real DwekWernerCoolingLookup(const Real temp, const Real gas_rho, const Real x_H_over_m_h2_, const int cons_k, const int cons_j, const int cons_i, const parthenon::VariablePack<parthenon::Real> &cons, const Coordinates_t &coords) const {
+      
+      // printf("temp 2 %e \n", temp);
+      const Real log_temp = log10(temp);
+      Real n_e = (gas_rho * Kokkos::sqrt(x_H_over_m_h2_) * nH_to_ne);
+
+      Real dust_de_dt = 0.;
+
+
+      // printf("B single_grain_densities.extent(0)=%d grain_midbin_sizes_microm.extent(0)=%d \n ", single_grain_densities.extent(0), grain_midbin_sizes_microm.extent(0));
+      if(grain_midbin_sizes_microm.extent(0)==0){printf("WARNING! single_grain_densities.extent(0)=%d grain_midbin_sizes_microm.extent(0)=%d \n ", single_grain_densities.extent(0), grain_midbin_sizes_microm.extent(0));}
+      
+      KOKKOS_ASSERT(single_grain_densities.extent(0)*grain_midbin_sizes_microm.extent(0)>=1);
+      for(int gc_i = 0; gc_i < single_grain_densities.extent(0); gc_i++){ // loop over grain compositions
+        for(int gs_i = 0; gs_i < grain_midbin_sizes_microm.extent(0); gs_i++){ // loop over grain sizes
+        //get correct index into cons_pack subview for this grain type and size bin
+        int gb_i = (gc_i*grain_midbin_sizes_microm.extent(0)) + gs_i;  // l = dust bin index
+        int index_into_Mi = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i)) + 1;
+        int index_into_Ni = dust_scalar_idx_start + (2*((gc_i*dust_num_grains_sizes) + gs_i));
+        if(cons(index_into_Ni, cons_k, cons_j, cons_i) < 1e-100 && cons(index_into_Mi, cons_k, cons_j, cons_i) < 1e-100 ){
+          // printf("FAIL! No dust \n");
+          continue;
+        }
+        if (temp < 0 || std::isnan(temp)) {
+            // is_valid = false;
+            // printf("FAIL! (temp < 0 || std::isnan(temp) temp=%e \n", temp);
+          return 0;
+        }
+
+      Real log_H = 0;
+
+      // printf("log_temp=%e log_temp_start=%e log_temp_final=%e \n", log_temp, log_temp_start, log_temp_final );
+      if (log_temp < log_temp_start) {
+        // printf("FAIL! log_temp < log_temp_start \n");
+        return 0;
+      } else if (log_temp > log_temp_final) {
+        log_H = dust_cool_table_array_logH(gs_i, n_temp_dust); // clamp it to top value of dust cooling rate
+        // printf("used dust_cool_table_array_logH(gs_i, n_temp_dust) = %e \n", dust_cool_table_array_logH(gs_i, n_temp_dust));
+      } else {
+        // Inside table, interpolate assuming log spaced temperatures
+
+        // Determine where temp is in the table
+        const unsigned int i_temp =
+            static_cast<unsigned int>((log_temp - log_temp_start) / d_log_temp);
+        const Real log_temp_i = log_temp_start + d_log_temp * i_temp;
+        // printf("i_temp=%e log_temp=%e log_temp_start=%e d_log_temp=-%e \n", i_temp, log_temp, log_temp_start, d_log_temp);
+
+        // log_temp should be between log_temps[i_temp] and log_temps[i_temp+1]
+        PARTHENON_REQUIRE(log_temp >= log_temp_i && log_temp <= log_temp_i + d_log_temp,
+                          "FATAL ERROR in [DustDevObj::DwekWernerCoolingLookup]: Failed to find log_temp");
+
+        const Real log_H_i = dust_cool_table_array_logH(gs_i, i_temp);
+        const Real log_H_ip1 = dust_cool_table_array_logH(gs_i, i_temp + 1);
+
+        // Linearly interpolate lambda at log_temp
+        log_H = log_H_i + (log_temp - log_temp_i) *
+                                        (log_H_ip1 - log_H_i) / d_log_temp;
+        // printf("Interpolated: log_H=%e log_H_i=%e log_H_ip1=%e d_log_temp=%e log_temp_i=%e log_temp=%e \n", log_H, log_H_i, log_H_ip1, d_log_temp, log_temp_i, log_temp);
+        
+        // if(log_temp > 3.){
+        // // printf("gs_i=%d temp=%e log_temp=%e i_temp=%e interped log_H=%e \n", gs_i, temp, log_temp, i_temp, log_H);
+        // }
+      }
+
+
+      // (l*2) + 1 needed to skip the number density fields
+      auto dust_rho = cons(index_into_Mi, cons_k, cons_j, cons_i);
+      
+      // FJJ Make sure the numbers are sensible
+      // PARTHENON_REQUIRE(dust_rho / gas_rho > -1e-30 && dust_rho / gas_rho < 1e3, "Invalid Dust To Gas ratio encountered in cooling");
+      // Convert from rate per grain to volumetric rate (erg /s /cm3 but in code units) e.g. see Vogelsberger 2019
+      // dust_de_dt volumetric = - dust_de_dt above * n_e * n_dust
+      Real number_density_this_grain = dust_rho / single_grain_masses[gb_i];
+      // printf("DEBUGB! gs_i=%d gs_i=%d H=%e n_e=%e number_density_this_grain=%e  \n", gs_i, gs_i, pow(10.,log_H), n_e, number_density_this_grain);
+      dust_de_dt += -pow(10.,log_H) * n_e * number_density_this_grain;
+    }
+    }
+    // printf("DEBUG FINAL! dust_de_dt_this_grain_bin=%e  \n",dust_de_dt );
+
+    return dust_de_dt / gas_rho; // volumetric to specific
+    }
+
+
+
+
+void SetupDustDevice(parthenon::StateDescriptor *hydro_pkg, MeshBlock *pmb){
+  //fjjcurrent
 
     // Consider Dust
     const auto &DustObj = hydro_pkg->Param<dust::Dust>("dust");
@@ -1307,14 +1408,30 @@ struct DustDevice {
       dust_subcycle_with_cooling =
           hydro_pkg->Param<bool>("dust_subcycle_with_cooling") ? 1 : 0;
 
-      we_have_dust_cooling = 1;
-      dust_scalar_idx_start = hydro_pkg->Param<int>("dust_scalar_idx_start");
-      // dust_scalar_idx_end   = hydro_pkg->Param<int>("dust_scalar_idx_end");
+  we_have_dust_cooling = 1;
+  dust_scalar_idx_start = hydro_pkg->Param<int>("dust_scalar_idx_start");    
+  // dust_scalar_idx_end   = hydro_pkg->Param<int>("dust_scalar_idx_end");  
+  parthenon::ParArray1D<Real>::HostMirror host_dust_cool_table_array_logtemp;
 
-      switch (dust_cooling_mode_) {
-      case dust::DustCoolingMode::OFF:
+
+
+
+
+  switch(dust_cooling_mode_) {
+    case dust::DustCoolingMode::OFF:
+        break;
         we_have_dust_cooling = 0;
-      case dust::DustCoolingMode::DWEKWERNER1981:
+    case dust::DustCoolingMode::DWEKWERNER1981:
+        dust_cool_table_array_logH = hydro_pkg->Param<ParArray2D<Real>>("dust_cool_table_array_logH");
+        dust_cool_table_array_logtemp = hydro_pkg->Param<ParArray1D<Real>>("dust_cool_table_array_logtemp");
+        host_dust_cool_table_array_logtemp = hydro_pkg->Param<ParArray1D<Real>::HostMirror>("host_dust_cool_table_array_logtemp");
+
+        // printf("B dustcool_gog_temp_start = %e \n", hydro_pkg->Param<Real>("dustcool_log_temp_start"));
+        log_temp_start  = hydro_pkg->Param<Real>("dustcool_log_temp_start");
+        n_temp_dust     = hydro_pkg->Param<int>("dustcool_n_temp_dust");
+        log_temp_final  = hydro_pkg->Param<Real>("dustcool_log_temp_final");
+        d_log_temp      = hydro_pkg->Param<Real>("dustcool_d_log_temp");
+        dustCoolTableNTbins = hydro_pkg->Param<int>("dust_cool_table_N_Tbins");
         break;
       case dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED:
         break;
