@@ -17,6 +17,7 @@ time_integrator                     = [heun, euler]                             
 max_dM_in_bin                       = 0.1                                                   -- default = -1. <br>
 piecewise_method                    = [loglinear, linear]                                    <br>
 cooling                             = [Dwek_Werner1981_INTEGRATED, Dwek_Werner1981, off]      <br>
+dust_cool_table_N_Tbins             = [-1,  or +/ve int] <br>
 disable_all_gas_cooling_for_testing = [true, false]                                         -- default = false <br>
 num_grainsize_bins                  = 8                                                     -- default = 2 <br>
 grainsize_bins_low_edge             = 5e-3                                                  -- default = 1e-5 <br>
@@ -36,6 +37,10 @@ init_grainsize_distribution         = [MRN, MRN_inverse, flat_in_range]  <br>
 flat_graindist_in_range_amin_microM = 2e-2 <br>
 flat_graindist_in_range_amax_microM = 6e-2 <br>
 slope_limiting                      = [true, false]                                         -- default = true <br>
+init_profile                        = [const_dtg, stellar_profile]
+init_run_stellar_injection_time     = 2e-3
+init_dtg_mass_ratio                 = 1e-5 #1e-2 ##5e-6
+sputtering_suppresion_factor        = 1.                                                    -- default = 1    <br>
 
 <dust/AGB_Winds>  <br>
 gamma_star                          = -2.5 <br>
@@ -67,6 +72,7 @@ subcycle                            : Include dust in the cooling subcycling ter
 time_integrator                     : Which time-integration scheme to use for the dust distribution integration <br>
 max_dM_in_bin                       : Reject subcycling timestep if any bin mass changed by more than a fraction max_dM_in_bin in a dt. -1. gives no constraint <br>
 piecewise_method                    : Which bin-reconstruction method to use (to reconstruct N(a)) <br>
+dust_cool_table_N_Tbins             : Set to -1 for on-the-fly calculation, or to a positive int N to use lookup table with N T bins <br>
 cooling                             : Whether to add dust IR losses to the gas cooling <br>
 disable_all_gas_cooling_for_testing : Testing option - ONLY consider IR losses and no gas-phase radiative losses <br>
 num_grainsize_bins                  : The number of size-bins for the discretisation of the grain-size distribution <br>
@@ -87,6 +93,10 @@ init_grainsize_distribution         : Shape of the initial grain-size/mass distr
 flat_graindist_in_range_amin_microM : If init_grainsize_distribution_str == "flat_in_range" then this param sets the lower edge of that range, in micro-meters <br>
 flat_graindist_in_range_amax_microM : If init_grainsize_distribution_str == "flat_in_range" then this param sets the upper edge of that range, in micro-meters <br>
 slope_limiting                      : If linear reconstruction, decide to do slope limiting or not <br>
+init_profile                        : Whether to set the initial profile as const DTG (using init_dtg_mass_ratio below), or let the AGB stellar profile run for a time (init_run_stellar_injection_time) to set init conds <br>
+init_run_stellar_injection_time     : See above. <br>
+init_dtg_mass_ratio                 : See above. <br>
+sputtering_suppresion_factor        : The sputtering is multiplied by this factor - e.g. set to 0.5 to reduce sputtering by half. <br>
 
 <dust/AGB_Winds> <br>
 The AGB wind model is described by a radial stellar density profile, an IMF, and a stellar lifetime function.  <br>
