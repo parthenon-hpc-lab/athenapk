@@ -954,8 +954,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         }
         cool_file << "\n";
         
-        printf("num_grain_size_bins=%d \n",num_grain_size_bins);
-        for(Real temp = 0.; temp <= 9.; temp+= 0.1){
+        for(int temp_i = 0.; temp_i < dust_cool_table_N_Tbins; temp_i++){
+          Real temp = 0. + temp_i*((9.-0.)/dust_cool_table_N_Tbins); // from 1 to 1e9K in log-equal steps
         for(int gs_i = 0; gs_i < num_grain_size_bins; gs_i++){
           const Real dust_de_dt_this_grain_bin = dust::PreComputeDwekWernerGrainCooling(
             Kokkos::pow(10., temp),
