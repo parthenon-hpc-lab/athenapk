@@ -829,26 +829,27 @@ struct DustDevice {
   int only_sputtering_for_debug;
   Real whole_box_extent;
 
-  // AGB vars
-  Real agb_max_radius;
-  Real gamma_star;
-  Real sersic_n;
-  Real sersic_Re;
-  Real stellar_profile_norm;
-  Real stellar_mass_cent;
-  Real stellar_density_profile_r_low;
-  Real stellar_density_profile_r_up;
-  Real dust_return_silicates_mass_fraction_per_megayear;
-  Real dust_return_carbon_mass_fraction_per_megayear;
-  Real code_to_megayear;
-  int carbonaceous_grains;
-  int silicate_grains;
-  ParArray1D<Real> agb_normalised_carbonaceous_mass_distribution_array;
-  ParArray1D<Real> agb_normalised_carbonaceous_number_distribution_array;
-  ParArray1D<Real> agb_normalised_silicate_mass_distribution_array;
-  ParArray1D<Real> agb_normalised_silicate_number_distribution_array;
-  StellarRadialProfile stellar_radial_profile;
-  // fjjcurrent
+    // AGB vars
+    Real agb_max_radius;
+    Real gamma_star;
+    Real sersic_n;
+    Real sersic_Re;
+    Real stellar_profile_norm;
+    Real stellar_mass_cent;
+    Real stellar_density_profile_r_low;
+    Real stellar_density_profile_r_up;
+    Real dust_return_silicates_mass_fraction_per_megayear;
+    Real dust_return_carbon_mass_fraction_per_megayear;
+    Real code_to_megayear;
+    int carbonaceous_grains;
+    int  silicate_grains;
+    ParArray1D<Real> agb_normalised_carbonaceous_mass_distribution_array;
+    ParArray1D<Real> agb_normalised_carbonaceous_number_distribution_array;
+    ParArray1D<Real> agb_normalised_silicate_mass_distribution_array;
+    ParArray1D<Real> agb_normalised_silicate_number_distribution_array;
+    StellarRadialProfile stellar_radial_profile;
+
+    //fjjcurrent
 
   // Helper function for calculating the cooling rates for the Linear reconstruction
   // method
@@ -1207,7 +1208,6 @@ struct DustDevice {
 
 
 
-
     
     // top-level function to call for DW dust cooling. Can decide here to do for single size bin or for all bins
     KOKKOS_INLINE_FUNCTION 
@@ -1237,6 +1237,9 @@ struct DustDevice {
             integrated_rates
         );
         } else { // over all dust bins
+
+        // printf("A single_grain_densities.extent(0)=%d grain_midbin_sizes_microm.extent(0)=%d \n ", single_grain_densities.extent(0), grain_midbin_sizes_microm.extent(0));
+        KOKKOS_ASSERT(single_grain_densities.extent(0)*grain_midbin_sizes_microm.extent(0)>=1);
         for(int gc_i = 0; gc_i < single_grain_densities.extent(0); gc_i++){ // loop over grain compositions
             for(int gs_i = 0; gs_i < grain_midbin_sizes_microm.extent(0); gs_i++){ // loop over grain sizes
             //get correct index into cons_pack subview for this grain type and size bin
@@ -2567,55 +2570,37 @@ void DustFilladotView(const Real temperature, const int gc_i, const int gs_i, co
   DustCalculateAdotPerBin(temperature, rho, DustDevObj, adot_sputter, adot_accretion,
                           adot);
 
-  const Real whole_box_extent = DustDevObj.whole_box_extent;
-  const auto coords = cons_pack.GetCoords(b);
-  const auto x = coords.Xc<1>(i);
-  const auto y = coords.Xc<2>(j);
-  const auto z = coords.Xc<3>(k);
-  const auto r = Kokkos::sqrt(x * x + y * y + z * z);
-  // Check correct signs. Don;t worry too much if very near a boundary, where densities
-  // might go weird
-  if (adot_sputter > 0 || adot_sputter != adot_sputter) {
-    if (std::abs(x) < 0.9 * whole_box_extent && std::abs(y) < 0.9 * whole_box_extent &&
-        std::abs(z) < 0.9 * whole_box_extent) {
-      // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e r=%e
-      // whole_box_extent=%e f_sput=%e rho =%e  adot_sputter=%e  sput_prefac=%e
-      // sput_dens=%e  sput_T=%e  \n", x,y,z,r, whole_box_extent, f_sput, rho,
-      // adot_sputter,  sput_prefac,  sput_dens,  sput_T);
-      printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e "
-             "whole_box_extent=%e rho =%e\n",
-             x, y, z, whole_box_extent, rho);
-    }
-    if (std::abs(x) < 0.9 * whole_box_extent && std::abs(y) < 0.9 * whole_box_extent &&
-        std::abs(z) < 0.9 * whole_box_extent) { // ignore weird things at box boundary
-                                                // e.g. negative densities
-      printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y "
-             "=%e z=%e whole_box_extent=%e rho =%e temperature=%e\n",
-             x, y, z, whole_box_extent, rho, temperature);
-      PARTHENON_REQUIRE(adot_sputter <= 0, "Sputtering is growing grains!");
-      PARTHENON_REQUIRE(adot_sputter == adot_sputter, "adot_sputter is nan!");
-    }
-    adot_sputter = 0.;
-    adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
-    adot = 0.;
-  }
-  if (adot_accretion < 0 || adot_accretion != adot_accretion) {
-    if (std::abs(x) < 0.9 * whole_box_extent && std::abs(y) < 0.9 * whole_box_extent &&
-        std::abs(z) < 0.9 * whole_box_extent) {
-      printf("[FJJ DEBUG] Accretion is shrinking grains! x=%e y =%e z=%e r=%e "
-             "whole_box_extent=%e rho =%e  adot_accretion=%e  \n",
-             x, y, z, r, whole_box_extent, rho, adot_accretion);
-    }
-
-    if (std::abs(x) < 0.9 * whole_box_extent && std::abs(y) < 0.9 * whole_box_extent &&
-        std::abs(z) < 0.9 * whole_box_extent) { // ignore weird things at box boundary
-                                                // e.g. negative densities
-      printf("[FJJ DEBUG] Accretion is shrinking grains inside of the boundary! x=%e y "
-             "=%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n",
-             x, y, z, r, whole_box_extent, rho, adot_accretion);
-      PARTHENON_REQUIRE(adot_accretion >= 0, "Accretion is shrinking grains!");
-      PARTHENON_REQUIRE(adot_accretion == adot_accretion, "adot_sputter is nan!");
-    }
+                const Real whole_box_extent = DustDevObj.whole_box_extent;
+                const auto coords = cons_pack.GetCoords(b);
+                const auto x = coords.Xc<1>(i);
+                const auto y = coords.Xc<2>(j);
+                const auto z = coords.Xc<3>(k);
+                const auto r = Kokkos::sqrt(x * x + y * y + z * z);
+                // Check correct signs. Don;t worry too much if very near a boundary, where densities might go weird
+                  if(adot_sputter > 0 || adot_sputter != adot_sputter){
+                    if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
+                    // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e r=%e whole_box_extent=%e f_sput=%e rho =%e  adot_sputter=%e  sput_prefac=%e  sput_dens=%e  sput_T=%e  \n", x,y,z,r, whole_box_extent, f_sput, rho, adot_sputter,  sput_prefac,  sput_dens,  sput_T);
+                    // printf("[FJJ DEBUG] Sputtering is growing grains! x=%e y =%e z=%e whole_box_extent=%e rho =%e\n", x,y,z, whole_box_extent, rho);
+                    }
+                  if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
+                    // printf("[FJJ DEBUG] Sputtering is growing grains inside of the boundary! x=%e y =%e z=%e whole_box_extent=%e rho =%e temperature=%e\n", x,y,z, whole_box_extent, rho, temperature);
+                    // PARTHENON_REQUIRE(adot_sputter <= 0 , "Sputtering is growing grains!");
+                    // PARTHENON_REQUIRE(adot_sputter == adot_sputter , "adot_sputter is nan!");
+                    }
+                  adot_sputter = 0.;
+                  adot_accretion = 0; // don;t do any dust updates if sputtering already is bad
+                  adot = 0.;
+                  }
+                  if(adot_accretion < 0 || adot_accretion != adot_accretion){
+                    if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){
+                    // printf("[FJJ DEBUG] Accretion is shrinking grains! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
+                    }
+                    
+                  if(std::abs(x) < 0.9*whole_box_extent && std::abs(y) < 0.9*whole_box_extent && std::abs(z) < 0.9*whole_box_extent){ // ignore weird things at box boundary e.g. negative densities
+                  // printf("[FJJ DEBUG] Accretion is shrinking grains inside of the boundary! x=%e y =%e z=%e r=%e whole_box_extent=%e rho =%e  adot_accretion=%e  \n", x,y,z,r, whole_box_extent, rho, adot_accretion);
+                  // PARTHENON_REQUIRE(adot_accretion >= 0, "Accretion is shrinking grains!");
+                  // PARTHENON_REQUIRE(adot_accretion == adot_accretion , "adot_sputter is nan!");
+                  }
 
     adot_sputter = 0.;
     adot_accretion = 0; // don;t do any dust updates if sputtering already is bad

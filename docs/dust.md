@@ -15,7 +15,7 @@ active                              = [true, false]                             
 subcycle                            = [true, false]                                         -- default = true <br>
 time_integrator                     = [heun, euler]                                          <br>
 max_dM_in_bin                       = 0.1                                                   -- default = -1. <br>
-piecewise_method                    = [loglinear, linear]                                    <br>
+piecewise_method                    = [hybrid_loglinear,loglinear, linear]                                    <br>
 cooling                             = [Dwek_Werner1981_INTEGRATED, Dwek_Werner1981, off]      <br>
 dust_cool_table_N_Tbins             = [-1,  or +/ve int] <br>
 disable_all_gas_cooling_for_testing = [true, false]                                         -- default = false <br>

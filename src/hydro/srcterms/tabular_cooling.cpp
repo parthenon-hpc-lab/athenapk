@@ -409,7 +409,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
-  par_for(
+par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::SubcyclingSplitSrcTerm", DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
@@ -734,24 +734,18 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
         prim(IPR, k, j, i) = rho * internal_e * gm1;
+
+        
       });
 
-  if (DustDevObj.agb_winds_on == 1 && DustObj.write_dust_history_to_file_ &&
-      DustDevObj.dust_subcycle_with_cooling == 1) {
-    Kokkos::Experimental::contribute(reduction_view_agb_injected_mass_c,
-                                     scatter_f_agb_injected_mass_c);
-    Kokkos::View<double *, Kokkos::LayoutRight, Kokkos::HostSpace>
-        host_reduction_view_agb_injected_mass_c =
-            Kokkos::create_mirror_view(reduction_view_agb_injected_mass_c);
-    Kokkos::deep_copy(host_reduction_view_agb_injected_mass_c,
-                      reduction_view_agb_injected_mass_c);
-    Kokkos::Experimental::contribute(reduction_view_agb_injected_mass_s,
-                                     scatter_f_agb_injected_mass_s);
-    Kokkos::View<double *, Kokkos::LayoutRight, Kokkos::HostSpace>
-        host_reduction_view_agb_injected_mass_s =
-            Kokkos::create_mirror_view(reduction_view_agb_injected_mass_s);
-    Kokkos::deep_copy(host_reduction_view_agb_injected_mass_s,
-                      reduction_view_agb_injected_mass_s);
+
+    if(DustDevObj.agb_winds_on == 1 && DustObj.write_dust_history_to_file_ && DustDevObj.dust_subcycle_with_cooling==1){
+    Kokkos::Experimental::contribute(reduction_view_agb_injected_mass_c, scatter_f_agb_injected_mass_c);
+    Kokkos::View<double*, Kokkos::LayoutRight, Kokkos::HostSpace> host_reduction_view_agb_injected_mass_c = Kokkos::create_mirror_view(reduction_view_agb_injected_mass_c);
+    Kokkos::deep_copy(host_reduction_view_agb_injected_mass_c, reduction_view_agb_injected_mass_c);
+    Kokkos::Experimental::contribute(reduction_view_agb_injected_mass_s, scatter_f_agb_injected_mass_s);
+    Kokkos::View<double*, Kokkos::LayoutRight, Kokkos::HostSpace> host_reduction_view_agb_injected_mass_s = Kokkos::create_mirror_view(reduction_view_agb_injected_mass_s);
+    Kokkos::deep_copy(host_reduction_view_agb_injected_mass_s, reduction_view_agb_injected_mass_s);
     Kokkos::Experimental::contribute(reduction_view_stellar_mass, scatter_f_stellar_mass);
     Kokkos::View<double *, Kokkos::LayoutRight, Kokkos::HostSpace>
         host_reduction_view_stellar_mass =

@@ -268,30 +268,19 @@ Dust::Dust(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg
         pin->GetReal("dust", "init_run_stellar_injection_time");
   }
 
-  if (dust_cooling_mode_str_ == "Dwek_Werner1981" ||
-      dust_cooling_mode_str_ == "Dwek_Werner1981_INTEGRATED") {
-    if (dust_cooling_mode_str_ == "Dwek_Werner1981") {
-      dust_cooling_mode_ = DustCoolingMode::DWEKWERNER1981;
-    }
-    if (dust_cooling_mode_str_ == "Dwek_Werner1981_INTEGRATED") {
-      dust_cooling_mode_ = DustCoolingMode::DWEKWERNER1981_INTEGRATED;
-    }
-    // precompute these coefficients here to prevent extra computation in the kernel
-    dwek_werner_coeff_a_code_units_ =
-        5.38 * Kokkos::pow(10, -18) *
-        (cm3_to_code_vol_ * erg_to_code_energy_ / seconds_to_code_time_);
-    dwek_werner_coeff_b_code_units_ =
-        3.37 * Kokkos::pow(10, -13) *
-        (cm3_to_code_vol_ * erg_to_code_energy_ / seconds_to_code_time_);
-    dwek_werner_coeff_c_code_units_ =
-        6.48 * Kokkos::pow(10, -6) *
-        (cm3_to_code_vol_ * erg_to_code_energy_ / seconds_to_code_time_);
-    dwek_werner_regime_coeff_ = 2.71 * Kokkos::pow(10, 8);
-  } else if (dust_cooling_mode_str_ == "off") {
-    dust_cooling_mode_ = DustCoolingMode::OFF;
-  } else {
-    PARTHENON_FAIL("Invalid dust cooling specified")
-  }
+  if(dust_cooling_mode_str_ == "Dwek_Werner1981" || dust_cooling_mode_str_ == "Dwek_Werner1981_INTEGRATED"){
+      if(dust_cooling_mode_str_ == "Dwek_Werner1981"){dust_cooling_mode_ = DustCoolingMode::DWEKWERNER1981;}
+      if(dust_cooling_mode_str_ == "Dwek_Werner1981_INTEGRATED"){dust_cooling_mode_ = DustCoolingMode::DWEKWERNER1981_INTEGRATED;}
+      // precompute these coefficients here to prevent extra computation in the kernel
+      dwek_werner_coeff_a_code_units_ =  5.38 * Kokkos::pow(10, -18) * (cm3_to_code_vol_ * erg_to_code_energy_/seconds_to_code_time_);
+      dwek_werner_coeff_b_code_units_ =  3.37 * Kokkos::pow(10, -13) * (cm3_to_code_vol_ * erg_to_code_energy_/seconds_to_code_time_);
+      dwek_werner_coeff_c_code_units_ =  6.48 * Kokkos::pow(10, -6)  * (cm3_to_code_vol_ * erg_to_code_energy_/seconds_to_code_time_);
+      dwek_werner_regime_coeff_       =  2.71 * Kokkos::pow(10, 8);
+  } else if (dust_cooling_mode_str_ == "off"){
+     printf("Setting dust_cooling_mode_ = DustCoolingMode::OFF; \n");
+      dust_cooling_mode_ = DustCoolingMode::OFF;
+  } else {PARTHENON_FAIL("Invalid dust cooling specified")}
+
 
   // Create device views of the required vectors for e.g. the cooling functions
   grain_midbin_sizes_microm_ =
@@ -719,24 +708,25 @@ void Dust::MeasureAndRecordHistory(parthenon::MeshData<parthenon::Real> *md,
     const int disable_all_gas_cooling_for_testing =
         hydro_pkg->Param<int>("disable_all_gas_cooling_for_testing");
 
-    int dust_piecewise_mode_int = 0;
-    if (this->piecewise_mode_ == dust::DustPiecewiseMode::LINEAR) {
-      dust_piecewise_mode_int = 1;
-    } else if (this->piecewise_mode_ == dust::DustPiecewiseMode::LOGLINEAR) {
-      dust_piecewise_mode_int = 2;
-    }
+        int dust_piecewise_mode_int = 0;
+        if(this->piecewise_mode_ == dust::DustPiecewiseMode::LINEAR){
+          dust_piecewise_mode_int = 1;
+        } else if(this->piecewise_mode_ == dust::DustPiecewiseMode::LOGLINEAR){
+          dust_piecewise_mode_int = 2;
+        }
 
-    Kokkos::parallel_for(
-        "DustHst",
-        Kokkos::MDRangePolicy<Kokkos::Rank<5>>(
-            parthenon::DevExecSpace(), {0, 0, kb.s, jb.s, ib.s},
-            {cons_pack.GetDim(5), num_dust_bins, kb.e + 1, jb.e + 1, ib.e + 1}),
-        // {1, 1, 1, 1, ib.e + 1 - ib.s}),
-        KOKKOS_LAMBDA(const int b, const int dust_i, const int k, const int j,
-                      const int i) {
-          // dust_i runs from 0 to number of dust types * number of size bins. It will be
-          // half the size of the total number of dust variables in the cons pack, which
-          // stores both mass and number density for each bin
+
+        Kokkos::parallel_for(
+            "DustHst",
+            Kokkos::MDRangePolicy<Kokkos::Rank<5>>(
+                parthenon::DevExecSpace(), {0, 0, kb.s, jb.s, ib.s},
+                {cons_pack.GetDim(5), num_dust_bins, kb.e + 1, jb.e + 1, ib.e + 1}),
+                // {1, 1, 1, 1, ib.e + 1 - ib.s}),
+            KOKKOS_LAMBDA(const int b, const int dust_i, const int k, const int j, const int i) {
+              // dust_i runs from 0 to number of dust types * number of size bins. It will be 
+              // half the size of the total number of dust variables in the cons pack, which
+              // stores both mass and number density for each bin
+
 
           auto f_a_gaseous_cool_rate = scatter_f_gaseous_cool_rate.access();
           auto f_a_dust_cool_rate = scatter_f_dust_cool_rate.access();
