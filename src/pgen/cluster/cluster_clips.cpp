@@ -197,8 +197,8 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
             }
           }
         },
-        added_dfloor_mass, removed_vceil_energy, added_vAceil_mass,
-        removed_eceil_energy, added_dust_mass);
+        added_dfloor_mass, removed_vceil_energy, added_vAceil_mass, removed_eceil_energy,
+        added_dust_mass);
 
     // Add the freshly added mass/removed energy to running totals
     hydro_pkg->UpdateParam("added_dfloor_mass",
