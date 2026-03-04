@@ -355,9 +355,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   std::string dust_cooling_table_path;
 
   int dust_on = hydro_pkg->Param<bool>("dust_on") ? 1 : 0;
-  if (dust_on and dust_cooling_mode_ != dust::DustCoolingMode::OFF) {
-    dust_cooling_table_path = hydro_pkg->Param<std::string>("dust_cooling_table_path");
-  }
+
 
   // FJJ Machinery for recording the AGB wind mass contributions
   int agb_history_num_rbins = 2; // some small number for low-memory usage if no AGB winds
