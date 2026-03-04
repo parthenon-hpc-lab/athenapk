@@ -1,0 +1,379 @@
+<comment>
+problem   = cluster
+
+<job>
+problem_id = cluster   # problem ID: basename of output filenames
+
+<parthenon/output1>
+file_type  = hst       # History data dump
+dt         = 1e-3 # Time increment between outputs (2.00e+00 Myr)
+
+<parthenon/output2>
+file_type  = hdf5       # restart data dump
+variables  = prim, cons, carbonaceous_slope_size_bin_0      # Variables to be output
+dt         = 0.001  #0.01 # Time increment between outputs (10 Myr)
+id         = vars
+
+
+#<parthenon/output2>
+#file_type  = hdf5       # restart data dump
+#variables  = prim      # Variables to be output
+#dt         = 0.5e-3 # Time increment between outputs (2.00e+01 Myr)
+#id         = prim
+
+<parthenon/output3>
+file_type  = rst        # Binary data dump
+dt         = 2        # time increment between outputs
+id         = restart
+
+
+<parthenon/time>
+cfl        = 0.3        # The Courant, Friedrichs, & Lewy (CFL) Number
+tlim       = 0.06 # time limit (unit Myr)
+integrator  = rk2       # time integration algorithm
+ncycle_out_mesh = -100000
+
+
+<parthenon/mesh>
+refinement  = static
+#numlevel = 2
+#numlevel = 3
+#numlevel = 4
+#numlevel = 5
+#numlevel = 6
+#numlevel = 7
+numlevel = 1
+
+nghost = 2  #2
+
+nx1        = 64       # Number of zones in X1-direction
+x1min      =-0.025     # minimum value of X1
+x1max      = 0.025     # maximum value of X1
+ix1_bc     = periodic        # inner-X1 boundary flag
+ox1_bc     = periodic        # outer-X1 boundary flag
+
+nx2        = 64       # Number of zones in X2-direction
+x2min      =-0.025     # minimum value of X2
+x2max      = 0.025     # maximum value of X2
+ix2_bc     = periodic        # inner-X2 boundary flag
+ox2_bc     = periodic       # outer-X2 boundary flag
+
+nx3        = 64       # Number of zones in X3-direction
+x3min      =-0.025     # minimum value of X3
+x3max      = 0.025     # maximum value of X3
+ix3_bc     = periodic        # inner-X3 boundary flag
+ox3_bc     = periodic        # outer-X3 boundary flag
+
+<parthenon/meshblock>
+#nx1        = 32        # Number of zones in X1-direction
+#nx2        = 32        # Number of zones in X2-direction
+#nx3        = 32        # Number of zones in X3-direction
+nx1        = 8        # Number of zones in X1-direction
+nx2        = 8        # Number of zones in X2-direction
+nx3        = 8        # Number of zones in X3-direction
+
+
+<sink>
+apply_sink = false
+
+<refinement>
+type = cubic
+active = false
+#refinement_width = 0.000006103515625         #0.0005
+#refinement_width = 0.0005   #2
+
+#refinement_width = 0.00025  #3
+#refinement_width = 0.000125  #4
+#refinement_width = 0.0000625  #5
+#refinement_width = 0.00003125  #6
+#refinement_width = 0.000015625  #7
+refinement_width = 0.0000078125  #8
+
+#<parthenon/static_refinement>
+#x1min = -0.000000025
+#x1max =  0.000000025
+#x2min = -0.000000025
+#x2max =  0.000000025
+#x3min = -0.000000025
+#x3max =  0.000000025
+#level =  7
+
+<hydro>
+gamma = 1.6666666666666667 # gamma = C_p/C_v
+eos = adiabatic
+riemann = hllc  #hlld
+reconstruction = plm
+Tfloor = 1.0 #
+Tceil = inf # inf K
+vceil = inf # inf c
+nscalars = 1
+dfloor = 1.0e-10
+pfloor = 1.0e-18
+
+first_order_flux_correct = True
+
+He_mass_fraction = 0.25
+
+<units>
+#Units parameters
+code_length_cgs = 3.085677580962325e+24 # 1.00e+03 kpc
+code_mass_cgs = 1.98841586e+47 # 1.00e+14 Msun
+code_time_cgs = 3.15576e+16 # 1.00e+03 Myr
+
+<problem/cluster>
+hubble_parameter = 0.0715898515654728  # 7.00e+01 km/(Mpc*s)
+
+<problem/cluster/gravity>
+#Include gravity as a source term
+gravity_srcterm = false
+
+
+#Which gravitational fields to include
+include_nfw_g = false
+which_bcg_g = HERNQUIST
+include_smbh_g = True
+
+#NFW parameters
+c_nfw = 9.5
+m_nfw_200 = 0.15 # 1.5e+13 Msun
+
+#BCG parameters
+m_bcg_s = 0.001400000000000000 # 1.40e+11 Msun
+r_bcg_s = 0.01 # 10 kpc
+
+#SMBH parameters
+m_smbh = 2.8000000000000001e-06 # 2.8e+08 Msun  see Randall et al. 2010
+
+#Smooth gravity at origin, for numerical reasons
+g_smoothing_radius = 1e-07 # 1.00e-03 kpc
+
+<problem/cluster/entropy_profile>
+#Entropy profile parameters
+#k_0 = 1.221e-121  # 1.38 cm**2*keV ACCEPT profile for NGC 5813
+#k_100 = 9.07e-120 # 102.51 cm**2*keV
+#r_k = 0.01 # 100 kpc (normalization)
+#alpha_k = 1.31
+
+
+k_0 = 0.30e-121 density
+k_100 = 6.3e-120 
+r_k = 0.5 
+alpha_k = 0.5 
+
+
+<problem/cluster/hydrostatic_equilibrium>
+#Fix density at radius to close system of equations
+r_fix =  1.8 # 1.80e+03 kpc
+rho_fix = 0.00013992470370469507    ###0.00013992470370469507 # 9.47e-29 g/cm**3
+
+#Building the radii at which to sample initial rho,P
+r_sampling = 4.0
+max_dr = 0.001
+
+#<problem/cluster/init_perturb>
+# for the velocity field
+#sigma_v = 0.07670341239157799 # 7.50e+01 km/s
+#l_peak_v = 0.1 #100.0 kpc
+#num_modes_v = 40
+#sol_weight_v = 1.0
+#rseed_v = 1
+
+# for the magnetic field
+#sigma_b = 0.12431560000204142 # 1.00e-06 G
+#l_peak_b = 0.1 # 100.0 kpc
+#num_modes_b = 40
+#rseed_b = 2
+
+<problem/cluster/init_perturb>
+sigma_v = 0.0
+accel_rms = 5    #10000
+k_peak_v = 4
+num_modes_v = 64
+sol_weight_v = 1.0
+t_corr = 30e-3
+# Enable turbulence driving
+drive_turbulence = true
+
+
+
+
+
+
+
+
+
+<problem/cluster/uniform_b_field>
+init_uniform_b_field = false
+bx = 0
+by = 0
+bz = 0
+
+<cooling>
+enable_cooling=tabular
+table_filename= /leonardo/home/userexternal/fjenning/BlackHoleWeather/athenapk/inputs/cooling_tables/schure.cooling_1.0Z
+lambda_units_cgs=1.0 # 1.00e+00 cm**3*erg/s
+integrator=rk45
+cfl=0.0
+
+
+#<diffuse_heating>
+#N_shells      = 6
+#T_heating_min = 7.e5
+#frac_max      = 1.0
+
+
+<problem/cluster/agn_triggering>
+triggering_mode = NONE
+## accretion_radius = 0.004 # 1.00e+00 kpc
+## cold_temp_thresh= 50000.0 # 5.00e+04 K
+## cold_t_acc= 0.01 # 1.00e+01 Myr
+## write_to_file = true
+## triggering_filename = accretion_rate.log
+
+
+<problem/cluster/precessing_jet>
+jet_theta= 0
+jet_phi_dot= 0.0 # 0.00e+00 1/Myr
+jet_phi0= 0
+
+<problem/cluster/agn_feedback>
+disabled = true
+enable_tracer = false
+fixed_power = 0.0 # 0.00e+00 erg/s
+efficiency = 0.0
+magnetic_fraction = 0.0
+thermal_fraction = 0.0
+kinetic_fraction = 0.0
+enable_magnetic_tower_mass_injection = False
+Tceil = inf # inf K
+vceil = inf # inf c
+
+thermal_radius = 0.0 # 4.00e+00 kpc
+kinetic_jet_radius  = 0.0 # 2.00e+00 kpc
+kinetic_jet_thickness  = 0.0 # 7.81e-01 kpc
+kinetic_jet_offset  = 0.000 # 0.00e+00 kpc
+kinetic_jet_temperature  = 0.0 # 1.00e+08 K
+
+
+
+<problem/cluster/snia_feedback>
+power_per_bcg_mass = 0.0015780504379367209 # 9.51e+29 erg/(Msun*s)
+mass_rate_per_bcg_mass = 0.00315576 # 1e-19 1/s
+disabled = True
+
+
+<problem/cluster/stellar_feedback>
+efficiency = 0.0
+stellar_radius = 0.0 # 2.50e+01 kpc
+number_density_threshold = 0.0 # 5.00e+01 cm**(-3)
+temperature_threshold= 0.0 # 2.00e+04 K
+
+<problem/cluster/clips>
+clip_r = 0.02 # 2.00e+01 kpc
+dfloor = -1.4775575892787231e+26 # -1.00e+00 g/cm**3
+vceil  = 15.330069691905884 # 5.00e-02 c
+vAceil = 15.330069691905884 # 5.00e-02 c
+Tceil  = 5000000000.0 # 5.00e+09 K
+
+<problem/cluster/reductions>
+cold_temp_thresh= 20000.0 # 2.00e+04 K
+#agn_tracer_thresh = -1.0 #0.0 # 0.00e+00 g/cm**3
+
+
+
+<tracers>
+enabled = false
+initial_seed_method = user #random_per_block #user
+seed_cold_gas = false
+
+<tracers/seed_cold_gas>
+T_thresh_upper=1e5
+T_thresh_lower=1e5
+
+<problem/cluster/tracers>
+initial_num_tracers_per_shell= 1000
+shell_radii =0.01,0.05,0.1,0.25,0.5
+
+<problem/cluster/metallicity>
+vary_metallicity=true
+metal_rcore_metallicity=0.3
+metal_rcore_radius=10
+metal_gradient=0.5
+metal_model=peaked_const_gradient
+metal_ceil=0.8
+solar_table=Asplund_09
+
+<problem/cluster/uniform_gas>
+init_uniform_gas = true
+rho = 1e-1
+ux = 0.
+uy = 0.
+uz = 0.
+pres = 1.456e-2
+uniform_gas_dust_to_gas = 1e-2 # 1e-5
+min_dt = 0.001
+
+
+<dust>
+active = true
+subcycle = true
+time_integrator = 
+max_dM_in_bin = 0.1
+piecewise_method = loglinear #linear #loglinear
+cooling = Dwek_Werner1981_INTEGRATED #Dwek_Werner1981_INTEGRATED #Dwek_Werner1981_INTEGRATED #Dwek_Werner1981 #Dwek_Werner1981_INTEGRATED  #Dwek_Werner1981
+disable_all_gas_cooling_for_testing = true
+num_grainsize_bins = 32
+grainsize_bins_low_edge = 5e-3
+grainsize_bins_high_edge = 0.5
+carbonaceous_grains = true
+silicate_grains = false
+carbonaceous_grain_mass_fraction = 1 ##
+silicate_grain_mass_fraction     = 1 ##
+carbonaceous_grain_density = 2.2  # in g/cm3
+silicate_grain_density = 3.3  # in g/cm3
+init_profile = const_dtg
+init_dtg_mass_ratio = -1 ##5e-6
+
+
+flat_graindist_in_range_amin_microM = 2e-2
+flat_graindist_in_range_amax_microM = 6e-2
+
+init_grainsize_distribution = MRN #MRN_inverse ### MRN ###MRN_inverse ##MRN
+flat_single_bin_gs_i_index = 
+metal_accretion   = true
+thermal_sputtering = true
+AGB_winds = false
+AGB_table_filename = /leonardo/home/userexternal/fjenning/DustBlackHoleWeather/athenapk/src/dust/DellAgli_SolarZ_AGB.txt
+
+
+<dust/AGB_Winds>
+gamma_star = -2.5
+sigma_AGB = 0.47
+Mstar_cent_in_Msun = 1e11
+R_upper_in_kpc = 30
+AGB_max_radius_in_kpc = 30  ### Only inject dust via AGB within this radius
+
+<dust/AGB_data_table>
+silicate_column_indexes_to_sum = 2,3
+carbon_column_index = 7
+
+
+
+<problem/cluster/dust_history>
+record_dust_history = true
+write_to_file = true
+min_radius = 0.001
+max_radius = 0.1
+num_radial_bins = 5
+min_T_kelvin = 1000
+max_T_kelvin = 1e9
+num_temperature_bins = 5
+
+
+<problem/cluster/cold_gas_history>
+min_radius = 0.001
+max_radius = 1
+num_radial_bins = 20
+min_T_kelvin = 1000
+max_T_kelvin = 1e11
+num_temperature_bins = 20
