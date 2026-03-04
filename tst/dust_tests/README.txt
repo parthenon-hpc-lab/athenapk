@@ -1,0 +1,7 @@
+### Convergence Tests/ Benchmark Tests Against Ideal (Monte Carlo) Simulation
+This test is designed to see how well the grid-based implementation fares against a python-based monte carlo simulation which simulates the evolution of `N_particles` particles in a uniform box that cools just due to dust cooling (ie no gas cooling)
+Main script is `dust_run_onezone_model_singlesim.py`
+For a benchmark test you should set `running_mode= “single”`
+For convergence tests, generate and run the desired matrix of params using `python convergence_tests_generator.py 1`  with the “1” indicating you want to actually sbatch the jobs - note you need to specify your sbatch file in the script. This script should be run on a login node
+If running convergence tests you need to set `running_mode= “convergence”` in `dust_run_onezone_model_singlesim.py` and set Nbins_dummy to any number of dust bins within the convergence matrix that ran okay - basically just so the code knows where to look to read some simulation parameters. The onezone run data will be solved under that specific simulation directory but will be equally relevant for all runs regardless of the number of grain size bins. The final output of the script will be saved comparison histograms and fractional error plots of the grid-implementation of the dust versus the monte-carlo ideal solution.
+Nbins_list has to match the range given in num_grainsize_bins_list in convergence_tests_generator.py
