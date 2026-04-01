@@ -32,6 +32,7 @@ by adding an optional string as last argument to any `ParameterInput` `Get` or `
 ### Changed (changing behavior/API/variables/...)
 
 ### Fixed (not changing behavior/API/variables/...)
+- [[PR 160]](https://github.com/parthenon-hpc-lab/athenapk/pull/160) Backport HLLD degeneracy check from Athena++
 
 ### Infrastructure
 - [[PR 149]](https://github.com/parthenon-hpc-lab/athenapk/pull/149) Allow triggering of pipelines manually
