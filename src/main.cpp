@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
   } else if (problem == "jet") {
-    pman.app_input->ProblemGenerator = jet::ProblemGenerator;
+    pman.app_input->MeshProblemGenerator = jet::ProblemGenerator;
     Hydro::ProblemInitPackageData = jet::ProblemInitPackageData;
     pman.app_input->RegisterBoundaryCondition(
         BF::inner_x2, "project_pressure",
@@ -133,13 +133,7 @@ int main(int argc, char *argv[]) {
     pman.app_input->RegisterBoundaryCondition(
         BF::outer_x2, "project_pressure",
         Hydro::BoundaryFunction::ProjectPressure<X2DIR, BCSide::Outer>);
-    pman.app_input->RegisterBoundaryCondition(
-        BF::inner_x3, "project_pressure",
-        Hydro::BoundaryFunction::ProjectPressure<X3DIR, BCSide::Inner>);
-    pman.app_input->RegisterBoundaryCondition(
-        BF::outer_x3, "project_pressure",
-        Hydro::BoundaryFunction::ProjectPressure<X3DIR, BCSide::Outer>);
-    Hydro::ProblemSourceFirstOrder = const_accel::ConstantAccelSrcTerm;
+    Hydro::ProblemSourceFirstOrder = jet::JetDriver;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {

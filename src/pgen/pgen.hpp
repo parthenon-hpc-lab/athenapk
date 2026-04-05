@@ -127,7 +127,8 @@ namespace jet {
 using namespace parthenon::driver::prelude;
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg);
-void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md);
+void JetDriver(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt);
 } // namespace jet
 
 namespace sod {

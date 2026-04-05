@@ -1,0 +1,66 @@
+<comment>
+problem = Jet
+
+<job>
+problem_id = jet
+
+<parthenon/output1>
+file_type = hst   # History data dump
+dt        = 0.01  # Time increment between outputs
+
+<parthenon/output2>
+file_type = hdf5  # Binary data dump
+variables = prim  # Variables to be output
+dt        = 0.1  # Time increment between outputs
+
+<parthenon/time>
+cfl        = 0.3     # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1      # Cycle limit
+tlim       = 40     # Time limit
+integrator = vl2     # Time integration algorithm
+ncycle_out = 10      # Interval for stdout summary info
+
+<parthenon/mesh>
+nghost = 2                 # Number of ghost zones
+
+nx1    = 100               # Number of zones in X1-direction
+x1min  = -0.16666667       # Minimum value of X1
+x1max  = 0.16666667        # Maximum value of X1
+ix1_bc = periodic          # Inner-X1 boundary flag
+ox1_bc = periodic          # Outer-X1 boundary flag
+
+nx2    = 200               # Number of zones in X2-direction
+x2min  = 0              # Minimum value of X2
+x2max  = 1               # Maximum value of X2
+ix2_bc = project_pressure  # Inner-X2 boundary flag
+ox2_bc = project_pressure  # Outer-X2 boundary flag
+
+nx3    = 1                 # Number of zones in X3-direction
+x3min  = -0.5              # Minimum value of X3
+x3max  = 0.5               # Maximum value of X3
+ix3_bc = periodic          # Inner-X3 boundary flag
+ox3_bc = periodic          # Outer-X3 boundary flag
+
+<hydro>
+fluid          = euler
+eos            = adiabatic
+riemann        = hllc
+reconstruction = plm
+gamma          = 1.4  # gamma = C_p/C_v
+
+<units>
+code_length_cgs = 1
+code_mass_cgs = 1
+code_time_cgs = 1
+
+<problem/jet>
+rho_0               = 2.0
+rho_ref             = 1.0
+r_ref               = 0.3
+rho_prof_mode       = expo  # Density profile (const, lin, pow, or expo)
+const_accel_srcterm = -0.1
+jet_inject_radius   = 0.05  # Jet injection radius
+jet_inject_height   = 0.01  # Jet injection height
+jet_m_inject_rate   = 0.02  # Jet mass injection rate
+jet_power           = 0.03  # Jet power
+jet_ke_frac         = 0.9   # Fraction of kinetic energy vs thermal energy
