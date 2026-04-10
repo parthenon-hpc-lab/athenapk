@@ -20,6 +20,7 @@
 #include "../pgen/pgen.hpp"
 #include "../recon/dc_simple.hpp"
 #include "../recon/limo3_simple.hpp"
+#include "../recon/mixed_plm_ppm.hpp"
 #include "../recon/plm_simple.hpp"
 #include "../recon/ppm_simple.hpp"
 #include "../recon/weno3_simple.hpp"
