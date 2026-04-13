@@ -413,12 +413,12 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     const auto nxj = pmb->cellbounds.ncellsj(IndexDomain::entire);
     const auto nxk = pmb->cellbounds.ncellsk(IndexDomain::entire);
     if (tmp.extent(3) != nxi) {
-      PARTHENON_REQUIRE_THROWS(hydro_pkg->Param<int>("nscalars") == 0,
-                               "Needs adjustmentment for scalar support.");
       const auto nhydro = hydro_pkg->Param<int>("nhydro");
+      const auto nscalars = hydro_pkg->Param<int>("nscalars");
       // index 0 comp 0 and 1 are for left and right states
       // index 0 comp 2-4 are for fluxes
-      tmp = parthenon::ParArray5DRaw<FluxReal>("tmp", 5, nhydro, nxk, nxj, nxi);
+      tmp =
+          parthenon::ParArray5DRaw<FluxReal>("tmp", 5, nhydro + nscalars, nxk, nxj, nxi);
     }
   }
 

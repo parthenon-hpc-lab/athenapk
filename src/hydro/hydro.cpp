@@ -1118,6 +1118,14 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
         "x1 Riemann", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
           riemann.Solve(k, j, i, IV1, tmp, eos, c_h);
+          // Passive scalar fluxes
+          for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+            if (tmp(1 + IV1, IDN, k, j, i) >= 0.0) {
+              tmp(1 + IV1, n, k, j, i) = tmp(1 + IV1, IDN, k, j, i) * tmp(0, n, k, j, i);
+            } else {
+              tmp(1 + IV1, n, k, j, i) = tmp(1 + IV1, IDN, k, j, i) * tmp(1, n, k, j, i);
+            }
+          }
         });
 
     //--------------------------------------------------------------------------------------
@@ -1128,6 +1136,16 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
           "x2 Riemann", kb.s, kb.e, jb.s, jb.e + 1, ib.s, ib.e,
           KOKKOS_LAMBDA(const int k, const int j, const int i) {
             riemann.Solve(k, j, i, IV2, tmp, eos, c_h);
+            // Passive scalar fluxes
+            for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+              if (tmp(1 + IV2, IDN, k, j, i) >= 0.0) {
+                tmp(1 + IV2, n, k, j, i) =
+                    tmp(1 + IV2, IDN, k, j, i) * tmp(0, n, k, j, i);
+              } else {
+                tmp(1 + IV2, n, k, j, i) =
+                    tmp(1 + IV2, IDN, k, j, i) * tmp(1, n, k, j, i);
+              }
+            }
           });
 
       //--------------------------------------------------------------------------------------
@@ -1139,6 +1157,16 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
             "x3 Riemann", kb.s, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
             KOKKOS_LAMBDA(const int k, const int j, const int i) {
               riemann.Solve(k, j, i, IV3, tmp, eos, c_h);
+              // Passive scalar fluxes
+              for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+                if (tmp(1 + IV3, IDN, k, j, i) >= 0.0) {
+                  tmp(1 + IV3, n, k, j, i) =
+                      tmp(1 + IV3, IDN, k, j, i) * tmp(0, n, k, j, i);
+                } else {
+                  tmp(1 + IV3, n, k, j, i) =
+                      tmp(1 + IV3, IDN, k, j, i) * tmp(1, n, k, j, i);
+                }
+              }
             });
       }
     }
@@ -1155,9 +1183,10 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
 
       std::int64_t num_corrected, num_need_floor;
       // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
-      // of a single cell at the same time. So the neighboring cells need to be rechecked
-      // with the corrected fluxes as the corrected fluxes in one cell may result in the
-      // need to correct all the fluxes of an originally "good" neighboring cell.
+      // of a single cell at the same time. So the neighboring cells need to be
+      // rechecked with the corrected fluxes as the corrected fluxes in one cell may
+      // result in the need to correct all the fluxes of an originally "good"
+      // neighboring cell.
       size_t num_attempts = 0;
       do {
         num_corrected = 0;
@@ -1171,8 +1200,8 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
                           std::int64_t &lnum_corrected, std::int64_t &lnum_need_floor) {
               // In principle, the u_cons.fluxes could be updated in parallel by a
               // different thread resulting in a race conditon here. However, if the
-              // fluxes of a cell have been updated (anywhere) then the entire kernel will
-              // be called again anyway, and, at that point the already fixed
+              // fluxes of a cell have been updated (anywhere) then the entire kernel
+              // will be called again anyway, and, at that point the already fixed
               // u0_cons.fluxes will automaticlly be used here.
               Real new_cons[NVAR];
               for (auto v = 0; v < NVAR; v++) {
