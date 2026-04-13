@@ -195,19 +195,18 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
           const auto &vol = volumes(k, j, i);
 
-          // background/hot phase
-          if (vol == 0) {
-            return;
-          }
-
           std::int64_t cur_vol = 8;
-          int n = 0; // scalar index offset
+          int n = 1; // scalar index offset
           while (cur_vol < 5e8) {
             if (vol <= cur_vol) {
               break;
             }
             cur_vol *= 4;
             n += 1;
+          }
+          // background/hot phase
+          if (vol == 0) {
+            n = 0;
           }
 
           cons(nhydro + n, k, j, i) = 1.0 * cons(IDN, k, j, i);
