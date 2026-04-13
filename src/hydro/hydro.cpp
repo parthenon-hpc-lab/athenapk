@@ -782,8 +782,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam("scratch_level", scratch_level);
 
   auto nscalars = pin->GetOrAddInteger("hydro", "nscalars", 0);
-  PARTHENON_REQUIRE_THROWS(
-      nscalars == 0, "This optimized version does not support passive scalars (yet).");
   pkg->AddParam("nscalars", nscalars);
 
   std::vector<std::string> cons_labels(nhydro);

@@ -10,15 +10,20 @@
 // C++ headers
 #include <algorithm> // min, max
 #include <cmath>     // log
-#include <cstring>   // strcmp()
-#include <fstream>   // ofstream
+#include <cstdint>
+#include <cstring> // strcmp()
+#include <fstream> // ofstream
+
+#include <adios2.h>
 
 // Parthenon headers
+#include "Kokkos_Core.hpp"
 #include "basic_types.hpp"
 #include "defs.hpp"
 #include "globals.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
+#include "kokkos_types.hpp"
 #include "mesh/mesh.hpp"
 #include <iomanip>
 #include <ios>
@@ -34,6 +39,7 @@
 #include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
+#include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 
 namespace turbulence {
@@ -114,6 +120,103 @@ Real TurbulenceHst(MeshData<Real> *md) {
   return sum;
 }
 
+void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
+  auto pkg = pmesh->packages.Get("Hydro");
+
+  const auto init_scalars_once_on_restart =
+      pkg->Param<bool>("turbulence/init_scalars_once_on_restart");
+
+  // Check if any condition is met for injecting
+  if (!init_scalars_once_on_restart) {
+    return;
+  }
+
+  // Always disable injecting as the original value doesn't matter
+  pkg->UpdateParam("turbulence/init_scalars_once_on_restart", false);
+
+  // Initialize passive scalars
+  // Get a MeshBlockPack on device with all conserved variables
+  // const auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
+  // const auto &prim = md->PackVariables(std::vector<std::string>{"prim"});
+  // const auto num_blocks = md->NumBlocks();
+  using parthenon::Globals::nghost;
+  const auto mb1 = pmesh->GetDefaultBlockSize().nx(parthenon::X1DIR);
+  const auto mb2 = pmesh->GetDefaultBlockSize().nx(parthenon::X2DIR);
+  const auto mb3 = pmesh->GetDefaultBlockSize().nx(parthenon::X3DIR);
+  // wg -> with ghosts
+  const auto mb1wg = pmesh->GetDefaultBlockSize().nx(parthenon::X1DIR) + 2 * nghost;
+  const auto mb2wg = pmesh->GetDefaultBlockSize().nx(parthenon::X2DIR) + 2 * nghost;
+  const auto mb3wg = pmesh->GetDefaultBlockSize().nx(parthenon::X3DIR) + 2 * nghost;
+
+  // Silly ADIOS2 test
+  adios2::ADIOS adios(MPI_COMM_WORLD);
+
+  adios2::IO get_var = adios.DeclareIO("GetVar");
+  auto infile = pin->GetOrAddString("problem/turbulence", "init_scalar_dir", "unset");
+  adios2::Engine bpReader = get_var.Open(infile, adios2::Mode::Read);
+
+  bpReader.BeginStep();
+  // this just discovers in the metadata file that the variable exists
+  adios2::Variable<int64_t> myvar_in = get_var.InquireVariable<int64_t>("volumes");
+
+  PARTHENON_REQUIRE_THROWS(myvar_in, "Could not find variable name in file.");
+
+  // Allocate tmp data (shared across/overwritten for blocks)
+  parthenon::ParArray3DRaw<int64_t> volumes("volumes", mb3wg, mb2wg, mb1wg);
+  auto volumes_host = Kokkos::create_mirror_view(Kokkos::HostSpace{}, volumes);
+
+  const auto nhydro = pkg->Param<int>("nhydro");
+  for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
+    auto pmb = pmesh->block_list[b];
+    // auto pmb = md->GetBlockData(b)->GetBlockPointer();
+    const auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);
+    // only read row of current rank
+    const adios2::Dims start{static_cast<unsigned long>(loc.lx3() * mb3),
+                             static_cast<unsigned long>(loc.lx2() * mb2),
+                             static_cast<unsigned long>(loc.lx1() * mb1)};
+    const adios2::Dims count{static_cast<unsigned long>(mb3wg),
+                             static_cast<unsigned long>(mb2wg),
+                             static_cast<unsigned long>(mb1wg)};
+    myvar_in.SetSelection({start, count});
+
+    bpReader.Get(myvar_in, volumes_host.data(), adios2::Mode::Sync);
+
+    Kokkos::deep_copy(volumes, volumes_host);
+
+    auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+    auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+    auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+    // initialize variables including ghost (no additional sync prior to loop)
+    auto &mbd = pmb->meshblock_data.Get();
+    auto &cons = mbd->Get("cons").data;
+    auto &prim = mbd->Get("prim").data;
+    pmb->par_for(
+        "init scalars", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          const auto &vol = volumes(k, j, i);
+
+          // background/hot phase
+          if (vol == 0) {
+            return;
+          }
+
+          std::int64_t cur_vol = 8;
+          int n = 0; // scalar index offset
+          while (cur_vol < 5e8) {
+            if (vol <= cur_vol) {
+              break;
+            }
+            cur_vol *= 4;
+            n += 1;
+          }
+
+          cons(nhydro + n, k, j, i) = 1.0 * cons(IDN, k, j, i);
+          prim(nhydro + n, k, j, i) = 1.0;
+        });
+  }
+  bpReader.EndStep();
+  bpReader.Close();
+}
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
   // Step 1. Enlist history output information
   auto hst_vars = pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
@@ -250,6 +353,16 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   auto rescale_to_rms_Ms =
       pin->GetOrAddReal("problem/turbulence", "rescale_to_rms_Ms", -1.0);
   pkg->AddParam<>("turbulence/rescale_to_rms_Ms", rescale_to_rms_Ms);
+
+  auto init_scalars_once_on_restart =
+      pin->GetOrAddBoolean("problem/turbulence", "init_scalars_once_on_restart", false);
+  pkg->AddParam<>("turbulence/init_scalars_once_on_restart", init_scalars_once_on_restart,
+                  true);
+  // reset pinput for not repreated parsing on subsequent restarts
+  if (init_scalars_once_on_restart) {
+    pkg->UserWorkBeforeLoopMesh = InitScalars;
+    pin->SetBoolean("problem/turbulence", "init_scalars_once_on_restart", false);
+  }
 
   // Parameters to inject overdense blobs into the simulation with a target overdensity
   // and radius at a given cycle, time, or restart
