@@ -40,6 +40,7 @@
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
 #include "parthenon_array_generic.hpp"
+#include "tasks/tasks.hpp"
 #include "utils/error_checking.hpp"
 
 namespace turbulence {
@@ -158,11 +159,12 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   PARTHENON_REQUIRE_THROWS(myvar_in, "Could not find variable name in file.");
 
   // Allocate tmp data (shared across/overwritten for blocks)
-  parthenon::ParArray3DRaw<int64_t> volumes("volumes", mb3, mb2 mb1);
+  parthenon::ParArray3DRaw<int64_t> volumes("volumes", mb3, mb2, mb1);
   auto volumes_host = Kokkos::create_mirror_view(Kokkos::HostSpace{}, volumes);
 
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
+  const auto gm1 = (pkg->Param<Real>("AdiabaticIndex") - 1.0);
   for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
     auto pmb = pmesh->block_list[b];
     // auto pmb = md->GetBlockData(b)->GetBlockPointer();
@@ -227,22 +229,40 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   bpReader.EndStep();
   bpReader.Close();
 
-  // Update ghosts and fill prim
-  pmesh->PreCommFillDerived();
-  pmesh->BuildTagMapAndBoundaryBuffers();
-  pmesh->CommunicateBoundaries();
-  pmesh->FillDerived();
-
-  ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-  jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-  kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
   PARTHENON_REQUIRE_THROWS(pmesh->DefaultNumPartitions() == 1,
                            "Just num packs=1 for simplicity now");
   const int partition_id = 0;
   auto &md = pmesh->mesh_data.GetOrAdd("base", partition_id);
+
+  TaskCollection tc;
+  auto &region = tc.AddRegion(1);
+  auto &tl = region[0];
+  const auto any = parthenon::BoundaryType::any;
+  TaskID none(0);
+  auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, md);
+  parthenon::AddBoundaryExchangeTasks(start_bnd, tl, md, pmesh->multilevel);
+
+  // Execute the task collection
+  while (tc.Execute() != parthenon::TaskListStatus::complete) {
+    if (parthenon::Globals::my_rank == 0) {
+      std::cerr << ".";
+    }
+  }
+  // TaskListStatus status = tc.Execute();
+
+  // Update ghosts and fill prim
+  // pmesh->PreCommFillDerived();
+  // pmesh->BuildTagMapAndBoundaryBuffers();
+  // pmesh->CommunicateBoundaries();
+  // pmesh->FillDerived();
+  parthenon::Update::FillDerived<MeshData<Real>>(md.get());
+
   auto const &prim = md->PackVariables(std::vector<std::string>{"prim"});
-  auto const &prim = md->PackVariables(std::vector<std::string>{"cons"});
-  pmb->par_for(
+  auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
+  par_for(
       "sanity check", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         int num_scalars_set = 0;
