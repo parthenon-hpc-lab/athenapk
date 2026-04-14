@@ -139,14 +139,9 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   // const auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
   // const auto &prim = md->PackVariables(std::vector<std::string>{"prim"});
   // const auto num_blocks = md->NumBlocks();
-  using parthenon::Globals::nghost;
   const auto mb1 = pmesh->GetDefaultBlockSize().nx(parthenon::X1DIR);
   const auto mb2 = pmesh->GetDefaultBlockSize().nx(parthenon::X2DIR);
   const auto mb3 = pmesh->GetDefaultBlockSize().nx(parthenon::X3DIR);
-  // wg -> with ghosts
-  const auto mb1wg = pmesh->GetDefaultBlockSize().nx(parthenon::X1DIR) + 2 * nghost;
-  const auto mb2wg = pmesh->GetDefaultBlockSize().nx(parthenon::X2DIR) + 2 * nghost;
-  const auto mb3wg = pmesh->GetDefaultBlockSize().nx(parthenon::X3DIR) + 2 * nghost;
 
   // Silly ADIOS2 test
   adios2::ADIOS adios(MPI_COMM_WORLD);
@@ -162,10 +157,11 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   PARTHENON_REQUIRE_THROWS(myvar_in, "Could not find variable name in file.");
 
   // Allocate tmp data (shared across/overwritten for blocks)
-  parthenon::ParArray3DRaw<int64_t> volumes("volumes", mb3wg, mb2wg, mb1wg);
+  parthenon::ParArray3DRaw<int64_t> volumes("volumes", mb3, mb2 mb1);
   auto volumes_host = Kokkos::create_mirror_view(Kokkos::HostSpace{}, volumes);
 
   const auto nhydro = pkg->Param<int>("nhydro");
+  const auto nscalars = pkg->Param<int>("nscalars");
   for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
     auto pmb = pmesh->block_list[b];
     // auto pmb = md->GetBlockData(b)->GetBlockPointer();
@@ -174,26 +170,25 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
     const adios2::Dims start{static_cast<unsigned long>(loc.lx3() * mb3),
                              static_cast<unsigned long>(loc.lx2() * mb2),
                              static_cast<unsigned long>(loc.lx1() * mb1)};
-    const adios2::Dims count{static_cast<unsigned long>(mb3wg),
-                             static_cast<unsigned long>(mb2wg),
-                             static_cast<unsigned long>(mb1wg)};
+    const adios2::Dims count{static_cast<unsigned long>(mb3),
+                             static_cast<unsigned long>(mb2),
+                             static_cast<unsigned long>(mb1)};
     myvar_in.SetSelection({start, count});
 
     bpReader.Get(myvar_in, volumes_host.data(), adios2::Mode::Sync);
 
     Kokkos::deep_copy(volumes, volumes_host);
 
-    auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-    auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-    auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+    auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+    auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+    auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
     // initialize variables including ghost (no additional sync prior to loop)
     auto &mbd = pmb->meshblock_data.Get();
     auto &cons = mbd->Get("cons").data;
-    auto &prim = mbd->Get("prim").data;
     pmb->par_for(
         "init scalars", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
-          const auto &vol = volumes(k, j, i);
+          const auto &vol = volumes(k - kb.s, j - jb.s, i - ib.s);
 
           std::int64_t cur_vol = 8;
           int n = 1; // scalar index offset
@@ -210,11 +205,39 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
           }
 
           cons(nhydro + n, k, j, i) = 1.0 * cons(IDN, k, j, i);
-          prim(nhydro + n, k, j, i) = 1.0;
         });
   }
   bpReader.EndStep();
   bpReader.Close();
+
+  // Update ghosts and fill prim
+  pmesh->PreCommFillDerived();
+  pmesh->BuildTagMapAndBoundaryBuffers();
+  pmesh->CommunicateBoundaries();
+  pmesh->FillDerived();
+
+  ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+  jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+  PARTHENON_REQUIRE_THROWS(pmesh->DefaultNumPartitions() == 1,
+                           "Just num packs=1 for simplicity now");
+  const int partition_id = 0;
+  auto &md = pmesh->mesh_data.GetOrAdd("base", partition_id);
+  auto const &prim = md->PackVariables(std::vector<std::string>{"prim"});
+  auto const &prim = md->PackVariables(std::vector<std::string>{"cons"});
+  pmb->par_for(
+      "sanity check", 0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        int num_scalars_set = 0;
+        for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+          num_scalars_set += prim(b, n, k, j, i) == 1.0;
+
+          PARTHENON_REQUIRE_THROWS(prim(b, n, k, j, i) ==
+                                       cons(b, n, k, j, i) / cons(b, IDN, k, j, i),
+                                   "Mismatch in prim from cons")
+        }
+        PARTHENON_REQUIRE_THROWS(num_scalars_set == 1, "unexpected scalar count");
+      });
 }
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
   // Step 1. Enlist history output information
