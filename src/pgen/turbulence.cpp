@@ -148,11 +148,12 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
 
   adios2::IO get_var = adios.DeclareIO("GetVar");
   auto infile = pin->GetOrAddString("problem/turbulence", "init_scalar_dir", "unset");
+  auto invarname = pin->GetOrAddString("problem/turbulence", "init_scalar_name", "unset");
   adios2::Engine bpReader = get_var.Open(infile, adios2::Mode::Read);
 
   bpReader.BeginStep();
   // this just discovers in the metadata file that the variable exists
-  adios2::Variable<int64_t> myvar_in = get_var.InquireVariable<int64_t>("volumes");
+  adios2::Variable<int64_t> myvar_in = get_var.InquireVariable<int64_t>(invarname);
 
   PARTHENON_REQUIRE_THROWS(myvar_in, "Could not find variable name in file.");
 
@@ -189,6 +190,22 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
         "init scalars", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
           const auto &vol = volumes(k - kb.s, j - jb.s, i - ib.s);
+
+          Real &u_d = cons(IDN, k, j, i);
+          Real &u_m1 = cons(IM1, k, j, i);
+          Real &u_m2 = cons(IM2, k, j, i);
+          Real &u_m3 = cons(IM3, k, j, i);
+          Real &u_e = cons(IEN, k, j, i);
+          Real di = 1.0 / u_d;
+          Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
+          Real w_p = gm1 * (u_e - e_k);
+          Real T_code = w_p / u_d;
+
+          if (T_code < 0.02) {
+            PARTHENON_REQUIRE_THROWS(vol > 0, "got hot phase for cold cell");
+          } else {
+            PARTHENON_REQUIRE_THROWS(vol == 0, "got cold phase for hot cell");
+          }
 
           std::int64_t cur_vol = 8;
           int n = 1; // scalar index offset
