@@ -193,6 +193,13 @@ int main(int argc, char *argv[]) {
     pman.app_input->UserMeshWorkBeforeOutput = precipitator::UserMeshWorkBeforeOutput;
     Hydro::ProblemSourceUnsplit = precipitator::AddUnsplitSrcTerms;
     Hydro::ProblemSourceFirstOrder = precipitator::AddSplitSrcTerms;
+  } else if (problem == "precipitator_spherical") {
+    Hydro::ProblemInitPackageData = precipitator_spherical::ProblemInitPackageData;
+    pman.app_input->ProblemGenerator = precipitator_spherical::ProblemGenerator;
+    pman.app_input->UserMeshWorkBeforeOutput =
+        precipitator_spherical::UserMeshWorkBeforeOutput;
+    Hydro::ProblemSourceUnsplit = precipitator_spherical::AddUnsplitSrcTerms;
+    Hydro::ProblemSourceFirstOrder = precipitator_spherical::AddSplitSrcTerms;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {

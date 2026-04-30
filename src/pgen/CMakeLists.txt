@@ -23,6 +23,7 @@ target_sources(athenaPK PRIVATE
     lw_implode.cpp
     orszag_tang.cpp
     precipitator.cpp
+    precipitator_spherical.cpp
     precipitator_srcterms.cpp
     rand_blast.cpp
     sod.cpp

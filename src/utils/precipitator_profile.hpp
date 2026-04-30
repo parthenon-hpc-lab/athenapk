@@ -25,8 +25,9 @@ class PrecipitatorProfile {
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION
   PrecipitatorProfile(const PrecipitatorProfile &rhs)
       : z_min_(rhs.z_min_), z_max_(rhs.z_max_), z_(rhs.z_), rho_(rhs.rho_), P_(rhs.P_),
-        phi_(rhs.phi_), bfield_(rhs.bfield_), spline_rho_(rhs.spline_rho_),
-        spline_P_(rhs.spline_P_), spline_phi_(rhs.spline_phi_),
+        gravity_(rhs.gravity_), phi_(rhs.phi_), bfield_(rhs.bfield_),
+        spline_rho_(rhs.spline_rho_), spline_P_(rhs.spline_P_),
+        spline_gravity_(rhs.spline_gravity_), spline_phi_(rhs.spline_phi_),
         spline_bfield_(rhs.spline_bfield_) {}
 
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real min() const { return z_min_; }
@@ -40,6 +41,10 @@ class PrecipitatorProfile {
     return spline_P_(z);
   }
 
+  KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real gravity(Real z) const {
+    return spline_gravity_(z);
+  }
+
   KOKKOS_FUNCTION KOKKOS_FORCEINLINE_FUNCTION Real phi(Real z) const {
     return spline_phi_(z);
   }
@@ -49,8 +54,9 @@ class PrecipitatorProfile {
   }
 
  private:
-  using ProfileTuple = std::tuple<PinnedArray1D<Real>, PinnedArray1D<Real>, PinnedArray1D<Real>,
-                                  PinnedArray1D<Real>, PinnedArray1D<Real>>;
+  using ProfileTuple =
+      std::tuple<PinnedArray1D<Real>, PinnedArray1D<Real>, PinnedArray1D<Real>,
+                 PinnedArray1D<Real>, PinnedArray1D<Real>, PinnedArray1D<Real>>;
 
   static auto ReadProfile(const std::string &filename) -> ProfileTuple;
   static auto GetZMin(const std::string &filename) -> Real;
@@ -58,6 +64,7 @@ class PrecipitatorProfile {
   static auto GetZ(const std::string &filename) -> PinnedArray1D<Real>;
   static auto GetRho(const std::string &filename) -> PinnedArray1D<Real>;
   static auto GetP(const std::string &filename) -> PinnedArray1D<Real>;
+  static auto GetGravity(const std::string &filename) -> PinnedArray1D<Real>;
   static auto GetPhi(const std::string &filename) -> PinnedArray1D<Real>;
   static auto GetBField(const std::string &filename) -> PinnedArray1D<Real>;
 
@@ -66,10 +73,12 @@ class PrecipitatorProfile {
   PinnedArray1D<Real> z_{};
   PinnedArray1D<Real> rho_{};
   PinnedArray1D<Real> P_{};
+  PinnedArray1D<Real> gravity_{};
   PinnedArray1D<Real> phi_{};
   PinnedArray1D<Real> bfield_{};
   MonotoneInterpolator<PinnedArray1D<Real>> spline_rho_;
   MonotoneInterpolator<PinnedArray1D<Real>> spline_P_;
+  MonotoneInterpolator<PinnedArray1D<Real>> spline_gravity_;
   MonotoneInterpolator<PinnedArray1D<Real>> spline_phi_;
   MonotoneInterpolator<PinnedArray1D<Real>> spline_bfield_;
 };

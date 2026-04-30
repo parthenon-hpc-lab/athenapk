@@ -120,6 +120,17 @@ void ComputeEdotProfileLocal(AllReduce<parthenon::ParArray1D<Real>> *profile_red
                              MeshData<Real> *md);
 } // namespace precipitator
 
+namespace precipitator_spherical {
+using namespace parthenon::driver::prelude;
+
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt);
+void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt);
+void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
+                              const parthenon::SimTime &);
+} // namespace precipitator_spherical
+
 namespace cluster {
 using namespace parthenon::driver::prelude;
 
