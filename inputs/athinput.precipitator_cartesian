@@ -1,0 +1,109 @@
+# Idealized galaxy cluster precipitator
+
+<job>
+problem_id = precipitator_spherical
+
+<parthenon/output1>
+file_type  = hst
+dt         = 25.0
+
+<parthenon/output2>
+file_type   = openpmd
+output_type = data
+variables   = prim,divB,mach_sonic,plasma_beta,tcool_myr,temperature_K,entropy_K,delta_rho_over_rho_bar,delta_entropy_over_entropy_bar
+dt          = 25 # Myr
+id          = prim
+
+<parthenon/output3>
+file_type   = openpmd
+output_type = restart
+id          = restart
+dt          = 2000.0
+
+<parthenon/time>
+cfl        = 0.25
+nlim       = 500000
+tlim       = 1.0e4
+integrator = rk2
+ncycle_out = 1
+
+<parthenon/mesh>
+nx1    = 64
+x1min  = -120.0
+x1max  = 120.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2    = 64
+x2min  = -120.0
+x2max  = 120.0
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3    = 64
+x3min  = -120.0
+x3max  = 120.0
+ix3_bc = periodic
+ox3_bc = periodic
+
+refinement = static
+
+<parthenon/meshblock>
+nx1 = 16
+nx2 = 16
+nx3 = 16
+
+<parthenon/static_refinement1>
+# Refine the central 2x2x2 root blocks by one level.
+x1min = -60.0
+x1max =  60.0
+x2min = -60.0
+x2max =  60.0
+x3min = -60.0
+x3max =  60.0
+level = 1
+
+<hydro>
+fluid = glmmhd
+gamma = 1.6666666666666667
+eos = adiabatic
+riemann = lhlld
+reconstruction = plm
+first_order_flux_correct = true
+scratch_level = 0
+
+He_mass_fraction = 0.25
+dfloor = 1454.4065594167007
+pfloor = 1000.0
+
+<units>
+code_mass_cgs   = 1.98841586e+33
+code_length_cgs = 3.086e21
+code_time_cgs   = 3.15576e+13
+
+<precipitator>
+hse_profile_filename = inputs/profile_A.txt
+force_free_param_file = inputs/force_free_params.txt
+force_free_bfield_gauss = 8.335839927667599582e-06
+
+enable_outer_buffer_halo = 1
+outer_buffer_inner_radius = 100.0
+outer_buffer_entropy_slope = 0.0
+outer_sponge_inner_radius = 100.0
+outer_sponge_tau      = 5.0
+
+enable_powerlaw_cooling = 1
+powerlaw_lambda_cgs = 1e-22
+
+enable_fourier_bessel_perturbations = 1
+perturbation_sigma = 0.01
+perturbation_lmax = 12
+perturbation_radial_modes = 16
+perturbation_kmin = 1.0  # 1.0 == box size
+perturbation_kmax = 16.0
+perturbation_seed = 88172645463393265
+
+enable_heating = magic
+thermostat_temperature = 1.0e7
+thermostat_Kp = 10.0
+h_smooth_heatcool = 20.0
