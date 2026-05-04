@@ -592,8 +592,13 @@ void ProblemInitPackageData(ParameterInput *pin, StateDescriptor *pkg) {
   auto m_restart = Metadata({Metadata::Cell, Metadata::OneCopy, Metadata::Restart},
                             std::vector<int>({1}));
   pkg->AddField("grav_phi", m_restart);
+  auto m_face = Metadata({Metadata::Face, Metadata::OneCopy, Metadata::Restart},
+                         std::vector<int>({1}));
+  pkg->AddField("grav_phi_face", m_face);
   pkg->AddField("pressure_hse", m_restart);
   pkg->AddField("density_hse", m_restart);
+  pkg->AddField("heatcool_taper", m_restart);
+  pkg->AddField("inv_tcool_hse", m_restart);
 
   auto m_derived = Metadata({Metadata::Cell, Metadata::OneCopy}, std::vector<int>({1}));
   pkg->AddField("tcool_myr", m_derived);
@@ -789,8 +794,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   IndexRange kbe = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
   auto grav_phi = rc->PackVariables(std::vector<std::string>{"grav_phi"});
+  auto grav_phi_face = rc->PackVariables(std::vector<std::string>{"grav_phi_face"});
   auto pressure_hse = rc->PackVariables(std::vector<std::string>{"pressure_hse"});
   auto density_hse = rc->PackVariables(std::vector<std::string>{"density_hse"});
+  auto heatcool_taper = rc->PackVariables(std::vector<std::string>{"heatcool_taper"});
+  auto inv_tcool_hse = rc->PackVariables(std::vector<std::string>{"inv_tcool_hse"});
 
   const Real gamma = hydro_pkg->Param<Real>("gamma");
   const Real gm1 = hydro_pkg->Param<Real>("gm1");
@@ -805,6 +813,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       hydro_pkg->Param<Real>("outer_buffer_match_entropy_cgs");
   const Real outer_buffer_match_enthalpy_cgs =
       hydro_pkg->Param<Real>("outer_buffer_match_enthalpy_cgs");
+  const Real h_smooth = hydro_pkg->Param<Real>("h_smooth_heatcool");
+  const Real outer_radius = hydro_pkg->Param<Real>("nominal_outer_radius");
+  const Real powerlaw_lambda = hydro_pkg->Param<Real>("powerlaw_lambda_code");
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SphericalPrecipSetBackground", parthenon::DevExecSpace(), 0,
@@ -825,6 +836,56 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         density_hse(0, k, j, i) = rho_cgs / code_density_cgs;
         pressure_hse(0, k, j, i) = pressure_cgs / code_pressure_cgs;
         grav_phi(0, k, j, i) =
+            PotentialCode(profile, radius, code_length_cgs, code_potential_cgs);
+        heatcool_taper(0, k, j, i) =
+            OuterBufferHeatCoolTaper(outer_buffer_enabled, radius,
+                                     outer_buffer_inner_radius, outer_radius) *
+            MagicTaper(radius, h_smooth);
+        const Real rho_bg = density_hse(0, k, j, i);
+        const Real pressure_bg = pressure_hse(0, k, j, i);
+        inv_tcool_hse(0, k, j, i) =
+            (rho_bg > 0.0 && pressure_bg > 0.0 && powerlaw_lambda > 0.0)
+                ? powerlaw_lambda * rho_bg * rho_bg / (pressure_bg / gm1)
+                : 0.0;
+      });
+
+  constexpr auto f1 = parthenon::TopologicalElement::F1;
+  constexpr auto f2 = parthenon::TopologicalElement::F2;
+  constexpr auto f3 = parthenon::TopologicalElement::F3;
+  IndexRange ibf1 = pmb->cellbounds.GetBoundsI(IndexDomain::entire, f1);
+  IndexRange jbf1 = pmb->cellbounds.GetBoundsJ(IndexDomain::entire, f1);
+  IndexRange kbf1 = pmb->cellbounds.GetBoundsK(IndexDomain::entire, f1);
+  IndexRange ibf2 = pmb->cellbounds.GetBoundsI(IndexDomain::entire, f2);
+  IndexRange jbf2 = pmb->cellbounds.GetBoundsJ(IndexDomain::entire, f2);
+  IndexRange kbf2 = pmb->cellbounds.GetBoundsK(IndexDomain::entire, f2);
+  IndexRange ibf3 = pmb->cellbounds.GetBoundsI(IndexDomain::entire, f3);
+  IndexRange jbf3 = pmb->cellbounds.GetBoundsJ(IndexDomain::entire, f3);
+  IndexRange kbf3 = pmb->cellbounds.GetBoundsK(IndexDomain::entire, f3);
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "SphericalPrecipSetGravPotentialXFaces",
+      parthenon::DevExecSpace(), 0, 0, kbf1.s, kbf1.e, jbf1.s, jbf1.e, ibf1.s,
+      ibf1.e, KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+        const Real radius = Radius(coords.Xf<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
+        grav_phi_face(f1, 0, k, j, i) =
+            PotentialCode(profile, radius, code_length_cgs, code_potential_cgs);
+      });
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "SphericalPrecipSetGravPotentialYFaces",
+      parthenon::DevExecSpace(), 0, 0, kbf2.s, kbf2.e, jbf2.s, jbf2.e, ibf2.s,
+      ibf2.e, KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+        const Real radius = Radius(coords.Xc<1>(i), coords.Xf<2>(j), coords.Xc<3>(k));
+        grav_phi_face(f2, 0, k, j, i) =
+            PotentialCode(profile, radius, code_length_cgs, code_potential_cgs);
+      });
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "SphericalPrecipSetGravPotentialZFaces",
+      parthenon::DevExecSpace(), 0, 0, kbf3.s, kbf3.e, jbf3.s, jbf3.e, ibf3.s,
+      ibf3.e, KOKKOS_LAMBDA(const int, const int k, const int j, const int i) {
+        const Real radius = Radius(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xf<3>(k));
+        grav_phi_face(f3, 0, k, j, i) =
             PotentialCode(profile, radius, code_length_cgs, code_potential_cgs);
       });
 
@@ -928,15 +989,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
 void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  const auto profile =
-      pkg->Param<precipitator::PrecipitatorProfile>("precipitator_profile");
   const auto units = pkg->Param<Units>("units");
-  const Real code_length_cgs = units.code_length_cgs();
-  const Real code_time_cgs = units.code_time_cgs();
-  const Real code_density_cgs = units.code_density_cgs();
-  const Real code_pressure_cgs = units.code_pressure_cgs();
-  const Real code_potential_cgs = CodePotentialCgs(code_length_cgs, code_time_cgs);
-  const Real gamma = pkg->Param<Real>("gamma");
   const Real gm1 = pkg->Param<Real>("gm1");
   const Real mean_mass = pkg->Param<Real>("mean_mass");
   const Real powerlaw_lambda = pkg->Param<Real>("powerlaw_lambda_code");
@@ -944,17 +997,9 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
       pkg->Param<bool>("enable_powerlaw_cooling") && powerlaw_lambda > 0.0;
   const bool heating_enabled =
       pkg->Param<bool>("enable_magic_heating") && powerlaw_lambda > 0.0;
-  const Real h_smooth = pkg->Param<Real>("h_smooth_heatcool");
   const Real outer_radius = pkg->Param<Real>("nominal_outer_radius");
   const bool outer_buffer_enabled = pkg->Param<bool>("outer_buffer_enabled");
   const Real outer_buffer_inner_radius = pkg->Param<Real>("outer_buffer_inner_radius");
-  const Real outer_buffer_inner_radius_cgs =
-      pkg->Param<Real>("outer_buffer_inner_radius_cgs");
-  const Real outer_buffer_entropy_slope = pkg->Param<Real>("outer_buffer_entropy_slope");
-  const Real outer_buffer_match_entropy_cgs =
-      pkg->Param<Real>("outer_buffer_match_entropy_cgs");
-  const Real outer_buffer_match_enthalpy_cgs =
-      pkg->Param<Real>("outer_buffer_match_enthalpy_cgs");
 
   const int num_bins = pkg->Param<int>("radial_profile_bins");
   const Real rmin = pkg->Param<Real>("radial_profile_min");
@@ -982,6 +1027,10 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
   }
 
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  auto source_profile_pack =
+      md->PackVariables(std::vector<std::string>{"heatcool_taper", "inv_tcool_hse"});
+  auto grav_phi_pack = md->PackVariables(std::vector<std::string>{"grav_phi"});
+  auto grav_phi_face_pack = md->PackVariables(std::vector<std::string>{"grav_phi_face"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -990,6 +1039,9 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
   const Real k_boltzmann = units.k_boltzmann();
   const Real c_v = (k_boltzmann / mean_mass) / gm1;
   const Real thermostat_Kp = pkg->Param<Real>("thermostat_Kp");
+  constexpr auto f1 = parthenon::TopologicalElement::F1;
+  constexpr auto f2 = parthenon::TopologicalElement::F2;
+  constexpr auto f3 = parthenon::TopologicalElement::F3;
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "SphericalPrecipSources", parthenon::DevExecSpace(), 0,
@@ -997,10 +1049,6 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const auto &coords = cons_pack.GetCoords(b);
         auto &cons = cons_pack(b);
-        const Real x = coords.Xc<1>(i);
-        const Real y = coords.Xc<2>(j);
-        const Real z = coords.Xc<3>(k);
-        const Real radius = Radius(x, y, z);
 
         const Real rho = cons(IDN, k, j, i);
         const Real inv_rho = 1.0 / std::max(rho, kTiny);
@@ -1015,16 +1063,13 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
         const Real pressure = thermal_eint * gm1;
 
         if (pressure > 0.0) {
-          const Real phi_center =
-              PotentialCode(profile, radius, code_length_cgs, code_potential_cgs);
+          const auto &grav_phi = grav_phi_pack(b);
+          const auto &grav_phi_face = grav_phi_face_pack(b);
+          const Real phi_center = grav_phi(0, k, j, i);
           const Real kT_over_mu = pressure * inv_rho;
           if (kT_over_mu > 0.0) {
-            const Real r1m = Radius(coords.Xf<1>(i), y, z);
-            const Real r1p = Radius(coords.Xf<1>(i + 1), y, z);
-            const Real phi1m =
-                PotentialCode(profile, r1m, code_length_cgs, code_potential_cgs);
-            const Real phi1p =
-                PotentialCode(profile, r1p, code_length_cgs, code_potential_cgs);
+            const Real phi1m = grav_phi_face(f1, 0, k, j, i);
+            const Real phi1p = grav_phi_face(f1, 0, k, j, i + 1);
             const Real p_hse1m = pressure * std::exp(-(phi1m - phi_center) / kT_over_mu);
             const Real p_hse1p = pressure * std::exp(-(phi1p - phi_center) / kT_over_mu);
             cons(IM1, k, j, i) += dt * (p_hse1p - p_hse1m) / coords.Dxc<1>(k, j, i);
@@ -1032,12 +1077,8 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
                 dt * rho * (mom1 * inv_rho) * (phi1p - phi1m) / coords.Dxc<1>(k, j, i);
 
             if (two_d) {
-              const Real r2m = Radius(x, coords.Xf<2>(j), z);
-              const Real r2p = Radius(x, coords.Xf<2>(j + 1), z);
-              const Real phi2m =
-                  PotentialCode(profile, r2m, code_length_cgs, code_potential_cgs);
-              const Real phi2p =
-                  PotentialCode(profile, r2p, code_length_cgs, code_potential_cgs);
+              const Real phi2m = grav_phi_face(f2, 0, k, j, i);
+              const Real phi2p = grav_phi_face(f2, 0, k, j + 1, i);
               const Real p_hse2m =
                   pressure * std::exp(-(phi2m - phi_center) / kT_over_mu);
               const Real p_hse2p =
@@ -1048,12 +1089,8 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
             }
 
             if (three_d) {
-              const Real r3m = Radius(x, y, coords.Xf<3>(k));
-              const Real r3p = Radius(x, y, coords.Xf<3>(k + 1));
-              const Real phi3m =
-                  PotentialCode(profile, r3m, code_length_cgs, code_potential_cgs);
-              const Real phi3p =
-                  PotentialCode(profile, r3p, code_length_cgs, code_potential_cgs);
+              const Real phi3m = grav_phi_face(f3, 0, k, j, i);
+              const Real phi3p = grav_phi_face(f3, 0, k + 1, j, i);
               const Real p_hse3m =
                   pressure * std::exp(-(phi3m - phi_center) / kT_over_mu);
               const Real p_hse3p =
@@ -1066,10 +1103,8 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
         }
 
         thermal_eint = std::max(thermal_eint, static_cast<Real>(0.0));
-        const Real taper =
-            OuterBufferHeatCoolTaper(outer_buffer_enabled, radius,
-                                     outer_buffer_inner_radius, outer_radius) *
-            MagicTaper(radius, h_smooth);
+        const auto &source_profile = source_profile_pack(b);
+        const Real taper = source_profile(0, k, j, i);
         if (cooling_enabled && taper > 0.0 && thermal_eint > 0.0) {
           const Real dE =
               std::min(thermal_eint, dt * taper * powerlaw_lambda * rho * rho);
@@ -1077,26 +1112,12 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
         }
 
         if (heating_enabled && taper > 0.0 && thermostat_Kp != 0.0) {
+          const Real radius =
+              Radius(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
           const Real err =
               SampleRadialProfile(error_profile, num_bins, radius, rmin, inv_dr);
           if (err != 0.0) {
-            Real rho_bg_cgs = 0.0;
-            Real pressure_bg_cgs = 0.0;
-            SampleInitialStateCgs(
-                profile, code_length_cgs, radius, outer_buffer_enabled,
-                outer_buffer_inner_radius, outer_buffer_inner_radius_cgs,
-                outer_buffer_entropy_slope, outer_buffer_match_entropy_cgs,
-                outer_buffer_match_enthalpy_cgs, gamma, gm1, rho_bg_cgs, pressure_bg_cgs);
-            const Real rho_bg = rho_bg_cgs / code_density_cgs;
-            const Real pressure_bg = pressure_bg_cgs / code_pressure_cgs;
-            Real inv_t_cool = 0.0;
-            if (rho_bg > 0.0 && pressure_bg > 0.0) {
-              const Real thermal_bg = pressure_bg / gm1;
-              const Real cooling_strength = powerlaw_lambda * rho_bg * rho_bg;
-              if (thermal_bg > 0.0 && cooling_strength > 0.0) {
-                inv_t_cool = cooling_strength / thermal_bg;
-              }
-            }
+            const Real inv_t_cool = source_profile(1, k, j, i);
             if (inv_t_cool > 0.0) {
               const Real dE_dt = -taper * rho * c_v * inv_t_cool * (thermostat_Kp * err);
               cons(IEN, k, j, i) += dt * dE_dt;
