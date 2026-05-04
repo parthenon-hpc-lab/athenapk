@@ -2,6 +2,7 @@
 build*/
 
 # output files
+*.pmd
 *.csv
 *.png
 *.hdf5

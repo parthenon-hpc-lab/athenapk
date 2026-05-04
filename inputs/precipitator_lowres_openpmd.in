@@ -10,12 +10,14 @@ dt         = 50.0       # time increment between outputs
 
 <parthenon/output2>
 file_type  = openpmd
+output_type = data
 variables  = prim, drho_over_rho, dP_over_P, dK_over_K, dT_over_T, entropy, temperature, tcool_over_tff, dv, accel
 dt         = 50.0        # Time increment between outputs
 id         = prim      # Name to append to output
 
 <parthenon/output3>
 file_type  = openpmd
+output_type = restart
 dt         = 250.0        # time increment between outputs
 id         = restart
 

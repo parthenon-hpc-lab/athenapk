@@ -6,14 +6,15 @@ file_type = hst
 dt        = 25.0
 
 <parthenon/output2>
-file_type = hdf5
+file_type = openpmd
+output_type = data
 variables = prim, divB, grav_phi, pressure_hse, temperature_K, entropy_K, delta_rho_over_rho_bar
 dt        = 25.0
 id        = prim
 
 <parthenon/output3>
-file_type   = rst
-ghost_zones = true
+file_type   = openpmd
+output_type = restart
 id          = restart
 dt          = 2000.0
 
