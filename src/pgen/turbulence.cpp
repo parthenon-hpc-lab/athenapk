@@ -174,6 +174,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   Real sol_weight = pin->GetReal("problem/turbulence", "sol_weight"); // solenoidal weight
   pkg->AddParam<>("turbulence/sol_weight", sol_weight);
 
+  auto mdot = pin->GetReal("problem/turbulence", "mdot");
+  pkg->AddParam<>("turbulence/mdot", mdot);
+
   // list of wavenumber vectors
   auto k_vec = ParArray2D<Real>("k_vec", 3, num_modes);
   auto k_vec_host = Kokkos::create_mirror_view(k_vec);
@@ -458,7 +461,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           u(IB1, k, j, i) = 0.0;
 
           if (b_config == 0) { // uniform field
-            u(IB1, k, j, i) = b0;
+            u(IB3, k, j, i) = b0;
           }
           if (b_config == 1) { // no net flux with uniform fieldi
             if (coords.Xc<3>(k) < x3min + Lz / 2.0) {
@@ -476,10 +479,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           u(IB1, k, j, i) +=
               (a(b, 2, k, j + 1, i) - a(b, 2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
               (a(b, 1, k + 1, j, i) - a(b, 1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
-          u(IB2, k, j, i) =
+          u(IB2, k, j, i) +=
               (a(b, 0, k + 1, j, i) - a(b, 0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
               (a(b, 2, k, j, i + 1) - a(b, 2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
-          u(IB3, k, j, i) =
+          u(IB3, k, j, i) +=
               (a(b, 1, k, j, i + 1) - a(b, 1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
               (a(b, 0, k, j + 1, i) - a(b, 0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
           lsum += 0.5 *
@@ -558,6 +561,21 @@ void Perturb(MeshData<Real> *md, const Real dt) {
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto acc_pack = md->PackVariables(std::vector<std::string>{"acc"});
 
+  auto steepness = 10;
+
+  Kokkos::parallel_for(
+      "forcing: apply tapering",
+      Kokkos::MDRangePolicy<Kokkos::Rank<5>>(
+          {0, 0, kb.s, jb.s, ib.s},
+          {cons_pack.GetDim(5), 3, kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
+        const auto &coords = cons_pack.GetCoords(b);
+        const auto z = Kokkos::abs(coords.Xc<3>(k) - 1.0);
+        acc_pack(b, v, k, j, i) *=
+            0.5 * (1.0 - Kokkos::tanh(steepness * (z / 0.5 - 1.0)));
+      });
+
   Kokkos::Array<Real, 4> sums{{0.0, 0.0, 0.0, 0.0}};
   Kokkos::parallel_reduce(
       "forcing: calc mean momenum",
@@ -607,11 +625,20 @@ void Perturb(MeshData<Real> *md, const Real dt) {
   const auto accel_rms = hydro_pkg->Param<Real>("turbulence/accel_rms");
   auto norm = accel_rms / std::sqrt(sums[0] / (Lx * Ly * Lz));
 
-  pmb->par_for(
-      "apply momemtum perturb", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
-      ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+  // if box size is change, this need to be updated
+  const auto inj_volume = 1.0; // for completeness
+  const auto densdot = hydro_pkg->Param<Real>("turbulence/mdot") / inj_volume;
+
+  Kokkos::parallel_reduce(
+      "apply momentum perturb",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          {0, kb.s, jb.s, ib.s}, {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &ledot_sum,
+                    Real &lmdot_sum, Real &lvol_sum) {
         auto &cons = cons_pack(b);
         auto &acc = acc_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
         auto &acc_0 = acc(0, k, j, i);
         auto &acc_1 = acc(1, k, j, i);
@@ -623,15 +650,35 @@ void Perturb(MeshData<Real> *md, const Real dt) {
         acc_2 *= norm;
 
         Real qa = dt * cons(IDN, k, j, i);
-        cons(IEN, k, j, i) +=
+        const auto dedens =
             (cons(IM1, k, j, i) * dt * acc_0 + cons(IM2, k, j, i) * dt * acc_1 +
              cons(IM3, k, j, i) * dt * acc_2 +
              (SQR(acc_0) + SQR(acc_1) + SQR(acc_2)) * qa * qa / (2 * cons(IDN, k, j, i)));
+        cons(IEN, k, j, i) += dedens;
+        ledot_sum += dedens / dt * coords.CellVolume(k, j, i);
 
         cons(IM1, k, j, i) += qa * acc_0;
         cons(IM2, k, j, i) += qa * acc_1;
         cons(IM3, k, j, i) += qa * acc_2;
-      });
+
+        const auto z = Kokkos::abs(coords.Xc<3>(k) - 1.0);
+        const auto ddens =
+            dt * densdot * 0.5 * (1.0 - Kokkos::tanh(steepness * (z / 0.5 - 1.0)));
+        cons(IDN, k, j, i) += ddens;
+        lmdot_sum += ddens / dt * coords.CellVolume(k, j, i);
+        lvol_sum += coords.CellVolume(k, j, i) * 0.5 *
+                    (1.0 - Kokkos::tanh(steepness * (z / 0.5 - 1.0)));
+      },
+      sums[0], sums[1], sums[2]);
+#ifdef MPI_PARALLEL
+  // Sum the perturbations over all processors
+  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, sums.data(), 3, MPI_PARTHENON_REAL,
+                                    MPI_SUM, MPI_COMM_WORLD));
+#endif // MPI_PARALLEL
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "edot=" << sums[0] << " mdot= " << sums[1] << " inj_vol==" << sums[2]
+              << "\n";
+  }
 }
 
 void Rescale(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {

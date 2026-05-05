@@ -123,13 +123,14 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
   auto gnx2 = pm->mesh_size.nx(X2DIR) * std::pow(2, pmb->loc.level() - root_level);
   auto gnx3 = pm->mesh_size.nx(X3DIR) * std::pow(2, pmb->loc.level() - root_level);
 
+#if 0
   // Restriction should also be easily fixed, just need to double check transforms and
   // volume weighting everywhere
   PARTHENON_REQUIRE_THROWS(((gnx1 == gnx2) && (gnx2 == gnx3)) &&
                                ((Lx1 == Lx2) && (Lx2 == Lx3)),
                            "FMFT has only been tested with cubic meshes and constant "
                            "dx/dy/dz. Remove this warning at your own risk.")
-
+#endif
   const auto nx1 = pmb->block_size.nx(X1DIR);
   const auto nx2 = pmb->block_size.nx(X2DIR);
   const auto nx3 = pmb->block_size.nx(X3DIR);
@@ -261,9 +262,13 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
       KOKKOS_LAMBDA(const int n, const int m) {
         if (k_vec(0, m) == 0.) {
           for (int m2 = 0; m2 < m; m2++) {
-            if (k_vec(1, m) == -k_vec(1, m2) && k_vec(2, m) == -k_vec(2, m2))
-              var_hat_new(n, m) =
-                  Complex(var_hat_new(n, m2).real(), -var_hat_new(n, m2).imag());
+            if (k_vec(1, m) == -k_vec(1, m2) && k_vec(2, m) == -k_vec(2, m2)) {
+              // kokkos 5.1 fix https://github.com/kokkos/kokkos/issues/9036
+              var_hat_new(n, m).real(var_hat_new(n, m2).real());
+              var_hat_new(n, m).imag(-var_hat_new(n, m2).imag());
+            }
+            // var_hat_new(n, m) =
+            // Complex(var_hat_new(n, m2).real(), -var_hat_new(n, m2).imag());
           }
         }
       });
