@@ -14,7 +14,7 @@ The documentation currently includes
 - [Brief notes on developing code for AthenaPK](development.md)
 - [How to add a custom/user problem generator](user_pgen.md)
 - [Units](units.md)
-- [Standard problem generators](pgen.md)
+- [Standard problem generators](standard_pgen.md)
 - Detailed descriptions of more complex problem generators
   - [Galaxy Cluster and Cluster-like Problem Setup](cluster.md)
   - [Driven turbulence](turbulence.md)
