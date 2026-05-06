@@ -8,7 +8,7 @@
 //!
 //! REFERENCE: Max Gronke, S Peng Oh, Is multiphase gas cloudy or misty?, Monthly Notices
 //! of the Royal Astronomical Society: Letters, Volume 494, Issue 1, May 2020, Pages
-//! L27–L31, https://doi.org/10.1093/mnrasl/slaa033G
+//! L27–L31, https://doi.org/10.1093/mnrasl/slaa033
 
 // C++ headers
 #include <cmath>    // sqrt()
