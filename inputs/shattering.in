@@ -1,5 +1,5 @@
 # AthenaPK - a performance portable block structured AMR MHD code
-# Copyright (c) 2025, Athena Parthenon Collaboration. All rights reserved.
+# Copyright (c) 2025-2026, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 <comment>
@@ -64,16 +64,14 @@ enable_cooling = tabular                     # turn on with "tabular"
 table_filename = /workspaces/athenapk/inputs/cooling_tables/schure.cooling_1.0Z
 lambda_units_cgs = 1
 integrator = townsend 
-cfl = -1.0
+cfl = 0
 
 <units>
 #Units parameters
-code_length_cgs = 3.085677580962325e+19  # 1 pc
-#code_length_cgs = 1.085677580962325e+20  # 
+code_length_cgs = 3.085677580962325e+19  # 10 pc
 code_mass_cgs = 1.98841586e+33           # 1 M_sun
 code_time_cgs = 3.15576e+13              # 1 Myr
 
 <parthenon/output0>
 file_type = rst
 dt = 0.1
-variables = cons

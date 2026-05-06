@@ -1,35 +1,29 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2025-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file shattering.cpp
 //! \brief Multi cloud shattering
-//!
-//! tbd more details
 //!
 //! REFERENCE: Max Gronke, S Peng Oh, Is multiphase gas cloudy or misty?, Monthly Notices
 //! of the Royal Astronomical Society: Letters, Volume 494, Issue 1, May 2020, Pages
 //! L27–L31, https://doi.org/10.1093/mnrasl/slaa033G
 
 // C++ headers
-#include <algorithm> // min, max
-#include <array>
 #include <cmath>    // sqrt()
 #include <cstdio>   // fopen(), fprintf(), freopen()
 #include <iostream> // endl
 #include <random>
-#include <sstream>   // stringstream
-#include <stdexcept> // runtime_error
-#include <string>    // c_str()
+#include <sstream> // stringstream
+#include <string>  // c_str()
 
 // Parthenon headers
 #include "basic_types.hpp"
-#include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
-// Athena headers
+// AthenaPK headers
 #include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
 #include "../units.hpp"
@@ -50,6 +44,16 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 
   // hardcoded, should be adjusted to domain bounds
   const Real l_box = 1.0;
+  auto [mesh_size, meshblock_size] = Mesh::GetRegionSizes(pin);
+
+  PARTHENON_REQUIRE_THROWS(
+      ((mesh_size.xmax(parthenon::X1DIR) - mesh_size.xmin(parthenon::X1DIR) == l_box) &&
+       (mesh_size.xmax(parthenon::X2DIR) - mesh_size.xmin(parthenon::X2DIR) == l_box) &&
+       (mesh_size.xmax(parthenon::X3DIR) - mesh_size.xmin(parthenon::X3DIR) == l_box)),
+      "Shattering pgen currently hardcoded to unit box domain.");
+
+  const auto dx = l_box / mesh_size.nx(parthenon::X1DIR);
+
   const auto r_cl = l_box / 8.0; // default from paper
 
   // initial overdensity
@@ -104,14 +108,10 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
       t_cool);
   const auto t_cool_cl = t_cool;
 
-  auto [mesh_size, meshblock_size] = Mesh::GetRegionSizes(pin);
-  // TODO should check that mesh is actually unit box
-  const auto dx = 1.0 / mesh_size.nx(parthenon::X1DIR);
-
   std::stringstream msg;
   msg << std::setprecision(2);
   msg << "######################################" << std::endl;
-  msg << "###### Cloud in wind problem generator" << std::endl;
+  msg << "###### Shattering problem generator" << std::endl;
   msg << "#### Input parameters" << std::endl;
   msg << "## Cloud density: " << rho_cl / units.g_cm3() << " g/cm^3" << std::endl;
   msg << "## Cloud temperature: " << T_cl << " K" << std::endl;
