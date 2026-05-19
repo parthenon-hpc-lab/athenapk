@@ -58,7 +58,7 @@ please either
 ##### Required
 
 * CMake 3.13 or greater
-* C++17 compatible compiler
+* C++20 compatible compiler
 * Parthenon (using the submodule version provided by AthenaPK)
 * Kokkos (using the submodule version provided by AthenaPK)
 
@@ -67,6 +67,7 @@ please either
 * MPI
 * OpenMP (for host parallelism. Note that MPI is the recommended option for on-node parallelism.)
 * HDF5 (for outputs)
+* OpenPMD and ADIOS2 (for outputs, recommended future standard but no `yt` support yet. Can be disabled via `PARTHENON_DISABLE_OPENPMD=ON` during configure)
 * Python3 (for regressions tests with numpy, scipy, matplotlib, unyt, and h5py modules)
 * Ascent (for in situ visualization and analysis)
 
@@ -125,22 +126,36 @@ Some example input files are provided in the [inputs](inputs/) folder.
 
 #### Data Analysis
 
-There exit several options to read/process data written by AthenaPK -- specifically in
-the `file_type = hdf5` format, see
+There exit several options to read/process data written by AthenaPK, see
 [Parthenon doc](https://parthenon-hpc-lab.github.io/parthenon/develop/src/outputs.html):
 
 1. With [ParaView](https://www.paraview.org/) and
 [VisIt](https://wci.llnl.gov/simulation/computer-codes/visit/).
-In ParaView, select the "XDMF Reader" when prompted.
+For HDF5 in ParaView, select the "XDMF Reader" when prompted.
+For openPMD outputs, the native BP5 reader can be used to open the files.
+However, this may perform poorly (due to lack of automated mesh decomposition
+and load balancing).
+Thus, it is recommended to use the specific
+[openpmd-visit-reader](https://github.com/BenWibking/openpmd-visit-reader)
+plugin for VisIt, which has robustly handled larger, multiple TB datasets.
 
 2. With [yt](https://yt-project.org/)
 As of versions >=4.4 `*.phdf` files can be read as usual with `yt.load()`.
+OpenPMD/ADIOS2 output cannot be properly read by `yt` yet.
 
-3. Using [Ascent](https://github.com/Alpine-DAV/ascent) (for in situ visualization and analysis).
+3. OpenPMD outputs in general.
+Outputs written following the openPMD standard can be processed by any tool implemting
+the standard.
+For Python based analysis the most straightforward way is via the
+[openPMD-api](https://github.com/openPMD/openPMD-api)
+or even more easily via the [openPMD-viewer](https://github.com/openPMD/openPMD-viewer)
+that builds on the API (both can be installed via `pip`).
+
+4. Using [Ascent](https://github.com/Alpine-DAV/ascent) (for in situ visualization and analysis).
 This requires Ascent to be installed/available at compile time of AthenaPK.
 To enable set `PARTHENON_ENABLE_ASCENT=ON`.
 
-4. (Not recommended) Using the integrated Python script called "`phdf`" provided by Parthenon,
+5. (Not recommended) Using the integrated Python script called "`phdf`" provided by Parthenon,
 i.e., the either install `parthenon_tools`
 (located in `external/parthenon/scripts/python/packages/parthenon/tools`) or add
 that directory to your Python path.

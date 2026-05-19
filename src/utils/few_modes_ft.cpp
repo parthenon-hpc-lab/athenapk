@@ -261,9 +261,13 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
       KOKKOS_LAMBDA(const int n, const int m) {
         if (k_vec(0, m) == 0.) {
           for (int m2 = 0; m2 < m; m2++) {
-            if (k_vec(1, m) == -k_vec(1, m2) && k_vec(2, m) == -k_vec(2, m2))
-              var_hat_new(n, m) =
-                  Complex(var_hat_new(n, m2).real(), -var_hat_new(n, m2).imag());
+            if (k_vec(1, m) == -k_vec(1, m2) && k_vec(2, m) == -k_vec(2, m2)) {
+              // kokkos 5.1 fix https://github.com/kokkos/kokkos/issues/9036
+              var_hat_new(n, m).real(var_hat_new(n, m2).real());
+              var_hat_new(n, m).imag(-var_hat_new(n, m2).imag());
+            }
+            // var_hat_new(n, m) =
+            // Complex(var_hat_new(n, m2).real(), -var_hat_new(n, m2).imag());
           }
         }
       });

@@ -3,6 +3,15 @@
 ## Current develop (i.e., `main` branch)
 
 ### General notes
+With the latest update of the Parthenon submodule several new features are now available, e.g.,
+- [OpenPMD output](https://parthenon-hpc-lab.github.io/parthenon/pgrete/pmd-output/src/outputs.html#openpmd) including support for slices, data compression and coarse graining
+- A watchdog (to kill a simulation that hangs for whatever reason). Just run with `-w HH:MM:SS`.
+- Support for (tracer) particles with AMR.
+
+With the update of Kokkos to version 5.1.1 (or >5.0 in general) a performance regression was identified.
+This is likely related to the Kokkos-internal use of int64 indices in the new `mdspan` based `View`s resulting more register usage (which. in turn, results in lower occupancy on devices).
+The Kokkos team is aware of this and working on a fix.
+If the current performance is (significantly) below expectation, one can try to use "legacy" views via `Kokkos_IMPL_VIEW_LEGACY=ON`.
 
 ### Fixed (not changing behavior/API/variables/...)
 
@@ -13,10 +22,12 @@
 ### Fixed (not changing behavior/API/variables/...)
 
 ### Infrastructure
+- [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) Bump Kokkos to 5.1.1 and `Parthenon` to upcoming 26.xx version (incl OpenPMD support)
 
 ### Removed (removing behavior/API/varaibles/...)
 
 ### Incompatibilities (i.e. breaking changes)
+- [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) C++20 is now the minimum standard
 
 ## Release 26.05
 
