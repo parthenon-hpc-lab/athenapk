@@ -706,8 +706,9 @@ void ProblemInitPackageData(ParameterInput *pin, StateDescriptor *pkg) {
       pin->GetOrAddReal("precipitator", "magic_heating_max_eint_fraction", 0.0),
       parthenon::Params::Mutability::Restart);
   pkg->AddParam<>(
-      "magic_heating_temp_ceiling_factor",
-      pin->GetOrAddReal("precipitator", "magic_heating_temp_ceiling_factor", 0.0),
+      "magic_heating_pressure_ceiling_factor",
+      pin->GetOrAddReal("precipitator", "magic_heating_pressure_ceiling_factor",
+                        0.0),
       parthenon::Params::Mutability::Restart);
 
   pkg->AddParam<>("outer_sponge_inner_radius",
@@ -1037,8 +1038,7 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
   auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto source_profile_pack =
       md->PackVariables(std::vector<std::string>{"heatcool_taper", "inv_tcool_hse"});
-  auto hse_pack =
-      md->PackVariables(std::vector<std::string>{"density_hse", "pressure_hse"});
+  auto pressure_hse_pack = md->PackVariables(std::vector<std::string>{"pressure_hse"});
   auto grav_phi_pack = md->PackVariables(std::vector<std::string>{"grav_phi"});
   auto grav_phi_face_pack = md->PackVariables(std::vector<std::string>{"grav_phi_face"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
@@ -1051,8 +1051,8 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
   const Real thermostat_Kp = pkg->Param<Real>("thermostat_Kp");
   const Real magic_heating_max_eint_fraction =
       pkg->Param<Real>("magic_heating_max_eint_fraction");
-  const Real magic_heating_temp_ceiling_factor =
-      pkg->Param<Real>("magic_heating_temp_ceiling_factor");
+  const Real magic_heating_pressure_ceiling_factor =
+      pkg->Param<Real>("magic_heating_pressure_ceiling_factor");
   constexpr auto f1 = parthenon::TopologicalElement::F1;
   constexpr auto f2 = parthenon::TopologicalElement::F2;
   constexpr auto f3 = parthenon::TopologicalElement::F3;
@@ -1127,28 +1127,29 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
         }
 
         if (heating_enabled && taper > 0.0 && thermostat_Kp != 0.0) {
-          const Real radius = Radius(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
-          const Real err =
-              SampleRadialProfile(error_profile, num_bins, radius, rmin, inv_dr);
-          if (err != 0.0) {
+          const auto &pressure_hse = pressure_hse_pack(b);
+          const Real pressure_ceiling =
+              magic_heating_pressure_ceiling_factor * pressure_hse(0, k, j, i);
+          const Real thermal_pressure = gm1 * thermal_eint;
+          const bool pressure_ceiling_enabled =
+              magic_heating_pressure_ceiling_factor > 0.0 && pressure_ceiling > 0.0;
+          if (!pressure_ceiling_enabled || thermal_pressure < pressure_ceiling) {
+            const Real radius =
+                Radius(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
+            const Real err =
+                SampleRadialProfile(error_profile, num_bins, radius, rmin, inv_dr);
             const Real inv_t_cool = source_profile(1, k, j, i);
-            if (inv_t_cool > 0.0) {
+            if (err != 0.0 && inv_t_cool > 0.0) {
               const Real dE_dt = -taper * rho * c_v * inv_t_cool * (thermostat_Kp * err);
               Real dE = dt * dE_dt;
               if (dE > 0.0) {
                 if (magic_heating_max_eint_fraction > 0.0) {
                   dE = std::min(dE, magic_heating_max_eint_fraction * thermal_eint);
                 }
-                if (magic_heating_temp_ceiling_factor > 0.0) {
-                  const auto &hse = hse_pack(b);
-                  const Real rho_hse = hse(0, k, j, i);
-                  const Real pressure_hse = hse(1, k, j, i);
-                  if (rho_hse > 0.0 && pressure_hse > 0.0) {
-                    const Real eint_ceiling = rho * magic_heating_temp_ceiling_factor *
-                                              (pressure_hse / rho_hse) / gm1;
-                    dE = std::min(dE, std::max(static_cast<Real>(0.0),
-                                               eint_ceiling - thermal_eint));
-                  }
+                if (pressure_ceiling_enabled) {
+                  const Real eint_ceiling = pressure_ceiling / gm1;
+                  dE = std::min(
+                      dE, std::max(static_cast<Real>(0.0), eint_ceiling - thermal_eint));
                 }
               }
               cons(IEN, k, j, i) += dE;

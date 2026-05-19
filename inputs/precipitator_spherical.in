@@ -113,5 +113,5 @@ enable_heating = magic
 thermostat_temperature = 1.0e7
 thermostat_Kp = 5.0
 magic_heating_max_eint_fraction = 0.1
-magic_heating_temp_ceiling_factor = 2.0
-h_smooth_heatcool = 20.0
+magic_heating_pressure_ceiling_factor = 2.0
+h_smooth_heatcool = 0.0
