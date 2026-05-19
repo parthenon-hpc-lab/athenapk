@@ -33,6 +33,7 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -56,6 +57,30 @@ constexpr Real kInvSqrt4Pi = 0.28209479177387814347;
 constexpr Real kSqrtTwo = 1.41421356237309504880;
 
 KOKKOS_INLINE_FUNCTION Real Square(const Real x) { return x * x; }
+
+struct SourceTermDiagValues {
+  Real hse_dv{};
+  Real hse_dmom{};
+  Real hse_dmom1{};
+  Real hse_dmom2{};
+  Real hse_dmom3{};
+  Real hse_dE{};
+  Real rho{};
+  Real pressure{};
+  Real thermal_eint{};
+  Real kT_over_mu{};
+  Real vmag_before{};
+  Real x{};
+  Real y{};
+  Real z{};
+  Real radius{};
+  Real max_abs_exp_arg{};
+  Real max_abs_phi_face_delta{};
+  int block{};
+  int k{};
+  int j{};
+  int i{};
+};
 
 KOKKOS_INLINE_FUNCTION Real Radius(const Real x, const Real y, const Real z) {
   return std::sqrt(Square(x) + Square(y) + Square(z));
@@ -710,6 +735,13 @@ void ProblemInitPackageData(ParameterInput *pin, StateDescriptor *pkg) {
       pin->GetOrAddReal("precipitator", "magic_heating_pressure_ceiling_factor",
                         0.0),
       parthenon::Params::Mutability::Restart);
+  pkg->AddParam<>("source_diagnostics",
+                  pin->GetOrAddInteger("precipitator", "source_diagnostics", 0) != 0,
+                  parthenon::Params::Mutability::Restart);
+  pkg->AddParam<>("source_diag_min_hse_dv_kms",
+                  pin->GetOrAddReal("precipitator", "source_diag_min_hse_dv_kms",
+                                    100.0),
+                  parthenon::Params::Mutability::Restart);
 
   pkg->AddParam<>("outer_sponge_inner_radius",
                   pin->GetOrAddReal("precipitator", "outer_sponge_inner_radius",
@@ -996,7 +1028,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       });
 }
 
-void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
+void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime tm, const Real dt) {
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto units = pkg->Param<Units>("units");
   const Real gm1 = pkg->Param<Real>("gm1");
@@ -1053,14 +1085,21 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
       pkg->Param<Real>("magic_heating_max_eint_fraction");
   const Real magic_heating_pressure_ceiling_factor =
       pkg->Param<Real>("magic_heating_pressure_ceiling_factor");
+  const bool source_diagnostics = pkg->Param<bool>("source_diagnostics");
+  const Real code_vel_kms = (units.code_length_cgs() / units.code_time_cgs()) / 1.0e5;
+  const Real source_diag_min_hse_dv =
+      pkg->Param<Real>("source_diag_min_hse_dv_kms") / code_vel_kms;
   constexpr auto f1 = parthenon::TopologicalElement::F1;
   constexpr auto f2 = parthenon::TopologicalElement::F2;
   constexpr auto f3 = parthenon::TopologicalElement::F3;
 
-  parthenon::par_for(
+  Hydro::ValPropPair<Real, SourceTermDiagValues> max_hse_diag{
+      std::numeric_limits<Real>::max(), SourceTermDiagValues{}};
+  parthenon::par_reduce(
       DEFAULT_LOOP_PATTERN, "SphericalPrecipSources", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i,
+                    Hydro::ValPropPair<Real, SourceTermDiagValues> &max_hse) {
         const auto &coords = cons_pack.GetCoords(b);
         auto &cons = cons_pack(b);
 
@@ -1075,44 +1114,112 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
                    Square(cons(IB3, k, j, i)));
         Real thermal_eint = cons(IEN, k, j, i) - kinetic - magnetic;
         const Real pressure = thermal_eint * gm1;
+        Real hse_dmom1 = 0.0;
+        Real hse_dmom2 = 0.0;
+        Real hse_dmom3 = 0.0;
+        Real hse_dE = 0.0;
+        Real kT_over_mu_diag = 0.0;
+        Real max_abs_exp_arg = 0.0;
+        Real max_abs_phi_face_delta = 0.0;
 
         if (pressure > 0.0) {
           const auto &grav_phi = grav_phi_pack(b);
           const auto &grav_phi_face = grav_phi_face_pack(b);
           const Real phi_center = grav_phi(0, k, j, i);
           const Real kT_over_mu = pressure * inv_rho;
+          kT_over_mu_diag = kT_over_mu;
           if (kT_over_mu > 0.0) {
             const Real phi1m = grav_phi_face(f1, 0, k, j, i);
             const Real phi1p = grav_phi_face(f1, 0, k, j, i + 1);
-            const Real p_hse1m = pressure * std::exp(-(phi1m - phi_center) / kT_over_mu);
-            const Real p_hse1p = pressure * std::exp(-(phi1p - phi_center) / kT_over_mu);
-            cons(IM1, k, j, i) += dt * (p_hse1p - p_hse1m) / coords.Dxc<1>(k, j, i);
-            cons(IEN, k, j, i) -=
-                dt * rho * (mom1 * inv_rho) * (phi1p - phi1m) / coords.Dxc<1>(k, j, i);
+            const Real arg1m = -(phi1m - phi_center) / kT_over_mu;
+            const Real arg1p = -(phi1p - phi_center) / kT_over_mu;
+            const Real p_hse1m = pressure * std::exp(arg1m);
+            const Real p_hse1p = pressure * std::exp(arg1p);
+            hse_dmom1 = dt * (p_hse1p - p_hse1m) / coords.Dxc<1>(k, j, i);
+            const Real hse_dE1 =
+                -dt * rho * (mom1 * inv_rho) * (phi1p - phi1m) / coords.Dxc<1>(k, j, i);
+            cons(IM1, k, j, i) += hse_dmom1;
+            cons(IEN, k, j, i) += hse_dE1;
+            hse_dE += hse_dE1;
+            max_abs_exp_arg = std::max(std::abs(arg1m), std::abs(arg1p));
+            max_abs_phi_face_delta =
+                std::max(std::abs(phi1m - phi_center), std::abs(phi1p - phi_center));
 
             if (two_d) {
               const Real phi2m = grav_phi_face(f2, 0, k, j, i);
               const Real phi2p = grav_phi_face(f2, 0, k, j + 1, i);
-              const Real p_hse2m =
-                  pressure * std::exp(-(phi2m - phi_center) / kT_over_mu);
-              const Real p_hse2p =
-                  pressure * std::exp(-(phi2p - phi_center) / kT_over_mu);
-              cons(IM2, k, j, i) += dt * (p_hse2p - p_hse2m) / coords.Dxc<2>(k, j, i);
-              cons(IEN, k, j, i) -=
-                  dt * rho * (mom2 * inv_rho) * (phi2p - phi2m) / coords.Dxc<2>(k, j, i);
+              const Real arg2m = -(phi2m - phi_center) / kT_over_mu;
+              const Real arg2p = -(phi2p - phi_center) / kT_over_mu;
+              const Real p_hse2m = pressure * std::exp(arg2m);
+              const Real p_hse2p = pressure * std::exp(arg2p);
+              hse_dmom2 = dt * (p_hse2p - p_hse2m) / coords.Dxc<2>(k, j, i);
+              const Real hse_dE2 = -dt * rho * (mom2 * inv_rho) *
+                                   (phi2p - phi2m) / coords.Dxc<2>(k, j, i);
+              cons(IM2, k, j, i) += hse_dmom2;
+              cons(IEN, k, j, i) += hse_dE2;
+              hse_dE += hse_dE2;
+              max_abs_exp_arg =
+                  std::max(max_abs_exp_arg, std::max(std::abs(arg2m), std::abs(arg2p)));
+              max_abs_phi_face_delta =
+                  std::max(max_abs_phi_face_delta,
+                           std::max(std::abs(phi2m - phi_center),
+                                    std::abs(phi2p - phi_center)));
             }
 
             if (three_d) {
               const Real phi3m = grav_phi_face(f3, 0, k, j, i);
               const Real phi3p = grav_phi_face(f3, 0, k + 1, j, i);
-              const Real p_hse3m =
-                  pressure * std::exp(-(phi3m - phi_center) / kT_over_mu);
-              const Real p_hse3p =
-                  pressure * std::exp(-(phi3p - phi_center) / kT_over_mu);
-              cons(IM3, k, j, i) += dt * (p_hse3p - p_hse3m) / coords.Dxc<3>(k, j, i);
-              cons(IEN, k, j, i) -=
-                  dt * rho * (mom3 * inv_rho) * (phi3p - phi3m) / coords.Dxc<3>(k, j, i);
+              const Real arg3m = -(phi3m - phi_center) / kT_over_mu;
+              const Real arg3p = -(phi3p - phi_center) / kT_over_mu;
+              const Real p_hse3m = pressure * std::exp(arg3m);
+              const Real p_hse3p = pressure * std::exp(arg3p);
+              hse_dmom3 = dt * (p_hse3p - p_hse3m) / coords.Dxc<3>(k, j, i);
+              const Real hse_dE3 = -dt * rho * (mom3 * inv_rho) *
+                                   (phi3p - phi3m) / coords.Dxc<3>(k, j, i);
+              cons(IM3, k, j, i) += hse_dmom3;
+              cons(IEN, k, j, i) += hse_dE3;
+              hse_dE += hse_dE3;
+              max_abs_exp_arg =
+                  std::max(max_abs_exp_arg, std::max(std::abs(arg3m), std::abs(arg3p)));
+              max_abs_phi_face_delta =
+                  std::max(max_abs_phi_face_delta,
+                           std::max(std::abs(phi3m - phi_center),
+                                    std::abs(phi3p - phi_center)));
             }
+          }
+        }
+
+        if (source_diagnostics) {
+          const Real hse_dmom =
+              std::sqrt(Square(hse_dmom1) + Square(hse_dmom2) + Square(hse_dmom3));
+          const Real hse_dv = hse_dmom * inv_rho;
+          if (hse_dv > -max_hse.value) {
+            SourceTermDiagValues diag;
+            diag.hse_dv = hse_dv;
+            diag.hse_dmom = hse_dmom;
+            diag.hse_dmom1 = hse_dmom1;
+            diag.hse_dmom2 = hse_dmom2;
+            diag.hse_dmom3 = hse_dmom3;
+            diag.hse_dE = hse_dE;
+            diag.rho = rho;
+            diag.pressure = pressure;
+            diag.thermal_eint = thermal_eint;
+            diag.kT_over_mu = kT_over_mu_diag;
+            diag.vmag_before =
+                std::sqrt(Square(mom1 * inv_rho) + Square(mom2 * inv_rho) +
+                          Square(mom3 * inv_rho));
+            diag.x = coords.Xc<1>(i);
+            diag.y = coords.Xc<2>(j);
+            diag.z = coords.Xc<3>(k);
+            diag.radius = Radius(diag.x, diag.y, diag.z);
+            diag.max_abs_exp_arg = max_abs_exp_arg;
+            diag.max_abs_phi_face_delta = max_abs_phi_face_delta;
+            diag.block = b;
+            diag.k = k;
+            diag.j = j;
+            diag.i = i;
+            max_hse.value = -hse_dv;
+            max_hse.index = diag;
           }
         }
 
@@ -1151,12 +1258,35 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real
                   dE = std::min(
                       dE, std::max(static_cast<Real>(0.0), eint_ceiling - thermal_eint));
                 }
+              } else {
+                dE = std::max(dE, -thermal_eint);
               }
               cons(IEN, k, j, i) += dE;
             }
           }
         }
-      });
+      },
+      Kokkos::Min<Hydro::ValPropPair<Real, SourceTermDiagValues>>(max_hse_diag));
+
+  if (source_diagnostics && -max_hse_diag.value >= source_diag_min_hse_dv) {
+    const auto &diag = max_hse_diag.index;
+    std::cout << "[rank " << parthenon::Globals::my_rank
+              << "] precip-source cycle=" << tm.ncycle << " time=" << tm.time
+              << " dt=" << dt << " max_hse_dv=" << diag.hse_dv * code_vel_kms
+              << " km/s"
+              << " v_before=" << diag.vmag_before * code_vel_kms << " km/s"
+              << " dmom=(" << diag.hse_dmom1 << "," << diag.hse_dmom2 << ","
+              << diag.hse_dmom3 << ")"
+              << " dE_hse=" << diag.hse_dE << " rho=" << diag.rho
+              << " P=" << diag.pressure << " eint=" << diag.thermal_eint
+              << " kT_over_mu=" << diag.kT_over_mu
+              << " max_abs_exp_arg=" << diag.max_abs_exp_arg
+              << " max_abs_phi_delta=" << diag.max_abs_phi_face_delta
+              << " cell=(b=" << diag.block << ",k=" << diag.k << ",j=" << diag.j
+              << ",i=" << diag.i << ")"
+              << " x=(" << diag.x << "," << diag.y << "," << diag.z << ")"
+              << " r=" << diag.radius << std::endl;
+  }
 }
 
 void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {

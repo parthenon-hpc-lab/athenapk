@@ -75,7 +75,7 @@ scratch_level = 0
 
 He_mass_fraction = 0.25
 dfloor = 1454.4065594167007
-pfloor = 1000.0
+Tfloor = 1.0e6
 
 <units>
 code_length_cgs = 3.086e21
@@ -111,7 +111,7 @@ perturbation_seed = 88172645463393265
 
 enable_heating = magic
 thermostat_temperature = 1.0e7
-thermostat_Kp = 5.0
-magic_heating_max_eint_fraction = 0.1
-magic_heating_pressure_ceiling_factor = 2.0
+thermostat_Kp = 10.0
 h_smooth_heatcool = 0.0
+magic_heating_max_eint_fraction = 0.02
+magic_heating_pressure_ceiling_factor = 2.0

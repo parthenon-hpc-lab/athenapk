@@ -915,19 +915,21 @@ Real EstimateHyperbolicTimestep(MeshData<Real> *md) {
         } else {
           PARTHENON_FAIL("Unknown fluid in EstimateTimestep");
         }
-        min_dt.value =
-            fmin(min_dt.value, coords.Dxc<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x));
+        Real dt_local = coords.Dxc<1>(k, j, i) / (fabs(w[IV1]) + lambda_max_x);
         if (ndim > 1) {
-          min_dt.value =
-              fmin(min_dt.value, coords.Dxc<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
+          dt_local =
+              fmin(dt_local, coords.Dxc<2>(k, j, i) / (fabs(w[IV2]) + lambda_max_y));
         }
         if (ndim > 2) {
-          min_dt.value =
-              fmin(min_dt.value, coords.Dxc<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
+          dt_local =
+              fmin(dt_local, coords.Dxc<3>(k, j, i) / (fabs(w[IV3]) + lambda_max_z));
         }
 
-        CellPrimValues this_cell{w[IDN], w[IV1], w[IV2], w[IV3], w[IPR], B1, B2, B3};
-        min_dt.index = this_cell;
+        if (dt_local < min_dt.value) {
+          min_dt.value = dt_local;
+          CellPrimValues this_cell{w[IDN], w[IV1], w[IV2], w[IV3], w[IPR], B1, B2, B3};
+          min_dt.index = this_cell;
+        }
       },
       Kokkos::Min<ValPropPair<Real, CellPrimValues>>(min_dt_hyperbolic));
 
