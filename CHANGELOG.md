@@ -13,6 +13,7 @@
 ### Fixed (not changing behavior/API/variables/...)
 
 ### Infrastructure
+- [[PR 168]](https://github.com/parthenon-hpc-lab/athenapk/pull/168) Document agentic coding guidelines (and add PR template)
 
 ### Removed (removing behavior/API/varaibles/...)
 
