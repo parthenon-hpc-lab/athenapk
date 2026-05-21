@@ -9,6 +9,7 @@
 
 // C++ headers
 #include <random>
+#include <string>
 
 // Parthenon headers
 #include "basic_types.hpp"
@@ -65,12 +66,26 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
       if (i == j) {
         continue;
       }
-      PARTHENON_REQUIRE_THROWS(
-          !(k_vec_host(0, i) == 0 && k_vec_host(0, i) == k_vec_host(0, j) &&
-            k_vec_host(1, i) == -k_vec_host(1, j) &&
-            k_vec_host(2, i) == -k_vec_host(2, j)),
-          "The given set of k_vec include complex conjugate partners. "
-          "Please provide a set without partners.");
+
+      // The sample input file shipped for a couple of years
+      // unforunately came with complex conjugate modes...
+      // So in order to not crash old/existing sims upon restart we allow this and just
+      // issue a warning
+      if (k_vec_host(0, i) == 0 && k_vec_host(0, i) == k_vec_host(0, j) &&
+          k_vec_host(1, i) == -k_vec_host(1, j) &&
+          k_vec_host(2, i) == -k_vec_host(2, j)) {
+        PARTHENON_WARN(
+            "The given set of k_vec include complex conjugate partners for mode " +
+            std::to_string(i) + " with components " + std::to_string(k_vec_host(0, i)) +
+            " " + std::to_string(k_vec_host(1, i)) + " " +
+            std::to_string(k_vec_host(2, i)) +
+            "."
+            "In theory, this results in these modes being counted double. In practice, "
+            "this will have little to no effect as the normalization is done separate "
+            "for the real space field rather than the spectral field. However, if this "
+            "is a fresh simulation (and not a restarted one with given/fixed k_vec) it "
+            "is recommended to update the set of k_vec in the input file.");
+      }
       PARTHENON_REQUIRE_THROWS(!(k_vec_host(0, i) == k_vec_host(0, j) &&
                                  k_vec_host(1, i) == k_vec_host(1, j) &&
                                  k_vec_host(2, i) == k_vec_host(2, j)),
@@ -410,13 +425,12 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
 
     // Check is Hermitian symmetric partner already exist
     hermitian_exists = false;
-    for (int n_mode_exsist = 0; n_mode_exsist < n_mode; n_mode_exsist++) {
-      if (kx1 != 0) {
-        continue;
-      }
-      if (k_vec_h(0, n_mode_exsist) == kx1 && -k_vec_h(1, n_mode_exsist) == kx2 &&
-          -k_vec_h(2, n_mode_exsist) == kx3) {
-        hermitian_exists = true;
+    if (kx1 == 0) {
+      for (int n_mode_exsist = 0; n_mode_exsist < n_mode; n_mode_exsist++) {
+        if (k_vec_h(0, n_mode_exsist) == kx1 && -k_vec_h(1, n_mode_exsist) == kx2 &&
+            -k_vec_h(2, n_mode_exsist) == kx3) {
+          hermitian_exists = true;
+        }
       }
     }
 
