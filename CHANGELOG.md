@@ -4,13 +4,12 @@
 
 ### General notes
 
-### Fixed (not changing behavior/API/variables/...)
-
 ### Added (new features/APIs/variables/...)
 
 ### Changed (changing behavior/API/variables/...)
 
 ### Fixed (not changing behavior/API/variables/...)
+- [[PR 172]](https://github.com/parthenon-hpc-lab/athenapk/pull/172) Fixed data race condition in few modes IFT (no practical implication)
 
 ### Infrastructure
 - [[PR 168]](https://github.com/parthenon-hpc-lab/athenapk/pull/168) Document agentic coding guidelines (and add PR template)
@@ -44,13 +43,13 @@ To enable, set `do_coalesced_comms=true` in the `<parthenon/mesh>` block of the 
 - Input parameters can now be [automatically documented](https://github.com/parthenon-hpc-lab/parthenon/pull/1283)
 by adding an optional string as last argument to any `ParameterInput` `Get` or `GetOrAdd` call.
 
-### Fixed (not changing behavior/API/variables/...)
-- [[PR 163]](https://github.com/parthenon-hpc-lab/athenapk/pull/163) Add normalization by volume for relative B field divergence in history file
-
 ### Added (new features/APIs/variables/...)
 - [[PR 162]](https://github.com/parthenon-hpc-lab/athenapk/pull/162) Add pgen for cloud shattering setup
 - [[PR 158]](https://github.com/parthenon-hpc-lab/athenapk/pull/158) Update particle id handling (now automated `uint64`). Extend particle history lookback in turbulence pgen and include in turbulence test
 - [[PR 157]](https://github.com/parthenon-hpc-lab/athenapk/pull/157) Support injection of blobs with density/temp contrast in turbulence simulations
+
+### Changed (changing behavior/API/variables/...)
+- [[PR 163]](https://github.com/parthenon-hpc-lab/athenapk/pull/163) Add normalization by volume for relative B field divergence in history file
 
 ### Fixed (not changing behavior/API/variables/...)
 - [[PR 160]](https://github.com/parthenon-hpc-lab/athenapk/pull/160) Backport HLLD degeneracy check from Athena++
