@@ -1,0 +1,26 @@
+<!--Provide a general summary of your changes in the title above, for
+example "Add AMR unit test for cell centered fields.".  Please avoid
+non-descriptive titles such as "Addresses issue #8576".-->
+
+## PR Summary
+
+<!--Please provide at least 1-2 sentences describing the pull request in
+detail.  Why is this change required?  What problem does it solve?-->
+
+<!--If it fixes an open issue, please link to the issue here.-->
+
+## PR Checklist
+
+<!-- Note that some of these check boxes may not apply to all pull requests -->
+
+- [ ] Code passes cpplint
+- [ ] New features are documented.
+- [ ] Adds a test for any bugs fixed. Adds tests for new features.
+- [ ] Code is formatted
+- [ ] Changes are summarized in CHANGELOG.md
+- [ ] Change is breaking (API, behavior, ...)
+  - [ ] Change is *additionally* added to CHANGELOG.md in the breaking section
+  - [ ] PR is marked as breaking
+  - [ ] Short summary API changes at the top of the PR (plus optionally with an automated update/fix script)
+- [ ] Docs build
+- [ ] Any contribution that was created or modified with the assistance of generative AI is disclosed here and in code following the [guidelines](https://github.com/parthenon-hpc-lab/athenapk/blob/main/CONTRIBUTING.md#use-of-agentic-coding)
