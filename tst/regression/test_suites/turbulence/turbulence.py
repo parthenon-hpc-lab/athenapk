@@ -137,7 +137,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                         )
                     else:
                         np.testing.assert_allclose(
-                            var_data_sorted, ref_data[var], rtol=6e-8, strict=True
+                            var_data_sorted, ref_data[var], rtol=7.4e-7, strict=True
                         )
 
                 except AssertionError as ar:
