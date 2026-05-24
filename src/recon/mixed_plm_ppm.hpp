@@ -3,17 +3,18 @@
 // Copyright(C) 2020 James M. Stone <jmstone@ias.edu> and the Athena code team
 // Licensed under the 3-clause BSD License (the "LICENSE")
 //========================================================================================
-#ifndef RECONSTRUCT_MIXED_PLM_PPM_HPP_
-#define RECONSTRUCT_MIXED_PLM_PPM_HPP_
+#ifndef RECON_MIXED_PLM_PPM_HPP_
+#define RECON_MIXED_PLM_PPM_HPP_
 //! \file reconstruct_mixed_plm_ppm.hpp
 //  \brief Mixed reconstruction: PLM for hydro variables (mass, mom1-3, energy),
 //         PPM for magnetic fields (B1,B2,B3). Requires that PLM() and PPM() are
 //         already defined elsewhere in the same compilation unit.
 //  This version only works with uniform mesh spacing
 
+#include <parthenon/parthenon.hpp>
+
 #include "plm_simple.hpp"
 #include "ppm_simple.hpp"
-#include <parthenon/parthenon.hpp>
 
 using parthenon::ScratchPad2D;
 
@@ -29,7 +30,6 @@ KOKKOS_INLINE_FUNCTION
     Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j,
                 const int il, const int iu, const parthenon::VariablePack<Real> &q,
                 ScratchPad2D<Real> &ql, ScratchPad2D<Real> &qr) {
-
   const auto nvar = q.GetDim(4);
 
   // Variable index mapping
@@ -90,4 +90,4 @@ KOKKOS_INLINE_FUNCTION
   } // for n
 }
 
-#endif // RECONSTRUCT_MIXED_PLM_PPM_HPP_
+#endif // RECON_MIXED_PLM_PPM_HPP_

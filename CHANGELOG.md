@@ -48,6 +48,7 @@ by adding an optional string as last argument to any `ParameterInput` `Get` or `
 - [[PR 163]](https://github.com/parthenon-hpc-lab/athenapk/pull/163) Add normalization by volume for relative B field divergence in history file
 
 ### Added (new features/APIs/variables/...)
+- Mixed reconstruction for GLMMHD: PLM for hydrodynamic variables and PPM for magnetic fields
 - [[PR 162]](https://github.com/parthenon-hpc-lab/athenapk/pull/162) Add pgen for cloud shattering setup
 - [[PR 158]](https://github.com/parthenon-hpc-lab/athenapk/pull/158) Update particle id handling (now automated `uint64`). Extend particle history lookback in turbulence pgen and include in turbulence test
 - [[PR 157]](https://github.com/parthenon-hpc-lab/athenapk/pull/157) Support injection of blobs with density/temp contrast in turbulence simulations
@@ -123,4 +124,3 @@ refinement.
   - Update access to mesh size: `pmesh->mesh_size.x1max` -> `pmesh->mesh_size.xmax(X1DIR)` (and similarly x2, x3, and min)
   - Updated Parthenon `GradMinMod` signature for custom prolongation ops
   - `GetBlockPointer` returns a raw pointer not a shared one (and updated interfaces to use raw pointers rather than shared ones)
-
