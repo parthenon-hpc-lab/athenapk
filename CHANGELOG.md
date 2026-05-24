@@ -4,6 +4,25 @@
 
 ### General notes
 
+### Fixed (not changing behavior/API/variables/...)
+
+### Added (new features/APIs/variables/...)
+
+### Changed (changing behavior/API/variables/...)
+
+### Fixed (not changing behavior/API/variables/...)
+
+### Infrastructure
+- [[PR 168]](https://github.com/parthenon-hpc-lab/athenapk/pull/168) Document agentic coding guidelines (and add PR template)
+
+### Removed (removing behavior/API/varaibles/...)
+
+### Incompatibilities (i.e. breaking changes)
+
+## Release 26.05
+
+### General notes
+
 Particle ids have been updated in Parthenon to be `uint64` and added by default.
 Thus, the original "`id`" tracer variable has been removed in favor of the Parthenon default version.
 Access to that `id` is done via `auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();`
@@ -25,24 +44,24 @@ To enable, set `do_coalesced_comms=true` in the `<parthenon/mesh>` block of the 
 - Input parameters can now be [automatically documented](https://github.com/parthenon-hpc-lab/parthenon/pull/1283)
 by adding an optional string as last argument to any `ParameterInput` `Get` or `GetOrAdd` call.
 
+### Fixed (not changing behavior/API/variables/...)
+- [[PR 163]](https://github.com/parthenon-hpc-lab/athenapk/pull/163) Add normalization by volume for relative B field divergence in history file
+
 ### Added (new features/APIs/variables/...)
+- [[PR 162]](https://github.com/parthenon-hpc-lab/athenapk/pull/162) Add pgen for cloud shattering setup
 - [[PR 158]](https://github.com/parthenon-hpc-lab/athenapk/pull/158) Update particle id handling (now automated `uint64`). Extend particle history lookback in turbulence pgen and include in turbulence test
 - [[PR 157]](https://github.com/parthenon-hpc-lab/athenapk/pull/157) Support injection of blobs with density/temp contrast in turbulence simulations
 
-### Changed (changing behavior/API/variables/...)
-
 ### Fixed (not changing behavior/API/variables/...)
+- [[PR 160]](https://github.com/parthenon-hpc-lab/athenapk/pull/160) Backport HLLD degeneracy check from Athena++
 
 ### Infrastructure
 - [[PR 149]](https://github.com/parthenon-hpc-lab/athenapk/pull/149) Allow triggering of pipelines manually
 - [[PR 156]](https://github.com/parthenon-hpc-lab/athenapk/pull/156) Bump formatters to clang-format-20 and black 25.12
 - [[PR 146]](https://github.com/parthenon-hpc-lab/athenapk/pull/146) Bump Parthenon 25.12 and Kokkos 4.7.02
 
-### Removed (removing behavior/API/varaibles/...)
-
 ### Incompatibilities (i.e. breaking changes)
 - [[PR 146]](https://github.com/parthenon-hpc-lab/athenapk/pull/146) `pmesh->is_restart` removed. Use `arthenon::Globals::is_restart` instead.
-
 
 ## Release 25.05
 
