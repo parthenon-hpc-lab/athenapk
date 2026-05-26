@@ -24,6 +24,8 @@ add_executable(
         refinement/other.cpp
         tracers/tracers.cpp
         tracers/tracers.hpp
+        particles/particles_utils.cpp
+        particles/particles_utils.hpp
         utils/few_modes_ft.cpp
         utils/few_modes_ft.hpp
 )
