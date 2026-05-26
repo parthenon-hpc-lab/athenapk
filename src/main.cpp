@@ -196,6 +196,8 @@ int main(int argc, char *argv[]) {
   } else if (problem == "precipitator_spherical") {
     Hydro::ProblemInitPackageData = precipitator_spherical::ProblemInitPackageData;
     pman.app_input->ProblemGenerator = precipitator_spherical::ProblemGenerator;
+    pman.app_input->PostStepMeshUserWorkInLoop =
+        precipitator_spherical::PostStepMeshUserWorkInLoop;
     pman.app_input->UserMeshWorkBeforeOutput =
         precipitator_spherical::UserMeshWorkBeforeOutput;
     Hydro::ProblemSourceUnsplit = precipitator_spherical::AddUnsplitSrcTerms;

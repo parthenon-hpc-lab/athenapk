@@ -741,6 +741,10 @@ void ProblemInitPackageData(ParameterInput *pin, StateDescriptor *pkg) {
                   pin->GetOrAddReal("precipitator", "source_diag_min_hse_dv_kms",
                                     100.0),
                   parthenon::Params::Mutability::Restart);
+  pkg->AddParam<>("density_contrast_stop_threshold",
+                  pin->GetOrAddReal("precipitator",
+                                    "density_contrast_stop_threshold", 10.0),
+                  parthenon::Params::Mutability::Restart);
 
   pkg->AddParam<>("outer_sponge_inner_radius",
                   pin->GetOrAddReal("precipitator", "outer_sponge_inner_radius",
@@ -1329,6 +1333,78 @@ void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real d
                             inv_rho;
         cons(IEN, k, j, i) += new_ke - old_ke;
       });
+}
+
+Real MaxDensityContrastOverRadialMean(Mesh *mesh) {
+  auto md = mesh->mesh_data.Get();
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto pkg = pmb->packages.Get("Hydro");
+
+  const int num_bins = pkg->Param<int>("radial_profile_bins");
+  const Real rmin = pkg->Param<Real>("radial_profile_min");
+  const Real rmax = pkg->Param<Real>("radial_profile_max");
+  const Real nominal_outer_radius = pkg->Param<Real>("nominal_outer_radius");
+  const Real inv_dr =
+      (num_bins > 1 && rmax > rmin) ? static_cast<Real>(num_bins) / (rmax - rmin) : 0.0;
+
+  parthenon::ParArray1D<Real> rho_bar("rho_bar_stop_check", num_bins);
+  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  ComputeRadialAverageProfile(
+      rho_bar, md.get(), rmin, rmax,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, const Real) {
+        return prim_pack(b)(IDN, k, j, i);
+      });
+
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  Real max_contrast = -std::numeric_limits<Real>::infinity();
+  parthenon::par_reduce(
+      DEFAULT_LOOP_PATTERN, "SphericalPrecipMaxDensityContrast",
+      parthenon::DevExecSpace(), 0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e,
+      ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i,
+                    Real &local_max) {
+        const auto &coords = prim_pack.GetCoords(b);
+        const auto &prim = prim_pack(b);
+        const Real radius = Radius(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k));
+        if (radius > nominal_outer_radius) return;
+        const Real rho_avg = SampleRadialProfile(rho_bar, num_bins, radius, rmin, inv_dr);
+        const Real contrast =
+            (rho_avg > 0.0) ? (prim(IDN, k, j, i) - rho_avg) / rho_avg : 0.0;
+        if (contrast > local_max) local_max = contrast;
+      },
+      Kokkos::Max<Real>(max_contrast));
+
+#ifdef MPI_PARALLEL
+  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &max_contrast, 1,
+                                    MPI_PARTHENON_REAL, MPI_MAX, MPI_COMM_WORLD));
+#endif
+
+  return max_contrast;
+}
+
+void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *,
+                                const parthenon::SimTime &tm) {
+  auto md = mesh->mesh_data.Get();
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto pkg = pmb->packages.Get("Hydro");
+  const Real threshold = pkg->Param<Real>("density_contrast_stop_threshold");
+  if (!(threshold > 0.0)) return;
+
+  const Real max_contrast = MaxDensityContrastOverRadialMean(mesh);
+  if (max_contrast > threshold) {
+    auto &mutable_tm = const_cast<parthenon::SimTime &>(tm);
+    mutable_tm.tlim = std::min(mutable_tm.tlim, mutable_tm.time + mutable_tm.dt);
+    mutable_tm.nlim = (mutable_tm.nlim < 0) ? mutable_tm.ncycle + 1
+                                           : std::min(mutable_tm.nlim, tm.ncycle + 1);
+    if (parthenon::Globals::my_rank == 0) {
+      std::cout << "Stopping precipitator_spherical: max "
+                   "delta_rho_over_rho_bar="
+                << max_contrast << " exceeds " << threshold << std::endl;
+    }
+  }
 }
 
 void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,

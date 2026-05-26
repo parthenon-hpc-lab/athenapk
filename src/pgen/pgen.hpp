@@ -127,6 +127,8 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt);
 void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime t, const Real dt);
+void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *pin,
+                                const parthenon::SimTime &tm);
 void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
                               const parthenon::SimTime &);
 } // namespace precipitator_spherical
