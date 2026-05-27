@@ -41,6 +41,7 @@ return the same random number of cells at both par_for. An attempt of implementi
 such RNG using a cell index based seed is in utils/custom_rng.hpp. Comments welcomed.
 ====================================================================================== */
 
+enum class InjectionMode { FixedRate, PerCell };
 enum class ParticlesCriterion {
   DensityAbove,
   DensityBelow,
@@ -146,44 +147,6 @@ EvaluateCriterion(ParticlesCriterion crit, View4D prim, const Coordinates_t &coo
   default:
     return false;
   }
-}
-
-/* ===============================================================================
-ShouldSkipBlock: optionnally (if rmax_center > 0), will skip the InjectionParticles
-call for block fully outside of rmax_center
-=============================================================================== */
-
-KOKKOS_INLINE_FUNCTION
-bool ShouldSkipBlock(double x_min, double x_max, double y_min, double y_max, double z_min,
-                     double z_max, double rmax_center) {
-  // Sphere center at origin (0,0,0)
-  const double cx = 0.0;
-  const double cy = 0.0;
-  const double cz = 0.0;
-
-  // Compute squared distance from sphere center to closest point of AABB
-  double dx = 0.0;
-  if (cx < x_min)
-    dx = x_min - cx;
-  else if (cx > x_max)
-    dx = cx - x_max;
-
-  double dy = 0.0;
-  if (cy < y_min)
-    dy = y_min - cy;
-  else if (cy > y_max)
-    dy = cy - y_max;
-
-  double dz = 0.0;
-  if (cz < z_min)
-    dz = z_min - cz;
-  else if (cz > z_max)
-    dz = cz - z_max;
-
-  double dist2 = dx * dx + dy * dy + dz * dz;
-
-  // Skip block if the closest distance > rmax_center
-  return dist2 > rmax_center * rmax_center;
 }
 
 // TaskStatus

@@ -82,25 +82,47 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     const std::string &swarm_name = swarm_names[k_population];
     auto &swarm = sd->Get(swarm_name);
 
-    auto rmax_center = particles_pkg->Param<Real>(swarm_name + "_rmax_center");
-
-    const auto reference_level =
-        particles_pkg->Param<int>(swarm_name + "_reference_level");
-
     auto injection_enabled =
         particles_pkg->Param<bool>(swarm_name + "_injection_enabled");
     auto removal_enabled = particles_pkg->Param<bool>(swarm_name + "_removal_enabled");
 
     if (!injection_enabled) continue;
 
-    auto injection_timescale =
-        particles_pkg->Param<Real>(swarm_name + "_injection_timescale");
-    auto injection_num_target =
-        particles_pkg->Param<Real>(swarm_name + "_injection_num_target");
     auto injection_criterion =
         particles_pkg->Param<ParticlesCriterion>(swarm_name + "_injection_criterion");
-    auto injection_threshold =
-        particles_pkg->Param<Real>(swarm_name + "_injection_threshold");
+
+    Real p_injection = -1.0;
+    Real injection_threshold = -1.0;
+    InjectionMode injection_mode = InjectionMode::FixedRate; // By default
+
+    // Here, distinguishing tracer package from other kind of particles (e.g. stars).
+    // Each package is responsible for computing p_injection in [0, 1], the probability
+    // that a single eligible cell spawns a particle at this timestep.
+    if (pkg_name == "tracers") {
+      // Tracer-specific injection: particles are injected stochastically at a fixed
+      // rate, targeting a given number of tracers per eligible cell reached within
+      // a timescale. The refinement scale corrects for the fact that finer levels
+      // have smaller cells, so the injection probability is adjusted accordingly
+      // to avoid over-injection at high resolution.
+      const auto reference_level =
+          particles_pkg->Param<int>(swarm_name + "_reference_level");
+      const Real scale =
+          (reference_level < 0)
+              ? 1.0
+              : CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
+      const Real injection_rate =
+          particles_pkg->Param<Real>(swarm_name + "_injection_rate");
+      const Real injection_threshold =
+          particles_pkg->Param<Real>(swarm_name + "_injection_threshold");
+
+      // Cap to [0, 1]: at most one particle injected per eligible cell per timestep
+      p_injection = std::max(0.0, std::min(1.0, injection_rate * tm.dt * scale));
+      injection_mode = InjectionMode::FixedRate;
+    } else {
+      // Future packages (e.g. star formation) should add a corresponding branch here.
+      PARTHENON_THROW("InjectParticles: unsupported particle package '" + pkg_name +
+                      "'. Only 'tracers' is currently implemented.");
+    }
 
     auto ndim = pmb->pmy_mesh->ndim;
 
@@ -115,17 +137,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     const auto &y_max = pmb->coords.Xf<2>(jb.e + 1);
     const auto &z_max = pmb->coords.Xf<3>(kb.e + 1);
 
-    if (ShouldSkipBlock(x_min, x_max, y_min, y_max, z_min, z_max, rmax_center)) {
-      continue;
-    }
-    const Real scale =
-        (reference_level < 0)
-            ? 1.0
-            : CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
-
     int num_injected_particles_in_block = 0;
-    Real p_injection = 
-        std::min(1.0, injection_num_target * tm.dt / injection_timescale * scale);
 
     pmb->par_reduce(
         "InjectParticles::FindCells", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -133,17 +145,17 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           const Real x_cell = coords.Xc<1>(i);
           const Real y_cell = coords.Xc<2>(j);
           const Real z_cell = coords.Xc<3>(k);
-          const Real r_cell_center =
-              std::sqrt(x_cell * x_cell + y_cell * y_cell + z_cell * z_cell);
-
-          if (rmax_center != -1 && r_cell_center > rmax_center) return;
 
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
                                 injection_threshold, mbar_over_kb, ndim)) {
 
+            const Real p_local = (injection_mode == InjectionMode::FixedRate)
+                                     ? p_injection
+                                     : -1; // Could be replaced by e.g. SFR
+
             auto seed = SeedFromIndices(k, j, i, gid, current_time);
             auto rnd = random_double(seed);
-            if (rnd < p_injection) {
+            if (rnd < p_local) {
               lnpart += 1;
             }
           }
@@ -183,18 +195,18 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           const Real x_cell = coords.Xc<1>(i);
           const Real y_cell = coords.Xc<2>(j);
           const Real z_cell = coords.Xc<3>(k);
-          const Real r_cell_center =
-              std::sqrt(x_cell * x_cell + y_cell * y_cell + z_cell * z_cell);
-
-          if (rmax_center != -1.0 && r_cell_center > rmax_center) return;
 
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
                                 injection_threshold, mbar_over_kb, ndim)) {
 
+            const Real p_local = (injection_mode == InjectionMode::FixedRate)
+                                     ? p_injection
+                                     : -1; // Could be replaced by e.g. SFR
+
             auto seed = SeedFromIndices(k, j, i, gid, current_time);
             auto rnd = random_double(seed);
 
-            if (rnd < p_injection) {
+            if (rnd < p_local) {
 
               int counter_idx = Kokkos::atomic_fetch_add(&counter(), 1);
               int swarm_idx = injected_particles_context.GetNewParticleIndex(counter_idx);
