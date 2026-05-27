@@ -180,9 +180,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // =====================================================================
     if (injection_enabled) {
       const auto injection_num_target =
-          pin->GetOrAddReal("tracers", swarm_name + "_injection_num_target", 10);
+          pin->GetOrAddReal("tracers", swarm_name + "_injection_num_target", -1);
       const auto injection_timescale =
-          pin->GetOrAddReal("tracers", swarm_name + "_injection_timescale", 0.1);
+          pin->GetOrAddReal("tracers", swarm_name + "_injection_timescale", -1);
       const auto injection_criterion =
           pin->GetOrAddString("tracers", swarm_name + "_injection_criterion", "none");
       const auto injection_threshold =
@@ -202,19 +202,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         PARTHENON_FAIL("No injection criterion has been set.");
       }
 
-      tracers_pkg->AddParam<>(swarm_name + "_injection_num_target", injection_num_target);
-      tracers_pkg->AddParam<>(swarm_name + "_injection_timescale", injection_timescale);
+      // Pre-compute the injection rate (num_target / timescale).
+      // A negative value signals that injection is effectively disabled.
+      const Real injection_rate =
+          (injection_num_target > 0.0 && injection_timescale > 0.0)
+              ? injection_num_target / injection_timescale
+              : -1.0;
+
+      tracers_pkg->AddParam<>(swarm_name + "_injection_rate", injection_rate);
       tracers_pkg->AddParam<>(swarm_name + "_injection_threshold", injection_threshold);
       tracers_pkg->AddParam<>(swarm_name + "_injection_criterion", inj_crit);
     }
 
     // Tracer removal parameters.
-    // (CUSTOM function, just for the cluster setup: accretion removal)
-    const auto accretion_removal_enabled =
-        pin->GetOrAddBoolean("tracers", swarm_name + "_accretion_removal_enabled", false);
-    tracers_pkg->AddParam<>(swarm_name + "_accretion_removal_enabled",
-                            accretion_removal_enabled);
-
     // Particles are injected at t_inj, and destroyed after reaching t-t_ing >= lifetime
     // Some tracers can also survive removal if sitting in a cell that fulfill a certain
     // criterion. To activate such feature, removal_exception must be set to true, and a
@@ -471,12 +471,6 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         const auto &x_max = pmb->coords.Xf<1>(ib.e + 1);
         const auto &y_max = pmb->coords.Xf<2>(jb.e + 1);
         const auto &z_max = pmb->coords.Xf<3>(kb.e + 1);
-
-        // Check if block fully outside of rmax_center, skip if needed
-        if (ParticlesUtils::ShouldSkipBlock(x_min, x_max, y_min, y_max, z_min, z_max,
-                                            rmax_center)) {
-          continue;
-        }
 
         // Create new particles and get accessor
         auto new_particles_context = swarm->AddEmptyParticles(num_tracers_per_block);
