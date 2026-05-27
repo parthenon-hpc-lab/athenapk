@@ -133,7 +133,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     if (ShouldSkipBlock(x_min, x_max, y_min, y_max, z_min, z_max, rmax_center)) {
       continue;
     }
-    const Real scale =
+    const Real scale = (reference_level < 0) ? 1.0 :
         CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
 
     int num_injected_particles_in_block = 0;
