@@ -47,8 +47,7 @@ enum class ParticlesCriterion {
   TemperatureAbove,
   TemperatureBelow,
   Accretion,
-  Outflows,
-  Jet
+  Outflows
 };
 
 /* ===============================================================================
@@ -124,8 +123,7 @@ template <typename View4D>
 KOKKOS_INLINE_FUNCTION bool
 EvaluateCriterion(ParticlesCriterion crit, View4D prim, const Coordinates_t &coords,
                   const int k, const int j, const int i, const Real threshold,
-                  const Real mbar_over_kb, const Real jet_radius, const Real jet_offset,
-                  const Real jet_thickness, const int ndim) {
+                  const Real mbar_over_kb, const int ndim) {
 
   // Loading coordinates
   const Real dx = coords.Dxc<1>(k, j, i);
@@ -144,24 +142,6 @@ EvaluateCriterion(ParticlesCriterion crit, View4D prim, const Coordinates_t &coo
 
   case ParticlesCriterion::TemperatureAbove:
     return mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i) >= threshold;
-
-  case ParticlesCriterion::Jet: {
-    // Coordinates of the cell center
-    const Real x = coords.Xc<1>(k, j, i);
-    const Real y = coords.Xc<2>(k, j, i);
-    const Real z = (ndim == 3) ? coords.Xc<3>(k, j, i) : 0.0;
-
-    // Cylindrical coordinates
-    const Real r = std::sqrt(x * x + y * y);
-    const Real h = z;
-
-    if (r < jet_radius && std::abs(h) >= jet_offset &&
-        std::abs(h) <= jet_offset + jet_thickness) {
-      return true;
-    } else {
-      return false;
-    }
-  }
 
   default:
     return false;
