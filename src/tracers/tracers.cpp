@@ -198,8 +198,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         inj_crit = ParticlesCriterion::TemperatureAbove;
       } else if (injection_criterion == "temperature_below") {
         inj_crit = ParticlesCriterion::TemperatureBelow;
-      } else if (injection_criterion == "jet") {
-        inj_crit = ParticlesCriterion::Jet;
       } else {
         PARTHENON_FAIL("No injection criterion has been set.");
       }
@@ -256,8 +254,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
           exc_crit = ParticlesCriterion::TemperatureAbove;
         } else if (removal_exception_criterion == "temperature_below") {
           exc_crit = ParticlesCriterion::TemperatureBelow;
-        } else if (removal_exception_criterion == "jet") {
-          exc_crit = ParticlesCriterion::Jet;
         } else {
           PARTHENON_FAIL("No removal exception criterion has been set.");
         }
@@ -382,18 +378,17 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   auto advection_method = tracers_pkg->Param<AdvectMethod>("advection_method");
   bool cell_centered_injection = false;
   if (advection_method == AdvectMethod::MonteCarlo) {
-      
+
     // Set centering boolean to true as particles are cell-centered
     cell_centered_injection = true;
-      
+
     // Also, create a RNG pool for each meshblock and store into param
-    // Thus, need to loop of all meshblocks. We create a seed using 
+    // Thus, need to loop of all meshblocks. We create a seed using
     // Knuth numbers (c.f. particles/custom_rng.hpp) to avoid collision
     for (auto &pmb : pmesh->block_list) {
       uint64_t seed = std::hash<uint64_t>{}(
-          static_cast<uint64_t>(tm.ncycle) * utils::custom_rng::PHI_64    ^
-          static_cast<uint64_t>(pmb->gid)  * utils::custom_rng::SILVER_64
-      );
+          static_cast<uint64_t>(tm.ncycle) * utils::custom_rng::PHI_64 ^
+          static_cast<uint64_t>(pmb->gid) * utils::custom_rng::SILVER_64);
       auto rng_pool = Kokkos::Random_XorShift64_Pool<>(seed);
       tracers_pkg->AddParam<>("rng_block_" + std::to_string(pmb->gid), rng_pool);
     }
@@ -453,9 +448,10 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         // Optinal check for refinement level
         const auto reference_level =
             tracers_pkg->Param<int>(swarm_name + "_reference_level");
-        const Real scale = (reference_level < 0) ? 1.0 :
-            ParticlesUtils::CalculateRefinementScale(
-                pmb->loc.level(), root_level, reference_level);
+        const Real scale = (reference_level < 0)
+                               ? 1.0
+                               : ParticlesUtils::CalculateRefinementScale(
+                                     pmb->loc.level(), root_level, reference_level);
 
         const auto num_tracers_per_block = static_cast<int>(
             pmesh->GetNumberOfMeshBlockCells() * num_tracers_per_cell * scale);
@@ -622,7 +618,8 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto rng_pool = Kokkos::Random_XorShift64_Pool<>();
   if (advection_method == AdvectMethod::MonteCarlo) {
     Mcell_pack = mbd->PackVariables(std::vector<std::string>{"M_cell"});
-    rng_pool = tracers_pkg->Param<Kokkos::Random_XorShift64_Pool<>>("rng_block_" + std::to_string(pmb->gid));
+    rng_pool = tracers_pkg->Param<Kokkos::Random_XorShift64_Pool<>>(
+        "rng_block_" + std::to_string(pmb->gid));
   }
 
   // Random pool generator for Monte Carlo method
@@ -847,7 +844,8 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
     // Swarm device context
     auto swarm_d = swarm->GetDeviceContext();
-    auto rng_pool = tracers_pkg->Param<Kokkos::Random_XorShift64_Pool<>>("rng_block_" + std::to_string(pmb->gid));
+    auto rng_pool = tracers_pkg->Param<Kokkos::Random_XorShift64_Pool<>>(
+        "rng_block_" + std::to_string(pmb->gid));
 
     // update loop.
     const int max_active_index = swarm->GetMaxActiveIndex();

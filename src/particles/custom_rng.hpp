@@ -21,7 +21,7 @@ namespace utils::custom_rng {
 // See: Steele & Vigna, "Fast Splittable Pseudorandom Number Generators" (2014),
 //      https://ieeexplore.ieee.org/document/4273369
 // ===================================================================================
-inline constexpr uint64_t PHI_64   = 0x9e3779b97f4a7c15ULL; // floor(2^64 / phi)
+inline constexpr uint64_t PHI_64 = 0x9e3779b97f4a7c15ULL;    // floor(2^64 / phi)
 inline constexpr uint64_t SILVER_64 = 0xbf58476d1ce4e5b9ULL; // SplitMix64 first mixer
 
 // ===================================================================================

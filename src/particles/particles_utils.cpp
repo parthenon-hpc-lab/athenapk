@@ -71,21 +71,6 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
   }
 
-  // Jet properties
-  Real jet_radius = -1.0;
-  Real jet_offset = -1.0;
-  Real jet_thickness = -1.0;
-
-  if (particles_pkg->AllParams().hasKey("jet_radius")) {
-    jet_radius = particles_pkg->Param<Real>("jet_radius");
-  }
-  if (particles_pkg->AllParams().hasKey("jet_offset")) {
-    jet_offset = particles_pkg->Param<Real>("jet_offset");
-  }
-  if (particles_pkg->AllParams().hasKey("jet_thickness")) {
-    jet_thickness = particles_pkg->Param<Real>("jet_thickness");
-  }
-
   // Getting the offsets and copy to host
   auto &off = mbd->Get(pkg_name + "_offsets").data;
   auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
@@ -133,11 +118,13 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     if (ShouldSkipBlock(x_min, x_max, y_min, y_max, z_min, z_max, rmax_center)) {
       continue;
     }
-    const Real scale = (reference_level < 0) ? 1.0 :
-        CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
+    const Real scale =
+        (reference_level < 0)
+            ? 1.0
+            : CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
 
     int num_injected_particles_in_block = 0;
-    Real p_injection =
+    Real p_injection = 
         std::min(1.0, injection_num_target * tm.dt / injection_timescale * scale);
 
     pmb->par_reduce(
@@ -152,8 +139,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           if (rmax_center != -1 && r_cell_center > rmax_center) return;
 
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
-                                injection_threshold, mbar_over_kb, jet_radius, jet_offset,
-                                jet_thickness, ndim)) {
+                                injection_threshold, mbar_over_kb, ndim)) {
 
             auto seed = SeedFromIndices(k, j, i, gid, current_time);
             auto rnd = random_double(seed);
@@ -203,8 +189,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           if (rmax_center != -1.0 && r_cell_center > rmax_center) return;
 
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
-                                injection_threshold, mbar_over_kb, jet_radius, jet_offset,
-                                jet_thickness, ndim)) {
+                                injection_threshold, mbar_over_kb, ndim)) {
 
             auto seed = SeedFromIndices(k, j, i, gid, current_time);
             auto rnd = random_double(seed);
@@ -254,16 +239,11 @@ TaskStatus RemoveParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
   if (hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
     mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
   }
+
   auto particles_pkg = pmb->packages.Get(pkg_name);
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
-
-  // Accretion removal
-  Real accretion_radius = -1.0;
-  if (particles_pkg->AllParams().hasKey("accretion_radius")) {
-    accretion_radius = particles_pkg->Param<Real>("accretion_radius");
-  }
-
   auto swarm_names = particles_pkg->Param<std::vector<std::string>>("swarm_names");
+
   // Looping on the N independent swarms
   for (const auto &swarm_name : swarm_names) {
 
@@ -274,11 +254,9 @@ TaskStatus RemoveParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
 
     // Get meshblock data
-    auto accretion_removal_enabled =
-        particles_pkg->Param<bool>(swarm_name + "_accretion_removal_enabled");
     auto removal_enabled = particles_pkg->Param<bool>(swarm_name + "_removal_enabled");
-    // If neither lifetime-based removal nor accretion-based removal is enabled, skip.
-    if (!removal_enabled && !accretion_removal_enabled) {
+    // lifetime-based removal is enabled, skip.
+    if (!removal_enabled) {
       continue;
     }
 
@@ -313,38 +291,22 @@ TaskStatus RemoveParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
             int k, j, i;
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-            bool should_remove = false;
-
-            // Lifetime-based removal (only if enabled)
             if (removal_enabled) {
               if (current_time - t_inj(n) >= ltime(n)) {
                 bool keep_particle = false;
 
                 if (removal_exception) {
-                  // Jet variables set to 0.0 as we don't need them here
                   keep_particle = EvaluateCriterion(
                       removal_exception_criterion, prim, coords, k, j, i,
-                      removal_exception_threshold, mbar_over_kb, 0.0, 0.0, 0.0, ndim);
+                      removal_exception_threshold, mbar_over_kb, ndim);
                 }
 
                 if (keep_particle) {
                   ltime(n) += lifetime;
                 } else {
-                  should_remove = true;
+                  swarm_d.MarkParticleForRemoval(n);
                 }
               }
-            }
-
-            // Accretion-based removal (independent switch, but only if not already
-            // removed)
-            if (accretion_removal_enabled && !should_remove) {
-              if (CheckAccretionRemoval(prim, coords, k, j, i, accretion_radius, ndim)) {
-                should_remove = true;
-              }
-            }
-
-            if (should_remove) {
-              swarm_d.MarkParticleForRemoval(n);
             }
           }
         });
