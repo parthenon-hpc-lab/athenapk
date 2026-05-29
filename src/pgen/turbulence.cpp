@@ -31,7 +31,7 @@
 
 // AthenaPK headers
 #include "../main.hpp"
-#include "../tracers/tracers.hpp"
+#include "../particles/tracers/tracers.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
 #include "utils/error_checking.hpp"

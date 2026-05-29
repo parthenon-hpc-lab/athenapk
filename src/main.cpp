@@ -16,8 +16,8 @@
 #include "hydro/hydro_driver.hpp"
 #include "main.hpp"
 
+#include "particles/tracers/tracers.hpp"
 #include "pgen/pgen.hpp"
-#include "tracers/tracers.hpp"
 // Initialize defaults for package specific callback functions
 namespace Hydro {
 InitPackageDataFun_t ProblemInitPackageData = nullptr;
@@ -105,7 +105,6 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
     Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
-    Tracers::ProblemInitTracerData = cluster::ProblemInitTracerData;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {

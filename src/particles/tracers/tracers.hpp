@@ -29,7 +29,7 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
-#include "../main.hpp"
+#include "../../main.hpp"
 #include "basic_types.hpp"
 
 using namespace parthenon::driver::prelude;

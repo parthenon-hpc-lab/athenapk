@@ -38,9 +38,9 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
-#include "../main.hpp"
-#include "../particles/custom_rng.hpp"
-#include "../particles/particles_utils.hpp"
+#include "../../main.hpp"
+#include "../custom_rng.hpp"
+#include "../particles_utils.hpp"
 #include "tracers.hpp"
 
 namespace Tracers {
@@ -159,8 +159,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // per unit volume is constant across meshblocks. This can be done by specifying
     // a reference refinement level "reference_level". If default value (-1), the seeding
     // is performed based on the regular tracers per cell approach.
-    const auto rmax_center =
-        pin->GetOrAddReal("tracers", swarm_name + "_rmax_center", -1.0);
     const auto num_tracers_per_cell =
         pin->GetOrAddReal("tracers", swarm_name + "_initial_num_tracers_per_cell", 0.0);
     const auto reference_level =
@@ -270,7 +268,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // =====================================================================
     tracers_pkg->AddParam<>(swarm_name + "_num_tracers_per_cell", num_tracers_per_cell);
     tracers_pkg->AddParam<>(swarm_name + "_reference_level", reference_level);
-    tracers_pkg->AddParam<>(swarm_name + "_rmax_center", rmax_center);
     tracers_pkg->AddParam<>(swarm_name + "_rng_seed", rng_seed);
 
     // TODO(pgrete) Check where metadata, e.g., for restart is required (i.e., at the
@@ -437,7 +434,6 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
         const auto removal_enabled =
             tracers_pkg->Param<bool>(swarm_name + "_removal_enabled");
-        const auto rmax_center = tracers_pkg->Param<Real>(swarm_name + "_rmax_center");
 
         // Sanity check for the number of tracers to be injected.
         // (now swarm-dependent, so inside the population loop.)
@@ -539,22 +535,11 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
                 t_inj(n) = current_time;
               }
 
-              // Remove particles outside of rmax_center if provided
-              const Real r_center = std::sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
-              if (rmax_center != -1.0 && r_center > rmax_center) {
-                swarm_d.MarkParticleForRemoval(n);
-                rng_pool.free_state(rng_gen);
-                return;
-              }
-
               rng_pool.free_state(rng_gen);
 
               bool on_current_mesh_block = true;
               swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_current_mesh_block);
             });
-
-        // Remove particles outside rmax
-        swarm->RemoveMarkedParticles();
 
         // Updating the current block offset.
         block_offset += num_tracers_per_block;
