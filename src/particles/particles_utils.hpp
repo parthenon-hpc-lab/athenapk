@@ -68,54 +68,6 @@ Real CalculateRefinementScale(const int block_level, const int root_level,
 }
 
 /* ===============================================================================
-CheckAccretionRemoval: custom function checking whether a given particle is within
-the accretion region and with its velocity vector pointing inward. If yes, flag it
-for removal.
-=============================================================================== */
-template <typename View4D>
-KOKKOS_INLINE_FUNCTION bool
-CheckAccretionRemoval(View4D prim, const Coordinates_t &coords, const int k, const int j,
-                      const int i, const Real accretion_radius, const int ndim) {
-
-  // Get cell center coordinates
-  const Real x_cell = coords.Xc<1>(k, j, i);
-  const Real y_cell = coords.Xc<2>(k, j, i);
-  const Real z_cell = (ndim == 3) ? coords.Xc<3>(k, j, i) : 0.0;
-
-  // Calculate distance from center (assuming center is at origin)
-  const Real r2 =
-      x_cell * x_cell + y_cell * y_cell + ((ndim == 3) ? z_cell * z_cell : 0.0);
-  const Real r = std::sqrt(r2);
-
-  // Safeguard: avoid division by zero at the origin
-  if (r == 0.0) {
-    return true;
-  }
-
-  // Check if particle is within accretion radius
-  if (r >= accretion_radius) {
-    return false;
-  }
-
-  // Load velocity components
-  const Real vx = prim(IV1, k, j, i);
-  const Real vy = prim(IV2, k, j, i);
-  const Real vz = (ndim == 3) ? prim(IV3, k, j, i) : 0.0;
-
-  // Radial unit vector
-  const Real inv_r = 1.0 / r;
-  const Real ur_x = x_cell * inv_r;
-  const Real ur_y = y_cell * inv_r;
-  const Real ur_z = (ndim == 3) ? z_cell * inv_r : 0.0;
-
-  // Radial velocity (dot product of velocity with radial unit vector)
-  const Real vr = vx * ur_x + vy * ur_y + ((ndim == 3) ? vz * ur_z : 0.0);
-
-  // Return true if inside accretion region and moving inward
-  return (vr < 0.0);
-}
-
-/* ===============================================================================
 EvaluateCriterion: custom function containing the criterion that cells have to ful-
 fill to be elligible for the injection of particles.
 =============================================================================== */
