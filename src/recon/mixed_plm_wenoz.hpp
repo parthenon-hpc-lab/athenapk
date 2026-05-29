@@ -33,8 +33,8 @@ KOKKOS_INLINE_FUNCTION
   const auto nvar = q.GetDim(4);
 
   // Variable index mapping
-  constexpr int plm_lo = 0; // density
-  constexpr int plm_hi = 4; // energy
+  constexpr int plm_lo = 0;   // density
+  constexpr int plm_hi = 4;   // energy
   constexpr int wenoz_lo = 5; // Bcc1
   constexpr int wenoz_hi = 7; // Bcc3
 
