@@ -107,56 +107,6 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 }
 
 //========================================================================================
-//! Adding some jet-related variables to the tracer package
-//========================================================================================
-
-void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *tracers_pkg) {
-  Real jet_radius = 0.0;
-  Real jet_offset = 0.0;
-  Real jet_thickness = 0.0;
-  Real accretion_radius = 0.0;
-
-  if (pin->DoesParameterExist("problem/cluster/agn_feedback", "kinetic_jet_radius")) {
-    jet_radius = pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_radius");
-  } else {
-    std::cout
-        << "Parameter kinetic_jet_radius not found. Tracers will use default value 0.0."
-        << std::endl;
-  }
-
-  if (pin->DoesParameterExist("problem/cluster/agn_feedback", "kinetic_jet_offset")) {
-    jet_offset = pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_offset");
-  } else {
-    std::cout
-        << "Parameter kinetic_jet_offset not found. Tracers will use default value 0.0."
-        << std::endl;
-  }
-
-  if (pin->DoesParameterExist("problem/cluster/agn_feedback", "kinetic_jet_thickness")) {
-    jet_thickness = pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_thickness");
-  } else {
-    std::cout << "Parameter kinetic_jet_thickness not found. Tracers will use default "
-                 "value 0.0."
-              << std::endl;
-  }
-
-  if (pin->DoesParameterExist("problem/cluster/agn_triggering", "accretion_radius")) {
-    accretion_radius = pin->GetReal("problem/cluster/agn_triggering", "accretion_radius");
-  } else {
-    std::cout
-        << "Parameter accretion_radius not found. Tracers will use default value 0.0."
-        << std::endl;
-  }
-
-  // Register jet properties for restart
-  tracers_pkg->AddParam<>("jet_radius", jet_radius, Params::Mutability::Restart);
-  tracers_pkg->AddParam<>("jet_offset", jet_offset, Params::Mutability::Restart);
-  tracers_pkg->AddParam<>("jet_thickness", jet_thickness, Params::Mutability::Restart);
-  tracers_pkg->AddParam<>("accretion_radius", accretion_radius,
-                          Params::Mutability::Restart);
-}
-
-//========================================================================================
 //! \fn void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor
 //! *hydro_pkg) \brief Init package data from parameter input
 //========================================================================================
