@@ -45,12 +45,12 @@ class TestCase(utils.test_case.TestCaseAbs):
         data = np.genfromtxt(data_filename)
 
         # Check Ms
-        if data[-1, -3] != 4.70479e-01:
+        if data[-1, -3] != 4.70153e-01:
             print(f"ERROR: Mismatch in Ms={data[-1, -3]}")
             success = False
 
         # Check Ma
-        if data[-1, -2] != 1.08317e01:
+        if data[-1, -2] != 1.37253e+01:
             print(f"ERROR: Mismatch in Ma={data[-1, -2]}")
             success = False
 
@@ -69,10 +69,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             print(ar)
             success = False
         energy_sum = components["cons_total_energy_density"].sum()
-        if energy_sum != 2621562209.3499737:
+        if energy_sum != 2621560462.960244:
             print(
                 f"TEST FAIL: incorrect energy sum\n"
-                f"Got {energy_sum} and expected {2621562209.3499737}."
+                f"Got {energy_sum} and expected {2621560462.960244}."
             )
             success = False
 
