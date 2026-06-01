@@ -50,7 +50,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             success = False
 
         # Check Ma
-        if data[-1, -2] != 1.37253e+01:
+        if data[-1, -2] != 1.37253e01:
             print(f"ERROR: Mismatch in Ma={data[-1, -2]}")
             success = False
 
