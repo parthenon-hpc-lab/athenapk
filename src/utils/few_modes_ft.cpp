@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2023, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2023-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //========================================================================================
@@ -54,9 +54,9 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
     PARTHENON_REQUIRE(
         !(k_vec_host(0, i) == 0 && k_vec_host(1, i) == 0 && k_vec_host(2, i) == 0),
         "Forcing normalization is handled separately so do not include the 0 mode.");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) <= gnx1 / 2, "k_vec x1 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) <= gnx2 / 2, "k_vec x2 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) <= gnx3 / 2, "k_vec x3 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) < gnx1 / 2, "k_vec x1 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) < gnx2 / 2, "k_vec x2 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) < gnx3 / 2, "k_vec x3 mode too large");
   }
 
   // Ensure that the provided k_vec do not include their conjugate and/or itself again as
@@ -203,12 +203,7 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
         for (int m = 0; m < num_modes; m++) {
           w_kx = k_vec(0, m) * 2. * M_PI / static_cast<Real>(gnx1);
-          // adjust phase factor to Complex->Real IFT: u_hat*(k) = u_hat(-k)
-          if (k_vec(0, m) == 0.0 || k_vec(0, m) == gnx1 / 2) {
-            phase = 0.5 * Kokkos::exp(I * w_kx * gi);
-          } else {
-            phase = Kokkos::exp(I * w_kx * gi);
-          }
+          phase = Kokkos::exp(I * w_kx * gi);
           phases_i(i, m, 0) = phase.real();
           phases_i(i, m, 1) = phase.imag();
         }
