@@ -28,6 +28,7 @@ If the current performance is (significantly) below expectation, one can try to 
 
 ### Incompatibilities (i.e. breaking changes)
 - [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) C++20 is now the minimum standard
+- [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) New Parthenon submodule changed input file parsing (removed `*pib = pin->pfirst_block;`), see [here](https://github.com/parthenon-hpc-lab/parthenon/pull/1385)
 
 ## Release 26.05
 
