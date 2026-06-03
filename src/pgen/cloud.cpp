@@ -119,13 +119,10 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
     // rescale sim time limit
     pin->SetReal("parthenon/time", "tlim", tlim_rescaled);
     // rescale dt of each output block
-    parthenon::InputBlock *pib = pin->pfirst_block;
-    while (pib != nullptr) {
-      if (pib->block_name.compare(0, 16, "parthenon/output") == 0) {
-        auto dt = pin->GetReal(pib->block_name, "dt");
-        pin->SetReal(pib->block_name, "dt", dt * t_cc);
-      }
-      pib = pib->pnext; // move to next input block name
+    auto blocks = pin->GetBlockNamesWithPrefix("parthenon/output");
+    for (const auto &block_name : blocks) {
+      auto dt = pin->GetReal(block_name, "dt");
+      pin->SetReal(block_name, "dt", dt * t_cc);
     }
 
     msg << "## Interpreted time limits (partenon/time/tlim and dt for outputs) as in "
