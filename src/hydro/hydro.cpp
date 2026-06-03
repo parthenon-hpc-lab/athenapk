@@ -17,6 +17,7 @@
 #include "../eos/adiabatic_glmmhd.hpp"
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
+#include "../particles/stars/stellar_particles.hpp"
 #include "../particles/tracers/tracers.hpp"
 #include "../pgen/pgen.hpp"
 #include "../recon/dc_simple.hpp"
@@ -58,6 +59,7 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
   packages.Add(Tracers::Initialize(pin.get()));
+  packages.Add(Stars::Initialize(pin.get()));
   return packages;
 }
 

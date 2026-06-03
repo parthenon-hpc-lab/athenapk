@@ -30,8 +30,10 @@
 
 // AthenaPK headers
 #include "../main.hpp"
+#include "../units.hpp"
 #include "custom_rng.hpp"
 #include "particles_utils.hpp"
+#include "stars/star_formation.hpp"
 
 namespace ParticlesUtils {
 using namespace parthenon::package::prelude;
@@ -59,21 +61,25 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
   // Get meshblock data
   auto particles_pkg = pmb->packages.Get(pkg_name);
   auto hydro_pkg = pmb->packages.Get("Hydro");
+  auto units = hydro_pkg->Param<Units>("units");
 
   // Loading root grid level
   const int root_level = pmesh->GetRootLevel();
   const int gid = pmb->gid;
 
-  // Getting variable required for temperature
+  // Getting variable required for particle criterions
   auto current_time = tm.time;
   Real mbar_over_kb = -1;
   if (hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
     mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
   }
+  const Real gravitational_constant = units.gravitational_constant();
 
   // Getting the offsets and copy to host
+  /*
   auto &off = mbd->Get(pkg_name + "_offsets").data;
   auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
+  */
 
   auto swarm_names = particles_pkg->Param<std::vector<std::string>>("swarm_names");
   // Looping on the N independent swarms
@@ -88,8 +94,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
     if (!injection_enabled) continue;
 
-    auto injection_criterion =
-        particles_pkg->Param<ParticlesCriterion>(swarm_name + "_injection_criterion");
+    ParticlesCriterion injection_criterion = ParticlesCriterion::None; // default
 
     Real p_injection = -1.0;
     Real injection_threshold = -1.0;
@@ -104,6 +109,9 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       // a timescale. The refinement scale corrects for the fact that finer levels
       // have smaller cells, so the injection probability is adjusted accordingly
       // to avoid over-injection at high resolution.
+      injection_criterion =
+          particles_pkg->Param<ParticlesCriterion>(swarm_name + "_injection_criterion");
+
       const auto reference_level =
           particles_pkg->Param<int>(swarm_name + "_reference_level");
       const Real scale =
@@ -112,12 +120,14 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               : CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
       const Real injection_rate =
           particles_pkg->Param<Real>(swarm_name + "_injection_rate");
-      const Real injection_threshold =
+      injection_threshold =
           particles_pkg->Param<Real>(swarm_name + "_injection_threshold");
 
-      // Cap to [0, 1]: at most one particle injected per eligible cell per timestep
       p_injection = std::max(0.0, std::min(1.0, injection_rate * tm.dt * scale));
       injection_mode = InjectionMode::FixedRate;
+    } else if (pkg_name == "stars") {
+      injection_mode = InjectionMode::PerCell;
+      injection_threshold = particles_pkg->Param<Real>("sf_density_threshold");
     } else {
       // Future packages (e.g. star formation) should add a corresponding branch here.
       PARTHENON_THROW("InjectParticles: unsupported particle package '" + pkg_name +
@@ -137,6 +147,23 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     const auto &y_max = pmb->coords.Xf<2>(jb.e + 1);
     const auto &z_max = pmb->coords.Xf<3>(kb.e + 1);
 
+    /* === Quick SFR calculationg test === */
+
+    Real block_sfr = 0.0;
+
+    pmb->par_reduce(
+        "InjectParticles::ComputeSFR", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i, Real &lsfr) {
+          lsfr += StarFormation::EvaluateStarFormation(
+              prim, coords, k, j, i, injection_threshold, gravitational_constant, ndim);
+        },
+        Kokkos::Sum<Real>(block_sfr));
+
+    std::cout << "Block " << pmb->gid << " SFR = " << block_sfr << std::endl;
+
+    /* === Quick SFR calculationg test === */
+
+    /*
     int num_injected_particles_in_block = 0;
 
     pmb->par_reduce(
@@ -229,6 +256,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     block_offset += num_injected_particles_in_block;
     std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
     Kokkos::deep_copy(off, host_off);
+    */
   }
   return TaskStatus::complete;
 }

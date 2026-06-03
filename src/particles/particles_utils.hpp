@@ -25,6 +25,7 @@
 #include <parthenon/package.hpp>
 
 #include "../main.hpp"
+#include "../units.hpp"
 #include "basic_types.hpp"
 
 using namespace parthenon::driver::prelude;
@@ -48,7 +49,8 @@ enum class ParticlesCriterion {
   TemperatureAbove,
   TemperatureBelow,
   Accretion,
-  Outflows
+  Outflows,
+  None
 };
 
 /* ===============================================================================

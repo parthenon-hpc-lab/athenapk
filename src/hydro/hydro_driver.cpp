@@ -19,6 +19,7 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../particles/stars/stellar_particles.hpp"
 #include "../particles/tracers/tracers.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
@@ -612,6 +613,20 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
+  // Test: calling "injection" of stars
+  auto stars_pkg = pmesh->packages.Get("stars");
+  if (stage == integrator->nstages && stars_pkg->Param<bool>("enabled")) {
+    TaskRegion &async_region_stars = tc.AddRegion(blocks.size());
+    for (int n = 0; n < blocks.size(); n++) {
+      auto &tl = async_region_stars[n];
+      auto &pmb = blocks[n];
+      auto &mbd0 = pmb->meshblock_data.Get("base");
+
+      auto star_inject = tl.AddTask(none, Stars::InjectStars, mbd0.get(), tm);
+    }
+  }
+
+  // Then move on to tracers
   auto tracers_pkg = pmesh->packages.Get("tracers");
   // First order operator split tracer advection
   if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
