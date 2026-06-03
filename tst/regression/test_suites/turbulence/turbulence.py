@@ -70,9 +70,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             success = False
         energy_sum = components["cons_total_energy_density"].sum()
         try:
-            np.testing.assert_array_max_ulp(
-                        energy_sum,2621560462.9602447
-                    )
+            np.testing.assert_array_max_ulp(energy_sum, 2621560462.9602447)
         except AssertionError as ar:
             print(
                 f"TEST FAIL: incorrect energy sum\n"
