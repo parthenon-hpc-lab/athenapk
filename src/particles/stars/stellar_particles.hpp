@@ -43,6 +43,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 
 } // namespace Stars
 #endif // STELLAR_PARTICLES_HPP_
