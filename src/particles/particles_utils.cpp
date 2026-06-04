@@ -69,6 +69,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
   // Getting variable required for particle criterions
   auto current_time = tm.time;
+  auto current_dt = tm.dt;
   Real mbar_over_kb = -1;
   if (hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
     mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
@@ -76,10 +77,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
   const Real gravitational_constant = units.gravitational_constant();
 
   // Getting the offsets and copy to host
-  /*
   auto &off = mbd->Get(pkg_name + "_offsets").data;
   auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
-  */
 
   auto swarm_names = particles_pkg->Param<std::vector<std::string>>("swarm_names");
   // Looping on the N independent swarms
@@ -96,6 +95,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
     ParticlesCriterion injection_criterion = ParticlesCriterion::None; // default
 
+    bool mass_enabled = false; // by default, massless particles (e.g. tracers)
     Real p_injection = -1.0;
     Real injection_threshold = -1.0;
     InjectionMode injection_mode = InjectionMode::FixedRate; // By default
@@ -123,11 +123,12 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       injection_threshold =
           particles_pkg->Param<Real>(swarm_name + "_injection_threshold");
 
-      p_injection = std::max(0.0, std::min(1.0, injection_rate * tm.dt * scale));
+      p_injection = std::max(0.0, std::min(1.0, injection_rate * current_dt * scale));
       injection_mode = InjectionMode::FixedRate;
     } else if (pkg_name == "stars") {
       injection_mode = InjectionMode::PerCell;
       injection_threshold = particles_pkg->Param<Real>("sf_density_threshold");
+      mass_enabled = true;
     } else {
       // Future packages (e.g. star formation) should add a corresponding branch here.
       PARTHENON_THROW("InjectParticles: unsupported particle package '" + pkg_name +
@@ -149,6 +150,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
     /* === Quick SFR calculationg test === */
 
+    /*
     Real block_sfr = 0.0;
 
     pmb->par_reduce(
@@ -160,10 +162,10 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
         Kokkos::Sum<Real>(block_sfr));
 
     std::cout << "Block " << pmb->gid << " SFR = " << block_sfr << std::endl;
+    */
 
     /* === Quick SFR calculationg test === */
 
-    /*
     int num_injected_particles_in_block = 0;
 
     pmb->par_reduce(
@@ -173,13 +175,20 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           const Real y_cell = coords.Xc<2>(j);
           const Real z_cell = coords.Xc<3>(k);
 
-          if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
-                                injection_threshold, mbar_over_kb, ndim)) {
+          Real p_local = 0.0;
 
-            const Real p_local = (injection_mode == InjectionMode::FixedRate)
-                                     ? p_injection
-                                     : -1; // Could be replaced by e.g. SFR
+          if (injection_mode == InjectionMode::FixedRate) {
+            if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
+                                  injection_threshold, mbar_over_kb, ndim)) {
+              p_local = p_injection;
+            }
+          } else if (injection_mode == InjectionMode::PerCell) {
+            p_local = StarFormation::EvaluateStarFormationProbability(
+                prim, coords, k, j, i, injection_threshold, gravitational_constant, ndim,
+                current_dt);
+          }
 
+          if (p_local > 0.0) {
             auto seed = SeedFromIndices(k, j, i, gid, current_time);
             auto rnd = random_double(seed);
             if (rnd < p_local) {
@@ -203,11 +212,18 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
 
+    // Lifetime value (if needed)
     Real lifetime;
     auto ltime = t_inj.Get();
     if (removal_enabled) {
       lifetime = particles_pkg->Param<Real>(swarm_name + "_lifetime");
       ltime = swarm->Get<Real>("lifetime").Get();
+    }
+
+    // Mass value (if needed)
+    auto pmass = t_inj.Get(); // dummy type of initialization
+    if (mass_enabled) {
+      pmass = swarm->Get<Real>("mass").Get();
     }
 
     Kokkos::View<int, parthenon::DevExecSpace> counter("counter");
@@ -219,22 +235,29 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     pmb->par_for(
         "InjectParticles::Initialize", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          // Cell variables (positions and size)
           const Real x_cell = coords.Xc<1>(i);
           const Real y_cell = coords.Xc<2>(j);
           const Real z_cell = coords.Xc<3>(k);
 
-          if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
-                                injection_threshold, mbar_over_kb, ndim)) {
+          Real p_local = 0.0;
 
-            const Real p_local = (injection_mode == InjectionMode::FixedRate)
-                                     ? p_injection
-                                     : -1; // Could be replaced by e.g. SFR
+          if (injection_mode == InjectionMode::FixedRate) {
+            if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
+                                  injection_threshold, mbar_over_kb, ndim)) {
+              p_local = p_injection;
+            }
+          } else if (injection_mode == InjectionMode::PerCell) {
+            p_local = StarFormation::EvaluateStarFormationProbability(
+                prim, coords, k, j, i, injection_threshold, gravitational_constant, ndim,
+                current_dt);
+          }
 
+          if (p_local > 0.0) {
             auto seed = SeedFromIndices(k, j, i, gid, current_time);
             auto rnd = random_double(seed);
 
             if (rnd < p_local) {
-
               int counter_idx = Kokkos::atomic_fetch_add(&counter(), 1);
               int swarm_idx = injected_particles_context.GetNewParticleIndex(counter_idx);
 
@@ -249,6 +272,12 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               if (removal_enabled) {
                 ltime(swarm_idx) = lifetime;
               }
+              if (mass_enabled) {
+                const Real dx_cell = coords.Dxc<1>(i);
+                const Real dy_cell = coords.Dxc<2>(j);
+                const Real dz_cell = coords.Dxc<3>(k);
+                pmass(swarm_idx) = prim(IDN, k, j, i) * dx_cell * dy_cell * dz_cell;
+              }
             }
           }
         });
@@ -256,7 +285,6 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     block_offset += num_injected_particles_in_block;
     std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
     Kokkos::deep_copy(off, host_off);
-    */
   }
   return TaskStatus::complete;
 }

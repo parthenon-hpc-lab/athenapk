@@ -94,6 +94,18 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("stars_injection_enabled", true);
   stars_pkg->AddParam<>("stars_removal_enabled", false);
 
+  // Add value for injection time
+  stars_pkg->AddSwarmValue("injection_time", "stars",
+                           Metadata({Metadata::Real, Metadata::Restart}));
+  stars_pkg->AddSwarmValue("mass", "stars",
+                           Metadata({Metadata::Real, Metadata::Restart}));
+
+  // Adding offsets for particle IDs
+  Metadata m;
+  m = Metadata({Metadata::None, Metadata::Derived, Metadata::Restart},
+               std::vector<int>({1}));
+  stars_pkg->AddField("stars_offsets", m);
+
   return stars_pkg;
 } // Initialize
 

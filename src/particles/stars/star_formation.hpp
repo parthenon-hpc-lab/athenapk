@@ -54,6 +54,34 @@ KOKKOS_INLINE_FUNCTION Real EvaluateStarFormation(
   return epsilon * rho * dx * dy * dz / t_dyn;
 }
 
+/* ===============================================================================
+EvaluateStarFormationProbability: computes the probability that a gas cell is
+converted into a star particle in the current timestep, following the stochastic
+star formation model of SMUGGLE (Marinacci et al. 2019). Given the local star
+formation rate M_dot computed by EvaluateStarFormation, the probability is:
+  p = 1 - exp(-M_dot * dt / M_gas)
+where M_gas is the cell gas mass and dt the current timestep.
+=============================================================================== */
+
+template <typename View4D>
+KOKKOS_INLINE_FUNCTION Real EvaluateStarFormationProbability(
+    View4D prim, const Coordinates_t &coords, const int k, const int j, const int i,
+    const Real threshold, const Real gravitational_constant, const int ndim,
+    const Real dt) {
+
+  const Real dx = coords.Dxc<1>(k, j, i);
+  const Real dy = coords.Dxc<2>(k, j, i);
+  const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
+  const Real M_gas = prim(IDN, k, j, i) * dx * dy * dz;
+
+  const Real sfr = EvaluateStarFormation(prim, coords, k, j, i, threshold,
+                                         gravitational_constant, ndim);
+
+  if (sfr <= 0.0) return 0.0;
+
+  return 1.0 - Kokkos::exp(-sfr * dt / M_gas);
+}
+
 } // namespace StarFormation
 
 #endif // STAR_FORMATION_HPP_
