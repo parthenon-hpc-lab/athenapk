@@ -4,7 +4,10 @@
 
 ### General notes
 With the latest update of the Parthenon submodule several new features are now available, e.g.,
-- [OpenPMD output](https://parthenon-hpc-lab.github.io/parthenon/pgrete/pmd-output/src/outputs.html#openpmd) including support for slices, data compression and coarse graining
+- [OpenPMD output](https://parthenon-hpc-lab.github.io/parthenon/pgrete/pmd-output/src/outputs.html#openpmd) including support for slices, data compression and coarse graining\
+Note, the original naming convention (in the development branch) used for labeling components was not fully standard compliant.
+New outputs are automatically written in the standard compliant version.
+However, to keep the old scheme (e.g., when restarting from existing simulation data with the intent to keep the timeseries consistent add `openpmd_format_version=1` to the corresponding openpmd output blocks.
 - A watchdog (to kill a simulation that hangs for whatever reason). Just run with `-w HH:MM:SS`.
 - Support for (tracer) particles with AMR.
 
