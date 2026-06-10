@@ -199,14 +199,14 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       ulst.bz = ul.bz;
     } else {
       // eqns (44) and (46) of M&K
-      auto tmp = bxi * (sdl - sdml) / (ul.d * sdl * sdml - bxsq);
-      ulst.my = ulst.d * (wli[IV2] - ul.by * tmp);
-      ulst.mz = ulst.d * (wli[IV3] - ul.bz * tmp);
+      auto factor = bxi * (sdl - sdml) / (ul.d * sdl * sdml - bxsq);
+      ulst.my = ulst.d * (wli[IV2] - ul.by * factor);
+      ulst.mz = ulst.d * (wli[IV3] - ul.bz * factor);
 
       // eqns (45) and (47) of M&K
-      tmp = (ul.d * SQR(sdl) - bxsq) / (ul.d * sdl * sdml - bxsq);
-      ulst.by = ul.by * tmp;
-      ulst.bz = ul.bz * tmp;
+      factor = (ul.d * SQR(sdl) - bxsq) / (ul.d * sdl * sdml - bxsq);
+      ulst.by = ul.by * factor;
+      ulst.bz = ul.bz * factor;
     }
     // v_i* dot B_i*
     // (KGF): group transverse momenta terms for floating-point associativity symmetry
@@ -228,14 +228,14 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       urst.bz = ur.bz;
     } else {
       // eqns (44) and (46) of M&K
-      auto tmp = bxi * (sdr - sdmr) / (ur.d * sdr * sdmr - bxsq);
-      urst.my = urst.d * (wri[IV2] - ur.by * tmp);
-      urst.mz = urst.d * (wri[IV3] - ur.bz * tmp);
+      auto factor = bxi * (sdr - sdmr) / (ur.d * sdr * sdmr - bxsq);
+      urst.my = urst.d * (wri[IV2] - ur.by * factor);
+      urst.mz = urst.d * (wri[IV3] - ur.bz * factor);
 
       // eqns (45) and (47) of M&K
-      tmp = (ur.d * SQR(sdr) - bxsq) / (ur.d * sdr * sdmr - bxsq);
-      urst.by = ur.by * tmp;
-      urst.bz = ur.bz * tmp;
+      factor = (ur.d * SQR(sdr) - bxsq) / (ur.d * sdr * sdmr - bxsq);
+      urst.by = ur.by * factor;
+      urst.bz = ur.bz * factor;
     }
     // v_i* dot B_i*
     // (KGF): group transverse momenta terms for floating-point associativity symmetry
@@ -256,34 +256,34 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
     urdst.mx = urst.mx;
 
     // eqn (59) of M&K
-    auto tmp =
+    auto state =
         invsumd * (sqrtdl * (ulst.my * ulst_d_inv) + sqrtdr * (urst.my * urst_d_inv) +
                    bxsig * (urst.by - ulst.by));
-    uldst.my = uldst.d * tmp;
-    urdst.my = urdst.d * tmp;
+    uldst.my = uldst.d * state;
+    urdst.my = urdst.d * state;
 
     // eqn (60) of M&K
-    tmp = invsumd * (sqrtdl * (ulst.mz * ulst_d_inv) + sqrtdr * (urst.mz * urst_d_inv) +
-                     bxsig * (urst.bz - ulst.bz));
-    uldst.mz = uldst.d * tmp;
-    urdst.mz = urdst.d * tmp;
+    state = invsumd * (sqrtdl * (ulst.mz * ulst_d_inv) + sqrtdr * (urst.mz * urst_d_inv) +
+                       bxsig * (urst.bz - ulst.bz));
+    uldst.mz = uldst.d * state;
+    urdst.mz = urdst.d * state;
 
     // eqn (61) of M&K
-    tmp = invsumd *
-          (sqrtdl * urst.by + sqrtdr * ulst.by +
-           bxsig * sqrtdl * sqrtdr * ((urst.my * urst_d_inv) - (ulst.my * ulst_d_inv)));
-    uldst.by = urdst.by = tmp;
+    state = invsumd *
+            (sqrtdl * urst.by + sqrtdr * ulst.by +
+             bxsig * sqrtdl * sqrtdr * ((urst.my * urst_d_inv) - (ulst.my * ulst_d_inv)));
+    uldst.by = urdst.by = state;
 
     // eqn (62) of M&K
-    tmp = invsumd *
-          (sqrtdl * urst.bz + sqrtdr * ulst.bz +
-           bxsig * sqrtdl * sqrtdr * ((urst.mz * urst_d_inv) - (ulst.mz * ulst_d_inv)));
-    uldst.bz = urdst.bz = tmp;
+    state = invsumd *
+            (sqrtdl * urst.bz + sqrtdr * ulst.bz +
+             bxsig * sqrtdl * sqrtdr * ((urst.mz * urst_d_inv) - (ulst.mz * urst_d_inv)));
+    uldst.bz = urdst.bz = state;
 
     // eqn (63) of M&K
-    tmp = spd[2] * bxi + (uldst.my * uldst.by + uldst.mz * uldst.bz) / uldst.d;
-    uldst.e = ulst.e - sqrtdl * bxsig * (vbstl - tmp);
-    urdst.e = urst.e + sqrtdr * bxsig * (vbstr - tmp);
+    state = spd[2] * bxi + (uldst.my * uldst.by + uldst.mz * uldst.bz) / uldst.d;
+    uldst.e = ulst.e - sqrtdl * bxsig * (vbstl - state);
+    urdst.e = urst.e + sqrtdr * bxsig * (vbstr - state);
 
     //--- Step 6.  Compute flux
     uldst.d = spd[1] * (uldst.d - ulst.d);

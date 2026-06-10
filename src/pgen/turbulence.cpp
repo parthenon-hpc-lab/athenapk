@@ -398,7 +398,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   PARTHENON_REQUIRE_THROWS(
       num_partitions == 1,
       "Turbulence problem generator currently relies on synchronous MPI Allreduce. "
-      "Therefore, only a `parthenon/mesh/pack_size=-1` is supported. Please get in "
+      "Therefore, only `parthenon/mesh/packs_per_rank=1` is supported. Please get in "
       "contact if this is an issue.");
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
@@ -1024,7 +1024,7 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
   // Safetey check (for now)
   PARTHENON_REQUIRE_THROWS(md->NumBlocks() ==
                                md->GetMeshPointer()->GetNumMeshBlocksThisRank(),
-                           "The following reduction assumes pack_size=-1.");
+                           "The following reduction assumes packs_per_rank=1.");
   // Results still live in device memory. Copy to host for global reduction and output.
   auto corr_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), corr);
 #ifdef MPI_PARALLEL

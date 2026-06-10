@@ -11,11 +11,6 @@
 #include "basic_types.hpp" // Real
 #include <parthenon/package.hpp>
 
-// TODO(pgrete) There's a compiler bug in nvcc < 11.2 that precludes the use
-// of C++17 with relaxed-constexpr in Kokkos,
-// see https://github.com/kokkos/kokkos/issues/3496
-// This also precludes our downstream use of constexpr int here.
-// Update once nvcc/cuda >= 11.2 is more widely available on machine.
 enum {
   IDN = 0,
   IM1 = 1,
