@@ -69,15 +69,11 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.uniform_gas_My = self.uniform_gas_rho * self.uniform_gas_uy
         self.uniform_gas_Mz = self.uniform_gas_rho * self.uniform_gas_uz
         self.uniform_gas_energy_density = 1.0 / 2.0 * self.uniform_gas_rho * (
-            self.uniform_gas_ux**2
-            + self.uniform_gas_uy**2
-            + self.uniform_gas_uz**2
+            self.uniform_gas_ux**2 + self.uniform_gas_uy**2 + self.uniform_gas_uz**2
         ) + self.uniform_gas_pres / (self.adiabatic_index - 1.0)
 
         self.uniform_gas_vel = np.sqrt(
-            self.uniform_gas_ux**2
-            + self.uniform_gas_uy**2
-            + self.uniform_gas_uz**2
+            self.uniform_gas_ux**2 + self.uniform_gas_uy**2 + self.uniform_gas_uz**2
         )
 
         self.uniform_gas_temp = (
@@ -315,9 +311,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             final_My = self.uniform_gas_uy * final_rho
             final_Mz = self.uniform_gas_uz * final_rho
             final_energy_density = 1.0 / 2.0 * final_rho * (
-                self.uniform_gas_ux**2
-                + self.uniform_gas_uy**2
-                + self.uniform_gas_uz**2
+                self.uniform_gas_ux**2 + self.uniform_gas_uy**2 + self.uniform_gas_uz**2
             ) + final_pres / (self.adiabatic_index - 1.0)
 
             def accretion_mask(Z, Y, X, inner_state, outer_state):

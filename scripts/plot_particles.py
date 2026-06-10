@@ -26,7 +26,7 @@ if __name__ == "__main__":
         xs = tracers.x
         ys = tracers.y
         zs = tracers.z
-        ids = tracers.Get("id")
+        ids = tracers.id
 
         fig = plt.figure()
         ax = fig.add_subplot(projection="3d")

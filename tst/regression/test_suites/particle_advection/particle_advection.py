@@ -77,7 +77,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             xs = tracers.x
             ys = tracers.y
             zs = tracers.z
-            ids = tracers.Get("id")
+            ids = tracers.id
 
             idx_ids_sorted = np.argsort(ids)
 
@@ -95,8 +95,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             relabs = 0.5 * np.abs(((a - b) + 1) % 2 - 1)
 
             # In principle, the difference should be 0
-            # TODO(PG) investigate where this comes from. Integrator? Interpolation? ...?
-            if relabs.max() > 0.003:
+            if relabs.max() > 1e-14:
                 print(
                     f"ERROR: difference between intial and final position to large for {pos}: {relabs.max()}"
                 )

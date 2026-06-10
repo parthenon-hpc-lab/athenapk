@@ -245,50 +245,45 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
     urst.e = (sdr * ur.e - ptr * wri[IV1] + ptst * spd[2] +
               bxi * (wri[IV1] * bxi + (wri[IV2] * ur.by + wri[IV3] * ur.bz) - vbstr)) *
              sdmr_inv;
-    // ul** and ur** - if Bx is near zero, same as *-states
-    if (0.5 * bxsq < (SMALL_NUMBER)*ptst) {
-      uldst = ulst;
-      urdst = urst;
-    } else {
-      auto invsumd = 1.0 / (sqrtdl + sqrtdr);
-      auto bxsig = (bxi > 0.0 ? 1.0 : -1.0);
+    // ul** and ur** states
+    auto invsumd = 1.0 / (sqrtdl + sqrtdr);
+    auto bxsig = (bxi > 0.0 ? 1.0 : -1.0);
 
-      uldst.d = ulst.d;
-      urdst.d = urst.d;
+    uldst.d = ulst.d;
+    urdst.d = urst.d;
 
-      uldst.mx = ulst.mx;
-      urdst.mx = urst.mx;
+    uldst.mx = ulst.mx;
+    urdst.mx = urst.mx;
 
-      // eqn (59) of M&K
-      auto tmp =
-          invsumd * (sqrtdl * (ulst.my * ulst_d_inv) + sqrtdr * (urst.my * urst_d_inv) +
-                     bxsig * (urst.by - ulst.by));
-      uldst.my = uldst.d * tmp;
-      urdst.my = urdst.d * tmp;
+    // eqn (59) of M&K
+    auto tmp =
+        invsumd * (sqrtdl * (ulst.my * ulst_d_inv) + sqrtdr * (urst.my * urst_d_inv) +
+                   bxsig * (urst.by - ulst.by));
+    uldst.my = uldst.d * tmp;
+    urdst.my = urdst.d * tmp;
 
-      // eqn (60) of M&K
-      tmp = invsumd * (sqrtdl * (ulst.mz * ulst_d_inv) + sqrtdr * (urst.mz * urst_d_inv) +
-                       bxsig * (urst.bz - ulst.bz));
-      uldst.mz = uldst.d * tmp;
-      urdst.mz = urdst.d * tmp;
+    // eqn (60) of M&K
+    tmp = invsumd * (sqrtdl * (ulst.mz * ulst_d_inv) + sqrtdr * (urst.mz * urst_d_inv) +
+                     bxsig * (urst.bz - ulst.bz));
+    uldst.mz = uldst.d * tmp;
+    urdst.mz = urdst.d * tmp;
 
-      // eqn (61) of M&K
-      tmp = invsumd *
-            (sqrtdl * urst.by + sqrtdr * ulst.by +
-             bxsig * sqrtdl * sqrtdr * ((urst.my * urst_d_inv) - (ulst.my * ulst_d_inv)));
-      uldst.by = urdst.by = tmp;
+    // eqn (61) of M&K
+    tmp = invsumd *
+          (sqrtdl * urst.by + sqrtdr * ulst.by +
+           bxsig * sqrtdl * sqrtdr * ((urst.my * urst_d_inv) - (ulst.my * ulst_d_inv)));
+    uldst.by = urdst.by = tmp;
 
-      // eqn (62) of M&K
-      tmp = invsumd *
-            (sqrtdl * urst.bz + sqrtdr * ulst.bz +
-             bxsig * sqrtdl * sqrtdr * ((urst.mz * urst_d_inv) - (ulst.mz * ulst_d_inv)));
-      uldst.bz = urdst.bz = tmp;
+    // eqn (62) of M&K
+    tmp = invsumd *
+          (sqrtdl * urst.bz + sqrtdr * ulst.bz +
+           bxsig * sqrtdl * sqrtdr * ((urst.mz * urst_d_inv) - (ulst.mz * ulst_d_inv)));
+    uldst.bz = urdst.bz = tmp;
 
-      // eqn (63) of M&K
-      tmp = spd[2] * bxi + (uldst.my * uldst.by + uldst.mz * uldst.bz) / uldst.d;
-      uldst.e = ulst.e - sqrtdl * bxsig * (vbstl - tmp);
-      urdst.e = urst.e + sqrtdr * bxsig * (vbstr - tmp);
-    }
+    // eqn (63) of M&K
+    tmp = spd[2] * bxi + (uldst.my * uldst.by + uldst.mz * uldst.bz) / uldst.d;
+    uldst.e = ulst.e - sqrtdl * bxsig * (vbstl - tmp);
+    urdst.e = urst.e + sqrtdr * bxsig * (vbstr - tmp);
 
     //--- Step 6.  Compute flux
     uldst.d = spd[1] * (uldst.d - ulst.d);
@@ -350,6 +345,15 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       tmp(1 + ivx, IEN, k, j, i) = fl.e + ulst.e;
       tmp(1 + ivx, iBy, k, j, i) = fl.by + ulst.by;
       tmp(1 + ivx, iBz, k, j, i) = fl.bz + ulst.bz;
+    } else if (spd[3] <= 0.0) {
+      // return Fr*
+      tmp(1 + ivx, IDN, k, j, i) = fr.d + urst.d;
+      tmp(1 + ivx, ivx, k, j, i) = fr.mx + urst.mx;
+      tmp(1 + ivx, ivy, k, j, i) = fr.my + urst.my;
+      tmp(1 + ivx, ivz, k, j, i) = fr.mz + urst.mz;
+      tmp(1 + ivx, IEN, k, j, i) = fr.e + urst.e;
+      tmp(1 + ivx, iBy, k, j, i) = fr.by + urst.by;
+      tmp(1 + ivx, iBz, k, j, i) = fr.bz + urst.bz;
     } else if (spd[2] >= 0.0) {
       // return Fl**
       tmp(1 + ivx, IDN, k, j, i) = fl.d + ulst.d + uldst.d;
@@ -359,7 +363,7 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       tmp(1 + ivx, IEN, k, j, i) = fl.e + ulst.e + uldst.e;
       tmp(1 + ivx, iBy, k, j, i) = fl.by + ulst.by + uldst.by;
       tmp(1 + ivx, iBz, k, j, i) = fl.bz + ulst.bz + uldst.bz;
-    } else if (spd[3] > 0.0) {
+    } else {
       // return Fr**
       tmp(1 + ivx, IDN, k, j, i) = fr.d + urst.d + urdst.d;
       tmp(1 + ivx, ivx, k, j, i) = fr.mx + urst.mx + urdst.mx;
@@ -368,15 +372,6 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlld> {
       tmp(1 + ivx, IEN, k, j, i) = fr.e + urst.e + urdst.e;
       tmp(1 + ivx, iBy, k, j, i) = fr.by + urst.by + urdst.by;
       tmp(1 + ivx, iBz, k, j, i) = fr.bz + urst.bz + urdst.bz;
-    } else {
-      // return Fr*
-      tmp(1 + ivx, IDN, k, j, i) = fr.d + urst.d;
-      tmp(1 + ivx, ivx, k, j, i) = fr.mx + urst.mx;
-      tmp(1 + ivx, ivy, k, j, i) = fr.my + urst.my;
-      tmp(1 + ivx, ivz, k, j, i) = fr.mz + urst.mz;
-      tmp(1 + ivx, IEN, k, j, i) = fr.e + urst.e;
-      tmp(1 + ivx, iBy, k, j, i) = fr.by + urst.by;
-      tmp(1 + ivx, iBz, k, j, i) = fr.bz + urst.bz;
     }
   }
 };
