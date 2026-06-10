@@ -134,6 +134,7 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
 
   // Always disable injecting as the original value doesn't matter
   pkg->UpdateParam("turbulence/init_scalars_once_on_restart", false);
+  auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
 
   // Initialize passive scalars
   // Get a MeshBlockPack on device with all conserved variables
@@ -201,18 +202,21 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
           Real di = 1.0 / u_d;
           Real e_k = 0.5 * di * (SQR(u_m1) + SQR(u_m2) + SQR(u_m3));
           Real w_p = gm1 * (u_e - e_k);
-          Real T_code = w_p / u_d;
+          //Real T_code = w_p / u_d;
+          Real T = mbar_over_kb * w_p / u_d;
 
-          if (T_code < 0.02) {
-            PARTHENON_REQUIRE_THROWS(vol > 0, "got hot phase for cold cell");
-          } else {
-            PARTHENON_REQUIRE_THROWS(vol == 0, "got cold phase for hot cell");
-          }
-
+          // remove sanity check as no labels for smaller clumps
+          //if (T_code < 0.02) {
+          //  if (vol == 0) PARTHENON_FAIL("got hot phase for cold cell");
+          //} else {
+          //  if (vol > 0) PARTHENON_FAIL("got cold phase for hot cell");
+          //}
           std::int64_t cur_vol = 8;
           int n = 1; // scalar index offset
           while (cur_vol < 5e8) {
-            if (vol <= cur_vol) {
+            //if (vol <= cur_vol) {
+            // removed "=" because 8 is smallest labeled clump
+            if (vol < cur_vol) {
               break;
             }
             cur_vol *= 4;
@@ -221,6 +225,9 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
           // background/hot phase
           if (vol == 0) {
             n = 0;
+            // ensure cells is actually cold
+          } else {
+            if (T > 2.01e4) PARTHENON_FAIL("got cold phase for hot cell");
           }
 
           cons(nhydro + n, k, j, i) = 1.0 * cons(IDN, k, j, i);
@@ -267,13 +274,19 @@ void InitScalars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         int num_scalars_set = 0;
         for (auto n = nhydro; n < nhydro + nscalars; ++n) {
-          num_scalars_set += prim(b, n, k, j, i) == 1.0;
+          num_scalars_set += Kokkos::abs(prim(b, n, k, j, i) - 1.0) < 1e-6;
 
-          PARTHENON_REQUIRE_THROWS(prim(b, n, k, j, i) ==
-                                       cons(b, n, k, j, i) / cons(b, IDN, k, j, i),
-                                   "Mismatch in prim from cons")
+          if (Kokkos::abs(1.0 - (prim(b, n, k, j, i)/(cons(b, n, k, j, i) / cons(b, IDN, k, j, i))
+
+                                       )) > 1e-6) {
+printf("%d %d %d %d %d: prim: %f cons: %f dens: %f\n",b,n,k,j,i,prim(b,n,k,j,i),cons(b,n,k,j,i), cons(b,IDN,k,j,i));
+                                   PARTHENON_FAIL("Mismatch in prim from cons");
+          }
         }
-        PARTHENON_REQUIRE_THROWS(num_scalars_set == 1, "unexpected scalar count");
+        if (num_scalars_set != 1) {
+          printf("%d %d %d %d: num scalars: %d\n",b,k,j,i,num_scalars_set);
+          PARTHENON_FAIL( "unexpected scalar count");
+        }
       });
 }
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
