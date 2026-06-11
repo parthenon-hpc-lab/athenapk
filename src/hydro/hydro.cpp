@@ -21,6 +21,7 @@
 #include "../recon/dc_simple.hpp"
 #include "../recon/limo3_simple.hpp"
 #include "../recon/mixed_plm_ppm.hpp"
+#include "../recon/mixed_ppm_plm.hpp"
 #include "../recon/plm_simple.hpp"
 #include "../recon/ppm_simple.hpp"
 #include "../recon/weno3_simple.hpp"
@@ -339,6 +340,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (recon_str == "mixed_plm_ppm") {
     recon = Reconstruction::mixed_plm_ppm;
     recon_need_nghost = 3;
+  } else if (recon_str == "mixed_ppm_plm") {
+    recon = Reconstruction::mixed_ppm_plm;
+    recon_need_nghost = 3;
   } else if (recon_str == "limo3") {
     recon = Reconstruction::limo3;
     recon_need_nghost = 2;
@@ -416,6 +420,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::mixed_plm_ppm, RiemannSolver::hlle>(
       flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::mixed_ppm_plm, RiemannSolver::hlle>(
+      flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlle>(flux_functions);
@@ -423,6 +429,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::mixed_plm_ppm, RiemannSolver::hlld>(
+      flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::mixed_ppm_plm, RiemannSolver::hlld>(
       flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlld>(flux_functions);

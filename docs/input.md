@@ -46,11 +46,13 @@ Parameter: `reconstruction` (string)
 - `plm` : piecewise linear (second order)
 - `ppm` : piecewise parabolic (third order)
 - `mixed_plm_ppm` : `plm` for hydro variables and `ppm` for magnetic fields
+- `mixed_ppm_plm` : `ppm` for hydro variables and `plm` for magnetic fields
 - `limo3` : LimO3 (third order)
 - `weno3` : WENO3 (third order)
 - `wenoz` : WENO-Z (third order but more accurate than WENO3)
 
-Note, `ppm` and `wenoz` need at least three ghost zones (`parthenon/mesh/num_ghost`).
+Note, `ppm`, `mixed_plm_ppm`, `mixed_ppm_plm`, and `wenoz` need at least three
+ghost zones (`parthenon/mesh/num_ghost`).
 
 #### Floors
 
