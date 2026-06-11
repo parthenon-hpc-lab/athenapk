@@ -20,6 +20,7 @@
 //========================================================================================
 
 #include <string>
+#include <variant>
 #include <vector>
 
 // Parthenon headers
@@ -29,6 +30,8 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
+#include "../eos/adiabatic_glmmhd.hpp"
+#include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
 #include "../units.hpp"
 #include "custom_rng.hpp"
@@ -42,6 +45,15 @@ using utils::custom_rng::hash;
 using utils::custom_rng::random_double;
 using utils::custom_rng::SeedFromIndices;
 
+template TaskStatus InjectParticles<AdiabaticHydroEOS>(MeshBlockData<Real> *,
+                                                       parthenon::SimTime &,
+                                                       const std::string &,
+                                                       const AdiabaticHydroEOS &);
+template TaskStatus InjectParticles<AdiabaticGLMMHDEOS>(MeshBlockData<Real> *,
+                                                        parthenon::SimTime &,
+                                                        const std::string &,
+                                                        const AdiabaticGLMMHDEOS &);
+
 /* ===============================================================================
 InjectParticles: called at each timestep, inject new particles in cells fulfilling
 a criterion indicated in the input parameter list. Since particles can't be injected
@@ -50,18 +62,22 @@ are injected in a stochastic way, based on a target number of particle per cell 
 per unit time.
 =============================================================================== */
 
+template <class EOS>
 TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
-                           const std::string &pkg_name) {
+                           const std::string &pkg_name, const EOS &eos) {
 
   auto *pmb = mbd->GetParentPointer();
   auto *pmesh = pmb->pmy_mesh;
   auto &coords = pmb->coords;
   auto &prim = mbd->PackVariables(std::vector<std::string>{"prim"});
+  auto &cons = mbd->PackVariables(std::vector<std::string>{"cons"});
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
   // Get meshblock data
   auto particles_pkg = pmb->packages.Get(pkg_name);
   auto hydro_pkg = pmb->packages.Get("Hydro");
-  auto units = hydro_pkg->Param<Units>("units");
+  const auto units = hydro_pkg->Param<Units>("units");
+  const int nhydro = hydro_pkg->Param<int>("nhydro");
+  const int nscalars = hydro_pkg->Param<int>("nscalars");
 
   // Loading root grid level
   const int root_level = pmesh->GetRootLevel();
@@ -95,7 +111,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
     ParticlesCriterion injection_criterion = ParticlesCriterion::None; // default
 
-    bool mass_enabled = false; // by default, massless particles (e.g. tracers)
+    bool mass_enabled = false;  // by default, massless particles (e.g. tracers)
+    Real mass_efficiency = 0.0; // temporary, cell mass conversion factor (for stars)
     Real p_injection = -1.0;
     Real injection_threshold = -1.0;
     InjectionMode injection_mode = InjectionMode::FixedRate; // By default
@@ -128,6 +145,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     } else if (pkg_name == "stars") {
       injection_mode = InjectionMode::PerCell;
       injection_threshold = particles_pkg->Param<Real>("sf_density_threshold");
+      mass_efficiency = particles_pkg->Param<Real>(swarm_name + "_mass_efficiency");
       mass_enabled = true;
     } else {
       // Future packages (e.g. star formation) should add a corresponding branch here.
@@ -147,24 +165,6 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     const auto &x_max = pmb->coords.Xf<1>(ib.e + 1);
     const auto &y_max = pmb->coords.Xf<2>(jb.e + 1);
     const auto &z_max = pmb->coords.Xf<3>(kb.e + 1);
-
-    /* === Quick SFR calculationg test === */
-
-    /*
-    Real block_sfr = 0.0;
-
-    pmb->par_reduce(
-        "InjectParticles::ComputeSFR", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int k, const int j, const int i, Real &lsfr) {
-          lsfr += StarFormation::EvaluateStarFormation(
-              prim, coords, k, j, i, injection_threshold, gravitational_constant, ndim);
-        },
-        Kokkos::Sum<Real>(block_sfr));
-
-    std::cout << "Block " << pmb->gid << " SFR = " << block_sfr << std::endl;
-    */
-
-    /* === Quick SFR calculationg test === */
 
     int num_injected_particles_in_block = 0;
 
@@ -273,10 +273,9 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                 ltime(swarm_idx) = lifetime;
               }
               if (mass_enabled) {
-                const Real dx_cell = coords.Dxc<1>(i);
-                const Real dy_cell = coords.Dxc<2>(j);
-                const Real dz_cell = coords.Dxc<3>(k);
-                pmass(swarm_idx) = prim(IDN, k, j, i) * dx_cell * dy_cell * dz_cell;
+                pmass(swarm_idx) = StarFormation::TransferCellMassToParticle(
+                    cons, prim, coords, k, j, i, mass_efficiency, ndim, eos, nhydro,
+                    nscalars);
               }
             }
           }

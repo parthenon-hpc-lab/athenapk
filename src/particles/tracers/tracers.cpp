@@ -38,6 +38,8 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
+#include "../../eos/adiabatic_glmmhd.hpp"
+#include "../../eos/adiabatic_hydro.hpp"
 #include "../../main.hpp"
 #include "../custom_rng.hpp"
 #include "../particles_utils.hpp"
@@ -60,7 +62,19 @@ and per unit time.
 =============================================================================== */
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
-  return ParticlesUtils::InjectParticles(mbd, tm, "tracers");
+  auto *pmb = mbd->GetParentPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto fluid = hydro_pkg->Param<Fluid>("fluid");
+
+  if (fluid == Fluid::euler) {
+    return ParticlesUtils::InjectParticles(mbd, tm, "tracers",
+                                           hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+  } else if (fluid == Fluid::glmmhd) {
+    return ParticlesUtils::InjectParticles(mbd, tm, "tracers",
+                                           hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+  } else {
+    PARTHENON_FAIL("InjectTracers: unsupported fluid type.");
+  }
 }
 
 /* ===============================================================================

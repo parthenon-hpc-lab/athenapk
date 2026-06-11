@@ -82,6 +82,36 @@ KOKKOS_INLINE_FUNCTION Real EvaluateStarFormationProbability(
   return 1.0 - Kokkos::exp(-sfr * dt / M_gas);
 }
 
+/* ===============================================================================
+TransferCellMassToParticle: transfers a fraction of the gas mass from a grid
+cell to a newly injected star particle, and decrements the cell conserved
+density accordingly. Given the cell gas mass M_gas = rho * dx * dy * dz and
+the mass efficiency epsilon, the particle mass is set to:
+  m_star = epsilon * M_gas
+and the cell density is updated as:
+  rho -> rho * (1 - epsilon)
+This ensures mass conservation between the grid and the particle swarm.
+=============================================================================== */
+
+template <typename View4D, class EOS>
+KOKKOS_INLINE_FUNCTION Real TransferCellMassToParticle(
+    View4D cons, View4D prim, const Coordinates_t &coords, const int k, const int j,
+    const int i, const Real mass_efficiency, const int ndim, const EOS &eos,
+    const int nhydro, const int nscalars) {
+
+  const Real dx = coords.Dxc<1>(k, j, i);
+  const Real dy = coords.Dxc<2>(k, j, i);
+  const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
+
+  const Real mass = mass_efficiency * cons(IDN, k, j, i) * dx * dy * dz;
+  cons(IDN, k, j, i) *= (1.0 - mass_efficiency);
+
+  // Resync prim from updated cons in-place
+  eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+
+  return mass;
+}
+
 } // namespace StarFormation
 
 #endif // STAR_FORMATION_HPP_

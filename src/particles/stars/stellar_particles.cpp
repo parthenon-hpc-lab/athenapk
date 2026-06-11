@@ -38,6 +38,8 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
+#include "../../eos/adiabatic_glmmhd.hpp"
+#include "../../eos/adiabatic_hydro.hpp"
 #include "../../main.hpp"
 #include "../custom_rng.hpp"
 #include "../particles_utils.hpp"
@@ -63,7 +65,19 @@ and per unit time.
 =============================================================================== */
 
 TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
-  return ParticlesUtils::InjectParticles(mbd, tm, "stars");
+  auto *pmb = mbd->GetParentPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto fluid = hydro_pkg->Param<Fluid>("fluid");
+
+  if (fluid == Fluid::euler) {
+    return ParticlesUtils::InjectParticles(mbd, tm, "stars",
+                                           hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+  } else if (fluid == Fluid::glmmhd) {
+    return ParticlesUtils::InjectParticles(mbd, tm, "stars",
+                                           hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+  } else {
+    PARTHENON_FAIL("InjectStars: unsupported fluid type.");
+  }
 }
 
 /* ===============================================================================
@@ -100,6 +114,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   std::vector<std::string> swarm_names = {"stars"};
   stars_pkg->AddParam<>("swarm_names", swarm_names);
   stars_pkg->AddParam<>("stars_injection_enabled", true);
+  stars_pkg->AddParam<>("stars_mass_efficiency", 0.5); // Temporary variable
   stars_pkg->AddParam<>("stars_removal_enabled", false);
 
   // Add value for injection time
@@ -138,10 +153,8 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto swarm_names = stars_pkg->Param<std::vector<std::string>>("swarm_names");
   const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
-  const auto &coords = pmb->coords;
 
-  // === Sanity check: gravitational field must be defined if advection_mode set to
-  // gravity ===
+  // === Sanity check: gravitational field must be defined if necessary ===
   const auto advection_mode = stars_pkg->Param<std::string>("advection_mode");
   const bool use_gravity = (advection_mode == "gravity");
 
@@ -215,7 +228,7 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             */
 
             /* == Dummy advection mode for tests === */
-        
+
             if (!use_gravity) {
 
               const auto x_star = x(n) + current_dt * vel_x(n);

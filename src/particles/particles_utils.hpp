@@ -104,8 +104,9 @@ EvaluateCriterion(ParticlesCriterion crit, View4D prim, const Coordinates_t &coo
 }
 
 // TaskStatus
+template <class EOS>
 TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
-                           const std::string &pkg_name);
+                           const std::string &pkg_name, const EOS &eos);
 TaskStatus RemoveParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                            const std::string &pkg_name);
 
