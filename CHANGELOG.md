@@ -10,11 +10,16 @@ New outputs are automatically written in the standard compliant version.
 However, to keep the old scheme (e.g., when restarting from existing simulation data with the intent to keep the timeseries consistent add `openpmd_format_version=1` to the corresponding openpmd output blocks.
 - A watchdog (to kill a simulation that hangs for whatever reason). Just run with `-w HH:MM:SS`.
 - Support for (tracer) particles with AMR.
+- Support for using more parallelism for the ghost zone exchange kernels, which speeds up simulation with few (<10) blocks per rank on device, see [here](https://github.com/parthenon-hpc-lab/parthenon/pull/1271).
+A good starting point is `parthenon/mesh/minimum_number_of_teams_for_boundary_kernel=8`.
 
 With the update of Kokkos to version 5.1.1 (or >5.0 in general) a performance regression was identified.
 This is likely related to the Kokkos-internal use of int64 indices in the new `mdspan` based `View`s resulting more register usage (which. in turn, results in lower occupancy on devices).
 The Kokkos team is aware of this and working on a fix.
-If the current performance is (significantly) below expectation, one can try to use "legacy" views via `Kokkos_IMPL_VIEW_LEGACY=ON`.
+If the current performance is (significantly) below expectation, one can try to use "legacy" views via `Kokkos_ENABLE_IMPL_VIEW_LEGACY=ON`.
+
+**IMPORTANT** The latest Parthenon submodule includes a fix for a race condition in the flux correction communication routine when run with mesh refinement on GPUs, see [here](https://github.com/parthenon-hpc-lab/parthenon/pull/1405).
+Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF` to mitigate the race condition.
 
 ### Added (new features/APIs/variables/...)
 
