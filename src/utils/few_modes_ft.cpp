@@ -74,17 +74,19 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
       if (k_vec_host(0, i) == 0 && k_vec_host(0, i) == k_vec_host(0, j) &&
           k_vec_host(1, i) == -k_vec_host(1, j) &&
           k_vec_host(2, i) == -k_vec_host(2, j)) {
-        PARTHENON_WARN(
-            "The given set of k_vec include complex conjugate partners for mode " +
-            std::to_string(i) + " with components " + std::to_string(k_vec_host(0, i)) +
-            " " + std::to_string(k_vec_host(1, i)) + " " +
-            std::to_string(k_vec_host(2, i)) +
-            "."
-            "In theory, this results in these modes being counted double. In practice, "
-            "this will have little to no effect as the normalization is done separate "
-            "for the real space field rather than the spectral field. However, if this "
-            "is a fresh simulation (and not a restarted one with given/fixed k_vec) it "
-            "is recommended to update the set of k_vec in the input file.");
+        if (parthenon::Globals::my_rank == 0) {
+          PARTHENON_WARN(
+              "The given set of k_vec include complex conjugate partners for mode " +
+              std::to_string(i) + " with components " + std::to_string(k_vec_host(0, i)) +
+              " " + std::to_string(k_vec_host(1, i)) + " " +
+              std::to_string(k_vec_host(2, i)) +
+              "."
+              "In theory, this results in these modes being counted double. In practice, "
+              "this will have little to no effect as the normalization is done separate "
+              "for the real space field rather than the spectral field. However, if this "
+              "is a fresh simulation (and not a restarted one with given/fixed k_vec) it "
+              "is recommended to update the set of k_vec in the input file.");
+        }
       }
       PARTHENON_REQUIRE_THROWS(!(k_vec_host(0, i) == k_vec_host(0, j) &&
                                  k_vec_host(1, i) == k_vec_host(1, j) &&
