@@ -27,5 +27,6 @@ target_sources(athenaPK PRIVATE
     precipitator_srcterms.cpp
     rand_blast.cpp
     sod.cpp
+    shattering.cpp
     turbulence.cpp
     )

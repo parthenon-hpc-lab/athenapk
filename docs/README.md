@@ -12,8 +12,9 @@ The documentation currently includes
   - [An extended overview of various conventions for optically thin cooling implementations](cooling_notes.md)
   - [Notebooks to calculate cooling tables from literature](cooling)
 - [Brief notes on developing code for AthenaPK](development.md)
-- [How to add a custom/user problem generator](pgen.md)
+- [How to add a custom/user problem generator](user_pgen.md)
 - [Units](units.md)
+- [Standard problem generators](standard_pgen.md)
 - Detailed descriptions of more complex problem generators
   - [Galaxy Cluster and Cluster-like Problem Setup](cluster.md)
   - [Driven turbulence](turbulence.md)

@@ -26,9 +26,9 @@ out = ""
 
 all_vec = []
 
-for i in range(k_high):
-    for j in range(-k_high, k_high):
-        for k in range(-k_high, k_high):
+for i in range(k_high + 1):
+    for j in range(-k_high, k_high + 1):
+        for k in range(-k_high, k_high + 1):
 
             k_mag = np.sqrt(i**2 + j**2 + k**2)
             if k_mag > k_high or k_mag < k_low:
@@ -36,6 +36,16 @@ for i in range(k_high):
             # this is the spectral shape of the implemented forcing function
             if (k_mag / k_peak) ** 2.0 * (2.0 - (k_mag / k_peak) ** 2.0) < 0:
                 continue
+
+            # skip Hermitian partner
+            if i == 0:
+                skip = False
+                for vec in all_vec:
+                    if j == -vec[1] and k == -vec[2]:
+                        skip = True
+                if skip:
+                    continue
+
             all_vec.append((i, j, k))
 
 # select all wavevectors

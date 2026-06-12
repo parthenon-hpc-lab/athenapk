@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2023, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2023-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //========================================================================================
@@ -9,11 +9,11 @@
 
 // C++ headers
 #include <random>
+#include <string>
 
 // Parthenon headers
 #include "basic_types.hpp"
 #include "config.hpp"
-#include "defs.hpp"
 #include "globals.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/meshblock_pack.hpp"
@@ -48,9 +48,52 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   // lambda cannot live in the constructor of an object.
   auto k_vec_host = k_vec.GetHostMirrorAndCopy();
   for (int i = 0; i < num_modes; i++) {
-    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) <= static_cast<Real>(gnx1) / 2, "k_vec x1 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) <= static_cast<Real>(gnx2) / 2, "k_vec x2 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) <= static_cast<Real>(gnx3) / 2, "k_vec x3 mode too large");
+    PARTHENON_REQUIRE(
+        k_vec_host(0, i) >= 0,
+        "k_x mode must be positive as explicit Hermitian symmetry is assumed.");
+    PARTHENON_REQUIRE(
+        !(k_vec_host(0, i) == 0 && k_vec_host(1, i) == 0 && k_vec_host(2, i) == 0),
+        "Forcing normalization is handled separately so do not include the 0 mode.");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) < gnx1 / 2, "k_vec x1 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) < gnx2 / 2, "k_vec x2 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) < gnx3 / 2, "k_vec x3 mode too large");
+  }
+
+  // Ensure that the provided k_vec do not include their conjugate and/or itself again as
+  // otherwise that mode would be counted twice
+  for (int i = 0; i < num_modes; i++) {
+    for (int j = 0; j < num_modes; j++) {
+      if (i == j) {
+        continue;
+      }
+
+      // The sample input file shipped for a couple of years
+      // unforunately came with complex conjugate modes...
+      // So in order to not crash old/existing sims upon restart we allow this and just
+      // issue a warning
+      if (k_vec_host(0, i) == 0 && k_vec_host(0, i) == k_vec_host(0, j) &&
+          k_vec_host(1, i) == -k_vec_host(1, j) &&
+          k_vec_host(2, i) == -k_vec_host(2, j)) {
+        if (parthenon::Globals::my_rank == 0) {
+          PARTHENON_WARN(
+              "The given set of k_vec include complex conjugate partners for mode " +
+              std::to_string(i) + " with components " + std::to_string(k_vec_host(0, i)) +
+              " " + std::to_string(k_vec_host(1, i)) + " " +
+              std::to_string(k_vec_host(2, i)) +
+              "."
+              "In theory, this results in these modes being counted double. In practice, "
+              "this will have little to no effect as the normalization is done separate "
+              "for the real space field rather than the spectral field. However, if this "
+              "is a fresh simulation (and not a restarted one with given/fixed k_vec) it "
+              "is recommended to update the set of k_vec in the input file.");
+        }
+      }
+      PARTHENON_REQUIRE_THROWS(!(k_vec_host(0, i) == k_vec_host(0, j) &&
+                                 k_vec_host(1, i) == k_vec_host(1, j) &&
+                                 k_vec_host(2, i) == k_vec_host(2, j)),
+                               "The given set of k_vec include identical modes. "
+                               "Please provide a set without dublicates.");
+    }
   }
 
   const auto nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
@@ -81,133 +124,8 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
       "random_num", 3, num_modes, 2);
   random_num_host_ = Kokkos::create_mirror_view(random_num_);
 
-  bool is_restart = pin->DoesParameterExist("few_modes_ft", "var_hat_0_0_r");
-  if (is_restart) {
-    // Restore acceleration field in Fourier space
-    std::cout << "restoring acceleration field...\n\n";
-
-    // read var_hat
-    {
-      //std::cout << "reading var_hat...\n";
-      auto var_hat_host = Kokkos::create_mirror_view(var_hat_);
-      for (int i = 0; i < 3; i++) {
-        for (int m = 0; m < num_modes; m++) {
-          auto real = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
-                                                       std::to_string(m) + "_r");
-          auto imag = pin->GetReal("few_modes_ft", "var_hat_" + std::to_string(i) + "_" +
-                                                       std::to_string(m) + "_i");
-          //std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
-          var_hat_host(i, m) = Complex(real, imag);
-        }
-      }
-      Kokkos::deep_copy(var_hat_, var_hat_host);
-    }
-
-    // read var_hat_new
-    {
-      //std::cout << "reading var_hat_new...\n";
-      auto var_hat_new_host = Kokkos::create_mirror_view(var_hat_new_);
-      for (int i = 0; i < 3; i++) {
-        for (int m = 0; m < num_modes; m++) {
-          auto real_new =
-              pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
-                                               std::to_string(m) + "_r");
-          auto imag_new =
-              pin->GetReal("few_modes_ft", "var_hat_new_" + std::to_string(i) + "_" +
-                                               std::to_string(m) + "_i");
-          //std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new
-          //          << "\n";
-          var_hat_new_host(i, m) = Complex(real_new, imag_new);
-        }
-      }
-      Kokkos::deep_copy(var_hat_new_, var_hat_new_host);
-    }
-
-    // read rng state
-    {
-      std::istringstream iss(pin->GetString("few_modes_ft", "state_rng"));
-      iss >> rng_;
-      //std::cout << "rng state: " << rng_ << "\n";
-    }
-
-    // read dist
-    {
-      std::istringstream iss(pin->GetString("few_modes_ft", "state_dist"));
-      iss >> dist_;
-      //std::cout << "dist state: " << dist_ << "\n";
-    }
-
-  } else {
-    // this is NOT a restart
-    rng_.seed(rseed);
-    dist_ = std::uniform_real_distribution<>(-1.0, 1.0);
-  }
-}
-
-void FewModesFT::SaveStateBeforeOutput(Mesh *mesh, ParameterInput *pin) {
-  // Save acceleration field in Fourier space
-  auto md = mesh->mesh_data.Get();
-  auto pmb = md->GetBlockData(0)->GetBlockPointer();
-  auto hydro_pkg = pmb->packages.Get("Hydro");
-  auto num_modes = pin->GetInteger("precipitator/driving", "num_modes");
-
-  // var_hat_
-  {
-    auto var_hat_host =
-        Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_);
-    // std::cout << "writing var_hat...\n";
-
-    for (int i = 0; i < 3; i++) {
-      for (int m = 0; m < num_modes; m++) {
-        Real real = var_hat_host(i, m).real();
-        Real imag = var_hat_host(i, m).imag();
-        pin->SetReal("few_modes_ft",
-                     "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
-                     real);
-        pin->SetReal("few_modes_ft",
-                     "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
-                     imag);
-        // std::cout << "(" << i << "," << m << "): " << real << "\t" << imag << "\n";
-      }
-    }
-  }
-
-  // var_hat_new_
-  {
-    auto var_hat_new_host = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_new_);
-    // std::cout << "writing var_hat_new...\n";
-
-    for (int i = 0; i < 3; i++) {
-      for (int m = 0; m < num_modes; m++) {
-        Real real_new = var_hat_new_host(i, m).real();
-        Real imag_new = var_hat_new_host(i, m).imag();
-        pin->SetReal("few_modes_ft",
-                     "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
-                     real_new);
-        pin->SetReal("few_modes_ft",
-                     "var_hat_new_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
-                     imag_new);
-        // std::cout << "(" << i << "," << m << "): " << real_new << "\t" << imag_new <<
-        // "\n";
-      }
-    }
-  }
-
-  // save rng
-  {
-    std::ostringstream oss;
-    oss << rng_;
-    pin->SetString("few_modes_ft", "state_rng", oss.str());
-    // std::cout << "rng state: " << rng_ << "\n";
-  }
-
-  // save dist
-  {
-    std::ostringstream oss;
-    oss << dist_;
-    pin->SetString("few_modes_ft", "state_dist", oss.str());
-    // std::cout << "dist state: " << dist_ << "\n";
-  }
+  rng_.seed(rseed);
+  dist_ = std::uniform_real_distribution<>(-1.0, 1.0);
 }
 
 void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
@@ -216,18 +134,25 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   // The following restriction could technically be lifted if the turbulence driver is
   // directly embedded in the hydro driver rather than a user defined source as well as
-  // fixing the pack_size=-1 when using the Mesh- (not MeshBlock-)based problem generator.
-  // The restriction stems from requiring a collective MPI comm to normalize the
-  // acceleration and magnetic field, respectively. Note, that the restriction does not
-  // apply here, but for the ProblemGenerator() and Driving() function below. The check is
-  // just added here for convenience as this function is called during problem
+  // fixing the packs_per_rank=1 when using the Mesh- (not MeshBlock-)based problem
+  // generator. The restriction stems from requiring a collective MPI comm to normalize
+  // the acceleration and magnetic field, respectively. Note, that the restriction does
+  // not apply here, but for the ProblemGenerator() and Driving() function below. The
+  // check is just added here for convenience as this function is called during problem
   // initializtion. From my (pgrete) point of view, it's currently cleaner to keep things
   // separate and not touch the main driver at the expense of using one pack per rank --
   // which is typically fastest on devices anyway.
-  const auto pack_size = pin->GetInteger("parthenon/mesh", "pack_size");
-  PARTHENON_REQUIRE_THROWS(pack_size == -1,
-                           "Few modes FT currently needs parthenon/mesh/pack_size=-1 "
-                           "to work because of global reductions.")
+  bool uses_single_pack = false;
+  // need separate check due to new packs_per_rank parameter
+  if (pin->DoesParameterExist("parthenon/mesh", "pack_size")) {
+    uses_single_pack = pin->GetInteger("parthenon/mesh", "pack_size") == -1;
+    // one parameter has to exist
+  } else {
+    uses_single_pack = pin->GetInteger("parthenon/mesh", "packs_per_rank") == 1;
+  }
+  PARTHENON_REQUIRE_THROWS(uses_single_pack,
+                           "Few modes FT currently needs parthenon/mesh/packs_per_rank=1 "
+                           "to work because of global reductions.");
 
   const auto Lx1 = pm->mesh_size.xmax(X1DIR) - pm->mesh_size.xmin(X1DIR);
   const auto Lx2 = pm->mesh_size.xmax(X2DIR) - pm->mesh_size.xmin(X2DIR);
@@ -244,12 +169,10 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
   // Restriction should also be easily fixed, just need to double check transforms and
   // volume weighting everywhere
-#if 0
   PARTHENON_REQUIRE_THROWS(((gnx1 == gnx2) && (gnx2 == gnx3)) &&
                                ((Lx1 == Lx2) && (Lx2 == Lx3)),
                            "FMFT has only been tested with cubic meshes and constant "
                            "dx/dy/dz. Remove this warning at your own risk.")
-#endif
 
   const auto nx1 = pmb->block_size.nx(X1DIR);
   const auto nx2 = pmb->block_size.nx(X2DIR);
@@ -282,12 +205,7 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
         for (int m = 0; m < num_modes; m++) {
           w_kx = k_vec(0, m) * 2. * M_PI / static_cast<Real>(gnx1);
-          // adjust phase factor to Complex->Real IFT: u_hat*(k) = u_hat(-k)
-          if (k_vec(0, m) == 0.0) {
-            phase = 0.5 * Kokkos::exp(I * w_kx * gi);
-          } else {
-            phase = Kokkos::exp(I * w_kx * gi);
-          }
+          phase = Kokkos::exp(I * w_kx * gi);
           phases_i(i, m, 0) = phase.real();
           phases_i(i, m, 1) = phase.imag();
         }
@@ -328,7 +246,6 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
 
   const auto num_modes = num_modes_;
 
-  Complex I(0.0, 1.0);
   auto &random_num = random_num_;
 
   // get a set of random numbers from the CPU so that they are deterministic
@@ -375,19 +292,6 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
 
         var_hat_new(n, m) =
             Complex(tmp * norm * random_num(n, m, 0), tmp * norm * random_num(n, m, 1));
-      });
-
-  // enforce symmetry of complex to real transform
-  pmb->par_for(
-      "forcing: enforce symmetry", 0, 2, 0, num_modes - 1,
-      KOKKOS_LAMBDA(const int n, const int m) {
-        if (k_vec(0, m) == 0.) {
-          for (int m2 = 0; m2 < m; m2++) {
-            if (k_vec(1, m) == -k_vec(1, m2) && k_vec(2, m) == -k_vec(2, m2))
-              var_hat_new(n, m) =
-                  Complex(var_hat_new(n, m2).real(), -var_hat_new(n, m2).imag());
-          }
-        }
       });
 
   const auto sol_weight = sol_weight_;
@@ -478,7 +382,7 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
 
 // Creates a random set of wave vectors with k_mag within k_peak/2 and 2*k_peak
 ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
-                                 uint32_t rseed = 31224, const bool xy_modes_only) {
+                                 uint32_t rseed = 31224) {
   auto k_vec = parthenon::ParArray2D<Real>("k_vec", 3, num_modes);
   auto k_vec_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), k_vec);
 
@@ -491,22 +395,16 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
 
   int n_mode = 0;
   int n_attempt = 0;
-  constexpr int max_attempts = 1e6;
-  Real kx1 = NAN;
-  Real kx2 = NAN;
-  Real kx3 = 0.;
-  Real k_mag = NAN;
-  Real ampl = NAN;
-
+  constexpr int max_attempts = 1000000;
+  Real kx1, kx2, kx3, k_mag, ampl;
   bool mode_exists = false;
+  bool hermitian_exists = false;
   while (n_mode < num_modes && n_attempt < max_attempts) {
     n_attempt += 1;
 
     kx1 = dist(rng);
     kx2 = dist(rng);
-    if (!xy_modes_only) {
-      kx3 = dist(rng);
-    }
+    kx3 = dist(rng);
     k_mag = std::sqrt(SQR(kx1) + SQR(kx2) + SQR(kx3));
 
     // Expected amplitude of the spectral function. If this is changed, it also needs to
@@ -522,8 +420,20 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
       }
     }
 
+    // Check is Hermitian symmetric partner already exist
+    hermitian_exists = false;
+    if (kx1 == 0) {
+      for (int n_mode_exsist = 0; n_mode_exsist < n_mode; n_mode_exsist++) {
+        if (k_vec_h(0, n_mode_exsist) == kx1 && -k_vec_h(1, n_mode_exsist) == kx2 &&
+            -k_vec_h(2, n_mode_exsist) == kx3) {
+          hermitian_exists = true;
+        }
+      }
+    }
+
     // kx1 < 0.0 because we use a explicit symmetric Complex to Real transform
-    if (ampl < 0 || k_mag < k_low || k_mag > k_high || mode_exists || kx1 < 0.0) {
+    if (ampl < 0 || k_mag < k_low || k_mag > k_high || mode_exists || hermitian_exists ||
+        kx1 < 0.0) {
       continue;
     }
     k_vec_h(0, n_mode) = kx1;
@@ -531,17 +441,6 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
     k_vec_h(2, n_mode) = kx3;
     n_mode++;
   }
-
-#if 0
-  // print modes
-  for (int n = 0; n < n_mode; ++n) {
-    std::cout << "k_vec_h(0, " << n << ") = " << k_vec_h(0, n) << "\n";
-    std::cout << "k_vec_h(1, " << n << ") = " << k_vec_h(1, n) << "\n";
-    std::cout << "k_vec_h(2, " << n << ") = " << k_vec_h(2, n) << "\n";
-    std::cout << "\n";
-  }
-#endif
-
   PARTHENON_REQUIRE_THROWS(
       n_attempt < max_attempts,
       "Cluster init did not succeed in calculating perturbation modes.")
