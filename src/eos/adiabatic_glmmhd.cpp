@@ -43,14 +43,30 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
 
   auto this_on_device = (*this);
 
-  parthenon::par_for(
+  std::int64_t floor_rho, floor_pres, floor_temp;
+  parthenon::par_reduce(
       DEFAULT_LOOP_PATTERN, "ConservedToPrimitive", parthenon::DevExecSpace(), 0,
       cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i,
+                    std::int64_t &lfloor_rho, std::int64_t &lfloor_pres,
+                    std::int64_t &lfloor_temp) {
         const auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         // auto &nu = entropy_pack(b);
 
-        return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-      });
+        auto floors_used =
+            this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+        if (floors_used & 1) lfloor_rho += 1;
+        if (floors_used & 2) lfloor_pres += 1;
+        if (floors_used & 4) lfloor_temp += 1;
+      },
+      floor_rho, floor_pres, floor_temp);
+  const auto floor_rho_pkg = pkg->Param<std::int64_t>("fixed_num_cells_floor_rho");
+  pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_rho", floor_rho_pkg + floor_rho);
+  const auto floor_pres_pkg = pkg->Param<std::int64_t>("fixed_num_cells_floor_pres");
+  pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_pres",
+                                 floor_pres_pkg + floor_pres);
+  const auto floor_temp_pkg = pkg->Param<std::int64_t>("fixed_num_cells_floor_temp");
+  pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_temp",
+                                 floor_temp_pkg + floor_temp);
 }

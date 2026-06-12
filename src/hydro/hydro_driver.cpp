@@ -14,6 +14,7 @@
 #include "amr_criteria/refinement_package.hpp"
 #include "basic_types.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
+#include "globals.hpp"
 #include "kokkos_types.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include "utils/error_checking.hpp"
@@ -260,6 +261,10 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     auto rkl2_step_first = tl.AddTask(init_MY0, RKL2StepFirst, Y0.get(), base.get(),
                                       Yjm2.get(), MY0.get(), s_rkl, tau);
 
+    // if prolongate on prims is done then this is a ConsToPrim call. Otherwise, noop.
+    auto precomm_fill_derived =
+        tl.AddTask(rkl2_step_first, parthenon::Update::PreCommFillDerived<MeshData<Real>>,
+                   base.get());
     // Update ghost cells of Y1 (as MY1 is calculated for each Y_j).
     // Y1 stored in "base", see rkl2_step_first task.
     // Update ghost cells (local and non local), prolongate and apply bound cond.
@@ -268,7 +273,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     // best impl. Go with default call (split local/nonlocal) for now.
     // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
     auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
-        rkl2_step_first | start_bnd, tl, base, pmesh->multilevel);
+        precomm_fill_derived | start_bnd, tl, base, pmesh->multilevel);
 
     tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
                base.get());
@@ -326,6 +331,10 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
           tl.AddTask(set_flx, RKL2StepOther, Y0.get(), base.get(), Yjm2.get(), MY0.get(),
                      mu_j, nu_j, mu_tilde_j, gamma_tilde_j, tau);
 
+      // if prolongate on prims is done then this is a ConsToPrim call. Otherwise, noop.
+      auto precomm_fill_derived =
+          tl.AddTask(rkl2_step_other,
+                     parthenon::Update::PreCommFillDerived<MeshData<Real>>, base.get());
       // update ghost cells of base (currently storing Yj)
       // Update ghost cells (local and non local), prolongate and apply bound cond.
       // TODO(someone) experiment with split (local/nonlocal) comms with respect to
@@ -333,7 +342,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       // best impl. Go with default call (split local/nonlocal) for now.
       // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
       auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
-          rkl2_step_other | start_bnd, tl, base, pmesh->multilevel);
+          precomm_fill_derived | start_bnd, tl, base, pmesh->multilevel);
 
       tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
                  base.get());
@@ -554,6 +563,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(source_split_strang_final, AddSplitSourcesFirstOrder, mu0.get(), tm);
     }
 
+    // if prolongate on prims is done then this is a ConsToPrim call. Otherwise, noop.
+    auto precomm_fill_derived =
+        tl.AddTask(source_split_first_order,
+                   parthenon::Update::PreCommFillDerived<MeshData<Real>>, mu0.get());
     // Update ghost cells (local and non local), prolongate and apply bound cond.
     // TODO(someone) experiment with split (local/nonlocal) comms with respect to
     // performance for various tests (static, amr, block sizes) and then decide on the
@@ -569,6 +582,45 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto fill_derived =
         tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
   }
+  // Report numerical fixes.
+  // We do this before the STS task because if there are issues from the diffusive fluxes,
+  // we're in real trouble.
+  TaskRegion &report_fixes_region = tc.AddRegion(1);
+  auto &tl = report_fixes_region[0];
+  tl.AddTask(
+      none,
+      [](Mesh *pmesh, StateDescriptor *hydro_pkg, const int stage) {
+        if (parthenon::Globals::my_rank == 0) {
+          std::stringstream msg;
+          msg << "Fixes employed in stage " << stage << " (with "
+              << pmesh->GetTotalCells() << " cells): ";
+          if (hydro_pkg->Param<bool>("first_order_flux_correct")) {
+            msg << hydro_pkg->Param<std::int64_t>("fixed_num_cells_fofc") << " FOFC. ";
+          }
+          if (hydro_pkg->Param<Real>("dfloor") > 0.0) {
+            msg << hydro_pkg->Param<std::int64_t>("fixed_num_cells_floor_rho")
+                << " dfloor. ";
+          }
+          if (hydro_pkg->Param<Real>("pfloor") > 0.0) {
+            msg << hydro_pkg->Param<std::int64_t>("fixed_num_cells_floor_pres")
+                << " pfloor. ";
+          }
+          if (hydro_pkg->Param<Real>("Tfloor") > 0.0) {
+            msg << hydro_pkg->Param<std::int64_t>("fixed_num_cells_floor_temp")
+                << " Tfloor. ";
+          }
+          std::cout << msg.str() << "\n";
+        }
+
+        // reset counter for next stage
+        hydro_pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_rho", 0);
+        hydro_pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_pres", 0);
+        hydro_pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_temp", 0);
+        hydro_pkg->UpdateParam<std::int64_t>("fixed_num_cells_fofc", 0);
+        return TaskStatus::complete;
+      },
+      pmesh, hydro_pkg.get(), stage);
+
   const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
   // If any tasks modify the conserved variables before this place and after FillDerived,
   // then the STS tasks should be updated to not assume prim and cons are in sync.

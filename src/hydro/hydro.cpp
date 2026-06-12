@@ -225,6 +225,12 @@ void ConsToPrim(MeshData<Real> *md) {
       md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro")->Param<T>("eos");
   eos.ConservedToPrimitive(md);
 }
+template <class T>
+void PrimToCons(MeshData<Real> *md) {
+  const auto &eos =
+      md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro")->Param<T>("eos");
+  eos.PrimitiveToConserved(md);
+}
 
 // Add unsplit sources, i.e., source that are integrated in all stages of the
 // explicit integration scheme.
@@ -321,6 +327,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // hyperbolic timestep constraint
   pkg->AddParam<Real>("dt_hyp", std::numeric_limits<Real>::max(),
                       Params::Mutability::Mutable);
+
+  // counter for first order flux correction cells
+  pkg->AddParam<std::int64_t>("fixed_num_cells_fofc", 0, Params::Mutability::Mutable);
+  pkg->AddParam<std::int64_t>("fixed_num_cells_floor_rho", 0,
+                              Params::Mutability::Mutable);
+  pkg->AddParam<std::int64_t>("fixed_num_cells_floor_pres", 0,
+                              Params::Mutability::Mutable);
+  pkg->AddParam<std::int64_t>("fixed_num_cells_floor_temp", 0,
+                              Params::Mutability::Mutable);
 
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
@@ -518,6 +533,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     Units units(pin, pkg);
   }
 
+  const auto prolong_prims = pin->GetOrAddBoolean("hydro", "prolongate_prims", false);
+  pkg->AddParam<>("prolongate_prims", prolong_prims);
+
   auto eos_str = pin->GetString("hydro", "eos");
   if (eos_str == "adiabatic") {
     Real gamma = pin->GetReal("hydro", "gamma");
@@ -553,6 +571,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       auto mbar_over_kb = pkg->Param<Real>("mbar_over_kb");
       efloor = Tfloor / mbar_over_kb / (gamma - 1.0);
     }
+    pkg->AddParam<>("dfloor", dfloor);
+    pkg->AddParam<>("pfloor", pfloor);
+    pkg->AddParam<>("Tfloor", Tfloor);
 
     // By default disable ceilings by setting to infinity
     Real vceil =
@@ -739,7 +760,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     if (fluid == Fluid::euler) {
       AdiabaticHydroEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
       pkg->AddParam<>("eos", eos);
-      pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
+      if (prolong_prims) {
+        pkg->PreCommFillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
+        pkg->FillDerivedMesh = PrimToCons<AdiabaticHydroEOS>;
+      } else {
+        pkg->FillDerivedMesh = ConsToPrim<AdiabaticHydroEOS>;
+      }
       pkg->EstimateTimestepMesh = EstimateTimestep<Fluid::euler>;
     } else if (fluid == Fluid::glmmhd) {
       AdiabaticGLMMHDEOS eos(pfloor, dfloor, efloor, vceil, eceil, gamma);
@@ -811,16 +837,33 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     prim_labels.emplace_back("scalar_" + std::to_string(i));
   }
 
-  Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost},
-             std::vector<int>({nhydro + nscalars}), cons_labels);
+  Metadata m;
+  // In principle, it'd be nicer to work with .Set(), but see
+  // https://github.com/parthenon-hpc-lab/parthenon/issues/844 so let's
+  // be safe than sorry.
+  if (prolong_prims) {
+    // no FillGhost here
+    m = Metadata({Metadata::Cell, Metadata::Independent, Metadata::WithFluxes},
+                 std::vector<int>({nhydro + nscalars}), cons_labels);
+  } else {
+    m = Metadata({Metadata::Cell, Metadata::Independent, Metadata::FillGhost},
+                 std::vector<int>({nhydro + nscalars}), cons_labels);
+  }
   m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
                           parthenon::refinement_ops::RestrictAverage>();
   pkg->AddField("cons", m);
 
-  // Adding ForceRemeshComm here as it results in the alloc of coarse fields
-  m = Metadata(
-      {Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::ForceRemeshComm},
-      std::vector<int>({nhydro + nscalars}), prim_labels);
+  if (prolong_prims) {
+    m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::FillGhost},
+                 std::vector<int>({nhydro + nscalars}), prim_labels);
+    m.RegisterRefinementOps<refinement_ops::ProlongateCellMinModMultiD,
+                            parthenon::refinement_ops::RestrictAverage>();
+  } else {
+    // Adding ForceRemeshComm here as it results in the alloc of coarse fields
+    m = Metadata(
+        {Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::ForceRemeshComm},
+        std::vector<int>({nhydro + nscalars}), prim_labels);
+  }
   pkg->AddField("prim", m);
 
   const auto refine_str = pin->GetOrAddString("refinement", "type", "unset");
@@ -1147,90 +1190,71 @@ TaskStatus CalculateFluxes(BlockList_t &blocks, parthenon::ParArray5DRaw<FluxRea
       constexpr auto NVAR = GetNVars<fluid>();
       auto llf = Riemann<fluid, RiemannSolver::llf>();
 
-      std::int64_t num_corrected, num_need_floor;
-      // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
-      // of a single cell at the same time. So the neighboring cells need to be rechecked
-      // with the corrected fluxes as the corrected fluxes in one cell may result in the
-      // need to correct all the fluxes of an originally "good" neighboring cell.
-      size_t num_attempts = 0;
-      do {
-        num_corrected = 0;
+      std::int64_t num_corrected = 0;
 
-        Kokkos::parallel_reduce(
-            "FirstOrderFluxCorrect",
-            Kokkos::MDRangePolicy<Kokkos::Rank<3>>(DevExecSpace(), {kb.s, jb.s, ib.s},
-                                                   {kb.e + 1, jb.e + 1, ib.e + 1},
-                                                   {1, 1, ib.e + 1 - ib.s}),
-            KOKKOS_LAMBDA(const int k, const int j, const int i,
-                          std::int64_t &lnum_corrected, std::int64_t &lnum_need_floor) {
-              // In principle, the u_cons.fluxes could be updated in parallel by a
-              // different thread resulting in a race conditon here. However, if the
-              // fluxes of a cell have been updated (anywhere) then the entire kernel will
-              // be called again anyway, and, at that point the already fixed
-              // u0_cons.fluxes will automaticlly be used here.
-              Real new_cons[NVAR];
-              for (auto v = 0; v < NVAR; v++) {
-                new_cons[v] =
-                    gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
-                    beta_dt * (tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1;
-                if (ndim >= 2) {
-                  new_cons[v] -=
-                      beta_dt * (tmp(3, v, k, j + 1, i) - tmp(3, v, k, j, i)) / dx2;
-                }
-                if (ndim >= 3) {
-                  new_cons[v] -=
-                      beta_dt * (tmp(4, v, k + 1, j, i) - tmp(4, v, k, j, i)) / dx3;
-                }
-              }
-
-              // no need to include gamma - 1 as we only care for negative values
-              auto new_p =
-                  new_cons[IEN] -
-                  0.5 * (SQR(new_cons[IM1]) + SQR(new_cons[IM2]) + SQR(new_cons[IM3])) /
-                      new_cons[IDN];
-              if constexpr (fluid == Fluid::glmmhd) {
-                new_p -=
-                    0.5 * (SQR(new_cons[IB1]) + SQR(new_cons[IB2]) + SQR(new_cons[IB3]));
-              }
-              // no correction required
-              if (new_cons[IDN] > 0.0 && new_p > 0.0) {
-                return;
-              }
-              // if already tried 3 times and only pressure is negative, then we'll rely
-              // on the pressure floor during ConsToPrim conversion
-              if (num_attempts > 2 && new_cons[IDN] > 0.0 && new_p < 0.0) {
-                lnum_need_floor += 1;
-                return;
-              }
-              // In principle, there could be a racecondion as this loop goes over all
-              // k,j,i and we updating the i+1 flux here. However, the results are
-              // idential because u0_prim is never updated in this kernel so we don't
-              // worry about it.
-              // TODO(pgrete) as we need to keep the function signature idential for now
-              // (due to Cuda compiler bug) we could potentially template these function
-              // and get rid of the `if constexpr`
-              llf.Solve(eos, k, j, i, IV1, u0_prim, tmp, c_h);
-              llf.Solve(eos, k, j, i + 1, IV1, u0_prim, tmp, c_h);
-
+      Kokkos::parallel_reduce(
+          "FirstOrderFluxCorrect",
+          Kokkos::MDRangePolicy<Kokkos::Rank<3>>(DevExecSpace(), {kb.s, jb.s, ib.s},
+                                                 {kb.e + 1, jb.e + 1, ib.e + 1},
+                                                 {1, 1, ib.e + 1 - ib.s}),
+          KOKKOS_LAMBDA(const int k, const int j, const int i,
+                        std::int64_t &lnum_corrected) {
+            // In principle, the u_cons.fluxes could be updated in parallel by a
+            // different thread resulting in a race conditon here. However, if the
+            // fluxes of a cell have been updated (anywhere) then the entire kernel will
+            // be called again anyway, and, at that point the already fixed
+            // u0_cons.fluxes will automaticlly be used here.
+            Real new_cons[NVAR];
+            for (auto v = 0; v < NVAR; v++) {
+              new_cons[v] = gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons(v, k, j, i) -
+                            beta_dt * (tmp(2, v, k, j, i + 1) - tmp(2, v, k, j, i)) / dx1;
               if (ndim >= 2) {
-                llf.Solve(eos, k, j, i, IV2, u0_prim, tmp, c_h);
-                llf.Solve(eos, k, j + 1, i, IV2, u0_prim, tmp, c_h);
+                new_cons[v] -=
+                    beta_dt * (tmp(3, v, k, j + 1, i) - tmp(3, v, k, j, i)) / dx2;
               }
               if (ndim >= 3) {
-                llf.Solve(eos, k, j, i, IV3, u0_prim, tmp, c_h);
-                llf.Solve(eos, k + 1, j, i, IV3, u0_prim, tmp, c_h);
+                new_cons[v] -=
+                    beta_dt * (tmp(4, v, k + 1, j, i) - tmp(4, v, k, j, i)) / dx3;
               }
-              lnum_corrected += 1;
-            },
-            Kokkos::Sum<std::int64_t>(num_corrected),
-            Kokkos::Sum<std::int64_t>(num_need_floor));
-        // TODO(pgrete) make this optional and global (potentially store values in
-        // Params) std::cout << "[" << parthenon::Globals::my_rank << "] Attempt: " <<
-        // num_attempts
-        //           << " Corrected (center): " << num_corrected
-        //           << " Failed (will rely on floor): " << num_need_floor << std::endl;
-        num_attempts += 1;
-      } while (num_corrected > 0 && num_attempts < 4);
+            }
+
+            // no need to include gamma - 1 as we only care for negative values
+            auto new_p =
+                new_cons[IEN] -
+                0.5 * (SQR(new_cons[IM1]) + SQR(new_cons[IM2]) + SQR(new_cons[IM3])) /
+                    new_cons[IDN];
+            if constexpr (fluid == Fluid::glmmhd) {
+              new_p -=
+                  0.5 * (SQR(new_cons[IB1]) + SQR(new_cons[IB2]) + SQR(new_cons[IB3]));
+            }
+            // no correction required
+            if (new_cons[IDN] > 0.0 && new_p > 0.0) {
+              return;
+            }
+            // In principle, there could be a racecondion as this loop goes over all
+            // k,j,i and we updating the i+1 flux here. However, the results are
+            // idential because u0_prim is never updated in this kernel so we don't
+            // worry about it.
+            // TODO(pgrete) as we need to keep the function signature idential for now
+            // (due to Cuda compiler bug) we could potentially template these function
+            // and get rid of the `if constexpr`
+            llf.Solve(eos, k, j, i, IV1, u0_prim, tmp, c_h);
+            llf.Solve(eos, k, j, i + 1, IV1, u0_prim, tmp, c_h);
+
+            if (ndim >= 2) {
+              llf.Solve(eos, k, j, i, IV2, u0_prim, tmp, c_h);
+              llf.Solve(eos, k, j + 1, i, IV2, u0_prim, tmp, c_h);
+            }
+            if (ndim >= 3) {
+              llf.Solve(eos, k, j, i, IV3, u0_prim, tmp, c_h);
+              llf.Solve(eos, k + 1, j, i, IV3, u0_prim, tmp, c_h);
+            }
+            lnum_corrected += 1;
+          },
+          Kokkos::Sum<std::int64_t>(num_corrected));
+      // update central counter
+      const auto counter = pkg->Param<std::int64_t>("fixed_num_cells_fofc");
+      pkg->UpdateParam<std::int64_t>("fixed_num_cells_fofc", counter + num_corrected);
     }
 
     if (pmb->pmy_mesh->ndim == 1) {
@@ -1316,89 +1340,70 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
   auto riemann = Riemann<fluid, RiemannSolver::llf>();
 
-  std::int64_t num_corrected, num_need_floor;
-  // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
-  // of a single cell at the same time. So the neighboring cells need to be rechecked
-  // with the corrected fluxes as the corrected fluxes in one cell may result in the
-  // need to correct all the fluxes of an originally "good" neighboring cell.
-  size_t num_attempts = 0;
-  do {
-    num_corrected = 0;
+  std::int64_t num_corrected = 0;
 
-    Kokkos::parallel_reduce(
-        "FirstOrderFluxCorrect",
-        Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
-            DevExecSpace(), {0, kb.s, jb.s, ib.s},
-            {u0_cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-            {1, 1, 1, ib.e + 1 - ib.s}),
-        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i,
-                      std::int64_t &lnum_corrected, std::int64_t &lnum_need_floor) {
-          const auto &coords = u0_cons_pack.GetCoords(b);
-          const auto &u0_prim = u0_prim_pack(b);
-          auto &u0_cons = u0_cons_pack(b);
+  Kokkos::parallel_reduce(
+      "FirstOrderFluxCorrect",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {u0_cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i,
+                    std::int64_t &lnum_corrected) {
+        const auto &coords = u0_cons_pack.GetCoords(b);
+        const auto &u0_prim = u0_prim_pack(b);
+        auto &u0_cons = u0_cons_pack(b);
 
-          // In principle, the u_cons.fluxes could be updated in parallel by a
-          // different thread resulting in a race conditon here. However, if the
-          // fluxes of a cell have been updated (anywhere) then the entire kernel will
-          // be called again anyway, and, at that point the already fixed
-          // u0_cons.fluxes will automaticlly be used here.
-          Real new_cons[NVAR];
-          for (auto v = 0; v < NVAR; v++) {
-            new_cons[v] =
-                gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons_pack(b, v, k, j, i) +
-                beta_dt *
-                    parthenon::Update::FluxDivHelper(v, k, j, i, ndim, coords, u0_cons);
-          }
+        // In principle, the u_cons.fluxes could be updated in parallel by a
+        // different thread resulting in a race conditon here. However, if the
+        // fluxes of a cell have been updated (anywhere) then the entire kernel will
+        // be called again anyway, and, at that point the already fixed
+        // u0_cons.fluxes will automaticlly be used here.
+        Real new_cons[NVAR];
+        for (auto v = 0; v < NVAR; v++) {
+          new_cons[v] = gam0 * u0_cons(v, k, j, i) + gam1 * u1_cons_pack(b, v, k, j, i) +
+                        beta_dt * parthenon::Update::FluxDivHelper(v, k, j, i, ndim,
+                                                                   coords, u0_cons);
+        }
 
-          // no need to include gamma - 1 as we only care for negative values
-          auto new_p =
-              new_cons[IEN] -
-              0.5 * (SQR(new_cons[IM1]) + SQR(new_cons[IM2]) + SQR(new_cons[IM3])) /
-                  new_cons[IDN];
-          if constexpr (fluid == Fluid::glmmhd) {
-            new_p -= 0.5 * (SQR(new_cons[IB1]) + SQR(new_cons[IB2]) + SQR(new_cons[IB3]));
-          }
-          // no correction required
-          if (new_cons[IDN] > 0.0 && new_p > 0.0) {
-            return;
-          }
-          // if already tried 3 times and only pressure is negative, then we'll rely
-          // on the pressure floor during ConsToPrim conversion
-          if (num_attempts > 2 && new_cons[IDN] > 0.0 && new_p < 0.0) {
-            lnum_need_floor += 1;
-            return;
-          }
-          // In principle, there could be a racecondion as this loop goes over all
-          // k,j,i and we updating the i+1 flux here. However, the results are
-          // idential because u0_prim is never updated in this kernel so we don't
-          // worry about it.
-          // TODO(pgrete) as we need to keep the function signature idential for now
-          // (due to Cuda compiler bug) we could potentially template these function
-          // and get rid of the `if constexpr`
-          riemann.Solve(eos, k, j, i, IV1, u0_prim, u0_cons, c_h);
-          riemann.Solve(eos, k, j, i + 1, IV1, u0_prim, u0_cons, c_h);
+        // no need to include gamma - 1 as we only care for negative values
+        auto new_p = new_cons[IEN] -
+                     0.5 *
+                         (SQR(new_cons[IM1]) + SQR(new_cons[IM2]) + SQR(new_cons[IM3])) /
+                         new_cons[IDN];
+        if constexpr (fluid == Fluid::glmmhd) {
+          new_p -= 0.5 * (SQR(new_cons[IB1]) + SQR(new_cons[IB2]) + SQR(new_cons[IB3]));
+        }
+        // no correction required
+        if (new_cons[IDN] > 0.0 && new_p > 0.0) {
+          return;
+        }
+        // In principle, there could be a racecondion as this loop goes over all
+        // k,j,i and we updating the i+1 flux here. However, the results are
+        // idential because u0_prim is never updated in this kernel so we don't
+        // worry about it.
+        // TODO(pgrete) as we need to keep the function signature idential for now
+        // (due to Cuda compiler bug) we could potentially template these function
+        // and get rid of the `if constexpr`
+        riemann.Solve(eos, k, j, i, IV1, u0_prim, u0_cons, c_h);
+        riemann.Solve(eos, k, j, i + 1, IV1, u0_prim, u0_cons, c_h);
 
-          if (ndim >= 2) {
-            riemann.Solve(eos, k, j, i, IV2, u0_prim, u0_cons, c_h);
-            riemann.Solve(eos, k, j + 1, i, IV2, u0_prim, u0_cons, c_h);
-          }
-          if (ndim >= 3) {
-            riemann.Solve(eos, k, j, i, IV3, u0_prim, u0_cons, c_h);
-            riemann.Solve(eos, k + 1, j, i, IV3, u0_prim, u0_cons, c_h);
-          }
-          lnum_corrected += 1;
-        },
-        Kokkos::Sum<std::int64_t>(num_corrected),
-        Kokkos::Sum<std::int64_t>(num_need_floor));
-    // TODO(pgrete) make this optional and global (potentially store values in Params)
-    // std::cout << "[" << parthenon::Globals::my_rank << "] Attempt: " <<
-    // num_attempts
-    //           << " Corrected (center): " << num_corrected
-    //           << " Failed (will rely on floor): " << num_need_floor << std::endl;
-    num_attempts += 1;
-  } while (num_corrected > 0 && num_attempts < 4);
+        if (ndim >= 2) {
+          riemann.Solve(eos, k, j, i, IV2, u0_prim, u0_cons, c_h);
+          riemann.Solve(eos, k, j + 1, i, IV2, u0_prim, u0_cons, c_h);
+        }
+        if (ndim >= 3) {
+          riemann.Solve(eos, k, j, i, IV3, u0_prim, u0_cons, c_h);
+          riemann.Solve(eos, k + 1, j, i, IV3, u0_prim, u0_cons, c_h);
+        }
+        lnum_corrected += 1;
+      },
+      Kokkos::Sum<std::int64_t>(num_corrected));
+
+  // update central counter
+  const auto counter = pkg->Param<std::int64_t>("fixed_num_cells_fofc");
+  pkg->UpdateParam<std::int64_t>("fixed_num_cells_fofc", counter + num_corrected);
 #endif
-
   return TaskStatus::complete;
 }
 
