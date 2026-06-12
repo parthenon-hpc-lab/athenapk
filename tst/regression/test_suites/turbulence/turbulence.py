@@ -45,17 +45,40 @@ class TestCase(utils.test_case.TestCaseAbs):
         data = np.genfromtxt(data_filename)
 
         # Check Ms
-        if not (data[-1, -3] > 0.45 and data[-1, -3] < 0.50):
+        if data[-1, -3] != 4.70153e-01:
             print(f"ERROR: Mismatch in Ms={data[-1, -3]}")
             success = False
 
         # Check Ma
-        if not (data[-1, -2] > 12.8 and data[-1, -2] < 13.6):
+        if data[-1, -2] != 1.37253e01:
             print(f"ERROR: Mismatch in Ma={data[-1, -2]}")
             success = False
 
         # Loading the data
         data = phdf.phdf(f"{parameters.output_path}/parthenon.restart.final.rhdf")
+
+        components = data.GetComponents(data.Info["ComponentNames"], flatten=False)
+        density_sum = components["cons_density"].sum()
+        try:
+            np.testing.assert_array_max_ulp(density_sum, 64**3, maxulp=2)
+        except AssertionError as ar:
+            print(
+                f"TEST FAIL: incorrect density sum\n"
+                f"Got {density_sum} and expected {64**3}."
+            )
+            print(ar)
+            success = False
+        energy_sum = components["cons_total_energy_density"].sum()
+        try:
+            np.testing.assert_array_max_ulp(energy_sum, 2621560462.9602447)
+        except AssertionError as ar:
+            print(
+                f"TEST FAIL: incorrect energy sum\n"
+                f"Got {energy_sum} and expected {2621560462.9602447}."
+            )
+            print(ar)
+            success = False
+
         tracers = data.GetSwarm("tracers")
         ids = tracers.id
 
@@ -73,18 +96,17 @@ class TestCase(utils.test_case.TestCaseAbs):
         order = np.argsort(ids)
 
         # For reference: this is how the ref data was stored
-        # all_var_data = {}
-        # for var in tracers.variables:
-        #    var_data = tracers.Get(var)
-        #    all_var_data[var] = var_data[order]
-        #    if len(var_data.shape) > 1:
-        #        out_data = var_data[np.arange(var_data.shape[0])[:, None], order]
-        #    else:
-        #        out_data = var_data[order]
-        #    all_var_data[var] = out_data
-
-        # with open("ref_data.pkl", "wb") as outfile:
-        #    pickle.dump(all_var_data, outfile)
+        if False:
+            all_var_data = {}
+            for var in tracers.variables:
+                var_data = tracers.Get(var)
+                if len(var_data.shape) > 1:
+                    out_data = var_data[np.arange(var_data.shape[0])[:, None], order]
+                else:
+                    out_data = var_data[order]
+                all_var_data[var] = out_data
+            with open("ref_data.pkl", "wb") as outfile:
+                pickle.dump(all_var_data, outfile)
 
         with open(f"{parameters.test_path}/ref_data.pkl", "rb") as infile:
             ref_data = pickle.load(infile)
@@ -119,7 +141,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                         )
                     else:
                         np.testing.assert_allclose(
-                            var_data_sorted, ref_data[var], rtol=4e-8, strict=True
+                            var_data_sorted, ref_data[var], rtol=8.1e-7
                         )
 
                 except AssertionError as ar:

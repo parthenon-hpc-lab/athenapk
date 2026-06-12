@@ -116,6 +116,13 @@ void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 parthenon::Real ClusterEstimateTimestep(MeshData<Real> *md);
 } // namespace cluster
 
+namespace shattering {
+using namespace parthenon::driver::prelude;
+
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace shattering
+
 namespace sod {
 using namespace parthenon::driver::prelude;
 
