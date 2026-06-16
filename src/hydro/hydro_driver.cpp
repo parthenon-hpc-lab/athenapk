@@ -19,6 +19,7 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../particles/stars/stellar_feedback.hpp"
 #include "../particles/stars/stellar_particles.hpp"
 #include "../particles/tracers/tracers.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
@@ -616,13 +617,34 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // Test: calling "injection" of stars
   auto stars_pkg = pmesh->packages.Get("stars");
   if (stage == integrator->nstages && stars_pkg->Param<bool>("enabled")) {
+
+    // Reset swarm communication before async particle tasks
+    TaskRegion &sync_region_stars = tc.AddRegion(1);
+    {
+      for (auto &pmb : blocks) {
+        auto &tl = sync_region_stars[0];
+        auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+        auto reset_comms =
+            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+      }
+    }
+
     TaskRegion &async_region_stars = tc.AddRegion(blocks.size());
     for (int n = 0; n < blocks.size(); n++) {
       auto &tl = async_region_stars[n];
       auto &pmb = blocks[n];
       auto &mbd0 = pmb->meshblock_data.Get("base");
+      auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
 
       auto star_inject = tl.AddTask(none, Stars::InjectStars, mbd0.get(), tm);
+      auto star_remove = tl.AddTask(star_inject, Stars::RemoveStars, mbd0.get(), tm);
+      auto star_feedback =
+          tl.AddTask(star_remove, StellarFeedback::ApplyStellarFeedback, mbd0.get(), tm);
+      auto star_move = tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
+      auto send =
+          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(), BoundaryCommSubset::all);
+      auto receive =
+          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
     }
   }
 

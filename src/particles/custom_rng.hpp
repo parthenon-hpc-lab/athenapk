@@ -71,6 +71,30 @@ uint64_t hash(uint64_t seed) {
 KOKKOS_INLINE_FUNCTION
 double random_double(uint64_t seed) { return (hash(seed) >> 11) * (1.0 / (1ULL << 53)); }
 
+// ===================================================================================
+// Poisson sampler via Knuth's algorithm
+//
+// Draws an integer from a Poisson distribution with mean lambda using
+// repeated uniform draws. Exact for all lambda; average loop iterations
+// equals lambda, so keep lambda small (< ~20) for performance.
+//
+// rng_gen : per-particle RNG state (must provide drand() in (0, 1])
+// lambda  : expected number of events (>= 0)
+// Returns : Poisson-distributed integer sample
+// ===================================================================================
+template <typename RNGState>
+KOKKOS_INLINE_FUNCTION int PoissonSample(RNGState &rng_gen, const Real lambda) {
+  if (lambda <= 0.0) return 0;
+  const Real L = Kokkos::exp(-lambda);
+  int k = 0;
+  Real p = 1.0;
+  do {
+    k++;
+    p *= rng_gen.drand();
+  } while (p > L);
+  return k - 1;
+}
+
 } // namespace utils::custom_rng
 
 #endif // CUSTOM_RNG_HPP

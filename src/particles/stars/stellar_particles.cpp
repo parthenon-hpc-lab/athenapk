@@ -41,6 +41,7 @@
 #include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../eos/adiabatic_hydro.hpp"
 #include "../../main.hpp"
+#include "../../units.hpp"
 #include "../custom_rng.hpp"
 #include "../particles_utils.hpp"
 #include "stellar_particles.hpp"
@@ -89,8 +90,15 @@ TaskStatus RemoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   return ParticlesUtils::RemoveParticles(mbd, tm, "stars");
 }
 
+/* ===============================================================================
+Initialize: Create package, read and store all input parameters and particle fields
+=============================================================================== */
+
 // Initializing the stars package and swarms
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
+
+  Units units(pin);
+
   auto stars_pkg = std::make_shared<StateDescriptor>("stars");
   const bool enabled = pin->GetOrAddBoolean("stars", "enabled", false);
   stars_pkg->AddParam<>("enabled", enabled);
@@ -102,7 +110,59 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       pin->GetOrAddReal("stars", "sf_density_threshold", -1);
   stars_pkg->AddParam<>("sf_density_threshold", sf_density_threshold);
 
-  /* ==== Temporary: alterantive advection mode for tests ==== */
+  // Feedback parameters
+  const auto SN_II_enabled = pin->GetOrAddBoolean("stars", "SN_II_enabled", false);
+  const auto SN_Ia_enabled = pin->GetOrAddBoolean("stars", "SN_Ia_enabled", false);
+
+  stars_pkg->AddParam<>("SN_II_enabled", SN_II_enabled);
+  stars_pkg->AddParam<>("SN_Ia_enabled", SN_Ia_enabled);
+
+  // Register empty lifetime tables as default (overwritten if SN_II_enabled)
+  stars_pkg->AddParam("log_mass_table", parthenon::ParArray1D<Real>("log_mass_table", 0));
+  stars_pkg->AddParam("log_lifetime_table",
+                      parthenon::ParArray1D<Real>("log_lifetime_table", 0));
+  stars_pkg->AddParam("lifetime_table_size", 0);
+
+  if (SN_II_enabled) {
+
+    // Portinari+ lifetime table at Zsun [mass in Msun, lifetime in Gyr]
+    const std::vector<Real> mass_table_msun = {
+        0.6, 0.7, 0.8,  0.9,  1.0,  1.1,  1.2,  1.3,  1.4,   1.5,
+        1.6, 1.7, 1.8,  1.9,  2.0,  2.5,  3.0,  4.0,  5.0,   6.0,
+        7.0, 9.0, 12.0, 15.0, 20.0, 30.0, 40.0, 60.0, 100.0, 120.0};
+
+    const std::vector<Real> lifetime_table_gyr = {
+        79.2,    44.5,    26.1,    15.9,    10.3,    6.89,   4.73,   3.59,
+        2.87,    2.64,    2.18,    1.84,    1.59,    1.38,   1.21,   0.764,
+        0.456,   0.203,   0.115,   0.0745,  0.0531,  0.0317, 0.0189, 0.0133,
+        0.00915, 0.00613, 0.00512, 0.00412, 0.00339, 0.00323};
+
+    const int n = mass_table_msun.size();
+
+    // Store as log10 for log-log interpolation
+    parthenon::ParArray1D<Real> log_mass_d("log_mass_table", n);
+    parthenon::ParArray1D<Real> log_lifetime_d("log_lifetime_table", n);
+
+    auto log_mass_h = Kokkos::create_mirror_view(log_mass_d);
+    auto log_lifetime_h = Kokkos::create_mirror_view(log_lifetime_d);
+
+    const Real gyr_in_code = units.myr() * 1000.0; // Table is in Gyr
+    const Real msun_in_code = units.msun();
+
+    for (int i = 0; i < n; i++) {
+      log_mass_h(i) = std::log10(mass_table_msun[i] * msun_in_code);
+      log_lifetime_h(i) = std::log10(lifetime_table_gyr[i] * gyr_in_code);
+    }
+
+    Kokkos::deep_copy(log_mass_d, log_mass_h);
+    Kokkos::deep_copy(log_lifetime_d, log_lifetime_h);
+
+    stars_pkg->UpdateParam("log_mass_table", log_mass_d);
+    stars_pkg->UpdateParam("log_lifetime_table", log_lifetime_d);
+    stars_pkg->UpdateParam("lifetime_table_size", n);
+  }
+
+  /* ==== Temporary: alternative advection mode for tests ==== */
   // either gravity or advection (advect. for tests as gravity only in cluster)
   const auto advection_mode = pin->GetOrAddString("stars", "advection_mode", "advection");
   stars_pkg->AddParam<>("advection_mode", advection_mode);
@@ -135,8 +195,24 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddSwarmValue("v_y", "stars", real_swarmvalue_metadata);
   stars_pkg->AddSwarmValue("v_z", "stars", real_swarmvalue_metadata);
 
+  // Meshblock-local initiliaze function to define the RNGs (for Poisson law)
+  stars_pkg->UserWorkBeforeLoopMesh = InitialStars;
+
   return stars_pkg;
 } // Initialize
+
+void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
+  auto stars_pkg = pmesh->packages.Get("stars");
+
+  // Block local RNG
+  for (auto &pmb : pmesh->block_list) {
+    uint64_t seed = std::hash<uint64_t>{}(
+        static_cast<uint64_t>(tm.ncycle) * utils::custom_rng::PHI_64 ^
+        static_cast<uint64_t>(pmb->gid) * utils::custom_rng::SILVER_64);
+    auto rng_pool = Kokkos::Random_XorShift64_Pool<>(seed);
+    stars_pkg->AddParam<>("rng_block_" + std::to_string(pmb->gid), rng_pool);
+  }
+}
 
 /* ===============================================================================
 MoveStars: Kind of similar to AdvectTracers (see tracers.cpp), though we move the

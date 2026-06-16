@@ -41,6 +41,8 @@ using RNGPool = Kokkos::Random_XorShift64_Pool<>;
 namespace Stars {
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
+void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
+
 TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);

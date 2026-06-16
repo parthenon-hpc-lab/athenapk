@@ -24,6 +24,8 @@ add_executable(
         refinement/other.cpp
         particles/stars/stellar_particles.cpp
         particles/stars/stellar_particles.hpp
+        particles/stars/stellar_feedback.cpp
+        particles/stars/stellar_feedback.hpp
         particles/stars/star_formation.hpp
         particles/tracers/tracers.cpp
         particles/tracers/tracers.hpp
