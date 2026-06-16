@@ -118,10 +118,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("SN_Ia_enabled", SN_Ia_enabled);
 
   // Register empty lifetime tables as default (overwritten if SN_II_enabled)
-  stars_pkg->AddParam("log_mass_table", parthenon::ParArray1D<Real>("log_mass_table", 0));
+  stars_pkg->AddParam("log_mass_table", parthenon::ParArray1D<Real>("log_mass_table", 0),
+                      parthenon::Params::Mutability::Mutable);
   stars_pkg->AddParam("log_lifetime_table",
-                      parthenon::ParArray1D<Real>("log_lifetime_table", 0));
-  stars_pkg->AddParam("lifetime_table_size", 0);
+                      parthenon::ParArray1D<Real>("log_lifetime_table", 0),
+                      parthenon::Params::Mutability::Mutable);
+  stars_pkg->AddParam("lifetime_table_size", 0, parthenon::Params::Mutability::Mutable);
 
   if (SN_II_enabled) {
 

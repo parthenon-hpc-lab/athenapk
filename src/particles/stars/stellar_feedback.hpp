@@ -109,7 +109,7 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
 
   // Age of the SSP at the start and end of the timestep
   const Real age = t - t_inj;
-  const Real age_p = age + dt; // age_prime, post timestep age
+  const Real age_p = age + dt;
 
   // SNII progenitor mass window (Msun -> code units)
   const Real M_min_SNII = 8.0 * msun_in_code_units;
@@ -118,24 +118,10 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
   const Real log_age = Kokkos::log10(age);
   const Real log_age_p = Kokkos::log10(age_p);
 
-  // -----------------------------------------------------------------------
-  // Invert the Portinari+ lifetime table: tau -> M
-  //
-  // log_tau_table is monotonically DESCENDING (higher mass <=> shorter
-  // lifetime), so we binary-search for the bracket where log_tau_target
-  // crosses the table and linearly interpolate in log-log space.
-  // Evaluating at log10(age) gives M_high (the most massive star whose
-  // lifetime equals the current SSP age, i.e. dying right now), and at
-  // log10(age + dt) gives M_low (the least massive star dying before the
-  // end of the timestep).
-  // -----------------------------------------------------------------------
   auto mass_from_tau = [&](const Real log_tau_target) -> Real {
-    // Clamp to table bounds
     if (log_tau_target >= log_tau_table(0)) return Kokkos::pow(10.0, log_mass_table(0));
     if (log_tau_target <= log_tau_table(n_table - 1))
       return Kokkos::pow(10.0, log_mass_table(n_table - 1));
-
-    // Binary search: maintain log_tau_table(lo) >= target > log_tau_table(hi)
     int lo = 0, hi = n_table - 1;
     while (hi - lo > 1) {
       int mid = (lo + hi) / 2;
@@ -144,31 +130,22 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
       else
         hi = mid;
     }
-    // Linear interpolation in log10(tau) - log10(M) space
     const Real frac =
         (log_tau_target - log_tau_table(lo)) / (log_tau_table(hi) - log_tau_table(lo));
     return Kokkos::pow(10.0, log_mass_table(lo) +
                                  frac * (log_mass_table(hi) - log_mass_table(lo)));
   };
 
-  const Real M_high = mass_from_tau(log_age);  // most massive star dying at t
-  const Real M_low = mass_from_tau(log_age_p); // least massive star dying at t + dt
+  const Real M_high = mass_from_tau(log_age);
+  const Real M_low = mass_from_tau(log_age_p);
 
-  // Clamp the dying mass interval to the SNII progenitor window
   const Real M1 = Kokkos::max(M_low, M_min_SNII);
   const Real M2 = Kokkos::min(M_high, M_max_SNII);
 
-  // No SNII progenitors die in this timestep
-  if (M2 <= M1) return 0;
+  if (M2 <= M1) {
+    return 0;
+  }
 
-  // -----------------------------------------------------------------------
-  // Integrate the normalised IMF over [M1, M2]:
-  //
-  //   integral_{M1}^{M2} phi(m) dm
-  //
-  // using the trapezoidal rule on a log-spaced grid of N_QUAD points.
-  // The log spacing ensures adequate sampling even when M2 >> M1.
-  // -----------------------------------------------------------------------
   constexpr int N_QUAD = 64;
   const Real log_M1 = Kokkos::log(M1), log_M2 = Kokkos::log(M2);
   const Real dlogm = (log_M2 - log_M1) / (N_QUAD - 1);
@@ -178,18 +155,16 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
     const Real m_lo = Kokkos::exp(log_M1 + i * dlogm);
     const Real m_hi = Kokkos::exp(log_M1 + (i + 1) * dlogm);
     const Real dm = m_hi - m_lo;
-    // Trapezoidal rule: 0.5 * (f(m_lo) + f(m_hi)) * dm
     integral += 0.5 *
                 (NormedChabrierIMF(m_lo, msun_in_code_units) +
                  NormedChabrierIMF(m_hi, msun_in_code_units)) *
                 dm;
   }
 
-  // Expected number of SNII: N = M_particle [Msun] * integral [Msun^{-1}]
-  // The integral carries units of Msun^{-1} (number of stars per Msun formed),
-  // so multiplying by the particle mass in Msun gives a dimensionless count.
   const Real N_expected = integral * (mass / msun_in_code_units);
-  return utils::custom_rng::PoissonSample(rng_gen, N_expected);
+
+  const int N = utils::custom_rng::PoissonSample(rng_gen, N_expected);
+  return N;
 }
 
 KOKKOS_INLINE_FUNCTION

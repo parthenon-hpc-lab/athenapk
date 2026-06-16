@@ -105,10 +105,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           if (swarm_d.IsActive(n)) {
 
             // Particle is active, first need to compute the number of feedback events
-            int N_SN_II =
-                0; // Number of Type II SNe (for this given timestep and particle)
-            int N_SN_Ia = 0; // Number of Type Ia SNe (...)
-            int N_SN = 0;    // Total number of SNe (...)
+            int N_SN_II = 0; // Number of Type II SNe
+            int N_SN_Ia = 0; // Number of Type Ia SNe
+            int N_SN = 0;    // Total number of SNe
 
             // Compute number of SN events
             if (SN_II_enabled) {
@@ -139,8 +138,6 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
         },
         Kokkos::Sum<int>(total_SN));
 
-    printf("StellarFeedback: block %d: %d SN event(s) in timestep [t=%.4e, dt=%.4e]\n",
-           pmb->gid, total_SN, current_time, current_dt);
   } // end for swarm_name
 
   return TaskStatus::complete;
