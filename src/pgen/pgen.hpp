@@ -117,6 +117,13 @@ void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 parthenon::Real ClusterEstimateTimestep(MeshData<Real> *md);
 } // namespace cluster
 
+namespace star_formation {
+using namespace parthenon::driver::prelude;
+
+void InitUserMeshData(Mesh *mesh, parthenon::ParameterInput *pin);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace star_formation
+
 namespace sod {
 using namespace parthenon::driver::prelude;
 

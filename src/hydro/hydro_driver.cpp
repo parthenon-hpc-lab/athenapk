@@ -614,7 +614,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  // Test: calling "injection" of stars
+  // Star particles module
   auto stars_pkg = pmesh->packages.Get("stars");
   if (stage == integrator->nstages && stars_pkg->Param<bool>("enabled")) {
 
@@ -639,13 +639,28 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto star_inject = tl.AddTask(none, Stars::InjectStars, mbd0.get(), tm);
       auto star_remove = tl.AddTask(star_inject, Stars::RemoveStars, mbd0.get(), tm);
       auto star_feedback =
-          tl.AddTask(star_remove, StellarFeedback::ApplyStellarFeedback, mbd0.get(), tm);
+          tl.AddTask(star_remove, StellarFeedback::StellarFeedback, mbd0.get(), tm);
+      // Maybe it'd be better to move the stars before feedback is applied
       auto star_move = tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
       auto send =
           tl.AddTask(star_move, &SwarmContainer::Send, sd.get(), BoundaryCommSubset::all);
       auto receive =
           tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
     }
+  }
+
+  // --- Communicate hydro cons after stellar feedback ---
+  TaskRegion &feedback_comms_region = tc.AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = feedback_comms_region[i];
+    auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+
+    const auto any = parthenon::BoundaryType::any;
+    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
+    auto bnd_exchange =
+        parthenon::AddBoundaryExchangeTasks(start_bnd, tl, mu0, pmesh->multilevel);
+    // Re-derive prim from the updated cons
+    tl.AddTask(bnd_exchange, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
   }
 
   // Then move on to tracers

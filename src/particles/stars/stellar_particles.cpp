@@ -117,6 +117,28 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("SN_II_enabled", SN_II_enabled);
   stars_pkg->AddParam<>("SN_Ia_enabled", SN_Ia_enabled);
 
+  const auto M_ejecta_per_SN =
+      pin->GetOrAddReal("stars", "M_ejecta_per_SN", 10.0 * units.msun());
+  stars_pkg->AddParam<>("M_ejecta_per_SN", M_ejecta_per_SN);
+
+  const auto E_SN_per_event =
+      pin->GetOrAddReal("stars", "E_SN_per_event", 1.0e51 * units.erg());
+  stars_pkg->AddParam<>("E_SN_per_event", E_SN_per_event);
+
+  const auto f_ek = pin->GetOrAddReal("stars", "SN_kinetic_efficiency", 1.0);
+  PARTHENON_REQUIRE(f_ek >= 0.0 && f_ek <= 1.0,
+                    "SN_kinetic_efficiency must be in [0, 1]");
+  stars_pkg->AddParam<>("SN_kinetic_efficiency", f_ek);
+
+  const auto r_cells = pin->GetOrAddInteger("stars", "SN_injection_radius_cells", 2);
+  const auto num_ghost = pin->GetOrAddInteger("parthenon/mesh", "nghost", 2);
+  PARTHENON_REQUIRE(r_cells <= num_ghost,
+                    "SN_injection_radius_cells (" + std::to_string(r_cells) +
+                        ") exceeds the number of ghost cells (" +
+                        std::to_string(num_ghost) +
+                        "). Increase nghost or reduce SN_injection_radius_cells.");
+  stars_pkg->AddParam<>("SN_injection_radius_cells", r_cells);
+
   // Register empty lifetime tables as default (overwritten if SN_II_enabled)
   stars_pkg->AddParam("log_mass_table", parthenon::ParArray1D<Real>("log_mass_table", 0),
                       parthenon::Params::Mutability::Mutable);

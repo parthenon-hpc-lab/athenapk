@@ -167,12 +167,171 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
   return N;
 }
 
+// ========================================================================
+// Deposit supernova ejecta mass, momentum and energy from a stellar
+// particle into the surrounding gas cells using a top-hat
+// volume-weighted kernel.
+//
+// For each SN event, the total ejecta mass M_ej_tot and the Sedov
+// velocity u_sedov are assumed to be pre-computed by the caller as:
+//
+//   M_ej_tot = N_SN * M_ejecta_per_SN
+//   u_sedov  = sqrt(2 * f_ek * N_SN * E_SN_per_event / M_ej_tot)
+//            = sqrt(2 * f_ek * E_SN_per_event / M_ejecta_per_SN)
+//
+// Note that u_sedov is independent of N_SN (the N_SN cancels), so
+// stacking multiple events into a single timestep is equivalent to
+// the superbubble approximation.
+//
+// The injection sphere of radius r_max = r_cells * dx is looped over
+// in two passes:
+//   1. Accumulate the total volume of cells within the sphere (vol_tot)
+//   2. Deposit mass, momentum and energy weighted by volume fraction
+//      w_i = V_i / vol_tot, ensuring exact conservation of M_ej_tot.
+//
+// The ejecta velocity at each cell is:
+//
+//   u_cell = u_sedov * r_hat + v_star
+//
+// where r_hat is the unit vector from the star to the cell centre, and
+// v_star is the star bulk velocity (Galilean rest-frame boost). Cells
+// at r = 0 (host cell) receive only the bulk momentum, no radial kick.
+//
+// Only interior cells (within block bounds) are updated. Ghost cells
+// are intentionally skipped as they are overwritten by MPI communication.
+//
+// cons          : conserved variable pack to update (density, momentum, energy)
+// coords        : cell coordinates and volumes
+// ndim          : number of spatial dimensions (2 or 3)
+// k_star        : NGP cell index of the stellar particle (k direction)
+// j_star        : NGP cell index of the stellar particle (j direction)
+// i_star        : NGP cell index of the stellar particle (i direction)
+// vel_x_star    : star velocity component in x (code units)
+// vel_y_star    : star velocity component in y (code units)
+// vel_z_star    : star velocity component in z (code units)
+// M_ej_tot      : total ejecta mass to deposit (code units)
+// u_sedov       : Sedov blast velocity (code units)
+// r_cells       : injection sphere half-width in cells
+// kb_s, kb_e    : interior block bounds in k
+// jb_s, jb_e    : interior block bounds in j
+// ib_s, ib_e    : interior block bounds in i
+// ========================================================================
+
+template <typename View4D>
+KOKKOS_INLINE_FUNCTION void
+ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
+                const int k_star, const int j_star, const int i_star,
+                const parthenon::Real vel_x_star, const parthenon::Real vel_y_star,
+                const parthenon::Real vel_z_star, const parthenon::Real M_ej_tot,
+                const parthenon::Real u_sedov, const int r_cells, const int kb_s,
+                const int kb_e, const int jb_s, const int jb_e, const int ib_s,
+                const int ib_e) {
+
+  using parthenon::Real;
+
+  // Position of the host cell
+  const Real x_star = coords.Xc<1>(i_star);
+  const Real y_star = coords.Xc<2>(j_star);
+  const Real z_star = (ndim == 3) ? coords.Xc<3>(k_star) : 0.0;
+
+  // --- Pass 1: compute total volume of cells within the injection sphere ---
+  // Needed to distribute M_ej_tot conservatively by volume fraction
+  Real vol_tot = 0.0;
+  for (int dk = -r_cells; dk <= r_cells; dk++) {
+    for (int dj = -r_cells; dj <= r_cells; dj++) {
+      for (int di = -r_cells; di <= r_cells; di++) {
+        const int kk = k_star + (ndim == 3 ? dk : 0);
+        const int jj = j_star + dj;
+        const int ii = i_star + di;
+
+        // Clip to interior domain
+        if (kk < kb_s || kk > kb_e) continue;
+        if (jj < jb_s || jj > jb_e) continue;
+        if (ii < ib_s || ii > ib_e) continue;
+
+        // Check if cell center lies within r_cells * dx of the star
+        const Real dx = coords.Xc<1>(ii) - x_star;
+        const Real dy = coords.Xc<2>(jj) - y_star;
+        const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
+        const Real r2 = dx * dx + dy * dy + dz * dz;
+        const Real r_max = r_cells * coords.Dxc<1>(ii); // assumes uniform cells
+        if (r2 > r_max * r_max) continue;
+
+        vol_tot += coords.CellVolume(kk, jj, ii);
+      }
+    }
+  }
+
+  if (vol_tot <= 0.0) return;
+
+  // --- Pass 2: deposit mass, momentum and energy ---
+  for (int dk = -r_cells; dk <= r_cells; dk++) {
+    for (int dj = -r_cells; dj <= r_cells; dj++) {
+      for (int di = -r_cells; di <= r_cells; di++) {
+        const int kk = k_star + (ndim == 3 ? dk : 0);
+        const int jj = j_star + dj;
+        const int ii = i_star + di;
+
+        if (kk < kb_s || kk > kb_e) continue;
+        if (jj < jb_s || jj > jb_e) continue;
+        if (ii < ib_s || ii > ib_e) continue;
+
+        const Real dx = coords.Xc<1>(ii) - x_star;
+        const Real dy = coords.Xc<2>(jj) - y_star;
+        const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
+        const Real r2 = dx * dx + dy * dy + dz * dz;
+        const Real r_max = r_cells * coords.Dxc<1>(ii);
+        if (r2 > r_max * r_max) continue;
+
+        const Real vol = coords.CellVolume(kk, jj, ii);
+        const Real w = vol / vol_tot; // volume fraction weight
+
+        // Mass deposited in this cell (density increment)
+        const Real dM = w * M_ej_tot;
+        const Real drho = dM / vol;
+
+        // Radial unit vector from star to cell center (Sedov profile)
+        const Real r = Kokkos::sqrt(r2);
+        const Real rx = (r > 0.0) ? dx / r : 0.0;
+        const Real ry = (r > 0.0) ? dy / r : 0.0;
+        const Real rz = (r > 0.0) ? dz / r : 0.0;
+
+        // Ejecta velocity: radial Sedov component + star bulk motion (rest-frame boost)
+        const Real u_x = u_sedov * rx + vel_x_star;
+        const Real u_y = u_sedov * ry + vel_y_star;
+        const Real u_z = (ndim == 3) ? (u_sedov * rz + vel_z_star) : 0.0;
+
+        // Update conserved variables (density, momentum, total energy)
+        Kokkos::atomic_add(&cons(IDN, kk, jj, ii), drho);
+        Kokkos::atomic_add(&cons(IM1, kk, jj, ii), drho * u_x);
+        Kokkos::atomic_add(&cons(IM2, kk, jj, ii), drho * u_y);
+        if (ndim == 3) Kokkos::atomic_add(&cons(IM3, kk, jj, ii), drho * u_z);
+        Kokkos::atomic_add(&cons(IEN, kk, jj, ii),
+                           0.5 * drho * (u_x * u_x + u_y * u_y + u_z * u_z));
+      }
+    }
+  }
+}
+
+// ========================================================================
+// TODO: calculate type Ia SNe rate using DTD (see SMUGGLE implementation).
+// ========================================================================
+
 KOKKOS_INLINE_FUNCTION
 int ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass) {
   return 0;
 }
 
-TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+// ========================================================================
+// Main function: calculates the total number of SNe and apply feedback
+// on the grid.
+// ========================================================================
+
+template <class EOS>
+TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
+                                const EOS &eos);
+
+TaskStatus StellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 
 } // namespace StellarFeedback
 

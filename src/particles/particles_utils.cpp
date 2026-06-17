@@ -202,6 +202,9 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       return TaskStatus::complete;
     }
 
+    printf("[InjectStars] MeshBlock gid=%d: injecting %d star particle(s) at t=%.6e\n",
+           pmb->gid, num_injected_particles_in_block, tm.time);
+
     auto injected_particles_context =
         swarm->AddEmptyParticles(num_injected_particles_in_block);
     auto swarm_d = swarm->GetDeviceContext();
@@ -282,7 +285,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               if (mass_enabled) {
                 StarFormation::TransferCellMassToParticle(
                     cons, prim, coords, k, j, i, mass_efficiency, ndim, swarm_idx, pmass,
-                    vel_x, vel_y, vel_z, eos, nhydro, nscalars);
+                    v_x, v_y, v_z, eos, nhydro, nscalars);
               }
             }
           }

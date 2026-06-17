@@ -105,6 +105,9 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
     Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
+  } else if (problem == "star_formation") {
+    pman.app_input->InitUserMeshData = star_formation::InitUserMeshData;
+    pman.app_input->ProblemGenerator = star_formation::ProblemGenerator;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {

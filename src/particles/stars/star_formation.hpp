@@ -93,32 +93,42 @@ and the cell density is updated as:
 This ensures mass conservation between the grid and the particle swarm.
 =============================================================================== */
 
-// In star_formation.hpp
 template <typename View4D, typename ParticleView, class EOS>
 KOKKOS_INLINE_FUNCTION void TransferCellMassToParticle(
     View4D cons, View4D prim, const Coordinates_t &coords, const int k, const int j,
     const int i, const Real mass_efficiency, const int ndim, const int swarm_idx,
     ParticleView &pmass, ParticleView &vel_x, ParticleView &vel_y, ParticleView &vel_z,
-    const EOS &eos, const int nhydro, const int nscalars)
+    const EOS &eos, const int nhydro, const int nscalars) {
 
-    const Real dx = coords.Dxc<1>(k, j, i);
-const Real dy = coords.Dxc<2>(k, j, i);
-const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
+  const Real dx = coords.Dxc<1>(i);
+  const Real dy = coords.Dxc<2>(j);
+  const Real dz = (ndim == 3) ? coords.Dxc<3>(k) : 1.0;
+  const Real vol = dx * dy * dz;
 
-const Real delta_rho = mass_efficiency * prim(IDN, k, j, i);
+  // Mass to transfer (in density units)
+  const Real delta_rho = mass_efficiency * prim(IDN, k, j, i);
+  const Real delta_mass = delta_rho * vol;
 
-// Update particle arrays
-pmass(swarm_idx) = delta_rho * dx * dy * dz;
-vel_x(swarm_idx) = prim(IV1, k, j, i);
-vel_y(swarm_idx) = prim(IV2, k, j, i);
-vel_z(swarm_idx) = (ndim == 3) ? prim(IV3, k, j, i) : 0.0;
+  // Current cell velocity (unchanged by mass transfer)
+  const Real vx = prim(IV1, k, j, i);
+  const Real vy = prim(IV2, k, j, i);
+  const Real vz = (ndim == 3) ? prim(IV3, k, j, i) : 0.0;
 
-// Modify prim in-place
-prim(IDN, k, j, i) -= delta_rho;
-// Velocities unchanged
+  // Update particle arrays
+  pmass(swarm_idx) = delta_mass;
+  vel_x(swarm_idx) = vx;
+  vel_y(swarm_idx) = vy;
+  vel_z(swarm_idx) = vz;
 
-// Resync cons from updated prim
-eos.PrimToCons(prim, cons, nhydro, nscalars, k, j, i);
+  // Updating the conserved variables (as PrimToCons isn't yet implemented)
+  cons(IDN, k, j, i) -= delta_rho;
+  cons(IM1, k, j, i) -= delta_rho * vx;
+  cons(IM2, k, j, i) -= delta_rho * vy;
+  if (ndim == 3) cons(IM3, k, j, i) -= delta_rho * vz;
+  cons(IEN, k, j, i) -= 0.5 * delta_rho * (vx * vx + vy * vy + vz * vz);
+
+  // Resync prim from updated cons
+  eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
 }
 
 } // namespace StarFormation
