@@ -138,6 +138,8 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
         },
         Kokkos::Sum<int>(total_SN));
 
+    printf("StellarFeedback: block %d: %d SN event(s) in timestep [t=%.4e, dt=%.4e]\n",
+           pmb->gid, total_SN, current_time, current_dt);
   } // end for swarm_name
 
   return TaskStatus::complete;

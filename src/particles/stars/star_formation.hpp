@@ -93,23 +93,32 @@ and the cell density is updated as:
 This ensures mass conservation between the grid and the particle swarm.
 =============================================================================== */
 
-template <typename View4D, class EOS>
-KOKKOS_INLINE_FUNCTION Real TransferCellMassToParticle(
+// In star_formation.hpp
+template <typename View4D, typename ParticleView, class EOS>
+KOKKOS_INLINE_FUNCTION void TransferCellMassToParticle(
     View4D cons, View4D prim, const Coordinates_t &coords, const int k, const int j,
-    const int i, const Real mass_efficiency, const int ndim, const EOS &eos,
-    const int nhydro, const int nscalars) {
+    const int i, const Real mass_efficiency, const int ndim, const int swarm_idx,
+    ParticleView &pmass, ParticleView &vel_x, ParticleView &vel_y, ParticleView &vel_z,
+    const EOS &eos, const int nhydro, const int nscalars)
 
-  const Real dx = coords.Dxc<1>(k, j, i);
-  const Real dy = coords.Dxc<2>(k, j, i);
-  const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
+    const Real dx = coords.Dxc<1>(k, j, i);
+const Real dy = coords.Dxc<2>(k, j, i);
+const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
 
-  const Real mass = mass_efficiency * cons(IDN, k, j, i) * dx * dy * dz;
-  cons(IDN, k, j, i) *= (1.0 - mass_efficiency);
+const Real delta_rho = mass_efficiency * prim(IDN, k, j, i);
 
-  // Resync prim from updated cons in-place
-  eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+// Update particle arrays
+pmass(swarm_idx) = delta_rho * dx * dy * dz;
+vel_x(swarm_idx) = prim(IV1, k, j, i);
+vel_y(swarm_idx) = prim(IV2, k, j, i);
+vel_z(swarm_idx) = (ndim == 3) ? prim(IV3, k, j, i) : 0.0;
 
-  return mass;
+// Modify prim in-place
+prim(IDN, k, j, i) -= delta_rho;
+// Velocities unchanged
+
+// Resync cons from updated prim
+eos.PrimToCons(prim, cons, nhydro, nscalars, k, j, i);
 }
 
 } // namespace StarFormation

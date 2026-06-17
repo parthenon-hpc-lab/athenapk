@@ -222,8 +222,14 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
     // Mass value (if needed)
     auto pmass = t_inj.Get(); // dummy type of initialization
+    auto v_x = t_inj.Get();
+    auto v_y = t_inj.Get();
+    auto v_z = t_inj.Get();
     if (mass_enabled) {
       pmass = swarm->Get<Real>("mass").Get();
+      v_x = swarm->Get<Real>("v_x").Get();
+      v_y = swarm->Get<Real>("v_y").Get();
+      v_z = swarm->Get<Real>("v_z").Get();
     }
 
     Kokkos::View<int, parthenon::DevExecSpace> counter("counter");
@@ -272,10 +278,11 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               if (removal_enabled) {
                 ltime(swarm_idx) = lifetime;
               }
+              // In particles_utils.cpp
               if (mass_enabled) {
-                pmass(swarm_idx) = StarFormation::TransferCellMassToParticle(
-                    cons, prim, coords, k, j, i, mass_efficiency, ndim, eos, nhydro,
-                    nscalars);
+                StarFormation::TransferCellMassToParticle(
+                    cons, prim, coords, k, j, i, mass_efficiency, ndim, swarm_idx, pmass,
+                    vel_x, vel_y, vel_z, eos, nhydro, nscalars);
               }
             }
           }
