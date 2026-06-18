@@ -118,11 +118,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("SN_Ia_enabled", SN_Ia_enabled);
 
   const auto M_ejecta_per_SN =
-      pin->GetOrAddReal("stars", "M_ejecta_per_SN", 10.0 * units.msun());
+      pin->GetOrAddReal("stars", "M_ejecta_per_SN", 10.0) * units.msun();
   stars_pkg->AddParam<>("M_ejecta_per_SN", M_ejecta_per_SN);
 
   const auto E_SN_per_event =
-      pin->GetOrAddReal("stars", "E_SN_per_event", 1.0e51 * units.erg());
+      pin->GetOrAddReal("stars", "E_SN_per_event", 1.0e51) * units.erg();
   stars_pkg->AddParam<>("E_SN_per_event", E_SN_per_event);
 
   const auto f_ek = pin->GetOrAddReal("stars", "SN_kinetic_efficiency", 1.0);
