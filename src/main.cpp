@@ -59,6 +59,8 @@ int main(int argc, char *argv[]) {
 
   if (problem == "stochastic_B_field") {
     pman.app_input->MeshProblemGenerator = stochastic_B_field::ProblemGenerator;
+    pman.app_input->UserMeshWorkBeforeOutput = stochastic_B_field::UserWorkBeforeOutput;
+    Hydro::ProblemInitPackageData = stochastic_B_field::ProblemInitPackageData;
   }  else if (problem == "linear_wave") {
     pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
