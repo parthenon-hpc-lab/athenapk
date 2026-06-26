@@ -23,8 +23,6 @@
 #include <random>
 #include <vector>
 
-using cplx = std::complex<double>;
-
 // Parthenon headers
 #include "config.hpp"
 #include "mesh/mesh.hpp"
@@ -34,9 +32,17 @@ using cplx = std::complex<double>;
 // AthenaPK headers
 #include "../main.hpp"
 
+using cplx = Kokkos::complex<double>;
+
 namespace stochastic_B_field {
 using namespace parthenon::driver::prelude;
 using parthenon::IndexShape;
+
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
+  // Add helicity variable: 
+  auto m = parthenon::Metadata({parthenon::Metadata::Cell, parthenon::Metadata::OneCopy}, std::vector<int>({1}));
+  pkg->AddField("helicity", m);
+  }
 
 // Define the desired power-spectrum E_k. It is defined such that 
 // E = \int_0^\inf E_k dk. Thus, it is related to |B(k)| via
@@ -136,12 +142,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
   auto UniformGridHelper = pmesh->GetUniformGridHelper();
   
-  auto &local_loc_min = UniformGridHelper->local_loc_min;
-  auto &block_size = UniformGridHelper->block_size;
-  auto &nx1b = block_size[0];
-  auto &nx2b = block_size[1];
-  auto &nx3b = block_size[2];
-  auto &local_mesh_size = UniformGridHelper->local_mesh_size;
+  auto &local_mesh_size = UniformGridHelper->local_mesh_box.size;
   auto &nx1l = local_mesh_size[0];
   auto &nx2l = local_mesh_size[1];
   auto &nx3l = local_mesh_size[2];
@@ -149,9 +150,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto fftManager = pmesh->GetFFTManager();
   auto outbox = fftManager->fourier_space_box();
 
-  parthenon::ParArray1D<std::complex<double>> Bx_hat("Bx_hat", fftManager->size_fourier_space_box());
-  parthenon::ParArray1D<std::complex<double>> By_hat("By_hat", fftManager->size_fourier_space_box());
-  parthenon::ParArray1D<std::complex<double>> Bz_hat("Bz_hat", fftManager->size_fourier_space_box());
+  parthenon::ParArray1D<Kokkos::complex<double>> Bx_hat("Bx_hat", fftManager->size_fourier_space_box());
+  parthenon::ParArray1D<Kokkos::complex<double>> By_hat("By_hat", fftManager->size_fourier_space_box());
+  parthenon::ParArray1D<Kokkos::complex<double>> Bz_hat("Bz_hat", fftManager->size_fourier_space_box());
   parthenon::ParArray1D<double> Bx("Bx", fftManager->size_real_space_box());
   parthenon::ParArray1D<double> By("By", fftManager->size_real_space_box());
   parthenon::ParArray1D<double> Bz("Bz", fftManager->size_real_space_box());
@@ -309,74 +310,187 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto By_h = By.GetHostMirrorAndCopy();
   auto Bz_h = Bz.GetHostMirrorAndCopy();
 
-  // Loop over meshblocks on this rank and initialize the variables:
-  for (int b = 0; b < pmesh->GetNumMeshBlocksThisRank(); b++) {
-    auto pmb = pmesh->block_list[b];
+  // Scatter B-field to mesh
+  UniformGridHelper->ScatterField(Bx, "cons", IB1);
+  UniformGridHelper->ScatterField(By, "cons", IB2);
+  UniformGridHelper->ScatterField(Bz, "cons", IB3);
 
-    // get local meshblock indices
-    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  // Set hydro variables on device
+  auto &md_new = pmesh->mesh_data.Get();
+  auto cons_pack = md_new->PackVariables(std::vector<std::string>{"cons"});
+  auto helper = UniformGridHelper->GetKernelHelper();
 
-    // initialize conserved variables
-    auto &rc = pmb->meshblock_data.Get();
-    auto &u_dev = rc->Get("cons").data;
-    
-    // initializing on host
-    auto u = u_dev.GetHostMirrorAndCopy();
-    
-    // Loop over local meshblock and set the values: 
-    for (int k = kb.s; k <= kb.e; k++) {
-      for (int j = jb.s; j <= jb.e; j++) {
-        for (int i = ib.s; i <= ib.e; i++) {
-          Real rho = rho0;
-          u(IDN, k, j, i) = rho;
-          Real mx = rho * vx;
-          Real my = rho * vy;
-          Real mz = rho * vz;
-          u(IM1, k, j, i) = mx;
-          u(IM2, k, j, i) = my;
-          u(IM3, k, j, i) = mz;
+  IndexRange ib = md_new->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md_new->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md_new->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-          // determine global index corresponding to (i,j,k) in this meshblock
-          auto loc = pmb->pmy_mesh->Forest().GetLegacyTreeLocation(pmb->loc);
+  parthenon::par_for(
+      "SetHydro", 0, pmesh->GetNumMeshBlocksThisRank() - 1,
+      kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto idx = helper.FlatIndex(b, k, j, i);
+          const Real bx = Bx(idx);
+          const Real by = By(idx);
+          const Real bz = Bz(idx);
+          cons_pack(b, IDN, k, j, i) = rho0;
+          cons_pack(b, IM1, k, j, i) = rho0 * vx;
+          cons_pack(b, IM2, k, j, i) = rho0 * vy;
+          cons_pack(b, IM3, k, j, i) = rho0 * vz;
+          cons_pack(b, IB1, k, j, i) = bx;
+          cons_pack(b, IB2, k, j, i) = by;
+          cons_pack(b, IB3, k, j, i) = bz;
+          cons_pack(b, IEN, k, j, i) = p0/gm1
+              + 0.5*(SQR(rho0*vx) + SQR(rho0*vy) + SQR(rho0*vz))/rho0
+              + 0.5*(SQR(bx) + SQR(by) + SQR(bz));
+      });
 
-          // loc.l(i) gives the logical location of this meshblock along dimension i in the global domain.
-          // local_loc_min gives the smallest logical location of any meshblock on this rank.
-          // So loc.l(i) - local_loc_min[i] gives the rank-local logical location of this meshblock (always starting from 0):
-          int bix = loc.l(0) - local_loc_min[0]; 
-          int biy = loc.l(1) - local_loc_min[1]; // rank-local logical location
-          int biz = loc.l(2) - local_loc_min[2];
-
-          // multiply by meshblock size to get starting index
-          int gi0 = bix * nx1b;
-          int gj0 = biy * nx2b;
-          int gk0 = biz * nx3b;
-
-          // rank-domain index = meshblock starting index + local index within meshblock (subtracting ib.s, jb.s, kb.s because of ghost zones. Needs to start at 0)
-          int ii = gi0 + (i - ib.s);
-          int jj = gj0 + (j - jb.s);
-          int kk = gk0 + (k - kb.s);
-
-          // finally, flatten index assuming row-major order (x fastest):
-          std::int64_t idx = (kk * nx2l + jj) * nx1l + ii;
-
-          // make sure idx is in range
-          assert(idx >= 0 && idx < local_num_cells);
-
-          u(IB1, k, j, i) = Bx_h[idx];
-          u(IB2, k, j, i) = By_h[idx];
-          u(IB3, k, j, i) = Bz_h[idx];
-
-	        // Total energy (thermal + kinetic + magnetic); thermal energy calculated from ideal gas EOS
-          u(IEN, k, j, i) = p0 / gm1 + 0.5*(mx*mx + my*my + mz*mz)/rho + 0.5*(Bx_h[idx]*Bx_h[idx] + By_h[idx]*By_h[idx] + Bz_h[idx]*Bz_h[idx]);
-
-        }
-      }
-    }
-  // copy initialized vars to device
-  u_dev.DeepCopy(u);
-  
-  } // for all meshblocks on this rank
 } // void ProblemGenerator
+
+// In-situ analysis routines: 
+
+void UserWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
+                          const parthenon::SimTime & /*tm*/){
+  
+  auto &md = pmesh->mesh_data.Get();
+  auto fftManager = pmesh->GetFFTManager();
+  auto UniformGridHelper = pmesh->GetUniformGridHelper();
+
+  auto mesh_size = pmesh->mesh_size;
+  const auto Nx = mesh_size.nx(parthenon::X1DIR);
+  const auto Ny = mesh_size.nx(parthenon::X2DIR);
+  const auto Nz = mesh_size.nx(parthenon::X3DIR);
+
+  const auto fft_size_inbox  = fftManager->size_real_space_box();
+  const auto fft_size_outbox = fftManager->size_fourier_space_box();
+
+  PARTHENON_REQUIRE_THROWS(fft_size_inbox > 0,  "FFT inbox size is zero");
+  PARTHENON_REQUIRE_THROWS(fft_size_outbox > 0, "FFT outbox size is zero");
+  PARTHENON_REQUIRE_THROWS(pmesh->DefaultNumPartitions() == 1,
+                           "Only pack_size=-1 supported.");
+
+  std::array<parthenon::ParArray1D<Real>, 3> B;
+  std::array<parthenon::ParArray1D<Kokkos::complex<Real>>, 3> B_hat;
+  std::array<parthenon::ParArray1D<Real>, 3> A;
+  std::array<parthenon::ParArray1D<Kokkos::complex<Real>>, 3> A_hat;
+  const std::array<int, 3> B_indices = {IB1, IB2, IB3};
+
+  for (int i = 0; i < 3; i++) {
+    B[i]     = parthenon::ParArray1D<Real>("B",     fft_size_inbox);
+    B_hat[i] = parthenon::ParArray1D<Kokkos::complex<Real>>("B_hat", fft_size_outbox);
+    A[i]     = parthenon::ParArray1D<Real>("A",     fft_size_inbox);
+    A_hat[i] = parthenon::ParArray1D<Kokkos::complex<Real>>("A_hat", fft_size_outbox);
+
+    PARTHENON_REQUIRE_THROWS(B[i].size()     == fft_size_inbox,  "B array wrong size");
+    PARTHENON_REQUIRE_THROWS(B_hat[i].size() == fft_size_outbox, "B_hat array wrong size");
+    PARTHENON_REQUIRE_THROWS(A[i].size()     == fft_size_inbox,  "A array wrong size");
+    PARTHENON_REQUIRE_THROWS(A_hat[i].size() == fft_size_outbox, "A_hat array wrong size");
+
+    UniformGridHelper->GatherField("cons", B_indices[i], B[i]);
+    fftManager->Forward(B[i].data(), B_hat[i].data());
+  }
+
+  // Fourier space bounds
+  auto outbox = fftManager->fourier_space_box();
+  IndexRange ib, jb, kb;
+  ib.s = outbox.low[0]; ib.e = outbox.high[0];
+  jb.s = outbox.low[1]; jb.e = outbox.high[1];
+  kb.s = outbox.low[2]; kb.e = outbox.high[2];
+
+  // Sanity check outbox size matches fft_size_outbox
+  PARTHENON_REQUIRE_THROWS(
+      (std::int64_t)(ib.e-ib.s+1) * (jb.e-jb.s+1) * (kb.e-kb.s+1) == (std::int64_t)fft_size_outbox,
+      "Fourier space box size mismatch");
+
+  // Box size
+  const Real Lx = mesh_size.xmax(parthenon::X1DIR) - mesh_size.xmin(parthenon::X1DIR);
+  const Real Ly = mesh_size.xmax(parthenon::X2DIR) - mesh_size.xmin(parthenon::X2DIR);
+  const Real Lz = mesh_size.xmax(parthenon::X3DIR) - mesh_size.xmin(parthenon::X3DIR);
+  PARTHENON_REQUIRE_THROWS(std::abs(Lx - Ly) < 1e-10 && std::abs(Ly - Lz) < 1e-10,
+                           "Box must be cubic for helicity calculation");
+  const Real L = Lx;
+
+  const Kokkos::complex<Real> imag_unit(0.0, 1.0);
+
+  parthenon::par_for(
+      "ComputeAhat", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int kz_idx, const int ky_idx, const int kx_idx) {
+
+        const auto kz = kz_idx <= Nz/2 ? kz_idx : kz_idx - Nz;
+        const auto ky = ky_idx <= Ny/2 ? ky_idx : ky_idx - Ny;
+        const auto kx = kx_idx;
+
+        const Real kx_phys = 2.0*M_PI * kx / L;
+        const Real ky_phys = 2.0*M_PI * ky / L;
+        const Real kz_phys = 2.0*M_PI * kz / L;
+        const Real kmag2 = kx_phys*kx_phys + ky_phys*ky_phys + kz_phys*kz_phys;
+
+        const std::int64_t idx =
+            ((std::int64_t)(kz_idx - kb.s) * (jb.e - jb.s + 1) + (ky_idx - jb.s))
+            * (ib.e - ib.s + 1) + kx_idx - ib.s;
+
+        PARTHENON_DEBUG_REQUIRE(idx >= 0 && idx < (std::int64_t)fft_size_outbox,
+                                "ComputeAhat: idx out of bounds");
+
+        if (kx == 0 && ky == 0 && kz == 0) {
+          A_hat[0][idx] = 0.0;
+          A_hat[1][idx] = 0.0;
+          A_hat[2][idx] = 0.0;
+          return;
+        }
+
+        A_hat[0][idx] = imag_unit * (ky_phys*B_hat[2][idx] - kz_phys*B_hat[1][idx]) / kmag2;
+        A_hat[1][idx] = imag_unit * (kz_phys*B_hat[0][idx] - kx_phys*B_hat[2][idx]) / kmag2;
+        A_hat[2][idx] = imag_unit * (kx_phys*B_hat[1][idx] - ky_phys*B_hat[0][idx]) / kmag2;
+      });
+
+  Kokkos::fence();
+
+  for (int i = 0; i < 3; i++) {
+    fftManager->Backward(A_hat[i].data(), A[i].data());
+  }
+
+  Kokkos::fence();
+
+  // Real space bounds
+  auto inbox = fftManager->real_space_box();
+  ib.s = inbox.low[0]; ib.e = inbox.high[0];
+  jb.s = inbox.low[1]; jb.e = inbox.high[1];
+  kb.s = inbox.low[2]; kb.e = inbox.high[2];
+
+  PARTHENON_REQUIRE_THROWS(
+      (std::int64_t)(ib.e-ib.s+1) * (jb.e-jb.s+1) * (kb.e-kb.s+1) == (std::int64_t)fft_size_inbox,
+      "Real space box size mismatch");
+
+  // Get raw pointers for real-space kernel
+  std::array<Real*, 3> A_ptr, B_ptr;
+  for (int i = 0; i < 3; i++) {
+    A_ptr[i] = A[i].data();
+    B_ptr[i] = B[i].data();
+    PARTHENON_REQUIRE_THROWS(A_ptr[i] != nullptr, "A pointer null");
+    PARTHENON_REQUIRE_THROWS(B_ptr[i] != nullptr, "B pointer null");
+  }
+
+  parthenon::ParArray1D<Real> h("helicity", fft_size_inbox);
+
+  parthenon::par_for(
+      "ComputeHelicity", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k_idx, const int j_idx, const int i_idx) {
+        const std::int64_t idx =
+            ((std::int64_t)(k_idx - kb.s) * (jb.e - jb.s + 1) + (j_idx - jb.s))
+            * (ib.e - ib.s + 1) + i_idx - ib.s;
+
+        PARTHENON_DEBUG_REQUIRE(idx >= 0 && idx < (std::int64_t)fft_size_inbox,
+                                "ComputeHelicity: idx out of bounds");
+
+        h(idx) = A_ptr[0][idx]*B_ptr[0][idx]
+               + A_ptr[1][idx]*B_ptr[1][idx]
+               + A_ptr[2][idx]*B_ptr[2][idx];
+      });
+
+  Kokkos::fence();
+
+  UniformGridHelper->ScatterField(h, "helicity", 0);
+
+}
+
 } // namespace stochastic_B_field
