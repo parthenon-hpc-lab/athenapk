@@ -59,15 +59,6 @@ double PowerSpectrum(double k, double kI, double n1, double n2,
 }
 
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
-
-  // The current approach only works for pack size = -1 (all blocks in one pack. Assert this here:)
-  auto pack_size = pin->GetInteger("parthenon/mesh", "pack_size");
-  PARTHENON_REQUIRE_THROWS(pack_size == -1,
-                           "stochastic_B_field problem generator only works for pack_size = -1.");
-
-  // Check if AMR is enabled - currently, AMR results in segfaults
-  PARTHENON_REQUIRE_THROWS(pmesh->adaptive == false,
-                           "stochastic_B_field problem generator does not support AMR.");
   
   // Get global number of cells 
   auto Nx = pin->GetInteger("parthenon/mesh", "nx1");
@@ -93,9 +84,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   Real L = Lx;
 
   // Read problem parameters
-  const auto vx = pin->GetOrAddReal("problem/stochastic_B_field", "vx", 0.0);
-  const auto vy = pin->GetOrAddReal("problem/stochastic_B_field", "vy", 0.0);
-  const auto vz = pin->GetOrAddReal("problem/stochastic_B_field", "vz", 0.0);
   const auto rho0 = pin->GetOrAddReal("problem/stochastic_B_field", "rho0", 1.0);
   const auto p0 = pin->GetOrAddReal("problem/stochastic_B_field", "p0", 1.0);
 
@@ -109,17 +97,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   const auto n2 = pin->GetOrAddReal("problem/stochastic_B_field", "n2", 5.0/3.0);
   const auto alpha = pin->GetOrAddReal("problem/stochastic_B_field", "alpha", 2.0);
   const auto helicity = pin->GetOrAddReal("problem/stochastic_B_field", "helicity", 0.0);
-  
-  // Quick check that kmax is not too large
-  std::int64_t Nmin = std::min({Nx, Ny, Nz});
-  double kmax_safe = 0.5 * Nmin;  // corresponds to ~0.5 * k_Nyquist
-
-  if (kmax > kmax_safe) {
-    std::cerr << "WARNING: kmax = " << kmax
-              << " exceeds safe limit ~0.5*Nmin = " << kmax_safe
-              << ". Expect large divB errors or negative pressures."
-              << std::endl;
-  }
 
   // Catch unphysical helicity value:
   if (helicity < -1.0 || helicity > 1.0) {
@@ -305,11 +282,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     }
   );
 
-  // Copy back to host for meshblock distribution
-  auto Bx_h = Bx.GetHostMirrorAndCopy();
-  auto By_h = By.GetHostMirrorAndCopy();
-  auto Bz_h = Bz.GetHostMirrorAndCopy();
-
   // Scatter B-field to mesh
   UniformGridHelper->ScatterField(Bx, "cons", IB1);
   UniformGridHelper->ScatterField(By, "cons", IB2);
@@ -333,21 +305,19 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           const Real by = By(idx);
           const Real bz = Bz(idx);
           cons_pack(b, IDN, k, j, i) = rho0;
-          cons_pack(b, IM1, k, j, i) = rho0 * vx;
-          cons_pack(b, IM2, k, j, i) = rho0 * vy;
-          cons_pack(b, IM3, k, j, i) = rho0 * vz;
+          cons_pack(b, IM1, k, j, i) = 0;
+          cons_pack(b, IM2, k, j, i) = 0;
+          cons_pack(b, IM3, k, j, i) = 0;
           cons_pack(b, IB1, k, j, i) = bx;
           cons_pack(b, IB2, k, j, i) = by;
           cons_pack(b, IB3, k, j, i) = bz;
           cons_pack(b, IEN, k, j, i) = p0/gm1
-              + 0.5*(SQR(rho0*vx) + SQR(rho0*vy) + SQR(rho0*vz))/rho0
               + 0.5*(SQR(bx) + SQR(by) + SQR(bz));
       });
 
 } // void ProblemGenerator
 
 // In-situ analysis routines: 
-
 void UserWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
                           const parthenon::SimTime & /*tm*/){
   

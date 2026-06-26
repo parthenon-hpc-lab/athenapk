@@ -56,11 +56,14 @@ int main(int argc, char *argv[]) {
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
   pman.app_input->PreStepMeshUserWorkInLoop = Hydro::PreStepMeshUserWorkInLoop;
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
-
   if (problem == "stochastic_B_field") {
-    pman.app_input->MeshProblemGenerator = stochastic_B_field::ProblemGenerator;
-    pman.app_input->UserMeshWorkBeforeOutput = stochastic_B_field::UserWorkBeforeOutput;
-    Hydro::ProblemInitPackageData = stochastic_B_field::ProblemInitPackageData;
+    #ifdef PARTHENON_ENABLE_FFT
+      pman.app_input->MeshProblemGenerator = stochastic_B_field::ProblemGenerator;
+      pman.app_input->UserMeshWorkBeforeOutput = stochastic_B_field::UserWorkBeforeOutput;
+      Hydro::ProblemInitPackageData = stochastic_B_field::ProblemInitPackageData;
+    #else
+      PARTHENON_FAIL("stochastic_B_field problem requires FFT support. Rebuild with PARTHENON_ENABLE_FFT=ON");
+    #endif
   }  else if (problem == "linear_wave") {
     pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
