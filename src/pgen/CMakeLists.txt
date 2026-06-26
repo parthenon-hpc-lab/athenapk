@@ -28,3 +28,7 @@ target_sources(athenaPK PRIVATE
     turbulence.cpp
     stochastic_B_field.cpp
     )
+
+if(PARTHENON_ENABLE_FFT)
+    target_sources(athenaPK PRIVATE stochastic_B_field.cpp)
+endif()
