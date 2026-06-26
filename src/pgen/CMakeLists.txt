@@ -19,12 +19,13 @@ target_sources(athenaPK PRIVATE
 #    field_loop.cpp
 #    kh.cpp
     linear_wave.cpp
-#     linear_wave_mhd.cpp
-#    lw_implode.cpp
-#    orszag_tang.cpp
-#    rand_blast.cpp
-#    sod.cpp
-#    turbulence.cpp
+    linear_wave_mhd.cpp
+    lw_implode.cpp
+    orszag_tang.cpp
+    rand_blast.cpp
+    sod.cpp
+    shattering.cpp
+    turbulence.cpp
     )
 
 if(PARTHENON_ENABLE_FFT)

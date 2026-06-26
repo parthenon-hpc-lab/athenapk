@@ -15,11 +15,11 @@ else()
     "For further directions open an issue on GitLab.")
 endif()
 
-project(athenaPK VERSION 25.05 LANGUAGES CXX)
+project(athenaPK VERSION 26.05 LANGUAGES CXX)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 # make paths in target_source() absolute
 # used for sources in src/pgen folder
@@ -70,6 +70,7 @@ set(PARTHENON_ENABLE_TESTING OFF CACHE BOOL "Disable Parthenon testing.")
 set(PARTHENON_DISABLE_OPENMP ON CACHE BOOL "Disable OpenMP")
 set(PARTHENON_DISABLE_EXAMPLES ON CACHE BOOL "Don't build Parthenon examples.")
 set(PARTHENON_DISABLE_SPARSE ON CACHE BOOL "Disable sparse (not used in AthenaPK yet)")
+set(PARTHENON_DISABLE_OPENPMD OFF CACHE BOOL "Enable OpenPMD outputs in AthenaPK by default")
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon/CMakeLists.txt)
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/parthenon parthenon)
