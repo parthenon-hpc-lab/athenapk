@@ -56,19 +56,19 @@ int main(int argc, char *argv[]) {
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
   pman.app_input->PreStepMeshUserWorkInLoop = Hydro::PreStepMeshUserWorkInLoop;
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
-  if (problem == "stochastic_B_field") {
+  if (problem == "decaying_turbulence") {
     #ifdef PARTHENON_ENABLE_FFT
-      pman.app_input->MeshProblemGenerator = stochastic_B_field::ProblemGenerator;
-      pman.app_input->UserMeshWorkBeforeOutput = stochastic_B_field::UserWorkBeforeOutput;
-      Hydro::ProblemInitPackageData = stochastic_B_field::ProblemInitPackageData;
+      pman.app_input->MeshProblemGenerator = decaying_turbulence::ProblemGenerator;
+      pman.app_input->UserMeshWorkBeforeOutput = decaying_turbulence::UserWorkBeforeOutput;
+      Hydro::ProblemInitPackageData = decaying_turbulence::ProblemInitPackageData;
     #else
-      PARTHENON_FAIL("stochastic_B_field problem requires FFT support. Rebuild with PARTHENON_ENABLE_FFT=ON");
+      PARTHENON_FAIL("decaying_turbulence problem requires FFT support. Rebuild with PARTHENON_ENABLE_FFT=ON");
     #endif
-  }  else if (problem == "linear_wave") {
+  } else if (problem == "linear_wave") {
     pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
-  } /*else if (problem == "linear_wave_mhd") {
+  } else if (problem == "linear_wave_mhd") {
     pman.app_input->InitUserMeshData = linear_wave_mhd::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave_mhd::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = linear_wave_mhd::UserWorkAfterLoop;
@@ -90,9 +90,6 @@ int main(int argc, char *argv[]) {
   } else if (problem == "advection") {
     pman.app_input->InitUserMeshData = advection::InitUserMeshData;
     pman.app_input->ProblemGenerator = advection::ProblemGenerator;
-  } else if (problem == "stochastic_B_field") {
-    pman.app_input->InitUserMeshData = stochastic_B_field::InitUserMeshData;
-    pman.app_input->ProblemGenerator = stochastic_B_field::ProblemGenerator;
   } else if (problem == "orszag_tang") {
     pman.app_input->ProblemGenerator = orszag_tang::ProblemGenerator;
   } else if (problem == "diffusion") {
@@ -128,10 +125,10 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceFirstOrder = turbulence::Driving;
     pman.app_input->InitMeshBlockUserData = turbulence::SetPhases;
     pman.app_input->MeshBlockUserWorkBeforeOutput = turbulence::UserWorkBeforeOutput;
-  } */ else {
+  } else {
     // parthenon throw error message for the invalid problem
     std::stringstream msg;
-    msg << "Problem ID '" << problem << "' is not implemented yet. (Many problems are currently commented out in main.cpp to speed up build time)";
+    msg << "Problem ID '" << problem << "' is not implemented yet.";
     PARTHENON_THROW(msg);
   }
 

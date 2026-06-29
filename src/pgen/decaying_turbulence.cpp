@@ -3,7 +3,7 @@
 // Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
-//! \file stochastic_B_field.cpp
+//! \file decaying_turbulence.cpp
 //  \brief Problem generator for a uniform density, pressure, velocity field and 
 //  a stochastic magnetic field with a specified power spectrum with tunable helicity
 //  in a periodic box. 
@@ -34,7 +34,7 @@
 
 using cplx = Kokkos::complex<double>;
 
-namespace stochastic_B_field {
+namespace decaying_turbulence {
 using namespace parthenon::driver::prelude;
 using parthenon::IndexShape;
 
@@ -84,23 +84,23 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   Real L = Lx;
 
   // Read problem parameters
-  const auto rho0 = pin->GetOrAddReal("problem/stochastic_B_field", "rho0", 1.0);
-  const auto p0 = pin->GetOrAddReal("problem/stochastic_B_field", "p0", 1.0);
+  const auto rho0 = pin->GetOrAddReal("problem/decaying_turbulence", "rho0", 1.0);
+  const auto p0 = pin->GetOrAddReal("problem/decaying_turbulence", "p0", 1.0);
 
   auto gam = pin->GetReal("hydro", "gamma");
   auto gm1 = (gam - 1.0);
 
-  const auto kmax = pin->GetOrAddReal("problem/stochastic_B_field", "kmax", 0.25 * Nx);
-  const auto B_rms = pin->GetOrAddReal("problem/stochastic_B_field", "B_rms", 0.3);
-  const auto kI = pin->GetOrAddReal("problem/stochastic_B_field", "kI", 10.0);
-  const auto n1 = pin->GetOrAddReal("problem/stochastic_B_field", "n1", 4.0);
-  const auto n2 = pin->GetOrAddReal("problem/stochastic_B_field", "n2", 5.0/3.0);
-  const auto alpha = pin->GetOrAddReal("problem/stochastic_B_field", "alpha", 2.0);
-  const auto helicity = pin->GetOrAddReal("problem/stochastic_B_field", "helicity", 0.0);
+  const auto kmax = pin->GetOrAddReal("problem/decaying_turbulence", "kmax", 0.25 * Nx);
+  const auto B_rms = pin->GetOrAddReal("problem/decaying_turbulence", "B_rms", 0.3);
+  const auto kI = pin->GetOrAddReal("problem/decaying_turbulence", "kI", 10.0);
+  const auto n1 = pin->GetOrAddReal("problem/decaying_turbulence", "n1", 4.0);
+  const auto n2 = pin->GetOrAddReal("problem/decaying_turbulence", "n2", 5.0/3.0);
+  const auto alpha = pin->GetOrAddReal("problem/decaying_turbulence", "alpha", 2.0);
+  const auto helicity = pin->GetOrAddReal("problem/decaying_turbulence", "helicity", 0.0);
 
   // Catch unphysical helicity value:
   if (helicity < -1.0 || helicity > 1.0) {
-    PARTHENON_FAIL("Stochastic B-field helicity must be between -1 and 1.");
+    PARTHENON_FAIL("Decaying turbulence pgen: helicity must be between -1 and 1.");
   }
 
   // physical k-values:
@@ -463,4 +463,4 @@ void UserWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin,
 
 }
 
-} // namespace stochastic_B_field
+} // namespace decaying_turbulence
