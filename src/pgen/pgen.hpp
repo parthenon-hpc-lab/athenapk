@@ -9,14 +9,14 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
-namespace stochastic_B_field {
+namespace decaying_turbulence {
 using namespace parthenon::driver::prelude;
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md);
 void UserWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin, const parthenon::SimTime &tm);
 
-} // namespace stochastic_B_field
+} // namespace decaying_turbulence
 
 namespace linear_wave {
 using namespace parthenon::driver::prelude;
