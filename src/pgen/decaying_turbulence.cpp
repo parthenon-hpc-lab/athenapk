@@ -59,6 +59,15 @@ double PowerSpectrum(double k, double kI, double n1, double n2,
 }
 
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
+
+  // sample stochastic magnetic field in Fourier space. 
+  // Sampling is done in the helical basis, i.e.
+
+  // B(k) = B_+(k) e_+(k) + B_-(k) e_-(k). 
+  // with k x e_+ = i k e_+, k x e_- = -i k e_-, and e_+ . e_- = 0.
+  
+  // This way, the field is automatically divergence-free and the helicity can be tuned by adjusting the relative amplitudes of B_+ and B_-.
+  // For each k, amplitudes are drawn from a Gaussian distribution with variance determined by the desired power spectrum.
   
   // Get global number of cells 
   auto Nx = pin->GetInteger("parthenon/mesh", "nx1");
@@ -84,21 +93,22 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   Real L = Lx;
 
   // Read problem parameters
-  const auto rho0 = pin->GetOrAddReal("problem/decaying_turbulence", "rho0", 1.0);
-  const auto p0 = pin->GetOrAddReal("problem/decaying_turbulence", "p0", 1.0);
+  const auto rho0 = pin->GetReal("problem/decaying_turbulence", "rho0");
+  const auto p0 = pin->GetReal("problem/decaying_turbulence", "p0");
 
   auto gam = pin->GetReal("hydro", "gamma");
   auto gm1 = (gam - 1.0);
 
-  const auto kmax = pin->GetOrAddReal("problem/decaying_turbulence", "kmax", 0.25 * Nx);
-  const auto B_rms = pin->GetOrAddReal("problem/decaying_turbulence", "B_rms", 0.3);
-  const auto kI = pin->GetOrAddReal("problem/decaying_turbulence", "kI", 10.0);
-  const auto n1 = pin->GetOrAddReal("problem/decaying_turbulence", "n1", 4.0);
-  const auto n2 = pin->GetOrAddReal("problem/decaying_turbulence", "n2", 5.0/3.0);
-  const auto alpha = pin->GetOrAddReal("problem/decaying_turbulence", "alpha", 2.0);
-  const auto helicity = pin->GetOrAddReal("problem/decaying_turbulence", "helicity", 0.0);
+  const auto B_rms = pin->GetReal("problem/decaying_turbulence", "B_rms");
 
-  // Catch unphysical helicity value:
+  const auto kI = pin->GetReal("problem/decaying_turbulence", "kI"); // see PowerSpectrum() for definition
+  const auto n1 = pin->GetReal("problem/decaying_turbulence", "n1");
+  const auto n2 = pin->GetReal("problem/decaying_turbulence", "n2");
+  const auto alpha = pin->GetReal("problem/decaying_turbulence", "alpha");
+
+  const auto kmax = pin->GetOrAddReal("problem/decaying_turbulence", "kmax", 0.5*N); // maximum mode number to include in the initial conditions. Default is Nyquist.
+
+  const auto helicity = pin->GetReal("problem/decaying_turbulence", "helicity"); // fractional helicity, -1 <= helicity <= 1
   if (helicity < -1.0 || helicity > 1.0) {
     PARTHENON_FAIL("Decaying turbulence pgen: helicity must be between -1 and 1.");
   }
@@ -112,7 +122,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     return PowerSpectrum(k, kI_phys, n1, n2, alpha);
   };
 
-  // Random generator for phases
+  // Random number generators for phase and amplitude
   std::mt19937 rng(42);
   std::uniform_real_distribution<double> dist_phase(0.0, 2.0*M_PI);
   std::normal_distribution<double> dist_gauss(0.0, 1.0);
@@ -163,10 +173,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             continue;
 
         // --- compute stddev for Gaussian vector potential ---
-        // For a gaussian, sigma_A^2 ~ |A(k)|^2 
-        // and B(k) = ik x A(k) => |B(k)|^2 = k^2 |A(k)|^2 
-        // We want E_k ~ |B(k)|^2 k^2. Thus, |A(k)|^2 ~ E_k / k^4.  
-        double sigma_A = std::sqrt(P(kmag) / (kmag * kmag * kmag * kmag));
+        // For a gaussian, sigma_B^2 ~ |B(k)|^2  
+        // We want E_k ~ |B(k)|^2 k^2. Thus, |B(k)|^2 ~ E_k / k^2.  
+        double sigma_B = std::sqrt(P(kmag) / (kmag * kmag));
 
         // --- two independent Gaussian components in plane perpendicular to k ---
         // First, find two perpendicular unit vectors
@@ -187,7 +196,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         ex2[1] = (kvec[2]*ex1[0] - kvec[0]*ex1[2]) / k_norm;
         ex2[2] = (kvec[0]*ex1[1] - kvec[1]*ex1[0]) / k_norm;
 
-        // --- Rotate basis vectos by random angle ---
+        // --- Rotate basis vectors by random angle ---
         double phi= dist_phase(rng);
         double cphi = std::cos(phi);
         double sphi = std::sin(phi);
@@ -209,18 +218,19 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             em[q] = sq2i * ( ex1r[q] - I * ex2r[q] );
         }
 
-        double sigma_plus  = sigma_A * std::sqrt((1.0 + helicity)/2.0);
-        double sigma_minus = sigma_A * std::sqrt((1.0 - helicity)/2.0);
+        // --- Compute the two independent Gaussian components in the helical basis ---
+        double sigma_plus  = sigma_B * std::sqrt((1.0 + helicity)/2.0);
+        double sigma_minus = sigma_B * std::sqrt((1.0 - helicity)/2.0);
 
-        cplx A1(sigma_plus * dist_gauss(rng), sigma_plus * dist_gauss(rng));
-        cplx A2(sigma_minus * dist_gauss(rng), sigma_minus * dist_gauss(rng));
+        cplx B1(sigma_plus * dist_gauss(rng), sigma_plus * dist_gauss(rng));
+        cplx B2(sigma_minus * dist_gauss(rng), sigma_minus * dist_gauss(rng));
 
-        // --- construct vector potential in Fourier space ---
-        cplx Ax = A1*ep[0] + A2*em[0];
-        cplx Ay = A1*ep[1] + A2*em[1];
-        cplx Az = A1*ep[2] + A2*em[2];
+        // --- construct magnetic field in Fourier space (carthesian basis) ---
+        cplx Bx = B1*ep[0] + B2*em[0];
+        cplx By = B1*ep[1] + B2*em[1];
+        cplx Bz = B1*ep[2] + B2*em[2];
         
-        // local indices (starting at 0): 
+        // find local index and write to host array
         std::int64_t z_local = z - outbox.low[2];
         std::int64_t y_local = y - outbox.low[1];
         std::int64_t x_local = x - outbox.low[0];
@@ -234,9 +244,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         assert(idx >= 0 && idx < fftManager->size_fourier_space_box());
 
         // --- Compute B(k) = i * (k x A(k)) ---
-        Bx_hat_h[idx] = I * ( ky_phys * Az - kz_phys * Ay );
-        By_hat_h[idx] = I * ( kz_phys * Ax - kx_phys * Az );
-        Bz_hat_h[idx] = I * ( kx_phys * Ay - ky_phys * Ax );
+        Bx_hat_h[idx] = Bx;
+        By_hat_h[idx] = By;
+        Bz_hat_h[idx] = Bz;
       }
     }
   }
@@ -251,6 +261,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   fftManager->Backward(By_hat.data(), By.data());
   fftManager->Backward(Bz_hat.data(), Bz.data());
 
+  // Compute the RMS of the magnetic field and normalize to the desired value
   double local_B2_sum = 0.0;
 
   const std::int64_t local_num_cells =
