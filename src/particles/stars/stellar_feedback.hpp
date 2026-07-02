@@ -70,34 +70,21 @@ Real NormedChabrierIMF(const Real m_sim, const Real msun_in_code_units) {
 }
 
 // ========================================================================
-// Expected number of Type II supernova events for a stellar particle
-// in the current timestep, based on the Portinari+ lifetime table and
-// the Chabrier (2003) IMF.
+// Stochastic Type II SN event count and total ejecta mass for a stellar
+// particle over timestep dt, using Portinari+ (1998) lifetime/ejecta
+// tables (Z=0.02) and a Chabrier (2003) IMF.
 //
-// Stars explode as SNII in the progenitor mass window [M_min, M_max]
-// (default: 6 -- 100 Msun). In a timestep [t, t+dt], the stars that die
-// are those whose lifetime tau satisfies:
+// Stars dying in [age, age+dt] map to a mass window [M1, M2] (clamped to
+// [8, 100] Msun) via the inverted lifetime table. Two integrals are
+// evaluated over [M1, M2] by log-spaced trapezoidal quadrature (Eq. 22-23):
 //
-//   age <= tau <= age + dt,   age = t - t_inj
+//   N_SNII = (M_particle/Msun) * integral phi(m) dm
+//   M_ej   = (M_particle/Msun) * integral phi(m) f_rec(m) m dm
 //
-// which corresponds via the inverted lifetime table to a mass interval
-// [M_low, M_high]. The expected number of SNII is then:
-//
-//   N_SNII = M_particle * integral_{M1}^{M2} phi(m) dm
-//
-// where [M1, M2] = [M_low, M_high] clamped to [M_min, M_max], and
-// phi(m) is the normalised IMF (number of stars per unit mass formed).
-// The integral is evaluated by fixed-point log-spaced trapezoidal quadrature.
-//
-// t_inj          : particle injection time in code units
-// t              : current simulation time in code units
-// dt             : current timestep in code units
-// mass           : particle mass in code units
-// log_mass_table : log10(mass) table in code units [device view, ascending]
-// log_tau_table  : log10(lifetime) table in code units [device view, descending]
-// n_table        : number of entries in the lifetime table
-// msun_in_code   : conversion factor (1 Msun in code units)
-// Returns        : integer number of SNII events (stochastic floor + remainder)
+// log_mass_table/log_tau_table : Portinari+ lifetime grid [n_table entries]
+// log_sn_mass_table/frec_table : Portinari+ ejecta grid   [n_ejecta entries]
+// M_ejecta_out                 : total ejecta mass [code units]; 0 if N=0
+// Returns                      : Poisson draw of N_SNII
 // ========================================================================
 
 template <typename RNGState>
@@ -105,65 +92,97 @@ KOKKOS_INLINE_FUNCTION int
 ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
                   const parthenon::ParArray1D<Real> &log_mass_table,
                   const parthenon::ParArray1D<Real> &log_tau_table, const int n_table,
-                  const Real msun_in_code_units, RNGState &rng_gen) {
+                  const parthenon::ParArray1D<Real> &log_sn_mass_table,
+                  const parthenon::ParArray1D<Real> &frec_table, const int n_ejecta,
+                  const Real msun_in_code_units, RNGState &rng_gen,
+                  Real &M_ejecta_out) {
 
-  // Age of the SSP at the start and end of the timestep
-  const Real age = t - t_inj;
+  M_ejecta_out = 0.0;
+
+  const Real age   = t - t_inj;
   const Real age_p = age + dt;
 
-  // SNII progenitor mass window (Msun -> code units)
-  const Real M_min_SNII = 8.0 * msun_in_code_units;
+  const Real M_min_SNII = 8.0  * msun_in_code_units;
   const Real M_max_SNII = 100.0 * msun_in_code_units;
 
-  const Real log_age = Kokkos::log10(age);
+  const Real log_age   = Kokkos::log10(age);
   const Real log_age_p = Kokkos::log10(age_p);
 
   auto mass_from_tau = [&](const Real log_tau_target) -> Real {
-    if (log_tau_target >= log_tau_table(0)) return Kokkos::pow(10.0, log_mass_table(0));
+    if (log_tau_target >= log_tau_table(0))
+      return Kokkos::pow(10.0, log_mass_table(0));
     if (log_tau_target <= log_tau_table(n_table - 1))
       return Kokkos::pow(10.0, log_mass_table(n_table - 1));
     int lo = 0, hi = n_table - 1;
     while (hi - lo > 1) {
       int mid = (lo + hi) / 2;
-      if (log_tau_table(mid) >= log_tau_target)
-        lo = mid;
-      else
-        hi = mid;
+      if (log_tau_table(mid) >= log_tau_target) lo = mid;
+      else                                       hi = mid;
     }
-    const Real frac =
-        (log_tau_target - log_tau_table(lo)) / (log_tau_table(hi) - log_tau_table(lo));
+    const Real frac = (log_tau_target - log_tau_table(lo)) /
+                      (log_tau_table(hi) - log_tau_table(lo));
     return Kokkos::pow(10.0, log_mass_table(lo) +
-                                 frac * (log_mass_table(hi) - log_mass_table(lo)));
+                             frac * (log_mass_table(hi) - log_mass_table(lo)));
+  };
+
+  // Linear interpolation of f_rec(m) in the ejecta table (log mass axis)
+  auto frec_from_mass = [&](const Real m) -> Real {
+    const Real log_m = Kokkos::log10(m);
+    if (log_m <= log_sn_mass_table(0))
+      return frec_table(0);
+    if (log_m >= log_sn_mass_table(n_ejecta - 1))
+      return frec_table(n_ejecta - 1);
+    int lo = 0, hi = n_ejecta - 1;
+    while (hi - lo > 1) {
+      int mid = (lo + hi) / 2;
+      if (log_sn_mass_table(mid) <= log_m) lo = mid;
+      else                                  hi = mid;
+    }
+    const Real frac = (log_m - log_sn_mass_table(lo)) /
+                      (log_sn_mass_table(hi) - log_sn_mass_table(lo));
+    return frec_table(lo) + frac * (frec_table(hi) - frec_table(lo));
   };
 
   const Real M_high = mass_from_tau(log_age);
-  const Real M_low = mass_from_tau(log_age_p);
+  const Real M_low  = mass_from_tau(log_age_p);
 
-  const Real M1 = Kokkos::max(M_low, M_min_SNII);
+  const Real M1 = Kokkos::max(M_low,  M_min_SNII);
   const Real M2 = Kokkos::min(M_high, M_max_SNII);
 
-  if (M2 <= M1) {
-    return 0;
-  }
+  if (M2 <= M1) return 0;
 
   constexpr int N_QUAD = 64;
   const Real log_M1 = Kokkos::log(M1), log_M2 = Kokkos::log(M2);
-  const Real dlogm = (log_M2 - log_M1) / (N_QUAD - 1);
+  const Real dlogm  = (log_M2 - log_M1) / (N_QUAD - 1);
 
-  Real integral = 0.0;
+  Real integral_N   = 0.0;
+  Real integral_Mej = 0.0;
+
   for (int i = 0; i < N_QUAD - 1; i++) {
-    const Real m_lo = Kokkos::exp(log_M1 + i * dlogm);
+    const Real m_lo = Kokkos::exp(log_M1 +  i      * dlogm);
     const Real m_hi = Kokkos::exp(log_M1 + (i + 1) * dlogm);
-    const Real dm = m_hi - m_lo;
-    integral += 0.5 *
-                (NormedChabrierIMF(m_lo, msun_in_code_units) +
-                 NormedChabrierIMF(m_hi, msun_in_code_units)) *
-                dm;
+    const Real dm   = m_hi - m_lo;
+
+    const Real phi_lo = NormedChabrierIMF(m_lo, msun_in_code_units);
+    const Real phi_hi = NormedChabrierIMF(m_hi, msun_in_code_units);
+
+    // Eq. 22: integral of phi(m) dm  -> N_SN
+    integral_N   += 0.5 * (phi_lo + phi_hi) * dm;
+
+    // Eq. 23: integral of phi(m) * f_rec(m) * m dm  -> M_ej,tot (in code units)
+    integral_Mej += 0.5 * (phi_lo * frec_from_mass(m_lo) * m_lo +
+                            phi_hi * frec_from_mass(m_hi) * m_hi) * dm;
   }
 
-  const Real N_expected = integral * (mass / msun_in_code_units);
+  const Real N_expected = integral_N * (mass / msun_in_code_units);
+  const int  N          = utils::custom_rng::PoissonSample(rng_gen, N_expected);
 
-  const int N = utils::custom_rng::PoissonSample(rng_gen, N_expected);
+  // Scale ejecta mass by the SSP mass (same normalisation as N_expected)
+  // Result is in code units since m_lo/m_hi are in code units
+  if (N > 0) {
+    M_ejecta_out = integral_Mej * (mass / msun_in_code_units);
+  }
+
   return N;
 }
 
@@ -223,9 +242,9 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
                 const int k_star, const int j_star, const int i_star,
                 const parthenon::Real vel_x_star, const parthenon::Real vel_y_star,
                 const parthenon::Real vel_z_star, const parthenon::Real M_ej_tot,
-                const parthenon::Real u_sedov, const int r_cells, const int kb_s,
-                const int kb_e, const int jb_s, const int jb_e, const int ib_s,
-                const int ib_e) {
+                const parthenon::Real p_SN_tot, const parthenon::Real p_terminal,
+                const int r_cells, const int kb_s, const int kb_e, const int jb_s,
+                const int jb_e, const int ib_s, const int ib_e) {
 
   using parthenon::Real;
 
@@ -235,7 +254,6 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
   const Real z_star = (ndim == 3) ? coords.Xc<3>(k_star) : 0.0;
 
   // --- Pass 1: compute total volume of cells within the injection sphere ---
-  // Needed to distribute M_ej_tot conservatively by volume fraction
   Real vol_tot = 0.0;
   for (int dk = -r_cells; dk <= r_cells; dk++) {
     for (int dj = -r_cells; dj <= r_cells; dj++) {
@@ -244,17 +262,15 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
         const int jj = j_star + dj;
         const int ii = i_star + di;
 
-        // Clip to interior domain
         if (kk < kb_s || kk > kb_e) continue;
         if (jj < jb_s || jj > jb_e) continue;
         if (ii < ib_s || ii > ib_e) continue;
 
-        // Check if cell center lies within r_cells * dx of the star
         const Real dx = coords.Xc<1>(ii) - x_star;
         const Real dy = coords.Xc<2>(jj) - y_star;
         const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
         const Real r2 = dx * dx + dy * dy + dz * dz;
-        const Real r_max = r_cells * coords.Dxc<1>(ii); // assumes uniform cells
+        const Real r_max = (r_cells + 1.0) * coords.Dxc<1>(ii);
         if (r2 > r_max * r_max) continue;
 
         vol_tot += coords.CellVolume(kk, jj, ii);
@@ -280,28 +296,38 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
         const Real dy = coords.Xc<2>(jj) - y_star;
         const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
         const Real r2 = dx * dx + dy * dy + dz * dz;
-        const Real r_max = r_cells * coords.Dxc<1>(ii);
+        const Real r_max = (r_cells + 1.0) * coords.Dxc<1>(ii);
         if (r2 > r_max * r_max) continue;
 
         const Real vol = coords.CellVolume(kk, jj, ii);
-        const Real w = vol / vol_tot; // volume fraction weight
+        const Real w   = vol / vol_tot;
 
-        // Mass deposited in this cell (density increment)
-        const Real dM = w * M_ej_tot;
+        // Mass deposited in this cell
+        const Real dM  = w * M_ej_tot;
         const Real drho = dM / vol;
 
-        // Radial unit vector from star to cell center (Sedov profile)
-        const Real r = Kokkos::sqrt(r2);
+        // SMUGGLE eq. 31 (flat kernel, w_i = vol/vol_tot):
+        //   delta_p_i = w_i * min( p_SN_tot * sqrt(1 + m_i / delta_m_i), p_terminal )
+        // where m_i = rho_i * vol_i (pre-injection cell gas mass)
+        // and   delta_m_i = w_i * M_ej_tot = dM
+        const Real rho_i = cons(IDN, kk, jj, ii);
+        const Real m_i   = rho_i * vol;
+        const Real boost = (dM > 0.0) ? Kokkos::sqrt(1.0 + m_i / dM) : 1.0;
+        const Real dp_i  = w * Kokkos::min(p_SN_tot * boost, p_terminal);
+
+        // Radial unit vector from star to cell center
+        const Real r  = Kokkos::sqrt(r2);
         const Real rx = (r > 0.0) ? dx / r : 0.0;
         const Real ry = (r > 0.0) ? dy / r : 0.0;
         const Real rz = (r > 0.0) ? dz / r : 0.0;
 
-        // Ejecta velocity: radial Sedov component + star bulk motion (rest-frame boost)
-        const Real u_x = u_sedov * rx + vel_x_star;
-        const Real u_y = u_sedov * ry + vel_y_star;
-        const Real u_z = (ndim == 3) ? (u_sedov * rz + vel_z_star) : 0.0;
+        // Ejecta velocity from injected momentum, plus star bulk motion
+        const Real u_inject = (dM > 0.0) ? dp_i / dM : 0.0;
+        const Real u_x = u_inject * rx + vel_x_star;
+        const Real u_y = u_inject * ry + vel_y_star;
+        const Real u_z = (ndim == 3) ? (u_inject * rz + vel_z_star) : 0.0;
 
-        // Update conserved variables (density, momentum, total energy)
+        // Update conserved variables
         Kokkos::atomic_add(&cons(IDN, kk, jj, ii), drho);
         Kokkos::atomic_add(&cons(IM1, kk, jj, ii), drho * u_x);
         Kokkos::atomic_add(&cons(IM2, kk, jj, ii), drho * u_y);

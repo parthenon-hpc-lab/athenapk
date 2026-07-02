@@ -117,10 +117,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("SN_II_enabled", SN_II_enabled);
   stars_pkg->AddParam<>("SN_Ia_enabled", SN_Ia_enabled);
 
-  const auto M_ejecta_per_SN =
-      pin->GetOrAddReal("stars", "M_ejecta_per_SN", 10.0) * units.msun();
-  stars_pkg->AddParam<>("M_ejecta_per_SN", M_ejecta_per_SN);
-
   const auto E_SN_per_event =
       pin->GetOrAddReal("stars", "E_SN_per_event", 1.0e51) * units.erg();
   stars_pkg->AddParam<>("E_SN_per_event", E_SN_per_event);
@@ -147,9 +143,20 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                       parthenon::Params::Mutability::Mutable);
   stars_pkg->AddParam("lifetime_table_size", 0, parthenon::Params::Mutability::Mutable);
 
+  // Register empty ejecta tables as default (overwritten if SN_II_enabled)
+  stars_pkg->AddParam("log_sn_mass_table",
+                      parthenon::ParArray1D<Real>("log_sn_mass_table", 0),
+                      parthenon::Params::Mutability::Mutable);
+  stars_pkg->AddParam("frec_table",
+                      parthenon::ParArray1D<Real>("frec_table", 0),
+                      parthenon::Params::Mutability::Mutable);
+  stars_pkg->AddParam("ejecta_table_size", 0, parthenon::Params::Mutability::Mutable);
+    
   if (SN_II_enabled) {
 
+    // =================================================================
     // Portinari+ lifetime table at Zsun [mass in Msun, lifetime in Gyr]
+    // =================================================================
     const std::vector<Real> mass_table_msun = {
         0.6, 0.7, 0.8,  0.9,  1.0,  1.1,  1.2,  1.3,  1.4,   1.5,
         1.6, 1.7, 1.8,  1.9,  2.0,  2.5,  3.0,  4.0,  5.0,   6.0,
@@ -184,6 +191,41 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     stars_pkg->UpdateParam("log_mass_table", log_mass_d);
     stars_pkg->UpdateParam("log_lifetime_table", log_lifetime_d);
     stars_pkg->UpdateParam("lifetime_table_size", n);
+
+    // =================================================================
+    // Portinari+ ejecta table at Zsun (Z=0.02): SN II progenitors only
+    // M  [Msun]: initial stellar mass
+    // Mr [Msun]: remnant mass
+    // f_rec = (M - Mr) / M stored directly; no log needed (bounded [0,1])
+    // =================================================================
+    const std::vector<Real> sn_mass_table_msun = {
+        8.0, 9.0, 12.0, 15.0, 20.0, 30.0, 40.0, 60.0, 100.0, 120.0};
+
+    // Remnant masses from Portinari+ 1998, Table 10, Z=0.02
+    // 8 Msun: extrapolated (not in table, set equal to 9 Msun value)
+    const std::vector<Real> remnant_mass_table_msun = {
+        1.30, 1.31, 1.44, 1.87, 2.11, 7.18, 2.06, 2.09, 2.12, 2.11};
+
+    const int n_ejecta = sn_mass_table_msun.size();
+
+    parthenon::ParArray1D<Real> log_sn_mass_d("log_sn_mass_table", n_ejecta);
+    parthenon::ParArray1D<Real> frec_d("frec_table", n_ejecta);
+
+    auto log_sn_mass_h = Kokkos::create_mirror_view(log_sn_mass_d);
+    auto frec_h        = Kokkos::create_mirror_view(frec_d);
+
+    for (int i = 0; i < n_ejecta; i++) {
+      log_sn_mass_h(i) = std::log10(sn_mass_table_msun[i] * msun_in_code);
+      frec_h(i) = (sn_mass_table_msun[i] - remnant_mass_table_msun[i])
+                  / sn_mass_table_msun[i];
+    }
+
+    Kokkos::deep_copy(log_sn_mass_d, log_sn_mass_h);
+    Kokkos::deep_copy(frec_d,        frec_h);
+
+    stars_pkg->UpdateParam("log_sn_mass_table", log_sn_mass_d);
+    stars_pkg->UpdateParam("frec_table",        frec_d);
+    stars_pkg->UpdateParam("ejecta_table_size", n_ejecta);
   }
 
   /* ==== Temporary: alternative advection mode for tests ==== */
@@ -208,9 +250,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                            Metadata({Metadata::Real, Metadata::Restart}));
 
   // Adding offsets for particle IDs
+  const int stars_n_populations = static_cast<int>(swarm_names.size());
+  PARTHENON_REQUIRE(stars_n_populations > 0,
+                    "No stars populations defined. Check 'swarm_names' in input file.");
+
   Metadata m;
   m = Metadata({Metadata::None, Metadata::Derived, Metadata::Restart},
-               std::vector<int>({1}));
+               std::vector<int>({stars_n_populations}));
   stars_pkg->AddField("stars_offsets", m);
 
   // Adding velocity field
@@ -225,6 +271,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   return stars_pkg;
 } // Initialize
 
+/* ===============================================================================
+InitialStars: Sets up the per-MeshBlock RNG pool used for stochastic star formation
+sampling, and initializes the "stars_offsets" field so that dynamically injected
+stellar particles receive globally unique IDs (see SeedInitialTracers in
+tracers.cpp for the analogous scheme used for tracer particles). No particles are
+actually seeded here — this function only prepares the block-local bookkeeping
+(RNG state and ID offset) needed by later calls to the injection routine.
+=============================================================================== */
+
 void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   auto stars_pkg = pmesh->packages.Get("stars");
 
@@ -235,6 +290,29 @@ void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
         static_cast<uint64_t>(pmb->gid) * utils::custom_rng::SILVER_64);
     auto rng_pool = Kokkos::Random_XorShift64_Pool<>(seed);
     stars_pkg->AddParam<>("rng_block_" + std::to_string(pmb->gid), rng_pool);
+
+    // Loading the stars_offsets field
+    auto &mbd = pmb->meshblock_data.Get();
+    auto &off = mbd->Get("stars_offsets").data;
+
+    // Create host side mirror view of the offset field
+    auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
+
+    // Getting the offset for the current meshblock
+    const uint64_t gid = static_cast<uint64_t>(pmb->gid); // global ID of the block
+    const uint64_t nbt =
+        static_cast<uint64_t>(pmesh->nbtotal); // total number of meshblocks
+
+    // Compute step size: (UINT64_MAX - 1) / nbt
+    const uint64_t step = (std::numeric_limits<uint64_t>::max() - 1ULL) / nbt;
+
+    // Compute block offset
+    uint64_t block_offset = gid * step;
+
+    // No particles are injected here (initial_stars seeds zero particles by design),
+    // so the offset is simply initialized to the block's starting value.
+    std::memcpy(&host_off(0), &block_offset, sizeof(std::uint64_t));
+    Kokkos::deep_copy(off, host_off);
   }
 }
 

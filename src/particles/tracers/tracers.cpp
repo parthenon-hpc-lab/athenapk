@@ -366,7 +366,8 @@ condition.
 =============================================================================== */
 
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
-
+  printf("Entering Seedinitialtracers");
+  fflush(stdout);
   // Loading root grid level
   const int root_level = pmesh->GetRootLevel();
   const Real current_time = tm.time;
@@ -499,6 +500,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
           lifetime = tracers_pkg->Param<Real>(swarm_name + "_lifetime");
         }
 
+        // Getting the offset for the current meshblock
         // Getting the offset for the current meshblock
         const uint64_t gid = static_cast<uint64_t>(pmb->gid); // global ID of the block
         const uint64_t nbt =

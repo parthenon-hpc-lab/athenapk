@@ -45,7 +45,7 @@ KOKKOS_INLINE_FUNCTION Real EvaluateStarFormation(
   const Real rho = prim(IDN, k, j, i);
   if (rho <= threshold) return 0.0;
 
-  const Real epsilon = 0.01; // Hardcoded at the moment
+  const Real epsilon = 0.1; // Hardcoded at the moment
   const Real dx = coords.Dxc<1>(k, j, i);
   const Real dy = coords.Dxc<2>(k, j, i);
   const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
@@ -121,11 +121,11 @@ KOKKOS_INLINE_FUNCTION void TransferCellMassToParticle(
   vel_z(swarm_idx) = vz;
 
   // Updating the conserved variables (as PrimToCons isn't yet implemented)
-  cons(IDN, k, j, i) -= delta_rho;
-  cons(IM1, k, j, i) -= delta_rho * vx;
-  cons(IM2, k, j, i) -= delta_rho * vy;
-  if (ndim == 3) cons(IM3, k, j, i) -= delta_rho * vz;
-  cons(IEN, k, j, i) -= 0.5 * delta_rho * (vx * vx + vy * vy + vz * vz);
+  cons(IDN, k, j, i) *= (1.0 - mass_efficiency);
+  //cons(IM1, k, j, i) *= (1.0 - mass_efficiency);
+  //cons(IM2, k, j, i) *= (1.0 - mass_efficiency);
+  //if (ndim == 3) cons(IM3, k, j, i) *= (1.0 - mass_efficiency);
+  //cons(IEN, k, j, i) *= (1.0 - mass_efficiency);
 
   // Resync prim from updated cons
   eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
