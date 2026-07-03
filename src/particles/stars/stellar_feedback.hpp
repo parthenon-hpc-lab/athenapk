@@ -88,102 +88,159 @@ Real NormedChabrierIMF(const Real m_sim, const Real msun_in_code_units) {
 // ========================================================================
 
 template <typename RNGState>
-KOKKOS_INLINE_FUNCTION int
+KOKKOS_INLINE_FUNCTION void
 ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
                   const parthenon::ParArray1D<Real> &log_mass_table,
                   const parthenon::ParArray1D<Real> &log_tau_table, const int n_table,
                   const parthenon::ParArray1D<Real> &log_sn_mass_table,
                   const parthenon::ParArray1D<Real> &frec_table, const int n_ejecta,
-                  const Real msun_in_code_units, RNGState &rng_gen,
+                  const Real msun_in_code_units, RNGState &rng_gen, int &N_out,
                   Real &M_ejecta_out) {
 
+  N_out = 0;
   M_ejecta_out = 0.0;
 
-  const Real age   = t - t_inj;
+  const Real age = t - t_inj;
   const Real age_p = age + dt;
 
-  const Real M_min_SNII = 8.0  * msun_in_code_units;
+  const Real M_min_SNII = 8.0 * msun_in_code_units;
   const Real M_max_SNII = 100.0 * msun_in_code_units;
 
-  const Real log_age   = Kokkos::log10(age);
+  const Real log_age = Kokkos::log10(age);
   const Real log_age_p = Kokkos::log10(age_p);
 
   auto mass_from_tau = [&](const Real log_tau_target) -> Real {
-    if (log_tau_target >= log_tau_table(0))
-      return Kokkos::pow(10.0, log_mass_table(0));
+    if (log_tau_target >= log_tau_table(0)) return Kokkos::pow(10.0, log_mass_table(0));
     if (log_tau_target <= log_tau_table(n_table - 1))
       return Kokkos::pow(10.0, log_mass_table(n_table - 1));
     int lo = 0, hi = n_table - 1;
     while (hi - lo > 1) {
       int mid = (lo + hi) / 2;
-      if (log_tau_table(mid) >= log_tau_target) lo = mid;
-      else                                       hi = mid;
+      if (log_tau_table(mid) >= log_tau_target)
+        lo = mid;
+      else
+        hi = mid;
     }
-    const Real frac = (log_tau_target - log_tau_table(lo)) /
-                      (log_tau_table(hi) - log_tau_table(lo));
+    const Real frac =
+        (log_tau_target - log_tau_table(lo)) / (log_tau_table(hi) - log_tau_table(lo));
     return Kokkos::pow(10.0, log_mass_table(lo) +
-                             frac * (log_mass_table(hi) - log_mass_table(lo)));
+                                 frac * (log_mass_table(hi) - log_mass_table(lo)));
   };
 
   // Linear interpolation of f_rec(m) in the ejecta table (log mass axis)
   auto frec_from_mass = [&](const Real m) -> Real {
     const Real log_m = Kokkos::log10(m);
-    if (log_m <= log_sn_mass_table(0))
-      return frec_table(0);
-    if (log_m >= log_sn_mass_table(n_ejecta - 1))
-      return frec_table(n_ejecta - 1);
+    if (log_m <= log_sn_mass_table(0)) return frec_table(0);
+    if (log_m >= log_sn_mass_table(n_ejecta - 1)) return frec_table(n_ejecta - 1);
     int lo = 0, hi = n_ejecta - 1;
     while (hi - lo > 1) {
       int mid = (lo + hi) / 2;
-      if (log_sn_mass_table(mid) <= log_m) lo = mid;
-      else                                  hi = mid;
+      if (log_sn_mass_table(mid) <= log_m)
+        lo = mid;
+      else
+        hi = mid;
     }
-    const Real frac = (log_m - log_sn_mass_table(lo)) /
-                      (log_sn_mass_table(hi) - log_sn_mass_table(lo));
+    const Real frac =
+        (log_m - log_sn_mass_table(lo)) / (log_sn_mass_table(hi) - log_sn_mass_table(lo));
     return frec_table(lo) + frac * (frec_table(hi) - frec_table(lo));
   };
 
   const Real M_high = mass_from_tau(log_age);
-  const Real M_low  = mass_from_tau(log_age_p);
+  const Real M_low = mass_from_tau(log_age_p);
 
-  const Real M1 = Kokkos::max(M_low,  M_min_SNII);
+  const Real M1 = Kokkos::max(M_low, M_min_SNII);
   const Real M2 = Kokkos::min(M_high, M_max_SNII);
 
-  if (M2 <= M1) return 0;
+  if (M2 <= M1) return;
 
   constexpr int N_QUAD = 64;
   const Real log_M1 = Kokkos::log(M1), log_M2 = Kokkos::log(M2);
-  const Real dlogm  = (log_M2 - log_M1) / (N_QUAD - 1);
+  const Real dlogm = (log_M2 - log_M1) / (N_QUAD - 1);
 
-  Real integral_N   = 0.0;
+  Real integral_N = 0.0;
   Real integral_Mej = 0.0;
 
   for (int i = 0; i < N_QUAD - 1; i++) {
-    const Real m_lo = Kokkos::exp(log_M1 +  i      * dlogm);
+    const Real m_lo = Kokkos::exp(log_M1 + i * dlogm);
     const Real m_hi = Kokkos::exp(log_M1 + (i + 1) * dlogm);
-    const Real dm   = m_hi - m_lo;
+    const Real dm = m_hi - m_lo;
 
     const Real phi_lo = NormedChabrierIMF(m_lo, msun_in_code_units);
     const Real phi_hi = NormedChabrierIMF(m_hi, msun_in_code_units);
 
     // Eq. 22: integral of phi(m) dm  -> N_SN
-    integral_N   += 0.5 * (phi_lo + phi_hi) * dm;
+    integral_N += 0.5 * (phi_lo + phi_hi) * dm;
 
     // Eq. 23: integral of phi(m) * f_rec(m) * m dm  -> M_ej,tot (in code units)
-    integral_Mej += 0.5 * (phi_lo * frec_from_mass(m_lo) * m_lo +
-                            phi_hi * frec_from_mass(m_hi) * m_hi) * dm;
+    integral_Mej +=
+        0.5 *
+        (phi_lo * frec_from_mass(m_lo) * m_lo + phi_hi * frec_from_mass(m_hi) * m_hi) *
+        dm;
   }
 
   const Real N_expected = integral_N * (mass / msun_in_code_units);
-  const int  N          = utils::custom_rng::PoissonSample(rng_gen, N_expected);
+  const int N = utils::custom_rng::PoissonSample(rng_gen, N_expected);
 
-  // Scale ejecta mass by the SSP mass (same normalisation as N_expected)
-  // Result is in code units since m_lo/m_hi are in code units
+  // Compute IMF-weighted mean ejecta mass per SN event, then scale by the
+  // actual discrete event count N to get total ejecta mass (in code units).
   if (N > 0) {
-    M_ejecta_out = integral_Mej * (mass / msun_in_code_units);
+    const Real mean_ejecta_per_event = integral_Mej / integral_N;
+    M_ejecta_out = N * mean_ejecta_per_event;
   }
 
-  return N;
+  N_out = N;
+}
+
+// ========================================================================
+// Stochastic Type Ia SN event count and total ejecta mass for a stellar
+// particle over timestep dt, using the delay-time distribution (DTD) of
+// Maoz, Mannucci & Brandt (2012), following Marinacci et al. (2019, Eqs.
+// 24-26).
+//
+// DTD(t) = Theta(t - tau_8) * N0 * (t/tau_8)^-s * (s-1)/tau_8
+//
+// Integrated analytically in closed form over [age, age+dt] (Eq. 24).
+// Each SNIa releases a fixed ejecta mass M_SNIa = 1.37 Msun (Eq. 26).
+//
+// N_SN_Ia_out : number of SNIa events this timestep [output]
+// M_ejecta_out: total ejecta mass [code units]; 0 if N=0 [output]
+// ========================================================================
+
+template <typename RNGState>
+KOKKOS_INLINE_FUNCTION void
+ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
+                  const Real msun_in_code_units, const Real gyr_in_code_units,
+                  RNGState &rng_gen, int &N_SN_Ia_out, Real &M_ejecta_out) {
+  N_SN_Ia_out = 0;
+  M_ejecta_out = 0.0;
+
+  constexpr Real tau8_Gyr = 0.040; // Gyr, main-sequence lifetime of 8 Msun star
+  constexpr Real M_SNIa = 1.37;    // Msun per SN Ia event
+  constexpr Real N0 = 2.6e-3;      // SN / Msun, DTD normalisation
+  constexpr Real s = 1.12;         // DTD power-law slope
+
+  const Real tau8 = tau8_Gyr * gyr_in_code_units; // code time units
+
+  const Real age = t - t_inj;
+  const Real age_p = age + dt;
+
+  const Real t_lo = Kokkos::max(age, tau8);
+  const Real t_hi = Kokkos::max(age_p, tau8);
+  if (t_hi <= t_lo) return;
+
+  const Real x_lo = t_lo / tau8;
+  const Real x_hi = t_hi / tau8;
+  const Real integral = N0 * (Kokkos::pow(x_lo, 1.0 - s) - Kokkos::pow(x_hi, 1.0 - s));
+
+  const Real mass_msun = mass / msun_in_code_units;
+  const Real N_expected = integral * mass_msun;
+  if (N_expected <= 0.0) return;
+
+  const int N = utils::custom_rng::PoissonSample(rng_gen, N_expected);
+  if (N > 0) {
+    M_ejecta_out = N * M_SNIa * msun_in_code_units;
+  }
+  N_SN_Ia_out = N;
 }
 
 // ========================================================================
@@ -300,10 +357,10 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
         if (r2 > r_max * r_max) continue;
 
         const Real vol = coords.CellVolume(kk, jj, ii);
-        const Real w   = vol / vol_tot;
+        const Real w = vol / vol_tot;
 
         // Mass deposited in this cell
-        const Real dM  = w * M_ej_tot;
+        const Real dM = w * M_ej_tot;
         const Real drho = dM / vol;
 
         // SMUGGLE eq. 31 (flat kernel, w_i = vol/vol_tot):
@@ -311,12 +368,12 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
         // where m_i = rho_i * vol_i (pre-injection cell gas mass)
         // and   delta_m_i = w_i * M_ej_tot = dM
         const Real rho_i = cons(IDN, kk, jj, ii);
-        const Real m_i   = rho_i * vol;
+        const Real m_i = rho_i * vol;
         const Real boost = (dM > 0.0) ? Kokkos::sqrt(1.0 + m_i / dM) : 1.0;
-        const Real dp_i  = w * Kokkos::min(p_SN_tot * boost, p_terminal);
+        const Real dp_i = w * Kokkos::min(p_SN_tot * boost, p_terminal);
 
         // Radial unit vector from star to cell center
-        const Real r  = Kokkos::sqrt(r2);
+        const Real r = Kokkos::sqrt(r2);
         const Real rx = (r > 0.0) ? dx / r : 0.0;
         const Real ry = (r > 0.0) ? dy / r : 0.0;
         const Real rz = (r > 0.0) ? dz / r : 0.0;
@@ -328,12 +385,14 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
         const Real u_z = (ndim == 3) ? (u_inject * rz + vel_z_star) : 0.0;
 
         // Update conserved variables
+        /*
         Kokkos::atomic_add(&cons(IDN, kk, jj, ii), drho);
         Kokkos::atomic_add(&cons(IM1, kk, jj, ii), drho * u_x);
         Kokkos::atomic_add(&cons(IM2, kk, jj, ii), drho * u_y);
         if (ndim == 3) Kokkos::atomic_add(&cons(IM3, kk, jj, ii), drho * u_z);
         Kokkos::atomic_add(&cons(IEN, kk, jj, ii),
                            0.5 * drho * (u_x * u_x + u_y * u_y + u_z * u_z));
+        */
       }
     }
   }

@@ -207,7 +207,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
            pmb->gid, num_injected_particles_in_block, tm.time);
     fflush(stdout);
     */
-    
+
     auto injected_particles_context =
         swarm->AddEmptyParticles(num_injected_particles_in_block);
     auto swarm_d = swarm->GetDeviceContext();
@@ -289,11 +289,11 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                 StarFormation::TransferCellMassToParticle(
                     cons, prim, coords, k, j, i, mass_efficiency, ndim, swarm_idx, pmass,
                     v_x, v_y, v_z, eos, nhydro, nscalars);
-                // Here
+                // For debugging
                 Kokkos::printf("[InjectStars] MeshBlock gid=%d: injecting a new stellar "
-                              "particle of ID %llu at t=%.6e (mass=%.6e)\n",
-                              gid, block_offset + counter_idx,
-                              current_time, pmass(swarm_idx));
+                               "particle of ID %llu at t=%.6e (mass=%.6e)\n",
+                               gid, block_offset + counter_idx, current_time,
+                               pmass(swarm_idx));
                 fflush(stdout);
               }
             }

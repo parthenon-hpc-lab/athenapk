@@ -57,7 +57,7 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
     ic_mode = ICMode::MultiPeak;
   } else {
     PARTHENON_FAIL("problem/star_formation/ic_mode must be 'single_peak' or "
-                    "'multi_peak'");
+                   "'multi_peak'");
   }
   pkg->AddParam<>("problem/star_formation/ic_mode", ic_mode);
 
@@ -116,8 +116,8 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
 //! \brief Helper to set a single cell to peak density/pressure, with optional printf.
 // ========================================================================================
 template <typename View4D>
-void AssignPeakCell(View4D u, int k, int j, int i, Real rho_peak, Real rhoe_peak,
-                    int gid, const Coordinates_t &coords) {
+void AssignPeakCell(View4D u, int k, int j, int i, Real rho_peak, Real rhoe_peak, int gid,
+                    const Coordinates_t &coords) {
   u(IDN, k, j, i) = rho_peak;
   u(IEN, k, j, i) = rhoe_peak;
 }
@@ -198,12 +198,13 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
     const int n_target = std::min(n_peaks, n_cells);
     if (n_target < n_peaks) {
       PARTHENON_WARN("Requested n_peaks exceeds number of cells in MeshBlock; "
-                      "clamping to available cells.");
+                     "clamping to available cells.");
     }
 
     // Sample n_target distinct flat indices without replacement
     std::vector<int> flat_idx(n_cells);
-    for (int idx = 0; idx < n_cells; ++idx) flat_idx[idx] = idx;
+    for (int idx = 0; idx < n_cells; ++idx)
+      flat_idx[idx] = idx;
     std::shuffle(flat_idx.begin(), flat_idx.end(), rng);
 
     for (int p = 0; p < n_target; ++p) {

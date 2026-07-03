@@ -147,11 +147,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam("log_sn_mass_table",
                       parthenon::ParArray1D<Real>("log_sn_mass_table", 0),
                       parthenon::Params::Mutability::Mutable);
-  stars_pkg->AddParam("frec_table",
-                      parthenon::ParArray1D<Real>("frec_table", 0),
+  stars_pkg->AddParam("frec_table", parthenon::ParArray1D<Real>("frec_table", 0),
                       parthenon::Params::Mutability::Mutable);
   stars_pkg->AddParam("ejecta_table_size", 0, parthenon::Params::Mutability::Mutable);
-    
+
   if (SN_II_enabled) {
 
     // =================================================================
@@ -198,13 +197,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // Mr [Msun]: remnant mass
     // f_rec = (M - Mr) / M stored directly; no log needed (bounded [0,1])
     // =================================================================
-    const std::vector<Real> sn_mass_table_msun = {
-        8.0, 9.0, 12.0, 15.0, 20.0, 30.0, 40.0, 60.0, 100.0, 120.0};
+    const std::vector<Real> sn_mass_table_msun = {8.0,  9.0,  12.0, 15.0,  20.0,
+                                                  30.0, 40.0, 60.0, 100.0, 120.0};
 
     // Remnant masses from Portinari+ 1998, Table 10, Z=0.02
     // 8 Msun: extrapolated (not in table, set equal to 9 Msun value)
-    const std::vector<Real> remnant_mass_table_msun = {
-        1.30, 1.31, 1.44, 1.87, 2.11, 7.18, 2.06, 2.09, 2.12, 2.11};
+    const std::vector<Real> remnant_mass_table_msun = {1.30, 1.31, 1.44, 1.87, 2.11,
+                                                       7.18, 2.06, 2.09, 2.12, 2.11};
 
     const int n_ejecta = sn_mass_table_msun.size();
 
@@ -212,19 +211,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     parthenon::ParArray1D<Real> frec_d("frec_table", n_ejecta);
 
     auto log_sn_mass_h = Kokkos::create_mirror_view(log_sn_mass_d);
-    auto frec_h        = Kokkos::create_mirror_view(frec_d);
+    auto frec_h = Kokkos::create_mirror_view(frec_d);
 
     for (int i = 0; i < n_ejecta; i++) {
       log_sn_mass_h(i) = std::log10(sn_mass_table_msun[i] * msun_in_code);
-      frec_h(i) = (sn_mass_table_msun[i] - remnant_mass_table_msun[i])
-                  / sn_mass_table_msun[i];
+      frec_h(i) =
+          (sn_mass_table_msun[i] - remnant_mass_table_msun[i]) / sn_mass_table_msun[i];
     }
 
     Kokkos::deep_copy(log_sn_mass_d, log_sn_mass_h);
-    Kokkos::deep_copy(frec_d,        frec_h);
+    Kokkos::deep_copy(frec_d, frec_h);
 
     stars_pkg->UpdateParam("log_sn_mass_table", log_sn_mass_d);
-    stars_pkg->UpdateParam("frec_table",        frec_d);
+    stars_pkg->UpdateParam("frec_table", frec_d);
     stars_pkg->UpdateParam("ejecta_table_size", n_ejecta);
   }
 

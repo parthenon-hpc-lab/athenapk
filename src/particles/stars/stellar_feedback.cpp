@@ -88,6 +88,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   auto &cons = mbd->PackVariables(std::vector<std::string>{"cons"});
   auto &prim = mbd->PackVariables(std::vector<std::string>{"prim"});
   auto &coords = pmb->coords;
+  auto gid = pmb->gid;
 
   auto stars_pkg = pmb->packages.Get("stars");
   auto hydro_pkg = pmb->packages.Get("Hydro");
@@ -97,8 +98,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
   const auto units = hydro_pkg->Param<Units>("units");
   const auto msun_in_code_units = units.msun();
+  const auto gyr_in_code_units = 1e3 * units.myr();
 
-  const auto nhydro   = hydro_pkg->Param<int>("nhydro");
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   // Meshblock interior bounds (no ghost cells)
@@ -111,16 +113,15 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
   // Feedback physics parameters
   const auto E_SN_per_event = stars_pkg->Param<Real>("E_SN_per_event");
-  const auto f_ek           = stars_pkg->Param<Real>("SN_kinetic_efficiency");
-  const auto p_t            = 4.8e5 * units.msun() * units.km_s(); // terminal momentum per SN
-  const auto r_cells        = stars_pkg->Param<int>("SN_injection_radius_cells");
+  const auto f_ek = stars_pkg->Param<Real>("SN_kinetic_efficiency");
+  const auto p_t = 4.8e5 * units.msun() * units.km_s(); // terminal momentum per SN
+  const auto r_cells = stars_pkg->Param<int>("SN_injection_radius_cells");
 
   auto rng_pool = stars_pkg->Param<Kokkos::Random_XorShift64_Pool<>>(
       "rng_block_" + std::to_string(pmb->gid));
 
   // Portinari+ lifetime table (always present)
-  const auto log_mass_d =
-      stars_pkg->Param<parthenon::ParArray1D<Real>>("log_mass_table");
+  const auto log_mass_d = stars_pkg->Param<parthenon::ParArray1D<Real>>("log_mass_table");
   const auto log_lifetime_d =
       stars_pkg->Param<parthenon::ParArray1D<Real>>("log_lifetime_table");
   const auto n_lifetime = stars_pkg->Param<int>("lifetime_table_size");
@@ -128,7 +129,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   // Portinari+ ejecta table (always present, empty if SN_II disabled)
   const auto log_sn_mass_d =
       stars_pkg->Param<parthenon::ParArray1D<Real>>("log_sn_mass_table");
-  const auto frec_d   = stars_pkg->Param<parthenon::ParArray1D<Real>>("frec_table");
+  const auto frec_d = stars_pkg->Param<parthenon::ParArray1D<Real>>("frec_table");
   const auto n_ejecta = stars_pkg->Param<int>("ejecta_table_size");
 
   for (const auto &swarm_name : swarm_names) {
@@ -144,82 +145,77 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     auto &v_y = swarm->Get<Real>("v_y").Get();
     auto &v_z = swarm->Get<Real>("v_z").Get();
 
-    auto &t_inj = swarm->Get<Real>("injection_time").Get();
     auto &pmass = swarm->Get<Real>("mass").Get();
+    auto &t_inj = swarm->Get<Real>("injection_time").Get();
+    auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
 
     Real total_M_ej = 0.0;
     pmb->par_reduce(
         "StellarFeedback::PartLoop", 0, max_active_index,
         KOKKOS_LAMBDA(const int n, Real &lM_ej) {
           if (!swarm_d.IsActive(n)) return;
-    
+
           // ── Compute number of feedback events ──────────────────────────────
           int N_SN_II = 0, N_SN_Ia = 0, N_SN = 0;
-          Real M_ej_II_uncapped = 0.0;
-    
+          Real M_ej_II_tot = 0.0, M_ej_Ia_tot = 0.0;
+
           if (SN_II_enabled) {
             auto rng_gen = rng_pool.get_state();
-            N_SN_II = ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass(n),
-                                        log_mass_d, log_lifetime_d, n_lifetime,
-                                        log_sn_mass_d, frec_d, n_ejecta,
-                                        msun_in_code_units, rng_gen,
-                                        M_ej_II_uncapped);
-            rng_pool.free_state(rng_gen);
+            ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass(n), log_mass_d,
+                              log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
+                              msun_in_code_units, rng_gen, N_SN_II, M_ej_II_tot);
             N_SN += N_SN_II;
+            rng_pool.free_state(rng_gen);
           } else if (SN_Ia_enabled) {
-            N_SN_Ia = ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass(n));
-            N_SN += N_SN_Ia; // NOTE: not yet implemented, always zero
+            auto rng_gen = rng_pool.get_state();
+            ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass(n),
+                              msun_in_code_units, gyr_in_code_units, rng_gen, N_SN_Ia,
+                              M_ej_Ia_tot);
+            N_SN += N_SN_Ia;
+            rng_pool.free_state(rng_gen);
           }
-    
+
+          const Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
+
           // ── Apply feedback on the grid if any SN occurred ──────────────────
-          Real M_ej_tot = 0.0;
           if (N_SN > 0) {
             int k, j, i;
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
-    
-            // Cap ejecta to available particle mass
-            const Real M_ej_Ia_uncapped = 0.0; // placeholder until SNIa implemented
-            const Real M_ej_uncapped    = M_ej_II_uncapped + M_ej_Ia_uncapped;
-            const Real cap_fraction     = (M_ej_uncapped > 0.0)
-                                          ? Kokkos::min(pmass(n), M_ej_uncapped) / M_ej_uncapped
-                                          : 0.0;
-    
-            const Real M_ej_II_tot = M_ej_II_uncapped * cap_fraction;
-            const Real M_ej_Ia_tot = M_ej_Ia_uncapped * cap_fraction;
-            M_ej_tot                = M_ej_II_tot + M_ej_Ia_tot;
-    
+
             // Eq. 20: total energy
             const Real E_tot = N_SN * E_SN_per_event;
-    
+
             // Eq. 21: total momentum as sum of per-type terms
-            const Real p_SN_II = (M_ej_II_tot > 0.0)
-                                 ? Kokkos::sqrt(2.0 * N_SN_II * E_SN_per_event * M_ej_II_tot)
-                                 : 0.0;
-            const Real p_SN_Ia = (M_ej_Ia_tot > 0.0)
-                                 ? Kokkos::sqrt(2.0 * N_SN_Ia * E_SN_per_event * M_ej_Ia_tot)
-                                 : 0.0;
+            const Real p_SN_II =
+                (M_ej_II_tot > 0.0)
+                    ? Kokkos::sqrt(2.0 * N_SN_II * E_SN_per_event * M_ej_II_tot)
+                    : 0.0;
+            const Real p_SN_Ia =
+                (M_ej_Ia_tot > 0.0)
+                    ? Kokkos::sqrt(2.0 * N_SN_Ia * E_SN_per_event * M_ej_Ia_tot)
+                    : 0.0;
             const Real p_SN_tot = p_SN_II + p_SN_Ia;
-    
-            ApplyKineticSNe(cons, coords, ndim, k, j, i, v_x(n), v_y(n), v_z(n),
-                            M_ej_tot, p_SN_tot, N_SN * p_t, r_cells,
-                            kb.s, kb.e, jb.s, jb.e, ib.s, ib.e);
-    
-            // Deduct ejected mass from the stellar particle
-            // and remove if necessary (i.e. if mass <= 0.0)
-            pmass(n) -= M_ej_tot;
-            if (pmass(n) <= 0.0) swarm_d.MarkParticleForRemoval(n);
+
+            ApplyKineticSNe(cons, coords, ndim, k, j, i, v_x(n), v_y(n), v_z(n), M_ej_tot,
+                            p_SN_tot, N_SN * p_t, r_cells, kb.s, kb.e, jb.s, jb.e, ib.s,
+                            ib.e);
+
+            // For debugging
+            const Real ssp_age = current_time - t_inj(n);
+            Kokkos::printf("[StellarFeedback] MeshBlock gid=%d: injecting %d SNe "
+                           "(N_SN_II=%d, N_SN_Ia=%d) at SSP age=%.6e "
+                           "(ejecta mass=%.6e)\n",
+                           gid, N_SN, N_SN_II, N_SN_Ia, ssp_age, M_ej_tot);
+            fflush(stdout);
+
+            // Particle mass is kept constant throughout the run; no deduction
+            // or removal is performed. Might worth adding a second field storing
+            // instanteneous stellar mass.
           }
-    
+
           lM_ej += M_ej_tot;
         },
         Kokkos::Sum<Real>(total_M_ej));
-    
-    swarm->RemoveMarkedParticles();
-    
-    if (total_M_ej > 0.0) {
-      printf("[StellarFeedback] MeshBlock gid=%d: total ejecta mass = %.6e (code units) released at t=%.6e\n",
-             pmb->gid, total_M_ej, current_time);
-    }
 
   } // end for swarm_name
 
