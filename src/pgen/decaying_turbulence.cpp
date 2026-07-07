@@ -15,12 +15,11 @@
 #include <algorithm> // min, max
 #include <cmath>     // sqrt()
 #include <cstdio>    // fopen(), fprintf(), freopen()
+#include <functional>
 #include <iostream>  // endl
 #include <sstream>   // stringstream
 #include <stdexcept> // runtime_error
 #include <string>    // c_str()
-#include <complex>
-#include <random>
 #include <vector>
 
 // Parthenon headers
@@ -31,8 +30,7 @@
 
 // AthenaPK headers
 #include "../main.hpp"
-
-using cplx = Kokkos::complex<double>;
+#include "../utils/generate_stochastic_b_field.hpp"
 
 namespace decaying_turbulence {
 using namespace parthenon::driver::prelude;
@@ -58,39 +56,6 @@ double PowerSpectrum(double k, double kI, double n1, double n2,
 }
 
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
-
-  // sample stochastic magnetic field in Fourier space. 
-  // Sampling is done in the helical basis, i.e.
-
-  // B(k) = B_+(k) e_+(k) + B_-(k) e_-(k). 
-  // with k x e_+ = i k e_+, k x e_- = -i k e_-, and e_+ . e_- = 0.
-  
-  // This way, the field is automatically divergence-free and the helicity can be tuned by adjusting the relative amplitudes of B_+ and B_-.
-  // For each k, amplitudes are drawn from a Gaussian distribution with variance determined by the desired power spectrum.
-  
-  // Get global number of cells 
-  auto Nx = pin->GetInteger("parthenon/mesh", "nx1");
-  auto Ny = pin->GetInteger("parthenon/mesh", "nx2");
-  auto Nz = pin->GetInteger("parthenon/mesh", "nx3");
-
-  assert(Nx == Ny && Ny == Nz);
-  std::int64_t N = Nx;
-
-  // get Box size
-  const auto x1min = pin->GetReal("parthenon/mesh", "x1min");
-  const auto x1max = pin->GetReal("parthenon/mesh", "x1max");
-  const auto x2min = pin->GetReal("parthenon/mesh", "x2min");
-  const auto x2max = pin->GetReal("parthenon/mesh", "x2max");
-  const auto x3min = pin->GetReal("parthenon/mesh", "x3min");
-  const auto x3max = pin->GetReal("parthenon/mesh", "x3max");
-
-  Real Lx = x1max - x1min;
-  Real Ly = x2max - x2min;
-  Real Lz = x3max - x3min;
-
-  assert(Lx == Ly && Ly == Lz);
-  Real L = Lx;
-
   // Read problem parameters
   const auto rho0 = pin->GetReal("problem/decaying_turbulence", "rho0");
   const auto p0 = pin->GetReal("problem/decaying_turbulence", "p0");
@@ -100,195 +65,33 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
   const auto B_rms = pin->GetReal("problem/decaying_turbulence", "B_rms");
 
+  const auto x1min = pin->GetReal("parthenon/mesh", "x1min");
+  const auto x1max = pin->GetReal("parthenon/mesh", "x1max");
+  const Real Lx = x1max - x1min;
+
   const auto kI = pin->GetReal("problem/decaying_turbulence", "kI"); // see PowerSpectrum() for definition
   const auto n1 = pin->GetReal("problem/decaying_turbulence", "n1");
   const auto n2 = pin->GetReal("problem/decaying_turbulence", "n2");
   const auto alpha = pin->GetReal("problem/decaying_turbulence", "alpha");
-
-  const auto kmax = pin->GetOrAddReal("problem/decaying_turbulence", "kmax", 0.5*N); // maximum mode number to include in the initial conditions. Default is Nyquist.
+  const auto kI_phys = kI * (2.0 * M_PI / Lx);
 
   const auto helicity = pin->GetReal("problem/decaying_turbulence", "helicity"); // fractional helicity, -1 <= helicity <= 1
   if (helicity < -1.0 || helicity > 1.0) {
     PARTHENON_FAIL("Decaying turbulence pgen: helicity must be between -1 and 1.");
   }
 
-  // physical k-values:
-  const auto kmax_phys = kmax * (2.0 * M_PI / Lx);
-  const auto kI_phys = kI * (2.0 * M_PI / Lx);
-
   // Define the power spectrum function
-  auto P = [=](double k) {
+  auto P = [=](double k) -> Real {
     return PowerSpectrum(k, kI_phys, n1, n2, alpha);
   };
 
-  // Random number generators for phase and amplitude
-  std::mt19937 rng(42);
-  std::uniform_real_distribution<double> dist_phase(0.0, 2.0*M_PI);
-  std::normal_distribution<double> dist_gauss(0.0, 1.0);
-
-  auto UniformGridHelper = pmesh->GetUniformGridHelper();
-  
-  auto &local_mesh_size = UniformGridHelper->local_mesh_box.size;
-  auto &nx1l = local_mesh_size[0];
-  auto &nx2l = local_mesh_size[1];
-  auto &nx3l = local_mesh_size[2];
-
-  auto fftManager = pmesh->GetFFTManager();
-  auto outbox = fftManager->fourier_space_box();
-
-  parthenon::ParArray1D<Kokkos::complex<double>> Bx_hat("Bx_hat", fftManager->size_fourier_space_box());
-  parthenon::ParArray1D<Kokkos::complex<double>> By_hat("By_hat", fftManager->size_fourier_space_box());
-  parthenon::ParArray1D<Kokkos::complex<double>> Bz_hat("Bz_hat", fftManager->size_fourier_space_box());
-  parthenon::ParArray1D<double> Bx("Bx", fftManager->size_real_space_box());
-  parthenon::ParArray1D<double> By("By", fftManager->size_real_space_box());
-  parthenon::ParArray1D<double> Bz("Bz", fftManager->size_real_space_box());
-
-  // Host copy to fill fourier space arrays:
-  auto Bx_hat_h = Bx_hat.GetHostMirror();
-  auto By_hat_h = By_hat.GetHostMirror();
-  auto Bz_hat_h = Bz_hat.GetHostMirror();
-
-  // -----------------------------
-  // Fill input (local chunk of Fourier-space array)
-  // -----------------------------
-  for(int z=outbox.low[2]; z <= outbox.high[2]; z++) {
-    int kz = (z <= N/2) ? z : z - N;
-    double kz_phys = 2.0*M_PI * kz / L;
-    for(int y=outbox.low[1]; y <= outbox.high[1]; y++) {
-      int ky = (y <= N/2) ? y : y - N; // Before j \in {0, N_y}, now k \in {-N_y/2, N_y/2}
-      double ky_phys = 2.0*M_PI * ky / L;
-      for(int x=outbox.low[0]; x <= outbox.high[0]; x++) {
-        int kx = x;
-        double kx_phys = 2.0*M_PI * kx / L;
-
-        double kmag = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys + kz_phys*kz_phys);
-
-        // apply mode number cutoff
-        if (kmag > kmax_phys)
-            continue;
-
-        // --- skip DC ---
-        if (z==0 && y==0 && x==0)
-            continue;
-
-        // --- compute stddev for Gaussian vector potential ---
-        // For a gaussian, sigma_B^2 ~ |B(k)|^2  
-        // We want E_k ~ |B(k)|^2 k^2. Thus, |B(k)|^2 ~ E_k / k^2.  
-        double sigma_B = std::sqrt(P(kmag) / (kmag * kmag));
-
-        // --- two independent Gaussian components in plane perpendicular to k ---
-        // First, find two perpendicular unit vectors
-        double ex1[3], ex2[3];
-
-        // arbitrary perpendicular vector
-        if (kx_phys != 0 || ky_phys != 0) {
-            double norm = std::sqrt(kx_phys*kx_phys + ky_phys*ky_phys);
-            ex1[0] = -ky_phys / norm; ex1[1] = kx_phys / norm; ex1[2] = 0.0;
-        } else {
-            ex1[0] = 1.0; ex1[1] = 0.0; ex1[2] = 0.0;
-        }
-        // second perpendicular vector = k x ex1 / |k|
-        double
-          kvec[3] = {kx_phys, ky_phys, kz_phys};
-        double k_norm = kmag;
-        ex2[0] = (kvec[1]*ex1[2] - kvec[2]*ex1[1]) / k_norm;
-        ex2[1] = (kvec[2]*ex1[0] - kvec[0]*ex1[2]) / k_norm;
-        ex2[2] = (kvec[0]*ex1[1] - kvec[1]*ex1[0]) / k_norm;
-
-        // --- Rotate basis vectors by random angle ---
-        double phi= dist_phase(rng);
-        double cphi = std::cos(phi);
-        double sphi = std::sin(phi);
-        double ex1r[3], ex2r[3];
-        for (int q = 0; q < 3; ++q) {
-            ex1r[q] =  cphi * ex1[q] + sphi * ex2[q];
-            ex2r[q] = -sphi * ex1[q] + cphi * ex2[q];
-        }
-
-        // --- Change to helical basis ---
-        // e_+, e_- complex helical basis vectors:
-        // e_+ = 1/(sqrt(2)) * (e_1 + i * e_2)
-        // e_- = 1/(sqrt(2)) * (e_1 - i * e_2)
-        cplx I(0.0, 1.0);
-        double sq2i = 1.0/std::sqrt(2.0);
-        cplx ep[3], em[3];
-        for (int q = 0; q < 3; ++q) {
-            ep[q] = sq2i * ( ex1r[q] + I * ex2r[q] );
-            em[q] = sq2i * ( ex1r[q] - I * ex2r[q] );
-        }
-
-        // --- Compute the two independent Gaussian components in the helical basis ---
-        double sigma_plus  = sigma_B * std::sqrt((1.0 + helicity)/2.0);
-        double sigma_minus = sigma_B * std::sqrt((1.0 - helicity)/2.0);
-
-        cplx B1(sigma_plus * dist_gauss(rng), sigma_plus * dist_gauss(rng));
-        cplx B2(sigma_minus * dist_gauss(rng), sigma_minus * dist_gauss(rng));
-
-        // --- construct magnetic field in Fourier space (carthesian basis) ---
-        cplx Bx = B1*ep[0] + B2*em[0];
-        cplx By = B1*ep[1] + B2*em[1];
-        cplx Bz = B1*ep[2] + B2*em[2];
-        
-        // find local index and write to host array
-        std::int64_t z_local = z - outbox.low[2];
-        std::int64_t y_local = y - outbox.low[1];
-        std::int64_t x_local = x - outbox.low[0];
-        
-        std::int64_t local_plane  = outbox.size[0] * outbox.size[1];    
-        std::int64_t local_stride = outbox.size[0];                  
-        std::int64_t idx = z_local * local_plane
-                  + y_local * local_stride + x_local;
-
-        Bx_hat_h[idx] = Bx;
-        By_hat_h[idx] = By;
-        Bz_hat_h[idx] = Bz;
-      }
-    }
-  }
-
-  // Copy back to device:
-  Bx_hat.DeepCopy(Bx_hat_h);
-  By_hat.DeepCopy(By_hat_h);
-  Bz_hat.DeepCopy(Bz_hat_h);
-
-  // Perform the inverse FFT:
-  fftManager->Backward(Bx_hat.data(), Bx.data());
-  fftManager->Backward(By_hat.data(), By.data());
-  fftManager->Backward(Bz_hat.data(), Bz.data());
-
-  // Compute the RMS of the magnetic field and normalize to the desired value
-  double local_B2_sum = 0.0;
-
-  const std::int64_t local_num_cells =
-      int64_t(nx1l) * int64_t(nx2l) * int64_t(nx3l);
-
-  Kokkos::parallel_reduce(
-      "ComputeLocalB2",
-      Kokkos::RangePolicy<std::int64_t>(0, local_num_cells),
-      KOKKOS_LAMBDA(const std::int64_t idx, double& lsum) {
-          lsum += Bx[idx]*Bx[idx] + By[idx]*By[idx] + Bz[idx]*Bz[idx];
-      },
-      local_B2_sum
-  );
-
-  double global_B2_sum = 0.0;
-  MPI_Allreduce(&local_B2_sum, &global_B2_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-  const std::int64_t denom_i = int64_t(Nx) * int64_t(Ny) * int64_t(Nz);
-  double current_B_rms = std::sqrt(global_B2_sum / denom_i);
-  double norm_factor = B_rms / current_B_rms;
-
-  Kokkos::parallel_for(
-    "NormalizeB",
-    Kokkos::RangePolicy<std::int64_t>(0, local_num_cells),
-    KOKKOS_LAMBDA(const std::int64_t idx) {
-        Bx[idx] *= norm_factor;
-        By[idx] *= norm_factor;
-        Bz[idx] *= norm_factor;
-    }
-  );
+  auto B = utils::generate_stochastic_b_field::GenerateStochasticBField(pmesh, P, B_rms, helicity);
+  auto Bx = B[0];
+  auto By = B[1];
+  auto Bz = B[2];
 
   // Scatter B-field to mesh
+  auto UniformGridHelper = pmesh->GetUniformGridHelper();
   UniformGridHelper->ScatterField(Bx, "cons", IB1);
   UniformGridHelper->ScatterField(By, "cons", IB2);
   UniformGridHelper->ScatterField(Bz, "cons", IB3);
