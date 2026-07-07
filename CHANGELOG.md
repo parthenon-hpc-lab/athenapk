@@ -22,6 +22,7 @@ If the current performance is (significantly) below expectation, one can try to 
 Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF` to mitigate the race condition.
 
 ### Added (new features/APIs/variables/...)
+- Add uniformly-spaced Gnat-Sternberg cooling tables and generation script.  The original tables had non-uniform log10 T spacing (two outliers at dlogT=0.01 and 0.03 among otherwise 0.02 spacing) which could violate the equal-spacing requirement of the `TabularCooling` implementation.  The new tables use uniform ``d_log_T = 0.02`` via cubic spline interpolation from the original tab13 data.  Also includes the reference ``tab13.txt`` data file for reproducibility.
 
 ### Changed (changing behavior/API/variables/...)
 
