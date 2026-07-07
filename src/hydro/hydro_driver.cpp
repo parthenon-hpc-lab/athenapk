@@ -648,7 +648,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  // --- Communicate hydro cons after stellar feedback ---
+  // --- Communicate hydro cons (and sn_deposit ghost data) after stellar feedback ---
   TaskRegion &feedback_comms_region = tc.AddRegion(num_partitions);
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = feedback_comms_region[i];
@@ -658,8 +658,13 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
     auto bnd_exchange =
         parthenon::AddBoundaryExchangeTasks(start_bnd, tl, mu0, pmesh->multilevel);
+
+    // Unmirror the sn_deposit ghost data received from neighbors and
+    // accumulate it into this block's cons, on top of local deposits.
+    auto apply_sn_ghost =
+        tl.AddTask(bnd_exchange, StellarFeedback::ApplySNDepositGhostData, mu0.get());
     // Re-derive prim from the updated cons
-    tl.AddTask(bnd_exchange, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+    tl.AddTask(apply_sn_ghost, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
   }
 
   // Then move on to tracers

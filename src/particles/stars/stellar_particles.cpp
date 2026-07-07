@@ -261,6 +261,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   const int stars_n_populations = static_cast<int>(swarm_names.size());
   PARTHENON_REQUIRE(stars_n_populations > 0,
                     "No stars populations defined. Check 'swarm_names' in input file.");
+  stars_pkg->AddParam<>("stars_n_populations", stars_n_populations);
 
   Metadata m;
   m = Metadata({Metadata::None, Metadata::Derived, Metadata::Restart},
@@ -272,6 +273,26 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddSwarmValue("v_x", "stars", real_swarmvalue_metadata);
   stars_pkg->AddSwarmValue("v_y", "stars", real_swarmvalue_metadata);
   stars_pkg->AddSwarmValue("v_z", "stars", real_swarmvalue_metadata);
+
+  // if SNe activated (at least one of the two), needs extra buffer fields for deposition
+  if (SN_II_enabled || SN_Ia_enabled) {
+    std::vector<std::string> sn_labels(5 * stars_n_populations);
+    // order: [density, mom1, mom2, mom3, energy] * populations
+    // note that in practice populations = 1.
+    for (int p = 0; p < stars_n_populations; ++p) {
+      sn_labels[p]                             = "sn_density_pop" + std::to_string(p);
+      sn_labels[stars_n_populations + p]       = "sn_mom1_pop" + std::to_string(p);
+      sn_labels[2*stars_n_populations + p]     = "sn_mom2_pop" + std::to_string(p);
+      sn_labels[3*stars_n_populations + p]     = "sn_mom3_pop" + std::to_string(p);
+      sn_labels[4*stars_n_populations + p]     = "sn_energy_pop" + std::to_string(p);
+    }
+
+    // Note: WithFluxes seems to be necessary as not including it triggers the following error:
+    //       "Flux of var sn_deposit requested, but var does not have fluxes."
+    Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
+               std::vector<int>({5 * stars_n_populations}), sn_labels);
+    stars_pkg->AddField("sn_deposit", m);
+  }
 
   // Meshblock-local initiliaze function to define the RNGs (for Poisson law)
   stars_pkg->UserWorkBeforeLoopMesh = InitialStars;

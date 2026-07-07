@@ -36,6 +36,9 @@ using parthenon::Coordinates_t;
 
 namespace StellarFeedback {
 
+// Enum for the buffer variables used to store SNe values
+enum SNDepositIndex { ISN_DN = 0, ISN_M1 = 1, ISN_M2 = 2, ISN_M3 = 3, ISN_EN = 4 };
+
 // ========================================================================
 // Standard M4 cubic spline kernel (Monaghan & Lattanzio 1985), 3D form.
 //
@@ -324,8 +327,8 @@ ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION void
-ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
-                const parthenon::Real x_star, const parthenon::Real y_star,
+ApplyKineticSNe(View4D &cons, View4D &sn_pack, const parthenon::Coordinates_t &coords,
+                const int ndim, const parthenon::Real x_star, const parthenon::Real y_star,
                 const parthenon::Real z_star, const int k_host, const int j_host,
                 const int i_host, const parthenon::Real vel_x_star,
                 const parthenon::Real vel_y_star, const parthenon::Real vel_z_star,
@@ -393,9 +396,6 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
   }
   if (weight_sum <= 0.0) return;
 
-  // For debugging: print out the kernel weights and running weight sum for each cell
-  printf("[ApplyKineticSNe] weight_sum = %.6e (expected ~1.0)\n", weight_sum);
-
   const Real nH_avg = nH_vol_sum / weight_sum; // kernel-weighted <n_H>, cm^-3
   const Real nH_avg_over_1cm3 = nH_avg / 1.0;  // dimensionless: <n_H> / (1 cm^-3)
 
@@ -410,10 +410,9 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
         const int jj = j_host + dj;
         const int ii = i_host + di;
 
-        if (kk < kb_s || kk > kb_e) continue;
-        if (jj < jb_s || jj > jb_e) continue;
-        if (ii < ib_s || ii > ib_e) continue;
-
+        // kk/jj/ii here are always within cellbounds::entire (checked upstream),
+        // so no out-of-array-bounds risk; kb_s/jb_s/ib_s etc. now refer to the
+        // *interior* range only.
         const Real dx = coords.Xc<1>(ii) - x_star;
         const Real dy = coords.Xc<2>(jj) - y_star;
         const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
@@ -452,28 +451,43 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
         const Real u_y = u_inject * ry + vel_y_star;
         const Real u_z = (ndim == 3) ? (u_inject * rz + vel_z_star) : 0.0;
 
-        // Update conserved variables
-        /*
-        Kokkos::atomic_add(&cons(IDN, kk, jj, ii), drho);
-        Kokkos::atomic_add(&cons(IM1, kk, jj, ii), drho * u_x);
-        Kokkos::atomic_add(&cons(IM2, kk, jj, ii), drho * u_y);
-        if (ndim == 3) Kokkos::atomic_add(&cons(IM3, kk, jj, ii), drho * u_z);
-        Kokkos::atomic_add(&cons(IEN, kk, jj, ii),
-                           0.5 * drho * (u_x * u_x + u_y * u_y + u_z * u_z));
-        */
-        cons(IDN, kk, jj, ii) = 600.0;
+        const Real dE = 0.5 * drho * (u_x * u_x + u_y * u_y + u_z * u_z);
+
+        // --- Interior vs. cross-boundary deposition ---
+        const bool in_interior = (kk >= kb_s && kk <= kb_e) &&
+                                  (jj >= jb_s && jj <= jb_e) &&
+                                  (ii >= ib_s && ii <= ib_e);
+
+        if (in_interior) {
+          Kokkos::atomic_add(&cons(IDN, kk, jj, ii), drho);
+          Kokkos::atomic_add(&cons(IM1, kk, jj, ii), drho * u_x);
+          Kokkos::atomic_add(&cons(IM2, kk, jj, ii), drho * u_y);
+          if (ndim == 3) Kokkos::atomic_add(&cons(IM3, kk, jj, ii), drho * u_z);
+          Kokkos::atomic_add(&cons(IEN, kk, jj, ii), dE);
+        } else {
+          // Mirror each out-of-interior axis independently across the
+          // corresponding face, so the contribution lands inside this
+          // block's own active zone of sn_pack instead of its ghost zone.
+          const int kk_m = (kk < kb_s) ? (2 * kb_s - 1 - kk)
+                            : (kk > kb_e) ? (2 * kb_e + 1 - kk)
+                                          : kk;
+          const int jj_m = (jj < jb_s) ? (2 * jb_s - 1 - jj)
+                            : (jj > jb_e) ? (2 * jb_e + 1 - jj)
+                                          : jj;
+          const int ii_m = (ii < ib_s) ? (2 * ib_s - 1 - ii)
+                            : (ii > ib_e) ? (2 * ib_e + 1 - ii)
+                                          : ii;
+
+          Kokkos::atomic_add(&sn_pack(ISN_DN, kk_m, jj_m, ii_m), drho);
+          Kokkos::atomic_add(&sn_pack(ISN_M1, kk_m, jj_m, ii_m), drho * u_x);
+          Kokkos::atomic_add(&sn_pack(ISN_M2, kk_m, jj_m, ii_m), drho * u_y);
+          if (ndim == 3)
+            Kokkos::atomic_add(&sn_pack(ISN_M3, kk_m, jj_m, ii_m), drho * u_z);
+          Kokkos::atomic_add(&sn_pack(ISN_EN, kk_m, jj_m, ii_m), dE);          
+        }
       }
     }
   }
-}
-
-// ========================================================================
-// TODO: calculate type Ia SNe rate using DTD (see SMUGGLE implementation).
-// ========================================================================
-
-KOKKOS_INLINE_FUNCTION
-int ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass) {
-  return 0;
 }
 
 // ========================================================================
@@ -481,11 +495,15 @@ int ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real 
 // on the grid.
 // ========================================================================
 
+TaskStatus ApplySNDepositGhostData(MeshData<Real> *md);
+
+// TODO: get rid of EOS? Seems like it's not needed in the end.
 template <class EOS>
 TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                                 const EOS &eos);
 
 TaskStatus StellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+
 
 } // namespace StellarFeedback
 

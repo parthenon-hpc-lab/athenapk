@@ -82,6 +82,12 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                                 const EOS &eos) {
 
   auto *pmb = mbd->GetParentPointer();
+  auto stars_pkg = pmb->packages.Get("stars");
+
+  const auto SN_II_enabled = stars_pkg->Param<bool>("SN_II_enabled");
+  const auto SN_Ia_enabled = stars_pkg->Param<bool>("SN_Ia_enabled");
+  if (!SN_II_enabled && !SN_Ia_enabled) return TaskStatus::complete;
+
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
   auto ndim = pmb->pmy_mesh->ndim;
 
@@ -90,7 +96,6 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   auto &coords = pmb->coords;
   auto gid = pmb->gid;
 
-  auto stars_pkg = pmb->packages.Get("stars");
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto swarm_names = stars_pkg->Param<std::vector<std::string>>("swarm_names");
   const auto current_time = tm.time;
@@ -109,13 +114,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   const auto nhydro = hydro_pkg->Param<int>("nhydro");
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
-  // Meshblock interior bounds (no ghost cells)
-  const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
-  const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-  const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-
-  const auto SN_II_enabled = stars_pkg->Param<bool>("SN_II_enabled");
-  const auto SN_Ia_enabled = stars_pkg->Param<bool>("SN_Ia_enabled");
+  const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
 
   // Feedback physics parameters
   const auto E_SN_per_event = stars_pkg->Param<Real>("E_SN_per_event");
@@ -142,6 +143,8 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     auto &swarm = sd->Get(swarm_name);
     auto swarm_d = swarm->GetDeviceContext();
     auto max_active_index = swarm->GetMaxActiveIndex();
+
+    auto &sn_pack = mbd->PackVariables(std::vector<std::string>{"sn_deposit"});
 
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
@@ -224,9 +227,10 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                 Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
 
             // Calling the function which actually applies the feedback
-            ApplyKineticSNe(cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n), v_y(n),
-                            v_z(n), M_ej_tot, p_SN_tot, p_terminal_Nsn, r_cells, kb.s,
-                            kb.e, jb.s, jb.e, ib.s, ib.e, code_density_cgs, mh_cgs, x_H);
+            ApplyKineticSNe(cons, sn_pack, coords, ndim, x(n), y(n), z(n), k, j, i,
+                            v_x(n), v_y(n), v_z(n), M_ej_tot, p_SN_tot, p_terminal_Nsn, r_cells,
+                            kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+                            code_density_cgs, mh_cgs, x_H);
 
             // For debugging
             const Real ssp_age = current_time - t_inj(n);
@@ -259,5 +263,96 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   return TaskStatus::complete;
 
 } // ApplyStellarFeedback
+
+// ========================================================================
+// Reads the sn_deposit ghost-zone data populated by boundary communication,
+// un-mirrors it back onto the corresponding interior cells, accumulates it
+// into cons, then zeroes sn_deposit for the next timestep.
+// ========================================================================
+TaskStatus ApplySNDepositGhostData(MeshData<Real> *md) {
+
+  auto *pmb = md->GetBlockData(0)->GetBlockPointer();
+  auto stars_pkg = pmb->packages.Get("stars");
+
+  const auto SN_II_enabled = stars_pkg->Param<bool>("SN_II_enabled");
+  const auto SN_Ia_enabled = stars_pkg->Param<bool>("SN_Ia_enabled");
+
+  if (!SN_II_enabled && !SN_Ia_enabled) {
+    return TaskStatus::complete;
+  }
+
+  const auto stars_n_populations = stars_pkg->Param<int>("stars_n_populations");
+
+  auto sn_pack = md->PackVariables(std::vector<std::string>{"sn_deposit"});
+  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange kb_e = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
+  IndexRange jb_e = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  IndexRange ib_e = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+
+  const bool three_d = sn_pack.GetNdim() == 3;
+  
+  // Un-mirror ghost-zone contributions back onto the correct interior cells.
+  Kokkos::parallel_for(
+      "ApplySNDepositGhostData::Unmirror",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb_e.s, jb_e.s, ib_e.s},
+          {sn_pack.GetDim(5), kb_e.e + 1, jb_e.e + 1, ib_e.e + 1}),
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const bool in_interior = (k >= kb.s && k <= kb.e) &&
+                                  (j >= jb.s && j <= jb.e) &&
+                                  (i >= ib.s && i <= ib.e);
+        if (in_interior) return; // active-zone data was for the neighbor, skip
+
+        // Only print for ghost cells that actually carry nonzero deposit
+        // data, to avoid flooding stdout with empty ghost cells.
+        const Real dn_val = sn_pack(b, ISN_DN * 1 /*pop=0 debug*/, k, j, i);
+
+        const int k_t = (k < kb.s) ? (2 * kb.s - 1 - k)
+                         : (k > kb.e) ? (2 * kb.e + 1 - k) : k;
+        const int j_t = (j < jb.s) ? (2 * jb.s - 1 - j)
+                         : (j > jb.e) ? (2 * jb.e + 1 - j) : j;
+        const int i_t = (i < ib.s) ? (2 * ib.s - 1 - i)
+                         : (i > ib.e) ? (2 * ib.e + 1 - i) : i;
+
+        for (int pop = 0; pop < stars_n_populations; ++pop) {
+          const Real dn = sn_pack(b, ISN_DN * stars_n_populations + pop, k, j, i);
+
+          Kokkos::atomic_add(&cons_pack(b, IDN, k_t, j_t, i_t),
+                              sn_pack(b, ISN_DN * stars_n_populations + pop, k, j, i));
+          Kokkos::atomic_add(&cons_pack(b, IM1, k_t, j_t, i_t),
+                              sn_pack(b, ISN_M1 * stars_n_populations + pop, k, j, i));
+          Kokkos::atomic_add(&cons_pack(b, IM2, k_t, j_t, i_t),
+                              sn_pack(b, ISN_M2 * stars_n_populations + pop, k, j, i));
+          if (three_d)
+            Kokkos::atomic_add(&cons_pack(b, IM3, k_t, j_t, i_t),
+                                sn_pack(b, ISN_M3 * stars_n_populations + pop, k, j, i));
+          Kokkos::atomic_add(&cons_pack(b, IEN, k_t, j_t, i_t),
+                              sn_pack(b, ISN_EN * stars_n_populations + pop, k, j, i));
+
+        }
+      });
+
+  // Reset sn_deposit (both ghost and active zones) for the next timestep.
+  Kokkos::parallel_for(
+      "ApplySNDepositGhostData::Reset",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          DevExecSpace(), {0, kb_e.s, jb_e.s, ib_e.s},
+          {sn_pack.GetDim(5), kb_e.e + 1, jb_e.e + 1, ib_e.e + 1}),
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        for (int pop = 0; pop < stars_n_populations; ++pop) {
+          sn_pack(b, ISN_DN * stars_n_populations + pop, k, j, i) = 0.0;
+          sn_pack(b, ISN_M1 * stars_n_populations + pop, k, j, i) = 0.0;
+          sn_pack(b, ISN_M2 * stars_n_populations + pop, k, j, i) = 0.0;
+          sn_pack(b, ISN_M3 * stars_n_populations + pop, k, j, i) = 0.0;
+          sn_pack(b, ISN_EN * stars_n_populations + pop, k, j, i) = 0.0;
+        }
+      });
+  
+  return TaskStatus::complete;
+} // ApplySNDepositGhostData
 
 } // namespace StellarFeedback
