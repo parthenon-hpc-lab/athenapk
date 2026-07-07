@@ -45,7 +45,7 @@ KOKKOS_INLINE_FUNCTION Real EvaluateStarFormation(
   const Real rho = prim(IDN, k, j, i);
   if (rho <= threshold) return 0.0;
 
-  const Real epsilon = 1.0; // Hardcoded at the moment
+  const Real epsilon = 100.0; // Hardcoded at the moment
   const Real dx = coords.Dxc<1>(k, j, i);
   const Real dy = coords.Dxc<2>(k, j, i);
   const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;

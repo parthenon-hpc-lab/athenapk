@@ -127,12 +127,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("SN_kinetic_efficiency", f_ek);
 
   const auto r_cells = pin->GetOrAddInteger("stars", "SN_injection_radius_cells", 2);
-  const auto num_ghost = pin->GetOrAddInteger("parthenon/mesh", "nghost", 2);
-  PARTHENON_REQUIRE(r_cells <= num_ghost,
+  const auto num_ghost = pin->GetInteger("parthenon/mesh", "nghost");
+  // +1 accounts for the worst-case sub-cell offset of the particle from the
+  // host cell center: since the kernel is centered on the particle's true
+  // position (not the host cell center) to avoid asymmetric momentum
+  // deposition, its support can extend up to one additional cell beyond
+  // host_cell + r_cells.
+  PARTHENON_REQUIRE(r_cells + 1 <= num_ghost,
                     "SN_injection_radius_cells (" + std::to_string(r_cells) +
-                        ") exceeds the number of ghost cells (" +
-                        std::to_string(num_ghost) +
-                        "). Increase nghost or reduce SN_injection_radius_cells.");
+                        ") requires " + std::to_string(r_cells + 1) +
+                        " ghost cells (to account for particle offset from cell "
+                        "center), but only " + std::to_string(num_ghost) +
+                        " are available. Increase nghost or reduce "
+                        "SN_injection_radius_cells.");
   stars_pkg->AddParam<>("SN_injection_radius_cells", r_cells);
 
   // Register empty lifetime tables as default (overwritten if SN_II_enabled)
@@ -243,9 +250,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("stars_removal_enabled", false);
 
   // Add value for injection time
-  stars_pkg->AddSwarmValue("injection_time", "stars",
-                           Metadata({Metadata::Real, Metadata::Restart}));
   stars_pkg->AddSwarmValue("mass", "stars",
+                           Metadata({Metadata::Real, Metadata::Restart}));
+  stars_pkg->AddSwarmValue("birth_mass", "stars",
+                           Metadata({Metadata::Real, Metadata::Restart}));
+  stars_pkg->AddSwarmValue("injection_time", "stars",
                            Metadata({Metadata::Real, Metadata::Restart}));
 
   // Adding offsets for particle IDs

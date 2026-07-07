@@ -637,9 +637,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
 
       auto star_inject = tl.AddTask(none, Stars::InjectStars, mbd0.get(), tm);
-      auto star_remove = tl.AddTask(star_inject, Stars::RemoveStars, mbd0.get(), tm);
       auto star_feedback =
-          tl.AddTask(star_remove, StellarFeedback::StellarFeedback, mbd0.get(), tm);
+          tl.AddTask(star_inject, StellarFeedback::StellarFeedback, mbd0.get(), tm);
       // Maybe it'd be better to move the stars before feedback is applied
       auto star_move = tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
       auto send =

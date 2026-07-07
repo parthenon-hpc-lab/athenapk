@@ -96,17 +96,23 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   const auto current_time = tm.time;
   const auto current_dt = tm.dt;
 
+  // Loading a few unit quantities useful for SNe injection
   const auto units = hydro_pkg->Param<Units>("units");
+  const auto code_density_cgs = units.code_density_cgs();
   const auto msun_in_code_units = units.msun();
   const auto gyr_in_code_units = 1e3 * units.myr();
+  const auto mh_cgs = units.mh() * units.code_mass_cgs();
+
+  const auto He_mass_fraction = hydro_pkg->Param<Real>("He_mass_fraction");
+  const auto x_H = 1.0 - He_mass_fraction;
 
   const auto nhydro = hydro_pkg->Param<int>("nhydro");
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   // Meshblock interior bounds (no ghost cells)
-  const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
-  const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
-  const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+  const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+  const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
 
   const auto SN_II_enabled = stars_pkg->Param<bool>("SN_II_enabled");
   const auto SN_Ia_enabled = stars_pkg->Param<bool>("SN_Ia_enabled");
@@ -145,7 +151,8 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     auto &v_y = swarm->Get<Real>("v_y").Get();
     auto &v_z = swarm->Get<Real>("v_z").Get();
 
-    auto &pmass = swarm->Get<Real>("mass").Get();
+    auto &pmass = swarm->Get<Real>("mass").Get(); // Instantaneous mass of the stellar particle
+    auto &pmass0 = swarm->Get<Real>("birth_mass").Get(); // Birth mass of the stellar particle (constant)
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
     auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
 
@@ -161,31 +168,45 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
           if (SN_II_enabled) {
             auto rng_gen = rng_pool.get_state();
-            ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass(n), log_mass_d,
+            ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
                               log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
                               msun_in_code_units, rng_gen, N_SN_II, M_ej_II_tot);
             N_SN += N_SN_II;
             rng_pool.free_state(rng_gen);
           } else if (SN_Ia_enabled) {
             auto rng_gen = rng_pool.get_state();
-            ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass(n),
+            ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass0(n),
                               msun_in_code_units, gyr_in_code_units, rng_gen, N_SN_Ia,
                               M_ej_Ia_tot);
             N_SN += N_SN_Ia;
             rng_pool.free_state(rng_gen);
           }
 
-          const Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
+          Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
+
+          // ── Clamp ejecta to remaining particle mass budget ──────────────────
+          // If the requested ejecta mass exceeds what the particle actually has
+          // left, rescale mass AND the associated momentum/energy consistently
+          // (p_SN ~ sqrt(M_ej) at fixed N_SN*E_SN_per_event, so scaling mass by
+          // f rescales momentum by sqrt(f)), then flag the particle for removal
+          // since its mass budget is now fully exhausted.
+          bool remove_particle = false;
+          Real mass_scale = 1.0;
+          if (N_SN > 0 && M_ej_tot > pmass(n)) {
+            mass_scale = (M_ej_tot > 0.0) ? (pmass(n) / M_ej_tot) : 0.0;
+            M_ej_II_tot *= mass_scale;
+            M_ej_Ia_tot *= mass_scale;
+            M_ej_tot = pmass(n);
+            remove_particle = true;
+          }
 
           // ── Apply feedback on the grid if any SN occurred ──────────────────
           if (N_SN > 0) {
             int k, j, i;
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-            // Eq. 20: total energy
-            const Real E_tot = N_SN * E_SN_per_event;
-
             // Eq. 21: total momentum as sum of per-type terms
+            const Real momentum_scale = Kokkos::sqrt(mass_scale);
             const Real p_SN_II =
                 (M_ej_II_tot > 0.0)
                     ? Kokkos::sqrt(2.0 * N_SN_II * E_SN_per_event * M_ej_II_tot)
@@ -196,27 +217,43 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                     : 0.0;
             const Real p_SN_tot = p_SN_II + p_SN_Ia;
 
-            ApplyKineticSNe(cons, coords, ndim, k, j, i, v_x(n), v_y(n), v_z(n), M_ej_tot,
-                            p_SN_tot, N_SN * p_t, r_cells, kb.s, kb.e, jb.s, jb.e, ib.s,
-                            ib.e);
+            // Rescaling p_terminal to match the injected energy
+            // (terminal momentum depends on N_SN, not on the ejecta mass budget,
+            // so it is unaffected by the clamping above)
+            const Real p_terminal_Nsn =
+                Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
+
+            // Calling the function which actually applies the feedback
+            ApplyKineticSNe(cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n), v_y(n),
+                            v_z(n), M_ej_tot, p_SN_tot, p_terminal_Nsn, r_cells, kb.s,
+                            kb.e, jb.s, jb.e, ib.s, ib.e, code_density_cgs, mh_cgs, x_H);
 
             // For debugging
             const Real ssp_age = current_time - t_inj(n);
             Kokkos::printf("[StellarFeedback] MeshBlock gid=%d: injecting %d SNe "
-                           "(N_SN_II=%d, N_SN_Ia=%d) at SSP age=%.6e "
-                           "(ejecta mass=%.6e)\n",
-                           gid, N_SN, N_SN_II, N_SN_Ia, ssp_age, M_ej_tot);
+                          "(N_SN_II=%d, N_SN_Ia=%d) at SSP age=%.6e "
+                          "(ejecta mass=%.6e, mass_scale=%.4e)%s\n",
+                          gid, N_SN, N_SN_II, N_SN_Ia, ssp_age, M_ej_tot, mass_scale,
+                          remove_particle ? " [PARTICLE DEPLETED]" : "");
             fflush(stdout);
 
-            // Particle mass is kept constant throughout the run; no deduction
-            // or removal is performed. Might worth adding a second field storing
-            // instanteneous stellar mass.
+            // Reducing the instantaneous mass of the stellar particle by the
+            // total ejecta mass actually injected
+            pmass(n) -= M_ej_tot;
+
+            if (remove_particle) {
+              swarm_d.MarkParticleForRemoval(n);
+            }
           }
 
           lM_ej += M_ej_tot;
         },
         Kokkos::Sum<Real>(total_M_ej));
 
+    // Particles marked above are only flagged here; actually compact/remove
+    // them from the swarm afterward.
+    swarm->RemoveMarkedParticles();
+    
   } // end for swarm_name
 
   return TaskStatus::complete;

@@ -21,6 +21,8 @@
 #ifndef STELLAR_FEEDBACK_HPP_
 #define STELLAR_FEEDBACK_HPP_
 
+#include <limits>
+
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -33,6 +35,33 @@ using namespace parthenon::package::prelude;
 using parthenon::Coordinates_t;
 
 namespace StellarFeedback {
+
+// ========================================================================
+// Standard M4 cubic spline kernel (Monaghan & Lattanzio 1985), 3D form.
+//
+// W(r, h) = (sigma_3d / h^3) *
+//   { 1 - 1.5 q^2 + 0.75 q^3,   0 <= q < 1
+//   { 0.25 (2 - q)^3,           1 <= q < 2
+//   { 0,                        q >= 2
+// where q = r / h. Compact support extends to r = 2h.
+// ========================================================================
+KOKKOS_INLINE_FUNCTION parthenon::Real CubicSplineKernel(const parthenon::Real r,
+                                                         const parthenon::Real h) {
+  using parthenon::Real;
+  constexpr Real sigma_3d = 1.0 / M_PI; // 3D normalisation
+
+  const Real q = r / h;
+  const Real norm = sigma_3d / (h * h * h);
+
+  if (q < 1.0) {
+    return norm * (1.0 - 1.5 * q * q + 0.75 * q * q * q);
+  } else if (q < 2.0) {
+    const Real term = 2.0 - q;
+    return norm * 0.25 * term * term * term;
+  } else {
+    return 0.0;
+  }
+}
 
 // ========================================================================
 // Chabrier (2003) IMF in SMUGGLE form
@@ -296,29 +325,44 @@ ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION void
 ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
-                const int k_star, const int j_star, const int i_star,
-                const parthenon::Real vel_x_star, const parthenon::Real vel_y_star,
-                const parthenon::Real vel_z_star, const parthenon::Real M_ej_tot,
-                const parthenon::Real p_SN_tot, const parthenon::Real p_terminal,
-                const int r_cells, const int kb_s, const int kb_e, const int jb_s,
-                const int jb_e, const int ib_s, const int ib_e) {
+                const parthenon::Real x_star, const parthenon::Real y_star,
+                const parthenon::Real z_star, const int k_host, const int j_host,
+                const int i_host, const parthenon::Real vel_x_star,
+                const parthenon::Real vel_y_star, const parthenon::Real vel_z_star,
+                const parthenon::Real M_ej_tot, const parthenon::Real p_SN_tot,
+                const parthenon::Real p_terminal, const int r_cells, const int kb_s,
+                const int kb_e, const int jb_s, const int jb_e, const int ib_s,
+                const int ib_e, const parthenon::Real code_density_cgs,
+                const parthenon::Real mh_cgs, const parthenon::Real X_H) {
 
   using parthenon::Real;
 
-  // Position of the host cell
-  const Real x_star = coords.Xc<1>(i_star);
-  const Real y_star = coords.Xc<2>(j_star);
-  const Real z_star = (ndim == 3) ? coords.Xc<3>(k_star) : 0.0;
+  // Kernel is centered on the star's true (sub-cell) position, not the host
+  // cell center, to avoid asymmetric momentum deposition when the particle
+  // is offset from the cell center. Because of this offset, the kernel's
+  // support can extend up to one additional cell beyond host_cell +/- r_cells
+  // in index space, so the loop range is widened by 1 relative to r_cells.
+  // The physical support radius itself (r_max, h_smooth) is unchanged.
+  const int r_search = r_cells + 1;
 
-  // --- Pass 1: compute total volume of cells within the injection sphere ---
+  // Smoothing length tied to the physical injection sphere radius
+  const Real h_smooth = 0.5 * (r_cells + 1.0) * coords.Dxc<1>(i_host);
+
+  // --- Pass 1: compute total volume and kernel-weighted <n_H> within the
+  //             injection sphere ---
   Real vol_tot = 0.0;
-  for (int dk = -r_cells; dk <= r_cells; dk++) {
-    for (int dj = -r_cells; dj <= r_cells; dj++) {
-      for (int di = -r_cells; di <= r_cells; di++) {
-        const int kk = k_star + (ndim == 3 ? dk : 0);
-        const int jj = j_star + dj;
-        const int ii = i_star + di;
+  Real weight_sum = 0.0; // sum of W(r,h) * vol
+  Real nH_vol_sum = 0.0; // sum of n_H(cell) * W(r,h) * vol
 
+  for (int dk = -r_search; dk <= r_search; dk++) {
+    for (int dj = -r_search; dj <= r_search; dj++) {
+      for (int di = -r_search; di <= r_search; di++) {
+        const int kk = k_host + (ndim == 3 ? dk : 0);
+        const int jj = j_host + dj;
+        const int ii = i_host + di;
+
+        // Safeguard, although it should theoretically not happen.
+        // Might worth deleting this check later on.
         if (kk < kb_s || kk > kb_e) continue;
         if (jj < jb_s || jj > jb_e) continue;
         if (ii < ib_s || ii > ib_e) continue;
@@ -330,20 +374,41 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
         const Real r_max = (r_cells + 1.0) * coords.Dxc<1>(ii);
         if (r2 > r_max * r_max) continue;
 
-        vol_tot += coords.CellVolume(kk, jj, ii);
+        const Real r = Kokkos::sqrt(r2);
+        const Real w_kernel = CubicSplineKernel(r, h_smooth);
+        if (w_kernel <= 0.0) continue;
+
+        const Real vol = coords.CellVolume(kk, jj, ii);
+        const Real weight = w_kernel * vol;
+
+        vol_tot += vol;
+        weight_sum += weight;
+
+        const Real rho_cgs = cons(IDN, kk, jj, ii) * code_density_cgs;
+        const Real nH_cell = X_H * rho_cgs / mh_cgs; // cm^-3
+
+        nH_vol_sum += nH_cell * weight;
       }
     }
   }
+  if (weight_sum <= 0.0) return;
 
-  if (vol_tot <= 0.0) return;
+  // For debugging: print out the kernel weights and running weight sum for each cell
+  printf("[ApplyKineticSNe] weight_sum = %.6e (expected ~1.0)\n", weight_sum);
+
+  const Real nH_avg = nH_vol_sum / weight_sum; // kernel-weighted <n_H>, cm^-3
+  const Real nH_avg_over_1cm3 = nH_avg / 1.0;  // dimensionless: <n_H> / (1 cm^-3)
+
+  const Real p_terminal_nH_scaled =
+      p_terminal * Kokkos::pow(nH_avg_over_1cm3, -1.0 / 7.0);
 
   // --- Pass 2: deposit mass, momentum and energy ---
-  for (int dk = -r_cells; dk <= r_cells; dk++) {
-    for (int dj = -r_cells; dj <= r_cells; dj++) {
-      for (int di = -r_cells; di <= r_cells; di++) {
-        const int kk = k_star + (ndim == 3 ? dk : 0);
-        const int jj = j_star + dj;
-        const int ii = i_star + di;
+  for (int dk = -r_search; dk <= r_search; dk++) {
+    for (int dj = -r_search; dj <= r_search; dj++) {
+      for (int di = -r_search; di <= r_search; di++) {
+        const int kk = k_host + (ndim == 3 ? dk : 0);
+        const int jj = j_host + dj;
+        const int ii = i_host + di;
 
         if (kk < kb_s || kk > kb_e) continue;
         if (jj < jb_s || jj > jb_e) continue;
@@ -356,27 +421,30 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
         const Real r_max = (r_cells + 1.0) * coords.Dxc<1>(ii);
         if (r2 > r_max * r_max) continue;
 
+        const Real r = Kokkos::sqrt(r2);
+        const Real w_kernel = CubicSplineKernel(r, h_smooth);
+        if (w_kernel <= 0.0) continue;
+
         const Real vol = coords.CellVolume(kk, jj, ii);
-        const Real w = vol / vol_tot;
+        const Real weight = w_kernel * vol;
+        const Real w = weight / weight_sum;
 
         // Mass deposited in this cell
         const Real dM = w * M_ej_tot;
         const Real drho = dM / vol;
 
-        // SMUGGLE eq. 31 (flat kernel, w_i = vol/vol_tot):
+        // SMUGGLE eq. 31, now kernel-weighted (w_i = W(r,h)*vol_i / weight_sum)
+        // instead of flat volume weighting:
         //   delta_p_i = w_i * min( p_SN_tot * sqrt(1 + m_i / delta_m_i), p_terminal )
-        // where m_i = rho_i * vol_i (pre-injection cell gas mass)
-        // and   delta_m_i = w_i * M_ej_tot = dM
         const Real rho_i = cons(IDN, kk, jj, ii);
         const Real m_i = rho_i * vol;
         const Real boost = (dM > 0.0) ? Kokkos::sqrt(1.0 + m_i / dM) : 1.0;
-        const Real dp_i = w * Kokkos::min(p_SN_tot * boost, p_terminal);
+        const Real dp_i = w * Kokkos::min(p_SN_tot * boost, p_terminal_nH_scaled);
 
-        // Radial unit vector from star to cell center
-        const Real r = Kokkos::sqrt(r2);
-        const Real rx = (r > 0.0) ? dx / r : 0.0;
-        const Real ry = (r > 0.0) ? dy / r : 0.0;
-        const Real rz = (r > 0.0) ? dz / r : 0.0;
+        // Radial unit vector from star (true position) to cell center
+        const Real rx = dx / r;
+        const Real ry = dy / r;
+        const Real rz = dz / r;
 
         // Ejecta velocity from injected momentum, plus star bulk motion
         const Real u_inject = (dM > 0.0) ? dp_i / dM : 0.0;
@@ -393,6 +461,7 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
         Kokkos::atomic_add(&cons(IEN, kk, jj, ii),
                            0.5 * drho * (u_x * u_x + u_y * u_y + u_z * u_z));
         */
+        cons(IDN, kk, jj, ii) = 600.0;
       }
     }
   }

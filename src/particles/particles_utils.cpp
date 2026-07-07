@@ -215,6 +215,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+
     auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
 
@@ -228,11 +229,13 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
     // Mass value (if needed)
     auto pmass = t_inj.Get(); // dummy type of initialization
+    auto pmass0 = t_inj.Get(); // same for (constant) birth mass
     auto v_x = t_inj.Get();
     auto v_y = t_inj.Get();
     auto v_z = t_inj.Get();
     if (mass_enabled) {
       pmass = swarm->Get<Real>("mass").Get();
+      pmass0 = swarm->Get<Real>("birth_mass").Get();
       v_x = swarm->Get<Real>("v_x").Get();
       v_y = swarm->Get<Real>("v_y").Get();
       v_z = swarm->Get<Real>("v_z").Get();
@@ -274,7 +277,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               int swarm_idx = injected_particles_context.GetNewParticleIndex(counter_idx);
 
               x(swarm_idx) = x_cell;
-              y(swarm_idx) = y_cell;
+              // FOR DEBUGGING PURPOSES: SHIFT SLIGHTLY PARTICLE POSITION
+              y(swarm_idx) = y_cell - 0.25 * coords.Dxc<2>(j);;
               if (ndim == 3) {
                 z(swarm_idx) = z_cell;
               }
@@ -289,6 +293,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                 StarFormation::TransferCellMassToParticle(
                     cons, prim, coords, k, j, i, mass_efficiency, ndim, swarm_idx, pmass,
                     v_x, v_y, v_z, eos, nhydro, nscalars);
+                pmass0(swarm_idx) = pmass(swarm_idx);
                 // For debugging
                 Kokkos::printf("[InjectStars] MeshBlock gid=%d: injecting a new stellar "
                                "particle of ID %llu at t=%.6e (mass=%.6e)\n",
