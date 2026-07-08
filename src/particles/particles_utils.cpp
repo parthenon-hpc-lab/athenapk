@@ -278,7 +278,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
               x(swarm_idx) = x_cell;
               // FOR DEBUGGING PURPOSES: SHIFT SLIGHTLY PARTICLE POSITION
-              y(swarm_idx) = y_cell - 0.25 * coords.Dxc<2>(j);;
+              y(swarm_idx) = y_cell - 0.001 * coords.Dxc<2>(j);;
               if (ndim == 3) {
                 z(swarm_idx) = z_cell;
               }

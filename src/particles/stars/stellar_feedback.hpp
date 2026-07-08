@@ -364,12 +364,6 @@ ApplyKineticSNe(View4D &cons, View4D &sn_pack, const parthenon::Coordinates_t &c
         const int jj = j_host + dj;
         const int ii = i_host + di;
 
-        // Safeguard, although it should theoretically not happen.
-        // Might worth deleting this check later on.
-        if (kk < kb_s || kk > kb_e) continue;
-        if (jj < jb_s || jj > jb_e) continue;
-        if (ii < ib_s || ii > ib_e) continue;
-
         const Real dx = coords.Xc<1>(ii) - x_star;
         const Real dy = coords.Xc<2>(jj) - y_star;
         const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
@@ -460,10 +454,12 @@ ApplyKineticSNe(View4D &cons, View4D &sn_pack, const parthenon::Coordinates_t &c
 
         if (in_interior) {
           Kokkos::atomic_add(&cons(IDN, kk, jj, ii), drho);
+          /*
           Kokkos::atomic_add(&cons(IM1, kk, jj, ii), drho * u_x);
           Kokkos::atomic_add(&cons(IM2, kk, jj, ii), drho * u_y);
           if (ndim == 3) Kokkos::atomic_add(&cons(IM3, kk, jj, ii), drho * u_z);
           Kokkos::atomic_add(&cons(IEN, kk, jj, ii), dE);
+          */
         } else {
           // Mirror each out-of-interior axis independently across the
           // corresponding face, so the contribution lands inside this
@@ -479,11 +475,13 @@ ApplyKineticSNe(View4D &cons, View4D &sn_pack, const parthenon::Coordinates_t &c
                                           : ii;
 
           Kokkos::atomic_add(&sn_pack(ISN_DN, kk_m, jj_m, ii_m), drho);
+          /*
           Kokkos::atomic_add(&sn_pack(ISN_M1, kk_m, jj_m, ii_m), drho * u_x);
           Kokkos::atomic_add(&sn_pack(ISN_M2, kk_m, jj_m, ii_m), drho * u_y);
           if (ndim == 3)
             Kokkos::atomic_add(&sn_pack(ISN_M3, kk_m, jj_m, ii_m), drho * u_z);
-          Kokkos::atomic_add(&sn_pack(ISN_EN, kk_m, jj_m, ii_m), dE);          
+          Kokkos::atomic_add(&sn_pack(ISN_EN, kk_m, jj_m, ii_m), dE); 
+          */
         }
       }
     }

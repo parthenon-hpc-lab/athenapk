@@ -73,10 +73,17 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
                                           10.0 * rho_bg); // code units
   const auto rhoe_peak = rhoe_bg; // pressure equilibrium: same rhoe as background
 
+  const auto x_peak = pin->GetOrAddReal("problem/star_formation", "x_peak", 0.0);
+  const auto y_peak = pin->GetOrAddReal("problem/star_formation", "y_peak", 0.0);
+  const auto z_peak = pin->GetOrAddReal("problem/star_formation", "z_peak", 0.0);
+
   pkg->AddParam<>("problem/star_formation/rho_bg", rho_bg);
   pkg->AddParam<>("problem/star_formation/rhoe_bg", rhoe_bg);
   pkg->AddParam<>("problem/star_formation/rho_peak", rho_peak);
   pkg->AddParam<>("problem/star_formation/rhoe_peak", rhoe_peak);
+  pkg->AddParam<>("problem/star_formation/x_peak", x_peak);
+  pkg->AddParam<>("problem/star_formation/y_peak", y_peak);
+  pkg->AddParam<>("problem/star_formation/z_peak", z_peak);
 
   // multi_peak-specific parameters
   int n_peaks = 0;
@@ -160,7 +167,10 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   if (ic_mode == ICMode::SinglePeak) {
     // Peak fixed at the box center, shifted top-right by one cell wrt (0,0,0)
-    const Real x_peak = 0.0, y_peak = 0.0, z_peak = 0.0;
+    const auto x_peak = pkg->Param<Real>("problem/star_formation/x_peak");
+    const auto y_peak = pkg->Param<Real>("problem/star_formation/y_peak");
+    const auto z_peak = pkg->Param<Real>("problem/star_formation/z_peak");
+
     for (int k = kb.s; k <= kb.e; k++) {
       for (int j = jb.s; j <= jb.e; j++) {
         for (int i = ib.s; i <= ib.e; i++) {

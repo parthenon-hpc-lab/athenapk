@@ -323,6 +323,7 @@ TaskStatus ApplySNDepositGhostData(MeshData<Real> *md) {
 
           Kokkos::atomic_add(&cons_pack(b, IDN, k_t, j_t, i_t),
                               sn_pack(b, ISN_DN * stars_n_populations + pop, k, j, i));
+          /*
           Kokkos::atomic_add(&cons_pack(b, IM1, k_t, j_t, i_t),
                               sn_pack(b, ISN_M1 * stars_n_populations + pop, k, j, i));
           Kokkos::atomic_add(&cons_pack(b, IM2, k_t, j_t, i_t),
@@ -332,6 +333,7 @@ TaskStatus ApplySNDepositGhostData(MeshData<Real> *md) {
                                 sn_pack(b, ISN_M3 * stars_n_populations + pop, k, j, i));
           Kokkos::atomic_add(&cons_pack(b, IEN, k_t, j_t, i_t),
                               sn_pack(b, ISN_EN * stars_n_populations + pop, k, j, i));
+          */
 
         }
       });

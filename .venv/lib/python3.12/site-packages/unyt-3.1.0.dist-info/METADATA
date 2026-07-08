@@ -1,0 +1,120 @@
+Metadata-Version: 2.4
+Name: unyt
+Version: 3.1.0
+Summary: A package for handling numpy arrays with units
+Keywords: unyt
+Author-email: The yt project <yt-dev@python.org>
+Requires-Python: >=3.10
+Description-Content-Type: text/x-rst
+License-Expression: BSD-3-Clause
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: Natural Language :: English
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: Implementation :: CPython
+License-File: LICENSE
+Requires-Dist: numpy>=1.21.3, <3.0
+Requires-Dist: sympy>=1.9.0
+Requires-Dist: packaging>=20.9
+Project-URL: Changelog, https://unyt.readthedocs.io/en/stable/history.html
+Project-URL: Documentation, https://unyt.readthedocs.io/en/stable/index.html
+Project-URL: Homepage, https://github.com/yt-project/unyt
+
+====
+unyt
+====
+
+
+.. image:: https://img.shields.io/pypi/v/unyt.svg
+        :target: https://pypi.python.org/pypi/unyt
+
+.. image:: https://img.shields.io/conda/vn/conda-forge/unyt.svg
+        :target: https://anaconda.org/conda-forge/unyt
+        :alt: conda-forge
+
+.. image:: https://github.com/yt-project/unyt/actions/workflows/ci.yml/badge.svg?branch=main
+        :target: https://github.com/yt-project/unyt/actions/workflows/ci.yml
+
+.. image:: https://github.com/yt-project/unyt/actions/workflows/bleeding-edge.yaml/badge.svg?branch=main
+        :target: https://github.com/yt-project/unyt/actions/workflows/bleeding-edge.yaml
+
+.. image:: https://readthedocs.org/projects/unyt/badge/?version=latest
+        :target: https://unyt.readthedocs.io/en/latest/?badge=latest
+        :alt: Documentation Status
+
+.. image:: http://joss.theoj.org/papers/dbc27acb614dd33eb02b029ef20e7fe7/status.svg
+        :target: http://joss.theoj.org/papers/dbc27acb614dd33eb02b029ef20e7fe7
+        :alt: Code Paper
+
+|
+
+ .. image:: https://raw.githubusercontent.com/yt-project/unyt/master/docs/_static/yt_logo_small.png
+         :target: https://yt-project.org
+         :alt: The yt Project
+
+A package for handling numpy arrays with units.
+
+Often writing code that deals with data that has units can be confusing. A
+function might return an array but at least with plain NumPy arrays, there is no
+way to easily tell what the units of the data are without somehow knowing *a
+priori*.
+
+The ``unyt`` package (pronounced like "unit") provides a subclass of NumPy's
+``ndarray`` class that knows about units. For example, one could do:
+
+    >>> import unyt as u
+    >>> distance_traveled = [3.4, 5.8, 7.2] * u.mile
+    >>> print(distance_traveled.to('km'))
+    [ 5.4717696  9.3341952 11.5872768] km
+
+And a whole lot more! See `the documentation <http://unyt.readthedocs.io>`_ for
+installation instructions, more examples, and full API reference.
+
+This package only depends on ``numpy`` and ``sympy``.  Notably, it does *not*
+depend on ``yt`` and it is written in pure Python.
+
+Code of Conduct
+---------------
+
+The ``unyt`` package is part of `The yt Project
+<https://yt-project.org>`_. Participating in ``unyt`` development therefore
+happens under the auspices of the `yt community code of conduct
+<http://yt-project.org/doc/developing/developing.html#yt-community-code-of-conduct>`_. If
+for any reason you feel that the code of conduct has been violated, please send
+an e-mail to confidential@yt-project.org with details describing the
+incident. All emails sent to this address will be treated with the strictest
+confidence by an individual who does not normally participate in yt development.
+
+License
+-------
+
+The unyt package is licensed under the BSD 3-clause license.
+
+Citation
+--------
+
+If you make use of unyt in work that leads to a publication we would appreciate
+a mention in the text of the paper or in the acknowledgements along with a
+citation to our `paper
+<https://joss.theoj.org/papers/dbc27acb614dd33eb02b029ef20e7fe7>`_ in the
+Journal of Open Source Software. You can use the following BibTeX::
+
+ @article{Goldbaum2018,
+   doi = {10.21105/joss.00809},
+   url = {https://doi.org/10.21105/joss.00809},
+   year  = {2018},
+   month = {aug},
+   publisher = {The Open Journal},
+   volume = {3},
+   number = {28},
+   pages = {809},
+   author = {Nathan J. Goldbaum and John A. ZuHone and Matthew J. Turk and Kacper Kowalik and Anna L. Rosen},
+   title = {unyt: Handle,  manipulate,  and convert data with units in Python},
+   journal = {Journal of Open Source Software}
+ }
+
+Or the following citation format:
+
+  Goldbaum et al., (2018). unyt: Handle, manipulate, and convert data with units in Python . Journal of Open Source Software, 3(28), 809, https://doi.org/10.21105/joss.00809
+

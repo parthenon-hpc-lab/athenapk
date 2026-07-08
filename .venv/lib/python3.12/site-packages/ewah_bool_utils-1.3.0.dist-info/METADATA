@@ -1,0 +1,51 @@
+Metadata-Version: 2.4
+Name: ewah_bool_utils
+Version: 1.3.0
+Summary: EWAH Bool Array utils for yt
+Author: Matthew Turk, Meagan Lang, Navaneeth Suresh
+License: BSD
+Project-URL: Homepage, https://github.com/yt-project/ewah_bool_utils
+Classifier: Intended Audience :: Developers
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Programming Language :: Cython
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3.14
+Classifier: Programming Language :: Python :: Free Threading :: 1 - Unstable
+Requires-Python: >=3.10
+Description-Content-Type: text/x-rst
+License-File: LICENSE
+Requires-Dist: numpy<3,>=1.21.2
+Dynamic: license-file
+
+===============
+EWAH Bool Utils
+===============
+
+
+.. image:: https://img.shields.io/pypi/v/ewah_bool_utils.svg
+        :target: https://pypi.python.org/pypi/ewah_bool_utils
+
+
+EWAH Bool Array utils for yt
+
+Free software: BSD license
+
+
+Features
+--------
+
+* EWAH Bool Array compression stores integer arrays efficient in memory.
+* Can be used for indexing arrays.
+
+Credits
+-------
+
+This package was created with Cookiecutter_ and the `audreyr/cookiecutter-pypackage`_ project template.
+
+.. _Cookiecutter: https://github.com/audreyr/cookiecutter
+.. _`audreyr/cookiecutter-pypackage`: https://github.com/audreyr/cookiecutter-pypackage
