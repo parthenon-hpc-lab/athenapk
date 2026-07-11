@@ -90,6 +90,8 @@ int main(int argc, char *argv[]) {
   } else if (problem == "field_loop") {
     pman.app_input->ProblemGenerator = field_loop::ProblemGenerator;
     Hydro::ProblemInitPackageData = field_loop::ProblemInitPackageData;
+  } else if (problem == "HB_tubes") {
+    pman.app_input->ProblemGenerator = HB_tubes::ProblemGenerator;
   } else if (problem == "kh") {
     pman.app_input->MeshProblemGenerator = kh::ProblemGenerator;
   } else if (problem == "lw_implode") {

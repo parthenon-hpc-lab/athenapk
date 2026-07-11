@@ -81,6 +81,12 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 } // namespace field_loop
 
+namespace HB_tubes {
+using namespace parthenon::driver::prelude;
+
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+} // namespace HB_tubes
+
 namespace kh {
 using namespace parthenon::driver::prelude;
 
