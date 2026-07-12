@@ -137,7 +137,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                     "SN_injection_radius_cells (" + std::to_string(r_cells) +
                         ") requires " + std::to_string(r_cells + 1) +
                         " ghost cells (to account for particle offset from cell "
-                        "center), but only " + std::to_string(num_ghost) +
+                        "center), but only " +
+                        std::to_string(num_ghost) +
                         " are available. Increase nghost or reduce "
                         "SN_injection_radius_cells.");
   stars_pkg->AddParam<>("SN_injection_radius_cells", r_cells);
@@ -274,24 +275,39 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddSwarmValue("v_y", "stars", real_swarmvalue_metadata);
   stars_pkg->AddSwarmValue("v_z", "stars", real_swarmvalue_metadata);
 
-  // if SNe activated (at least one of the two), needs extra buffer fields for deposition
+  // If SNe activated, need a ghost swarm to carry SN deposition payloads
+  // across block boundaries for kernels that overlap a neighbor's domain.
   if (SN_II_enabled || SN_Ia_enabled) {
-    std::vector<std::string> sn_labels(5 * stars_n_populations);
-    // order: [density, mom1, mom2, mom3, energy] * populations
-    // note that in practice populations = 1.
-    for (int p = 0; p < stars_n_populations; ++p) {
-      sn_labels[p]                             = "sn_density_pop" + std::to_string(p);
-      sn_labels[stars_n_populations + p]       = "sn_mom1_pop" + std::to_string(p);
-      sn_labels[2*stars_n_populations + p]     = "sn_mom2_pop" + std::to_string(p);
-      sn_labels[3*stars_n_populations + p]     = "sn_mom3_pop" + std::to_string(p);
-      sn_labels[4*stars_n_populations + p]     = "sn_energy_pop" + std::to_string(p);
+    std::vector<std::string> ghost_swarm_names;
+    for (const auto &name : swarm_names) {
+      ghost_swarm_names.push_back("ghost_" + name);
     }
+    stars_pkg->AddParam<>("ghost_swarm_names", ghost_swarm_names);
 
-    // Note: WithFluxes seems to be necessary as not including it triggers the following error:
-    //       "Flux of var sn_deposit requested, but var does not have fluxes."
-    Metadata m({Metadata::Cell, Metadata::Independent, Metadata::FillGhost, Metadata::WithFluxes},
-               std::vector<int>({5 * stars_n_populations}), sn_labels);
-    stars_pkg->AddField("sn_deposit", m);
+    // Register the ghost swarm(s); position (x, y, z) and id are added
+    // automatically by AddSwarm, so only the deposition payload is needed.
+    for (const auto &ghost_name : ghost_swarm_names) {
+      stars_pkg->AddSwarm(ghost_name, Metadata({Metadata::Restart}));
+
+      stars_pkg->AddSwarmValue("v_x", ghost_name, real_swarmvalue_metadata);
+      stars_pkg->AddSwarmValue("v_y", ghost_name, real_swarmvalue_metadata);
+      stars_pkg->AddSwarmValue("v_z", ghost_name, real_swarmvalue_metadata);
+
+      stars_pkg->AddSwarmValue("M_ej_tot", ghost_name, real_swarmvalue_metadata);
+      stars_pkg->AddSwarmValue("p_SN_tot", ghost_name, real_swarmvalue_metadata);
+      stars_pkg->AddSwarmValue("p_terminal_Nsn", ghost_name, real_swarmvalue_metadata);
+
+      // Need to communicate the total of the kernel weighting
+      stars_pkg->AddSwarmValue("weight_sum", ghost_name, real_swarmvalue_metadata);
+
+      // Offset applied to push the particle across the block boundary so
+      // Parthenon's swarm transfer picks it up; subtracted back out once
+      // the particle lands in the neighbor block, to recover the true
+      // physical position for kernel centering.
+      stars_pkg->AddSwarmValue("offset_x", ghost_name, real_swarmvalue_metadata);
+      stars_pkg->AddSwarmValue("offset_y", ghost_name, real_swarmvalue_metadata);
+      stars_pkg->AddSwarmValue("offset_z", ghost_name, real_swarmvalue_metadata);
+    }
   }
 
   // Meshblock-local initiliaze function to define the RNGs (for Poisson law)

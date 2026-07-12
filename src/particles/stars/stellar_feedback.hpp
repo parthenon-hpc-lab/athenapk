@@ -118,16 +118,14 @@ Real NormedChabrierIMF(const Real m_sim, const Real msun_in_code_units) {
 // M_ejecta_out                 : total ejecta mass [code units]; 0 if N=0
 // Returns                      : Poisson draw of N_SNII
 // ========================================================================
-
-template <typename RNGState>
 KOKKOS_INLINE_FUNCTION void
 ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
                   const parthenon::ParArray1D<Real> &log_mass_table,
                   const parthenon::ParArray1D<Real> &log_tau_table, const int n_table,
                   const parthenon::ParArray1D<Real> &log_sn_mass_table,
                   const parthenon::ParArray1D<Real> &frec_table, const int n_ejecta,
-                  const Real msun_in_code_units, RNGState &rng_gen, int &N_out,
-                  Real &M_ejecta_out) {
+                  const Real msun_in_code_units, const std::uint64_t particle_id,
+                  int &N_out, Real &M_ejecta_out) {
 
   N_out = 0;
   M_ejecta_out = 0.0;
@@ -211,10 +209,13 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
   }
 
   const Real N_expected = integral_N * (mass / msun_in_code_units);
-  const int N = utils::custom_rng::PoissonSample(rng_gen, N_expected);
 
   // Compute IMF-weighted mean ejecta mass per SN event, then scale by the
   // actual discrete event count N to get total ejecta mass (in code units).
+  const uint64_t seed = utils::custom_rng::SeedFromParticle(particle_id, t) ^
+                        utils::custom_rng::SN_II_STREAM;
+  const int N = utils::custom_rng::PoissonSampleDeterministic(seed, N_expected);
+
   if (N > 0) {
     const Real mean_ejecta_per_event = integral_Mej / integral_N;
     M_ejecta_out = N * mean_ejecta_per_event;
@@ -238,11 +239,10 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
 // M_ejecta_out: total ejecta mass [code units]; 0 if N=0 [output]
 // ========================================================================
 
-template <typename RNGState>
 KOKKOS_INLINE_FUNCTION void
 ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
                   const Real msun_in_code_units, const Real gyr_in_code_units,
-                  RNGState &rng_gen, int &N_SN_Ia_out, Real &M_ejecta_out) {
+                  const std::uint64_t particle_id, int &N_SN_Ia_out, Real &M_ejecta_out) {
   N_SN_Ia_out = 0;
   M_ejecta_out = 0.0;
 
@@ -268,7 +268,9 @@ ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass
   const Real N_expected = integral * mass_msun;
   if (N_expected <= 0.0) return;
 
-  const int N = utils::custom_rng::PoissonSample(rng_gen, N_expected);
+  const uint64_t seed = utils::custom_rng::SeedFromParticle(particle_id, t) ^
+                        utils::custom_rng::SN_Ia_STREAM;
+  const int N = utils::custom_rng::PoissonSampleDeterministic(seed, N_expected);
   if (N > 0) {
     M_ejecta_out = N * M_SNIa * msun_in_code_units;
   }
@@ -276,86 +278,25 @@ ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass
 }
 
 // ========================================================================
-// Deposit supernova ejecta mass, momentum and energy from a stellar
-// particle into the surrounding gas cells using a top-hat
-// volume-weighted kernel.
-//
-// For each SN event, the total ejecta mass M_ej_tot and the Sedov
-// velocity u_sedov are assumed to be pre-computed by the caller as:
-//
-//   M_ej_tot = N_SN * M_ejecta_per_SN
-//   u_sedov  = sqrt(2 * f_ek * N_SN * E_SN_per_event / M_ej_tot)
-//            = sqrt(2 * f_ek * E_SN_per_event / M_ejecta_per_SN)
-//
-// Note that u_sedov is independent of N_SN (the N_SN cancels), so
-// stacking multiple events into a single timestep is equivalent to
-// the superbubble approximation.
-//
-// The injection sphere of radius r_max = r_cells * dx is looped over
-// in two passes:
-//   1. Accumulate the total volume of cells within the sphere (vol_tot)
-//   2. Deposit mass, momentum and energy weighted by volume fraction
-//      w_i = V_i / vol_tot, ensuring exact conservation of M_ej_tot.
-//
-// The ejecta velocity at each cell is:
-//
-//   u_cell = u_sedov * r_hat + v_star
-//
-// where r_hat is the unit vector from the star to the cell centre, and
-// v_star is the star bulk velocity (Galilean rest-frame boost). Cells
-// at r = 0 (host cell) receive only the bulk momentum, no radial kick.
-//
-// Only interior cells (within block bounds) are updated. Ghost cells
-// are intentionally skipped as they are overwritten by MPI communication.
-//
-// cons          : conserved variable pack to update (density, momentum, energy)
-// coords        : cell coordinates and volumes
-// ndim          : number of spatial dimensions (2 or 3)
-// k_star        : NGP cell index of the stellar particle (k direction)
-// j_star        : NGP cell index of the stellar particle (j direction)
-// i_star        : NGP cell index of the stellar particle (i direction)
-// vel_x_star    : star velocity component in x (code units)
-// vel_y_star    : star velocity component in y (code units)
-// vel_z_star    : star velocity component in z (code units)
-// M_ej_tot      : total ejecta mass to deposit (code units)
-// u_sedov       : Sedov blast velocity (code units)
-// r_cells       : injection sphere half-width in cells
-// kb_s, kb_e    : interior block bounds in k
-// jb_s, jb_e    : interior block bounds in j
-// ib_s, ib_e    : interior block bounds in i
+// Compute the kernel-weighted average hydrogen number density within a
+// stellar particle's SN injection sphere, used to rescale the terminal
+// momentum by local gas density.
 // ========================================================================
 
 template <typename View4D>
-KOKKOS_INLINE_FUNCTION void
-ApplyKineticSNe(View4D &cons, View4D &sn_pack, const parthenon::Coordinates_t &coords,
-                const int ndim, const parthenon::Real x_star, const parthenon::Real y_star,
-                const parthenon::Real z_star, const int k_host, const int j_host,
-                const int i_host, const parthenon::Real vel_x_star,
-                const parthenon::Real vel_y_star, const parthenon::Real vel_z_star,
-                const parthenon::Real M_ej_tot, const parthenon::Real p_SN_tot,
-                const parthenon::Real p_terminal, const int r_cells, const int kb_s,
-                const int kb_e, const int jb_s, const int jb_e, const int ib_s,
-                const int ib_e, const parthenon::Real code_density_cgs,
-                const parthenon::Real mh_cgs, const parthenon::Real X_H) {
-
+KOKKOS_INLINE_FUNCTION Real
+ComputeKernelAvgNH(View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
+                   const parthenon::Real x_star, const parthenon::Real y_star,
+                   const parthenon::Real z_star, const int k_host, const int j_host,
+                   const int i_host, const int r_cells,
+                   const parthenon::Real code_density_cgs, const parthenon::Real mh_cgs,
+                   const parthenon::Real X_H, parthenon::Real &weight_sum_out) {
   using parthenon::Real;
-
-  // Kernel is centered on the star's true (sub-cell) position, not the host
-  // cell center, to avoid asymmetric momentum deposition when the particle
-  // is offset from the cell center. Because of this offset, the kernel's
-  // support can extend up to one additional cell beyond host_cell +/- r_cells
-  // in index space, so the loop range is widened by 1 relative to r_cells.
-  // The physical support radius itself (r_max, h_smooth) is unchanged.
   const int r_search = r_cells + 1;
-
-  // Smoothing length tied to the physical injection sphere radius
   const Real h_smooth = 0.5 * (r_cells + 1.0) * coords.Dxc<1>(i_host);
 
-  // --- Pass 1: compute total volume and kernel-weighted <n_H> within the
-  //             injection sphere ---
-  Real vol_tot = 0.0;
-  Real weight_sum = 0.0; // sum of W(r,h) * vol
-  Real nH_vol_sum = 0.0; // sum of n_H(cell) * W(r,h) * vol
+  Real weight_sum = 0.0;
+  Real nH_vol_sum = 0.0;
 
   for (int dk = -r_search; dk <= r_search; dk++) {
     for (int dj = -r_search; dj <= r_search; dj++) {
@@ -377,26 +318,89 @@ ApplyKineticSNe(View4D &cons, View4D &sn_pack, const parthenon::Coordinates_t &c
 
         const Real vol = coords.CellVolume(kk, jj, ii);
         const Real weight = w_kernel * vol;
-
-        vol_tot += vol;
         weight_sum += weight;
 
         const Real rho_cgs = cons(IDN, kk, jj, ii) * code_density_cgs;
-        const Real nH_cell = X_H * rho_cgs / mh_cgs; // cm^-3
-
+        const Real nH_cell = X_H * rho_cgs / mh_cgs;
         nH_vol_sum += nH_cell * weight;
       }
     }
   }
+
+  weight_sum_out = weight_sum;
+  return (weight_sum > 0.0) ? (nH_vol_sum / weight_sum) : 0.0;
+}
+
+// ========================================================================
+// Deposit supernova ejecta mass, momentum and energy from a stellar
+// particle into surrounding gas cells via a top-hat volume-weighted
+// kernel. M_ej_tot, p_SN_tot and p_terminal are pre-computed by the
+// caller. If skip_density_rescale is true, p_terminal is used as-is
+// (already density-rescaled by the host block for ghost-event replay);
+// otherwise it is rescaled here using the local kernel-averaged n_H.
+// Out-of-interior contributions are mirrored into snpack's ghost buffer
+// for later reduction, rather than written directly into ghost cells.
+// ========================================================================
+
+template <typename View4D>
+KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
+    View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
+    const parthenon::Real x_star, const parthenon::Real y_star,
+    const parthenon::Real z_star, const int k_host, const int j_host, const int i_host,
+    const parthenon::Real vel_x_star, const parthenon::Real vel_y_star,
+    const parthenon::Real vel_z_star, const parthenon::Real M_ej_tot,
+    const parthenon::Real p_SN_tot, const parthenon::Real p_terminal, const int r_cells,
+    const int kb_s, const int kb_e, const int jb_s, const int jb_e, const int ib_s,
+    const int ib_e, const parthenon::Real code_density_cgs, const parthenon::Real mh_cgs,
+    const parthenon::Real X_H, int &n_ghost_neighbors, bool skip_density_rescale = false,
+    const parthenon::Real weight_sum_in = 0.0) {
+
+  using parthenon::Real;
+
+  const int r_search = r_cells + 1;
+  const Real h_smooth = 0.5 * (r_cells + 1.0) * coords.Dxc<1>(i_host);
+
+  // --- Pass 1: kernel-weighted volume normalisation, and density-based
+  //             terminal momentum rescaling ---
+  //
+  // weight_sum is always needed below to normalise Pass 2's deposition
+  // weights.
+  //
+  //   - Interior event (skip_density_rescale = false): ComputeKernelAvgNH
+  //     is called to derive both weight_sum and this block's own local
+  //     kernel-averaged n_H, used to rescale p_terminal here.
+  //   - Ghost event replay (skip_density_rescale = true): the host block
+  //     already computed weight_sum and rescaled p_terminal before
+  //     shipping both across the boundary, so neither is recomputed here;
+  //     weight_sum_in and p_terminal are used as-is.
+  Real weight_sum;
+  Real p_terminal_nH_scaled;
+
+  if (skip_density_rescale) {
+    weight_sum = weight_sum_in;
+    p_terminal_nH_scaled = p_terminal;
+  } else {
+    weight_sum = 0.0;
+    const Real nH_avg =
+        ComputeKernelAvgNH(cons, coords, ndim, x_star, y_star, z_star, k_host, j_host,
+                           i_host, r_cells, code_density_cgs, mh_cgs, X_H, weight_sum);
+    if (nH_avg <= 0.0) return;
+    p_terminal_nH_scaled = p_terminal * Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0);
+  }
+
   if (weight_sum <= 0.0) return;
-
-  const Real nH_avg = nH_vol_sum / weight_sum; // kernel-weighted <n_H>, cm^-3
-  const Real nH_avg_over_1cm3 = nH_avg / 1.0;  // dimensionless: <n_H> / (1 cm^-3)
-
-  const Real p_terminal_nH_scaled =
-      p_terminal * Kokkos::pow(nH_avg_over_1cm3, -1.0 / 7.0);
-
+    
   // --- Pass 2: deposit mass, momentum and energy ---
+  Kokkos::printf("[ApplyKineticSNe] center=(%d,%d,%d) r_cells=%d r_search=%d "
+                 "interior_i=[%d,%d] interior_j=[%d,%d] interior_k=[%d,%d]\n",
+                 i_host, j_host, k_host, r_cells, r_search,
+                 ib_s, ib_e, jb_s, jb_e, kb_s, kb_e);
+    
+  // Track which side of the interior box was crossed, per axis
+  bool i_lo = false, i_hi = false;
+  bool j_lo = false, j_hi = false;
+  bool k_lo = false, k_hi = false;
+
   for (int dk = -r_search; dk <= r_search; dk++) {
     for (int dj = -r_search; dj <= r_search; dj++) {
       for (int di = -r_search; di <= r_search; di++) {
@@ -404,9 +408,6 @@ ApplyKineticSNe(View4D &cons, View4D &sn_pack, const parthenon::Coordinates_t &c
         const int jj = j_host + dj;
         const int ii = i_host + di;
 
-        // kk/jj/ii here are always within cellbounds::entire (checked upstream),
-        // so no out-of-array-bounds risk; kb_s/jb_s/ib_s etc. now refer to the
-        // *interior* range only.
         const Real dx = coords.Xc<1>(ii) - x_star;
         const Real dy = coords.Xc<2>(jj) - y_star;
         const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
@@ -422,24 +423,18 @@ ApplyKineticSNe(View4D &cons, View4D &sn_pack, const parthenon::Coordinates_t &c
         const Real weight = w_kernel * vol;
         const Real w = weight / weight_sum;
 
-        // Mass deposited in this cell
         const Real dM = w * M_ej_tot;
         const Real drho = dM / vol;
 
-        // SMUGGLE eq. 31, now kernel-weighted (w_i = W(r,h)*vol_i / weight_sum)
-        // instead of flat volume weighting:
-        //   delta_p_i = w_i * min( p_SN_tot * sqrt(1 + m_i / delta_m_i), p_terminal )
         const Real rho_i = cons(IDN, kk, jj, ii);
         const Real m_i = rho_i * vol;
         const Real boost = (dM > 0.0) ? Kokkos::sqrt(1.0 + m_i / dM) : 1.0;
         const Real dp_i = w * Kokkos::min(p_SN_tot * boost, p_terminal_nH_scaled);
 
-        // Radial unit vector from star (true position) to cell center
         const Real rx = dx / r;
         const Real ry = dy / r;
         const Real rz = dz / r;
 
-        // Ejecta velocity from injected momentum, plus star bulk motion
         const Real u_inject = (dM > 0.0) ? dp_i / dM : 0.0;
         const Real u_x = u_inject * rx + vel_x_star;
         const Real u_y = u_inject * ry + vel_y_star;
@@ -447,61 +442,90 @@ ApplyKineticSNe(View4D &cons, View4D &sn_pack, const parthenon::Coordinates_t &c
 
         const Real dE = 0.5 * drho * (u_x * u_x + u_y * u_y + u_z * u_z);
 
-        // --- Interior vs. cross-boundary deposition ---
-        const bool in_interior = (kk >= kb_s && kk <= kb_e) &&
-                                  (jj >= jb_s && jj <= jb_e) &&
-                                  (ii >= ib_s && ii <= ib_e);
+        const bool k_out = (kk < kb_s || kk > kb_e);
+        const bool j_out = (jj < jb_s || jj > jb_e);
+        const bool i_out = (ii < ib_s || ii > ib_e);
 
-        if (in_interior) {
+        if (!k_out && !j_out && !i_out) {
+          // Fully interior: deposit directly.
           Kokkos::atomic_add(&cons(IDN, kk, jj, ii), drho);
-          /*
           Kokkos::atomic_add(&cons(IM1, kk, jj, ii), drho * u_x);
           Kokkos::atomic_add(&cons(IM2, kk, jj, ii), drho * u_y);
           if (ndim == 3) Kokkos::atomic_add(&cons(IM3, kk, jj, ii), drho * u_z);
           Kokkos::atomic_add(&cons(IEN, kk, jj, ii), dE);
-          */
         } else {
-          // Mirror each out-of-interior axis independently across the
-          // corresponding face, so the contribution lands inside this
-          // block's own active zone of sn_pack instead of its ghost zone.
-          const int kk_m = (kk < kb_s) ? (2 * kb_s - 1 - kk)
-                            : (kk > kb_e) ? (2 * kb_e + 1 - kk)
-                                          : kk;
-          const int jj_m = (jj < jb_s) ? (2 * jb_s - 1 - jj)
-                            : (jj > jb_e) ? (2 * jb_e + 1 - jj)
-                                          : jj;
-          const int ii_m = (ii < ib_s) ? (2 * ib_s - 1 - ii)
-                            : (ii > ib_e) ? (2 * ib_e + 1 - ii)
-                                          : ii;
-
-          Kokkos::atomic_add(&sn_pack(ISN_DN, kk_m, jj_m, ii_m), drho);
-          /*
-          Kokkos::atomic_add(&sn_pack(ISN_M1, kk_m, jj_m, ii_m), drho * u_x);
-          Kokkos::atomic_add(&sn_pack(ISN_M2, kk_m, jj_m, ii_m), drho * u_y);
-          if (ndim == 3)
-            Kokkos::atomic_add(&sn_pack(ISN_M3, kk_m, jj_m, ii_m), drho * u_z);
-          Kokkos::atomic_add(&sn_pack(ISN_EN, kk_m, jj_m, ii_m), dE); 
-          */
+          Kokkos::printf("[ApplyKineticSNe] OOB cell (kk,jj,ii)=(%d,%d,%d) "
+                         "k_out=%d j_out=%d i_out=%d w_kernel=%.3e\n",
+                         kk, jj, ii, k_out, j_out, i_out, w_kernel);
+          if (ii < ib_s) i_lo = true;
+          if (ii > ib_e) i_hi = true;
+          if (jj < jb_s) j_lo = true;
+          if (jj > jb_e) j_hi = true;
+          if (kk < kb_s) k_lo = true;
+          if (kk > kb_e) k_hi = true;
         }
       }
     }
   }
+
+  const int ox = i_lo ? -1 : (i_hi ? 1 : 0);
+  const int oy = j_lo ? -1 : (j_hi ? 1 : 0);
+  const int oz = k_lo ? -1 : (k_hi ? 1 : 0);
+  const int k_axes = (ox != 0) + (oy != 0) + (oz != 0);
+  n_ghost_neighbors = (k_axes > 0) ? ((1 << k_axes) - 1) : 0;
+
+  Kokkos::printf("[ApplyKineticSNe] ox=%d oy=%d oz=%d k_axes=%d n_ghost_neighbors=%d\n",
+                 ox, oy, oz, k_axes, n_ghost_neighbors);
+    
+}
+    
+    
+// ========================================================================
+// Two functions to calculate the number of neighbors for a given stellar
+// particle firing a SN event.
+// ========================================================================
+
+// Compute per-axis overlap offset given kernel radius and interior bounds
+KOKKOS_INLINE_FUNCTION
+void ComputeOverlapOffsets(int i, int j, int k, int r_cells,
+                            int is, int ie, int js, int je, int ks, int ke,
+                            int &ox, int &oy, int &oz) {
+  ox = (i - r_cells < is) ? -1 : (i + r_cells > ie) ? 1 : 0;
+  oy = (j - r_cells < js) ? -1 : (j + r_cells > je) ? 1 : 0;
+  oz = (k - r_cells < ks) ? -1 : (k + r_cells > ke) ? 1 : 0;
 }
 
-// ========================================================================
-// Main function: calculates the total number of SNe and apply feedback
-// on the grid.
-// ========================================================================
-
-TaskStatus ApplySNDepositGhostData(MeshData<Real> *md);
+// Enumerate all overlapping neighbor directions as (dx,dy,dz) triples,
+// each component either 0 or the corresponding offset — i.e. every
+// nonempty subset of the nonzero axes.
+template <typename Func>
+KOKKOS_INLINE_FUNCTION
+int ForEachOverlapNeighbor(int ox, int oy, int oz, Func &&f) {
+  int count = 0;
+  for (int dx = 0; dx <= 1; ++dx) {
+    for (int dy = 0; dy <= 1; ++dy) {
+      for (int dz = 0; dz <= 1; ++dz) {
+        if (dx == 0 && dy == 0 && dz == 0) continue;      // skip empty subset
+        if (dx && ox == 0) continue;                       // axis not overlapping
+        if (dy && oy == 0) continue;
+        if (dz && oz == 0) continue;
+        int nx = dx ? ox : 0;
+        int ny = dy ? oy : 0;
+        int nz = dz ? oz : 0;
+        f(nx, ny, nz);
+        ++count;
+      }
+    }
+  }
+  return count;
+}
 
 // TODO: get rid of EOS? Seems like it's not needed in the end.
 template <class EOS>
 TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                                 const EOS &eos);
-
+TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus StellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
-
 
 } // namespace StellarFeedback
 

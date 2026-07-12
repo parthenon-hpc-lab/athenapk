@@ -77,6 +77,9 @@ TaskStatus StellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   }
 }
 
+// EOS initially meant in case we need to apply PrimToCons (if we apply feedback on
+// prim rather than cons. Here I have directly modified the cons instead, but the
+// function skeleton is still here in case it is needed in the future.
 template <class EOS>
 TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                                 const EOS &eos) {
@@ -144,8 +147,6 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     auto swarm_d = swarm->GetDeviceContext();
     auto max_active_index = swarm->GetMaxActiveIndex();
 
-    auto &sn_pack = mbd->PackVariables(std::vector<std::string>{"sn_deposit"});
-
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
@@ -154,15 +155,19 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     auto &v_y = swarm->Get<Real>("v_y").Get();
     auto &v_z = swarm->Get<Real>("v_z").Get();
 
-    auto &pmass = swarm->Get<Real>("mass").Get(); // Instantaneous mass of the stellar particle
-    auto &pmass0 = swarm->Get<Real>("birth_mass").Get(); // Birth mass of the stellar particle (constant)
+    auto &pmass =
+        swarm->Get<Real>("mass").Get(); // Instantaneous mass of the stellar particle
+    auto &pmass0 = swarm->Get<Real>("birth_mass")
+                       .Get(); // Birth mass of the stellar particle (constant)
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
     auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
 
-    Real total_M_ej = 0.0;
+    // First pass: filling meshblock interior with SNe deposit, derive the number of
+    // particles going into the ghost zone
+    int total_ghost_count = 0;
     pmb->par_reduce(
         "StellarFeedback::PartLoop", 0, max_active_index,
-        KOKKOS_LAMBDA(const int n, Real &lM_ej) {
+        KOKKOS_LAMBDA(const int n, int &lN_ghost) {
           if (!swarm_d.IsActive(n)) return;
 
           // ── Compute number of feedback events ──────────────────────────────
@@ -170,19 +175,16 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           Real M_ej_II_tot = 0.0, M_ej_Ia_tot = 0.0;
 
           if (SN_II_enabled) {
-            auto rng_gen = rng_pool.get_state();
             ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
                               log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
-                              msun_in_code_units, rng_gen, N_SN_II, M_ej_II_tot);
+                              msun_in_code_units, id(n), N_SN_II, M_ej_II_tot);
             N_SN += N_SN_II;
-            rng_pool.free_state(rng_gen);
-          } else if (SN_Ia_enabled) {
-            auto rng_gen = rng_pool.get_state();
+          }
+          if (SN_Ia_enabled) {
             ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass0(n),
-                              msun_in_code_units, gyr_in_code_units, rng_gen, N_SN_Ia,
+                              msun_in_code_units, gyr_in_code_units, id(n), N_SN_Ia,
                               M_ej_Ia_tot);
             N_SN += N_SN_Ia;
-            rng_pool.free_state(rng_gen);
           }
 
           Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
@@ -226,20 +228,33 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             const Real p_terminal_Nsn =
                 Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
 
-            // Calling the function which actually applies the feedback
-            ApplyKineticSNe(cons, sn_pack, coords, ndim, x(n), y(n), z(n), k, j, i,
-                            v_x(n), v_y(n), v_z(n), M_ej_tot, p_SN_tot, p_terminal_Nsn, r_cells,
-                            kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-                            code_density_cgs, mh_cgs, x_H);
+            // Calling the function which actually applies the feedback;
+            // is_ghost is set internally if the deposit kernel overlaps a
+            // neighboring block's domain
+            int n_ghost_neighbors = 0;
+            ApplyKineticSNe(cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n), v_y(n),
+                            v_z(n), M_ej_tot, p_SN_tot, p_terminal_Nsn, r_cells, kb.s,
+                            kb.e, jb.s, jb.e, ib.s, ib.e, code_density_cgs, mh_cgs, x_H,
+                            n_ghost_neighbors);
 
+            lN_ghost += n_ghost_neighbors;
+
+            Kokkos::printf("[StellarFeedback] MeshBlock gid=%d: particle id=%llu "
+                           "n_ghost_neighbors=%d\n",
+                           gid, static_cast<unsigned long long>(id(n)),
+                           n_ghost_neighbors);
+            fflush(stdout);
+              
             // For debugging
             const Real ssp_age = current_time - t_inj(n);
+            /*
             Kokkos::printf("[StellarFeedback] MeshBlock gid=%d: injecting %d SNe "
-                          "(N_SN_II=%d, N_SN_Ia=%d) at SSP age=%.6e "
-                          "(ejecta mass=%.6e, mass_scale=%.4e)%s\n",
-                          gid, N_SN, N_SN_II, N_SN_Ia, ssp_age, M_ej_tot, mass_scale,
-                          remove_particle ? " [PARTICLE DEPLETED]" : "");
+                           "(N_SN_II=%d, N_SN_Ia=%d) at SSP age=%.6e "
+                           "(ejecta mass=%.6e, mass_scale=%.4e)%s\n",
+                           gid, N_SN, N_SN_II, N_SN_Ia, ssp_age, M_ej_tot, mass_scale,
+                           remove_particle ? " [PARTICLE DEPLETED]" : "");
             fflush(stdout);
+            */
 
             // Reducing the instantaneous mass of the stellar particle by the
             // total ejecta mass actually injected
@@ -249,112 +264,287 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               swarm_d.MarkParticleForRemoval(n);
             }
           }
-
-          lM_ej += M_ej_tot;
         },
-        Kokkos::Sum<Real>(total_M_ej));
+        Kokkos::Sum<int>(total_ghost_count));
 
     // Particles marked above are only flagged here; actually compact/remove
     // them from the swarm afterward.
     swarm->RemoveMarkedParticles();
-    
+
+    // Second pass: allocate data in the corresponding ghost swarm "gswarm", rederive
+    // quantities (using the reproducible RNG), and copy the deposition payload for
+    // every particle whose SN kernel overlapped a neighboring block's domain.
+    if (total_ghost_count > 0) {
+      const auto ghost_swarm_name = "ghost_" + swarm_name;
+      auto &gswarm = sd->Get(ghost_swarm_name);
+
+      // Grab the range of newly created particle indices for this event batch.
+      auto new_particles_context = gswarm->AddEmptyParticles(total_ghost_count);
+
+      auto &gx = gswarm->Get<Real>(swarm_position::x::name()).Get();
+      auto &gy = gswarm->Get<Real>(swarm_position::y::name()).Get();
+      auto &gz = gswarm->Get<Real>(swarm_position::z::name()).Get();
+      auto &gv_x = gswarm->Get<Real>("v_x").Get();
+      auto &gv_y = gswarm->Get<Real>("v_y").Get();
+      auto &gv_z = gswarm->Get<Real>("v_z").Get();
+      auto &gM_ej_tot = gswarm->Get<Real>("M_ej_tot").Get();
+      auto &gp_SN_tot = gswarm->Get<Real>("p_SN_tot").Get();
+      auto &gp_terminal_Nsn = gswarm->Get<Real>("p_terminal_Nsn").Get();
+      auto &gweight_sum = gswarm->Get<Real>("weight_sum").Get();
+      auto &g_offset_x = gswarm->Get<Real>("offset_x").Get();
+      auto &g_offset_y = gswarm->Get<Real>("offset_y").Get();
+      auto &g_offset_z = gswarm->Get<Real>("offset_z").Get();
+
+      // Counter to let each firing-and-overlapping particle atomically claim a
+      // unique slot among the newly allocated ghost indices.
+      Kokkos::View<int, parthenon::DevExecSpace> ghost_slot_counter("ghost_slot_counter");
+      Kokkos::deep_copy(ghost_slot_counter, 0);
+
+      pmb->par_for(
+          "StellarFeedback::GhostFillLoop", 0, max_active_index,
+          KOKKOS_LAMBDA(const int n) {
+            if (!swarm_d.IsActive(n)) return;
+
+            int k, j, i;
+            swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+
+            const int ox = (i - r_cells < ib.s) ? -1 : (i + r_cells > ib.e) ? 1 : 0;
+            const int oy = (j - r_cells < jb.s) ? -1 : (j + r_cells > jb.e) ? 1 : 0;
+            const int oz = (k - r_cells < kb.s) ? -1 : (k + r_cells > kb.e) ? 1 : 0;
+
+            const int axis_offset[3] = {ox, oy, oz};
+            int active_axis[3] = {-1, -1, -1};
+            int n_active = 0;
+            if (ox != 0) active_axis[n_active++] = 0;
+            if (oy != 0) active_axis[n_active++] = 1;
+            if (oz != 0) active_axis[n_active++] = 2;
+
+            if (n_active == 0) return;
+
+            const int n_neighbors = (1 << n_active) - 1; // 1, 3, or 7
+
+            int N_SN_II = 0, N_SN_Ia = 0, N_SN = 0;
+            Real M_ej_II_tot = 0.0, M_ej_Ia_tot = 0.0;
+
+            if (SN_II_enabled) {
+              ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
+                                log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d,
+                                n_ejecta, msun_in_code_units, id(n), N_SN_II,
+                                M_ej_II_tot);
+              N_SN += N_SN_II;
+            }
+            if (SN_Ia_enabled) {
+              ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass0(n),
+                                msun_in_code_units, gyr_in_code_units, id(n), N_SN_Ia,
+                                M_ej_Ia_tot);
+              N_SN += N_SN_Ia;
+            }
+            
+            if (N_SN == 0) return;
+
+            Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
+            Real mass_scale = 1.0;
+            if (M_ej_tot > pmass0(n)) {
+              mass_scale = (M_ej_tot > 0.0) ? (pmass0(n) / M_ej_tot) : 0.0;
+              M_ej_II_tot *= mass_scale;
+              M_ej_Ia_tot *= mass_scale;
+              M_ej_tot = pmass0(n);
+            }
+
+            const Real p_SN_II =
+                (M_ej_II_tot > 0.0)
+                    ? Kokkos::sqrt(2.0 * N_SN_II * E_SN_per_event * M_ej_II_tot)
+                    : 0.0;
+            const Real p_SN_Ia =
+                (M_ej_Ia_tot > 0.0)
+                    ? Kokkos::sqrt(2.0 * N_SN_Ia * E_SN_per_event * M_ej_Ia_tot)
+                    : 0.0;
+            const Real p_SN_tot = p_SN_II + p_SN_Ia;
+
+            // Define the terminal momentum multiplied by the number of events
+            Real p_terminal_Nsn =
+                Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
+
+            // Apply the <n_H> density weighting
+            Real weight_sum = 0.0;
+            const Real nH_avg =
+                ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i,
+                                   r_cells, code_density_cgs, mh_cgs, x_H, weight_sum);
+            
+            p_terminal_Nsn *= Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0);
+
+            for (int mask = 1; mask <= n_neighbors; ++mask) {
+              int nx = 0, ny = 0, nz = 0;
+              for (int a = 0; a < n_active; ++a) {
+                if (mask & (1 << a)) {
+                  const int axis = active_axis[a];
+                  const int offset = axis_offset[axis];
+                  if (axis == 0) nx = offset;
+                  else if (axis == 1) ny = offset;
+                  else nz = offset;
+                }
+              }
+
+              const int slot = Kokkos::atomic_fetch_add(&ghost_slot_counter(), 1);
+              const int g = new_particles_context.GetNewParticleIndex(slot);
+
+              // ── Push the tracked position across the shared face into the
+              // first interior layer of the target neighbor, so Parthenon's
+              // swarm boundary/ownership check picks it up and transfers it
+              // via the normal send/receive machinery. Push distance is
+              // (r_cells + 1) cells along each active axis — enough to
+              // guarantee crossing even for a particle that started at the
+              // far edge of its kernel radius from the boundary.
+              const Real dx_cell = coords.Dxc<1>(i);
+              const Real dy_cell = coords.Dxc<2>(j);
+              const Real dz_cell = (ndim == 3) ? coords.Dxc<3>(k) : 0.0;
+
+              const Real push_x = nx * (r_cells + 1) * dx_cell;
+              const Real push_y = ny * (r_cells + 1) * dy_cell;
+              const Real push_z = nz * (r_cells + 1) * dz_cell;
+
+              const Real gx_pushed = x(n) + push_x;
+              const Real gy_pushed = y(n) + push_y;
+              const Real gz_pushed = z(n) + push_z;
+
+              // Updating the ghost swarm values
+              gx(g) = gx_pushed;
+              gy(g) = gy_pushed;
+              gz(g) = gz_pushed;
+              g_offset_x(g) = push_x;
+              g_offset_y(g) = push_y;
+              g_offset_z(g) = push_z;
+              gv_x(g) = v_x(n);
+              gv_y(g) = v_y(n);
+              gv_z(g) = v_z(n);
+              gM_ej_tot(g) = M_ej_tot;
+              gp_SN_tot(g) = p_SN_tot;
+              gp_terminal_Nsn(g) = p_terminal_Nsn;
+              gweight_sum(g) = weight_sum;
+
+              Kokkos::printf("[GhostFill] n=%d id=%llu mask=%d -> ghost g=%d "
+                             "slot=%d (nx,ny,nz)=(%d,%d,%d) orig_pos=(%.6e,%.6e,%.6e) "
+                             "pushed_pos=(%.6e,%.6e,%.6e) push=(%.4e,%.4e,%.4e)\n",
+                             n, static_cast<unsigned long long>(id(n)), mask, g, slot,
+                             nx, ny, nz, x(n), y(n), z(n),
+                             gx_pushed, gy_pushed, gz_pushed, push_x, push_y, push_z);
+            }
+          });
+
+      // Final sanity check: the counter should exactly equal total_ghost_count
+      int final_slot_count = 0;
+      Kokkos::deep_copy(final_slot_count, ghost_slot_counter);
+      Kokkos::printf("[GhostFill] swarm '%s': final ghost_slot_counter=%d "
+                     "expected total_ghost_count=%d %s\n",
+                     swarm_name.c_str(), final_slot_count, total_ghost_count,
+                     (final_slot_count == total_ghost_count) ? "[MATCH]" : "[MISMATCH!]");
+    } // end for ghost_swarm_name
   } // end for swarm_name
 
   return TaskStatus::complete;
 
 } // ApplyStellarFeedback
-
-// ========================================================================
-// Reads the sn_deposit ghost-zone data populated by boundary communication,
-// un-mirrors it back onto the corresponding interior cells, accumulates it
-// into cons, then zeroes sn_deposit for the next timestep.
-// ========================================================================
-TaskStatus ApplySNDepositGhostData(MeshData<Real> *md) {
-
-  auto *pmb = md->GetBlockData(0)->GetBlockPointer();
+    
+    
+// Tackles kernel overlapping with neighboring meshblocks
+TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
+  auto *pmb = mbd->GetParentPointer();
   auto stars_pkg = pmb->packages.Get("stars");
 
   const auto SN_II_enabled = stars_pkg->Param<bool>("SN_II_enabled");
   const auto SN_Ia_enabled = stars_pkg->Param<bool>("SN_Ia_enabled");
+  if (!SN_II_enabled && !SN_Ia_enabled) return TaskStatus::complete;
 
-  if (!SN_II_enabled && !SN_Ia_enabled) {
-    return TaskStatus::complete;
+  auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+  auto ndim = pmb->pmy_mesh->ndim;
+
+  auto &cons = mbd->PackVariables(std::vector<std::string>{"cons"});
+  auto &coords = pmb->coords;
+  auto gid = pmb->gid;
+
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto swarm_names = stars_pkg->Param<std::vector<std::string>>("swarm_names");
+
+  const auto units = hydro_pkg->Param<Units>("units");
+  const auto code_density_cgs = units.code_density_cgs();
+  const auto mh_cgs = units.mh() * units.code_mass_cgs();
+
+  const auto He_mass_fraction = hydro_pkg->Param<Real>("He_mass_fraction");
+  const auto x_H = 1.0 - He_mass_fraction;
+
+  const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+
+  const auto r_cells = stars_pkg->Param<int>("SN_injection_radius_cells");
+
+  // Ghost particles arrive carrying their payload already computed on the
+  // sending block (M_ej_tot, p_SN_tot, p_terminal_Nsn); no need to touch
+  // the lifetime/ejecta tables or the RNG pool here.
+  for (const auto &swarm_name : swarm_names) {
+    const auto ghost_name = "ghost_" + swarm_name;
+    auto &gswarm = sd->Get(ghost_name);
+    auto gswarm_d = gswarm->GetDeviceContext();
+    auto max_active_index = gswarm->GetMaxActiveIndex();
+    if (max_active_index < 0) continue; // nothing arrived this step
+
+    auto &gx = gswarm->Get<Real>(swarm_position::x::name()).Get();
+    auto &gy = gswarm->Get<Real>(swarm_position::y::name()).Get();
+    auto &gz = gswarm->Get<Real>(swarm_position::z::name()).Get();
+
+    auto &gv_x = gswarm->Get<Real>("v_x").Get();
+    auto &gv_y = gswarm->Get<Real>("v_y").Get();
+    auto &gv_z = gswarm->Get<Real>("v_z").Get();
+
+    auto &gM_ej_tot = gswarm->Get<Real>("M_ej_tot").Get();
+    auto &gp_SN_tot = gswarm->Get<Real>("p_SN_tot").Get();
+    auto &gp_terminal_Nsn = gswarm->Get<Real>("p_terminal_Nsn").Get();
+    auto &gweight_sum = gswarm->Get<Real>("weight_sum").Get();
+
+    auto &g_offset_x = gswarm->Get<Real>("offset_x").Get();
+    auto &g_offset_y = gswarm->Get<Real>("offset_y").Get();
+    auto &g_offset_z = gswarm->Get<Real>("offset_z").Get();
+
+    pmb->par_for(
+        "StellarFeedback::GhostApplyLoop", 0, max_active_index,
+        KOKKOS_LAMBDA(const int g) {
+          if (!gswarm_d.IsActive(g)) return;
+
+          const Real true_x = gx(g) - g_offset_x(g);
+          const Real true_y = gy(g) - g_offset_y(g);
+          const Real true_z = gz(g) - g_offset_z(g);
+
+          int k, j, i;
+          gswarm_d.Xtoijk(true_x, true_y, true_z, i, j, k);
+
+          const Real M_ej_tot = gM_ej_tot(g);
+          const Real p_SN_tot = gp_SN_tot(g);
+          const Real p_terminal_Nsn = gp_terminal_Nsn(g); // already density-scaled
+          const Real weight_sum = gweight_sum(g);         // already computed on sender
+
+          int n_ghost_neighbors = 0;
+          ApplyKineticSNe(cons, coords, ndim, true_x, true_y, true_z, k, j, i,
+                          gv_x(g), gv_y(g), gv_z(g), M_ej_tot, p_SN_tot,
+                          p_terminal_Nsn, r_cells, kb.s, kb.e, jb.s, jb.e, ib.s,
+                          ib.e, code_density_cgs, mh_cgs, x_H,
+                          n_ghost_neighbors, /*skip_density_rescale=*/true, weight_sum);
+
+          Kokkos::printf("[StellarFeedback::Ghost] MeshBlock gid=%d: applying "
+                         "ghost deposit at (%.6e,%.6e,%.6e) M_ej=%.6e "
+                         "weight_sum=%.6e n_ghost_neighbors=%d\n",
+                         gid, true_x, true_y, true_z, M_ej_tot, weight_sum,
+                         n_ghost_neighbors);
+          fflush(stdout);
+
+          gswarm_d.MarkParticleForRemoval(g);
+        });
+
+    gswarm->RemoveMarkedParticles();
   }
 
-  const auto stars_n_populations = stars_pkg->Param<int>("stars_n_populations");
-
-  auto sn_pack = md->PackVariables(std::vector<std::string>{"sn_deposit"});
-  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-
-  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
-  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
-  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
-  IndexRange kb_e = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
-  IndexRange jb_e = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
-  IndexRange ib_e = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
-
-  const bool three_d = sn_pack.GetNdim() == 3;
-  
-  // Un-mirror ghost-zone contributions back onto the correct interior cells.
-  Kokkos::parallel_for(
-      "ApplySNDepositGhostData::Unmirror",
-      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
-          DevExecSpace(), {0, kb_e.s, jb_e.s, ib_e.s},
-          {sn_pack.GetDim(5), kb_e.e + 1, jb_e.e + 1, ib_e.e + 1}),
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const bool in_interior = (k >= kb.s && k <= kb.e) &&
-                                  (j >= jb.s && j <= jb.e) &&
-                                  (i >= ib.s && i <= ib.e);
-        if (in_interior) return; // active-zone data was for the neighbor, skip
-
-        // Only print for ghost cells that actually carry nonzero deposit
-        // data, to avoid flooding stdout with empty ghost cells.
-        const Real dn_val = sn_pack(b, ISN_DN * 1 /*pop=0 debug*/, k, j, i);
-
-        const int k_t = (k < kb.s) ? (2 * kb.s - 1 - k)
-                         : (k > kb.e) ? (2 * kb.e + 1 - k) : k;
-        const int j_t = (j < jb.s) ? (2 * jb.s - 1 - j)
-                         : (j > jb.e) ? (2 * jb.e + 1 - j) : j;
-        const int i_t = (i < ib.s) ? (2 * ib.s - 1 - i)
-                         : (i > ib.e) ? (2 * ib.e + 1 - i) : i;
-
-        for (int pop = 0; pop < stars_n_populations; ++pop) {
-          const Real dn = sn_pack(b, ISN_DN * stars_n_populations + pop, k, j, i);
-
-          Kokkos::atomic_add(&cons_pack(b, IDN, k_t, j_t, i_t),
-                              sn_pack(b, ISN_DN * stars_n_populations + pop, k, j, i));
-          /*
-          Kokkos::atomic_add(&cons_pack(b, IM1, k_t, j_t, i_t),
-                              sn_pack(b, ISN_M1 * stars_n_populations + pop, k, j, i));
-          Kokkos::atomic_add(&cons_pack(b, IM2, k_t, j_t, i_t),
-                              sn_pack(b, ISN_M2 * stars_n_populations + pop, k, j, i));
-          if (three_d)
-            Kokkos::atomic_add(&cons_pack(b, IM3, k_t, j_t, i_t),
-                                sn_pack(b, ISN_M3 * stars_n_populations + pop, k, j, i));
-          Kokkos::atomic_add(&cons_pack(b, IEN, k_t, j_t, i_t),
-                              sn_pack(b, ISN_EN * stars_n_populations + pop, k, j, i));
-          */
-
-        }
-      });
-
-  // Reset sn_deposit (both ghost and active zones) for the next timestep.
-  Kokkos::parallel_for(
-      "ApplySNDepositGhostData::Reset",
-      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
-          DevExecSpace(), {0, kb_e.s, jb_e.s, ib_e.s},
-          {sn_pack.GetDim(5), kb_e.e + 1, jb_e.e + 1, ib_e.e + 1}),
-      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        for (int pop = 0; pop < stars_n_populations; ++pop) {
-          sn_pack(b, ISN_DN * stars_n_populations + pop, k, j, i) = 0.0;
-          sn_pack(b, ISN_M1 * stars_n_populations + pop, k, j, i) = 0.0;
-          sn_pack(b, ISN_M2 * stars_n_populations + pop, k, j, i) = 0.0;
-          sn_pack(b, ISN_M3 * stars_n_populations + pop, k, j, i) = 0.0;
-          sn_pack(b, ISN_EN * stars_n_populations + pop, k, j, i) = 0.0;
-        }
-      });
-  
   return TaskStatus::complete;
-} // ApplySNDepositGhostData
+}
+    
+    
 
 } // namespace StellarFeedback

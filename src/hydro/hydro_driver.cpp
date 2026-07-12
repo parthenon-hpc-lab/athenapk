@@ -636,35 +636,45 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &mbd0 = pmb->meshblock_data.Get("base");
       auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
 
+      // 1. Inject new stars, then apply feedback: this fills the interior
+      // deposit directly and, for particles whose kernel overlaps a
+      // neighboring block, populates the local ghost swarm with pushed
+      // mirror particles (no cross-block motion yet).
       auto star_inject = tl.AddTask(none, Stars::InjectStars, mbd0.get(), tm);
       auto star_feedback =
           tl.AddTask(star_inject, StellarFeedback::StellarFeedback, mbd0.get(), tm);
-      // Maybe it'd be better to move the stars before feedback is applied
-      auto star_move = tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
-      auto send =
-          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(), BoundaryCommSubset::all);
-      auto receive =
-          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+
+      // 2. Ship the ghost swarm across to whichever neighbor(s) each mirror
+      // was pushed into. Main star swarm hasn't moved yet, so it has
+      // nothing to send in this round; only ghost mirrors cross here.
+      auto send_ghost =
+          tl.AddTask(star_feedback, &SwarmContainer::Send, sd.get(),
+                     BoundaryCommSubset::all);
+      auto receive_ghost =
+          tl.AddTask(send_ghost, &SwarmContainer::Receive, sd.get(),
+                     BoundaryCommSubset::all);
+
+      // 3. Finish applying feedback from ghost particles that just arrived
+      // from neighboring blocks: recover the true (un-pushed) position
+      // from the stored offset, re-center the kernel, deposit into this
+      // block's interior, then remove the now-consumed ghost particles.
+      auto ghost_feedback = tl.AddTask(receive_ghost, StellarFeedback::ApplyGhostFeedback,
+                                       mbd0.get(), tm);
+
+      // 4. Move the main star particles.
+      auto star_move = tl.AddTask(ghost_feedback, Stars::MoveStars, mbd0.get(), tm);
+
+      // 5. Second send/receive round: now the main swarm may have crossed
+      // block boundaries due to motion, so ship it across. Ghost mirrors
+      // were already fully consumed and removed in step 3, so this round
+      // only moves the main star swarm.
+      auto send_stars =
+          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(),
+                     BoundaryCommSubset::all);
+      auto receive_stars =
+          tl.AddTask(send_stars, &SwarmContainer::Receive, sd.get(),
+                     BoundaryCommSubset::all);
     }
-  }
-
-  // --- Communicate hydro cons (and sn_deposit ghost data) after stellar feedback ---
-  TaskRegion &feedback_comms_region = tc.AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; i++) {
-    auto &tl = feedback_comms_region[i];
-    auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-
-    const auto any = parthenon::BoundaryType::any;
-    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
-    auto bnd_exchange =
-        parthenon::AddBoundaryExchangeTasks(start_bnd, tl, mu0, pmesh->multilevel);
-
-    // Unmirror the sn_deposit ghost data received from neighbors and
-    // accumulate it into this block's cons, on top of local deposits.
-    auto apply_sn_ghost =
-        tl.AddTask(bnd_exchange, StellarFeedback::ApplySNDepositGhostData, mu0.get());
-    // Re-derive prim from the updated cons
-    tl.AddTask(apply_sn_ghost, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
   }
 
   // Then move on to tracers
