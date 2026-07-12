@@ -238,23 +238,16 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                             n_ghost_neighbors);
 
             lN_ghost += n_ghost_neighbors;
-
-            Kokkos::printf("[StellarFeedback] MeshBlock gid=%d: particle id=%llu "
-                           "n_ghost_neighbors=%d\n",
-                           gid, static_cast<unsigned long long>(id(n)),
-                           n_ghost_neighbors);
-            fflush(stdout);
               
             // For debugging
             const Real ssp_age = current_time - t_inj(n);
-            /*
             Kokkos::printf("[StellarFeedback] MeshBlock gid=%d: injecting %d SNe "
                            "(N_SN_II=%d, N_SN_Ia=%d) at SSP age=%.6e "
                            "(ejecta mass=%.6e, mass_scale=%.4e)%s\n",
                            gid, N_SN, N_SN_II, N_SN_Ia, ssp_age, M_ej_tot, mass_scale,
                            remove_particle ? " [PARTICLE DEPLETED]" : "");
             fflush(stdout);
-            */
+            
 
             // Reducing the instantaneous mass of the stellar particle by the
             // total ejecta mass actually injected
@@ -421,23 +414,12 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               gp_SN_tot(g) = p_SN_tot;
               gp_terminal_Nsn(g) = p_terminal_Nsn;
               gweight_sum(g) = weight_sum;
-
-              Kokkos::printf("[GhostFill] n=%d id=%llu mask=%d -> ghost g=%d "
-                             "slot=%d (nx,ny,nz)=(%d,%d,%d) orig_pos=(%.6e,%.6e,%.6e) "
-                             "pushed_pos=(%.6e,%.6e,%.6e) push=(%.4e,%.4e,%.4e)\n",
-                             n, static_cast<unsigned long long>(id(n)), mask, g, slot,
-                             nx, ny, nz, x(n), y(n), z(n),
-                             gx_pushed, gy_pushed, gz_pushed, push_x, push_y, push_z);
             }
           });
 
       // Final sanity check: the counter should exactly equal total_ghost_count
       int final_slot_count = 0;
       Kokkos::deep_copy(final_slot_count, ghost_slot_counter);
-      Kokkos::printf("[GhostFill] swarm '%s': final ghost_slot_counter=%d "
-                     "expected total_ghost_count=%d %s\n",
-                     swarm_name.c_str(), final_slot_count, total_ghost_count,
-                     (final_slot_count == total_ghost_count) ? "[MATCH]" : "[MISMATCH!]");
     } // end for ghost_swarm_name
   } // end for swarm_name
 
@@ -528,13 +510,6 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
                           p_terminal_Nsn, r_cells, kb.s, kb.e, jb.s, jb.e, ib.s,
                           ib.e, code_density_cgs, mh_cgs, x_H,
                           n_ghost_neighbors, /*skip_density_rescale=*/true, weight_sum);
-
-          Kokkos::printf("[StellarFeedback::Ghost] MeshBlock gid=%d: applying "
-                         "ghost deposit at (%.6e,%.6e,%.6e) M_ej=%.6e "
-                         "weight_sum=%.6e n_ghost_neighbors=%d\n",
-                         gid, true_x, true_y, true_z, M_ej_tot, weight_sum,
-                         n_ghost_neighbors);
-          fflush(stdout);
 
           gswarm_d.MarkParticleForRemoval(g);
         });

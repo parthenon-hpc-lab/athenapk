@@ -391,10 +391,6 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
   if (weight_sum <= 0.0) return;
     
   // --- Pass 2: deposit mass, momentum and energy ---
-  Kokkos::printf("[ApplyKineticSNe] center=(%d,%d,%d) r_cells=%d r_search=%d "
-                 "interior_i=[%d,%d] interior_j=[%d,%d] interior_k=[%d,%d]\n",
-                 i_host, j_host, k_host, r_cells, r_search,
-                 ib_s, ib_e, jb_s, jb_e, kb_s, kb_e);
     
   // Track which side of the interior box was crossed, per axis
   bool i_lo = false, i_hi = false;
@@ -454,9 +450,6 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
           if (ndim == 3) Kokkos::atomic_add(&cons(IM3, kk, jj, ii), drho * u_z);
           Kokkos::atomic_add(&cons(IEN, kk, jj, ii), dE);
         } else {
-          Kokkos::printf("[ApplyKineticSNe] OOB cell (kk,jj,ii)=(%d,%d,%d) "
-                         "k_out=%d j_out=%d i_out=%d w_kernel=%.3e\n",
-                         kk, jj, ii, k_out, j_out, i_out, w_kernel);
           if (ii < ib_s) i_lo = true;
           if (ii > ib_e) i_hi = true;
           if (jj < jb_s) j_lo = true;
@@ -472,11 +465,7 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
   const int oy = j_lo ? -1 : (j_hi ? 1 : 0);
   const int oz = k_lo ? -1 : (k_hi ? 1 : 0);
   const int k_axes = (ox != 0) + (oy != 0) + (oz != 0);
-  n_ghost_neighbors = (k_axes > 0) ? ((1 << k_axes) - 1) : 0;
-
-  Kokkos::printf("[ApplyKineticSNe] ox=%d oy=%d oz=%d k_axes=%d n_ghost_neighbors=%d\n",
-                 ox, oy, oz, k_axes, n_ghost_neighbors);
-    
+  n_ghost_neighbors = (k_axes > 0) ? ((1 << k_axes) - 1) : 0;    
 }
     
     
