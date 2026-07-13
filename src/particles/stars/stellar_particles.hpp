@@ -42,7 +42,7 @@ using parthenon::Coordinates_t;
 using RNGPool = Kokkos::Random_XorShift64_Pool<>;
 
 namespace Stars {
-    
+
 enum class TransportMode { Gravity, Advection, None };
 
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);

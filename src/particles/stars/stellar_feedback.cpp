@@ -290,9 +290,16 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           KOKKOS_LAMBDA(const int n) {
             if (!swarm_d.IsActive(n)) return;
 
+            // --- Locate the particle's host cell -----------------------------------
             int k, j, i;
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
+            // --- Determine which block boundary(ies) the deposition kernel overlaps -
+            // A kernel centered on this particle can spill into a neighboring block
+            // along any axis where the kernel radius (r_cells) reaches past the
+            // interior domain edge. ox/oy/oz encode the direction of overlap
+            // (-1, 0, or +1) per axis; active_axis records which axes actually
+            // overlap, so we only enumerate real neighbor directions below.
             const int ox = (i - r_cells < ib.s) ? -1 : (i + r_cells > ib.e) ? 1 : 0;
             const int oy = (j - r_cells < jb.s) ? -1 : (j + r_cells > jb.e) ? 1 : 0;
             const int oz = (k - r_cells < kb.s) ? -1 : (k + r_cells > kb.e) ? 1 : 0;
@@ -304,10 +311,17 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             if (oy != 0) active_axis[n_active++] = 1;
             if (oz != 0) active_axis[n_active++] = 2;
 
+            // No overlap with any neighbor: nothing to deposit into a ghost swarm.
             if (n_active == 0) return;
 
+            // Number of distinct neighbor directions to cover (edges/corners
+            // included): 1 active axis -> 1 neighbor, 2 -> 3, 3 -> 7.
             const int n_neighbors = (1 << n_active) - 1; // 1, 3, or 7
 
+            // --- Re-derive this particle's SN event counts and ejecta mass ---------
+            // Uses the same reproducible RNG (keyed on particle id + time) as the
+            // interior-domain pass, so results are identical without needing to
+            // communicate them explicitly.
             int N_SN_II = 0, N_SN_Ia = 0, N_SN = 0;
             Real M_ej_II_tot = 0.0, M_ej_Ia_tot = 0.0;
 
@@ -325,8 +339,13 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               N_SN += N_SN_Ia;
             }
 
+            // No SN event this step: no deposition payload to forward.
             if (N_SN == 0) return;
 
+            // --- Clamp ejecta to the particle's remaining mass budget ---------------
+            // Mirrors the clamping applied on the interior-domain pass, so both
+            // passes agree on the actual (possibly rescaled) ejecta mass and
+            // momentum for this event.
             Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
             Real mass_scale = 1.0;
             if (M_ej_tot > pmass0(n)) {
@@ -336,6 +355,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               M_ej_tot = pmass0(n);
             }
 
+            // --- Total injected momentum (Eq. 21): sum of per-channel terms --------
             const Real p_SN_II =
                 (M_ej_II_tot > 0.0)
                     ? Kokkos::sqrt(2.0 * N_SN_II * E_SN_per_event * M_ej_II_tot)
@@ -346,10 +366,12 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                     : 0.0;
             const Real p_SN_tot = p_SN_II + p_SN_Ia;
 
-            // Define the terminal momentum multiplied by the number of events
+            // Terminal momentum scales with the number of overlapping SN events,
+            // independent of the ejecta mass budget/clamping above.
             Real p_terminal_Nsn = Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
 
-            // Apply the <n_H> density weighting
+            // Rescale terminal momentum by the local ambient density (<n_H>),
+            // sampled from the kernel footprint around the particle.
             Real weight_sum = 0.0;
             const Real nH_avg =
                 ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i, r_cells,
@@ -357,6 +379,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
             p_terminal_Nsn *= Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0);
 
+            // --- Spawn one ghost particle per overlapping neighbor direction --------
+            // mask enumerates every non-empty subset of active_axis (1 to
+            // n_neighbors), covering face, edge, and corner neighbors as needed.
             for (int mask = 1; mask <= n_neighbors; ++mask) {
               int nx = 0, ny = 0, nz = 0;
               for (int a = 0; a < n_active; ++a) {
@@ -372,6 +397,8 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                 }
               }
 
+              // Atomically claim a unique slot among the ghost particles
+              // allocated for this deposition pass.
               const int slot = Kokkos::atomic_fetch_add(&ghost_slot_counter(), 1);
               const int g = new_particles_context.GetNewParticleIndex(slot);
 
@@ -394,7 +421,11 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               const Real gy_pushed = y(n) + push_y;
               const Real gz_pushed = z(n) + push_z;
 
-              // Updating the ghost swarm values
+              // Store the pushed position plus the offset used to produce it
+              // (offset is subtracted back out on the receiving block to
+              // recover the true physical position for kernel centering),
+              // along with the full deposition payload the receiving block
+              // needs to apply feedback without recomputing SN events.
               gx(g) = gx_pushed;
               gy(g) = gy_pushed;
               gz(g) = gz_pushed;
@@ -414,6 +445,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
       // Final sanity check: the counter should exactly equal total_ghost_count
       int final_slot_count = 0;
       Kokkos::deep_copy(final_slot_count, ghost_slot_counter);
+      PARTHENON_REQUIRE(final_slot_count == total_ghost_count,
+                        "GhostFillLoop: slot counter mismatch — allocation and "
+                        "fill passes disagree on ghost particle count.");
     } // end for ghost_swarm_name
   } // end for swarm_name
 

@@ -44,43 +44,46 @@ for cells that already passed the stochastic draw.
 =============================================================================== */
 
 template <typename View4D>
-KOKKOS_INLINE_FUNCTION Real EvaluateStarFormation(
-    View4D prim, const Coordinates_t &coords, const int k, const int j, const int i,
-    const Real threshold, const Real epsilon, const Real gravitational_constant, 
-    const int ndim) {
-  
+KOKKOS_INLINE_FUNCTION Real
+EvaluateStarFormation(View4D prim, const Coordinates_t &coords, const int k, const int j,
+                      const int i, const Real threshold, const Real epsilon,
+                      const Real gravitational_constant, const int ndim) {
+
   const Real rho = prim(IDN, k, j, i);
-  
+
   if (rho <= threshold) return 0.0;
 
   const Real dx = coords.Dxc<1>(k, j, i);
   const Real dy = coords.Dxc<2>(k, j, i);
   const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
-  
+
   const Real t_dyn = Kokkos::sqrt(3.0 * M_PI / (32.0 * gravitational_constant * rho));
 
   return epsilon * rho * dx * dy * dz / t_dyn;
 }
 
 /* ===============================================================================
-EvaluateStarFormationProbability: unchanged from before, still only gated by
-the density threshold via EvaluateStarFormation.
+EvaluateStarFormationProbability: converts the SMUGGLE star formation rate
+(EvaluateStarFormation) into a per-timestep injection probability, assuming
+a Poisson process: P = 1 - exp(-SFR * dt / M_gas). Still only gated by the
+density threshold; the virial parameter check is applied separately by the
+caller after the stochastic draw.
 =============================================================================== */
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION Real EvaluateStarFormationProbability(
     View4D prim, const Coordinates_t &coords, const int k, const int j, const int i,
-    const Real threshold, const Real epsilon, const Real gravitational_constant, 
+    const Real threshold, const Real epsilon, const Real gravitational_constant,
     const int ndim, const Real dt) {
 
   const Real dx = coords.Dxc<1>(k, j, i);
   const Real dy = coords.Dxc<2>(k, j, i);
   const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
   const Real M_gas = prim(IDN, k, j, i) * dx * dy * dz;
-  
+
   const Real sfr = EvaluateStarFormation(prim, coords, k, j, i, threshold, epsilon,
                                          gravitational_constant, ndim);
-  
+
   if (sfr <= 0.0) return 0.0;
 
   return 1.0 - Kokkos::exp(-sfr * dt / M_gas);
@@ -179,7 +182,6 @@ KOKKOS_INLINE_FUNCTION void TransferCellMassToParticle(
   cons(IM2, k, j, i) *= (1.0 - mass_efficiency);
   if (ndim == 3) cons(IM3, k, j, i) *= (1.0 - mass_efficiency);
   cons(IEN, k, j, i) *= (1.0 - mass_efficiency);
-  
 
   // Resync prim from updated cons
   eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);

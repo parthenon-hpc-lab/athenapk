@@ -115,13 +115,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   const auto stars_density_threshold =
       pin->GetOrAddReal("stars", "sf_density_threshold", -1);
   stars_pkg->AddParam<>("stars_density_threshold", stars_density_threshold);
-    
+
   // In case of a star formation event in a cell, fraction of the cells mass
   // which will be turned into stellar material. Should be 0 < eff < 1.
   const auto stars_mass_efficiency =
       pin->GetOrAddReal("stars", "sf_mass_efficiency", 0.5);
   PARTHENON_REQUIRE(stars_mass_efficiency > 0.0 && stars_mass_efficiency < 1.0,
-                     "stars_mass_efficiency must be strictly between 0 and 1");
+                    "stars_mass_efficiency must be strictly between 0 and 1");
   if (stars_mass_efficiency > 0.9) {
     PARTHENON_WARN("stars_mass_efficiency is larger than 0.9 - "
                    "might now be numerically stable.");
@@ -130,10 +130,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   // Star formation efficiency per dynamical time (epsilon in
   // \dot{M}_\star = epsilon * M_gas / t_dyn)
-  const auto stars_sf_efficiency =
-      pin->GetOrAddReal("stars", "sf_efficiency", 0.01);
+  const auto stars_sf_efficiency = pin->GetOrAddReal("stars", "sf_efficiency", 0.01);
   PARTHENON_REQUIRE(stars_sf_efficiency > 0.0,
-                     "stars_sf_efficiency must be larger than 0.");
+                    "stars_sf_efficiency must be larger than 0.");
   if (stars_sf_efficiency > 0.9) {
     PARTHENON_WARN("stars_sf_efficiency is larger than 0.9 - "
                    "this is unusually high and likely unrealistic.");
@@ -141,9 +140,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("stars_sf_efficiency", stars_sf_efficiency);
 
   // Whether or not supplementary conditions from Hopkins+2018c should be included
-  const auto stars_alpha_criterion_enabled =
-      pin->GetOrAddBoolean("stars", "sf_alpha_criterion_enabled", false);
-  stars_pkg->AddParam<>("stars_alpha_criterion_enabled", stars_alpha_criterion_enabled);
+  const auto stars_virial_criterion_enabled =
+      pin->GetOrAddBoolean("stars", "sf_virial_criterion_enabled", false);
+  stars_pkg->AddParam<>("stars_virial_criterion_enabled", stars_virial_criterion_enabled);
 
   // Feedback booleans
   const auto SN_II_enabled = pin->GetOrAddBoolean("stars", "SN_II_enabled", false);
@@ -157,7 +156,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       pin->GetOrAddReal("stars", "E_SN_per_event", 1.0e51) * units.erg();
   stars_pkg->AddParam<>("E_SN_per_event", E_SN_per_event);
 
-  if (E_SN_per_event != 1.0e51  * units.erg()) {
+  if (E_SN_per_event != 1.0e51 * units.erg()) {
     PARTHENON_WARN("Energy injection per SNe event not set to 1e51 erg."
                    "This is non-standard and may not be realistic.");
   }
@@ -171,8 +170,21 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                    "fraction would need to be deposited through another "
                    "channel (e.g. thermal), which is not yet implemented");
   }
-
   stars_pkg->AddParam<>("SN_kinetic_efficiency", f_ek);
+
+  // Warn if tabular cooling is enabled: the current lifetime and ejecta mass
+  // tables (Portinari+ 1998) are only valid at solar metallicity. If cooling
+  // drives gas to non-solar metallicities, SN II timing and ejecta yields
+  // computed from these tables will not be self-consistent with the actual
+  // gas-phase metallicity in the simulation.
+  const auto enable_cooling = pin->GetOrAddString("cooling", "enable_cooling", "none");
+  if (enable_cooling == "tabular") {
+    PARTHENON_WARN("cooling/enable_cooling is set to 'tabular', but the stellar "
+                   "lifetime and ejecta mass tables currently implemented "
+                   "(Portinari+ 1998) only support solar metallicity. SN II "
+                   "timing and ejecta yields will be inconsistent with any "
+                   "non-solar metallicity gas produced by tabular cooling.");
+  }
 
   // Injection kernel parameters
   const auto r_cells = pin->GetOrAddInteger("stars", "SN_injection_radius_cells", 2);
@@ -450,9 +462,9 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     // === Sanity check: gravitational field must be defined if necessary ===
     const auto transport_mode =
         stars_pkg->Param<TransportMode>(swarm_name + "_transport_mode");
-    
+
     if (transport_mode == TransportMode::None) continue;
-    
+
     // Pointer to the gravitational field, only set (non-null) when actually
     // needed. Avoids requiring a default constructor for ClusterGravity, and
     // avoids touching the "cluster_gravity" param at all in non-cluster
@@ -462,7 +474,8 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
       PARTHENON_REQUIRE(hydro_pkg->AllParams().hasKey("cluster_gravity"),
                         "MoveStars requires a gravitational field; "
                         "only the cluster setup is currently supported.");
-      gravitational_field_ptr = &hydro_pkg->Param<cluster::ClusterGravity>("cluster_gravity");
+      gravitational_field_ptr =
+          &hydro_pkg->Param<cluster::ClusterGravity>("cluster_gravity");
     }
 
     auto &swarm = sd->Get(swarm_name);
@@ -550,9 +563,9 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
           }
         });
-    
+
   } // end swarm_name loop
-  
+
   return TaskStatus::complete;
 } // MoveStars
 

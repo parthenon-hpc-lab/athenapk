@@ -430,9 +430,16 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
         const Real boost = (dM > 0.0) ? Kokkos::sqrt(1.0 + m_i / dM) : 1.0;
         const Real dp_i = w * Kokkos::min(p_SN_tot * boost, p_terminal_nH_scaled);
 
-        const Real rx = dx / r;
-        const Real ry = dy / r;
-        const Real rz = dz / r;
+        // Guard against the singular self-term (r == 0): direction is undefined,
+        // so deposit momentum isotropically (i.e. zero net momentum contribution
+        // from this cell), only energy/mass are added. Careful as this does not
+        // deposits the right amount of mass / momentum / energy, since the weights
+        // are calculated out of all cells, including the stellar particle parent
+        // one. However stars are never perfectly centered (apart from test with
+        // TransportMode::None), so this is fine.
+        const Real rx = (r > 0.0) ? dx / r : 0.0;
+        const Real ry = (r > 0.0) ? dy / r : 0.0;
+        const Real rz = (r > 0.0) ? dz / r : 0.0;
 
         const Real u_inject = (dM > 0.0) ? dp_i / dM : 0.0;
         const Real u_x = u_inject * rx + vel_x_star;
