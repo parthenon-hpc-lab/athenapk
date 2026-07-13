@@ -83,6 +83,7 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
 
   const int n_stars = pin->GetOrAddInteger("problem/cluster/seed_stars", "n_stars", 100);
   const int rng_seed = pin->GetOrAddInteger("problem/cluster/seed_stars", "rng_seed", 42);
+  const Real r_max = pin->GetOrAddReal("problem/cluster/seed_stars", "r_max", 0.020);
   const auto nx3 = pin->GetInteger("parthenon/mesh", "nx3");
 
   for (auto &pmb : pmesh->block_list) {
@@ -145,13 +146,23 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
             const Real z_rand =
                 (nx3 > 1) ? (z_min + rng_gen.drand() * (z_max - z_min)) : z_min;
 
+            const Real r = Kokkos::sqrt(x_rand * x_rand + y_rand * y_rand +
+                                         z_rand * z_rand);
+
+            // Reject particles seeded beyond r_max: mark the slot for removal
+            // instead of populating it, so it's cleaned up on the next
+            // defrag/remove pass rather than left as a stray orbiting star.
+            if (r > r_max) {
+              swarm_d.MarkParticleForRemoval(n);
+              rng_pool.free_state(rng_gen);
+              return;
+            }
+
             x(n) = x_rand;
             y(n) = y_rand;
             z(n) = z_rand;
 
             // Derive orbital velocity from the actual sampled radius.
-            const Real r = Kokkos::sqrt(x_rand * x_rand + y_rand * y_rand +
-                                         z_rand * z_rand);
             const Real g_r = cluster_gravity.g_from_r(r);
             const Real v_circ = Kokkos::sqrt(r * g_r);
 
@@ -184,6 +195,10 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
             bool on_current_mesh_block = true;
             swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_current_mesh_block);
           });
+
+      // Actually remove the marked particles now so counts/offsets reflect
+      // only the particles that were really kept.
+      swarm->RemoveMarkedParticles();
 
       block_offset += n_stars_per_block;
       std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));

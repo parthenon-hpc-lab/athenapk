@@ -401,7 +401,7 @@ actually seeded here — this function only prepares the block-local bookkeeping
 void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   auto stars_pkg = pmesh->packages.Get("stars");
 
-  // Block local RNG
+  // Block local RNG + stars_offsets initialization for every block first.
   for (auto &pmb : pmesh->block_list) {
     uint64_t seed = std::hash<uint64_t>{}(
         static_cast<uint64_t>(tm.ncycle) * utils::custom_rng::PHI_64 ^
@@ -409,34 +409,22 @@ void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
     auto rng_pool = Kokkos::Random_XorShift64_Pool<>(seed);
     stars_pkg->AddParam<>("rng_block_" + std::to_string(pmb->gid), rng_pool);
 
-    // Loading the stars_offsets field
     auto &mbd = pmb->meshblock_data.Get();
     auto &off = mbd->Get("stars_offsets").data;
-
-    // Create host side mirror view of the offset field
     auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
 
-    // Getting the offset for the current meshblock
-    const uint64_t gid = static_cast<uint64_t>(pmb->gid); // global ID of the block
-    const uint64_t nbt =
-        static_cast<uint64_t>(pmesh->nbtotal); // total number of meshblocks
-
-    // Compute step size: (UINT64_MAX - 1) / nbt
+    const uint64_t gid = static_cast<uint64_t>(pmb->gid);
+    const uint64_t nbt = static_cast<uint64_t>(pmesh->nbtotal);
     const uint64_t step = (std::numeric_limits<uint64_t>::max() - 1ULL) / nbt;
-
-    // Compute block offset
     uint64_t block_offset = gid * step;
 
-    // No particles are injected here (initial_stars seeds zero particles by design),
-    // so the offset is simply initialized to the block's starting value.
     std::memcpy(&host_off(0), &block_offset, sizeof(std::uint64_t));
     Kokkos::deep_copy(off, host_off);
-      
-    // Optionnal: problem specific initialization, e.g. for testing stars transport
-    const auto seed_stars = pin->GetOrAddBoolean("stars", "seed_stars", false);
-    if (seed_stars) ProblemSeedInitialStars(pmesh, pin, tm);
-    
   }
+
+  // Only now, after every block's offset is properly initialized, seed once.
+  const auto seed_stars = pin->GetOrAddBoolean("stars", "seed_stars", false);
+  if (seed_stars) ProblemSeedInitialStars(pmesh, pin, tm);
 }
 
 /* ===============================================================================
@@ -528,10 +516,12 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               const Real half_dt_sub = 0.5 * dt_sub;
 
               for (int s = 0; s < n_sub; ++s) {
+
+                // Compute acceleration at current position xn
                 const Real xp = x(n), yp = y(n), zp = z(n);
                 const Real r = sqrt(xp * xp + yp * yp + zp * zp);
                 const Real g = gravitational_field_ptr->g_from_r(r);
-                const Real gx = g * xp / r, gy = g * yp / r, gz = g * zp / r;
+                const Real gx = -g * xp / r, gy = -g * yp / r, gz = -g * zp / r;  // inward!
 
                 // Kick 1
                 vel_x(n) += gx * half_dt_sub;
@@ -546,7 +536,7 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                 // Kick 2 at new position
                 const Real r2 = sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
                 const Real g2 = gravitational_field_ptr->g_from_r(r2);
-                const Real gx2 = g2 * x(n) / r2, gy2 = g2 * y(n) / r2, gz2 = g2 * z(n) / r2;
+                const Real gx2 = -g2 * x(n) / r2, gy2 = -g2 * y(n) / r2, gz2 = -g2 * z(n) / r2;
 
                 vel_x(n) += gx2 * half_dt_sub;
                 vel_y(n) += gy2 * half_dt_sub;
