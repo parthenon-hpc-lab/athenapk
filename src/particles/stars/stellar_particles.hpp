@@ -49,6 +49,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 
+using SeedInitialFun_t =
+    std::function<void(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm)>;
+extern SeedInitialFun_t ProblemSeedInitialStars;
+
+// Driver functions
 TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);

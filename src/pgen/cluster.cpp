@@ -25,6 +25,7 @@
 #include <string>    // c_str()
 
 // Parthenon headers
+#include <Kokkos_Random.hpp>
 #include "Kokkos_MathematicalFunctions.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
@@ -59,6 +60,138 @@ namespace cluster {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
+
+/* ===============================================================================
+ProblemSeedInitialStars: cluster-specific test seeding routine for the stars
+particle module. Places a population of test stellar particles at randomly
+sampled radii (log-uniform between r_min and r_max) around the cluster center,
+each with an isotropically random position on its radius sphere. Each particle
+is assigned a tangential velocity of magnitude v_circ = sqrt(r * g(r)), where
+g(r) is the cluster's gravitational acceleration profile (NFW + BCG + SMBH, cf.
+ClusterGravity::g_from_r), so that it should trace a closed circular orbit under
+the MoveStars leapfrog integrator. Intended purely for testing star transport
+under gravity (star_transport_mode = gravity); particles carry zero mass and no
+other stellar feedback bookkeeping is performed here.
+=============================================================================== */
+void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
+  auto stars_pkg = pmesh->packages.Get("stars");
+  const auto swarm_names = stars_pkg->Param<std::vector<std::string>>("swarm_names");
+  const Real current_time = tm.time;
+
+  auto hydro_pkg = pmesh->packages.Get("Hydro");
+  const auto &cluster_gravity = hydro_pkg->Param<ClusterGravity>("cluster_gravity");
+
+  const int n_stars = pin->GetOrAddInteger("problem/cluster/seed_stars", "n_stars", 100);
+  const int rng_seed = pin->GetOrAddInteger("problem/cluster/seed_stars", "rng_seed", 42);
+  const auto nx3 = pin->GetInteger("parthenon/mesh", "nx3");
+
+  for (auto &pmb : pmesh->block_list) {
+    auto &mbd = pmb->meshblock_data.Get();
+    auto &off = mbd->Get("stars_offsets").data;
+    auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
+
+    IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+    IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+    IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+    const auto &x_min = pmb->coords.Xf<1>(ib.s);
+    const auto &y_min = pmb->coords.Xf<2>(jb.s);
+    const auto &z_min = pmb->coords.Xf<3>(kb.s);
+    const auto &x_max = pmb->coords.Xf<1>(ib.e + 1);
+    const auto &y_max = pmb->coords.Xf<2>(jb.e + 1);
+    const auto &z_max = pmb->coords.Xf<3>(kb.e + 1);
+
+    for (std::size_t k_population = 0; k_population < swarm_names.size(); ++k_population) {
+      const std::string &swarm_name = swarm_names[k_population];
+
+      auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+      auto &swarm = sd->Get(swarm_name);
+
+      const int n_stars_per_block =
+          std::max(1, n_stars / static_cast<int>(pmesh->block_list.size()));
+
+      auto new_particles_context = swarm->AddEmptyParticles(n_stars_per_block);
+
+      auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
+      auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
+      auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+      auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
+      auto &vx = swarm->Get<Real>("v_x").Get();
+      auto &vy = swarm->Get<Real>("v_y").Get();
+      auto &vz = swarm->Get<Real>("v_z").Get();
+      auto &pmass = swarm->Get<Real>("mass").Get();
+      auto &pmass0 = swarm->Get<Real>("birth_mass").Get();
+      auto &t_inj = swarm->Get<Real>("injection_time").Get();
+
+      uint64_t block_offset;
+      std::memcpy(&block_offset, &host_off(k_population), sizeof(std::uint64_t));
+
+      auto swarm_d = swarm->GetDeviceContext();
+      // Seed is meshblock gid for consistency across MPI decomposition.
+      Kokkos::Random_XorShift64_Pool<> rng_pool(pmb->gid + rng_seed);
+
+      pmb->par_for(
+          "ProblemSeedInitialStars::OrbitingStars", 0,
+          new_particles_context.GetNewParticlesMaxIndex(),
+          KOKKOS_LAMBDA(const int new_n) {
+            auto rng_gen = rng_pool.get_state();
+            const int n = new_particles_context.GetNewParticleIndex(new_n);
+
+            // Sample position uniformly within this block's interior box, so the
+            // particle is guaranteed to belong to the block whose swarm we just
+            // added it to (mirrors SeedInitialTracers::random_per_block).
+            const Real x_rand = x_min + rng_gen.drand() * (x_max - x_min);
+            const Real y_rand = y_min + rng_gen.drand() * (y_max - y_min);
+            const Real z_rand =
+                (nx3 > 1) ? (z_min + rng_gen.drand() * (z_max - z_min)) : z_min;
+
+            x(n) = x_rand;
+            y(n) = y_rand;
+            z(n) = z_rand;
+
+            // Derive orbital velocity from the actual sampled radius.
+            const Real r = Kokkos::sqrt(x_rand * x_rand + y_rand * y_rand +
+                                         z_rand * z_rand);
+            const Real g_r = cluster_gravity.g_from_r(r);
+            const Real v_circ = Kokkos::sqrt(r * g_r);
+
+            Real rhat_x = x_rand / r, rhat_y = y_rand / r, rhat_z = z_rand / r;
+            Real ref_x = 0.0, ref_y = 0.0, ref_z = 1.0;
+            if (Kokkos::abs(rhat_z) > 0.9) {
+              ref_x = 1.0;
+              ref_y = 0.0;
+              ref_z = 0.0;
+            }
+            Real tx = rhat_y * ref_z - rhat_z * ref_y;
+            Real ty = rhat_z * ref_x - rhat_x * ref_z;
+            Real tz = rhat_x * ref_y - rhat_y * ref_x;
+            const Real t_norm = Kokkos::sqrt(tx * tx + ty * ty + tz * tz);
+            tx /= t_norm;
+            ty /= t_norm;
+            tz /= t_norm;
+
+            vx(n) = v_circ * tx;
+            vy(n) = v_circ * ty;
+            vz(n) = v_circ * tz;
+
+            pmass(n) = 0.0;
+            pmass0(n) = 0.0;
+            t_inj(n) = current_time;
+            id(n) = block_offset + new_n;
+
+            rng_pool.free_state(rng_gen);
+
+            bool on_current_mesh_block = true;
+            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_current_mesh_block);
+          });
+
+      block_offset += n_stars_per_block;
+      std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
+    }
+
+    Kokkos::deep_copy(off, host_off);
+  }
+}
 
 void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                            const Real beta_dt) {

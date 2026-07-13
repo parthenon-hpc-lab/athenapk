@@ -431,6 +431,11 @@ void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
     // so the offset is simply initialized to the block's starting value.
     std::memcpy(&host_off(0), &block_offset, sizeof(std::uint64_t));
     Kokkos::deep_copy(off, host_off);
+      
+    // Optionnal: problem specific initialization, e.g. for testing stars transport
+    const auto seed_stars = pin->GetOrAddBoolean("stars", "seed_stars", false);
+    if (seed_stars) ProblemSeedInitialStars(pmesh, pin, tm);
+    
   }
 }
 
@@ -498,33 +503,55 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
           if (swarm_d.IsActive(n)) {
 
             if (transport_mode == TransportMode::Gravity) {
-              // Compute acceleration at current position xn
-              const Real xp = x(n), yp = y(n), zp = z(n);
-              const Real r = sqrt(xp * xp + yp * yp + zp * zp);
-              const Real g = gravitational_field_ptr->g_from_r(r);
-              const Real gx = g * xp / r, gy = g * yp / r, gz = g * zp / r;
+              // Estimate how many sub-steps are needed to resolve the local
+              // orbital/dynamical timescale to some safety factor.
+              const Real xp0 = x(n), yp0 = y(n), zp0 = z(n);
+              const Real r0 = sqrt(xp0 * xp0 + yp0 * yp0 + zp0 * zp0);
+              const Real g0 = gravitational_field_ptr->g_from_r(r0);
 
-              const Real half_dt = 0.5 * current_dt;
+              // Local dynamical time ~ sqrt(r / g), guard against g0 == 0 (r0 == 0).
+              const Real t_dyn = (g0 > 0.0) ? sqrt(r0 / g0) : current_dt;
 
-              // Kick 1: half-step with acceleration at xn
-              vel_x(n) += gx * half_dt;
-              vel_y(n) += gy * half_dt;
-              vel_z(n) += gz * half_dt;
+              // Safety factor: require several sub-steps per dynamical time.
+              const Real cfl_star = 0.1; // tunable, analogous to a CFL number
+              int n_sub = static_cast<int>(ceil(current_dt / (cfl_star * t_dyn)));
+              n_sub = Kokkos::max(n_sub, 1);
+              n_sub = Kokkos::min(n_sub, 1000);
 
-              // Drift: full step to xn+1
-              x(n) += vel_x(n) * current_dt;
-              y(n) += vel_y(n) * current_dt;
-              z(n) += vel_z(n) * current_dt;
+              // Debug: print the number of subcycles for a single representative particle.
+              if (n == 0) {
+                printf("MoveStars: particle n=%d, r=%.4e, t_dyn=%.4e, current_dt=%.4e, n_sub=%d\n",
+                       n, r0, t_dyn, current_dt, n_sub);
+              }
 
-              // Recompute acceleration at new position xn+1
-              const Real r2 = sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
-              const Real g2 = gravitational_field_ptr->g_from_r(r2);
-              const Real gx2 = g2 * x(n) / r2, gy2 = g2 * y(n) / r2, gz2 = g2 * z(n) / r2;
+              const Real dt_sub = current_dt / static_cast<Real>(n_sub);
+              const Real half_dt_sub = 0.5 * dt_sub;
 
-              // Kick 2: half-step with acceleration at xn+1
-              vel_x(n) += gx2 * half_dt;
-              vel_y(n) += gy2 * half_dt;
-              vel_z(n) += gz2 * half_dt;
+              for (int s = 0; s < n_sub; ++s) {
+                const Real xp = x(n), yp = y(n), zp = z(n);
+                const Real r = sqrt(xp * xp + yp * yp + zp * zp);
+                const Real g = gravitational_field_ptr->g_from_r(r);
+                const Real gx = g * xp / r, gy = g * yp / r, gz = g * zp / r;
+
+                // Kick 1
+                vel_x(n) += gx * half_dt_sub;
+                vel_y(n) += gy * half_dt_sub;
+                vel_z(n) += gz * half_dt_sub;
+
+                // Drift
+                x(n) += vel_x(n) * dt_sub;
+                y(n) += vel_y(n) * dt_sub;
+                z(n) += vel_z(n) * dt_sub;
+
+                // Kick 2 at new position
+                const Real r2 = sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
+                const Real g2 = gravitational_field_ptr->g_from_r(r2);
+                const Real gx2 = g2 * x(n) / r2, gy2 = g2 * y(n) / r2, gz2 = g2 * z(n) / r2;
+
+                vel_x(n) += gx2 * half_dt_sub;
+                vel_y(n) += gy2 * half_dt_sub;
+                vel_z(n) += gz2 * half_dt_sub;
+              }
 
             } else if (transport_mode == TransportMode::Advection) {
 

@@ -16,6 +16,7 @@
 #include "hydro/hydro_driver.hpp"
 #include "main.hpp"
 
+#include "particles/stars/stellar_particles.hpp"
 #include "particles/tracers/tracers.hpp"
 #include "pgen/pgen.hpp"
 // Initialize defaults for package specific callback functions
@@ -33,6 +34,10 @@ InitPackageDataFun_t ProblemInitTracerData = nullptr;
 SeedInitialFun_t ProblemSeedInitialTracers = nullptr;
 FillTracersFun_t ProblemFillTracers = nullptr;
 } // namespace Tracers
+
+namespace Stars {
+SeedInitialFun_t ProblemSeedInitialStars = nullptr;
+} // namespace Stars
 
 int main(int argc, char *argv[]) {
   using parthenon::ParthenonManager;
@@ -101,6 +106,7 @@ int main(int argc, char *argv[]) {
   } else if (problem == "cluster") {
     pman.app_input->MeshProblemGenerator = cluster::ProblemGenerator;
     pman.app_input->MeshBlockUserWorkBeforeOutput = cluster::UserWorkBeforeOutput;
+    Stars::ProblemSeedInitialStars = cluster::ProblemSeedInitialStars;
     Hydro::ProblemInitPackageData = cluster::ProblemInitPackageData;
     Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
     Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
