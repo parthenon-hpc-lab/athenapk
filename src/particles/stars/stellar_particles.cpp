@@ -151,7 +151,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   stars_pkg->AddParam<>("SN_II_enabled", SN_II_enabled);
   stars_pkg->AddParam<>("SN_Ia_enabled", SN_Ia_enabled);
-    
+
   // Total energy injection per event
   const auto E_SN_per_event =
       pin->GetOrAddReal("stars", "E_SN_per_event", 1.0e51) * units.erg();
@@ -285,7 +285,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   // either gravity or advection (advect. for tests as gravity only in cluster)
   const auto star_transport_mode_str =
-      pin->GetOrAddString("stars", "star_transport_mode", "advection");
+      pin->GetOrAddString("stars", "transport_mode", "advection");
   TransportMode star_transport_mode;
   if (star_transport_mode_str == "gravity") {
     star_transport_mode = TransportMode::Gravity;
@@ -300,7 +300,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     PARTHENON_WARN("star_transport_mode is set to 'advection' - this is unrealistic "
                    "and only intended for testing purposes");
   }
-  stars_pkg->AddParam<>("star_transport_mode", star_transport_mode);
+  stars_pkg->AddParam<>("stars_transport_mode", star_transport_mode);
 
   // Creating the stars swarm
   Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
@@ -309,7 +309,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   std::vector<std::string> swarm_names = {"stars"};
   stars_pkg->AddParam<>("swarm_names", swarm_names);
   stars_pkg->AddParam<>("stars_injection_enabled", true);
-  stars_pkg->AddParam<>("stars_mass_efficiency", 0.5);
   stars_pkg->AddParam<>("stars_removal_enabled", false);
 
   // Add value for injection time
@@ -431,6 +430,7 @@ Also includes tracers-like advection for testing.
 =============================================================================== */
 
 TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
+
   auto *pmb = mbd->GetParentPointer();
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
 
@@ -450,7 +450,9 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     // === Sanity check: gravitational field must be defined if necessary ===
     const auto transport_mode =
         stars_pkg->Param<TransportMode>(swarm_name + "_transport_mode");
-
+    
+    if (transport_mode == TransportMode::None) continue;
+    
     // Pointer to the gravitational field, only set (non-null) when actually
     // needed. Avoids requiring a default constructor for ClusterGravity, and
     // avoids touching the "cluster_gravity" param at all in non-cluster
@@ -543,15 +545,14 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               }
             }
 
-            // TransportMode::None: no position/velocity update, particle stays fixed
-            // (falls through both branches above)
-
             // === Update neighbor block index ===
             bool unused_temp = true;
             swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
           }
         });
-  }
+    
+  } // end swarm_name loop
+  
   return TaskStatus::complete;
 } // MoveStars
 

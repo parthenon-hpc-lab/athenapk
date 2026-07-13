@@ -98,7 +98,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
   // Getting the offsets and copy to host
   auto &off = mbd->Get(pkg_name + "_offsets").data;
   auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
-
+    
   auto swarm_names = particles_pkg->Param<std::vector<std::string>>("swarm_names");
   // Looping on the N independent swarms
   for (std::size_t k_population = 0; k_population < swarm_names.size(); ++k_population) {
@@ -122,7 +122,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     Real p_injection = -1.0;
     Real injection_threshold = -1.0;
     InjectionMode injection_mode = InjectionMode::FixedRate; // By default
-
+    
     // Here, distinguishing tracer package from other kind of particles (e.g. stars).
     // Each package is responsible for computing p_injection in [0, 1], the probability
     // that a single eligible cell spawns a particle at this timestep.
@@ -196,6 +196,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               p_local = p_injection;
             }
           } else if (injection_mode == InjectionMode::PerCell) {
+              
+            // Stars particles section
             if (particles_type == ParticlesType::Stars){
                 p_local = StarFormation::EvaluateStarFormationProbability(
                     prim, coords, k, j, i, injection_threshold, sf_efficiency, 
@@ -207,9 +209,13 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                     p_local = 0.0; // gravitationally unbound, veto injection
                   }
                 }
+                
             }
+              
+            // Add something here for non-stellar per-cell injection
+            // (...)
           }
-
+          
           if (p_local > 0.0) {
             auto seed = SeedFromIndices(k, j, i, gid, current_time);
             auto rnd = random_double(seed);
@@ -217,12 +223,18 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               lnpart += 1;
             }
           }
+          
         },
         Kokkos::Sum<int>(num_injected_particles_in_block));
 
     if (num_injected_particles_in_block == 0) {
       return TaskStatus::complete;
     }
+      
+    // For debugging
+    printf("[InjectParticles] swarm=%s num_injected_particles_in_block=%d\n",
+           swarm_name.c_str(), num_injected_particles_in_block);
+    fflush(stdout);
 
     auto injected_particles_context =
         swarm->AddEmptyParticles(num_injected_particles_in_block);
@@ -287,7 +299,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                     prim, coords, k, j, i, injection_threshold, sf_efficiency, 
                     gravitational_constant, ndim, current_dt);
                 // Extra condition from Hopkins+2018c
-                if (p_local > 0.0 and alpha_criterion) {
+                if (p_local > 0.0 && alpha_criterion) {
                   if (!StarFormation::CheckVirialCollapse(
                           prim, coords, k, j, i, gravitational_constant, ndim, gamma)) {
                     p_local = 0.0; // gravitationally unbound, veto injection
@@ -330,7 +342,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     block_offset += num_injected_particles_in_block;
     std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
     Kokkos::deep_copy(off, host_off);
-  }
+  } // end swarm_name loop
+    
   return TaskStatus::complete;
 }
 
