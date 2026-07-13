@@ -647,19 +647,17 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       // 2. Ship the ghost swarm across to whichever neighbor(s) each mirror
       // was pushed into. Main star swarm hasn't moved yet, so it has
       // nothing to send in this round; only ghost mirrors cross here.
-      auto send_ghost =
-          tl.AddTask(star_feedback, &SwarmContainer::Send, sd.get(),
-                     BoundaryCommSubset::all);
-      auto receive_ghost =
-          tl.AddTask(send_ghost, &SwarmContainer::Receive, sd.get(),
-                     BoundaryCommSubset::all);
+      auto send_ghost = tl.AddTask(star_feedback, &SwarmContainer::Send, sd.get(),
+                                   BoundaryCommSubset::all);
+      auto receive_ghost = tl.AddTask(send_ghost, &SwarmContainer::Receive, sd.get(),
+                                      BoundaryCommSubset::all);
 
       // 3. Finish applying feedback from ghost particles that just arrived
       // from neighboring blocks: recover the true (un-pushed) position
       // from the stored offset, re-center the kernel, deposit into this
       // block's interior, then remove the now-consumed ghost particles.
-      auto ghost_feedback = tl.AddTask(receive_ghost, StellarFeedback::ApplyGhostFeedback,
-                                       mbd0.get(), tm);
+      auto ghost_feedback =
+          tl.AddTask(receive_ghost, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
 
       // 4. Move the main star particles.
       auto star_move = tl.AddTask(ghost_feedback, Stars::MoveStars, mbd0.get(), tm);
@@ -669,11 +667,9 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       // were already fully consumed and removed in step 3, so this round
       // only moves the main star swarm.
       auto send_stars =
-          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(),
-                     BoundaryCommSubset::all);
-      auto receive_stars =
-          tl.AddTask(send_stars, &SwarmContainer::Receive, sd.get(),
-                     BoundaryCommSubset::all);
+          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(), BoundaryCommSubset::all);
+      auto receive_stars = tl.AddTask(send_stars, &SwarmContainer::Receive, sd.get(),
+                                      BoundaryCommSubset::all);
     }
   }
 

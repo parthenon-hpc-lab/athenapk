@@ -7,6 +7,9 @@
 //========================================================================================
 //! \file few_modes_ft.hpp
 //  \brief Helper functions to generate custom deterministic RNG for the tracers particles
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 #ifndef CUSTOM_RNG_HPP
 #define CUSTOM_RNG_HPP
@@ -23,7 +26,7 @@ namespace utils::custom_rng {
 // ===================================================================================
 inline constexpr uint64_t PHI_64 = 0x9e3779b97f4a7c15ULL;    // floor(2^64 / phi)
 inline constexpr uint64_t SILVER_64 = 0xbf58476d1ce4e5b9ULL; // SplitMix64 first mixer
-  
+
 // ===================================================================================
 // Tags so SN II and SN Ia draw independent, reproducible Poisson samples
 // from the same (particle_id, time) seed, instead of correlated numbers.
@@ -46,7 +49,7 @@ uint64_t hash(uint64_t seed) {
   z = z ^ (z >> 31);
   return z;
 }
-    
+
 // ===================================================================================
 // Generate a unique, deterministic seed from spatial indices, ID, and time
 // Adapted from:
@@ -59,7 +62,7 @@ uint64_t SeedFromIndices(int k, int j, int i, int gid, double time) {
   // Convert time to an integer
   // Since time is of order 1, need multiplication by 1e9 to keep the precision
   uint64_t time_scaled = static_cast<uint64_t>(time * 1e9);
-  
+
   // Combine all values using different large prime numbers
   uint64_t seed = static_cast<uint64_t>(i) * 73856093ull;
   seed ^= static_cast<uint64_t>(j) * 19349663ull;
@@ -111,7 +114,7 @@ int PoissonSampleDeterministic(uint64_t seed, const Real lambda) {
   uint64_t counter = 0;
   do {
     k++;
-    p *= random_double(hash(seed + counter));  // counter-based stream, not pool state
+    p *= random_double(hash(seed + counter)); // counter-based stream, not pool state
     counter++;
   } while (p > L);
   return k - 1;

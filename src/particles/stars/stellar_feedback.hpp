@@ -1,9 +1,9 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-// Particles implementation refacored from https://github.com/lanl/phoebus
+// Tracer implementation refacored from https://github.com/lanl/phoebus
 //========================================================================================
 // © 2021-2023. Triad National Security, LLC. All rights reserved.
 // This program was produced under U.S. Government contract
@@ -17,6 +17,9 @@
 // license in this material to reproduce, prepare derivative works,
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 #ifndef STELLAR_FEEDBACK_HPP_
 #define STELLAR_FEEDBACK_HPP_
@@ -389,9 +392,9 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
   }
 
   if (weight_sum <= 0.0) return;
-    
+
   // --- Pass 2: deposit mass, momentum and energy ---
-    
+
   // Track which side of the interior box was crossed, per axis
   bool i_lo = false, i_hi = false;
   bool j_lo = false, j_hi = false;
@@ -465,10 +468,9 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
   const int oy = j_lo ? -1 : (j_hi ? 1 : 0);
   const int oz = k_lo ? -1 : (k_hi ? 1 : 0);
   const int k_axes = (ox != 0) + (oy != 0) + (oz != 0);
-  n_ghost_neighbors = (k_axes > 0) ? ((1 << k_axes) - 1) : 0;    
+  n_ghost_neighbors = (k_axes > 0) ? ((1 << k_axes) - 1) : 0;
 }
-    
-    
+
 // ========================================================================
 // Two functions to calculate the number of neighbors for a given stellar
 // particle firing a SN event.
@@ -476,9 +478,8 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
 
 // Compute per-axis overlap offset given kernel radius and interior bounds
 KOKKOS_INLINE_FUNCTION
-void ComputeOverlapOffsets(int i, int j, int k, int r_cells,
-                            int is, int ie, int js, int je, int ks, int ke,
-                            int &ox, int &oy, int &oz) {
+void ComputeOverlapOffsets(int i, int j, int k, int r_cells, int is, int ie, int js,
+                           int je, int ks, int ke, int &ox, int &oy, int &oz) {
   ox = (i - r_cells < is) ? -1 : (i + r_cells > ie) ? 1 : 0;
   oy = (j - r_cells < js) ? -1 : (j + r_cells > je) ? 1 : 0;
   oz = (k - r_cells < ks) ? -1 : (k + r_cells > ke) ? 1 : 0;
@@ -488,14 +489,13 @@ void ComputeOverlapOffsets(int i, int j, int k, int r_cells,
 // each component either 0 or the corresponding offset — i.e. every
 // nonempty subset of the nonzero axes.
 template <typename Func>
-KOKKOS_INLINE_FUNCTION
-int ForEachOverlapNeighbor(int ox, int oy, int oz, Func &&f) {
+KOKKOS_INLINE_FUNCTION int ForEachOverlapNeighbor(int ox, int oy, int oz, Func &&f) {
   int count = 0;
   for (int dx = 0; dx <= 1; ++dx) {
     for (int dy = 0; dy <= 1; ++dy) {
       for (int dz = 0; dz <= 1; ++dz) {
-        if (dx == 0 && dy == 0 && dz == 0) continue;      // skip empty subset
-        if (dx && ox == 0) continue;                       // axis not overlapping
+        if (dx == 0 && dy == 0 && dz == 0) continue; // skip empty subset
+        if (dx && ox == 0) continue;                 // axis not overlapping
         if (dy && oy == 0) continue;
         if (dz && oz == 0) continue;
         int nx = dx ? ox : 0;
@@ -510,6 +510,8 @@ int ForEachOverlapNeighbor(int ox, int oy, int oz, Func &&f) {
 }
 
 // TODO: get rid of EOS? Seems like it's not needed in the end.
+//       the idea behind it was to apply the feedback using the prim, and using
+//       yet to be implemented PrimToCons. In the end went for Cons
 template <class EOS>
 TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                                 const EOS &eos);

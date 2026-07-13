@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 // Particles implementation refacored from https://github.com/lanl/phoebus
@@ -17,6 +17,9 @@
 // license in this material to reproduce, prepare derivative works,
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 #ifndef PARTICLES_UTILS_HPP_
 #define PARTICLES_UTILS_HPP_
@@ -42,7 +45,8 @@ return the same random number of cells at both par_for. An attempt of implementi
 such RNG using a cell index based seed is in utils/custom_rng.hpp. Comments welcomed.
 ====================================================================================== */
 
-enum class InjectionMode { FixedRate, PerCell };
+enum class InjectionMode { FixedRate, PerCell, None };
+enum class ParticlesType { Tracers, Stars, None };
 enum class ParticlesCriterion {
   DensityAbove,
   DensityBelow,

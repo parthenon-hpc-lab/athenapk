@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-// Stellar particles implementation refactored from https://github.com/lanl/phoebus
+// Tracer implementation refacored from https://github.com/lanl/phoebus
 //========================================================================================
 // © 2021-2023. Triad National Security, LLC. All rights reserved.
 // This program was produced under U.S. Government contract
@@ -17,6 +17,8 @@
 // license in this material to reproduce, prepare derivative works,
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
 //========================================================================================
 
 #include <cmath>
@@ -63,6 +65,9 @@ filling a criterion indicated in the input parameter list. Since stars can't be
 injected at all timesteps (this would lead to a divergence of the stellar population,
 these are injected in a stochastic way, based on a target number of stars per cell
 and per unit time.
+
+Here, we used a wrapper function as we (might) need the EOS to modify the prim and
+use PrimToCons / ConsToPrim. Might not be needed in the end.
 =============================================================================== */
 
 TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
@@ -105,34 +110,77 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   if (!enabled) return stars_pkg;
 
-  // Read the star formation density threshold
-  const auto sf_density_threshold =
+  // Star formation cell density threshold: minimum density value that cell need
+  // to exceed for star formation probability to be > 0
+  const auto stars_density_threshold =
       pin->GetOrAddReal("stars", "sf_density_threshold", -1);
-  stars_pkg->AddParam<>("sf_density_threshold", sf_density_threshold);
+  stars_pkg->AddParam<>("stars_density_threshold", stars_density_threshold);
+    
+  // In case of a star formation event in a cell, fraction of the cells mass
+  // which will be turned into stellar material. Should be 0 < eff < 1.
+  const auto stars_mass_efficiency =
+      pin->GetOrAddReal("stars", "sf_mass_efficiency", 0.5);
+  PARTHENON_REQUIRE(stars_mass_efficiency > 0.0 && stars_mass_efficiency < 1.0,
+                     "stars_mass_efficiency must be strictly between 0 and 1");
+  if (stars_mass_efficiency > 0.9) {
+    PARTHENON_WARN("stars_mass_efficiency is larger than 0.9 - "
+                   "might now be numerically stable.");
+  }
+  stars_pkg->AddParam<>("stars_mass_efficiency", stars_mass_efficiency);
 
-  // Feedback parameters
+  // Star formation efficiency per dynamical time (epsilon in
+  // \dot{M}_\star = epsilon * M_gas / t_dyn)
+  const auto stars_sf_efficiency =
+      pin->GetOrAddReal("stars", "sf_efficiency", 0.01);
+  PARTHENON_REQUIRE(stars_sf_efficiency > 0.0,
+                     "stars_sf_efficiency must be larger than 0.");
+  if (stars_sf_efficiency > 0.9) {
+    PARTHENON_WARN("stars_sf_efficiency is larger than 0.9 - "
+                   "this is unusually high and likely unrealistic.");
+  }
+  stars_pkg->AddParam<>("stars_sf_efficiency", stars_sf_efficiency);
+
+  // Whether or not supplementary conditions from Hopkins+2018c should be included
+  const auto stars_alpha_criterion_enabled =
+      pin->GetOrAddBoolean("stars", "sf_alpha_criterion_enabled", false);
+  stars_pkg->AddParam<>("stars_alpha_criterion_enabled", stars_alpha_criterion_enabled);
+
+  // Feedback booleans
   const auto SN_II_enabled = pin->GetOrAddBoolean("stars", "SN_II_enabled", false);
   const auto SN_Ia_enabled = pin->GetOrAddBoolean("stars", "SN_Ia_enabled", false);
 
   stars_pkg->AddParam<>("SN_II_enabled", SN_II_enabled);
   stars_pkg->AddParam<>("SN_Ia_enabled", SN_Ia_enabled);
-
+    
+  // Total energy injection per event
   const auto E_SN_per_event =
       pin->GetOrAddReal("stars", "E_SN_per_event", 1.0e51) * units.erg();
   stars_pkg->AddParam<>("E_SN_per_event", E_SN_per_event);
 
+  if (E_SN_per_event != 1.0e51  * units.erg()) {
+    PARTHENON_WARN("Energy injection per SNe event not set to 1e51 erg."
+                   "This is non-standard and may not be realistic.");
+  }
+
+  // Kinetic fraction
   const auto f_ek = pin->GetOrAddReal("stars", "SN_kinetic_efficiency", 1.0);
   PARTHENON_REQUIRE(f_ek >= 0.0 && f_ek <= 1.0,
                     "SN_kinetic_efficiency must be in [0, 1]");
+  if (f_ek != 1.0) {
+    PARTHENON_WARN("SN_kinetic_efficiency is not 1.0 - the remaining energy "
+                   "fraction would need to be deposited through another "
+                   "channel (e.g. thermal), which is not yet implemented");
+  }
+
   stars_pkg->AddParam<>("SN_kinetic_efficiency", f_ek);
 
+  // Injection kernel parameters
   const auto r_cells = pin->GetOrAddInteger("stars", "SN_injection_radius_cells", 2);
   const auto num_ghost = pin->GetInteger("parthenon/mesh", "nghost");
   // +1 accounts for the worst-case sub-cell offset of the particle from the
   // host cell center: since the kernel is centered on the particle's true
-  // position (not the host cell center) to avoid asymmetric momentum
-  // deposition, its support can extend up to one additional cell beyond
-  // host_cell + r_cells.
+  // position we need enough cells in the ghost region to calculate average
+  // hydrogen density and calculating momentum deposition.
   PARTHENON_REQUIRE(r_cells + 1 <= num_ghost,
                     "SN_injection_radius_cells (" + std::to_string(r_cells) +
                         ") requires " + std::to_string(r_cells + 1) +
@@ -235,10 +283,24 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     stars_pkg->UpdateParam("ejecta_table_size", n_ejecta);
   }
 
-  /* ==== Temporary: alternative advection mode for tests ==== */
   // either gravity or advection (advect. for tests as gravity only in cluster)
-  const auto advection_mode = pin->GetOrAddString("stars", "advection_mode", "advection");
-  stars_pkg->AddParam<>("advection_mode", advection_mode);
+  const auto star_transport_mode_str =
+      pin->GetOrAddString("stars", "star_transport_mode", "advection");
+  TransportMode star_transport_mode;
+  if (star_transport_mode_str == "gravity") {
+    star_transport_mode = TransportMode::Gravity;
+  } else if (star_transport_mode_str == "advection") {
+    star_transport_mode = TransportMode::Advection;
+  } else if (star_transport_mode_str == "none") {
+    star_transport_mode = TransportMode::None;
+  } else {
+    PARTHENON_FAIL("star_transport_mode must be one of 'gravity', 'advection', 'none'");
+  }
+  if (star_transport_mode == TransportMode::Advection) {
+    PARTHENON_WARN("star_transport_mode is set to 'advection' - this is unrealistic "
+                   "and only intended for testing purposes");
+  }
+  stars_pkg->AddParam<>("star_transport_mode", star_transport_mode);
 
   // Creating the stars swarm
   Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
@@ -247,7 +309,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   std::vector<std::string> swarm_names = {"stars"};
   stars_pkg->AddParam<>("swarm_names", swarm_names);
   stars_pkg->AddParam<>("stars_injection_enabled", true);
-  stars_pkg->AddParam<>("stars_mass_efficiency", 0.5); // Temporary variable
+  stars_pkg->AddParam<>("stars_mass_efficiency", 0.5);
   stars_pkg->AddParam<>("stars_removal_enabled", false);
 
   // Add value for injection time
@@ -365,6 +427,7 @@ void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
 MoveStars: Kind of similar to AdvectTracers (see tracers.cpp), though we move the
 gas solely out of the local gravitational field using a leapfrog integrator (as in
 the SMUGGLE model). Could potentially be improved to include hydrodynamical drag.
+Also includes tracers-like advection for testing.
 =============================================================================== */
 
 TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
@@ -377,28 +440,29 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   const auto swarm_names = stars_pkg->Param<std::vector<std::string>>("swarm_names");
   const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
 
-  // === Sanity check: gravitational field must be defined if necessary ===
-  const auto advection_mode = stars_pkg->Param<std::string>("advection_mode");
-  const bool use_gravity = (advection_mode == "gravity");
-
-  /*
-  const auto &gravitationalField =
-      (advection_mode == "gravity")
-          ? hydro_pkg->Param<cluster::ClusterGravity>("cluster_gravity")
-          : cluster::ClusterGravity();
-  if (advection_mode == "gravity") {
-    PARTHENON_REQUIRE(hydro_pkg->AllParams().hasKey("cluster_gravity"),
-                      "MoveStars requires a gravitational field; "
-                      "only the cluster setup is currently supported.");
-  }
-  */
-
   // Random pool generator for Monte Carlo method
   auto current_dt = tm.dt;
   auto ndim = pmb->pmy_mesh->ndim;
 
   // Looping on the N independent swarms (by default just "stars" here)
   for (const auto &swarm_name : swarm_names) {
+
+    // === Sanity check: gravitational field must be defined if necessary ===
+    const auto transport_mode =
+        stars_pkg->Param<TransportMode>(swarm_name + "_transport_mode");
+
+    // Pointer to the gravitational field, only set (non-null) when actually
+    // needed. Avoids requiring a default constructor for ClusterGravity, and
+    // avoids touching the "cluster_gravity" param at all in non-cluster
+    // setups.
+    const cluster::ClusterGravity *gravitational_field_ptr = nullptr;
+    if (transport_mode == TransportMode::Gravity) {
+      PARTHENON_REQUIRE(hydro_pkg->AllParams().hasKey("cluster_gravity"),
+                        "MoveStars requires a gravitational field; "
+                        "only the cluster setup is currently supported.");
+      gravitational_field_ptr = &hydro_pkg->Param<cluster::ClusterGravity>("cluster_gravity");
+    }
+
     auto &swarm = sd->Get(swarm_name);
 
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
@@ -417,12 +481,12 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     pmb->par_for(
         "MoveStars::PartLoop", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
           if (swarm_d.IsActive(n)) {
-            /*
-            if (use_gravity) {
+
+            if (transport_mode == TransportMode::Gravity) {
               // Compute acceleration at current position xn
               const Real xp = x(n), yp = y(n), zp = z(n);
               const Real r = sqrt(xp * xp + yp * yp + zp * zp);
-              const Real g = gravitationalField.g_from_r(r);
+              const Real g = gravitational_field_ptr->g_from_r(r);
               const Real gx = g * xp / r, gy = g * yp / r, gz = g * zp / r;
 
               const Real half_dt = 0.5 * current_dt;
@@ -439,7 +503,7 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
               // Recompute acceleration at new position xn+1
               const Real r2 = sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
-              const Real g2 = gravitationalField.g_from_r(r2);
+              const Real g2 = gravitational_field_ptr->g_from_r(r2);
               const Real gx2 = g2 * x(n) / r2, gy2 = g2 * y(n) / r2, gz2 = g2 * z(n) / r2;
 
               // Kick 2: half-step with acceleration at xn+1
@@ -447,12 +511,7 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               vel_y(n) += gy2 * half_dt;
               vel_z(n) += gz2 * half_dt;
 
-            }
-            */
-
-            /* == Dummy advection mode for tests === */
-
-            if (!use_gravity) {
+            } else if (transport_mode == TransportMode::Advection) {
 
               const auto x_star = x(n) + current_dt * vel_x(n);
               const auto y_star = y(n) + current_dt * vel_y(n);
@@ -477,14 +536,15 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               }
 
               // Then update the velocity for the next time step using new position
-              int k, j, i;
-              swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
-              vel_x(n) = prim_pack(0, IV1, k, j, i);
-              vel_y(n) = prim_pack(0, IV2, k, j, i);
+              vel_x(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV1);
+              vel_y(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV2);
               if (ndim == 3) {
-                vel_z(n) = prim_pack(0, IV3, k, j, i);
+                vel_z(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV3);
               }
             }
+
+            // TransportMode::None: no position/velocity update, particle stays fixed
+            // (falls through both branches above)
 
             // === Update neighbor block index ===
             bool unused_temp = true;

@@ -1,9 +1,9 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-// Particles implementation refacored from https://github.com/lanl/phoebus
+// Tracer implementation refacored from https://github.com/lanl/phoebus
 //========================================================================================
 // © 2021-2023. Triad National Security, LLC. All rights reserved.
 // This program was produced under U.S. Government contract
@@ -17,6 +17,9 @@
 // license in this material to reproduce, prepare derivative works,
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 #ifndef STAR_FORMATION_HPP_
 #define STAR_FORMATION_HPP_
@@ -35,17 +38,19 @@ namespace StarFormation {
 
 /* ===============================================================================
 EvaluateStarFormation: calculates cell-by-cell star formation rate based on the
-SMUGGLE star formation model (Marinacci et al. 2019).
+SMUGGLE star formation model (Marinacci et al. 2019). Density threshold only;
+the virial parameter gate (alpha_i <= 1) is deferred and applied later, only
+for cells that already passed the stochastic draw.
 =============================================================================== */
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION Real EvaluateStarFormation(
     View4D prim, const Coordinates_t &coords, const int k, const int j, const int i,
-    const Real threshold, const Real gravitational_constant, const int ndim) {
+    const Real threshold, const Real epsilon, const Real gravitational_constant, 
+    const int ndim) {
   const Real rho = prim(IDN, k, j, i);
   if (rho <= threshold) return 0.0;
 
-  const Real epsilon = 100.0; // Hardcoded at the moment
   const Real dx = coords.Dxc<1>(k, j, i);
   const Real dy = coords.Dxc<2>(k, j, i);
   const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
@@ -55,31 +60,76 @@ KOKKOS_INLINE_FUNCTION Real EvaluateStarFormation(
 }
 
 /* ===============================================================================
-EvaluateStarFormationProbability: computes the probability that a gas cell is
-converted into a star particle in the current timestep, following the stochastic
-star formation model of SMUGGLE (Marinacci et al. 2019). Given the local star
-formation rate M_dot computed by EvaluateStarFormation, the probability is:
-  p = 1 - exp(-M_dot * dt / M_gas)
-where M_gas is the cell gas mass and dt the current timestep.
+EvaluateStarFormationProbability: unchanged from before, still only gated by
+the density threshold via EvaluateStarFormation.
 =============================================================================== */
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION Real EvaluateStarFormationProbability(
     View4D prim, const Coordinates_t &coords, const int k, const int j, const int i,
-    const Real threshold, const Real gravitational_constant, const int ndim,
-    const Real dt) {
+    const Real threshold, const Real epsilon, const Real gravitational_constant, 
+    const int ndim, const Real dt) {
 
   const Real dx = coords.Dxc<1>(k, j, i);
   const Real dy = coords.Dxc<2>(k, j, i);
   const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
   const Real M_gas = prim(IDN, k, j, i) * dx * dy * dz;
 
-  const Real sfr = EvaluateStarFormation(prim, coords, k, j, i, threshold,
+  const Real sfr = EvaluateStarFormation(prim, coords, k, j, i, threshold, epsilon,
                                          gravitational_constant, ndim);
 
   if (sfr <= 0.0) return 0.0;
 
   return 1.0 - Kokkos::exp(-sfr * dt / M_gas);
+}
+
+/* ===============================================================================
+CheckVirialCollapse: computes alpha_i (Eq. 9, Marinacci et al. 2019) and
+returns whether the cell is gravitationally bound (alpha_i <= 1). Meant to be
+called only after a cell has already been selected by the stochastic draw,
+since the velocity-gradient stencil is comparatively expensive.
+=============================================================================== */
+template <typename View4D>
+KOKKOS_INLINE_FUNCTION bool CheckVirialCollapse(View4D prim, const Coordinates_t &coords,
+                                                const int k, const int j, const int i,
+                                                const Real gravitational_constant,
+                                                const int ndim, const Real gamma) {
+
+  const Real rho = prim(IDN, k, j, i);
+  const Real press = prim(IPR, k, j, i);
+  const Real cs2 = gamma * press / rho;
+
+  const Real dx = coords.Dxc<1>(k, j, i);
+  const Real dy = coords.Dxc<2>(k, j, i);
+  const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : dx;
+    
+  // Simplifies to regular dx if squared cell, geometric mean if not.
+  const Real dx_cell = Kokkos::pow(dx * dy * dz, 1.0 / 3.0);
+
+  // Vorticity components: curl(v) = (dvz/dy - dvy/dz, dvx/dz - dvz/dx, dvy/dx - dvx/dy)
+  Real curl_x = 0.0, curl_y = 0.0, curl_z = 0.0;
+
+  const Real dvy_dx = (prim(IV2, k, j, i + 1) - prim(IV2, k, j, i - 1)) / (2.0 * dx);
+  const Real dvx_dy = (prim(IV1, k, j + 1, i) - prim(IV1, k, j - 1, i)) / (2.0 * dy);
+  curl_z = dvy_dx - dvx_dy;
+
+  if (ndim == 3) {
+    const Real dvz_dx = (prim(IV3, k, j, i + 1) - prim(IV3, k, j, i - 1)) / (2.0 * dx);
+    const Real dvx_dz = (prim(IV1, k + 1, j, i) - prim(IV1, k - 1, j, i)) / (2.0 * dz);
+    const Real dvz_dy = (prim(IV3, k, j + 1, i) - prim(IV3, k, j - 1, i)) / (2.0 * dy);
+    const Real dvy_dz = (prim(IV2, k + 1, j, i) - prim(IV2, k - 1, j, i)) / (2.0 * dz);
+
+    curl_x = dvz_dy - dvy_dz;
+    curl_y = dvx_dz - dvz_dx;
+  }
+
+  const Real curl_v2 = curl_x * curl_x + curl_y * curl_y + curl_z * curl_z;
+  const Real cs_over_dx2 = cs2 / (dx_cell * dx_cell); // Assumes squared cells
+
+  const Real alpha =
+      (curl_v2 + cs_over_dx2) / (8.0 * M_PI * gravitational_constant * rho);
+
+  return alpha <= 1.0;
 }
 
 /* ===============================================================================
@@ -122,10 +172,10 @@ KOKKOS_INLINE_FUNCTION void TransferCellMassToParticle(
 
   // Updating the conserved variables (as PrimToCons isn't yet implemented)
   cons(IDN, k, j, i) *= (1.0 - mass_efficiency);
-  // cons(IM1, k, j, i) *= (1.0 - mass_efficiency);
-  // cons(IM2, k, j, i) *= (1.0 - mass_efficiency);
-  // if (ndim == 3) cons(IM3, k, j, i) *= (1.0 - mass_efficiency);
-  // cons(IEN, k, j, i) *= (1.0 - mass_efficiency);
+  cons(IM1, k, j, i) *= (1.0 - mass_efficiency);
+  cons(IM2, k, j, i) *= (1.0 - mass_efficiency);
+  if (ndim == 3) cons(IM3, k, j, i) *= (1.0 - mass_efficiency);
+  cons(IEN, k, j, i) *= (1.0 - mass_efficiency);
 
   // Resync prim from updated cons
   eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);

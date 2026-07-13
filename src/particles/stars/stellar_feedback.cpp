@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-// Stellar particles implementation refactored from https://github.com/lanl/phoebus
+// Tracer implementation refacored from https://github.com/lanl/phoebus
 //========================================================================================
 // © 2021-2023. Triad National Security, LLC. All rights reserved.
 // This program was produced under U.S. Government contract
@@ -17,6 +17,8 @@
 // license in this material to reproduce, prepare derivative works,
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
 //========================================================================================
 
 #include <cmath>
@@ -123,7 +125,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
   // Feedback physics parameters
   const auto E_SN_per_event = stars_pkg->Param<Real>("E_SN_per_event");
-  const auto f_ek = stars_pkg->Param<Real>("SN_kinetic_efficiency");
+  const auto f_ek = stars_pkg->Param<Real>("SN_kinetic_efficiency"); // Not used atm
   const auto p_t = 4.8e5 * units.msun() * units.km_s(); // terminal momentum per SN
   const auto r_cells = stars_pkg->Param<int>("SN_injection_radius_cells");
 
@@ -238,16 +240,6 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                             n_ghost_neighbors);
 
             lN_ghost += n_ghost_neighbors;
-              
-            // For debugging
-            const Real ssp_age = current_time - t_inj(n);
-            Kokkos::printf("[StellarFeedback] MeshBlock gid=%d: injecting %d SNe "
-                           "(N_SN_II=%d, N_SN_Ia=%d) at SSP age=%.6e "
-                           "(ejecta mass=%.6e, mass_scale=%.4e)%s\n",
-                           gid, N_SN, N_SN_II, N_SN_Ia, ssp_age, M_ej_tot, mass_scale,
-                           remove_particle ? " [PARTICLE DEPLETED]" : "");
-            fflush(stdout);
-            
 
             // Reducing the instantaneous mass of the stellar particle by the
             // total ejecta mass actually injected
@@ -332,7 +324,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                                 M_ej_Ia_tot);
               N_SN += N_SN_Ia;
             }
-            
+
             if (N_SN == 0) return;
 
             Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
@@ -355,15 +347,14 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             const Real p_SN_tot = p_SN_II + p_SN_Ia;
 
             // Define the terminal momentum multiplied by the number of events
-            Real p_terminal_Nsn =
-                Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
+            Real p_terminal_Nsn = Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
 
             // Apply the <n_H> density weighting
             Real weight_sum = 0.0;
             const Real nH_avg =
-                ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i,
-                                   r_cells, code_density_cgs, mh_cgs, x_H, weight_sum);
-            
+                ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i, r_cells,
+                                   code_density_cgs, mh_cgs, x_H, weight_sum);
+
             p_terminal_Nsn *= Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0);
 
             for (int mask = 1; mask <= n_neighbors; ++mask) {
@@ -372,9 +363,12 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                 if (mask & (1 << a)) {
                   const int axis = active_axis[a];
                   const int offset = axis_offset[axis];
-                  if (axis == 0) nx = offset;
-                  else if (axis == 1) ny = offset;
-                  else nz = offset;
+                  if (axis == 0)
+                    nx = offset;
+                  else if (axis == 1)
+                    ny = offset;
+                  else
+                    nz = offset;
                 }
               }
 
@@ -426,8 +420,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   return TaskStatus::complete;
 
 } // ApplyStellarFeedback
-    
-    
+
 // Tackles kernel overlapping with neighboring meshblocks
 TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto *pmb = mbd->GetParentPointer();
@@ -505,11 +498,11 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
           const Real weight_sum = gweight_sum(g);         // already computed on sender
 
           int n_ghost_neighbors = 0;
-          ApplyKineticSNe(cons, coords, ndim, true_x, true_y, true_z, k, j, i,
-                          gv_x(g), gv_y(g), gv_z(g), M_ej_tot, p_SN_tot,
-                          p_terminal_Nsn, r_cells, kb.s, kb.e, jb.s, jb.e, ib.s,
-                          ib.e, code_density_cgs, mh_cgs, x_H,
-                          n_ghost_neighbors, /*skip_density_rescale=*/true, weight_sum);
+          ApplyKineticSNe(cons, coords, ndim, true_x, true_y, true_z, k, j, i, gv_x(g),
+                          gv_y(g), gv_z(g), M_ej_tot, p_SN_tot, p_terminal_Nsn, r_cells,
+                          kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, code_density_cgs, mh_cgs,
+                          x_H, n_ghost_neighbors, /*skip_density_rescale=*/true,
+                          weight_sum);
 
           gswarm_d.MarkParticleForRemoval(g);
         });
@@ -519,7 +512,5 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
 
   return TaskStatus::complete;
 }
-    
-    
 
 } // namespace StellarFeedback
