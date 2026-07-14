@@ -22,6 +22,7 @@ If the current performance is (significantly) below expectation, one can try to 
 Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF` to mitigate the race condition.
 
 ### Added (new features/APIs/variables/...)
+- Add PPM reconstruction with symmetric van Albada curvature limiter (`Reconstruction::ppm_va`).  The van Albada limiter replaces the CS08 sign-based min-mod limiter in Step 2a of PPM with a smoother, C¹-continuous limiter that reduces clipping at smooth extrema (at the cost of slightly more dissipation near discontinuities).  Registered for hlle, hllc, and hlld Riemann solvers, and included in the automated convergence test.
 
 ### Changed (changing behavior/API/variables/...)
 

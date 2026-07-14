@@ -39,6 +39,7 @@ method_cfgs = [
     {"integrator": "rk2", "recon": "plm"},
     {"integrator": "rk2", "recon": "weno3"},
     {"integrator": "rk3", "recon": "ppm"},
+    {"integrator": "rk3", "recon": "ppm_va"},
     {"integrator": "rk3", "recon": "weno3"},
     {"integrator": "rk3", "recon": "limo3"},
     {"integrator": "rk3", "recon": "wenoz"},
@@ -102,7 +103,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/mesh/nx3=%d" % res,
             "parthenon/meshblock/nx3=%d" % res,
             "parthenon/mesh/nghost=%d"
-            % (3 if (recon == "ppm" or recon == "wenoz") else 2),
+            % (3 if (recon == "ppm" or recon == "ppm_va" or recon == "wenoz") else 2),
             "parthenon/time/integrator=%s" % integrator,
             "hydro/reconstruction=%s" % recon,
             "hydro/riemann=%s" % riemann,
