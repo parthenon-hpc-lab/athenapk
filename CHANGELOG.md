@@ -22,7 +22,7 @@ If the current performance is (significantly) below expectation, one can try to 
 Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF` to mitigate the race condition.
 
 ### Added (new features/APIs/variables/...)
-- Add uniformly-spaced Gnat-Sternberg cooling tables and generation script.  The original tables had non-uniform log10 T spacing (two outliers at dlogT=0.01 and 0.03 among otherwise 0.02 spacing) which could violate the equal-spacing requirement of the `TabularCooling` implementation.  The new tables use uniform ``d_log_T = 0.02`` via cubic spline interpolation from the original tab13 data.  Also includes the reference ``tab13.txt`` data file for reproducibility.
+- Add a script (`scripts/generate_uniform_cooling_table.py`) and reference data (`inputs/cooling_tables/tab13.txt`) to generate Gnat-Sternberg cooling tables from the original CIE data.  Users can use this script to create tables with custom uniform log10 T spacing (default dlogT=0.02) for use with the `TabularCooling` implementation.
 
 ### Changed (changing behavior/API/variables/...)
 
@@ -38,6 +38,7 @@ Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF
 ### Incompatibilities (i.e. breaking changes)
 - [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) C++20 is now the minimum standard
 - [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) New Parthenon submodule changed input file parsing (removed `*pib = pin->pfirst_block;`), see [here](https://github.com/parthenon-hpc-lab/parthenon/pull/1385)
+- The Gnat-Sternberg cooling tables have been updated to uniform log10 T spacing (dlogT = 0.02).  The original tables contained two irregular gaps (dlogT=0.03 at logT≈4.98–5.01 and dlogT=0.01 at logT≈5.99–6.00) that violated the equal-spacing requirement of the `TabularCooling` implementation.  Only the 50 rows in the affected region (logT ≈ 4.98–6.00) were corrected via cubic spline interpolation from the tab13 source data; all other rows are preserved exactly.  The maximum line-by-line difference in the corrected region is ~0.02 dex in log10 Λ, which is dynamically irrelevant for simulations.  The fix script (`scripts/fix_cooling_table_spacing.py`), a script to regenerate tables with custom spacing (`scripts/generate_uniform_cooling_table.py`), and the original tab13 reference data are included for reproducibility.
 
 ## Release 26.05
 
