@@ -501,16 +501,10 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               const Real t_dyn = (g0 > 0.0) ? sqrt(r0 / g0) : current_dt;
 
               // Safety factor: require several sub-steps per dynamical time.
-              const Real cfl_star = 0.1; // tunable, analogous to a CFL number
+              const Real cfl_star = 0.1; // TODO: read from pin, store in Param
               int n_sub = static_cast<int>(ceil(current_dt / (cfl_star * t_dyn)));
               n_sub = Kokkos::max(n_sub, 1);
               n_sub = Kokkos::min(n_sub, 1000);
-
-              // Debug: print the number of subcycles for a single representative particle.
-              if (n == 0) {
-                printf("MoveStars: particle n=%d, r=%.4e, t_dyn=%.4e, current_dt=%.4e, n_sub=%d\n",
-                       n, r0, t_dyn, current_dt, n_sub);
-              }
 
               const Real dt_sub = current_dt / static_cast<Real>(n_sub);
               const Real half_dt_sub = 0.5 * dt_sub;
