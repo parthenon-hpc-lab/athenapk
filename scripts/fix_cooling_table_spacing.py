@@ -111,7 +111,9 @@ def main():
         d_orig = np.diff(log_T_orig)
         for i, d in enumerate(d_orig):
             if abs(d - D_LOG_T) > 1e-6:
-                print(f"  Anomaly: row {i}->{i+1}  logT={log_T_orig[i]:.4f}->{log_T_orig[i+1]:.4f}  dlogT={d:.4f}")
+                print(
+                    f"  Anomaly: row {i}->{i+1}  logT={log_T_orig[i]:.4f}->{log_T_orig[i+1]:.4f}  dlogT={d:.4f}"
+                )
 
         # Build cubic spline interpolant from tab13: log_T -> log_Lambda
         cs = CubicSpline(log_T_src, log_lam_src[:, col_idx], extrapolate=False)
@@ -151,7 +153,10 @@ def main():
         d_fixed = np.diff(log_T_fixed)
         remaining_anomalies = np.sum(np.abs(d_fixed - D_LOG_T) > 1e-6)
         if remaining_anomalies > 0:
-            print(f"  WARNING: {remaining_anomalies} spacing anomalies remain!", file=sys.stderr)
+            print(
+                f"  WARNING: {remaining_anomalies} spacing anomalies remain!",
+                file=sys.stderr,
+            )
         else:
             print(f"  All {n_rows - 1} gaps now uniform (dlogT = {D_LOG_T})")
 

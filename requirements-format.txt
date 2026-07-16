@@ -1,0 +1,2 @@
+black==26.5.1
+clang-format==20.1.8

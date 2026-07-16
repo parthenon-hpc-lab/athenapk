@@ -30,6 +30,7 @@ Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF
 - [[PR 172]](https://github.com/parthenon-hpc-lab/athenapk/pull/172) Fixed data race condition in few modes IFT (no practical implication)
 
 ### Infrastructure
+- [[PR 187]](https://github.com/parthenon-hpc-lab/athenapk/pull/187) Update format check (now works on forks)
 - [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) Bump Kokkos to 5.1.1 and `Parthenon` to upcoming 26.xx version (incl OpenPMD support)
 - [[PR 168]](https://github.com/parthenon-hpc-lab/athenapk/pull/168) Document agentic coding guidelines (and add PR template)
 

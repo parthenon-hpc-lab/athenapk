@@ -143,6 +143,7 @@ In addition, the following recommendations should be followed
 We use `clang-format` to automatically format the C++ code. If you have clang-format installed
 locally, you can always execute `make format-athenapk` or `cmake --build . --target format-athenapk` from
 your build directory to automatically format the code.
+Instead of building a CMake target, auto-formatting can also be triggered by executing `./scripts/format.sh`.
 
 If you don't have `clang-format` installed locally, our "Hermes" automation can always
 format the code for you. Just create the following comment in your PR, and Hermes will
@@ -153,10 +154,6 @@ format the code and automatically commit it:
 
 After Hermes formats your code, remember to run `git pull` to update your local tracking
 branch.
-
-**WARNING:** Due to a limitation in GitHub Actions, the "Check Formatting" CI will not
-run, which will block merging. If you don't plan on making any further commits, you or a
-reviewer need to manually trigger the CI Action for the PR.
 
 In addition to `clang-format`, `black` is used to enforce formatting on python scripts.
 Running:
