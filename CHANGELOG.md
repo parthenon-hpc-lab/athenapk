@@ -27,6 +27,7 @@ Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF
 ### Changed (changing behavior/API/variables/...)
 
 ### Fixed (not changing behavior/API/variables/...)
+- [[PR 188]](https://github.com/parthenon-hpc-lab/athenapk/pull/188) Fix compilation in single precision
 - [[PR 172]](https://github.com/parthenon-hpc-lab/athenapk/pull/172) Fixed data race condition in few modes IFT (no practical implication)
 
 ### Infrastructure
