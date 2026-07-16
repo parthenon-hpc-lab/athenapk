@@ -177,9 +177,7 @@ def main() -> None:
         with open(out_filename, "w") as f:
             for line in HEADER_LINES:
                 f.write(line + "\n")
-            col_header = (
-                f"# log10 T [K] Z={Z_label} log10 Lambda_N [erg cm^3/s]\n"
-            )
+            col_header = f"# log10 T [K] Z={Z_label} log10 Lambda_N [erg cm^3/s]\n"
             f.write(col_header)
             for lt, ll in zip(log_T_uniform, log_lam_uniform):
                 f.write(f"{lt:.2f} {ll:.4f}\n")
