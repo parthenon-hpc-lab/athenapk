@@ -143,7 +143,7 @@ In addition, the following recommendations should be followed
 We use `clang-format` to automatically format the C++ code. If you have clang-format installed
 locally, you can always execute `make format-athenapk` or `cmake --build . --target format-athenapk` from
 your build directory to automatically format the code.
-Instead of build a cmake target, auto-formatting can also be triggered by executing `./scripts/format.sh`.
+Instead of building a CMake target, auto-formatting can also be triggered by executing `./scripts/format.sh`.
 
 If you don't have `clang-format` installed locally, our "Hermes" automation can always
 format the code for you. Just create the following comment in your PR, and Hermes will
