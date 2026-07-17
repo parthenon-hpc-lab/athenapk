@@ -4,9 +4,10 @@
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file precipitator.cpp
-//  \brief Idealized galaxy precipitator problem generator
-//
-// Setups up an idealized galaxy precipitator with a hydrostatic equilibrium box
+//! \brief Problem generator for a plane-parallel precipitating atmosphere.
+//!
+//! Initializes a Cartesian domain from a tabulated hydrostatic-equilibrium profile,
+//! with optional isobaric density and turbulent velocity perturbations.
 //========================================================================================
 
 // C headers
@@ -59,6 +60,9 @@
 typedef Kokkos::complex<Real> Complex;
 using utils::few_modes_ft::FewModesFT;
 
+/// \brief Construct uniformly spaced vertical bin centers for profile reductions.
+/// \param[in] md Mesh data whose global x3 extent and resolution define the bins.
+/// \return Host-pinned bin centers spanning the x3 domain in code units.
 auto BuildReductionBins(parthenon::MeshData<Real> *md) -> PinnedArray1D<Real> {
   const int num_bins =
       md->GetParentPointer()->mesh_size.nx(parthenon::X3DIR); // parthenon/mesh/nx3
@@ -73,6 +77,14 @@ auto BuildReductionBins(parthenon::MeshData<Real> *md) -> PinnedArray1D<Real> {
   return bins;
 }
 
+/// \brief Build a host-side monotone interpolator from a reduced vertical profile.
+///
+/// The profile values are copied from the device and extended with constant endpoint
+/// values at the lower and upper x3 domain boundaries.
+///
+/// \param[in] profile_reduce_dev Device profile sampled at the reduction-bin centers.
+/// \param[in] md Mesh data defining the vertical bin centers and domain boundaries.
+/// \return A monotone interpolator over the complete x3 domain.
 auto GetInterpolantFromProfile(parthenon::ParArray1D<Real> &profile_reduce_dev,
                                parthenon::MeshData<Real> *md)
     -> MonotoneInterpolator<PinnedArray1D<Real>> {
@@ -109,6 +121,9 @@ namespace precipitator {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 
+/// \brief Apply a reflecting boundary condition at the inner x3 boundary.
+/// \param[in,out] mbd Mesh-block data whose conserved ghost cells are filled.
+/// \param[in] coarse Whether to operate on the coarse representation.
 void ReflectingInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   MeshBlock *pmb = mbd->GetBlockPointer();
   auto cons_pack = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
@@ -126,6 +141,9 @@ void ReflectingInnerX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   }
 }
 
+/// \brief Apply a reflecting boundary condition at the outer x3 boundary.
+/// \param[in,out] mbd Mesh-block data whose conserved ghost cells are filled.
+/// \param[in] coarse Whether to operate on the coarse representation.
 void ReflectingOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   MeshBlock *pmb = mbd->GetBlockPointer();
   auto cons_pack = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
@@ -143,6 +161,13 @@ void ReflectingOuterX3(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   }
 }
 
+/// \brief Register fields and parameters for the plane-parallel precipitator problem.
+///
+/// This setup loads the hydrostatic profile, configures heating and perturbations, and
+/// creates restartable state needed by the problem generator and source terms.
+///
+/// \param[in,out] pin Runtime input parameters; optional values may be inserted.
+/// \param[in,out] pkg Hydro package receiving problem fields and parameters.
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
   if (parthenon::Globals::my_rank == 0) {
     std::cout << "Starting ProblemInitPackageData...\n";
@@ -400,6 +425,13 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   }
 }
 
+/// \brief Initialize one mesh block with the plane-parallel hydrostatic atmosphere.
+///
+/// The initialization fills gravitational and HSE auxiliary fields, applies optional
+/// isobaric density perturbations, and sets the conserved fluid and magnetic state.
+///
+/// \param[in,out] pmb Mesh block whose conserved and auxiliary fields are initialized.
+/// \param[in] pin Runtime input parameters defining the mesh and code units.
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const Units units(pin);
@@ -624,6 +656,14 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin) {
       });
 }
 
+/// \brief Populate plane-parallel derived fields immediately before output.
+///
+/// The callback computes horizontally averaged profiles and fills thermodynamic,
+/// velocity-fluctuation, magnetic, and cooling-time diagnostics on every mesh block.
+///
+/// \param[in,out] mesh Mesh whose derived fields are populated.
+/// \param[in] pin Runtime input parameters defining the equation of state and code units.
+/// \param[in] time Current simulation time supplied by the output callback.
 void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
                               const parthenon::SimTime &time) {
   auto md = mesh->mesh_data.Get();

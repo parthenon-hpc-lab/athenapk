@@ -4,7 +4,10 @@
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file precipitator_spherical.cpp
-//  \brief Spherical precipitator problem on a Cartesian mesh
+//! \brief Problem generator for a spherical precipitating atmosphere.
+//!
+//! Initializes a radial hydrostatic-equilibrium profile on a Cartesian mesh, with an
+//! optional force-free magnetic field and Fourier-Bessel density perturbations.
 //========================================================================================
 
 #include "pgen.hpp"
@@ -56,6 +59,9 @@ constexpr int kMaxPerturbationCoeff =
 constexpr Real kInvSqrt4Pi = 0.28209479177387814347;
 constexpr Real kSqrtTwo = 1.41421356237309504880;
 
+/// \brief Return the square of a scalar.
+/// \param[in] x Value to square.
+/// \return \f$x^2\f$.
 KOKKOS_INLINE_FUNCTION Real Square(const Real x) { return x * x; }
 
 struct SourceTermDiagValues {
@@ -82,10 +88,21 @@ struct SourceTermDiagValues {
   int i{};
 };
 
+/// \brief Compute the Cartesian distance from the origin.
+/// \param[in] x Cartesian x-coordinate.
+/// \param[in] y Cartesian y-coordinate.
+/// \param[in] z Cartesian z-coordinate.
+/// \return The Euclidean radius \f$\sqrt{x^2+y^2+z^2}\f$.
 KOKKOS_INLINE_FUNCTION Real Radius(const Real x, const Real y, const Real z) {
   return std::sqrt(Square(x) + Square(y) + Square(z));
 }
 
+/// \brief Map a radius to a valid radial-profile bin.
+/// \param[in] num_bins Number of bins in the profile.
+/// \param[in] radius Radius to map.
+/// \param[in] rmin Radius at the lower edge of the first bin.
+/// \param[in] inv_dr Reciprocal radial bin width.
+/// \return Zero for a degenerate profile; otherwise the index clamped to the profile.
 KOKKOS_INLINE_FUNCTION int ClampRadialBin(const int num_bins, const Real radius,
                                           const Real rmin, const Real inv_dr) {
   if (num_bins <= 1 || inv_dr == 0.0) return 0;
@@ -95,6 +112,14 @@ KOKKOS_INLINE_FUNCTION int ClampRadialBin(const int num_bins, const Real radius,
   return idx;
 }
 
+/// \brief Linearly interpolate a sampled radial profile.
+/// \tparam Array One-dimensional device-accessible profile type.
+/// \param[in] profile Values sampled on the radial grid.
+/// \param[in] num_bins Number of samples in \p profile.
+/// \param[in] radius Radius at which to sample the profile.
+/// \param[in] rmin Radius corresponding to the first sample.
+/// \param[in] inv_dr Reciprocal spacing between radial samples.
+/// \return The interpolated value, clamped to the profile endpoints.
 template <typename Array>
 KOKKOS_INLINE_FUNCTION Real SampleRadialProfile(const Array &profile, const int num_bins,
                                                 const Real radius, const Real rmin,
@@ -110,10 +135,17 @@ KOKKOS_INLINE_FUNCTION Real SampleRadialProfile(const Array &profile, const int 
   return profile(idx) * (1.0 - frac) + profile(idx + 1) * frac;
 }
 
+/// \brief Find the larger absolute value of two bounds.
+/// \param[in] a First bound.
+/// \param[in] b Second bound.
+/// \return `max(abs(a), abs(b))`.
 Real MaxAbsBound(const Real a, const Real b) {
   return std::max(std::abs(a), std::abs(b));
 }
 
+/// \brief Determine the nominal outer radius from the active-axis mesh extents.
+/// \param[in] pin Runtime parameters containing the mesh bounds and dimensions.
+/// \return The smallest maximum absolute coordinate among the active axes.
 Real NominalOuterRadiusCode(ParameterInput *pin) {
   Real r_outer = MaxAbsBound(pin->GetReal("parthenon/mesh", "x1min"),
                              pin->GetReal("parthenon/mesh", "x1max"));
@@ -130,6 +162,9 @@ Real NominalOuterRadiusCode(ParameterInput *pin) {
   return r_outer;
 }
 
+/// \brief Determine the largest radius reached by any active mesh corner.
+/// \param[in] pin Runtime parameters containing the mesh bounds and dimensions.
+/// \return The maximum corner radius in code units.
 Real RadialProfileMaxCode(ParameterInput *pin) {
   const int nx2 = pin->GetInteger("parthenon/mesh", "nx2");
   const int nx3 = pin->GetInteger("parthenon/mesh", "nx3");
@@ -144,21 +179,40 @@ Real RadialProfileMaxCode(ParameterInput *pin) {
   return std::sqrt(Square(rx) + Square(ry) + Square(rz));
 }
 
+/// \brief Choose the number of bins used for radial diagnostic profiles.
+/// \param[in] pin Runtime parameters containing the x1 mesh resolution.
+/// \return At least one bin, using `parthenon/mesh/nx1` when positive.
 int RadialProfileBinCount(ParameterInput *pin) {
   return std::max(pin->GetInteger("parthenon/mesh", "nx1"), 1);
 }
 
+/// \brief Compute the cgs unit of specific gravitational potential.
+/// \param[in] code_length_cgs Code length unit in centimeters.
+/// \param[in] code_time_cgs Code time unit in seconds.
+/// \return The potential unit \f$(L/T)^2\f$ in cgs.
 KOKKOS_INLINE_FUNCTION Real CodePotentialCgs(const Real code_length_cgs,
                                              const Real code_time_cgs) {
   return Square(code_length_cgs / code_time_cgs);
 }
 
+/// \brief Sample the gravitational potential and convert it to code units.
+/// \param[in] profile Hydrostatic radial profile tabulated in cgs units.
+/// \param[in] radius_code Radius in code units.
+/// \param[in] code_length_cgs Code length unit in centimeters.
+/// \param[in] code_potential_cgs Code specific-potential unit in cgs.
+/// \return The profile potential at \p radius_code in code units.
 KOKKOS_INLINE_FUNCTION Real
 PotentialCode(const precipitator::PrecipitatorProfile &profile, const Real radius_code,
               const Real code_length_cgs, const Real code_potential_cgs) {
   return profile.phi(radius_code * code_length_cgs) / code_potential_cgs;
 }
 
+/// \brief Recover temperature from density and pressure using the ideal-gas law.
+/// \param[in] rho Mass density.
+/// \param[in] pressure Gas pressure.
+/// \param[in] k_boltzmann Boltzmann constant in units consistent with the state.
+/// \param[in] mean_mass Mean particle mass in units consistent with the state.
+/// \return The gas temperature, or zero when \p rho is non-positive.
 KOKKOS_INLINE_FUNCTION Real TemperatureKelvin(const Real rho, const Real pressure,
                                               const Real k_boltzmann,
                                               const Real mean_mass) {
@@ -166,6 +220,10 @@ KOKKOS_INLINE_FUNCTION Real TemperatureKelvin(const Real rho, const Real pressur
   return pressure / (k_boltzmann * rho / mean_mass);
 }
 
+/// \brief Evaluate the central \f$\tanh^4(r/h)\f$ heating-and-cooling taper.
+/// \param[in] radius Radius in code units.
+/// \param[in] h_smooth Smoothing length in code units.
+/// \return The taper factor, or one when smoothing is disabled.
 KOKKOS_INLINE_FUNCTION Real MagicTaper(const Real radius, const Real h_smooth) {
   if (h_smooth <= 0.0) return 1.0;
   const Real arg = std::abs(radius) / h_smooth;
@@ -174,6 +232,12 @@ KOKKOS_INLINE_FUNCTION Real MagicTaper(const Real radius, const Real h_smooth) {
   return Square(Square(th));
 }
 
+/// \brief Taper heating and cooling smoothly across the outer buffer.
+/// \param[in] enabled Whether the outer-buffer taper is active.
+/// \param[in] radius Radius at which to evaluate the taper.
+/// \param[in] inner_radius Inner edge of the buffer.
+/// \param[in] outer_radius Outer edge of the physical sphere.
+/// \return One inside the buffer, zero outside, and a smoothstep transition between.
 KOKKOS_INLINE_FUNCTION Real OuterBufferHeatCoolTaper(const bool enabled,
                                                      const Real radius,
                                                      const Real inner_radius,
@@ -186,6 +250,12 @@ KOKKOS_INLINE_FUNCTION Real OuterBufferHeatCoolTaper(const bool enabled,
   return frac * frac * (3.0 - 2.0 * frac);
 }
 
+/// \brief Evaluate the power-law entropy profile used in the outer buffer.
+/// \param[in] radius_cgs Radius in centimeters.
+/// \param[in] match_entropy_cgs Entropy proxy at the buffer's inner edge.
+/// \param[in] inner_radius_cgs Inner buffer radius in centimeters.
+/// \param[in] entropy_slope Logarithmic entropy slope.
+/// \return The outer-buffer entropy proxy in cgs units.
 KOKKOS_INLINE_FUNCTION Real OuterBufferEntropyCgs(const Real radius_cgs,
                                                   const Real match_entropy_cgs,
                                                   const Real inner_radius_cgs,
@@ -196,6 +266,13 @@ KOKKOS_INLINE_FUNCTION Real OuterBufferEntropyCgs(const Real radius_cgs,
   return match_entropy_cgs * std::pow(radius_ratio, entropy_slope);
 }
 
+/// \brief Evaluate the hydrostatic enthalpy ODE in the outer buffer.
+/// \param[in] profile Hydrostatic profile providing the gravitational acceleration.
+/// \param[in] radius_cgs Radius in centimeters.
+/// \param[in] enthalpy_cgs Specific enthalpy in cgs units.
+/// \param[in] gamma Adiabatic index.
+/// \param[in] entropy_slope Logarithmic entropy slope.
+/// \return The radial derivative of the specific enthalpy.
 KOKKOS_INLINE_FUNCTION Real OuterBufferEnthalpyDerivativeCgs(
     const precipitator::PrecipitatorProfile &profile, const Real radius_cgs,
     const Real enthalpy_cgs, const Real gamma, const Real entropy_slope) {
@@ -206,6 +283,14 @@ KOKKOS_INLINE_FUNCTION Real OuterBufferEnthalpyDerivativeCgs(
   return deriv;
 }
 
+/// \brief Integrate the outer-buffer hydrostatic enthalpy profile with RK4.
+/// \param[in] profile Hydrostatic profile providing the gravitational acceleration.
+/// \param[in] radius_cgs Target radius in centimeters.
+/// \param[in] inner_radius_cgs Inner buffer radius in centimeters.
+/// \param[in] match_enthalpy_cgs Specific enthalpy at the inner buffer radius.
+/// \param[in] gamma Adiabatic index.
+/// \param[in] entropy_slope Logarithmic entropy slope.
+/// \return The specific enthalpy at \p radius_cgs in cgs units.
 KOKKOS_INLINE_FUNCTION Real SolveOuterBufferEnthalpyCgs(
     const precipitator::PrecipitatorProfile &profile, const Real radius_cgs,
     const Real inner_radius_cgs, const Real match_enthalpy_cgs, const Real gamma,
@@ -234,6 +319,20 @@ KOKKOS_INLINE_FUNCTION Real SolveOuterBufferEnthalpyCgs(
   return h;
 }
 
+/// \brief Sample the initial hydrostatic density and pressure in cgs units.
+/// \param[in] profile Tabulated hydrostatic profile used inside the physical sphere.
+/// \param[in] code_length_cgs Code length unit in centimeters.
+/// \param[in] radius_code Radius in code units.
+/// \param[in] outer_buffer_enabled Whether to replace the exterior with a buffer halo.
+/// \param[in] outer_buffer_inner_radius_code Inner buffer radius in code units.
+/// \param[in] outer_buffer_inner_radius_cgs Inner buffer radius in centimeters.
+/// \param[in] outer_buffer_entropy_slope Logarithmic entropy slope in the buffer.
+/// \param[in] outer_buffer_match_entropy_cgs Entropy proxy at the matching radius.
+/// \param[in] outer_buffer_match_enthalpy_cgs Specific enthalpy at the matching radius.
+/// \param[in] gamma Adiabatic index.
+/// \param[in] gm1 Adiabatic index minus one.
+/// \param[out] rho_cgs Sampled mass density in cgs units.
+/// \param[out] pressure_cgs Sampled gas pressure in cgs units.
 KOKKOS_INLINE_FUNCTION void SampleInitialStateCgs(
     const precipitator::PrecipitatorProfile &profile, const Real code_length_cgs,
     const Real radius_code, const bool outer_buffer_enabled,
@@ -258,18 +357,27 @@ KOKKOS_INLINE_FUNCTION void SampleInitialStateCgs(
   }
 }
 
+/// \brief Evaluate the small-argument series for spherical Bessel \f$j_1(x)\f$.
+/// \param[in] x Series argument.
+/// \return The series through order \f$x^5\f$.
 KOKKOS_INLINE_FUNCTION Real SeriesJ1(const Real x) {
   const Real x2 = x * x;
   const Real x4 = x2 * x2;
   return x / 3.0 - x * x2 / 30.0 + x4 * x / 840.0;
 }
 
+/// \brief Evaluate the derivative of the small-argument \f$j_1(x)\f$ series.
+/// \param[in] x Series argument.
+/// \return The derivative through order \f$x^4\f$.
 KOKKOS_INLINE_FUNCTION Real SeriesJ1Derivative(const Real x) {
   const Real x2 = x * x;
   const Real x4 = x2 * x2;
   return 1.0 / 3.0 - x2 / 10.0 + x4 / 280.0;
 }
 
+/// \brief Evaluate spherical Bessel \f$j_0(x)\f$ with a regular small-x branch.
+/// \param[in] x Function argument.
+/// \return \f$j_0(x)\f$.
 KOKKOS_INLINE_FUNCTION Real SphericalBesselJ0(const Real x) {
   const Real ax = std::abs(x);
   if (ax < kForceFreeSeriesLimit) {
@@ -280,12 +388,19 @@ KOKKOS_INLINE_FUNCTION Real SphericalBesselJ0(const Real x) {
   return std::sin(x) / x;
 }
 
+/// \brief Evaluate spherical Bessel \f$j_1(x)\f$ with a regular small-x branch.
+/// \param[in] x Function argument.
+/// \return \f$j_1(x)\f$.
 KOKKOS_INLINE_FUNCTION Real SphericalBesselJ1(const Real x) {
   const Real ax = std::abs(x);
   if (ax < kForceFreeSeriesLimit) return SeriesJ1(x);
   return std::sin(x) / (x * x) - std::cos(x) / x;
 }
 
+/// \brief Approximate spherical Bessel \f$j_l(x)\f$ near the origin.
+/// \param[in] l Non-negative spherical-Bessel order.
+/// \param[in] x Function argument.
+/// \return A regular small-argument approximation to \f$j_l(x)\f$.
 KOKKOS_INLINE_FUNCTION Real SmallXSphericalBessel(const int l, const Real x) {
   if (l == 0) {
     const Real x2 = x * x;
@@ -304,6 +419,11 @@ KOKKOS_INLINE_FUNCTION Real SmallXSphericalBessel(const int l, const Real x) {
   return result;
 }
 
+/// \brief Evaluate spherical Bessel \f$j_l(x)\f$ by series or upward recurrence.
+/// \param[in] l Non-negative spherical-Bessel order.
+/// \param[in] x Function argument.
+/// \param[in] small_x_threshold Magnitude below which the regular series is used.
+/// \return \f$j_l(x)\f$.
 KOKKOS_INLINE_FUNCTION Real SphericalBesselJ(const int l, const Real x,
                                              const Real small_x_threshold) {
   if (std::abs(x) < small_x_threshold) return SmallXSphericalBessel(l, x);
@@ -320,6 +440,11 @@ KOKKOS_INLINE_FUNCTION Real SphericalBesselJ(const int l, const Real x,
   return jcurr;
 }
 
+/// \brief Compute the regularized radial factor in the force-free vector potential.
+/// \param[in] r Radius in code units.
+/// \param[in] alpha Force-free inverse length scale.
+/// \param[in] amplitude Vector-potential amplitude.
+/// \param[out] S_over_r The radial factor \f$A_0 j_1(\alpha r)/r\f$.
 KOKKOS_INLINE_FUNCTION void ForceFreeRadialTerms(const Real r, const Real alpha,
                                                  const Real amplitude, Real &S_over_r) {
   const Real x = alpha * r;
@@ -336,6 +461,15 @@ KOKKOS_INLINE_FUNCTION void ForceFreeRadialTerms(const Real r, const Real alpha,
   }
 }
 
+/// \brief Evaluate the force-free vector potential in Cartesian components.
+/// \param[in] x Cartesian x-coordinate.
+/// \param[in] y Cartesian y-coordinate.
+/// \param[in] z Cartesian z-coordinate.
+/// \param[in] alpha Force-free inverse length scale.
+/// \param[in] amplitude Vector-potential amplitude.
+/// \param[out] a1 Cartesian x-component of the vector potential.
+/// \param[out] a2 Cartesian y-component of the vector potential.
+/// \param[out] a3 Cartesian z-component of the vector potential.
 KOKKOS_INLINE_FUNCTION void
 ForceFreeVectorPotentialCartesian(const Real x, const Real y, const Real z,
                                   const Real alpha, const Real amplitude, Real &a1,
@@ -349,6 +483,9 @@ ForceFreeVectorPotentialCartesian(const Real x, const Real y, const Real z,
   a3 = s_over_r * (alpha_z * z);
 }
 
+/// \brief Remove leading and trailing ASCII whitespace from a string.
+/// \param[in] input String to trim.
+/// \return A trimmed copy of \p input.
 std::string Trim(const std::string &input) {
   const auto first = input.find_first_not_of(" \t\r\n");
   if (first == std::string::npos) return "";
@@ -356,6 +493,9 @@ std::string Trim(const std::string &input) {
   return input.substr(first, last - first + 1);
 }
 
+/// \brief Read the force-free `alpha` parameter from a key-value text file.
+/// \param[in] filename Path to the force-free parameter file.
+/// \return The parsed value associated with `alpha`.
 Real ReadForceFreeAlpha(const std::string &filename) {
   std::ifstream file(filename);
   PARTHENON_REQUIRE(file.is_open(), "Unable to open force-free parameter file");
@@ -378,10 +518,18 @@ Real ReadForceFreeAlpha(const std::string &filename) {
   return alpha;
 }
 
+/// \brief Map a triangular \f$(l,m)\f$ pair to packed storage.
+/// \param[in] l Spherical-harmonic degree.
+/// \param[in] m Non-negative spherical-harmonic order with \f$m\leq l\f$.
+/// \return The packed coefficient index.
 KOKKOS_INLINE_FUNCTION int PerturbationCoeffIndex(const int l, const int m) {
   return l * (l + 1) / 2 + m;
 }
 
+/// \brief Compute normalized associated Legendre functions through \p lmax.
+/// \param[in] lmax Maximum spherical-harmonic degree.
+/// \param[in] cos_theta Cosine of the polar angle.
+/// \param[out] output Packed values for all \f$0\leq m\leq l\leq l_{max}\f$.
 KOKKOS_INLINE_FUNCTION void
 ComputeNormalizedAssociatedLegendre(const int lmax, const Real cos_theta, Real *output) {
   const Real sin_theta =
@@ -422,6 +570,21 @@ ComputeNormalizedAssociatedLegendre(const int lmax, const Real cos_theta, Real *
   }
 }
 
+/// \brief Evaluate the real Fourier-Bessel density-noise expansion.
+/// \tparam Array One-dimensional device-accessible coefficient array type.
+/// \param[in] r Radius in code units.
+/// \param[in] theta Polar angle in radians.
+/// \param[in] phi Azimuthal angle in radians.
+/// \param[in] lmax Maximum spherical-harmonic degree.
+/// \param[in] radial_modes Number of radial Bessel modes.
+/// \param[in] radius_min Lower radius used to normalize the radial coordinate.
+/// \param[in] radius_max Upper radius used to normalize the radial coordinate.
+/// \param[in] small_kr_threshold Threshold for the small-argument Bessel branch.
+/// \param[in] coeff_cos Cosine coefficients in packed mode order.
+/// \param[in] coeff_sin Sine coefficients in packed mode order.
+/// \param[in] k_values Radial wave numbers.
+/// \param[in] radial_weight Spectral weights for the radial modes.
+/// \return The dimensionless perturbation field at \f$(r,\theta,\phi)\f$.
 template <typename Array>
 KOKKOS_INLINE_FUNCTION Real EvalSphHarmNoise(
     const Real r, const Real theta, const Real phi, const int lmax,
@@ -465,6 +628,9 @@ KOKKOS_INLINE_FUNCTION Real EvalSphHarmNoise(
   return noise;
 }
 
+/// \brief Advance a deterministic LCG and draw a uniform variate.
+/// \param[in,out] state Pseudorandom generator state.
+/// \return A uniformly distributed value in `[0, 1)`.
 Real RandomUniform01(std::uint64_t &state) {
   constexpr double inv = 1.0 / 9007199254740992.0;
   state = state * 6364136223846793005ULL + 1ULL;
@@ -472,8 +638,17 @@ Real RandomUniform01(std::uint64_t &state) {
   return static_cast<Real>(static_cast<double>(mantissa) * inv);
 }
 
+/// \brief Draw a deterministic variate symmetric about zero.
+/// \param[in,out] state Pseudorandom generator state.
+/// \return A uniformly distributed value in `[-1, 1)`.
 Real RandomSymmetric(std::uint64_t &state) { return 2.0 * RandomUniform01(state) - 1.0; }
 
+/// \brief Allocate and initialize restartable Fourier-Bessel coefficient arrays.
+/// \param[in] pin Runtime parameters controlling the perturbation spectrum and seed.
+/// \param[in,out] pkg Hydro package that owns the generated arrays.
+/// \param[in] radial_modes Number of radial modes to allocate.
+/// \param[in] lmax Maximum spherical-harmonic degree.
+/// \param[in] enabled Whether to populate the arrays with random coefficients.
 void FillPerturbationArrays(ParameterInput *pin, StateDescriptor *pkg,
                             const int radial_modes, const int lmax, const bool enabled) {
   const int num_coeff = (lmax + 1) * (lmax + 2) / 2;
@@ -527,6 +702,15 @@ void FillPerturbationArrays(ParameterInput *pin, StateDescriptor *pkg,
                   parthenon::Params::Mutability::Restart);
 }
 
+/// \brief Compute a globally reduced, weighted radial average over mesh cells.
+/// \tparam ValueFunction Device-callable function returning the value to average.
+/// \tparam WeightFunction Device-callable function returning the averaging weight.
+/// \param[out] profile_dev Device array that receives the radial-bin averages.
+/// \param[in] md Mesh data containing the cells to bin.
+/// \param[in] rmin Lower bound of the radial binning interval.
+/// \param[in] rmax Upper bound of the radial binning interval.
+/// \param[in] value_func Function evaluated for each cell.
+/// \param[in] weight_func Additional weight multiplied by each cell volume.
 template <typename ValueFunction, typename WeightFunction>
 void ComputeRadialAverageProfile(parthenon::ParArray1D<Real> &profile_dev,
                                  MeshData<Real> *md, const Real rmin, const Real rmax,
@@ -592,6 +776,13 @@ void ComputeRadialAverageProfile(parthenon::ParArray1D<Real> &profile_dev,
   profile_dev.DeepCopy(profile_host);
 }
 
+/// \brief Compute a globally reduced, volume-weighted radial average over mesh cells.
+/// \tparam ValueFunction Device-callable function returning the value to average.
+/// \param[out] profile_dev Device array that receives the radial-bin averages.
+/// \param[in] md Mesh data containing the cells to bin.
+/// \param[in] rmin Lower bound of the radial binning interval.
+/// \param[in] rmax Upper bound of the radial binning interval.
+/// \param[in] value_func Function evaluated for each cell.
 template <typename ValueFunction>
 void ComputeRadialAverageProfile(parthenon::ParArray1D<Real> &profile_dev,
                                  MeshData<Real> *md, const Real rmin, const Real rmax,
@@ -605,6 +796,9 @@ void ComputeRadialAverageProfile(parthenon::ParArray1D<Real> &profile_dev,
 
 } // namespace
 
+/// \brief Register fields and parameters used by the spherical precipitator problem.
+/// \param[in,out] pin Runtime input parameters; missing optional values are inserted.
+/// \param[in,out] pkg Hydro package receiving problem fields and restartable parameters.
 void ProblemInitPackageData(ParameterInput *pin, StateDescriptor *pkg) {
   PARTHENON_REQUIRE_THROWS(
       typeid(parthenon::Coordinates_t) == typeid(parthenon::UniformCartesian),
@@ -815,6 +1009,14 @@ void ProblemInitPackageData(ParameterInput *pin, StateDescriptor *pkg) {
   FillPerturbationArrays(pin, pkg, perturb_radial_modes, perturb_lmax, perturb_enabled);
 }
 
+/// \brief Initialize one mesh block with the hydrostatic atmosphere and magnetic field.
+///
+/// The initialization samples the radial HSE profile, optionally adds an outer halo and
+/// Fourier-Bessel density perturbations, and constructs the force-free magnetic field
+/// from a Cartesian vector potential.
+///
+/// \param[in,out] pmb Mesh block whose conserved and auxiliary fields are initialized.
+/// \param[in] pin Runtime input parameters defining code units.
 void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const Units units(pin);
@@ -1031,6 +1233,10 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       });
 }
 
+/// \brief Apply well-balanced gravity, radiative cooling, and thermostat heating.
+/// \param[in,out] md Mesh data whose conserved variables receive the source update.
+/// \param[in] tm Current simulation time, used by optional source diagnostics.
+/// \param[in] dt Source-update interval in code units.
 void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime tm, const Real dt) {
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto units = pkg->Param<Units>("units");
@@ -1290,6 +1496,13 @@ void AddUnsplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime tm, const R
   }
 }
 
+/// \brief Damp momentum in the configured outer spherical sponge.
+///
+/// The kinetic energy removed by damping is also removed from total energy so that the
+/// internal and magnetic energies remain unchanged.
+///
+/// \param[in,out] md Mesh data whose conserved variables receive the sponge update.
+/// \param[in] dt Source-update interval in code units.
 void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real dt) {
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const Real tau = pkg->Param<Real>("outer_sponge_tau");
@@ -1335,6 +1548,9 @@ void AddSplitSrcTerms(MeshData<Real> *md, const parthenon::SimTime, const Real d
       });
 }
 
+/// \brief Find the global maximum density contrast relative to the radial mean.
+/// \param[in] mesh Mesh containing the primitive density field.
+/// \return The maximum \f$(\rho-\bar{\rho})/\bar{\rho}\f$ inside the nominal radius.
 Real MaxDensityContrastOverRadialMean(Mesh *mesh) {
   auto md = mesh->mesh_data.Get();
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
@@ -1385,6 +1601,9 @@ Real MaxDensityContrastOverRadialMean(Mesh *mesh) {
   return max_contrast;
 }
 
+/// \brief Request termination when the maximum density contrast exceeds its threshold.
+/// \param[in] mesh Mesh used to compute the radial density contrast.
+/// \param[in,out] tm Simulation limits updated to stop after the current step.
 void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *,
                                 const parthenon::SimTime &tm) {
   auto md = mesh->mesh_data.Get();
@@ -1407,6 +1626,13 @@ void PostStepMeshUserWorkInLoop(Mesh *mesh, ParameterInput *,
   }
 }
 
+/// \brief Populate derived diagnostic fields immediately before output.
+///
+/// Diagnostics include cooling time, divergence of the magnetic field, thermodynamic
+/// and velocity fluctuations about radial means, sonic Mach number, and plasma beta.
+///
+/// \param[in,out] mesh Mesh whose derived fields are populated.
+/// \param[in] pin Runtime input parameters defining code units.
 void UserMeshWorkBeforeOutput(Mesh *mesh, ParameterInput *pin,
                               const parthenon::SimTime &) {
   auto md = mesh->mesh_data.Get();
