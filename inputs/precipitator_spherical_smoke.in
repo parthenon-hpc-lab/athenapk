@@ -1,0 +1,85 @@
+# Smoke test for precipitator_spherical pgen
+# 16^3 single block, gravity + force-free B only, no cooling/heating/sponge/buffer
+
+<job>
+problem_id = precipitator_spherical
+
+<parthenon/output0>
+file_type = hdf5
+output_type = data
+variables = prim,divB
+dt        = 1.0e6
+id        = prim
+
+<parthenon/time>
+cfl        = 0.25
+nlim       = 5
+tlim       = 1.0e6
+integrator = rk2
+
+<parthenon/mesh>
+nx1    = 16
+x1min  = -120.0
+x1max  = 120.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2    = 16
+x2min  = -120.0
+x2max  = 120.0
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3    = 16
+x3min  = -120.0
+x3max  = 120.0
+ix3_bc = periodic
+ox3_bc = periodic
+
+refinement = static
+nghost     = 4
+
+<parthenon/meshblock>
+nx1 = 16
+nx2 = 16
+nx3 = 16
+
+<hydro>
+fluid = glmmhd
+gamma = 1.6666666666666667
+eos = adiabatic
+riemann = lhlld
+reconstruction = plm
+first_order_flux_correct = true
+scratch_level = 0
+
+He_mass_fraction = 0.25
+dfloor = 1454.4065594167007
+pfloor = 1000.0
+
+<units>
+code_length_cgs = 3.086e21
+code_mass_cgs   = 1.98841586e+33
+code_time_cgs   = 3.15576e+13
+
+<cooling>
+enable_cooling = none
+
+<precipitator>
+hse_profile_filename = inputs/hse_3.0.txt
+force_free_param_file = inputs/force_free_params.txt
+force_free_bfield_gauss = -1
+
+# Disable cooling, heating, sponge, outer buffer
+enable_powerlaw_cooling = 0
+enable_heating = none
+outer_sponge_inner_radius = 200.0
+outer_sponge_tau = 0.0
+enable_outer_buffer_halo = 0
+outer_buffer_inner_radius = 200.0
+
+# Disable perturbations for smoke test
+enable_fourier_bessel_perturbations = 0
+perturbation_sigma = 0.0
+
+h_smooth_heatcool = 1.0

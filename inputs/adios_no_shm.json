@@ -1,0 +1,10 @@
+{
+  "adios2": {
+    "engine": {
+      "type": "bp4",
+      "parameters": {
+        "AggregatorChain": "everyonewrites"
+      }
+    }
+  }
+}

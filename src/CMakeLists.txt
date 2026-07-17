@@ -26,6 +26,8 @@ add_executable(
         tracers/tracers.hpp
         utils/few_modes_ft.cpp
         utils/few_modes_ft.hpp
+        utils/precipitator_profile.cpp
+        utils/precipitator_profile.hpp
 )
 
 add_subdirectory(pgen)

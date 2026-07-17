@@ -18,6 +18,8 @@ The documentation currently includes
 - Detailed descriptions of more complex problem generators
   - [Galaxy Cluster and Cluster-like Problem Setup](cluster.md)
   - [Driven turbulence](turbulence.md)
+  - [Plane-parallel precipitator](precipitator.md)
+  - [Spherical precipitator](precipitator_spherical.md)
 
 ## Tutorial
 
