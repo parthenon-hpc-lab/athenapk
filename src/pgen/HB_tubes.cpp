@@ -22,6 +22,39 @@
 namespace HB_tubes {
 using namespace parthenon::driver::prelude;
 
+Real AbsBcc2Y0(MeshData<Real> *md) {
+  auto const &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  Real sum = 0.0;
+  parthenon::par_reduce(
+      DEFAULT_LOOP_PATTERN, "AbsBcc2Y0", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
+        const auto &cons = cons_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
+        const Real y = coords.Xc<2>(j);
+        const Real dy = coords.Dxc<2>(k, j, i);
+
+        if (Kokkos::fabs(y) <= 0.5 * dy) {
+          lsum += Kokkos::fabs(cons(IB2, k, j, i)) * coords.CellVolume(k, j, i) / dy;
+        }
+      },
+      sum);
+
+  return sum;
+}
+
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
+  auto hst_vars = pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                                    AbsBcc2Y0, "AbsBcc2Y0"));
+  pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
+}
+
 void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
