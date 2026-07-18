@@ -12,6 +12,7 @@
 //========================================================================================
 
 // Parthenon headers
+#include "Kokkos_Random.hpp"
 #include "mesh/mesh.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
@@ -79,6 +80,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real gm1 = pin->GetReal("hydro", "gamma") - 1.0;
   Real rho_hot = pin->GetReal("problem/hb", "rho_hot");
   Real rho_cold = pin->GetReal("problem/hb", "rho_cold");
+  Real amp = pin->GetOrAddReal("problem/hb", "amp", 0.0);
+  int rseed = pin->GetOrAddInteger("problem/hb", "rseed", 1);
   Real eta = pin->GetReal("diffusion", "ohm_diff_coeff_code");
   Real S = 1 / eta;
   Real a = 1 / std::sqrt(S);
@@ -86,6 +89,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real p0 = pin->GetReal("problem/hb", "p0");
   Real T0 = p0 / rho_hot;
   Real A_amp = 1.0 / (2.0 * M_PI);
+  Real vx_width = 0.1;
+
+  Kokkos::Random_XorShift64_Pool<parthenon::DevExecSpace> rand_pool(rseed + pmb->gid);
 
   auto &coords = pmb->coords;
 
@@ -112,6 +118,14 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         Real By0 = -A_amp * (2.0 * M_PI / Lx) * std::cos(M_PI * y / Ly) *
                    std::cos(2.0 * M_PI * xabs / Lx) * ((x >= 0.0) ? 1.0 : -1.0);
 
+        auto rng = rand_pool.get_state();
+        Real vx_pert = 0.0;
+        if (amp != 0.0) {
+          Real x_env = std::exp(-SQR(x / vx_width));
+          vx_pert = amp * x_env * (2.0 * rng.drand() - 1.0);
+        }
+        rand_pool.free_state(rng);
+
         Real pressure = p0 +
                         (5.0 / 8.0) * SQR(Az0) * (2.0 * M_PI / Lx) * (2.0 * M_PI / Ly) +
                         0.5 * (SQR(By0) - SQR(u(IB2, k, j, i)));
@@ -123,7 +137,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
         u(IDN, k, j, i) = density;
 
-        u(IM1, k, j, i) = 0.0;
+        u(IM1, k, j, i) = density * vx_pert;
         u(IM2, k, j, i) = 0.0;
         u(IM3, k, j, i) = 0.0;
 
