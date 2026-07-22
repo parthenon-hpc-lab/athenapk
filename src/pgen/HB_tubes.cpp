@@ -81,6 +81,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real rho_hot = pin->GetReal("problem/hb", "rho_hot");
   Real rho_cold = pin->GetReal("problem/hb", "rho_cold");
   Real amp = pin->GetOrAddReal("problem/hb", "amp", 0.0);
+  Real Lx_trunc = pin->GetOrAddReal("problem/hb", "Lx_trunc", x1size);
+  Real Ly_trunc = pin->GetOrAddReal("problem/hb", "Ly_trunc", x2size);
   int rseed = pin->GetOrAddInteger("problem/hb", "rseed", 1);
   Real eta = pin->GetReal("diffusion", "ohm_diff_coeff_code");
   Real S = 1 / eta;
@@ -91,6 +93,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   Real A_amp = 1.0 / (2.0 * M_PI);
   Real vx_width = 0.1;
 
+  Lx = Lx_trunc;
+  Ly = Ly_trunc;
   Kokkos::Random_XorShift64_Pool<parthenon::DevExecSpace> rand_pool(rseed + pmb->gid);
 
   auto &coords = pmb->coords;
