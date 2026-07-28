@@ -154,6 +154,9 @@ struct OhmicDiffusivity {
 
   KOKKOS_INLINE_FUNCTION
   ResistivityCoeff GetCoeffType() const { return resistivity_coeff_type_; }
+
+  KOKKOS_INLINE_FUNCTION
+  Real GetCoeff() const { return coeff_; }
 };
 
 Real EstimateResistivityTimestep(MeshData<Real> *md);

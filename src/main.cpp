@@ -93,6 +93,9 @@ int main(int argc, char *argv[]) {
   } else if (problem == "HB_tubes") {
     pman.app_input->ProblemGenerator = HB_tubes::ProblemGenerator;
     Hydro::ProblemInitPackageData = HB_tubes::ProblemInitPackageData;
+  } else if (problem == "harris_chi") {
+    pman.app_input->ProblemGenerator = harris_chi::ProblemGenerator;
+    Hydro::ProblemInitPackageData = harris_chi::ProblemInitPackageData;
   } else if (problem == "kh") {
     pman.app_input->MeshProblemGenerator = kh::ProblemGenerator;
   } else if (problem == "lw_implode") {
