@@ -1,7 +1,0 @@
-"""
-API for Rockstar frontend.
-
-
-
-
-"""

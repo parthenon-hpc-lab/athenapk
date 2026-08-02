@@ -1,7 +1,0 @@
-"""
-API for HaloCatalog frontend.
-
-
-
-
-"""
