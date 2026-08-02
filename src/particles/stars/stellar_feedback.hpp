@@ -281,6 +281,23 @@ ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass
 }
 
 // ========================================================================
+// Number of local cells (in index space) the deposition kernel must be
+// searched over so that its full physical support (2*h_smooth) is covered
+// at this cell's own resolution. h_smooth is a fixed physical length (see
+// stellar_particles.cpp::Initialize, "SN_h_smooth") pinned to the finest
+// level the mesh can reach, so this radius shrinks automatically on coarser
+// blocks and reaches its maximum (r_cells+1, by construction) only when the
+// host cell itself sits at the finest level -- this is what keeps the
+// kernel's physical footprint (and therefore its normalization) identical
+// on both sides of a coarse/fine block boundary, rather than depending on
+// whichever block happens to own the star.
+// ========================================================================
+KOKKOS_INLINE_FUNCTION
+int KernelSearchRadius(const parthenon::Real h_smooth, const parthenon::Real dx_local) {
+  return static_cast<int>(Kokkos::ceil(2.0 * h_smooth / dx_local));
+}
+
+// ========================================================================
 // Compute the kernel-weighted average hydrogen number density within a
 // stellar particle's SN injection sphere, used to rescale the terminal
 // momentum by local gas density.
@@ -291,12 +308,12 @@ KOKKOS_INLINE_FUNCTION Real
 ComputeKernelAvgNH(View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
                    const parthenon::Real x_star, const parthenon::Real y_star,
                    const parthenon::Real z_star, const int k_host, const int j_host,
-                   const int i_host, const int r_cells,
+                   const int i_host, const parthenon::Real h_smooth,
                    const parthenon::Real code_density_cgs, const parthenon::Real mh_cgs,
                    const parthenon::Real X_H, parthenon::Real &weight_sum_out) {
   using parthenon::Real;
-  const int r_search = r_cells + 1;
-  const Real h_smooth = 0.5 * (r_cells + 1.0) * coords.Dxc<1>(i_host);
+  const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i_host));
+  const Real r_max = 2.0 * h_smooth;
 
   Real weight_sum = 0.0;
   Real nH_vol_sum = 0.0;
@@ -312,7 +329,6 @@ ComputeKernelAvgNH(View4D &cons, const parthenon::Coordinates_t &coords, const i
         const Real dy = coords.Xc<2>(jj) - y_star;
         const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
         const Real r2 = dx * dx + dy * dy + dz * dz;
-        const Real r_max = (r_cells + 1.0) * coords.Dxc<1>(ii);
         if (r2 > r_max * r_max) continue;
 
         const Real r = Kokkos::sqrt(r2);
@@ -346,22 +362,23 @@ ComputeKernelAvgNH(View4D &cons, const parthenon::Coordinates_t &coords, const i
 // ========================================================================
 
 template <typename View4D>
-KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
-    View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
-    const parthenon::Real x_star, const parthenon::Real y_star,
-    const parthenon::Real z_star, const int k_host, const int j_host, const int i_host,
-    const parthenon::Real vel_x_star, const parthenon::Real vel_y_star,
-    const parthenon::Real vel_z_star, const parthenon::Real M_ej_tot,
-    const parthenon::Real p_SN_tot, const parthenon::Real p_terminal, const int r_cells,
-    const int kb_s, const int kb_e, const int jb_s, const int jb_e, const int ib_s,
-    const int ib_e, const parthenon::Real code_density_cgs, const parthenon::Real mh_cgs,
-    const parthenon::Real X_H, int &n_ghost_neighbors, bool skip_density_rescale = false,
-    const parthenon::Real weight_sum_in = 0.0) {
+KOKKOS_INLINE_FUNCTION void
+ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
+                const parthenon::Real x_star, const parthenon::Real y_star,
+                const parthenon::Real z_star, const int k_host, const int j_host,
+                const int i_host, const parthenon::Real vel_x_star,
+                const parthenon::Real vel_y_star, const parthenon::Real vel_z_star,
+                const parthenon::Real M_ej_tot, const parthenon::Real p_SN_tot,
+                const parthenon::Real p_terminal, const parthenon::Real h_smooth,
+                const int kb_s, const int kb_e, const int jb_s, const int jb_e,
+                const int ib_s, const int ib_e, const parthenon::Real code_density_cgs,
+                const parthenon::Real mh_cgs, const parthenon::Real X_H,
+                int &n_ghost_neighbors, bool skip_density_rescale = false,
+                const parthenon::Real weight_sum_in = 0.0) {
 
   using parthenon::Real;
 
-  const int r_search = r_cells + 1;
-  const Real h_smooth = 0.5 * (r_cells + 1.0) * coords.Dxc<1>(i_host);
+  const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i_host));
 
   // --- Pass 1: kernel-weighted volume normalisation, and density-based
   //             terminal momentum rescaling ---
@@ -386,7 +403,7 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
     weight_sum = 0.0;
     const Real nH_avg =
         ComputeKernelAvgNH(cons, coords, ndim, x_star, y_star, z_star, k_host, j_host,
-                           i_host, r_cells, code_density_cgs, mh_cgs, X_H, weight_sum);
+                           i_host, h_smooth, code_density_cgs, mh_cgs, X_H, weight_sum);
     if (nH_avg <= 0.0) return;
     p_terminal_nH_scaled = p_terminal * Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0);
   }
@@ -411,7 +428,7 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
         const Real dy = coords.Xc<2>(jj) - y_star;
         const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
         const Real r2 = dx * dx + dy * dy + dz * dz;
-        const Real r_max = (r_cells + 1.0) * coords.Dxc<1>(ii);
+        const Real r_max = 2.0 * h_smooth;
         if (r2 > r_max * r_max) continue;
 
         const Real r = Kokkos::sqrt(r2);
@@ -476,44 +493,6 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
   const int oz = k_lo ? -1 : (k_hi ? 1 : 0);
   const int k_axes = (ox != 0) + (oy != 0) + (oz != 0);
   n_ghost_neighbors = (k_axes > 0) ? ((1 << k_axes) - 1) : 0;
-}
-
-// ========================================================================
-// Two functions to calculate the number of neighbors for a given stellar
-// particle firing a SN event.
-// ========================================================================
-
-// Compute per-axis overlap offset given kernel radius and interior bounds
-KOKKOS_INLINE_FUNCTION
-void ComputeOverlapOffsets(int i, int j, int k, int r_cells, int is, int ie, int js,
-                           int je, int ks, int ke, int &ox, int &oy, int &oz) {
-  ox = (i - r_cells < is) ? -1 : (i + r_cells > ie) ? 1 : 0;
-  oy = (j - r_cells < js) ? -1 : (j + r_cells > je) ? 1 : 0;
-  oz = (k - r_cells < ks) ? -1 : (k + r_cells > ke) ? 1 : 0;
-}
-
-// Enumerate all overlapping neighbor directions as (dx,dy,dz) triples,
-// each component either 0 or the corresponding offset — i.e. every
-// nonempty subset of the nonzero axes.
-template <typename Func>
-KOKKOS_INLINE_FUNCTION int ForEachOverlapNeighbor(int ox, int oy, int oz, Func &&f) {
-  int count = 0;
-  for (int dx = 0; dx <= 1; ++dx) {
-    for (int dy = 0; dy <= 1; ++dy) {
-      for (int dz = 0; dz <= 1; ++dz) {
-        if (dx == 0 && dy == 0 && dz == 0) continue; // skip empty subset
-        if (dx && ox == 0) continue;                 // axis not overlapping
-        if (dy && oy == 0) continue;
-        if (dz && oz == 0) continue;
-        int nx = dx ? ox : 0;
-        int ny = dy ? oy : 0;
-        int nz = dz ? oz : 0;
-        f(nx, ny, nz);
-        ++count;
-      }
-    }
-  }
-  return count;
 }
 
 // TODO: get rid of EOS? Seems like it's not needed in the end.

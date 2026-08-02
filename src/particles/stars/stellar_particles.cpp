@@ -203,6 +203,25 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                         "SN_injection_radius_cells.");
   stars_pkg->AddParam<>("SN_injection_radius_cells", r_cells);
 
+  // Physical (resolution-independent) SN deposition kernel smoothing length.
+  // Pinned to r_cells+1 cells at the *finest* level the mesh can ever reach
+  // (root cell size / 2^(numlevel-1)), rather than the local host cell's own
+  // dx. This guarantees the kernel footprint -- and therefore its
+  // normalization (weight_sum) -- is identical regardless of which
+  // refinement level actually hosts the star, which is what keeps a SN
+  // deposit self-consistent when it straddles a coarse/fine block boundary.
+  // The worst case for ghost-cell coverage is a host cell already at the
+  // finest level, where this reduces to the original r_cells+1 cells, so the
+  // PARTHENON_REQUIRE above remains a valid bound.
+  const auto root_nx1 = pin->GetInteger("parthenon/mesh", "nx1");
+  const auto root_x1min = pin->GetReal("parthenon/mesh", "x1min");
+  const auto root_x1max = pin->GetReal("parthenon/mesh", "x1max");
+  const auto numlevel = pin->GetOrAddInteger("parthenon/mesh", "numlevel", 1);
+  const Real dx_root = (root_x1max - root_x1min) / static_cast<Real>(root_nx1);
+  const Real dx_finest = dx_root / std::pow(2.0, numlevel - 1);
+  const Real SN_h_smooth = 0.5 * (r_cells + 1.0) * dx_finest;
+  stars_pkg->AddParam<>("SN_h_smooth", SN_h_smooth);
+
   // Register empty lifetime tables as default (overwritten if SN_II_enabled)
   stars_pkg->AddParam("log_mass_table", parthenon::ParArray1D<Real>("log_mass_table", 0),
                       parthenon::Params::Mutability::Mutable);
@@ -515,7 +534,12 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                 const Real xp = x(n), yp = y(n), zp = z(n);
                 const Real r = sqrt(xp * xp + yp * yp + zp * zp);
                 const Real g = gravitational_field_ptr->g_from_r(r);
-                const Real gx = -g * xp / r, gy = -g * yp / r, gz = -g * zp / r;  // inward!
+                // Guard against r == 0 (e.g. a purely radial orbit through the
+                // cluster center): direction is undefined there, so treat the
+                // acceleration as zero rather than dividing by zero.
+                const Real inv_r = (r > 0.0) ? 1.0 / r : 0.0;
+                const Real gx = -g * xp * inv_r, gy = -g * yp * inv_r,
+                           gz = -g * zp * inv_r; // inward!
 
                 // Kick 1
                 vel_x(n) += gx * half_dt_sub;
@@ -530,7 +554,9 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                 // Kick 2 at new position
                 const Real r2 = sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
                 const Real g2 = gravitational_field_ptr->g_from_r(r2);
-                const Real gx2 = -g2 * x(n) / r2, gy2 = -g2 * y(n) / r2, gz2 = -g2 * z(n) / r2;
+                const Real inv_r2 = (r2 > 0.0) ? 1.0 / r2 : 0.0;
+                const Real gx2 = -g2 * x(n) * inv_r2, gy2 = -g2 * y(n) * inv_r2,
+                           gz2 = -g2 * z(n) * inv_r2;
 
                 vel_x(n) += gx2 * half_dt_sub;
                 vel_y(n) += gy2 * half_dt_sub;

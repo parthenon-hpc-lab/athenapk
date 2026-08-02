@@ -25,13 +25,13 @@
 #include <string>    // c_str()
 
 // Parthenon headers
-#include <Kokkos_Random.hpp>
 #include "Kokkos_MathematicalFunctions.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
 #include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
+#include <Kokkos_Random.hpp>
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -102,7 +102,8 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
     const auto &y_max = pmb->coords.Xf<2>(jb.e + 1);
     const auto &z_max = pmb->coords.Xf<3>(kb.e + 1);
 
-    for (std::size_t k_population = 0; k_population < swarm_names.size(); ++k_population) {
+    for (std::size_t k_population = 0; k_population < swarm_names.size();
+         ++k_population) {
       const std::string &swarm_name = swarm_names[k_population];
 
       auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
@@ -146,8 +147,8 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
             const Real z_rand =
                 (nx3 > 1) ? (z_min + rng_gen.drand() * (z_max - z_min)) : z_min;
 
-            const Real r = Kokkos::sqrt(x_rand * x_rand + y_rand * y_rand +
-                                         z_rand * z_rand);
+            const Real r =
+                Kokkos::sqrt(x_rand * x_rand + y_rand * y_rand + z_rand * z_rand);
 
             // Reject particles seeded beyond r_max: mark the slot for removal
             // instead of populating it, so it's cleaned up on the next

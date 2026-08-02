@@ -127,7 +127,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   const auto E_SN_per_event = stars_pkg->Param<Real>("E_SN_per_event");
   const auto f_ek = stars_pkg->Param<Real>("SN_kinetic_efficiency"); // Not used atm
   const auto p_t = 4.8e5 * units.msun() * units.km_s(); // terminal momentum per SN
-  const auto r_cells = stars_pkg->Param<int>("SN_injection_radius_cells");
+  const auto h_smooth = stars_pkg->Param<Real>("SN_h_smooth");
 
   auto rng_pool = stars_pkg->Param<Kokkos::Random_XorShift64_Pool<>>(
       "rng_block_" + std::to_string(pmb->gid));
@@ -235,7 +235,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             // neighboring block's domain
             int n_ghost_neighbors = 0;
             ApplyKineticSNe(cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n), v_y(n),
-                            v_z(n), M_ej_tot, p_SN_tot, p_terminal_Nsn, r_cells, kb.s,
+                            v_z(n), M_ej_tot, p_SN_tot, p_terminal_Nsn, h_smooth, kb.s,
                             kb.e, jb.s, jb.e, ib.s, ib.e, code_density_cgs, mh_cgs, x_H,
                             n_ghost_neighbors);
 
@@ -296,13 +296,19 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
             // --- Determine which block boundary(ies) the deposition kernel overlaps -
             // A kernel centered on this particle can spill into a neighboring block
-            // along any axis where the kernel radius (r_cells) reaches past the
-            // interior domain edge. ox/oy/oz encode the direction of overlap
-            // (-1, 0, or +1) per axis; active_axis records which axes actually
-            // overlap, so we only enumerate real neighbor directions below.
-            const int ox = (i - r_cells < ib.s) ? -1 : (i + r_cells > ib.e) ? 1 : 0;
-            const int oy = (j - r_cells < jb.s) ? -1 : (j + r_cells > jb.e) ? 1 : 0;
-            const int oz = (k - r_cells < kb.s) ? -1 : (k + r_cells > kb.e) ? 1 : 0;
+            // along any axis where the kernel's actual index reach (r_search, the
+            // same radius ApplyKineticSNe/ComputeKernelAvgNH search over for this
+            // same host cell) passes the interior domain edge. Using anything other
+            // than r_search here (e.g. a fixed r_cells) would disagree with the
+            // deposit loop about which cells are "out of bounds", silently dropping
+            // ejecta that the kernel actually reaches or tripping the slot-count
+            // sanity check below. ox/oy/oz encode the direction of overlap (-1, 0,
+            // or +1) per axis; active_axis records which axes actually overlap, so
+            // we only enumerate real neighbor directions below.
+            const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
+            const int ox = (i - r_search < ib.s) ? -1 : (i + r_search > ib.e) ? 1 : 0;
+            const int oy = (j - r_search < jb.s) ? -1 : (j + r_search > jb.e) ? 1 : 0;
+            const int oz = (k - r_search < kb.s) ? -1 : (k + r_search > kb.e) ? 1 : 0;
 
             const int axis_offset[3] = {ox, oy, oz};
             int active_axis[3] = {-1, -1, -1};
@@ -343,16 +349,23 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             if (N_SN == 0) return;
 
             // --- Clamp ejecta to the particle's remaining mass budget ---------------
-            // Mirrors the clamping applied on the interior-domain pass, so both
-            // passes agree on the actual (possibly rescaled) ejecta mass and
-            // momentum for this event.
+            // Mirrors the clamping applied on the interior-domain pass. That pass
+            // clamps against the particle's mass *before* this event's ejecta is
+            // subtracted, then immediately subtracts the (possibly clamped) result
+            // from pmass(n) -- so by the time this ghost pass runs, pmass(n) already
+            // reflects that subtraction. Reconstruct the same pre-event mass the
+            // interior pass clamped against by adding M_ej_tot back; pmass0(n) (the
+            // birth mass) would be wrong here since it ignores every earlier SN
+            // event and can be far larger than what the interior pass actually had
+            // available.
             Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
+            const Real pmass_before_event = pmass(n) + M_ej_tot;
             Real mass_scale = 1.0;
-            if (M_ej_tot > pmass0(n)) {
-              mass_scale = (M_ej_tot > 0.0) ? (pmass0(n) / M_ej_tot) : 0.0;
+            if (M_ej_tot > pmass_before_event) {
+              mass_scale = (M_ej_tot > 0.0) ? (pmass_before_event / M_ej_tot) : 0.0;
               M_ej_II_tot *= mass_scale;
               M_ej_Ia_tot *= mass_scale;
-              M_ej_tot = pmass0(n);
+              M_ej_tot = pmass_before_event;
             }
 
             // --- Total injected momentum (Eq. 21): sum of per-channel terms --------
@@ -374,8 +387,8 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             // sampled from the kernel footprint around the particle.
             Real weight_sum = 0.0;
             const Real nH_avg =
-                ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i, r_cells,
-                                   code_density_cgs, mh_cgs, x_H, weight_sum);
+                ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i,
+                                   h_smooth, code_density_cgs, mh_cgs, x_H, weight_sum);
 
             p_terminal_Nsn *= Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0);
 
@@ -406,16 +419,17 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               // first interior layer of the target neighbor, so Parthenon's
               // swarm boundary/ownership check picks it up and transfers it
               // via the normal send/receive machinery. Push distance is
-              // (r_cells + 1) cells along each active axis — enough to
-              // guarantee crossing even for a particle that started at the
-              // far edge of its kernel radius from the boundary.
+              // r_search cells along each active axis — the same radius used
+              // above to detect this overlap, so it's enough to guarantee
+              // crossing even for a particle that started at the far edge of
+              // its kernel radius from the boundary.
               const Real dx_cell = coords.Dxc<1>(i);
               const Real dy_cell = coords.Dxc<2>(j);
               const Real dz_cell = (ndim == 3) ? coords.Dxc<3>(k) : 0.0;
 
-              const Real push_x = nx * (r_cells + 1) * dx_cell;
-              const Real push_y = ny * (r_cells + 1) * dy_cell;
-              const Real push_z = nz * (r_cells + 1) * dz_cell;
+              const Real push_x = nx * r_search * dx_cell;
+              const Real push_y = ny * r_search * dy_cell;
+              const Real push_z = nz * r_search * dz_cell;
 
               const Real gx_pushed = x(n) + push_x;
               const Real gy_pushed = y(n) + push_y;
@@ -485,7 +499,7 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
   const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
 
-  const auto r_cells = stars_pkg->Param<int>("SN_injection_radius_cells");
+  const auto h_smooth = stars_pkg->Param<Real>("SN_h_smooth");
 
   // Ghost particles arrive carrying their payload already computed on the
   // sending block (M_ej_tot, p_SN_tot, p_terminal_Nsn); no need to touch
@@ -533,7 +547,7 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
 
           int n_ghost_neighbors = 0;
           ApplyKineticSNe(cons, coords, ndim, true_x, true_y, true_z, k, j, i, gv_x(g),
-                          gv_y(g), gv_z(g), M_ej_tot, p_SN_tot, p_terminal_Nsn, r_cells,
+                          gv_y(g), gv_z(g), M_ej_tot, p_SN_tot, p_terminal_Nsn, h_smooth,
                           kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, code_density_cgs, mh_cgs,
                           x_H, n_ghost_neighbors, /*skip_density_rescale=*/true,
                           weight_sum);

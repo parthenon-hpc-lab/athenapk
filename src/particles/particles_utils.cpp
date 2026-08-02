@@ -341,9 +341,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               injected_particles_context.GetNewParticleIndex(counter_idx);
 
           x(swarm_idx) = x_cell;
-          // Offset for debugging
-          y(swarm_idx) = y_cell - 0.00001 * coords.Dxc<2>(j);
-          ;
+          y(swarm_idx) = y_cell;
           if (ndim == 3) {
             z(swarm_idx) = z_cell;
           }
