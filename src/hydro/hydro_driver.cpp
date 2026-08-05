@@ -671,6 +671,19 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto receive_stars = tl.AddTask(send_stars, &SwarmContainer::Receive, sd.get(),
                                       BoundaryCommSubset::all);
     }
+
+    // 7. Star formation (mass transfer to newly injected particles) and
+    // stellar feedback (SN mass/momentum/energy deposition, steps 1-3 above)
+    // both modify `cons` directly. Star formation re-syncs `prim` locally as
+    // it goes, but the SN deposition kernels do not, so re-run FillDerived
+    // here to bring `prim` back in sync with `cons` before tracer advection,
+    // AMR tagging, or any output/restart reads the stale primitives.
+    TaskRegion &fill_derived_stars_region = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = fill_derived_stars_region[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+    }
   }
 
   // Then move on to tracers
