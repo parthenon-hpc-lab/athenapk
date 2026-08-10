@@ -242,6 +242,15 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
         [this](MeshData<Real> *md) {
           auto pmb = md->GetBlockData(0)->GetBlockPointer();
           auto hydro_pkg = pmb->packages.Get("Hydro");
+          // weinberger_fixed_jet_profile mode: fixed_power/GetFeedbackPower is
+          // disconnected from what's actually injected (density, velocity and
+          // region are hand-set there, not reservoir-solved) -- report the
+          // actual instantaneous injected power instead, kept in sync by
+          // WeinbergerJetFeedbackApply every step it runs.
+          if (hydro_pkg->AllParams().hasKey("weinberger_fixed_jet_profile") &&
+              hydro_pkg->Param<bool>("weinberger_fixed_jet_profile")) {
+            return hydro_pkg->Param<Real>("weinberger_fixed_profile_power");
+          }
           const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
           return agn_feedback.GetFeedbackPower(hydro_pkg.get());
         },

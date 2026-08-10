@@ -119,11 +119,11 @@ dt         = 1e-4
 <parthenon/output2>
 file_type  = hdf5      # for inspection with yt, see visualization.ipynb
 variables  = cons,prim
-dt         = 1e-12
+dt         = 1e-3
 id         = vars
 
 <parthenon/time>
-cfl        = 0.1
+cfl        = 0.3
 nlim       = -1
 tlim       = 0.1       # 100 Myr. (Originally sized as 10 * cold_t_acc for the
                         # COLD_GAS variant; cold_t_acc is unused while
@@ -230,9 +230,9 @@ jet_feedback_mode = weinberger
 fixed_power = 1e-3
 efficiency = 1e-3
 
-weinberger_debug_fixed_jet_profile = true
-weinberger_debug_fixed_rho = 1e-28
-weinberger_debug_fixed_v_km_s = 2-000
+weinberger_fixed_jet_profile = true
+weinberger_fixed_jet_rho = 1e-28
+weinberger_fixed_jet_v_km_s = 60000
 
 thermal_fraction = 0.0
 kinetic_fraction = 1.0

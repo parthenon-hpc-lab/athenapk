@@ -1,11 +1,13 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
-// Licensed under the 3-clause BSD License, see LICENSE file for details
+// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
+// Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-//! \file cold_clumps.cpp
-//  \brief Test/debug initial condition: single-cell cold clumps in pressure
-//  equilibrium with the ambient medium -- see cold_clumps.hpp.
+// Test IC: single-cell cold clumps in pressure equilibrium with the ambient medium
+// -- see cold_clumps.hpp.
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 #include <algorithm>
 #include <array>

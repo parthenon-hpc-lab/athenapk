@@ -396,14 +396,25 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   }
 
   // JetFeedbackMode::Weinberger: accumulated-energy-triggered jet injection.
-  // Runs once per full step (stage==1 only, not per RK sub-stage -- see
-  // AGNFeedback::FeedbackSrcTerm's early-return comment for why), strictly
-  // after the AGN triggering region above so agn_triggering.GetAccretionRate()
-  // is already finalized for this step. Every task here is an internal no-op
-  // (cheap Params lookup + early return) when jet_feedback_mode != Weinberger,
-  // but the whole region is additionally gated on the "weinberger_energy_reservoir"
-  // Param only existing for that mode, mirroring the AGN-triggering/magnetic-tower
+  // Reservoir growth + trigger gate solve run once per full step (stage==1
+  // only, not per RK sub-stage -- see AGNFeedback::FeedbackSrcTerm's
+  // early-return comment for why), strictly after the AGN triggering region
+  // above so agn_triggering.GetAccretionRate() is already finalized for this
+  // step. Every task here is an internal no-op (cheap Params lookup + early
+  // return) when jet_feedback_mode != Weinberger, but the whole region is
+  // additionally gated on the "weinberger_energy_reservoir" Param only
+  // existing for that mode, mirroring the AGN-triggering/magnetic-tower
   // gating style above.
+  //
+  // NOTE: the actual cons-mutating injection (WeinbergerJetFeedbackApply) is
+  // deliberately NOT called here -- it runs later, from ClusterSplitSrcTerm
+  // (ProblemSourceFirstOrder, see cluster.cpp), after this step's RK-stage
+  // flux/Godunov updates have all completed, so the freshly-injected fast
+  // material is never re-fluxed this same step with a dt that was fixed
+  // before it existed. It reads the f/f_B/triggered-flag Params solved here,
+  // so it must run after this region, which it does by construction (this
+  // region is stage==1; ClusterSplitSrcTerm's call only fires at
+  // stage==nstages).
   if ((stage == 1) && hydro_pkg->AllParams().hasKey("weinberger_energy_reservoir")) {
     // Single region/tasklist required for the same reason as above: several
     // steps here MPI_Allreduce, which needs one consistent tasklist across ranks.
@@ -431,13 +442,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // Host-only global trigger check + f/f_B solve -- must run exactly once
     // here, NOT once per partition (see the wiring warning at
     // WeinbergerJetFeedbackSolveInjection's definition).
-    prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackSolveInjection,
-                           hydro_pkg.get(), tm.dt);
-
-    for (int i = 0; i < num_partitions; i++) {
-      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackApply, mu0.get());
-    }
+    tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackSolveInjection, hydro_pkg.get(),
+              tm.dt);
   }
 
   // Sec 2.8: resync ClusterGravity's cached SMBH mass from the

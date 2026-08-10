@@ -2,22 +2,15 @@
 #define CLUSTER_COLD_CLUMPS_HPP_
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
-// Licensed under the 3-clause BSD License, see LICENSE file for details
+// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
+// Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-//! \file cold_clumps.hpp
-//  \brief Test/debug initial condition: single-cell cold clumps in pressure
-//  equilibrium with the ambient medium, so that AGNTriggeringMode::COLD_GAS
-//  has something physically motivated to find. Modeled on the single/multi
-//  overdense-cell IC in pgen/star_formation.cpp.
-//
-//  Rationale: driving AGNFeedback via a fixed_power test input makes mass and
-//  energy appear from nowhere -- nothing is ever actually extracted from an
-//  accretion region, so it never exercises AGNTriggering::ReduceColdMass /
-//  GetAccretionRate at all. Cold clumps close that gap: they give the cold-gas
-//  accretion pathway real cold gas to detect (temp <= cold_temp_thresh) and
-//  drain (at rate cold_mass/cold_t_acc), which is what should actually be
-//  driving AGNFeedback::GetFeedbackPower in a triggering-mode test.
+// Test IC: single-cell cold clumps in pressure equilibrium with the ambient medium,
+// so that AGNTriggeringMode::COLD_GAS has something physically motivated to find.
+// Modeled on the overdense-cell IC in pgen/star_formation.cpp.
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 #include <cstdint>
 
@@ -72,15 +65,9 @@ class ColdClumps {
   void ApplyIC(parthenon::MeshBlock *pmb, parthenon::StateDescriptor *hydro_pkg) const;
 };
 
-// DIAGNOSTIC (not part of the physics model): print the minimum radius among
-// cells with density above rho_threshold, once per step, to directly track
-// whether the cold clumps are actually falling inward under gravity rather
-// than inferring it from indirect signals (reservoir growth, dt trends).
-// Rank-local only (not Allreduced across ranks -- like
-// ReduceJetRegionMassEnergyLocal in agn_feedback_weinberger.cpp), so only
-// directly meaningful for a single-rank run. No-op if
-// hydro_pkg->Param<ColdClumps>("cold_clumps").enable_ is false or the param
-// doesn't exist.
+// Diagnostic: prints the minimum radius among cells with density above
+// rho_threshold, once per step, to track whether clumps are falling inward.
+// Rank-local only. No-op if cold_clumps is disabled or unregistered.
 parthenon::TaskStatus ColdClumpsReportRadius(parthenon::MeshData<parthenon::Real> *md);
 
 } // namespace cluster

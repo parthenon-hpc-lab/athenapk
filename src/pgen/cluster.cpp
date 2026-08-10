@@ -45,6 +45,7 @@
 
 // Cluster headers
 #include "cluster/agn_feedback.hpp"
+#include "cluster/agn_feedback_weinberger.hpp"
 #include "cluster/agn_triggering.hpp"
 #include "cluster/cluster_clips.hpp"
 #include "cluster/cold_clumps.hpp"
@@ -89,6 +90,25 @@ void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
   stellar_feedback.FeedbackSrcTerm(md, dt, tm);
+
+  // JetFeedbackMode::Weinberger: apply this step's already-solved injection
+  // (WeinbergerJetFeedbackSolveInjection, still run once per step at
+  // stage==1 in hydro_driver.cpp -- upstream of, and unaffected by, this
+  // move) here instead of in its own pre-flux stage==1 region. This runs
+  // once per full step, at stage==nstages, strictly after every RK-stage
+  // flux/Godunov update for the step has already completed (see
+  // AddSplitSourcesFirstOrder's call site in hydro_driver.cpp) -- so the
+  // freshly-injected fast material is never re-fluxed this step with a dt
+  // that was fixed before it existed, and is instead first seen by the
+  // *next* step's timestep estimate, which correctly accounts for it. Fixes
+  // the dt-collapse-after-injection bug (see the checkpoint commit this
+  // change follows). No-op (self-gated) for jet_feedback_mode_ != Weinberger,
+  // and identical either way regardless of whether this step's power came
+  // from fixed_power, AGN-triggering-driven accretion, or both (both are
+  // already combined into a single Edot_jet by GetFeedbackPower before
+  // SolveInjection ever runs; Apply only consumes the resulting f/f_B and
+  // triggered flag, not the power source).
+  WeinbergerJetFeedbackApply(md, dt);
 
   ApplyClusterClips(md, tm, dt);
 }
