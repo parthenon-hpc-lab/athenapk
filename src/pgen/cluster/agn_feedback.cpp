@@ -59,9 +59,8 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_fraction", 0.0)),
       magnetic_fraction_(
           pin->GetOrAddReal("problem/cluster/agn_feedback", "magnetic_fraction", 0.0)),
-      jet_feedback_mode_(ParseJetFeedbackMode(
-          pin->GetOrAddString("problem/cluster/agn_feedback", "jet_feedback_mode",
-                              "default"))),
+      jet_feedback_mode_(ParseJetFeedbackMode(pin->GetOrAddString(
+          "problem/cluster/agn_feedback", "jet_feedback_mode", "default"))),
       weinberger_jet_density_(
           pin->GetOrAddReal("problem/cluster/agn_feedback", "weinberger_jet_density",
                             1e-28 * hydro_pkg->Param<Units>("units").g_cm3())),
@@ -179,9 +178,9 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                                         (1.0 - efficiency_) * kinetic_jet_e_));
     } else if (std::isnan(kinetic_jet_temperature_)) {
       // Temperature is missing, compute e_jet and T_jet from v_jet
-      kinetic_jet_e_ = (efficiency_ * SQR(units.speed_of_light()) -
-                        0.5 * SQR(kinetic_jet_velocity_)) /
-                       (1 - efficiency_);
+      kinetic_jet_e_ =
+          (efficiency_ * SQR(units.speed_of_light()) - 0.5 * SQR(kinetic_jet_velocity_)) /
+          (1 - efficiency_);
       kinetic_jet_temperature_ = mbar_gm1_over_kb * kinetic_jet_e_;
     }
 

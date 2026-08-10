@@ -161,9 +161,8 @@ parthenon::TaskStatus ColdClumpsReportRadius(parthenon::MeshData<parthenon::Real
   // catch, distinct from the plain infall-radius tracking above.
   const bool has_triggering = hydro_pkg->AllParams().hasKey("agn_triggering");
   const Real cold_temp_thresh =
-      has_triggering
-          ? hydro_pkg->Param<AGNTriggering>("agn_triggering").cold_temp_thresh_
-          : 0.0;
+      has_triggering ? hydro_pkg->Param<AGNTriggering>("agn_triggering").cold_temp_thresh_
+                     : 0.0;
   const Real accretion_radius =
       has_triggering ? hydro_pkg->Param<AGNTriggering>("agn_triggering").accretion_radius_
                      : 0.0;
@@ -180,7 +179,8 @@ parthenon::TaskStatus ColdClumpsReportRadius(parthenon::MeshData<parthenon::Real
       "ColdClumpsReportRadius",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
           DevExecSpace(), {0, kb.s, jb.s, ib.s},
-          {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1}, {1, 1, 1, ib.e + 1 - ib.s}),
+          {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i, Real &lmin_r2,
                     Real &lmass) {
         auto &cons = cons_pack(b);
@@ -211,8 +211,10 @@ parthenon::TaskStatus ColdClumpsReportRadius(parthenon::MeshData<parthenon::Real
         "ColdClumpsReportTempInRegion",
         Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
             DevExecSpace(), {0, kb.s, jb.s, ib.s},
-            {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1}, {1, 1, 1, ib.e + 1 - ib.s}),
-        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i, Real &lminT) {
+            {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+            {1, 1, 1, ib.e + 1 - ib.s}),
+        KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
+                      Real &lminT) {
           auto &prim = prim_pack(b);
           const auto &coords = prim_pack.GetCoords(b);
           const Real rho = prim(IDN, k, j, i);
@@ -228,8 +230,9 @@ parthenon::TaskStatus ColdClumpsReportRadius(parthenon::MeshData<parthenon::Real
   if (Globals::my_rank == 0) {
     if (mass_above_thresh > 0) {
       std::cout << "[ColdClumps][infall] min radius with rho>" << rho_threshold << " = "
-                << std::sqrt(min_r2) << "  (total mass above threshold: "
-                << mass_above_thresh << ")" << std::endl;
+                << std::sqrt(min_r2)
+                << "  (total mass above threshold: " << mass_above_thresh << ")"
+                << std::endl;
     } else {
       std::cout << "[ColdClumps][infall] no cells with rho>" << rho_threshold
                 << " found (rank-local)" << std::endl;
@@ -238,8 +241,8 @@ parthenon::TaskStatus ColdClumpsReportRadius(parthenon::MeshData<parthenon::Real
       if (min_T_dense_in_region < std::numeric_limits<Real>::max()) {
         std::cout << "[ColdClumps][temp] min T among dense cells within "
                      "accretion_radius = "
-                  << min_T_dense_in_region << " K (cold_temp_thresh = "
-                  << cold_temp_thresh << " K -> "
+                  << min_T_dense_in_region
+                  << " K (cold_temp_thresh = " << cold_temp_thresh << " K -> "
                   << (min_T_dense_in_region <= cold_temp_thresh
                           ? "COLD, AGNTriggering should see this"
                           : "TOO HOT, AGNTriggering will NOT count this as cold gas")

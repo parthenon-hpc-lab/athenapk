@@ -421,7 +421,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     TaskRegion &single_task_region = tc.AddRegion(1);
     auto &tl = single_task_region[0];
 
-    auto prev_task = tl.AddTask(none, cluster::WeinbergerJetFeedbackReset, hydro_pkg.get());
+    auto prev_task =
+        tl.AddTask(none, cluster::WeinbergerJetFeedbackReset, hydro_pkg.get());
 
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
@@ -443,7 +444,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // here, NOT once per partition (see the wiring warning at
     // WeinbergerJetFeedbackSolveInjection's definition).
     tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackSolveInjection, hydro_pkg.get(),
-              tm.dt);
+               tm.dt);
   }
 
   // Sec 2.8: resync ClusterGravity's cached SMBH mass from the
@@ -467,7 +468,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     TaskRegion &cold_clumps_report_region = tc.AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      cold_clumps_report_region[i].AddTask(none, cluster::ColdClumpsReportRadius, mu0.get());
+      cold_clumps_report_region[i].AddTask(none, cluster::ColdClumpsReportRadius,
+                                           mu0.get());
     }
   }
 

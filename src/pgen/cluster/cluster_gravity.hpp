@@ -185,7 +185,8 @@ class ClusterGravity {
     // before any gravity source-term evaluation (see
     // WeinbergerResyncSMBHMassAndGravity), which is also what makes this class
     // self-correcting on the very first step after a restart.
-    hydro_pkg->AddParam<>("cluster_gravity", *this, parthenon::Params::Mutability::Mutable);
+    hydro_pkg->AddParam<>("cluster_gravity", *this,
+                          parthenon::Params::Mutability::Mutable);
   }
 
   // Update the SMBH point-mass term in place. Host-only: called once per step

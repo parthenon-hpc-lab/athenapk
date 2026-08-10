@@ -133,8 +133,8 @@ class AdiabaticHydroEOS : public EquationOfState {
       printf("[ConsToPrim][DEBUG] about to fail (negative pressure): k=%d j=%d i=%d  "
              "x=%.6e y=%.6e z=%.6e r=%.6e (code_length)  u_d=%.6e  u_m=(%.6e,%.6e,%.6e)  "
              "u_e=%.6e  e_k=%.6e  w_p=%.6e  w_v=(%.6e,%.6e,%.6e)\n",
-             k, j, i, dbg_x, dbg_y, dbg_z, dbg_r, u_d, u_m1, u_m2, u_m3, u_e, e_k, w_p, w_vx,
-             w_vy, w_vz);
+             k, j, i, dbg_x, dbg_y, dbg_z, dbg_r, u_d, u_m1, u_m2, u_m3, u_e, e_k, w_p,
+             w_vx, w_vy, w_vz);
     }
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.

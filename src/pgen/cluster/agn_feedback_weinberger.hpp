@@ -44,7 +44,7 @@ namespace cluster {
 // Cubic spline smoothing kernel (W17 Eq. 4), normalized to integrate to 1
 // over the sphere r<=h.
 KOKKOS_INLINE_FUNCTION parthenon::Real CubicSplineKernel(const parthenon::Real r,
-                                                          const parthenon::Real h) {
+                                                         const parthenon::Real h) {
   const parthenon::Real q = r / h;
   const parthenon::Real norm = 8.0 / (M_PI * h * h * h);
   if (q <= 0.5) {
@@ -96,8 +96,8 @@ WeinbergerJetFeedbackSolveInjection(parthenon::StateDescriptor *hydro_pkg,
 // Per-partition: if WeinbergerJetFeedbackSolveInjection triggered this step,
 // apply the injection. `dt` is only used to report an instantaneous power
 // estimate in weinberger_fixed_jet_profile mode (see the .cpp).
-parthenon::TaskStatus
-WeinbergerJetFeedbackApply(parthenon::MeshData<parthenon::Real> *md, const parthenon::Real dt);
+parthenon::TaskStatus WeinbergerJetFeedbackApply(parthenon::MeshData<parthenon::Real> *md,
+                                                 const parthenon::Real dt);
 
 // Sec 2.8: resync ClusterGravity's cached SMBH mass from the
 // "weinberger_smbh_mass" ledger. Always runs (cheap no-op otherwise); also
