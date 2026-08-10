@@ -50,7 +50,8 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
         const auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         // auto &nu = entropy_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
 
-        return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+        return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
       });
 }

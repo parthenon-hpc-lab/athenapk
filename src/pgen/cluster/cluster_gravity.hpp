@@ -48,6 +48,12 @@ class ClusterGravity {
   // SMBH Parameters
   // G , Mass, and Constants rolled into one
   parthenon::Real g_const_smbh_;
+  // Raw gravitational constant (code units), kept around (in addition to the
+  // rolled-in g_const_smbh_ used in the hot g_from_r/rho_from_r kernels) so that
+  // SetSMBHMass() can recompute g_const_smbh_ after the SMBH mass changes, e.g.
+  // from Weinberger-mode jet mass draining (agn_feedback_weinberger.cpp, "SMBH
+  // mass bookkeeping and the gravity update").
+  parthenon::Real gravitational_constant_;
 
   // Radius underwhich to truncate
   parthenon::Real smoothing_r_;
@@ -158,7 +164,8 @@ class ClusterGravity {
 
     const parthenon::Real m_smbh =
         pin->GetOrAddReal("problem/cluster/gravity", "m_smbh", 3.4e8 * units.msun());
-    g_const_smbh_ = calc_g_const_smbh(units.gravitational_constant(), m_smbh),
+    gravitational_constant_ = units.gravitational_constant();
+    g_const_smbh_ = calc_g_const_smbh(gravitational_constant_, m_smbh),
 
     smoothing_r_ =
         pin->GetOrAddReal("problem/cluster/gravity", "g_smoothing_radius", 0.0);
@@ -166,7 +173,27 @@ class ClusterGravity {
 
   ClusterGravity(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg)
       : ClusterGravity(pin) {
-    hydro_pkg->AddParam<>("cluster_gravity", *this);
+    // Mutable (not Restart): this object is a lightweight, host-refreshed cache
+    // used inside device kernels (see class doc comment) and cannot itself carry
+    // the SMBH mass across a restart -- ClusterGravity is not among the types
+    // Parthenon's Restart-mutability HDF5 round-trip is instantiated for (see
+    // params.hpp), and g_from_r()/rho_from_r() are KOKKOS_INLINE_FUNCTIONs that
+    // cannot do a live Params lookup on device. The single source of truth for
+    // the SMBH mass across restarts is the Restart-mutability scalar
+    // "weinberger_smbh_mass" (agn_feedback_weinberger.cpp); this object's
+    // g_const_smbh_ is resynced from that scalar once per step, unconditionally,
+    // before any gravity source-term evaluation (see
+    // WeinbergerResyncSMBHMassAndGravity), which is also what makes this class
+    // self-correcting on the very first step after a restart.
+    hydro_pkg->AddParam<>("cluster_gravity", *this, parthenon::Params::Mutability::Mutable);
+  }
+
+  // Update the SMBH point-mass term in place. Host-only: called once per step
+  // (whether or not jet_feedback_mode==Weinberger; cheap no-op otherwise since
+  // the mass is unchanged) to resync this cache from the "weinberger_smbh_mass"
+  // ledger, before the (device-side) g_from_r() is next invoked.
+  void SetSMBHMass(const parthenon::Real m_smbh) {
+    g_const_smbh_ = gravitational_constant_ * m_smbh;
   }
 
   // Inline functions to compute gravitational acceleration

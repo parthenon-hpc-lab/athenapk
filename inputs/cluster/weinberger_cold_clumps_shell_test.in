@@ -1,0 +1,248 @@
+################################################################################
+# Direct AGN-triggering test for jet_feedback_mode = weinberger.
+#
+# STATUS: mid-debug. This file was originally an AGNTriggeringMode::COLD_GAS
+# test (seeded cold clumps in the accretion shell -- see the git/session
+# history or weinberger_cold_clumps_test.in for that version's own rationale).
+# That setup reproducibly triggered on the very first cycle and immediately
+# collapsed dt by 14-20 orders of magnitude (2.69e-4 -> ~1e-19--1e-24 code
+# time), recovering only over hundreds-to-thousands of subsequent cycles.
+# Instrumentation (see the "[Weinberger][debug]" prints added to
+# agn_feedback_weinberger.cpp) traced this to the injection *kick* itself
+# (isolated via a weinberger_debug_disable_cons_apply toggle: the trigger/
+# reservoir bookkeeping alone never destabilizes dt, only actually applying
+# the kick does), and confirmed the post-kick state is itself clean/finite
+# (checked explicitly, including a NaN/Inf-aware scan) -- so the collapse
+# happens later, most likely when that same cycle's flux/Godunov update
+# processes the newly-injected fast material using a dt that was already
+# fixed *before* the kick existed (Parthenon computes tm.dt once per cycle,
+# before Weinberger's mid-cycle injection task runs).
+#
+# To isolate this from AGNTriggering/cold-gas complexity entirely, this file
+# is currently configured as the simplest possible reproduction: triggering
+# disabled (triggering_mode = NONE below) and jet power supplied purely by a
+# small hand-set fixed_power, cold_clumps disabled. This reproduces the same
+# collapse from a single, modest (0.36c peak / 0.069c region-average, fully
+# finite, no accretion or clump involvement at all) injection event -- i.e.
+# the bug is in how ANY Weinberger injection interacts with the timestep
+# control, not specific to cold-gas/clump triggering. See the agn_triggering
+# and agn_feedback blocks below for the exact debug values in use; revert
+# triggering_mode to COLD_GAS and re-enable cold_clumps (both still present,
+# just commented/disabled below) to go back to the original triggering test
+# once this is resolved.
+#
+# Simplified relative to weinberger_cold_clumps_test.in: rather than a
+# stratified NFW+BCG+SMBH hydrostatic-equilibrium atmosphere (whose entropy
+# profile would be out of equilibrium with cold, dense clumps dropped on top
+# of it -- pressure-matching a clump to the *local* HSE pressure at its cell
+# doesn't make the *clump* itself, or the surrounding cells it displaces,
+# consistent with the profile's pressure gradient/gravity balance, so the
+# atmosphere starts relaxing/oscillating the moment gravity is turned back on
+# -- exactly the instability risk with mixing ApplyIC's flat pressure-
+# equilibrium clumps into a radially-varying HSE background), this uses a
+# single homogeneous background (uniform_gas, gravity_srcterm = false, same
+# pattern as weinberger_smoke_test.in/hydro_agn_feedback.in) that has no
+# gradient to be out of equilibrium with in the first place. A handful of
+# single-cell, pressure-equilibrium, T = 1e4 K clumps (ColdClumps,
+# cold_clumps.hpp/.cpp -- already wired into cluster.cpp's ProblemGenerator,
+# just left "enable = false" in every existing input file) can be placed
+# directly inside the R_jet < r < R_shell accretion shell on top of that
+# background (currently disabled, see STATUS above), giving
+# AGNTriggering::ReduceColdMass real cold mass to find from the first few
+# timesteps when re-enabled -- the most direct possible check of whether
+# triggering -> reservoir growth -> WeinbergerJetFeedbackSolveInjection's
+# trigger gate -> WeinbergerJetFeedbackApply actually fires an outflow,
+# without also having to relax a stratified atmosphere first.
+#
+# Box: 20 kpc wide (vs. 200 kpc in weinberger_cold_clumps_test.in).
+# accretion_radius (R_shell) = 6 kpc -> R_jet = R_shell/3 = 2 kpc (derived,
+# see agn_triggering.hpp's accretion_inner_radius_ default for weinberger).
+# Ambient background: rho = 1e-25 g/cm^3, T = 2e7 K (typical hot-ICM values),
+# converted to code units below (code_density_cgs = code_mass_cgs /
+# code_length_cgs^3 = 6.767925712378865e-27 g/cm^3 per code unit; pressure
+# via ideal gas P = rho*kB*T/(mu*mh) with mu = 1/(He*3/4 + (1-He)*2) =
+# 0.5925925925925926 at He_mass_fraction = 0.25, same formula AGNTriggering
+# itself uses). Clumps are seeded at the *same* local pressure but T = 1e4 K,
+# i.e. ~2000x denser than the ambient background (cold_clumps.cpp's
+# pressure-equilibrium construction) -- physically the same density contrast
+# as the reference file's clumps, just against a flat background instead of
+# a radially-varying one.
+#
+# Other deliberate simplifications vs. weinberger_cold_clumps_test.in:
+#   - No <problem/cluster/init_perturb> block (turbulence) -- sigma_v
+#     defaults to 0 (cluster.cpp:384) -- nothing competing with/disturbing
+#     the seeded clumps.
+#   - No <cooling> block -- not needed to get cold gas (the clumps are
+#     already cold by construction) and would just be one more thing that
+#     could add extra, un-seeded cold gas to the shell over the run.
+#   - gravity_srcterm = false -- see above; also means problem/cluster/
+#     gravity/m_smbh is left at its C++ default (3.4e8 Msun) purely to seed
+#     WeinbergerJetFeedbackInit's SMBH-mass ledger (used for the
+#     [Weinberger][gravity] mass-growth diagnostic only, since there's no
+#     force being applied for it to feed back into here).
+#
+# How to check whether it triggered (COLD_GAS variant; N/A while
+# triggering_mode = NONE below, since Edot_jet then comes from fixed_power
+# alone -- see the fixed_power comment in agn_feedback below instead):
+#   - stdout: "[ColdClumps] gid=... rho_ambient=... -> rho_clump=..." at
+#     startup (one line per placed clump -- confirms placement + the ~2000x
+#     density contrast above), then per-step "[Weinberger][power]
+#     Edot_jet=..." and, once the reservoir crosses the trigger gate,
+#     "[Weinberger][trigger] step reservoir(before)=... triggered"
+#     (agn_feedback_weinberger.cpp).
+#   - problem/cluster/agn_triggering/write_to_file below dumps
+#     agn_triggering_shell_test.dat every step: time, dt, accretion_rate,
+#     cold_mass -- accretion_rate/cold_mass going from 0 to nonzero as soon as
+#     the clumps are read as cold confirms AGNTriggering saw them.
+#   - the hdf5 dump (variables cons,prim) below is enough to load into yt
+#     (now installed in .venv, see visualization.ipynb) and check for the
+#     outward kinetic-energy/velocity signature of a jet along +/-z near the
+#     origin once triggered.
+#
+# n_clumps_per_block = 5 with meshblock == mesh (a single block) below means
+# that -- when cold_clumps is re-enabled -- this places exactly 5 clumps
+# total, not 5-per-block-times-N-blocks -- change to 4 or adjust rng_seed for
+# a different random placement (candidate cells are shuffled with
+# std::mt19937_64 seeded from rng_seed + gid, so the same seed always
+# reproduces the same 5 cells for this domain/resolution).
+################################################################################
+<comment>
+problem   = Weinberger Jet Feedback / dt-collapse-after-injection debug (fixed_power isolation, triggering_mode=NONE -- see STATUS above)
+
+<job>
+problem_id = cluster
+
+<parthenon/output1>
+file_type  = hst
+dt         = 1e-4
+
+<parthenon/output2>
+file_type  = hdf5      # for inspection with yt, see visualization.ipynb
+variables  = cons,prim
+dt         = 1e-12
+id         = vars
+
+<parthenon/time>
+cfl        = 0.1
+nlim       = -1
+tlim       = 0.1       # 100 Myr. (Originally sized as 10 * cold_t_acc for the
+                        # COLD_GAS variant; cold_t_acc is unused while
+                        # triggering_mode = NONE below, but tlim is generous
+                        # either way -- see STATUS above, the run currently
+                        # stalls almost immediately after the first trigger
+                        # regardless of tlim.)
+integrator = vl2
+
+<parthenon/mesh>
+refinement = none
+nghost = 2
+
+nx1        = 128
+x1min      = -0.01     # -10 kpc
+x1max      = 0.01      # +10 kpc -> 20 kpc box, per request
+ix1_bc     = periodic
+ox1_bc     = periodic
+
+nx2        = 128
+x2min      = -0.01
+x2max      = 0.01
+ix2_bc     = periodic
+ox2_bc     = periodic
+
+nx3        = 128
+x3min      = -0.01
+x3max      = 0.01
+ix3_bc     = periodic
+ox3_bc     = periodic
+
+<parthenon/meshblock>
+# == mesh (single block): makes n_clumps_per_block below the exact total
+# clump count instead of a per-block count times however many blocks
+# intersect the shell.
+nx1        = 32
+nx2        = 32
+nx3        = 32
+
+<hydro>
+fluid = euler
+gamma = 1.6666666666666667
+eos = adiabatic
+riemann = hllc
+reconstruction = plm
+scratch_level = 0
+first_order_flux_correct = true
+
+He_mass_fraction = 0.25
+
+<units>
+code_length_cgs = 3.085677580962325e+24 # 1 Mpc in cm
+code_mass_cgs = 1.98841586e+47          # 1e14 Msun in g
+code_time_cgs = 3.15576e+16             # 1 Gyr in s
+
+<problem/cluster>
+
+<problem/cluster/gravity>
+# Disabled -- see header comment. m_smbh left at its C++ default (3.4e8 Msun)
+# just to seed the Weinberger SMBH-mass ledger; unused as a force here.
+gravity_srcterm = false
+
+<problem/cluster/uniform_gas>
+init_uniform_gas = true
+# rho = 1e-25 g/cm^3, pres computed from T = 2e7 K via ideal gas law, both
+# converted to code units -- see header comment for the conversion.
+rho = 14.77557589278723
+ux = 0
+uy = 0
+uz = 0
+pres = 4.302506169870091
+
+<problem/cluster/cold_clumps>
+# Disabled for the current fixed_power isolation test -- see STATUS at the
+# top of this file. Re-enable (and set agn_triggering/triggering_mode back to
+# COLD_GAS below) to return to the original cold-gas-triggering test; the
+# rest of this block is left in place, unchanged, for that purpose.
+enable = false
+n_clumps_per_block = 5        # single meshblock (see above) -> 5 clumps total
+temperature = 1e4             # K
+min_radius = 0.002            # R_jet  =  R_shell/3 = 2 kpc: shell inner edge
+max_radius = 0.006            # R_shell = accretion_radius  = 6 kpc: outer edge
+rng_seed = 7
+
+<problem/cluster/agn_triggering>
+# NONE for the current fixed_power isolation test -- see STATUS at the top of
+# this file. GetAccretionRate() returns 0 for NONE (agn_triggering.cpp), so
+# AGNFeedback::GetFeedbackPower reduces to exactly fixed_power below, with no
+# accretion-driven contribution and no cold-gas removal running at all.
+triggering_mode = NONE
+accretion_radius = 0.006      # still required (>0) even with triggering_mode
+                               # = NONE -- WeinbergerJetFeedbackInit reuses it
+                               # directly as R_shell regardless of triggering
+                               # mode (R_shell = 6 kpc -> R_jet = 2 kpc).
+cold_temp_thresh = 100000.0   # unused while triggering_mode = NONE
+cold_t_acc       = 0.01       # unused while triggering_mode = NONE
+
+write_to_file     = true
+triggering_filename = agn_triggering_shell_test.dat
+
+<problem/cluster/agn_feedback>
+jet_feedback_mode = weinberger
+
+fixed_power = 1e-3
+efficiency = 1e-3
+
+weinberger_debug_fixed_jet_profile = true
+weinberger_debug_fixed_rho = 1e-28
+weinberger_debug_fixed_v_km_s = 2-000
+
+thermal_fraction = 0.0
+kinetic_fraction = 1.0
+
+# weinberger_jet_density left at its C++ default (1e-28 g/cm^3, code units)
+# -- confirmed (2026-08-07 debugging session) this is the intended/normal
+# value; the dt collapse reproduces with it unchanged, so it is not the
+# (or at least not the only) root cause.
+enable_tracer = false
+
+
+<problem/cluster/snia_feedback>
+disabled = True

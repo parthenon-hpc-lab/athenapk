@@ -19,7 +19,9 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../pgen/cluster/agn_feedback_weinberger.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
+#include "../pgen/cluster/cold_clumps.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
 #include "../tracers/tracers.hpp"
 #include "diffusion/diffusion.hpp"
@@ -390,6 +392,76 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto new_remove_accreted_gas =
           tl.AddTask(prev_task, cluster::AGNTriggeringFinalizeTriggering, mu0.get(), tm);
       prev_task = new_remove_accreted_gas;
+    }
+  }
+
+  // JetFeedbackMode::Weinberger: accumulated-energy-triggered jet injection.
+  // Runs once per full step (stage==1 only, not per RK sub-stage -- see
+  // AGNFeedback::FeedbackSrcTerm's early-return comment for why), strictly
+  // after the AGN triggering region above so agn_triggering.GetAccretionRate()
+  // is already finalized for this step. Every task here is an internal no-op
+  // (cheap Params lookup + early return) when jet_feedback_mode != Weinberger,
+  // but the whole region is additionally gated on the "weinberger_energy_reservoir"
+  // Param only existing for that mode, mirroring the AGN-triggering/magnetic-tower
+  // gating style above.
+  if ((stage == 1) && hydro_pkg->AllParams().hasKey("weinberger_energy_reservoir")) {
+    // Single region/tasklist required for the same reason as above: several
+    // steps here MPI_Allreduce, which needs one consistent tasklist across ranks.
+    TaskRegion &single_task_region = tc.AddRegion(1);
+    auto &tl = single_task_region[0];
+
+    auto prev_task = tl.AddTask(none, cluster::WeinbergerJetFeedbackReset, hydro_pkg.get());
+
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      prev_task =
+          tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackReduceShell, mu0.get());
+    }
+    prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackMPIReduceShell,
+                           hydro_pkg.get());
+
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      prev_task =
+          tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackReduceJetRegion, mu0.get());
+    }
+    prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackMPIReduceJetRegion,
+                           hydro_pkg.get());
+
+    // Host-only global trigger check + f/f_B solve -- must run exactly once
+    // here, NOT once per partition (see the wiring warning at
+    // WeinbergerJetFeedbackSolveInjection's definition).
+    prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackSolveInjection,
+                           hydro_pkg.get(), tm.dt);
+
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackApply, mu0.get());
+    }
+  }
+
+  // Sec 2.8: resync ClusterGravity's cached SMBH mass from the
+  // "weinberger_smbh_mass" ledger before any gravity source-term evaluation
+  // this step. Always runs (stage==1 only; the mass cannot change again until
+  // the next full step), independent of jet_feedback_mode -- a cheap no-op
+  // Params lookup for JetFeedbackMode::Default or before the ledger exists.
+  if (stage == 1) {
+    TaskRegion &resync_region = tc.AddRegion(1);
+    resync_region[0].AddTask(none, cluster::WeinbergerResyncSMBHMassAndGravity,
+                             hydro_pkg.get());
+  }
+
+  // DIAGNOSTIC (not part of any physics model): report the minimum radius of
+  // any dense (cold-clump) gas each step, to directly track infall under
+  // gravity rather than inferring it from indirect signals. No-op unless
+  // problem/cluster/cold_clumps/enable=true. Rank-local (see
+  // ColdClumpsReportRadius's doc comment) -- fine for the single-rank test
+  // runs this was added for.
+  if ((stage == 1) && hydro_pkg->AllParams().hasKey("cold_clumps")) {
+    TaskRegion &cold_clumps_report_region = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      cold_clumps_report_region[i].AddTask(none, cluster::ColdClumpsReportRadius, mu0.get());
     }
   }
 

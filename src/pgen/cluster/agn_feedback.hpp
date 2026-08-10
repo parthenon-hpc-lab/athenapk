@@ -20,6 +20,17 @@
 
 namespace cluster {
 
+// Selects which jet-launching model AGNFeedback::FeedbackSrcTerm uses.
+//  Default:     the existing fixed-region thermal/kinetic/magnetic-fraction dump
+//               (thermal sphere + kinetic-jet-cylinder + MagneticTower "donut"/"li").
+//  Weinberger:  the accumulated-energy-triggered jet model of Weinberger et al.
+//               2017 (MNRAS 470, 4530) with the mass-bookkeeping and "never
+//               decrease" thermal-floor redesign of Weinberger et al. 2023
+//               (MNRAS 523, 1104); implemented in agn_feedback_weinberger.hpp/.cpp.
+enum class JetFeedbackMode { Default, Weinberger };
+
+JetFeedbackMode ParseJetFeedbackMode(const std::string &mode_str);
+
 /************************************************************
  *  AGNFeedback
  ************************************************************/
@@ -28,6 +39,26 @@ class AGNFeedback {
   const parthenon::Real fixed_power_;
   parthenon::Real thermal_fraction_, kinetic_fraction_, magnetic_fraction_;
   parthenon::Real thermal_mass_fraction_, kinetic_mass_fraction_, magnetic_mass_fraction_;
+
+  // Which jet-launching model to use (see JetFeedbackMode above).
+  const JetFeedbackMode jet_feedback_mode_;
+
+  // Weinberger-mode-only parameters. Everything else the Weinberger model needs
+  // (accretion_radius, efficiency, enable_tracer/nscalars) is read from the
+  // existing AGNTriggering/AGNFeedback parameters above, not duplicated here --
+  // see agn_feedback_weinberger.hpp for the full parameter list and rationale.
+  //   weinberger_jet_density_: rho_jet, the target jet-launch-region density
+  //     (W17 Sec 2.1, rho_target). Only meaningful for jet_feedback_mode_ ==
+  //     Weinberger.
+  //   beta_jet_: standard plasma beta P_th/P_B at the jet base (large value =
+  //     weakly magnetized). Internally inverted (beta_jet_inv = 1/beta_jet_)
+  //     only at the point of use in the W17 Eq. 3/5/10 equations -- the
+  //     user-facing parameter and stored value are never inverted. Only read
+  //     (and only required) for jet_feedback_mode_ == Weinberger with
+  //     Fluid::glmmhd; ignored for Fluid::euler, where no magnetic loading is
+  //     possible.
+  const parthenon::Real weinberger_jet_density_;
+  const parthenon::Real beta_jet_;
 
   // Efficiency converting mass to energy
   const parthenon::Real efficiency_;

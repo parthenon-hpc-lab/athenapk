@@ -92,7 +92,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
 
           if (r2 < clip_r2) {
             // Cell falls within clipping radius
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
 
             if (dfloor > 0) {
               const Real rho = prim(IDN, k, j, i);

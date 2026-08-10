@@ -47,6 +47,7 @@
 #include "cluster/agn_feedback.hpp"
 #include "cluster/agn_triggering.hpp"
 #include "cluster/cluster_clips.hpp"
+#include "cluster/cold_clumps.hpp"
 #include "cluster/cluster_gravity.hpp"
 #include "cluster/cluster_reductions.hpp"
 #include "cluster/entropy_profiles.hpp"
@@ -214,6 +215,12 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    * Read AGN Triggering
    ************************************************************/
   AGNTriggering agn_triggering(pin, hydro_pkg);
+
+  /************************************************************
+   * Read Cold Clumps (test/debug IC for exercising
+   * AGNTriggeringMode::COLD_GAS with real cold gas, see cold_clumps.hpp)
+   ************************************************************/
+  ColdClumps cold_clumps(pin, hydro_pkg);
 
   /************************************************************
    * Read Magnetic Tower
@@ -548,6 +555,16 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             u(IEN, k, j, i) = P_r / gm1;
           });
     }
+
+    /************************************************************
+     * Overwrite a handful of single cells with cold, pressure-equilibrium
+     * clumps (test/debug IC for AGNTriggeringMode::COLD_GAS, see
+     * cold_clumps.hpp). Must run after the ambient fill above and before any
+     * magnetic field contribution to the energy density below, since it reads
+     * back the just-written state to determine the local ambient pressure.
+     ************************************************************/
+    const auto &cold_clumps = hydro_pkg->Param<ColdClumps>("cold_clumps");
+    cold_clumps.ApplyIC(pmb, hydro_pkg.get());
 
     if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
       /************************************************************

@@ -58,10 +58,10 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
   // \!fn Real EquationOfState::ConsToPrim(View4D cons, View4D prim, const int& k, const
   // int& j, const int& i) \brief Fills an array of primitives given an array of
   // conserveds, potentially updating the conserved with floors
-  template <typename View4D>
+  template <typename View4D, typename Coords>
   KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro,
                                          const int &nscalars, const int &k, const int &j,
-                                         const int &i) const {
+                                         const int &i, const Coords &coords) const {
     auto gam = GetGamma();
     auto gm1 = gam - 1.0;
     auto density_floor_ = GetDensityFloor();
@@ -91,6 +91,17 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
     Real &w_Bz = prim(IB3, k, j, i);
     Real &w_psi = prim(IPS, k, j, i);
 
+    // DEBUG: see the matching comment in adiabatic_hydro.hpp's ConsToPrim --
+    // same rationale here (this function has just as many call sites).
+    if (u_d <= 0.0 && !(density_floor_ > 0.0)) {
+      const Real dbg_x = coords.template Xc<1>(i), dbg_y = coords.template Xc<2>(j),
+                 dbg_z = coords.template Xc<3>(k);
+      const Real dbg_r = sqrt(dbg_x * dbg_x + dbg_y * dbg_y + dbg_z * dbg_z);
+      printf("[ConsToPrim][DEBUG][MHD] about to fail (negative density): k=%d j=%d i=%d  "
+             "x=%.6e y=%.6e z=%.6e r=%.6e (code_length)  u_d=%.6e  u_m=(%.6e,%.6e,%.6e)  "
+             "u_e=%.6e\n",
+             k, j, i, dbg_x, dbg_y, dbg_z, dbg_r, u_d, u_m1, u_m2, u_m3, u_e);
+    }
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
     PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
@@ -131,6 +142,16 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
       e_k = e_k_new;
     }
 
+    if (w_p <= 0.0 && !(pressure_floor_ > 0.0) && !(e_floor_ > 0.0)) {
+      const Real dbg_x = coords.template Xc<1>(i), dbg_y = coords.template Xc<2>(j),
+                 dbg_z = coords.template Xc<3>(k);
+      const Real dbg_r = sqrt(dbg_x * dbg_x + dbg_y * dbg_y + dbg_z * dbg_z);
+      printf("[ConsToPrim][DEBUG][MHD] about to fail (negative pressure): k=%d j=%d i=%d  "
+             "x=%.6e y=%.6e z=%.6e r=%.6e (code_length)  u_d=%.6e  u_m=(%.6e,%.6e,%.6e)  "
+             "u_e=%.6e  e_k=%.6e  e_B=%.6e  w_p=%.6e  w_v=(%.6e,%.6e,%.6e)\n",
+             k, j, i, dbg_x, dbg_y, dbg_z, dbg_r, u_d, u_m1, u_m2, u_m3, u_e, e_k, e_B, w_p,
+             w_vx, w_vy, w_vz);
+    }
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.
     PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,

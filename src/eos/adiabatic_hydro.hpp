@@ -48,10 +48,10 @@ class AdiabaticHydroEOS : public EquationOfState {
   // \!fn Real EquationOfState::ConsToPrim(View4D cons, View4D prim, const int& k, const
   // int& j, const int& i) \brief Fills an array of primitives given an array of
   // conserveds, potentially updating the conserved with floors
-  template <typename View4D>
+  template <typename View4D, typename Coords>
   KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro,
                                          const int &nscalars, const int &k, const int &j,
-                                         const int &i) const {
+                                         const int &i, const Coords &coords) const {
     Real gm1 = GetGamma() - 1.0;
     auto density_floor_ = GetDensityFloor();
     auto pressure_floor_ = GetPressureFloor();
@@ -72,6 +72,24 @@ class AdiabaticHydroEOS : public EquationOfState {
     Real &w_vz = prim(IV3, k, j, i);
     Real &w_p = prim(IPR, k, j, i);
 
+    // DEBUG (requested): print the failing cell's exact location before the
+    // PARTHENON_REQUIRE below aborts -- this function is called from ~15
+    // different sites across the codebase (the main ConservedToPrimitive
+    // sweep, WeinbergerApplyInjection, ApplyFixedDebugJetProfile, the
+    // Default-mode kinetic jet, SNIa/stellar feedback, AGNTriggering's
+    // ReduceColdMass/RemoveBondiAccretedGas, cluster_clips, ...), so putting
+    // this here (rather than at any one caller) is the only way to catch
+    // whichever one is actually responsible. printf (not std::cout) since
+    // this is KOKKOS_INLINE_FUNCTION, device-callable code.
+    if (u_d <= 0.0 && !(density_floor_ > 0.0)) {
+      const Real dbg_x = coords.template Xc<1>(i), dbg_y = coords.template Xc<2>(j),
+                 dbg_z = coords.template Xc<3>(k);
+      const Real dbg_r = sqrt(dbg_x * dbg_x + dbg_y * dbg_y + dbg_z * dbg_z);
+      printf("[ConsToPrim][DEBUG] about to fail (negative density): k=%d j=%d i=%d  "
+             "x=%.6e y=%.6e z=%.6e r=%.6e (code_length)  u_d=%.6e  u_m=(%.6e,%.6e,%.6e)  "
+             "u_e=%.6e\n",
+             k, j, i, dbg_x, dbg_y, dbg_z, dbg_r, u_d, u_m1, u_m2, u_m3, u_e);
+    }
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
     PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
@@ -106,6 +124,18 @@ class AdiabaticHydroEOS : public EquationOfState {
       e_k = e_k_new;
     }
 
+    // DEBUG (requested): see the matching comment above the density check --
+    // same rationale, this is the other of the two checks in this function.
+    if (w_p <= 0.0 && !(pressure_floor_ > 0.0) && !(e_floor_ > 0.0)) {
+      const Real dbg_x = coords.template Xc<1>(i), dbg_y = coords.template Xc<2>(j),
+                 dbg_z = coords.template Xc<3>(k);
+      const Real dbg_r = sqrt(dbg_x * dbg_x + dbg_y * dbg_y + dbg_z * dbg_z);
+      printf("[ConsToPrim][DEBUG] about to fail (negative pressure): k=%d j=%d i=%d  "
+             "x=%.6e y=%.6e z=%.6e r=%.6e (code_length)  u_d=%.6e  u_m=(%.6e,%.6e,%.6e)  "
+             "u_e=%.6e  e_k=%.6e  w_p=%.6e  w_v=(%.6e,%.6e,%.6e)\n",
+             k, j, i, dbg_x, dbg_y, dbg_z, dbg_r, u_d, u_m1, u_m2, u_m3, u_e, e_k, w_p, w_vx,
+             w_vy, w_vz);
+    }
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.
     PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,

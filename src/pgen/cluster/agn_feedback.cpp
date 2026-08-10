@@ -8,6 +8,7 @@
 //  tower
 
 #include <cmath>
+#include <sstream>
 
 // Parthenon headers
 #include <coordinates/uniform_cartesian.hpp>
@@ -23,6 +24,7 @@
 #include "../../main.hpp"
 #include "../../units.hpp"
 #include "agn_feedback.hpp"
+#include "agn_feedback_weinberger.hpp"
 #include "agn_triggering.hpp"
 #include "cluster_utils.hpp"
 #include "magnetic_tower.hpp"
@@ -30,6 +32,20 @@
 
 namespace cluster {
 using namespace parthenon;
+
+JetFeedbackMode ParseJetFeedbackMode(const std::string &mode_str) {
+  if (mode_str == "default") {
+    return JetFeedbackMode::Default;
+  } else if (mode_str == "weinberger") {
+    return JetFeedbackMode::Weinberger;
+  } else {
+    std::stringstream msg;
+    msg << "### FATAL ERROR in function [ParseJetFeedbackMode]" << std::endl
+        << "Unrecognized jet_feedback_mode: \"" << mode_str << "\"" << std::endl;
+    PARTHENON_FAIL(msg);
+  }
+  return JetFeedbackMode::Default;
+}
 
 AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                          parthenon::StateDescriptor *hydro_pkg)
@@ -43,6 +59,14 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_fraction", 0.0)),
       magnetic_fraction_(
           pin->GetOrAddReal("problem/cluster/agn_feedback", "magnetic_fraction", 0.0)),
+      jet_feedback_mode_(ParseJetFeedbackMode(
+          pin->GetOrAddString("problem/cluster/agn_feedback", "jet_feedback_mode",
+                              "default"))),
+      weinberger_jet_density_(
+          pin->GetOrAddReal("problem/cluster/agn_feedback", "weinberger_jet_density",
+                            1e-28 * hydro_pkg->Param<Units>("units").g_cm3())),
+      beta_jet_(pin->GetOrAddReal("problem/cluster/agn_feedback", "beta_jet",
+                                  std::numeric_limits<Real>::infinity())),
       thermal_radius_(
           pin->GetOrAddReal("problem/cluster/agn_feedback", "thermal_radius", 0.01)),
       kinetic_jet_radius_(
@@ -69,6 +93,25 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                         magnetic_fraction_ >= 0,
                     "AGN feedback energy fractions must be non-negative.");
 
+  // Weinberger mode has its own accumulated-energy-triggered energy budget (see
+  // agn_feedback_weinberger.hpp) and does not use the Default-mode thermal/
+  // kinetic/magnetic fraction split at all: the entire (post mass-drain and
+  // magnetic) energy remainder always becomes kinetic (momentum-kick) energy, by
+  // construction (W17 Eq. 1/8-10, W23 Eq. 6-10), and magnetic loading is instead
+  // governed purely by beta_jet_ (Sec 2.7). Requiring these fractions to be
+  // exactly {0, 1, (0)} keeps that explicit in the input deck rather than
+  // silently ignoring whatever thermal/kinetic/magnetic_fraction the user wrote.
+  PARTHENON_REQUIRE_THROWS(
+      jet_feedback_mode_ != JetFeedbackMode::Weinberger || thermal_fraction_ == 0,
+      "jet_feedback_mode=weinberger: thermal_fraction must be 0 -- isotropic "
+      "accretion-disk-radiation feedback (the Default-mode thermal dump) is not "
+      "part of the Weinberger jet model.");
+  PARTHENON_REQUIRE_THROWS(
+      jet_feedback_mode_ != JetFeedbackMode::Weinberger || kinetic_fraction_ == 1,
+      "jet_feedback_mode=weinberger: kinetic_fraction must be 1 -- Weinberger mode "
+      "has no top-level kinetic/magnetic energy split; beta_jet governs the "
+      "magnetic loading instead (see agn_feedback_weinberger.hpp).");
+
   // Normalize the thermal, kinetic, and magnetic mass fractions to sum to 1.0
   if (enable_magnetic_tower_mass_injection_) {
     thermal_mass_fraction_ = thermal_fraction_;
@@ -81,83 +124,112 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
     magnetic_mass_fraction_ = 0.0;
   }
 
-  /////////////////////////////////////////////////////
-  // Read in or calculate jet velocity and temperature. Either and or both can
-  // be defined but they must satify
-  //
-  // v_jet = sqrt( 2*(eps*c^2 - (1-eps)*e_jet) )
-  //
-  // With real, non-negative values for v_jet and e_jet
-  /////////////////////////////////////////////////////
-
-  kinetic_jet_velocity_ = NAN;
-  kinetic_jet_temperature_ = NAN;
-  kinetic_jet_e_ = NAN;
-
   const auto units = hydro_pkg->Param<Units>("units");
   auto mbar_gm1_over_kb =
       hydro_pkg->Param<Real>("mbar_over_kb") * (pin->GetReal("hydro", "gamma") - 1);
 
-  // Get jet velocity and temperature/internal_e if in the sim parameters. These are NAN
-  // otherwise
-  if (pin->DoesParameterExist("problem/cluster/agn_feedback", "kinetic_jet_velocity")) {
-    kinetic_jet_velocity_ =
-        pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_velocity");
+  // Read in or calculate the Default-mode fixed jet velocity and temperature.
+  // Not used by jet_feedback_mode_==Weinberger (its jet velocity is solved
+  // per-injection-event from the accumulated energy budget instead, see
+  // agn_feedback_weinberger.cpp), so skip this derivation there entirely -- it
+  // would otherwise emit a spurious "kinetic jet velocity not specified"
+  // warning and derive values that are simply never read.
+  kinetic_jet_velocity_ = 0;
+  kinetic_jet_temperature_ = 0;
+  kinetic_jet_e_ = 0;
+  if (jet_feedback_mode_ == JetFeedbackMode::Default) {
+    /////////////////////////////////////////////////////
+    // Read in or calculate jet velocity and temperature. Either and or both can
+    // be defined but they must satify
+    //
+    // v_jet = sqrt( 2*(eps*c^2 - (1-eps)*e_jet) )
+    //
+    // With real, non-negative values for v_jet and e_jet
+    /////////////////////////////////////////////////////
+
+    kinetic_jet_velocity_ = NAN;
+    kinetic_jet_temperature_ = NAN;
+    kinetic_jet_e_ = NAN;
+
+    // Get jet velocity and temperature/internal_e if in the sim parameters. These are
+    // NAN otherwise
+    if (pin->DoesParameterExist("problem/cluster/agn_feedback", "kinetic_jet_velocity")) {
+      kinetic_jet_velocity_ =
+          pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_velocity");
+    }
+    if (pin->DoesParameterExist("problem/cluster/agn_feedback",
+                                "kinetic_jet_temperature")) {
+      kinetic_jet_temperature_ =
+          pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_temperature");
+
+      kinetic_jet_e_ = kinetic_jet_temperature_ / mbar_gm1_over_kb;
+    }
+
+    if (std::isnan(kinetic_jet_velocity_) && std::isnan(kinetic_jet_temperature_)) {
+      // Both velocity and temperature are missing, assume 0K temperature
+      kinetic_jet_velocity_ = units.speed_of_light() * sqrt(2 * (efficiency_));
+      kinetic_jet_temperature_ = 0;
+      kinetic_jet_e_ = 0;
+      std::cout << "### WARNING Kinetic jet velocity nor temperature not specified. "
+                   "Assuming 0K temperature jet"
+                << std::endl;
+    } else if (std::isnan(kinetic_jet_velocity_)) {
+      // Velocity is missing, compute it from e_jet
+      kinetic_jet_velocity_ = sqrt(2 * (efficiency_ * SQR(units.speed_of_light()) -
+                                        (1.0 - efficiency_) * kinetic_jet_e_));
+    } else if (std::isnan(kinetic_jet_temperature_)) {
+      // Temperature is missing, compute e_jet and T_jet from v_jet
+      kinetic_jet_e_ = (efficiency_ * SQR(units.speed_of_light()) -
+                        0.5 * SQR(kinetic_jet_velocity_)) /
+                       (1 - efficiency_);
+      kinetic_jet_temperature_ = mbar_gm1_over_kb * kinetic_jet_e_;
+    }
+
+    // Verify all equations are satified. NAN's here should give failures
+    PARTHENON_REQUIRE(
+        fabs(kinetic_jet_velocity_ - sqrt(2 * (efficiency_ * SQR(units.speed_of_light()) -
+                                               (1 - efficiency_) * kinetic_jet_e_))) <
+            10 * std::numeric_limits<Real>::epsilon(),
+        "Specified kinetic jet velocity and temperature are incompatible with mass to "
+        "energy conversion efficiency. Either the specified velocity, temperature, or "
+        "efficiency are incompatible");
+
+    PARTHENON_REQUIRE(kinetic_jet_velocity_ <=
+                          units.speed_of_light() * sqrt(2 * efficiency_),
+                      "Kinetic jet velocity implies negative temperature of the jet");
+
+    PARTHENON_REQUIRE(
+        kinetic_jet_e_ <= SQR(units.speed_of_light()) * efficiency_ / (1 - efficiency_),
+        "Kinetic jet temperature implies negative kinetic energy of the jet");
+
+    PARTHENON_REQUIRE(kinetic_jet_velocity_ >= 0,
+                      "Kinetic jet velocity must be non-negative");
+    PARTHENON_REQUIRE(kinetic_jet_temperature_ >= 0,
+                      "Kinetic jet temperature must be non-negative");
   }
-  if (pin->DoesParameterExist("problem/cluster/agn_feedback",
-                              "kinetic_jet_temperature")) {
-    kinetic_jet_temperature_ =
-        pin->GetReal("problem/cluster/agn_feedback", "kinetic_jet_temperature");
-
-    kinetic_jet_e_ = kinetic_jet_temperature_ / mbar_gm1_over_kb;
-  }
-
-  if (std::isnan(kinetic_jet_velocity_) && std::isnan(kinetic_jet_temperature_)) {
-    // Both velocity and temperature are missing, assume 0K temperature
-    kinetic_jet_velocity_ = units.speed_of_light() * sqrt(2 * (efficiency_));
-    kinetic_jet_temperature_ = 0;
-    kinetic_jet_e_ = 0;
-    std::cout << "### WARNING Kinetic jet velocity nor temperature not specified. "
-                 "Assuming 0K temperature jet"
-              << std::endl;
-  } else if (std::isnan(kinetic_jet_velocity_)) {
-    // Velocity is missing, compute it from e_jet
-    kinetic_jet_velocity_ = sqrt(2 * (efficiency_ * SQR(units.speed_of_light()) -
-                                      (1.0 - efficiency_) * kinetic_jet_e_));
-  } else if (std::isnan(kinetic_jet_temperature_)) {
-    // Temperature is missing, compute e_jet and T_jet from v_jet
-    kinetic_jet_e_ =
-        (efficiency_ * SQR(units.speed_of_light()) - 0.5 * SQR(kinetic_jet_velocity_)) /
-        (1 - efficiency_);
-    kinetic_jet_temperature_ = mbar_gm1_over_kb * kinetic_jet_e_;
-  }
-
-  // Verify all equations are satified. NAN's here should give failures
-  PARTHENON_REQUIRE(
-      fabs(kinetic_jet_velocity_ - sqrt(2 * (efficiency_ * SQR(units.speed_of_light()) -
-                                             (1 - efficiency_) * kinetic_jet_e_))) <
-          10 * std::numeric_limits<Real>::epsilon(),
-      "Specified kinetic jet velocity and temperature are incompatible with mass to "
-      "energy conversion efficiency. Either the specified velocity, temperature, or "
-      "efficiency are incompatible");
-
-  PARTHENON_REQUIRE(kinetic_jet_velocity_ <=
-                        units.speed_of_light() * sqrt(2 * efficiency_),
-                    "Kinetic jet velocity implies negative temperature of the jet");
-
-  PARTHENON_REQUIRE(kinetic_jet_e_ <=
-                        SQR(units.speed_of_light()) * efficiency_ / (1 - efficiency_),
-                    "Kinetic jet temperature implies negative kinetic energy of the jet");
-
-  PARTHENON_REQUIRE(kinetic_jet_velocity_ >= 0,
-                    "Kinetic jet velocity must be non-negative");
-  PARTHENON_REQUIRE(kinetic_jet_temperature_ >= 0,
-                    "Kinetic jet temperature must be non-negative");
 
   // Compute the internal energy ceiling from the temperature ceiling
   const Real tceil = pin->GetOrAddReal("problem/cluster/agn_feedback", "Tceil",
                                        std::numeric_limits<Real>::infinity());
   eceil_ = tceil / mbar_gm1_over_kb;
+
+  // Weinberger mode requires a magnetized-jet plasma-beta target when running
+  // MHD; beta_jet has no meaning/effect for Fluid::euler (there is no B field to
+  // load), so only require it there. Default value (infinity, W17's
+  // beta_jet_inv->0 hydrodynamic-jet limit) is deliberately not a silent "MHD
+  // jet with no field" default -- an MHD Weinberger run must say so explicitly.
+  if (jet_feedback_mode_ == JetFeedbackMode::Weinberger) {
+    const auto fluid = hydro_pkg->Param<Fluid>("fluid");
+    PARTHENON_REQUIRE_THROWS(
+        fluid != Fluid::glmmhd ||
+            pin->DoesParameterExist("problem/cluster/agn_feedback", "beta_jet"),
+        "jet_feedback_mode=weinberger with Fluid::glmmhd requires an explicit "
+        "beta_jet (plasma beta P_th/P_B at the jet base; W17 Eq. 5). There is no "
+        "safe default for a magnetized run.");
+    PARTHENON_REQUIRE_THROWS(beta_jet_ > 0,
+                             "beta_jet must be strictly positive (it is a plasma beta "
+                             "P_th/P_B, not its inverse).");
+  }
 
   // Add user history output variable for AGN power
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
@@ -182,6 +254,15 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
                            "Enabling tracer for AGN feedback requires hydro/nscalars=1");
 
   hydro_pkg->AddParam<>("agn_feedback", *this);
+
+  // Register Weinberger-mode's own reservoir/ledger/scratch Params now that
+  // this object is itself registered (WeinbergerJetFeedbackInit does not need
+  // to look "agn_feedback" back up, but keeping this call last mirrors the
+  // dependency direction: Weinberger-mode state builds on top of a fully
+  // constructed AGNFeedback, not the other way around).
+  if (jet_feedback_mode_ == JetFeedbackMode::Weinberger) {
+    WeinbergerJetFeedbackInit(pin, hydro_pkg);
+  }
 }
 
 parthenon::Real AGNFeedback::GetFeedbackPower(StateDescriptor *hydro_pkg) const {
@@ -214,6 +295,18 @@ parthenon::Real AGNFeedback::GetFeedbackMassRate(StateDescriptor *hydro_pkg) con
 void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                                   const parthenon::Real beta_dt,
                                   const parthenon::SimTime &tm) const {
+  if (jet_feedback_mode_ == JetFeedbackMode::Weinberger) {
+    // All Weinberger-mode physics (reservoir accumulation, shell averages, mass
+    // drain, momentum/magnetic injection) runs exactly once per full step, in
+    // its own task-graph region wired into hydro_driver.cpp (see
+    // agn_feedback_weinberger.cpp), not once per RK sub-stage here. W17's
+    // accumulated-energy trigger (Eq. 1) describes discrete injection events on
+    // the timescale of a hydrodynamical step, not a continuous per-substage
+    // deposit; running the trigger check once per step (using the full tm.dt)
+    // avoids double-triggering across a single step's RK sub-stages, which
+    // beta_dt here would otherwise invite. Nothing to do at this call site.
+    return;
+  }
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   auto fluid = hydro_pkg->Param<Fluid>("fluid");
   if (fluid == Fluid::euler) {
@@ -359,7 +452,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             //  momentum, and total energy added depend on the triggered power.
             ///////////////////////////////////////////////////////////////////
 
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
 
             cons(IDN, k, j, i) += jet_density;
             cons(IM1, k, j, i) += jet_momentum * sign_jet * jet_axis_x;
@@ -375,7 +468,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
               cons(nhydro, k, j, i) = 1.0 * cons(IDN, k, j, i);
             }
 
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
           }
 
           // Apply velocity ceiling
@@ -403,7 +496,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           }
         }
 
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
         PARTHENON_REQUIRE(prim(IPR, k, j, i) > 0,
                           "Kinetic injection leads to negative pressure");
       });

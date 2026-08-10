@@ -57,6 +57,12 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
       triggering_mode_(
           ParseAGNTriggeringMode(pin->GetOrAddString(block, "triggering_mode", "NONE"))),
       accretion_radius_(pin->GetOrAddReal(block, "accretion_radius", 0)),
+      accretion_inner_radius_(pin->GetOrAddReal(
+          block, "accretion_inner_radius",
+          (pin->GetOrAddString("problem/cluster/agn_feedback", "jet_feedback_mode",
+                               "default") == "weinberger")
+              ? accretion_radius_ / 3.0
+              : 0.0)),
       cold_temp_thresh_(pin->GetOrAddReal(block, "cold_temp_thresh", 0)),
       cold_t_acc_(pin->GetOrAddReal(block, "cold_t_acc", 0)),
       bondi_alpha_(pin->GetOrAddReal(block, "bondi_alpha", 0)),
@@ -145,6 +151,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   const Real accretion_radius2 = pow(accretion_radius_, 2);
+  const Real accretion_inner_radius2 = pow(accretion_inner_radius_, 2);
 
   // Reduce just the cold gas
   const auto units = hydro_pkg->Param<Units>("units");
@@ -169,7 +176,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
 
         const parthenon::Real r2 =
             pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
-        if (r2 < accretion_radius2) {
+        if (r2 < accretion_radius2 && r2 >= accretion_inner_radius2) {
 
           const Real temp =
               mean_molecular_mass_by_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i);
@@ -190,7 +197,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
               AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(),
                                              k, j, i);
               // Update the Primitives
-              eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+              eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
             }
           }
         }
@@ -218,6 +225,7 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   const Real accretion_radius2 = pow(accretion_radius_, 2);
+  const Real accretion_inner_radius2 = pow(accretion_inner_radius_, 2);
 
   // Reduce Mass-weighted total density, velocity, and sound speed and total
   // mass (in that order). Will need to divide the three latter quantities by
@@ -240,7 +248,7 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
         const auto &coords = prim_pack.GetCoords(b);
         const parthenon::Real r2 =
             pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
-        if (r2 < accretion_radius2) {
+        if (r2 < accretion_radius2 && r2 >= accretion_inner_radius2) {
           const Real cell_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
 
           const Real cell_mass_weighted_density = cell_mass * prim(IDN, k, j, i);
@@ -288,6 +296,7 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
   const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   const Real accretion_radius2 = pow(accretion_radius_, 2);
+  const Real accretion_inner_radius2 = pow(accretion_inner_radius_, 2);
 
   const Real accretion_rate = GetAccretionRate(hydro_pkg.get());
   const Real total_mass = hydro_pkg->Param<Real>("agn_triggering_total_mass");
@@ -302,7 +311,7 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
 
         const parthenon::Real r2 =
             pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
-        if (r2 < accretion_radius2) {
+        if (r2 < accretion_radius2 && r2 >= accretion_inner_radius2) {
 
           const Real cell_delta_rho =
               -prim(IDN, k, j, i) / total_mass * accretion_rate * dt;
@@ -311,7 +320,7 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
                                          i);
 
           // Update the Primitives
-          eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+          eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
         }
       });
 }

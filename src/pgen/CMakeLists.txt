@@ -7,9 +7,11 @@ target_sources(athenaPK PRIVATE
     cloud.cpp
     cluster.cpp
     cluster/agn_feedback.cpp
+    cluster/agn_feedback_weinberger.cpp
     cluster/agn_triggering.cpp
     cluster/cluster_clips.cpp
     cluster/cluster_reductions.cpp
+    cluster/cold_clumps.cpp
     cluster/hydrostatic_equilibrium_sphere.cpp
     cluster/magnetic_tower.cpp
     cluster/snia_feedback.cpp
