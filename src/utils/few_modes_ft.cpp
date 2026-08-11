@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2023, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2023-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //========================================================================================
@@ -9,6 +9,7 @@
 
 // C++ headers
 #include <random>
+#include <string>
 
 // Parthenon headers
 #include "basic_types.hpp"
@@ -47,9 +48,52 @@ FewModesFT::FewModesFT(parthenon::ParameterInput *pin, parthenon::StateDescripto
   // lambda cannot live in the constructor of an object.
   auto k_vec_host = k_vec.GetHostMirrorAndCopy();
   for (int i = 0; i < num_modes; i++) {
-    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) <= gnx1 / 2, "k_vec x1 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) <= gnx2 / 2, "k_vec x2 mode too large");
-    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) <= gnx3 / 2, "k_vec x3 mode too large");
+    PARTHENON_REQUIRE(
+        k_vec_host(0, i) >= 0,
+        "k_x mode must be positive as explicit Hermitian symmetry is assumed.");
+    PARTHENON_REQUIRE(
+        !(k_vec_host(0, i) == 0 && k_vec_host(1, i) == 0 && k_vec_host(2, i) == 0),
+        "Forcing normalization is handled separately so do not include the 0 mode.");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(0, i)) < gnx1 / 2, "k_vec x1 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(1, i)) < gnx2 / 2, "k_vec x2 mode too large");
+    PARTHENON_REQUIRE(std::abs(k_vec_host(2, i)) < gnx3 / 2, "k_vec x3 mode too large");
+  }
+
+  // Ensure that the provided k_vec do not include their conjugate and/or itself again as
+  // otherwise that mode would be counted twice
+  for (int i = 0; i < num_modes; i++) {
+    for (int j = 0; j < num_modes; j++) {
+      if (i == j) {
+        continue;
+      }
+
+      // The sample input file shipped for a couple of years
+      // unforunately came with complex conjugate modes...
+      // So in order to not crash old/existing sims upon restart we allow this and just
+      // issue a warning
+      if (k_vec_host(0, i) == 0 && k_vec_host(0, i) == k_vec_host(0, j) &&
+          k_vec_host(1, i) == -k_vec_host(1, j) &&
+          k_vec_host(2, i) == -k_vec_host(2, j)) {
+        if (parthenon::Globals::my_rank == 0) {
+          PARTHENON_WARN(
+              "The given set of k_vec include complex conjugate partners for mode " +
+              std::to_string(i) + " with components " + std::to_string(k_vec_host(0, i)) +
+              " " + std::to_string(k_vec_host(1, i)) + " " +
+              std::to_string(k_vec_host(2, i)) +
+              "."
+              "In theory, this results in these modes being counted double. In practice, "
+              "this will have little to no effect as the normalization is done separate "
+              "for the real space field rather than the spectral field. However, if this "
+              "is a fresh simulation (and not a restarted one with given/fixed k_vec) it "
+              "is recommended to update the set of k_vec in the input file.");
+        }
+      }
+      PARTHENON_REQUIRE_THROWS(!(k_vec_host(0, i) == k_vec_host(0, j) &&
+                                 k_vec_host(1, i) == k_vec_host(1, j) &&
+                                 k_vec_host(2, i) == k_vec_host(2, j)),
+                               "The given set of k_vec include identical modes. "
+                               "Please provide a set without dublicates.");
+    }
   }
 
   const auto nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
@@ -161,12 +205,7 @@ void FewModesFT::SetPhases(MeshBlock *pmb, ParameterInput *pin) {
 
         for (int m = 0; m < num_modes; m++) {
           w_kx = k_vec(0, m) * 2. * M_PI / static_cast<Real>(gnx1);
-          // adjust phase factor to Complex->Real IFT: u_hat*(k) = u_hat(-k)
-          if (k_vec(0, m) == 0.0) {
-            phase = 0.5 * Kokkos::exp(I * w_kx * gi);
-          } else {
-            phase = Kokkos::exp(I * w_kx * gi);
-          }
+          phase = Kokkos::exp(I * w_kx * gi);
           phases_i(i, m, 0) = phase.real();
           phases_i(i, m, 1) = phase.imag();
         }
@@ -253,19 +292,6 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
 
         var_hat_new(n, m) =
             Complex(tmp * norm * random_num(n, m, 0), tmp * norm * random_num(n, m, 1));
-      });
-
-  // enforce symmetry of complex to real transform
-  pmb->par_for(
-      "forcing: enforce symmetry", 0, 2, 0, num_modes - 1,
-      KOKKOS_LAMBDA(const int n, const int m) {
-        if (k_vec(0, m) == 0.) {
-          for (int m2 = 0; m2 < m; m2++) {
-            if (k_vec(1, m) == -k_vec(1, m2) && k_vec(2, m) == -k_vec(2, m2))
-              var_hat_new(n, m) =
-                  Complex(var_hat_new(n, m2).real(), -var_hat_new(n, m2).imag());
-          }
-        }
       });
 
   const auto sol_weight = sol_weight_;
@@ -372,6 +398,7 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
   constexpr int max_attempts = 1000000;
   Real kx1, kx2, kx3, k_mag, ampl;
   bool mode_exists = false;
+  bool hermitian_exists = false;
   while (n_mode < num_modes && n_attempt < max_attempts) {
     n_attempt += 1;
 
@@ -393,8 +420,20 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
       }
     }
 
+    // Check is Hermitian symmetric partner already exist
+    hermitian_exists = false;
+    if (kx1 == 0) {
+      for (int n_mode_exsist = 0; n_mode_exsist < n_mode; n_mode_exsist++) {
+        if (k_vec_h(0, n_mode_exsist) == kx1 && -k_vec_h(1, n_mode_exsist) == kx2 &&
+            -k_vec_h(2, n_mode_exsist) == kx3) {
+          hermitian_exists = true;
+        }
+      }
+    }
+
     // kx1 < 0.0 because we use a explicit symmetric Complex to Real transform
-    if (ampl < 0 || k_mag < k_low || k_mag > k_high || mode_exists || kx1 < 0.0) {
+    if (ampl < 0 || k_mag < k_low || k_mag > k_high || mode_exists || hermitian_exists ||
+        kx1 < 0.0) {
       continue;
     }
     k_vec_h(0, n_mode) = kx1;

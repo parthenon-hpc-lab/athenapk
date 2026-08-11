@@ -204,6 +204,16 @@ Real HydroHst(MeshData<Real> *md) {
       },
       sum);
 
+  // If divB is requested, normalize by total volume to get domain average:
+  if (hst == Hst::divb) {
+    Mesh *pmesh = md->GetMeshPointer();
+    auto mesh_size = pmesh->mesh_size;
+    Real vol = (mesh_size.xmax(X1DIR) - mesh_size.xmin(X1DIR)) *
+               (mesh_size.xmax(X2DIR) - mesh_size.xmin(X2DIR)) *
+               (mesh_size.xmax(X3DIR) - mesh_size.xmin(X3DIR));
+    sum /= vol;
+  }
+
   return sum;
 }
 

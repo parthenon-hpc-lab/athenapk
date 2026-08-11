@@ -348,7 +348,7 @@ Two seeding methods are currently supported:
   - `initial_num_tracers_per_cell` determines the number of seeded particles per cell
   - `initial_rng_seed` (optional) is used as seed in addition to the block id.
 - `initial_seed_method=user`
-  - Calls a problem specific callback function (`ProblemSeedInitialTracers`), see [tracer callback documenation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/pgen.md#tracers).
+  - Calls a problem specific callback function (`ProblemSeedInitialTracers`), see [tracer callback documenation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/user_pgen.md#tracers).
 
 By default, swarm fields are written only to restart files.
 If they are required for "standard" output files (like single precision `hdf5`),

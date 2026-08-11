@@ -12,6 +12,7 @@ and revision any time as necessary.
     - [Contributing code](#contributing-code)
     - [Merging code](#merging-code)
         * [Merging code from a fork](#merging-code-from-a-fork)
+    - [Use of agentic coding](#use-of-agentic-coding)
     - [Formatting code](#formatting-code)
 
 ## User/community interaction and getting help
@@ -119,10 +120,30 @@ $ git push --set-upstream origin CONTRIBUTOR/feature-A
 
 NOTE: Any subsequent updates made to the forked branch will need to be manually pulled into the local branch.
 
+### Use of Agentic Coding
+
+The following general guidelines follow the current Parthenon guidelines, which
+were discussed in March 2026 during a
+[regular call](https://github.com/parthenon-hpc-lab/parthenon/wiki/2026.03.26-Meeting-Notes#handling-llm-supportedassisted-prs).
+They are subject to live evaluation and may change in the future.
+
+In general, there are no limitations to the use of agentic coding/LLMs/... given that
+- the usage is disclosed
+  - by adding `// This file was made in part with generative AI` to the file, and
+  - by clearly stating the extent of usage in the PR description
+- the person submitting the PR keeps ownership/responsiblity of all changes (i.e., conducts a thorough review themself)
+
+In addition, the following recommendations should be followed
+- for large/feature-style PRs a `plan.md` document outlining the changes should be part of the PR. The file should be named by the PR number and placed in the `docs/plan_histories` folder.
+  - if possible, large feature-style PRs are split into smaller, logically separated chunks (to ease reviewing)
+- condense/consolidate generated code (to ease maintenance) as it is (still) often much more verbose than necessary (and typical in the existing codebase)
+- reviewers are expected to be much more skeptical and thorough compared to code written by long-term contributors, and possibly more willing to reject
+
 ### Formatting code
 We use `clang-format` to automatically format the C++ code. If you have clang-format installed
 locally, you can always execute `make format-athenapk` or `cmake --build . --target format-athenapk` from
 your build directory to automatically format the code.
+Instead of building a CMake target, auto-formatting can also be triggered by executing `./scripts/format.sh`.
 
 If you don't have `clang-format` installed locally, our "Hermes" automation can always
 format the code for you. Just create the following comment in your PR, and Hermes will
@@ -133,10 +154,6 @@ format the code and automatically commit it:
 
 After Hermes formats your code, remember to run `git pull` to update your local tracking
 branch.
-
-**WARNING:** Due to a limitation in GitHub Actions, the "Check Formatting" CI will not
-run, which will block merging. If you don't plan on making any further commits, you or a
-reviewer need to manually trigger the CI Action for the PR.
 
 In addition to `clang-format`, `black` is used to enforce formatting on python scripts.
 Running:
