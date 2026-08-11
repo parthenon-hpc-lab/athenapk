@@ -60,6 +60,36 @@ using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
 
+// The subcluster orbit and the gas both live in a frame with the main cluster
+// pinned at the origin. That frame is non-inertial: in reality the main
+// cluster recoils toward the subcluster with acceleration +g_sub(r) r_hat,
+// where g_sub(r) is the subcluster's own gravitational field evaluated at the
+// current cluster separation r. Every object described in this frame -- the
+// subcluster's own orbit below, and (uniformly, since it does not depend on
+// where in the domain a gas cell sits) the gas in ClusterUnsplitSrcTerm --
+// must have the opposite of that recoil, i.e. -g_sub(r) r_hat, added to its
+// physical acceleration so that both bodies' masses combine constructively
+// (as in the reduced two-body problem). See Section 2 of ZuHone, Markevitch &
+// Lee (2011), ApJ 743, 16.
+//
+// Returns that correction as-is; ClusterUnsplitSrcTerm negates it once more
+// at its call site to match HomogeneousAccelerationSrcTerm's own sign
+// convention -- see the comment there.
+KOKKOS_INLINE_FUNCTION void
+NonInertialFrameAcceleration(const ClusterGravity &subcluster_gravity,
+                             const Real subcluster_x, const Real subcluster_y,
+                             const Real subcluster_z, const Real r, Real &g_fict_x,
+                             Real &g_fict_y, Real &g_fict_z) {
+  if (r > 0.0) {
+    const Real g_sub_mag = subcluster_gravity.g_from_r(r);
+    g_fict_x = -g_sub_mag * subcluster_x / r;
+    g_fict_y = -g_sub_mag * subcluster_y / r;
+    g_fict_z = -g_sub_mag * subcluster_z / r;
+  } else {
+    g_fict_x = g_fict_y = g_fict_z = 0.0;
+  }
+}
+
 void UpdateSubclusterPosition(MeshData<Real> *md, const parthenon::SimTime &tm,
                               const Real dt) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
@@ -82,25 +112,26 @@ void UpdateSubclusterPosition(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   // Get gravitational field magnitude at current position
   Real g_mag = 0.0;
-  Real g_sub_mag = 0.0;
+  Real g_fict_x = 0.0;
+  Real g_fict_y = 0.0;
+  Real g_fict_z = 0.0;
   if (hydro_pkg->Param<bool>("gravity_srcterm_subcluster")) {
     // Use cluster gravity if enabled
-    // Subcluster gravity is also needed for inertial forces
     g_mag = cluster_gravity.g_from_r(r);
-    g_sub_mag = subcluster_gravity.g_from_r(r);
+    // Non-inertial (frame) correction, see NonInertialFrameAcceleration above
+    NonInertialFrameAcceleration(subcluster_gravity, subcluster_x, subcluster_y,
+                                 subcluster_z, r, g_fict_x, g_fict_y, g_fict_z);
   }
 
-  // Calculate acceleration components (pointing toward main cluster center)
+  // Calculate acceleration components: attraction toward the main cluster
+  // center plus the non-inertial correction. The two add constructively --
+  // the relative acceleration of a two-body encounter is sourced by the
+  // combined mass of both bodies, not their difference.
   Real ax_current, ay_current, az_current;
   if (r > 0.0) {
-    // Main cluster acceleration term
-    ax_current = -g_mag * subcluster_x / r;
-    ay_current = -g_mag * subcluster_y / r;
-    az_current = -g_mag * subcluster_z / r;
-    // Inertial forces
-    ax_current += g_sub_mag * subcluster_x / r;
-    ay_current += g_sub_mag * subcluster_y / r;
-    az_current += g_sub_mag * subcluster_z / r;
+    ax_current = -g_mag * subcluster_x / r + g_fict_x;
+    ay_current = -g_mag * subcluster_y / r + g_fict_y;
+    az_current = -g_mag * subcluster_z / r + g_fict_z;
   } else {
     // Handle case where subcluster is exactly at center
     ax_current = ay_current = az_current = 0.0;
@@ -196,27 +227,20 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
       auto subcluster_gravity = hydro_pkg->Param<ClusterGravity>("subcluster_gravity");
       GravitationalFieldSrcTerm(md, beta_dt, subcluster_gravity, subcluster_x,
                                 subcluster_y, subcluster_z);
-      // Add non-inertial source term for subcluster
-      // First calculating the gravitational acceleration at the subcluster position
-      const Real dx = subcluster_x;
-      const Real dy = subcluster_y;
-      const Real dz = subcluster_z;
-      const Real r = std::sqrt(dx * dx + dy * dy + dz * dz);
-      const Real g_r = subcluster_gravity.g_from_r(r);
-
-      Real g_subcluster_x = 0.0;
-      Real g_subcluster_y = 0.0;
-      Real g_subcluster_z = 0.0;
-
-      if (r > 0.0) {
-        // Need minus sign as the acceleration is retried in
-        // HomogeneousAccelerationSrcTerm
-        g_subcluster_x = g_r * dx / r;
-        g_subcluster_y = g_r * dy / r;
-        g_subcluster_z = g_r * dz / r;
-      }
-      HomogeneousAccelerationSrcTerm(md, beta_dt, g_subcluster_x, g_subcluster_y,
-                                     g_subcluster_z);
+      // Add non-inertial source term for subcluster: this is a uniform
+      // (position-independent) correction, see NonInertialFrameAcceleration
+      // above. HomogeneousAccelerationSrcTerm subtracts its (gx,gy,gz)
+      // argument from the gas momentum, so we negate the correction here to
+      // end up applying +g_fict (not -g_fict) to the gas.
+      const Real r = std::sqrt(subcluster_x * subcluster_x +
+                               subcluster_y * subcluster_y +
+                               subcluster_z * subcluster_z);
+      Real g_fict_x = 0.0;
+      Real g_fict_y = 0.0;
+      Real g_fict_z = 0.0;
+      NonInertialFrameAcceleration(subcluster_gravity, subcluster_x, subcluster_y,
+                                   subcluster_z, r, g_fict_x, g_fict_y, g_fict_z);
+      HomogeneousAccelerationSrcTerm(md, beta_dt, -g_fict_x, -g_fict_y, -g_fict_z);
     }
   }
 
