@@ -114,6 +114,7 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                          const Real beta_dt);
 parthenon::Real ClusterEstimateTimestep(MeshData<Real> *md);
+parthenon::AmrTag ProblemCheckRefinementBlock(MeshBlockData<Real> *mbd);
 } // namespace cluster
 
 namespace shattering {

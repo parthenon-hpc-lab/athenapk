@@ -105,6 +105,7 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
     Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
+    Hydro::ProblemCheckRefinementBlock = cluster::ProblemCheckRefinementBlock;
   } else if (problem == "shattering") {
     pman.app_input->InitUserMeshData = shattering::InitUserMeshData;
     pman.app_input->ProblemGenerator = shattering::ProblemGenerator;

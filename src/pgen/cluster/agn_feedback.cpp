@@ -94,22 +94,29 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
 
   // Weinberger mode has its own accumulated-energy-triggered energy budget (see
   // agn_feedback_weinberger.hpp) and does not use the Default-mode thermal/
-  // kinetic/magnetic fraction split at all: the entire (post mass-drain and
-  // magnetic) energy remainder always becomes kinetic (momentum-kick) energy, by
-  // construction (W17 Eq. 1/8-10, W23 Eq. 6-10), and magnetic loading is instead
-  // governed purely by beta_jet_ (Sec 2.7). Requiring these fractions to be
-  // exactly {0, 1, (0)} keeps that explicit in the input deck rather than
-  // silently ignoring whatever thermal/kinetic/magnetic_fraction the user wrote.
-  PARTHENON_REQUIRE_THROWS(
-      jet_feedback_mode_ != JetFeedbackMode::Weinberger || thermal_fraction_ == 0,
-      "jet_feedback_mode=weinberger: thermal_fraction must be 0 -- isotropic "
-      "accretion-disk-radiation feedback (the Default-mode thermal dump) is not "
-      "part of the Weinberger jet model.");
-  PARTHENON_REQUIRE_THROWS(
-      jet_feedback_mode_ != JetFeedbackMode::Weinberger || kinetic_fraction_ == 1,
-      "jet_feedback_mode=weinberger: kinetic_fraction must be 1 -- Weinberger mode "
-      "has no top-level kinetic/magnetic energy split; beta_jet governs the "
-      "magnetic loading instead (see agn_feedback_weinberger.hpp).");
+  // kinetic/magnetic fraction split at all -- AGNFeedback::FeedbackSrcTerm
+  // early-returns for jet_feedback_mode_==Weinberger before ever reaching the
+  // code that reads thermal_fraction_/kinetic_fraction_/magnetic_fraction_, so
+  // these three are structurally unreachable/inert in this mode: the entire
+  // (post mass-drain and magnetic) energy remainder always becomes kinetic
+  // (momentum-kick) energy by construction (W17 Eq. 1/8-10, W23 Eq. 6-10), and
+  // magnetic loading is instead governed purely by beta_jet_ (Sec 2.7). An
+  // earlier version of this check hard-required them to be exactly {0, 1, (0)}
+  // -- just warn and ignore instead, since there is no actual risk of silently
+  // wrong physics (nothing downstream ever reads these values in this mode).
+  if (jet_feedback_mode_ == JetFeedbackMode::Weinberger &&
+      (pin->DoesParameterExist("problem/cluster/agn_feedback", "thermal_fraction") ||
+       pin->DoesParameterExist("problem/cluster/agn_feedback", "kinetic_fraction") ||
+       pin->DoesParameterExist("problem/cluster/agn_feedback", "magnetic_fraction")) &&
+      parthenon::Globals::my_rank == 0) {
+    PARTHENON_WARN(
+        "jet_feedback_mode=weinberger: thermal_fraction/kinetic_fraction/"
+        "magnetic_fraction are set in the input deck but have no effect in this "
+        "mode and are ignored -- the entire post-cost energy remainder always "
+        "becomes kinetic (momentum-kick) energy by construction (W17 Eq. 1/8-10), "
+        "and magnetic loading is instead governed purely by beta_jet (see "
+        "agn_feedback_weinberger.hpp).");
+  }
 
   // Normalize the thermal, kinetic, and magnetic mass fractions to sum to 1.0
   if (enable_magnetic_tower_mass_injection_) {

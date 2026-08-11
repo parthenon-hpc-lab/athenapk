@@ -296,6 +296,75 @@ jet. The fixed power and triggered power are not mutually exclusive; if both
 `fixed_power` is defined and triggering is enabled with a non-zero
 `efficiency`, then the `fixed_power` will be added to the triggered AGN power.
 
+### Jet feedback modes: Default vs. Weinberger
+
+However this power is determined, it is turned into an actual deposition of
+mass/momentum/energy following one of two `jet_feedback_mode`s, set via
+```
+<problem/cluster/agn_feedback>
+jet_feedback_mode = default # or weinberger
+```
+- `default` deposits the current AGN power continuously, every step, into
+  fixed-geometry regions around the AGN (a thermal sphere, a kinetic-jet
+  cylinder, and/or a magnetic tower), split according to `thermal_fraction`,
+  `kinetic_fraction`, and `magnetic_fraction`. This is the mode described by
+  the rest of this section, below.
+- `weinberger` instead follows the accumulated-energy-triggered jet model of
+  [Weinberger 2017](https://doi.org/10.1093/mnras/stx1409), with the
+  mass-bookkeeping and thermal-floor redesign of [Weinberger
+  2023](https://doi.org/10.1093/mnras/stad1396). Rather than depositing
+  power continuously, the AGN power is accumulated into an energy reservoir
+  each step; once the reservoir crosses a triggering threshold, it is spent
+  all at once as a narrow, high-velocity kinetic kick launched from a small
+  region around the AGN, and the reservoir is reset. This mode is purely
+  kinetic by construction (`thermal_fraction`/`kinetic_fraction` do not
+  apply), and it uses its own set of parameters described below rather than
+  the fixed-geometry ones described in the rest of this section.
+
+#### Setting up Weinberger feedback
+
+To switch to Weinberger-mode feedback, in addition to setting
+`jet_feedback_mode = weinberger`, `<problem/cluster/agn_triggering>`'s
+`accretion_radius` (see AGN Triggering, above) must be set to a value
+greater than zero: it is reused directly as the radius of the outer shell
+over which ambient conditions are averaged, with the inner jet-launching
+region set to a third of that radius. `fixed_power` and/or a
+triggering mode still control how fast the energy reservoir grows, exactly
+as in `default` mode above; `thermal_fraction` must be `0` and
+`kinetic_fraction` must be `1`, since Weinberger mode has no thermal
+component and no top-level kinetic/magnetic split.
+```
+<problem/cluster/agn_triggering>
+accretion_radius = 0.06 # in code_length; also sets the jet-launch region
+
+<problem/cluster/agn_feedback>
+jet_feedback_mode = weinberger
+thermal_fraction = 0.0
+kinetic_fraction = 1.0
+fixed_power = 5.0e-4 # and/or agn_triggering as above
+efficiency = 1.0e-3
+```
+Two more parameters are specific to the jet itself:
+```
+<problem/cluster/agn_feedback>
+weinberger_jet_density = 1e-28 # in g/cm^3; target density of the jet-launch region
+beta_jet = 100.0               # unitless; plasma beta P_th/P_B at the jet base
+```
+`beta_jet` governs how much of the injected energy is loaded into the
+magnetic field instead of kinetic motion, and **must** be set explicitly
+whenever `<hydro>/fluid = glmmhd`, since there is no physically sensible
+default; it is unused (and does not need to be set) for `fluid = euler`.
+
+For testing, the reservoir/trigger pipeline can be bypassed and a fixed jet
+profile enforced every step instead of the physical trigger:
+```
+<problem/cluster/agn_feedback>
+weinberger_fixed_jet_profile = true
+weinberger_fixed_jet_rho = 1e-28     # in g/cm^3
+weinberger_fixed_jet_v_km_s = 1000.0 # in km/s
+```
+
+### Default jet feedback geometry
 
 AGN feedback can be injected via any combination of an injected magnetic tower,
 a thermal dump around the AGN, and a kinetic jet. The fraction deposited into

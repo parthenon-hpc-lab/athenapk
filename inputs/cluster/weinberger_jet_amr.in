@@ -1,0 +1,198 @@
+################################################################################
+# Weinberger jet feedback with real AMR: a 200 kpc cluster-core box at 256^3
+# root resolution, with the jet-launch sphere permanently forced to the
+# maximum refinement level and additional AMR tracking the jet tracer as it
+# propagates outward. Reservoir-solved injection (NOT weinberger_fixed_jet_profile):
+# fixed_power alone drives the reservoir (triggering_mode = NONE, same
+# fixed-power-isolation pattern as weinberger_injection_kick.in / smoke
+# test), with weinberger_jet_density setting the target jet-launch density.
+#
+# REQUIRES A REBUILD: this exercises <refinement>/type = user for
+# problem_id = cluster, which did not exist before this session --
+# cluster::ProblemCheckRefinementBlock (src/pgen/cluster.cpp) is newly wired
+# up in main.cpp/pgen.hpp. An athenaPK binary built before this change will
+# not know about it (PARTHENON_REQUIRE_THROWS in ProblemInitPackageData will
+# still catch the enable_tracer/nscalars precondition either way, but
+# type=user itself needs the new main.cpp wiring to do anything).
+#
+# --- Grid / AMR derivation -----------------------------------------------
+# Box: 200 kpc wide, centered on the AGN (at the origin) -> +-100 kpc ->
+# +-0.1 in code_length (code_length_cgs below = 1 Mpc).
+# Root grid: 256^3 -> root cell size = 200 kpc / 256 = 0.78125 kpc = 781.25 pc.
+# Meshblock: 16^3 -> 16 meshblocks/dim, 4096 total at root level.
+# numlevel = 4 (root + 3 refinement levels, i.e. max level = 3): cell size at
+# max level = 781.25 pc / 2^3 = 97.65625 pc, i.e. "roughly 97 pc" as requested.
+#
+# --- Jet-launch sphere / forced refinement --------------------------------
+# Requested: jet-injection sphere (R_jet) = 1.65 kpc, forced to max level.
+# R_jet = accretion_radius/3 always (agn_feedback_weinberger.cpp), so
+# accretion_radius (R_shell) = 3 * 1.65 kpc = 4.95 kpc = 0.00495 code_length.
+# cluster::ProblemCheckRefinementBlock (src/pgen/cluster.cpp, new this
+# session) forces AmrTag::refine for any meshblock whose bounding box comes
+# within R_jet of the origin -- independent of, and takes priority over, the
+# tracer criterion below -- so the launch sphere is *always* at max level,
+# not just while carrying jet material.
+#
+# --- Tracer-driven AMR elsewhere ------------------------------------------
+# problem/cluster/refinement/jet_tracer_refine_above = 0.25, as requested:
+# any cell with jet tracer mass fraction (the first/only passive scalar,
+# prim(nhydro,...), written by WeinbergerApplyInjection) above 0.25 forces
+# its meshblock to refine. jet_tracer_deref_below = 0.05 is *not* something
+# the user specified -- chosen here as a 5x hysteresis margin (same ratio as
+# the C++ default in ProblemInitPackageData) purely to avoid refine/derefine
+# flapping every other step; tune freely. Requires enable_tracer = true
+# below and hydro/nscalars = 1 (enforced by a PARTHENON_REQUIRE_THROWS in
+# ProblemInitPackageData if type=user is set without them).
+#
+# --- Jet density / power ---------------------------------------------------
+# weinberger_jet_density: requested value (1e-28 g/cm^3) is *exactly*
+# AGNFeedback's C++ default (agn_feedback.cpp: 1e-28 * units.g_cm3()) --
+# left unset below rather than set explicitly, since setting this parameter
+# takes a *code-unit* value, not cgs (see the warning duplicated in
+# weinberger_injection_kick.in).
+#
+# fixed_power: requested 1e45 erg/s, converted to code_energy/code_time via
+# code_power_cgs = code_mass_cgs * code_length_cgs^2 / code_time_cgs^3
+#               = 1.98841586e+47 * (3.085677580962325e+24)^2 / (3.15576e+16)^3
+#               = 6.024158744024811e+46 erg/s per code unit
+# fixed_power [code] = 1e45 / 6.024158744024811e+46 = 1.6599828167e-02
+#
+# --- Ambient medium (NOT specified in the request) ------------------------
+# No ambient density/temperature was given, so this reuses the same
+# hot-ICM-like uniform background as weinberger_injection_kick.in
+# (rho = 1e-25 g/cm^3, T = 2e7 K, gravity off) purely for consistency with
+# that file -- swap in an HSE NFW+BCG+SMBH atmosphere (see cluster.md) if a
+# stratified background is wanted instead; nothing else here depends on it.
+# rho/pres conversion: code_density_cgs = code_mass_cgs/code_length_cgs^3 =
+# 6.767925712378865e-27 g/cm^3 per code unit -> rho = 1e-25/that =
+# 14.77557589278723. pres via ideal gas P = rho*kB*T/(mu*mh), mu =
+# 1/(He*3/4 + (1-He)*2) = 0.5925925925925926 at He_mass_fraction=0.25 (same
+# formula AGNTriggering itself uses; kB, mh from src/units.hpp) -> pres =
+# 4.302506169870091 code units.
+#
+# --- Not run yet (per request) ---------------------------------------------
+# tlim/nlim/output cadences below are placeholders -- pick whatever science
+# run length is wanted before submitting under salloc.
+################################################################################
+<comment>
+problem   = Weinberger jet feedback: forced-max-refinement launch sphere + jet-tracer AMR, 200 kpc / 256^3 / meshblock 16^3
+
+<job>
+problem_id = cluster
+
+<parthenon/output1>
+file_type  = hst
+dt         = 1e-4
+
+<parthenon/output2>
+file_type  = hdf5
+variables  = cons,prim
+dt         = 1e-4
+id         = vars
+
+<parthenon/time>
+cfl        = 0.3
+nlim       = -1
+tlim       = 0.05    # 50 Myr -- PLACEHOLDER, not run yet (see header)
+integrator = vl2
+ncycle_out_mesh = -200  # print mesh structure every 200 cycles and on refinement
+
+<parthenon/mesh>
+refinement = adaptive
+numlevel   = 4         # root + 3 levels -> ~97 pc at max level, see header
+nghost     = 2
+
+packs_per_rank = 1     # required for cluster's init-time reductions
+                        # (cluster.cpp's ProblemGenerator docstring) and for
+                        # AGNTriggering/Weinberger's own step reductions
+
+nx1        = 256
+x1min      = -0.1      # -100 kpc
+x1max      = 0.1       # +100 kpc -> 200 kpc box, per request
+ix1_bc     = outflow
+ox1_bc     = outflow
+
+nx2        = 256
+x2min      = -0.1
+x2max      = 0.1
+ix2_bc     = outflow
+ox2_bc     = outflow
+
+nx3        = 256
+x3min      = -0.1
+x3max      = 0.1
+ix3_bc     = outflow
+ox3_bc     = outflow
+
+<parthenon/meshblock>
+nx1        = 16
+nx2        = 16
+nx3        = 16
+
+<hydro>
+fluid = euler
+gamma = 1.6666666666666667
+eos = adiabatic
+riemann = hllc
+reconstruction = plm
+scratch_level = 0
+first_order_flux_correct = true
+
+He_mass_fraction = 0.25
+
+nscalars = 1            # required: jet tracer (agn_feedback/enable_tracer below)
+
+<units>
+code_length_cgs = 3.085677580962325e+24 # 1 Mpc in cm
+code_mass_cgs = 1.98841586e+47          # 1e14 Msun in g
+code_time_cgs = 3.15576e+16             # 1 Gyr in s
+
+<refinement>
+type = user              # dispatches to cluster::ProblemCheckRefinementBlock
+
+<problem/cluster>
+
+<problem/cluster/refinement>
+jet_tracer_refine_above = 0.25   # requested value: refine above 25% tracer fraction
+jet_tracer_deref_below  = 0.05   # NOT specified in the request -- see header
+
+<problem/cluster/gravity>
+# Disabled -- see header comment on the ambient medium. m_smbh left at its
+# C++ default (3.4e8 Msun) just to seed the Weinberger SMBH-mass ledger;
+# unused as a force here since gravity_srcterm = false.
+gravity_srcterm = false
+
+<problem/cluster/uniform_gas>
+init_uniform_gas = true
+# rho = 1e-25 g/cm^3, pres from T = 2e7 K via ideal gas law -- see header for
+# the conversion; NOT a value specified in the request, see header.
+rho = 14.77557589278723
+ux = 0
+uy = 0
+uz = 0
+pres = 4.302506169870091
+
+<problem/cluster/agn_triggering>
+triggering_mode = NONE
+accretion_radius = 0.00495     # R_shell = 3*R_jet = 3*1.65 kpc = 4.95 kpc,
+                                # required > 0 even with triggering_mode=NONE
+                                # (reused directly as R_shell by Weinberger)
+
+<problem/cluster/agn_feedback>
+jet_feedback_mode = weinberger
+
+fixed_power = 1.6599828167e-02  # 1e45 erg/s, see header for the conversion
+efficiency  = 1e-3               # inert here (triggering_mode=NONE -> mdot=0),
+                                  # set for consistency with other weinberger_*.in
+
+# thermal_fraction/kinetic_fraction/magnetic_fraction deliberately left unset
+# -- they have no effect at all for jet_feedback_mode=weinberger (setting them
+# now just gets a PARTHENON_WARN and gets ignored, see agn_feedback.cpp).
+
+# weinberger_jet_density left at its C++ default -- see header, this is
+# *exactly* the requested 1e-28 g/cm^3.
+
+enable_tracer = true             # required by <refinement>/type=user above
+
+<problem/cluster/snia_feedback>
+disabled = True

@@ -1,0 +1,200 @@
+################################################################################
+# MHD variant of weinberger_jet_amr.in -- identical grid/AMR/jet setup (see
+# that file's header for the full derivation of the box/AMR/R_jet/fixed_power
+# numbers, not repeated here), plus:
+#   - fluid = glmmhd (was euler), riemann = hlld (was hllc), matching the
+#     convention used by cluster.in's own MHD example.
+#   - a uniform, horizontal (see below) ambient magnetic field of strength
+#     1 microgauss.
+#   - beta_jet = 10, so that the jet base is magnetized to a
+#     magnetic-to-thermal pressure ratio of 0.1 -- see the beta_jet note below,
+#     this is NOT beta_jet=0.1 (beta_jet is the inverse of that ratio).
+#
+# REQUIRES A REBUILD, same reasons as weinberger_jet_amr.in (new
+# <refinement>/type=user wiring).
+#
+# --- "Horizontal" field direction ------------------------------------------
+# The Weinberger jet always launches along +-z (hardcoded sign(z) split in
+# agn_feedback_weinberger.cpp), i.e. z is the setup's own "vertical" axis.
+# "Horizontal" is therefore taken to mean transverse to the jet, in the x-y
+# plane -- set here purely along x (bx=B, by=bz=0) for the simplest possible
+# uniform horizontal field, rather than isotropically or at some in-plane
+# angle. gravity_srcterm=false (inherited from weinberger_jet_amr.in) means
+# there is no independent gravitational "vertical" this could conflict with.
+#
+# --- Magnetic field unit conversion -----------------------------------------
+# AthenaPK/Parthenon's Units class uses Gaussian-cgs normalization for B (no
+# explicit 4*pi/mu0 factors -- magnetic pressure = B^2/(8*pi)), so
+#   code_magnetic_cgs = sqrt(4*pi) * sqrt(code_mass_cgs) / sqrt(code_length_cgs)
+#                       / code_time_cgs
+#                     = sqrt(4*pi) * sqrt(1.98841586e+47) / sqrt(3.085677580962325e+24)
+#                       / 3.15576e+16
+#                     = 2.8515389072e-05 Gauss per code unit
+# (matches units.hpp's Units::code_magnetic_cgs()/gauss()/microgauss()
+# exactly -- this is the same formula, just evaluated by hand here since the
+# input deck itself can't call C++ accessors). So
+#   B [code] = B [microgauss] * 1e-6 / code_magnetic_cgs
+#            = B [microgauss] * 3.5068783297e-02
+# For the requested 1 microgauss: B_code = 3.5068783297e-02 (bx below).
+#
+# Sanity check: at this ambient rho/T (see weinberger_jet_amr.in's header),
+# the *ambient* thermal pressure is 2.7840e-10 dyn/cm^2, vs. this field's
+# magnetic pressure B^2/(8*pi) = 3.9789e-14 dyn/cm^2 -- an ambient plasma
+# beta (P_th/P_B) of ~7000, i.e. a weak, dynamically unimportant seed field
+# far from the jet, as intended for a "large-scale ambient field" setup
+# (nothing here forces this relationship -- beta_jet below is independent
+# and governs the *jet's own* injected field, not the ambient one).
+#
+# --- beta_jet: magnetic-to-thermal = 0.1, i.e. beta_jet = 10 ---------------
+# beta_jet in this codebase is the *standard* plasma beta convention,
+# P_thermal/P_magnetic (agn_feedback.hpp: "standard plasma beta P_th/P_B at
+# the jet base (large value = weakly magnetized)") -- the *reciprocal* of a
+# magnetic-to-thermal ratio. Requested magnetic-to-thermal = 0.1 means
+# P_B/P_th = 0.1, so beta_jet = P_th/P_B = 1/0.1 = 10 (see beta_jet below --
+# NOT 0.1, that would be a 10x-magnetized jet base instead of the requested
+# 0.1x). Required to be set explicitly for any Weinberger + glmmhd run
+# (PARTHENON_REQUIRE_THROWS in agn_feedback.cpp -- there is no safe default
+# for a magnetized run).
+################################################################################
+<comment>
+problem   = Weinberger jet feedback (MHD): forced-max-refinement launch sphere + jet-tracer AMR, 1 uG horizontal field, beta_jet=10 (mag/thermal=0.1) at the jet base
+
+<job>
+problem_id = cluster
+
+<parthenon/output1>
+file_type  = hst
+dt         = 1e-4
+
+<parthenon/output2>
+file_type  = hdf5
+variables  = cons,prim
+dt         = 1e-4
+id         = vars
+
+<parthenon/time>
+cfl        = 0.3
+nlim       = -1
+tlim       = 0.05    # 50 Myr -- PLACEHOLDER, not run yet (see weinberger_jet_amr.in header)
+integrator = vl2
+ncycle_out_mesh = -200  # print mesh structure every 200 cycles and on refinement
+
+<parthenon/mesh>
+refinement = adaptive
+numlevel   = 4         # root + 3 levels -> ~97 pc at max level, see weinberger_jet_amr.in header
+nghost     = 2
+
+packs_per_rank = 1     # required for cluster's init-time reductions
+                        # (cluster.cpp's ProblemGenerator docstring) and for
+                        # AGNTriggering/Weinberger's own step reductions
+
+nx1        = 256
+x1min      = -0.1      # -100 kpc
+x1max      = 0.1       # +100 kpc -> 200 kpc box, per request
+ix1_bc     = outflow
+ox1_bc     = outflow
+
+nx2        = 256
+x2min      = -0.1
+x2max      = 0.1
+ix2_bc     = outflow
+ox2_bc     = outflow
+
+nx3        = 256
+x3min      = -0.1
+x3max      = 0.1
+ix3_bc     = outflow
+ox3_bc     = outflow
+
+<parthenon/meshblock>
+nx1        = 16
+nx2        = 16
+nx3        = 16
+
+<hydro>
+fluid = glmmhd          # was euler -- see header
+gamma = 1.6666666666666667
+eos = adiabatic
+riemann = hlld           # was hllc -- MHD Riemann solver, matches cluster.in
+reconstruction = plm
+scratch_level = 0
+first_order_flux_correct = true
+Tfloor = 1e4
+
+He_mass_fraction = 0.25
+
+nscalars = 1            # required: jet tracer (agn_feedback/enable_tracer below)
+
+<units>
+code_length_cgs = 3.085677580962325e+24 # 1 Mpc in cm
+code_mass_cgs = 1.98841586e+47          # 1e14 Msun in g
+code_time_cgs = 3.15576e+16             # 1 Gyr in s
+
+<refinement>
+type = user              # dispatches to cluster::ProblemCheckRefinementBlock
+
+<problem/cluster>
+
+<problem/cluster/refinement>
+jet_tracer_refine_above = 0.25   # requested value: refine above 25% tracer fraction
+jet_tracer_deref_below  = 0.05   # NOT specified in the request -- see weinberger_jet_amr.in header
+
+<problem/cluster/gravity>
+# Disabled -- see weinberger_jet_amr.in header comment on the ambient medium.
+# m_smbh left at its C++ default (3.4e8 Msun) just to seed the Weinberger
+# SMBH-mass ledger; unused as a force here since gravity_srcterm = false.
+gravity_srcterm = false
+
+<problem/cluster/uniform_gas>
+init_uniform_gas = true
+# rho = 1e-26 g/cm^3, pres from T = 2e7 K via ideal gas law -- same
+# code_density_cgs = 6.767925712378865e-27 g/cm^3 per code unit derivation as
+# weinberger_jet_amr.in header, just 1/10th the density (and hence pressure,
+# at fixed T) of that file's 1e-25 g/cm^3 default.
+rho = 1.477557589278723
+ux = 0
+uy = 0
+uz = 0
+pres = 0.4302506169870091
+
+<problem/cluster/uniform_b_field>
+# 1 microgauss, horizontal (along x, transverse to the jet's z axis) -- see
+# header for the unit conversion and the ambient-plasma-beta sanity check.
+init_uniform_b_field = true
+bx = 1e-11 # negligible field
+by = 0
+bz = 0
+
+<problem/cluster/agn_triggering>
+triggering_mode = NONE
+accretion_radius = 0.00495     # R_shell = 3*R_jet = 3*1.65 kpc = 4.95 kpc,
+                                # required > 0 even with triggering_mode=NONE
+                                # (reused directly as R_shell by Weinberger)
+
+<problem/cluster/agn_feedback>
+jet_feedback_mode = weinberger
+
+fixed_power = 1.6599828167e-03  # 1e44 erg/s -- code_power_cgs =
+                                  # 6.024158744024811e+46 erg/s per code unit,
+                                  # same derivation as weinberger_jet_amr.in
+                                  # header, just 1/10th its 1e45 erg/s default
+efficiency  = 1e-3               # inert here (triggering_mode=NONE -> mdot=0),
+                                  # set for consistency with other weinberger_*.in
+
+# beta_jet = P_th/P_B at the jet base = 10, i.e. magnetic-to-thermal = 0.1 as
+# requested -- see header for the beta_jet-is-the-reciprocal note. Required
+# explicitly for jet_feedback_mode=weinberger with fluid=glmmhd (no safe
+# default for a magnetized run).
+beta_jet = 10.0
+
+# thermal_fraction/kinetic_fraction/magnetic_fraction deliberately left unset
+# -- they have no effect at all for jet_feedback_mode=weinberger (setting them
+# now just gets a PARTHENON_WARN and gets ignored, see agn_feedback.cpp).
+
+# weinberger_jet_density left at its C++ default -- see weinberger_jet_amr.in
+# header, this is *exactly* the requested 1e-28 g/cm^3.
+
+enable_tracer = true             # required by <refinement>/type=user above
+
+<problem/cluster/snia_feedback>
+disabled = True

@@ -1,10 +1,10 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
-// Licensed under the BSD 3-Clause License (the "LICENSE").
+// Copyright (c) 2021-2026, Athena-Parthenon Collaboration. All rights reserved.
+// Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
-// Test IC: single-cell cold clumps in pressure equilibrium with the ambient medium
-// -- see cold_clumps.hpp.
+// Test IC: single-cell cold clumps in pressure equilibrium with the ambient medium.
+// See cold_clumps.hpp.
 //========================================================================================
 // This file was made in part with generative AI (Claude Sonnet 5).
 //========================================================================================
@@ -15,6 +15,7 @@
 #include <iostream>
 #include <limits>
 #include <random>
+#include <sstream>
 #include <vector>
 
 // Parthenon headers
@@ -32,8 +33,22 @@
 namespace cluster {
 using namespace parthenon;
 
+ColdClumpsPlacement ParseColdClumpsPlacement(const std::string &str) {
+  if (str == "random_shell") {
+    return ColdClumpsPlacement::RandomShell;
+  }
+  std::stringstream msg;
+  msg << "### FATAL ERROR in function [ParseColdClumpsPlacement]" << std::endl
+      << "Unrecognized problem/cluster/cold_clumps/placement: \"" << str << "\""
+      << std::endl;
+  PARTHENON_FAIL(msg);
+  return ColdClumpsPlacement::RandomShell;
+}
+
 ColdClumps::ColdClumps(ParameterInput *pin, StateDescriptor *hydro_pkg)
     : enable_(pin->GetOrAddBoolean("problem/cluster/cold_clumps", "enable", false)),
+      placement_(ParseColdClumpsPlacement(pin->GetOrAddString(
+          "problem/cluster/cold_clumps", "placement", "random_shell"))),
       n_clumps_per_block_(
           pin->GetOrAddInteger("problem/cluster/cold_clumps", "n_clumps_per_block", 1)),
       temperature_(
@@ -45,11 +60,11 @@ ColdClumps::ColdClumps(ParameterInput *pin, StateDescriptor *hydro_pkg)
       report_radius_rho_threshold_(pin->GetOrAddReal(
           "problem/cluster/cold_clumps", "report_radius_rho_threshold", 1.0e3)) {
   if (enable_) {
-    PARTHENON_REQUIRE_THROWS(n_clumps_per_block_ > 0,
-                             "problem/cluster/cold_clumps/n_clumps_per_block must be "
-                             "positive when cold_clumps are enabled.");
     PARTHENON_REQUIRE_THROWS(temperature_ > 0,
                              "problem/cluster/cold_clumps/temperature must be positive.");
+    PARTHENON_REQUIRE_THROWS(n_clumps_per_block_ > 0,
+                             "problem/cluster/cold_clumps/n_clumps_per_block must be "
+                             "positive.");
   }
   hydro_pkg->AddParam<>("cold_clumps", *this);
 }
@@ -70,10 +85,29 @@ void ColdClumps::ApplyIC(MeshBlock *pmb, StateDescriptor *hydro_pkg) const {
   const Real gm1 = hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0;
   const Real mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
 
-  // Candidate cells: all interior cells, optionally restricted to
-  // min_radius_ <= r <= max_radius_. Built host-side since this whole IC step
-  // is host-side (matches pgen/star_formation.cpp's AssignPeakCell/MultiPeak
-  // approach).
+  // Clump construction: pressure equilibrium at temperature_, at the ambient velocity
+  // (not momentum, see cold_clumps.hpp). Returns rho_clump for the diagnostic print.
+  auto apply_clump_at_cell = [&](int i, int j, int k) -> Real {
+    const Real rho_ambient = u(IDN, k, j, i);
+    const Real vx = u(IM1, k, j, i) / rho_ambient, vy = u(IM2, k, j, i) / rho_ambient,
+               vz = u(IM3, k, j, i) / rho_ambient;
+    const Real ke_ambient = 0.5 * rho_ambient * (vx * vx + vy * vy + vz * vz);
+    const Real p_ambient = gm1 * (u(IEN, k, j, i) - ke_ambient);
+
+    // Ideal gas: T[K] = mbar_over_kb * p / rho, so rho_clump = mbar_over_kb * p_ambient /
+    // temperature_ at fixed pressure.
+    const Real rho_clump = mbar_over_kb * p_ambient / temperature_;
+    const Real ke_clump = 0.5 * rho_clump * (vx * vx + vy * vy + vz * vz);
+    u(IDN, k, j, i) = rho_clump;
+    u(IM1, k, j, i) = rho_clump * vx;
+    u(IM2, k, j, i) = rho_clump * vy;
+    u(IM3, k, j, i) = rho_clump * vz;
+    u(IEN, k, j, i) = p_ambient / gm1 + ke_clump;
+    return rho_clump;
+  };
+
+  // Candidate cells: all interior cells, optionally restricted to min_radius_ <= r <=
+  // max_radius_. Built host-side, matches star_formation.cpp's AssignPeakCell approach.
   std::vector<std::array<int, 3>> candidates; // {i, j, k}
   for (int k = kb.s; k <= kb.e; ++k) {
     for (int j = jb.s; j <= jb.e; ++j) {
@@ -89,11 +123,10 @@ void ColdClumps::ApplyIC(MeshBlock *pmb, StateDescriptor *hydro_pkg) const {
     }
   }
   if (candidates.empty()) {
-    return; // this block has no cells within [min_radius_, max_radius_] -- nothing to do
+    return; // no cells within [min_radius_, max_radius_] on this block
   }
 
-  // Seed uniquely per MeshBlock (gid) for reproducible-but-independent
-  // placement across blocks/ranks, same convention as star_formation.cpp.
+  // Seed uniquely per MeshBlock (gid) for reproducible-but-independent placement.
   std::mt19937_64 rng(rng_seed_ + static_cast<uint64_t>(pmb->gid));
   std::shuffle(candidates.begin(), candidates.end(), rng);
 
@@ -103,34 +136,16 @@ void ColdClumps::ApplyIC(MeshBlock *pmb, StateDescriptor *hydro_pkg) const {
     const int i = candidates[p][0];
     const int j = candidates[p][1];
     const int k = candidates[p][2];
-
-    // Read back the ambient state already written by the uniform_gas/
-    // hydrostatic-sphere fill (general form -- does not assume v=0, so a
-    // uniform bulk velocity from <problem/cluster/uniform_gas> is preserved
-    // rather than silently discarded).
     const Real rho_ambient = u(IDN, k, j, i);
-    const Real Mx = u(IM1, k, j, i), My = u(IM2, k, j, i), Mz = u(IM3, k, j, i);
-    const Real ke_ambient = 0.5 * (Mx * Mx + My * My + Mz * Mz) / rho_ambient;
-    const Real p_ambient = gm1 * (u(IEN, k, j, i) - ke_ambient);
-
-    // Pressure equilibrium at fixed velocity: p_clump = p_ambient, at
-    // temperature_ instead of the ambient temperature. Ideal gas:
-    // T[K] = mbar_over_kb * p / rho  =>  rho_clump = mbar_over_kb * p_ambient
-    // / temperature_. Momentum (and thus velocity) is left untouched, so
-    // energy density becomes rho_clump*u_clump + ke_ambient, with
-    // rho_clump*u_clump = p_ambient/gm1 by construction (same as the ambient
-    // thermal energy density -- only the density/temperature split changes).
-    const Real rho_clump = mbar_over_kb * p_ambient / temperature_;
-    u(IDN, k, j, i) = rho_clump;
-    u(IEN, k, j, i) = p_ambient / gm1 + ke_ambient;
+    const Real rho_clump = apply_clump_at_cell(i, j, k);
 
     if (Globals::my_rank == 0) {
       const Real x = coords.Xc<1>(i), y = coords.Xc<2>(j), z = coords.Xc<3>(k);
       const Real r = std::sqrt(x * x + y * y + z * z);
       std::cout << "[ColdClumps] gid=" << pmb->gid << " cell=(" << i << "," << j << ","
                 << k << ") r=" << r << " rho_ambient=" << rho_ambient
-                << " -> rho_clump=" << rho_clump << " (T=" << temperature_
-                << " K, p_ambient=" << p_ambient << " unchanged)" << std::endl;
+                << " -> rho_clump=" << rho_clump << " (T=" << temperature_ << " K)"
+                << std::endl;
     }
   }
 
@@ -153,12 +168,9 @@ parthenon::TaskStatus ColdClumpsReportRadius(parthenon::MeshData<parthenon::Real
   const Real rho_threshold = cold_clumps.report_radius_rho_threshold_;
   const Real gm1 = hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0;
   const Real mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
-  // AGNTriggering's own cold_temp_thresh_ (public member), reused directly so
-  // this diagnostic matches its actual dual criterion (r < accretion_radius
-  // AND temp <= cold_temp_thresh) rather than density alone -- density
-  // staying high while temperature rises above threshold (e.g. from shock/
-  // ram-pressure heating during infall) is exactly the gap this is meant to
-  // catch, distinct from the plain infall-radius tracking above.
+  // Reuses AGNTriggering's own cold_temp_thresh_ so this diagnostic matches its actual
+  // dual criterion (r < accretion_radius AND temp <= cold_temp_thresh), not density
+  // alone: catches gas that stayed dense but got heated above threshold in transit.
   const bool has_triggering = hydro_pkg->AllParams().hasKey("agn_triggering");
   const Real cold_temp_thresh =
       has_triggering ? hydro_pkg->Param<AGNTriggering>("agn_triggering").cold_temp_thresh_
@@ -194,15 +206,9 @@ parthenon::TaskStatus ColdClumpsReportRadius(parthenon::MeshData<parthenon::Real
       },
       Kokkos::Min<Real>(min_r2), mass_above_thresh);
 
-  // Second pass: among dense cells (rho > rho_threshold) that ALSO fall
-  // inside accretion_radius (AGNTriggering::ReduceColdMass's own spatial
-  // cut), what is the minimum temperature found? This directly answers "is
-  // the infalling clump still 'cold' (<= cold_temp_thresh) by the time it
-  // physically reaches the accretion region, or did it get heated en route
-  // (e.g. ram-pressure/shock heating during infall) and simply never satisfy
-  // AGNTriggering's temperature criterion despite being spatially present?" --
-  // a materially different question from the plain infall-radius tracking
-  // above, which only checks density.
+  // Second pass: minimum temperature among dense cells that also fall inside
+  // accretion_radius, i.e. is the infalling clump still cold by the time it reaches the
+  // accretion region, or did it get heated in transit?
   Real min_T_dense_in_region = std::numeric_limits<Real>::max();
   if (has_triggering) {
     const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});

@@ -128,6 +128,79 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 }
 
 //========================================================================================
+//! \fn parthenon::AmrTag ProblemCheckRefinementBlock(MeshBlockData<Real> *mbd)
+//! \brief AMR refinement criterion for <refinement>/type = user (wired in main.cpp).
+//! Combines two independent conditions, either of which can trigger refine:
+//!  1. Force (and keep) the maximum refinement level within r <= R_jet of the AGN,
+//!     where R_jet = accretion_radius/3 is the same jet-launch-sphere radius
+//!     JetFeedbackMode::Weinberger itself injects into (see the r_jet derivation
+//!     in agn_feedback_weinberger.cpp's WeinbergerJetFeedback{Reduce,Apply}* --
+//!     duplicated here rather than factored out, matching that file's own
+//!     internal duplication of the same one-line derivation). Tested against the
+//!     meshblock's bounding box (not cell centers), so it doesn't depend on
+//!     resolution/alignment: the block is refined whenever *any* point of its
+//!     volume -- not just its cell centers -- comes within R_jet of the origin
+//!     (the AGN sits at the origin throughout this pgen).
+//!  2. Elsewhere, refine/derefine on the jet tracer concentration (the first
+//!     passive scalar; only meaningful with agn_feedback/enable_tracer=true and
+//!     hydro/nscalars>=1, both required -- see the check in
+//!     ProblemInitPackageData below -- whenever this function is wired in),
+//!     using the problem/cluster/refinement thresholds registered there.
+//! Condition 1 takes priority (checked first, returns immediately): a block
+//! inside R_jet is never allowed to derefine based on tracer content alone.
+//========================================================================================
+parthenon::AmrTag ProblemCheckRefinementBlock(MeshBlockData<Real> *mbd) {
+  auto pmb = mbd->GetBlockPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+
+  // Condition 1: force-refine any block whose bounding box comes within R_jet
+  // of the origin. r_jet=0 (AGNTriggering's accretion_radius default) makes
+  // this condition harmlessly unsatisfiable rather than nonsensical, e.g. for
+  // jet_feedback_mode=default input decks that opt into type=user only for
+  // the tracer criterion below.
+  const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
+  const Real r_jet = agn_triggering.accretion_radius_ / 3.0;
+
+  const auto &bs = pmb->block_size;
+  // Distance from 0 to the nearest point of [lo,hi] along one axis.
+  auto axis_dist_to_zero = [](Real lo, Real hi) {
+    if (lo > 0.0) return lo;  // block entirely on the +side
+    if (hi < 0.0) return -hi; // block entirely on the -side
+    return 0.0;               // block straddles 0
+  };
+  const Real dx = axis_dist_to_zero(bs.xmin(X1DIR), bs.xmax(X1DIR));
+  const Real dy = axis_dist_to_zero(bs.xmin(X2DIR), bs.xmax(X2DIR));
+  const Real dz = axis_dist_to_zero(bs.xmin(X3DIR), bs.xmax(X3DIR));
+  if (dx * dx + dy * dy + dz * dz <= r_jet * r_jet) {
+    return parthenon::AmrTag::refine;
+  }
+
+  // Condition 2: jet tracer concentration, everywhere else.
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  auto w = mbd->Get("prim").data;
+
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  Real max_tracer = 0.0;
+  pmb->par_reduce(
+      "cluster refinement: jet tracer", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i, Real &lmax) {
+        lmax = std::max(lmax, w(nhydro, k, j, i));
+      },
+      Kokkos::Max<Real>(max_tracer));
+
+  const auto refine_above =
+      hydro_pkg->Param<Real>("refinement/cluster_jet_tracer_refine_above");
+  const auto deref_below =
+      hydro_pkg->Param<Real>("refinement/cluster_jet_tracer_deref_below");
+  if (max_tracer > refine_above) return parthenon::AmrTag::refine;
+  if (max_tracer < deref_below) return parthenon::AmrTag::derefine;
+  return parthenon::AmrTag::same;
+}
+
+//========================================================================================
 //! \fn void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor
 //! *hydro_pkg) \brief Init package data from parameter input
 //========================================================================================
@@ -235,6 +308,42 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    * Read AGN Triggering
    ************************************************************/
   AGNTriggering agn_triggering(pin, hydro_pkg);
+
+  /************************************************************
+   * Read AMR refinement criteria consumed by ProblemCheckRefinementBlock
+   * (only meaningful -- and only wired up, see main.cpp -- when
+   * <refinement>/type = user)
+   ************************************************************/
+  {
+    const auto refinement_type = pin->GetOrAddString("refinement", "type", "unset");
+    if (refinement_type == "user") {
+      // ProblemCheckRefinementBlock's tracer criterion reads prim(nhydro,...)
+      // unconditionally whenever type=user is selected for this pgen -- fail
+      // fast here rather than read out-of-bounds/uninitialized scalar data at
+      // the first AMR check.
+      PARTHENON_REQUIRE_THROWS(
+          agn_feedback.enable_tracer_ && hydro_pkg->Param<int>("nscalars") >= 1,
+          "problem/cluster with <refinement>/type=user requires "
+          "problem/cluster/agn_feedback/enable_tracer=true and hydro/nscalars>=1 "
+          "-- ProblemCheckRefinementBlock's jet-tracer criterion reads that "
+          "scalar unconditionally.");
+
+      const Real jet_tracer_refine_above =
+          pin->GetOrAddReal("problem/cluster/refinement", "jet_tracer_refine_above", 0.5);
+      const Real jet_tracer_deref_below =
+          pin->GetOrAddReal("problem/cluster/refinement", "jet_tracer_deref_below",
+                            jet_tracer_refine_above / 5.0);
+      PARTHENON_REQUIRE_THROWS(
+          jet_tracer_deref_below < jet_tracer_refine_above,
+          "problem/cluster/refinement/jet_tracer_deref_below must be < "
+          "jet_tracer_refine_above (some hysteresis margin is required to avoid "
+          "refine/derefine flapping every other step).");
+      hydro_pkg->AddParam("refinement/cluster_jet_tracer_refine_above",
+                          jet_tracer_refine_above);
+      hydro_pkg->AddParam("refinement/cluster_jet_tracer_deref_below",
+                          jet_tracer_deref_below);
+    }
+  }
 
   /************************************************************
    * Read Cold Clumps (test/debug IC for exercising

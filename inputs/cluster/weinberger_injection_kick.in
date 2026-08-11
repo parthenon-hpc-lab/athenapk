@@ -1,9 +1,17 @@
 ################################################################################
 # Direct AGN-triggering test for jet_feedback_mode = weinberger.
 #
+# NOTE: weinberger_smoke_test.in and weinberger_cold_clumps_test.in, both
+# referenced by name throughout this file's history below, have since been
+# deleted (deliberately, by the author) -- this file (renamed from
+# weinberger_cold_clumps_shell_test.in) is the one that superseded them both.
+# The references are kept as-is since the rationale they point to is still
+# accurate/relevant, just no longer independently readable in another file.
+#
 # STATUS: mid-debug. This file was originally an AGNTriggeringMode::COLD_GAS
 # test (seeded cold clumps in the accretion shell -- see the git/session
-# history or weinberger_cold_clumps_test.in for that version's own rationale).
+# history or weinberger_cold_clumps_test.in (deleted) for that version's own
+# rationale).
 # That setup reproducibly triggered on the very first cycle and immediately
 # collapsed dt by 14-20 orders of magnitude (2.69e-4 -> ~1e-19--1e-24 code
 # time), recovering only over hundreds-to-thousands of subsequent cycles.
@@ -125,12 +133,7 @@ id         = vars
 <parthenon/time>
 cfl        = 0.3
 nlim       = -1
-tlim       = 0.1       # 100 Myr. (Originally sized as 10 * cold_t_acc for the
-                        # COLD_GAS variant; cold_t_acc is unused while
-                        # triggering_mode = NONE below, but tlim is generous
-                        # either way -- see STATUS above, the run currently
-                        # stalls almost immediately after the first trigger
-                        # regardless of tlim.)
+tlim       = 1e-2
 integrator = vl2
 
 <parthenon/mesh>
@@ -227,15 +230,20 @@ triggering_filename = agn_triggering_shell_test.dat
 <problem/cluster/agn_feedback>
 jet_feedback_mode = weinberger
 
-fixed_power = 1e-3
+# fixed_power left at 0 (its default): with weinberger_fixed_jet_profile=true
+# below, the injected state is entirely hand-set by weinberger_fixed_jet_rho/
+# weinberger_fixed_jet_v_km_s, not derived from fixed_power -- a nonzero
+# fixed_power here now fails fast (agn_feedback_weinberger.cpp) since it used
+# to silently do nothing, which is what this file was actually relying on.
 efficiency = 1e-3
 
 weinberger_fixed_jet_profile = true
 weinberger_fixed_jet_rho = 1e-28
 weinberger_fixed_jet_v_km_s = 60000
 
-thermal_fraction = 0.0
-kinetic_fraction = 1.0
+# thermal_fraction/kinetic_fraction/magnetic_fraction deliberately left unset
+# -- they have no effect at all for jet_feedback_mode=weinberger (setting them
+# now just gets a PARTHENON_WARN and gets ignored, see agn_feedback.cpp).
 
 # weinberger_jet_density left at its C++ default (1e-28 g/cm^3, code units)
 # -- confirmed (2026-08-07 debugging session) this is the intended/normal
