@@ -734,71 +734,94 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       /************************************************************
        * Initialize a HydrostaticEquilibriumSphere
        ************************************************************/
-      // Retrieve both main and subcluster profiles
+      // Main cluster profile is always present
       const auto &he_sphere =
           hydro_pkg
               ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
                   "hydrostatic_equilibrium_sphere");
-
-      const auto &subcluster_he_sphere =
-          hydro_pkg
-              ->Param<HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
-                  "subcluster_hydrostatic_equilibrium_sphere");
-
-      // Load subcluster position
-      const Real x_sub = hydro_pkg->Param<Real>("subcluster_x");
-      const Real y_sub = hydro_pkg->Param<Real>("subcluster_y");
-      const Real z_sub = hydro_pkg->Param<Real>("subcluster_z");
-
-      // Generate pressure-density profiles
       const auto P_rho_profile =
           he_sphere.generate_P_rho_profile(ib, jb, kb, coords, 0, 0, 0);
-      const auto subcluster_P_rho_profile = subcluster_he_sphere.generate_P_rho_profile(
-          ib, jb, kb, coords, x_sub, y_sub, z_sub);
 
-      // Initialize conserved variables with both main + subcluster contributions
-      parthenon::par_for(
-          DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::DualClusterGas",
-          parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-          KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
-            const Real x = coords.Xc<1>(i);
-            const Real y = coords.Xc<2>(j);
-            const Real z = coords.Xc<3>(k);
+      if (hydro_pkg->Param<bool>("subcluster")) {
+        // The subcluster profile/position Params only exist when
+        // problem/cluster/gravity/subcluster=true, see ProblemInitPackageData.
+        const auto &subcluster_he_sphere =
+            hydro_pkg->Param<
+                HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
+                "subcluster_hydrostatic_equilibrium_sphere");
 
-            // Distances to main cluster (assumed at origin) and subcluster
-            const Real r_main = sqrt(x * x + y * y + z * z);
-            const Real dx = x - x_sub;
-            const Real dy = y - y_sub;
-            const Real dz = z - z_sub;
-            const Real r_sub = sqrt(dx * dx + dy * dy + dz * dz);
+        // Load subcluster position
+        const Real x_sub = hydro_pkg->Param<Real>("subcluster_x");
+        const Real y_sub = hydro_pkg->Param<Real>("subcluster_y");
+        const Real z_sub = hydro_pkg->Param<Real>("subcluster_z");
 
-            // Get pressure and density from both profiles
-            const Real P_main = P_rho_profile.P_from_r(r_main);
-            const Real rho_main = P_rho_profile.rho_from_r(r_main);
+        const auto subcluster_P_rho_profile = subcluster_he_sphere.generate_P_rho_profile(
+            ib, jb, kb, coords, x_sub, y_sub, z_sub);
 
-            const Real P_sub = subcluster_P_rho_profile.P_from_r(r_sub);
-            const Real rho_sub = subcluster_P_rho_profile.rho_from_r(r_sub);
+        // Initialize conserved variables with both main + subcluster contributions
+        parthenon::par_for(
+            DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::DualClusterGas",
+            parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+            KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+              const Real x = coords.Xc<1>(i);
+              const Real y = coords.Xc<2>(j);
+              const Real z = coords.Xc<3>(k);
 
-            Real P_total = 0.0;
-            Real rho_total = 0.0;
+              // Distances to main cluster (assumed at origin) and subcluster
+              const Real r_main = sqrt(x * x + y * y + z * z);
+              const Real dx = x - x_sub;
+              const Real dy = y - y_sub;
+              const Real dz = z - z_sub;
+              const Real r_sub = sqrt(dx * dx + dy * dy + dz * dz);
 
-            if (P_main > 0.0 && rho_main > 0.0) {
-              P_total += P_main;
-              rho_total += rho_main;
-            }
+              // Get pressure and density from both profiles
+              const Real P_main = P_rho_profile.P_from_r(r_main);
+              const Real rho_main = P_rho_profile.rho_from_r(r_main);
 
-            if (P_sub > 0.0 && rho_sub > 0.0) {
-              P_total += P_sub;
-              rho_total += rho_sub;
-            }
+              const Real P_sub = subcluster_P_rho_profile.P_from_r(r_sub);
+              const Real rho_sub = subcluster_P_rho_profile.rho_from_r(r_sub);
 
-            // Fill conserved states
-            u(IDN, k, j, i) = rho_total;
-            u(IM1, k, j, i) = 0.0;
-            u(IM2, k, j, i) = 0.0;
-            u(IM3, k, j, i) = 0.0;
-            u(IEN, k, j, i) = P_total / gm1;
-          });
+              Real P_total = 0.0;
+              Real rho_total = 0.0;
+
+              if (P_main > 0.0 && rho_main > 0.0) {
+                P_total += P_main;
+                rho_total += rho_main;
+              }
+
+              if (P_sub > 0.0 && rho_sub > 0.0) {
+                P_total += P_sub;
+                rho_total += rho_sub;
+              }
+
+              // Fill conserved states
+              u(IDN, k, j, i) = rho_total;
+              u(IM1, k, j, i) = 0.0;
+              u(IM2, k, j, i) = 0.0;
+              u(IM3, k, j, i) = 0.0;
+              u(IEN, k, j, i) = P_total / gm1;
+            });
+      } else {
+        // No subcluster: initialize from the main cluster profile alone (matches
+        // the pre-sloshing-feature behavior).
+        parthenon::par_for(
+            DEFAULT_LOOP_PATTERN, "cluster::ProblemGenerator::SingleClusterGas",
+            parthenon::DevExecSpace(), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+            KOKKOS_LAMBDA(const int &k, const int &j, const int &i) {
+              const Real r = sqrt(coords.Xc<1>(i) * coords.Xc<1>(i) +
+                                  coords.Xc<2>(j) * coords.Xc<2>(j) +
+                                  coords.Xc<3>(k) * coords.Xc<3>(k));
+
+              const Real P_r = P_rho_profile.P_from_r(r);
+              const Real rho_r = P_rho_profile.rho_from_r(r);
+
+              u(IDN, k, j, i) = rho_r;
+              u(IM1, k, j, i) = 0.0;
+              u(IM2, k, j, i) = 0.0;
+              u(IM3, k, j, i) = 0.0;
+              u(IEN, k, j, i) = P_r / gm1;
+            });
+      }
     }
 
     if (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd) {
