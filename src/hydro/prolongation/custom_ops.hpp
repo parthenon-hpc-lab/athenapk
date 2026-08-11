@@ -114,7 +114,7 @@ struct ProlongateCellMinModMultiD {
                              &dx3fp);
       gx3c =
           GradMinMod(fc, coarse(element_idx, l, m, n, k - 1, j, i),
-                     coarse(element_idx, l, m, n, k + 1, j, i), dx3m, dx3p, gx3m, dx3p);
+                     coarse(element_idx, l, m, n, k + 1, j, i), dx3m, dx3p, gx3m, gx3p);
     }
 
     // Max. expected total difference. (dx#fm/p are positive by construction)
