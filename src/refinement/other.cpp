@@ -41,6 +41,17 @@ parthenon::AmrTag MaxDensity(MeshBlockData<Real> *rc) {
 }
 
 // refinement condition: cubic refinement with activation check
+//
+// Refines every cell whose volume overlaps a cube of side refinement_width
+// centered on the origin. Tests cell EXTENT (face to face) against the
+// target region rather than cell CENTER: a center-only test only flags a
+// cell once its center happens to land inside the target box, so a
+// refinement_width smaller than the local cell size can fall entirely
+// between cell centers and never trigger any refinement at all, even though
+// the target region clearly overlaps part of a cell. The extent/extent
+// overlap (AABB) test below has no such failure mode -- as long as the
+// target box intersects a cell's volume at all, regardless of how small the
+// box is relative to the cell, that cell is flagged.
 parthenon::AmrTag Cubic(MeshBlockData<Real> *rc) {
 
   auto pmb = rc->GetBlockPointer();
@@ -62,31 +73,40 @@ parthenon::AmrTag Cubic(MeshBlockData<Real> *rc) {
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-  // Fast bounding box check (block-level)
-  const Real x_min = coords.Xc<1>(ib.s);
-  const Real x_max = coords.Xc<1>(ib.e);
-  const Real y_min = coords.Xc<2>(jb.s);
-  const Real y_max = coords.Xc<2>(jb.e);
-  const Real z_min = coords.Xc<3>(kb.s);
-  const Real z_max = coords.Xc<3>(kb.e);
+  // Fast bounding box check (block-level), using the block's true
+  // face-to-face extent rather than the centers of its boundary cells
+  // (which would under-cover the block by half a cell on each side; same
+  // fix as Parthenon's own pmb->coords.Xf<dir>(ib.s)/(ib.e+1) pattern in
+  // e.g. interface/swarm.cpp).
+  const Real x_min = coords.Xf<1>(ib.s);
+  const Real x_max = coords.Xf<1>(ib.e + 1);
+  const Real y_min = coords.Xf<2>(jb.s);
+  const Real y_max = coords.Xf<2>(jb.e + 1);
+  const Real z_min = coords.Xf<3>(kb.s);
+  const Real z_max = coords.Xf<3>(kb.e + 1);
 
   if (x_min > half_width || x_max < -half_width || y_min > half_width ||
       y_max < -half_width || z_min > half_width || z_max < -half_width) {
     return parthenon::AmrTag::same; // Fully outside, no refinement needed
   }
 
-  // If the block intersects the cubic region, perform detailed check
+  // If the block intersects the cubic region, perform a detailed, per-cell
+  // extent-overlap check.
   bool inside_cubic_region = false;
 
   pmb->par_reduce(
       "cubic check refinement", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int k, const int j, const int i, bool &inside) {
-        const Real x = coords.Xc<1>(i);
-        const Real y = coords.Xc<2>(j);
-        const Real z = coords.Xc<3>(k);
+        const Real cell_x_min = coords.Xf<1>(i);
+        const Real cell_x_max = coords.Xf<1>(i + 1);
+        const Real cell_y_min = coords.Xf<2>(j);
+        const Real cell_y_max = coords.Xf<2>(j + 1);
+        const Real cell_z_min = coords.Xf<3>(k);
+        const Real cell_z_max = coords.Xf<3>(k + 1);
 
-        if (std::abs(x) <= half_width && std::abs(y) <= half_width &&
-            std::abs(z) <= half_width) {
+        if (cell_x_min <= half_width && cell_x_max >= -half_width &&
+            cell_y_min <= half_width && cell_y_max >= -half_width &&
+            cell_z_min <= half_width && cell_z_max >= -half_width) {
           inside = true;
         }
       },
