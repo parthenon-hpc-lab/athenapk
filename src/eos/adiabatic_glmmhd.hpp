@@ -1,3 +1,6 @@
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 #ifndef EOS_ADIABATIC_GLMMHD_HPP_
 #define EOS_ADIABATIC_GLMMHD_HPP_
 //! \file eos.hpp
@@ -31,9 +34,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
         gamma_{gamma} {}
 
   void ConservedToPrimitive(MeshData<Real> *md) const override;
-  void PrimitiveToConserved(MeshData<Real> *md) const override {
-    PARTHENON_FAIL("needs impl.");
-  }
+  void PrimitiveToConserved(MeshData<Real> *md) const override;
 
   KOKKOS_INLINE_FUNCTION
   Real GetGamma() const { return gamma_; }
@@ -178,6 +179,73 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
       prim(n, k, j, i) = cons(n, k, j, i) * di;
     }
     return floors_used;
+  }
+
+  //----------------------------------------------------------------------------------------
+  // \!fn void EquationOfState::PrimToCons(View4D cons, View4D prim, const int& k, const
+  // int& j, const int& i) \brief Fills an array of conservatives given an array of
+  // primitives, currently without floors. Exact inverse of ConsToPrim above (same
+  // caveat as the hydro-only version: no floors are applied here, so this fails
+  // loudly on a bad primitive state instead of silently patching it; those fixes
+  // are applied in ConsToPrim).
+  template <typename View4D>
+  KOKKOS_INLINE_FUNCTION void PrimToCons(View4D cons, View4D prim, const int &nhydro,
+                                         const int &nscalars, const int &k, const int &j,
+                                         const int &i) const {
+    auto gam = GetGamma();
+    auto gm1 = gam - 1.0;
+
+    Real &u_d = cons(IDN, k, j, i);
+    Real &u_m1 = cons(IM1, k, j, i);
+    Real &u_m2 = cons(IM2, k, j, i);
+    Real &u_m3 = cons(IM3, k, j, i);
+    Real &u_e = cons(IEN, k, j, i);
+    Real &u_b1 = cons(IB1, k, j, i);
+    Real &u_b2 = cons(IB2, k, j, i);
+    Real &u_b3 = cons(IB3, k, j, i);
+    Real &u_psi = cons(IPS, k, j, i);
+
+    Real &w_d = prim(IDN, k, j, i);
+    Real &w_vx = prim(IV1, k, j, i);
+    Real &w_vy = prim(IV2, k, j, i);
+    Real &w_vz = prim(IV3, k, j, i);
+    Real &w_p = prim(IPR, k, j, i);
+    Real &w_Bx = prim(IB1, k, j, i);
+    Real &w_By = prim(IB2, k, j, i);
+    Real &w_Bz = prim(IB3, k, j, i);
+    Real &w_psi = prim(IPS, k, j, i);
+
+    PARTHENON_REQUIRE(w_d != 0.0,
+                      "Densities should never be exactly 0! This points to working with "
+                      "some default initialized and/or uninitialized data.");
+    PARTHENON_REQUIRE(w_d > 0.0,
+                      "Got negative density. Might need to impl floors here too.");
+    PARTHENON_REQUIRE(w_p != 0.0,
+                      "Pressure should never be exactly 0! This points to working with "
+                      "some default initialized and/or uninitialized data.");
+    PARTHENON_REQUIRE(w_p > 0.0,
+                      "Got negative pressure. Might need to impl floors here too.");
+    // Unlike density/pressure, a zero (or negative-signed) magnetic field component or
+    // psi is physical, so no analogous positivity/nonzero checks for those.
+
+    u_d = w_d;
+    u_m1 = w_d * w_vx;
+    u_m2 = w_d * w_vy;
+    u_m3 = w_d * w_vz;
+
+    u_b1 = w_Bx;
+    u_b2 = w_By;
+    u_b3 = w_Bz;
+    u_psi = w_psi;
+
+    const Real e_k = 0.5 * w_d * (SQR(w_vx) + SQR(w_vy) + SQR(w_vz));
+    const Real e_B = 0.5 * (SQR(w_Bx) + SQR(w_By) + SQR(w_Bz));
+    u_e = e_k + e_B + w_p / gm1;
+
+    // Convert passive scalars
+    for (auto n = nhydro; n < nhydro + nscalars; ++n) {
+      cons(n, k, j, i) = prim(n, k, j, i) * w_d;
+    }
   }
 
  private:

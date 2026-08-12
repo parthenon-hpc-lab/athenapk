@@ -4,6 +4,8 @@
 // contributors Licensed under the 3-clause BSD License, see LICENSE file for
 // details
 //========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 //! \file adiabatic_hydro.cpp
 //  \brief implements functions in class EquationOfState for adiabatic
 //  hydrodynamics`
@@ -33,11 +35,23 @@ using parthenon::ParArray4D;
 void AdiabaticHydroEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  auto ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
-  auto jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
-  auto kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  // When prolongate_prims is enabled, this function is wired to
+  // PreCommFillDerivedMesh and runs *before* ghost-zone communication, so
+  // cons' ghost zones haven't been filled yet (ProblemGenerator and the
+  // flux update only ever touch the interior). Restrict to the interior
+  // there, and let prim's ghost zones get set by the subsequent prim
+  // communication instead. Otherwise (the standard FillDerivedMesh role,
+  // after communication) cons' ghost zones are valid and prim's need
+  // populating here too, since prim doesn't carry FillGhost in that mode
+  // and this is the only place they get set.
+  const auto domain =
+      pkg->Param<bool>("prolongate_prims") ? IndexDomain::interior : IndexDomain::entire;
+  auto ib = md->GetBlockData(0)->GetBoundsI(domain);
+  auto jb = md->GetBlockData(0)->GetBoundsJ(domain);
+  auto kb = md->GetBlockData(0)->GetBoundsK(domain);
+
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
 

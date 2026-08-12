@@ -4,6 +4,8 @@
 // contributors Licensed under the 3-clause BSD License, see LICENSE file for
 // details
 //========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 //! \file adiabatic_hydro.cpp
 //  \brief implements functions in class EquationOfState for adiabatic
 //  hydrodynamics`
@@ -33,11 +35,18 @@ using parthenon::ParArray4D;
 void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  auto ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
-  auto jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
-  auto kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
 
   auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  // See the identical comment in adiabatic_hydro.cpp: with prolongate_prims
+  // enabled this runs pre-communication (cons' ghosts not yet valid), so it
+  // must be restricted to the interior; otherwise it runs post-communication
+  // and needs the entire domain to populate prim's ghost zones.
+  const auto domain =
+      pkg->Param<bool>("prolongate_prims") ? IndexDomain::interior : IndexDomain::entire;
+  auto ib = md->GetBlockData(0)->GetBoundsI(domain);
+  auto jb = md->GetBlockData(0)->GetBoundsJ(domain);
+  auto kb = md->GetBlockData(0)->GetBoundsK(domain);
+
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
 
@@ -69,4 +78,38 @@ void AdiabaticGLMMHDEOS::ConservedToPrimitive(MeshData<Real> *md) const {
   const auto floor_temp_pkg = pkg->Param<std::int64_t>("fixed_num_cells_floor_temp");
   pkg->UpdateParam<std::int64_t>("fixed_num_cells_floor_temp",
                                  floor_temp_pkg + floor_temp);
+}
+
+//----------------------------------------------------------------------------------------
+// \!fn void EquationOfState::PrimitiveToConserved(
+//           Container<Real> &rc,
+//           int il, int iu, int jl, int ju, int kl, int ku)
+// \brief Converts primitive to conserved variables in adiabatic GLM-MHD.
+// Not using any floors here and failing loudly because those fixes are applied in the
+// ConsToPrim call, same as the hydro-only version. Always uses the entire domain: this
+// is only ever wired to FillDerivedMesh (i.e. only reachable post-communication, once
+// prim's ghost zones, which do carry FillGhost when prolongate_prims is on, are
+// already valid), unlike ConservedToPrimitive which also has to run pre-communication.
+void AdiabaticGLMMHDEOS::PrimitiveToConserved(MeshData<Real> *md) const {
+  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  auto const prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  auto ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  auto jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  auto kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
+
+  auto pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const auto nhydro = pkg->Param<int>("nhydro");
+  const auto nscalars = pkg->Param<int>("nscalars");
+
+  auto this_on_device = (*this);
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "PrimitiveToConserved", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        auto &cons = cons_pack(b);
+        const auto &prim = prim_pack(b);
+
+        this_on_device.PrimToCons(cons, prim, nhydro, nscalars, k, j, i);
+      });
 }
