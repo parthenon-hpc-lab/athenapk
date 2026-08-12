@@ -5,7 +5,7 @@
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //========================================================================================
-//! \file few_modes_ft.hpp
+//! \file custom_rng.hpp
 //  \brief Helper functions to generate custom deterministic RNG for the tracers particles
 //========================================================================================
 // This file was made in part with generative AI (Claude Sonnet 5).
@@ -100,7 +100,8 @@ double random_double(uint64_t seed) { return (hash(seed) >> 11) * (1.0 / (1ULL <
 // repeated uniform draws. Exact for all lambda; average loop iterations
 // equals lambda, so keep lambda small (< ~20) for performance.
 //
-// rng_gen : per-particle RNG state (must provide drand() in (0, 1])
+// seed    : deterministic seed (e.g. from SeedFromParticle), combined with an
+//           internal counter to draw a stream of independent uniforms
 // lambda  : expected number of events (>= 0)
 // Returns : Poisson-distributed integer sample
 // ===================================================================================

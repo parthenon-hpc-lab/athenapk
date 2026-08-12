@@ -27,8 +27,6 @@
 #include <vector>
 
 #include <cstdint>
-#include <ctime>
-#include <iostream>
 
 // Parthenon headers
 #include "basic_types.hpp"

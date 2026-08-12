@@ -196,10 +196,6 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     pmb->par_reduce(
         "InjectParticles::FindCells", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i, int &lnpart) {
-          const Real x_cell = coords.Xc<1>(i);
-          const Real y_cell = coords.Xc<2>(j);
-          const Real z_cell = coords.Xc<3>(k);
-
           Real p_local = 0.0;
 
           // --- Fixed-rate injection (e.g. tracers) ------------------------------

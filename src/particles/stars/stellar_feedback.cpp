@@ -27,8 +27,6 @@
 #include <vector>
 
 #include <cstdint>
-#include <ctime>
-#include <iostream>
 
 // Parthenon headers
 #include "basic_types.hpp"
@@ -128,9 +126,6 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   const auto f_ek = stars_pkg->Param<Real>("SN_kinetic_efficiency"); // Not used atm
   const auto p_t = 4.8e5 * units.msun() * units.km_s(); // terminal momentum per SN
   const auto h_smooth = stars_pkg->Param<Real>("SN_h_smooth");
-
-  auto rng_pool = stars_pkg->Param<Kokkos::Random_XorShift64_Pool<>>(
-      "rng_block_" + std::to_string(pmb->gid));
 
   // Portinari+ lifetime table (always present)
   const auto log_mass_d = stars_pkg->Param<parthenon::ParArray1D<Real>>("log_mass_table");
@@ -295,20 +290,23 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
             // --- Determine which block boundary(ies) the deposition kernel overlaps -
-            // A kernel centered on this particle can spill into a neighboring block
-            // along any axis where the kernel's actual index reach (r_search, the
-            // same radius ApplyKineticSNe/ComputeKernelAvgNH search over for this
-            // same host cell) passes the interior domain edge. Using anything other
-            // than r_search here (e.g. a fixed r_cells) would disagree with the
-            // deposit loop about which cells are "out of bounds", silently dropping
-            // ejecta that the kernel actually reaches or tripping the slot-count
-            // sanity check below. ox/oy/oz encode the direction of overlap (-1, 0,
-            // or +1) per axis; active_axis records which axes actually overlap, so
-            // we only enumerate real neighbor directions below.
+            // Uses DetectKernelOverlap, the exact same per-cell (distance +
+            // kernel-weight) test that ApplyKineticSNe's deposit loop uses to
+            // size total_ghost_count above. A cheaper index-only box test
+            // (e.g. "i +/- r_search past the interior edge?") is NOT
+            // equivalent: r_search is an integer cell count that overshoots
+            // the true kernel radius whenever this host cell isn't at the
+            // mesh's finest level, so it can flag an axis as overlapping even
+            // though no actually-weighted cell crosses there -- desyncing
+            // this pass's particle count from total_ghost_count and tripping
+            // the slot-count sanity check below. ox/oy/oz encode the
+            // direction of overlap (-1, 0, or +1) per axis; active_axis
+            // records which axes actually overlap, so we only enumerate real
+            // neighbor directions below.
             const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
-            const int ox = (i - r_search < ib.s) ? -1 : (i + r_search > ib.e) ? 1 : 0;
-            const int oy = (j - r_search < jb.s) ? -1 : (j + r_search > jb.e) ? 1 : 0;
-            const int oz = (k - r_search < kb.s) ? -1 : (k + r_search > kb.e) ? 1 : 0;
+            int ox, oy, oz;
+            DetectKernelOverlap(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth, r_search,
+                                kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, ox, oy, oz);
 
             const int axis_offset[3] = {ox, oy, oz};
             int active_axis[3] = {-1, -1, -1};

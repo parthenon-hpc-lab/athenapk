@@ -351,6 +351,71 @@ ComputeKernelAvgNH(View4D &cons, const parthenon::Coordinates_t &coords, const i
 }
 
 // ========================================================================
+// Determine which axis directions (if any) a star's SN deposition kernel
+// actually reaches outside the interior domain, using the exact same
+// per-cell criterion (physical distance within r_max = 2*h_smooth AND
+// nonzero cubic-spline weight) as the deposit loop in ApplyKineticSNe.
+//
+// This is deliberately factored out and called identically from both
+// ApplyKineticSNe (to size the ghost-particle allocation) and the
+// GhostFillLoop in stellar_feedback.cpp (to actually spawn them), so the
+// two passes can never disagree on which/how many ghost particles a given
+// SN event needs. A cheaper index-only box test (e.g. "is i_host +/-
+// r_search inside the interior?") is NOT equivalent: r_search is an
+// integer cell count that overshoots the true kernel radius whenever
+// 2*h_smooth/dx isn't an exact multiple of dx (i.e. whenever the host
+// cell isn't at the mesh's absolute finest level), so a box-only test can
+// flag an axis as overlapping even though no actually-weighted cell
+// crosses the boundary there -- desynchronizing the two passes' particle
+// counts.
+// ========================================================================
+KOKKOS_INLINE_FUNCTION
+void DetectKernelOverlap(const parthenon::Coordinates_t &coords, const int ndim,
+                         const parthenon::Real x_star, const parthenon::Real y_star,
+                         const parthenon::Real z_star, const int k_host, const int j_host,
+                         const int i_host, const parthenon::Real h_smooth,
+                         const int r_search, const int kb_s, const int kb_e,
+                         const int jb_s, const int jb_e, const int ib_s, const int ib_e,
+                         int &ox, int &oy, int &oz) {
+  using parthenon::Real;
+  const Real r_max = 2.0 * h_smooth;
+
+  bool i_lo = false, i_hi = false;
+  bool j_lo = false, j_hi = false;
+  bool k_lo = false, k_hi = false;
+
+  for (int dk = -r_search; dk <= r_search; dk++) {
+    for (int dj = -r_search; dj <= r_search; dj++) {
+      for (int di = -r_search; di <= r_search; di++) {
+        const int kk = k_host + (ndim == 3 ? dk : 0);
+        const int jj = j_host + dj;
+        const int ii = i_host + di;
+
+        const Real dx = coords.Xc<1>(ii) - x_star;
+        const Real dy = coords.Xc<2>(jj) - y_star;
+        const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
+        const Real r2 = dx * dx + dy * dy + dz * dz;
+        if (r2 > r_max * r_max) continue;
+
+        const Real w_kernel = CubicSplineKernel(Kokkos::sqrt(r2), h_smooth);
+        if (w_kernel <= 0.0) continue;
+
+        if (ii < ib_s) i_lo = true;
+        if (ii > ib_e) i_hi = true;
+        if (jj < jb_s) j_lo = true;
+        if (jj > jb_e) j_hi = true;
+        if (kk < kb_s) k_lo = true;
+        if (kk > kb_e) k_hi = true;
+      }
+    }
+  }
+
+  ox = i_lo ? -1 : (i_hi ? 1 : 0);
+  oy = j_lo ? -1 : (j_hi ? 1 : 0);
+  oz = k_lo ? -1 : (k_hi ? 1 : 0);
+}
+
+// ========================================================================
 // Deposit supernova ejecta mass, momentum and energy from a stellar
 // particle into surrounding gas cells via a top-hat volume-weighted
 // kernel. M_ej_tot, p_SN_tot and p_terminal are pre-computed by the
@@ -412,11 +477,6 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
 
   // --- Pass 2: deposit mass, momentum and energy ---
 
-  // Track which side of the interior box was crossed, per axis
-  bool i_lo = false, i_hi = false;
-  bool j_lo = false, j_hi = false;
-  bool k_lo = false, k_hi = false;
-
   for (int dk = -r_search; dk <= r_search; dk++) {
     for (int dj = -r_search; dj <= r_search; dj++) {
       for (int di = -r_search; di <= r_search; di++) {
@@ -476,21 +536,18 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
           Kokkos::atomic_add(&cons(IM2, kk, jj, ii), drho * u_y);
           if (ndim == 3) Kokkos::atomic_add(&cons(IM3, kk, jj, ii), drho * u_z);
           Kokkos::atomic_add(&cons(IEN, kk, jj, ii), dE);
-        } else {
-          if (ii < ib_s) i_lo = true;
-          if (ii > ib_e) i_hi = true;
-          if (jj < jb_s) j_lo = true;
-          if (jj > jb_e) j_hi = true;
-          if (kk < kb_s) k_lo = true;
-          if (kk > kb_e) k_hi = true;
         }
+        // Out-of-interior cells are simply skipped here: DetectKernelOverlap
+        // below (using the identical r2/weight criterion) determines whether
+        // and where a ghost particle is needed to carry this deposit across
+        // the boundary.
       }
     }
   }
 
-  const int ox = i_lo ? -1 : (i_hi ? 1 : 0);
-  const int oy = j_lo ? -1 : (j_hi ? 1 : 0);
-  const int oz = k_lo ? -1 : (k_hi ? 1 : 0);
+  int ox, oy, oz;
+  DetectKernelOverlap(coords, ndim, x_star, y_star, z_star, k_host, j_host, i_host,
+                      h_smooth, r_search, kb_s, kb_e, jb_s, jb_e, ib_s, ib_e, ox, oy, oz);
   const int k_axes = (ox != 0) + (oy != 0) + (oz != 0);
   n_ghost_neighbors = (k_axes > 0) ? ((1 << k_axes) - 1) : 0;
 }

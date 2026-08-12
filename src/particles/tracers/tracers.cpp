@@ -368,8 +368,6 @@ condition.
 =============================================================================== */
 
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
-  printf("Entering Seedinitialtracers");
-  fflush(stdout);
   // Loading root grid level
   const int root_level = pmesh->GetRootLevel();
   const Real current_time = tm.time;
