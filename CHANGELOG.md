@@ -2,6 +2,92 @@
 
 ## Current develop (i.e., `main` branch)
 
+### General notes
+With the latest update of the Parthenon submodule several new features are now available, e.g.,
+- [OpenPMD output](https://parthenon-hpc-lab.github.io/parthenon/pgrete/pmd-output/src/outputs.html#openpmd) including support for slices, data compression and coarse graining\
+Note, the original naming convention (in the development branch) used for labeling components was not fully standard compliant.
+New outputs are automatically written in the standard compliant version.
+However, to keep the old scheme (e.g., when restarting from existing simulation data with the intent to keep the timeseries consistent add `openpmd_format_version=1` to the corresponding openpmd output blocks.
+- A watchdog (to kill a simulation that hangs for whatever reason). Just run with `-w HH:MM:SS`.
+- Support for (tracer) particles with AMR.
+- Support for using more parallelism for the ghost zone exchange kernels, which speeds up simulation with few (<10) blocks per rank on device, see [here](https://github.com/parthenon-hpc-lab/parthenon/pull/1271).
+A good starting point is `parthenon/mesh/minimum_number_of_teams_for_boundary_kernel=8`.
+
+With the update of Kokkos to version 5.1.1 (or >5.0 in general) a performance regression was identified.
+This is likely related to the Kokkos-internal use of int64 indices in the new `mdspan` based `View`s resulting more register usage (which. in turn, results in lower occupancy on devices).
+The Kokkos team is aware of this and working on a fix.
+If the current performance is (significantly) below expectation, one can try to use "legacy" views via `Kokkos_ENABLE_IMPL_VIEW_LEGACY=ON`.
+
+**IMPORTANT** The latest Parthenon submodule includes a fix for a race condition in the flux correction communication routine when run with mesh refinement on GPUs, see [here](https://github.com/parthenon-hpc-lab/parthenon/pull/1405).
+Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF` to mitigate the race condition.
+
+### Added (new features/APIs/variables/...)
+- [[PR 185]](https://github.com/parthenon-hpc-lab/athenapk/pull/185) Add a script (`scripts/generate_uniform_cooling_table.py`) and reference data (`inputs/cooling_tables/tab13.txt`) to generate Gnat-Sternberg cooling tables from the original CIE data.  Users can use this script to create tables with custom uniform log10 T spacing (default dlogT=0.02) for use with the `TabularCooling` implementation.
+
+### Changed (changing behavior/API/variables/...)
+
+### Fixed (not changing behavior/API/variables/...)
+- [[PR 188]](https://github.com/parthenon-hpc-lab/athenapk/pull/188) Fix compilation in single precision
+- [[PR 172]](https://github.com/parthenon-hpc-lab/athenapk/pull/172) Fixed data race condition in few modes IFT (no practical implication)
+
+### Infrastructure
+- [[PR 187]](https://github.com/parthenon-hpc-lab/athenapk/pull/187) Update format check (now works on forks)
+- [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) Bump Kokkos to 5.1.1 and `Parthenon` to upcoming 26.xx version (incl OpenPMD support)
+- [[PR 168]](https://github.com/parthenon-hpc-lab/athenapk/pull/168) Document agentic coding guidelines (and add PR template)
+
+### Removed (removing behavior/API/varaibles/...)
+
+### Incompatibilities (i.e. breaking changes)
+- [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) C++20 is now the minimum standard
+- [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) New Parthenon submodule changed input file parsing (removed `*pib = pin->pfirst_block;`), see [here](https://github.com/parthenon-hpc-lab/parthenon/pull/1385)
+- [[PR 185]](https://github.com/parthenon-hpc-lab/athenapk/pull/185) The Gnat-Sternberg cooling tables have been updated to uniform log10 T spacing (dlogT = 0.02).  The original tables contained two irregular gaps (dlogT=0.03 at logT≈4.98–5.01 and dlogT=0.01 at logT≈5.99–6.00) that violated the equal-spacing requirement of the `TabularCooling` implementation.  Only the 50 rows in the affected region (logT ≈ 4.98–6.00) were corrected via cubic spline interpolation from the tab13 source data; all other rows are preserved exactly.  The maximum line-by-line difference in the corrected region is ~0.02 dex in log10 Λ, which is dynamically irrelevant for simulations.  The fix script (`scripts/fix_cooling_table_spacing.py`), a script to regenerate tables with custom spacing (`scripts/generate_uniform_cooling_table.py`), and the original tab13 reference data are included for reproducibility.
+
+## Release 26.05
+
+### General notes
+
+Particle ids have been updated in Parthenon to be `uint64` and added by default.
+Thus, the original "`id`" tracer variable has been removed in favor of the Parthenon default version.
+Access to that `id` is done via `auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();`
+and via `swarm.id` in the `phdf` python tools.
+Other postprocessing tools, like VisIt will automatically identify the new field.
+
+From updated Parthenon submodule:
+
+- `packs_per_rank` can now be used instead of `pack_size` in the `<parthenon/mesh>` input block.
+It is the new default (i.e., it's set automatically when it's not present in the input file)
+because it result in better load balance.
+- For simulation on (AMD) GPUs with AMR and many blocks per rank, the number of MPI messages in flight
+(especially during mesh refinement) could sometimes cause "Memory access fault by GPU".
+This is related to how the MPI library and hardware manage handles to communication buffer in device memory.
+To circumvent this issue, Parthenon now supports [coalesced communication](https://parthenon-hpc-lab.github.io/parthenon/develop/src/boundary_communication.html#coalesced-mpi-communication)
+where multiple messages between ranks are combined.
+This comes at a small performance cost (due to the additional packing and unpacking of messages).
+To enable, set `do_coalesced_comms=true` in the `<parthenon/mesh>` block of the input file.
+- Input parameters can now be [automatically documented](https://github.com/parthenon-hpc-lab/parthenon/pull/1283)
+by adding an optional string as last argument to any `ParameterInput` `Get` or `GetOrAdd` call.
+
+### Added (new features/APIs/variables/...)
+- [[PR 162]](https://github.com/parthenon-hpc-lab/athenapk/pull/162) Add pgen for cloud shattering setup
+- [[PR 158]](https://github.com/parthenon-hpc-lab/athenapk/pull/158) Update particle id handling (now automated `uint64`). Extend particle history lookback in turbulence pgen and include in turbulence test
+- [[PR 157]](https://github.com/parthenon-hpc-lab/athenapk/pull/157) Support injection of blobs with density/temp contrast in turbulence simulations
+
+### Changed (changing behavior/API/variables/...)
+- [[PR 163]](https://github.com/parthenon-hpc-lab/athenapk/pull/163) Add normalization by volume for relative B field divergence in history file
+
+### Fixed (not changing behavior/API/variables/...)
+- [[PR 160]](https://github.com/parthenon-hpc-lab/athenapk/pull/160) Backport HLLD degeneracy check from Athena++
+
+### Infrastructure
+- [[PR 149]](https://github.com/parthenon-hpc-lab/athenapk/pull/149) Allow triggering of pipelines manually
+- [[PR 156]](https://github.com/parthenon-hpc-lab/athenapk/pull/156) Bump formatters to clang-format-20 and black 25.12
+- [[PR 146]](https://github.com/parthenon-hpc-lab/athenapk/pull/146) Bump Parthenon 25.12 and Kokkos 4.7.02
+
+### Incompatibilities (i.e. breaking changes)
+- [[PR 146]](https://github.com/parthenon-hpc-lab/athenapk/pull/146) `pmesh->is_restart` removed. Use `arthenon::Globals::is_restart` instead.
+
+## Release 25.05
+
 ### IMPORTANT
 
 If you pulled from `main` after 11 Nov 24 ([[PR 124]](https://github.com/parthenon-hpc-lab/athenapk/pull/124))
@@ -10,6 +96,8 @@ In between a subtle bug was introduced that resulted in inconsistent divergence 
 refinement.
 
 ### Added (new features/APIs/variables/...)
+- [[PR 140]](https://github.com/parthenon-hpc-lab/athenapk/pull/140) Add hydro reflecting boundary conditions
+- [[PR 102]](https://github.com/parthenon-hpc-lab/athenapk/pull/102) Add support for tracer particles
 - [[PR 89]](https://github.com/parthenon-hpc-lab/athenapk/pull/89) Add viscosity and resistivity
 - [[PR 1]](https://github.com/parthenon-hpc-lab/athenapk/pull/1) Add isotropic thermal conduction and RKL2 supertimestepping
 
@@ -24,6 +112,8 @@ refinement.
 - [[PR 128]](https://github.com/parthenon-hpc-lab/athenapk/pull/128) Fixed `dt_diff` in RKL2
 
 ### Infrastructure
+- [[PR 150]](https://github.com/parthenon-hpc-lab/athenapk/pull/150) Introduce CalVer and add CONTRIBUTING.md
+- [[PR 142]](https://github.com/parthenon-hpc-lab/athenapk/pull/142) Bump Kokkos 4.6.1 and Parthenon 25.05
 - [[PR 136]](https://github.com/parthenon-hpc-lab/athenapk/pull/136) Bump Kokkos 4.5.1 (for support of AMD APUs)
 - [[PR 129]](https://github.com/parthenon-hpc-lab/athenapk/pull/129) Bump Parthenon to support `dn` based outputs
 - [[PR 124]](https://github.com/parthenon-hpc-lab/athenapk/pull/124) Bump Kokkos 4.4.1 (and Parthenon to include view-of-view fix)
@@ -36,6 +126,7 @@ refinement.
 ### Removed (removing behavior/API/varaibles/...)
 
 ### Incompatibilities (i.e. breaking changes)
+- [[PR 142]](https://github.com/parthenon-hpc-lab/athenapk/pull/142) Removed `coords...FA<>()` interface in Parthenon
 - [[PR 124]](https://github.com/parthenon-hpc-lab/athenapk/pull/124) Enrolling custom boundary conditions changed
   - Boundary conditions can now be enrolled using a string that can be subsequently be used in the input file (see, e.g., cloud problem generator)
 - [[PR 114]](https://github.com/parthenon-hpc-lab/athenapk/pull/114) Bump Parthenon 24.08 and Kokkos to 4.4.00

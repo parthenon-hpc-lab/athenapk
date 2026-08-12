@@ -25,6 +25,7 @@
 #include "../recon/weno3_simple.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
+#include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "defs.hpp"
 #include "diffusion/diffusion.hpp"
@@ -54,6 +55,7 @@ using parthenon::HistoryOutputVar;
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
+  packages.Add(Tracers::Initialize(pin.get()));
   return packages;
 }
 
@@ -201,6 +203,16 @@ Real HydroHst(MeshData<Real> *md) {
         }
       },
       sum);
+
+  // If divB is requested, normalize by total volume to get domain average:
+  if (hst == Hst::divb) {
+    Mesh *pmesh = md->GetMeshPointer();
+    auto mesh_size = pmesh->mesh_size;
+    Real vol = (mesh_size.xmax(X1DIR) - mesh_size.xmin(X1DIR)) *
+               (mesh_size.xmax(X2DIR) - mesh_size.xmin(X2DIR)) *
+               (mesh_size.xmax(X3DIR) - mesh_size.xmin(X3DIR));
+    sum /= vol;
+  }
 
   return sum;
 }
@@ -546,6 +558,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     // If conduction is enabled, process supported coefficients
     if (conduction != Conduction::none) {
+      PARTHENON_REQUIRE_THROWS(
+          typeid(parthenon::Coordinates_t) == typeid(parthenon::UniformCartesian),
+          "Probably need to update derivative calc (with respect to spacing between the "
+          "faces when calculating fluxes from cell centered quantities average to cell "
+          "faces) in thermal conduction to support non-Cartesian coordiates.");
       auto conduction_coeff_str =
           pin->GetOrAddString("diffusion", "conduction_coeff", "none");
       auto conduction_coeff = ConductionCoeff::none;
@@ -615,6 +632,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     // If viscosity is enabled, process supported coefficients
     if (viscosity != Viscosity::none) {
+      PARTHENON_REQUIRE_THROWS(
+          typeid(parthenon::Coordinates_t) == typeid(parthenon::UniformCartesian),
+          "Probably need to update derivative calc (with respect to spacing between the "
+          "faces when calculating fluxes from cell centered quantities average to cell "
+          "faces) in viscosity to support non-Cartesian coordiates.");
       auto viscosity_coeff_str =
           pin->GetOrAddString("diffusion", "viscosity_coeff", "none");
       auto viscosity_coeff = ViscosityCoeff::none;

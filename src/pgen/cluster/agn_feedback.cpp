@@ -290,7 +290,6 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   // Velocity of added gas
   const Real jet_velocity = kinetic_jet_velocity_;
-  const Real jet_specific_internal_e = kinetic_jet_e_;
 
   // Amount of momentum density ( density * velocity) to dump in each cell
   const Real jet_momentum = jet_density * jet_velocity;

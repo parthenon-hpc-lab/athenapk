@@ -103,6 +103,18 @@ Z (m_H/m_{\bar Z})} \approx \frac{X + Y/2 + Z/2}{2 X + 3 Y/4 + (1/{\bar A} + 1/2
 
 For $Y = 0.24$ and $Z = 0.02$, the mean molecular weight for complete ionization is $\mu \approx 0.60$ (if $Z = 0$, then this yields $\mu \approx 0.59$).
 
+### Available cooling tables
+
+The Gnat-Sternberg cooling tables shipped with AthenaPK (in `inputs/cooling_tables/gnat-sternberg.cooling_*Z`) use uniform log10 T spacing with $\Delta \log T = 0.02$ over $\log T \in [4.00, 8.00]$ (201 points).  They were generated from the original tab13 CIE data via cubic spline interpolation.
+
+Users who require a different $\Delta \log T$ (e.g., coarser spacing for memory-constrained runs, or finer spacing for specialized applications) can regenerate the tables using the provided script:
+
+```bash
+python scripts/generate_uniform_cooling_table.py --tab13 inputs/cooling_tables/tab13.txt --outdir inputs/cooling_tables/
+```
+
+The script requires `numpy` and `scipy`.  The reference `tab13.txt` data file is included in `inputs/cooling_tables/`.
+
 ## $n_e^2 \Lambda$ convention
 
 In this convention, the volumetric cooling rate is given by

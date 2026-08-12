@@ -60,7 +60,9 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
       cold_temp_thresh_(pin->GetOrAddReal(block, "cold_temp_thresh", 0)),
       cold_t_acc_(pin->GetOrAddReal(block, "cold_t_acc", 0)),
       bondi_alpha_(pin->GetOrAddReal(block, "bondi_alpha", 0)),
-      bondi_M_smbh_(pin->GetOrAddReal("problem/cluster/gravity", "m_smbh", 0)),
+      bondi_M_smbh_(pin->DoesParameterExist("problem/cluster/gravity", "m_smbh")
+                        ? pin->GetReal("problem/cluster/gravity", "m_smbh")
+                        : 0.0),
       bondi_n0_(pin->GetOrAddReal(block, "bondi_n0", 0)),
       bondi_beta_(pin->GetOrAddReal(block, "bondi_beta", 0)),
       accretion_cfl_(pin->GetOrAddReal(block, "accretion_cfl", 1e-1)),

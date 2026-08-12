@@ -37,8 +37,11 @@ KOKKOS_INLINE_FUNCTION Real limo3_limiter(const Real dvp, const Real dvm, const 
   const Real q = (2.0 + theta) / 3.0;
 
   // (3.13) in CT09
-  const Real phi = std::max(
-      0.0, std::min(q, std::max(-0.5 * theta, std::min(2.0 * theta, std::min(q, 1.6)))));
+  const Real phi = Kokkos::max(
+      static_cast<Real>(0.0),
+      Kokkos::min(q, Kokkos::max(static_cast<Real>(-0.5) * theta,
+                                 Kokkos::min(static_cast<Real>(2.0) * theta,
+                                             Kokkos::min(q, static_cast<Real>(1.6))))));
 
   // (3.17) in CT09; indicator for asymp. region
   Real eta = r * dx;

@@ -1,0 +1,77 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2025-2026, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem   = Cloud shattering
+reference = Gronke and Oh (2020) MNRAS, Is multiphase gas cloudy or misty? https://doi.org/10.1093/mnrasl/slaa033G
+
+<job>
+problem_id = shattering
+
+<problem/shattering>
+chi_i = 100
+T_cloud = 4e5
+
+<parthenon/mesh>
+refinement = none
+nghost = 2
+
+nx1 = 128
+x1min = 0.0
+x1max = 1.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 128
+x2min = 0.0
+x2max = 1.0
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 128
+x3min = 0.0
+x3max = 1.0
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1=64
+nx2=64 
+nx3=64
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.3
+tlim = 1.0
+nlim = 100000
+perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+
+<hydro>
+fluid = euler
+eos = adiabatic
+reconstruction = plm
+riemann = hllc
+gamma = 1.666666666666667 # gamma = C_p/C_v
+scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+
+Tfloor = 4e4                             # in K
+He_mass_fraction = 0.24
+first_order_flux_correct = true
+
+<cooling>
+enable_cooling = tabular                     # turn on with "tabular"
+table_filename = /workspaces/athenapk/inputs/cooling_tables/schure.cooling_1.0Z
+lambda_units_cgs = 1
+integrator = townsend 
+cfl = 0
+
+<units>
+#Units parameters
+code_length_cgs = 3.085677580962325e+19  # 10 pc
+code_mass_cgs = 1.98841586e+33           # 1 M_sun
+code_time_cgs = 3.15576e+13              # 1 Myr
+
+<parthenon/output0>
+file_type = rst
+dt = 0.1
