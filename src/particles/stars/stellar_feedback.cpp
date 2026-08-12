@@ -305,8 +305,8 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             // neighbor directions below.
             const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
             int ox, oy, oz;
-            DetectKernelOverlap(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth, r_search,
-                                kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, ox, oy, oz);
+            DetectKernelOverlap(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
+                                r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, ox, oy, oz);
 
             const int axis_offset[3] = {ox, oy, oz};
             int active_axis[3] = {-1, -1, -1};
