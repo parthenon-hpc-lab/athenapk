@@ -3,6 +3,8 @@
 // code. Copyright (c) 2021, Athena-Parthenon Collaboration. All rights
 // reserved. Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 // AthenaPK headers
 #include "../main.hpp"
