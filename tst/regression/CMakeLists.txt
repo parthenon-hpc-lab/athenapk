@@ -70,6 +70,26 @@ setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/ath
   setup_test_both("cluster_tracers" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hydro_agn_feedback_tracers.in --num_steps 1" "regression")
 
+  # Serial only for now: the 2-rank variant of setup_test_both crashes at cycle 0 for
+  # *any* particle-swarm-enabled setup on this build, not just these two -- confirmed
+  # by independently reproducing two different crashes (an MPI send-request assertion
+  # in bvals.cpp, and a std::out_of_range in a neighbor/rank map) on the pre-existing,
+  # untouched tracers-based particle_advection_vinterp test as well, while a pure-hydro
+  # MPI run (sod.in) completes cleanly. So this looks like a pre-existing swarm/MPI
+  # issue in the shared particle infrastructure, not something specific to either test
+  # below -- switch back to setup_test_both once that's fixed.
+  setup_test_serial("star_formation_sfr_stats" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/star_formation_sfr_stats.in --num_steps 1" "regression")
+
+  setup_test_serial("cluster_star_orbits" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/star_orbits.in --num_steps 1" "regression")
+
+  # Also serial-only for now -- see the note above; this one exercises the exact same
+  # SwarmContainer::Send/Receive ghost-particle path (more so, in fact: it's what that
+  # path exists for) so it should get the same MPI re-check once the fix lands.
+  setup_test_serial("sn_feedback_refinement" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sn_feedback_refinement.in --num_steps 5" "regression")
+
   setup_test_both("particle_advection_fluxinterp" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/turbulence.in --num_steps 2" "regression")
 

@@ -125,7 +125,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   const auto E_SN_per_event = stars_pkg->Param<Real>("E_SN_per_event");
   const auto f_ek = stars_pkg->Param<Real>("SN_kinetic_efficiency"); // Not used atm
   const auto p_t = 4.8e5 * units.msun() * units.km_s(); // terminal momentum per SN
-  const auto h_smooth = stars_pkg->Param<Real>("SN_h_smooth");
+  // Kernel radius, in cells, anchored to whichever block hosts the star at
+  // the moment of the event -- see ComputeHostSmoothingLength.
+  const auto r_cells = stars_pkg->Param<int>("SN_injection_radius_cells");
 
   // Portinari+ lifetime table (always present)
   const auto log_mass_d = stars_pkg->Param<parthenon::ParArray1D<Real>>("log_mass_table");
@@ -221,20 +223,79 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
             // Rescaling p_terminal to match the injected energy
             // (terminal momentum depends on N_SN, not on the ejecta mass budget,
-            // so it is unaffected by the clamping above)
+            // so it is unaffected by the clamping above). Despite "terminal
+            // momentum" sounding like a per-cell ceiling, min(p_SN_tot*boost,
+            // p_terminal) in ApplyKineticSNe is evaluated *before* multiplying
+            // by the per-cell weight w -- i.e. p_terminal plays exactly the
+            // same extensive, event-total role as p_SN_tot there, and must be
+            // split by region fraction the same way below. Leaving it
+            // unscaled (as an earlier version of this code did) made every
+            // region's cells independently race to saturate the *full*
+            // event's terminal momentum, so an event split across N regions
+            // could deposit up to N times too much once several regions hit
+            // the cap.
             const Real p_terminal_Nsn =
                 Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
 
-            // Calling the function which actually applies the feedback;
-            // is_ghost is set internally if the deposit kernel overlaps a
-            // neighboring block's domain
-            int n_ghost_neighbors = 0;
-            ApplyKineticSNe(cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n), v_y(n),
-                            v_z(n), M_ej_tot, p_SN_tot, p_terminal_Nsn, h_smooth, kb.s,
-                            kb.e, jb.s, jb.e, ib.s, ib.e, code_density_cgs, mh_cgs, x_H,
-                            n_ghost_neighbors);
+            // Physical kernel smoothing length for this event, fixed by the
+            // host cell's own local dx (see ComputeHostSmoothingLength) and
+            // carried unchanged to every block the kernel overlaps.
+            const Real h_smooth = ComputeHostSmoothingLength(coords, r_cells, i);
 
-            lN_ghost += n_ghost_neighbors;
+            // Ambient density around the star (host's own ghost-inclusive
+            // view -- see ComputeKernelAvgNH docstring), used once for the
+            // whole event; the same rescaled value is shared by every
+            // region this event's kernel is later split across.
+            const Real nH_avg = ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n),
+                                                    k, j, i, h_smooth, code_density_cgs,
+                                                    mh_cgs, x_H);
+            const Real p_terminal_nH_scaled =
+                (nH_avg > 0.0) ? p_terminal_Nsn * Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0)
+                              : 0.0;
+
+            // Which of the host's own interior boundaries (if any) this
+            // event's kernel reaches past, using the same per-cell test
+            // ApplyKineticSNe's own deposit loop uses (see DetectKernelOverlap
+            // docstring). n_active == 0: kernel is entirely interior to the
+            // host, so it gets the full payload below with no quadrature
+            // needed and no ghost particles spawned -- identical to the
+            // single-block behavior this replaces.
+            const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
+            int ox, oy, oz;
+            DetectKernelOverlap(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
+                                r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, ox, oy, oz);
+
+            const int axis_offset[3] = {ox, oy, oz};
+            int active_axis[3] = {-1, -1, -1};
+            int n_active = 0;
+            if (ox != 0) active_axis[n_active++] = 0;
+            if (oy != 0) active_axis[n_active++] = 1;
+            if (oz != 0) active_axis[n_active++] = 2;
+            const int n_neighbors = (n_active > 0) ? ((1 << n_active) - 1) : 0;
+
+            // fraction[0] is the host's own share; see ComputeRegionFractions
+            // for how the rest are indexed (matches GhostFillLoop's mask
+            // convention exactly, so it can rederive the same split below
+            // for the ghost payload without needing it communicated here).
+            Real fraction[8] = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+            if (n_active > 0) {
+              ComputeRegionFractions(coords, ndim, x(n), y(n), z(n), h_smooth, k, j, i,
+                                     r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+                                     active_axis, axis_offset, n_active, fraction);
+            }
+
+            // Deposit the host's own region directly; every other region
+            // (if any) is picked up below via the ghost swarm. M_ej_tot,
+            // p_SN_tot and p_terminal_nH_scaled are all extensive event
+            // totals, so all three are scaled by this region's fraction.
+            if (fraction[0] > 0.0) {
+              ApplyKineticSNe(cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n),
+                              v_y(n), v_z(n), fraction[0] * M_ej_tot,
+                              fraction[0] * p_SN_tot, fraction[0] * p_terminal_nH_scaled,
+                              h_smooth, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e);
+            }
+
+            lN_ghost += n_neighbors;
 
             // Reducing the instantaneous mass of the stellar particle by the
             // total ejecta mass actually injected
@@ -270,7 +331,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
       auto &gM_ej_tot = gswarm->Get<Real>("M_ej_tot").Get();
       auto &gp_SN_tot = gswarm->Get<Real>("p_SN_tot").Get();
       auto &gp_terminal_Nsn = gswarm->Get<Real>("p_terminal_Nsn").Get();
-      auto &gweight_sum = gswarm->Get<Real>("weight_sum").Get();
+      auto &gh_smooth = gswarm->Get<Real>("h_smooth").Get();
       auto &g_offset_x = gswarm->Get<Real>("offset_x").Get();
       auto &g_offset_y = gswarm->Get<Real>("offset_y").Get();
       auto &g_offset_z = gswarm->Get<Real>("offset_z").Get();
@@ -290,19 +351,21 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
             // --- Determine which block boundary(ies) the deposition kernel overlaps -
-            // Uses DetectKernelOverlap, the exact same per-cell (distance +
-            // kernel-weight) test that ApplyKineticSNe's deposit loop uses to
-            // size total_ghost_count above. A cheaper index-only box test
-            // (e.g. "i +/- r_search past the interior edge?") is NOT
-            // equivalent: r_search is an integer cell count that overshoots
-            // the true kernel radius whenever this host cell isn't at the
-            // mesh's finest level, so it can flag an axis as overlapping even
-            // though no actually-weighted cell crosses there -- desyncing
-            // this pass's particle count from total_ghost_count and tripping
-            // the slot-count sanity check below. ox/oy/oz encode the
-            // direction of overlap (-1, 0, or +1) per axis; active_axis
-            // records which axes actually overlap, so we only enumerate real
-            // neighbor directions below.
+            // Recomputed identically to the interior-domain pass (same host
+            // cell, same coords, nothing moved in between), using
+            // DetectKernelOverlap -- the exact same per-cell (distance +
+            // kernel-weight) test that pass used to size total_ghost_count
+            // above. A cheaper index-only box test (e.g. "i +/- r_search past
+            // the interior edge?") is NOT equivalent: r_search is an integer
+            // cell count that overshoots the true kernel radius whenever this
+            // host cell isn't at the mesh's finest level, so it can flag an
+            // axis as overlapping even though no actually-weighted cell
+            // crosses there -- desyncing this pass's particle count from
+            // total_ghost_count and tripping the slot-count sanity check
+            // below. ox/oy/oz encode the direction of overlap (-1, 0, or +1)
+            // per axis; active_axis records which axes actually overlap, so
+            // we only enumerate real neighbor directions below.
+            const Real h_smooth = ComputeHostSmoothingLength(coords, r_cells, i);
             const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
             int ox, oy, oz;
             DetectKernelOverlap(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
@@ -321,6 +384,16 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             // Number of distinct neighbor directions to cover (edges/corners
             // included): 1 active axis -> 1 neighbor, 2 -> 3, 3 -> 7.
             const int n_neighbors = (1 << n_active) - 1; // 1, 3, or 7
+
+            // Same quadrature-derived split as the interior-domain pass
+            // (deterministic given the same star/host-cell inputs); fraction
+            // [mask] (mask = 1 .. n_neighbors) is this neighbor direction's
+            // share, matching the mask this loop's spawn step below builds
+            // from active_axis/axis_offset the same way.
+            Real fraction[8];
+            ComputeRegionFractions(coords, ndim, x(n), y(n), z(n), h_smooth, k, j, i,
+                                   r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+                                   active_axis, axis_offset, n_active, fraction);
 
             // --- Re-derive this particle's SN event counts and ejecta mass ---------
             // Uses the same reproducible RNG (keyed on particle id + time) as the
@@ -378,17 +451,24 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             const Real p_SN_tot = p_SN_II + p_SN_Ia;
 
             // Terminal momentum scales with the number of overlapping SN events,
-            // independent of the ejecta mass budget/clamping above.
+            // independent of the ejecta mass budget/clamping above. Extensive
+            // like p_SN_tot/M_ej_tot (see interior-domain pass), so it is
+            // split by region fraction below, same as those two.
             Real p_terminal_Nsn = Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
 
             // Rescale terminal momentum by the local ambient density (<n_H>),
-            // sampled from the kernel footprint around the particle.
-            Real weight_sum = 0.0;
-            const Real nH_avg =
-                ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i,
-                                   h_smooth, code_density_cgs, mh_cgs, x_H, weight_sum);
-
-            p_terminal_Nsn *= Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0);
+            // sampled from the kernel footprint around the particle -- same
+            // host-only estimate, and the same nH_avg <= 0 fallback (kernel
+            // footprint devoid of gas -- not expected in practice, but keep
+            // this pass numerically consistent with the interior-domain one
+            // rather than risk a stray (0)^(-1/7) blowup), as the
+            // interior-domain pass.
+            const Real nH_avg = ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k,
+                                                    j, i, h_smooth, code_density_cgs,
+                                                    mh_cgs, x_H);
+            const Real p_terminal_nH_scaled =
+                (nH_avg > 0.0) ? p_terminal_Nsn * Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0)
+                              : 0.0;
 
             // --- Spawn one ghost particle per overlapping neighbor direction --------
             // mask enumerates every non-empty subset of active_axis (1 to
@@ -447,10 +527,13 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               gv_x(g) = v_x(n);
               gv_y(g) = v_y(n);
               gv_z(g) = v_z(n);
-              gM_ej_tot(g) = M_ej_tot;
-              gp_SN_tot(g) = p_SN_tot;
-              gp_terminal_Nsn(g) = p_terminal_Nsn;
-              gweight_sum(g) = weight_sum;
+              // M_ej_tot/p_SN_tot/p_terminal_nH_scaled are all extensive
+              // event totals, scaled down to this neighbor direction's own
+              // share via fraction[mask] (see above).
+              gM_ej_tot(g) = fraction[mask] * M_ej_tot;
+              gp_SN_tot(g) = fraction[mask] * p_SN_tot;
+              gp_terminal_Nsn(g) = fraction[mask] * p_terminal_nH_scaled;
+              gh_smooth(g) = h_smooth;
             }
           });
 
@@ -483,25 +566,23 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
   auto &coords = pmb->coords;
   auto gid = pmb->gid;
 
-  auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto swarm_names = stars_pkg->Param<std::vector<std::string>>("swarm_names");
-
-  const auto units = hydro_pkg->Param<Units>("units");
-  const auto code_density_cgs = units.code_density_cgs();
-  const auto mh_cgs = units.mh() * units.code_mass_cgs();
-
-  const auto He_mass_fraction = hydro_pkg->Param<Real>("He_mass_fraction");
-  const auto x_H = 1.0 - He_mass_fraction;
 
   const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
 
-  const auto h_smooth = stars_pkg->Param<Real>("SN_h_smooth");
-
-  // Ghost particles arrive carrying their payload already computed on the
-  // sending block (M_ej_tot, p_SN_tot, p_terminal_Nsn); no need to touch
-  // the lifetime/ejecta tables or the RNG pool here.
+  // Ghost particles arrive carrying their payload already fully prepared on
+  // the sending (host) block: M_ej_tot/p_SN_tot already scaled down to this
+  // neighbor direction's own ComputeRegionFractions share, p_terminal_Nsn
+  // already density-rescaled (a per-cell cap, shared as-is, so not
+  // fraction-scaled), and h_smooth -- the event's physical kernel radius,
+  // fixed by the host's own dx -- carried unchanged so this block searches
+  // the same physical footprint the host did, just expressed in its own
+  // (possibly differently-sized) cells. No need to touch the lifetime/
+  // ejecta tables, the RNG pool, or this block's own gas density here:
+  // ApplyKineticSNe below computes its own fresh, interior-only weight_sum
+  // from this block's own cells to spread the already-scaled payload.
   for (const auto &swarm_name : swarm_names) {
     const auto ghost_name = "ghost_" + swarm_name;
     auto &gswarm = sd->Get(ghost_name);
@@ -520,7 +601,7 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
     auto &gM_ej_tot = gswarm->Get<Real>("M_ej_tot").Get();
     auto &gp_SN_tot = gswarm->Get<Real>("p_SN_tot").Get();
     auto &gp_terminal_Nsn = gswarm->Get<Real>("p_terminal_Nsn").Get();
-    auto &gweight_sum = gswarm->Get<Real>("weight_sum").Get();
+    auto &gh_smooth = gswarm->Get<Real>("h_smooth").Get();
 
     auto &g_offset_x = gswarm->Get<Real>("offset_x").Get();
     auto &g_offset_y = gswarm->Get<Real>("offset_y").Get();
@@ -538,17 +619,14 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
           int k, j, i;
           gswarm_d.Xtoijk(true_x, true_y, true_z, i, j, k);
 
-          const Real M_ej_tot = gM_ej_tot(g);
-          const Real p_SN_tot = gp_SN_tot(g);
+          const Real M_ej_tot = gM_ej_tot(g);           // already this region's share
+          const Real p_SN_tot = gp_SN_tot(g);           // already this region's share
           const Real p_terminal_Nsn = gp_terminal_Nsn(g); // already density-scaled
-          const Real weight_sum = gweight_sum(g);         // already computed on sender
+          const Real h_smooth = gh_smooth(g);           // host-fixed physical radius
 
-          int n_ghost_neighbors = 0;
           ApplyKineticSNe(cons, coords, ndim, true_x, true_y, true_z, k, j, i, gv_x(g),
                           gv_y(g), gv_z(g), M_ej_tot, p_SN_tot, p_terminal_Nsn, h_smooth,
-                          kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, code_density_cgs, mh_cgs,
-                          x_H, n_ghost_neighbors, /*skip_density_rescale=*/true,
-                          weight_sum);
+                          kb.s, kb.e, jb.s, jb.e, ib.s, ib.e);
 
           gswarm_d.MarkParticleForRemoval(g);
         });

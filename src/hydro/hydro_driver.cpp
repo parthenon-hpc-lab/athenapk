@@ -662,12 +662,26 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       // 4. Move the main star particles.
       auto star_move = tl.AddTask(ghost_feedback, Stars::MoveStars, mbd0.get(), tm);
 
-      // 5. Second send/receive round: now the main swarm may have crossed
+      // 5. Reset swarm communication before the second round. SwarmContainer::
+      // Send/Receive act on *every* registered swarm, not just the one a given
+      // round conceptually cares about, so round 2's "stars" send below reuses
+      // the same per-neighbor MPI request slot that round 1 already posted a
+      // (possibly empty) "stars" send into at step 2 -- round 1's Receive only
+      // waits on the *receive* side, nothing ever waits on/frees our own send
+      // requests except this reset task. Without a second one here, round 2's
+      // Send hits "Trying to create a new send before previous send completes!"
+      // under real multi-rank MPI (never triggered with a single rank, since
+      // same-rank neighbors take BoundarySwarm::Send's deep-copy fast path
+      // instead of MPI_Isend, so req_send is never touched at all serially).
+      auto reset_comms_2 =
+          tl.AddTask(star_move, &SwarmContainer::ResetCommunication, sd.get());
+
+      // 6. Second send/receive round: now the main swarm may have crossed
       // block boundaries due to motion, so ship it across. Ghost mirrors
       // were already fully consumed and removed in step 3, so this round
       // only moves the main star swarm.
-      auto send_stars =
-          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(), BoundaryCommSubset::all);
+      auto send_stars = tl.AddTask(reset_comms_2, &SwarmContainer::Send, sd.get(),
+                                   BoundaryCommSubset::all);
       auto receive_stars = tl.AddTask(send_stars, &SwarmContainer::Receive, sd.get(),
                                       BoundaryCommSubset::all);
     }

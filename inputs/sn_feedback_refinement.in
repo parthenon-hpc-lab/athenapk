@@ -1,0 +1,128 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2026, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = Test that a single SN II event deposits mass/momentum/energy consistently
+          regardless of where the host star sits relative to meshblock boundaries:
+          deep interior, at a face/edge/corner shared with same-level neighbors, or
+          straddling the coarse/fine boundary of the static-refined patch below.
+          x_peak/y_peak/z_peak (and hence which of those cases is exercised) are set
+          per test-script step from tst/regression/test_suites/sn_feedback_refinement;
+          the values below are only used if this input file is run standalone.
+
+<job>
+problem_id = star_formation
+
+<parthenon/output0>
+file_type       = hdf5
+variables       = cons
+# No dt/dn set: defaults to dt=tlim, i.e. exactly an initial (t=0) and a final dump.
+# That's all the analysis script needs -- see its module docstring for why comparing
+# just those two snapshots' *totals* is enough, without bracketing individual cycles.
+id              = cons
+swarms          = stars
+stars_variables = mass, birth_mass
+hdf5_compression_level = 0
+
+<parthenon/time>
+cfl        = 0.3        # standard value; the reference file's 0.01 wasn't needed here
+nlim       = -1
+tlim       = 0.02       # code_time (Gyr, 20 Myr); overridden by the test script
+integrator = vl2
+
+<parthenon/mesh>
+refinement = static
+nghost     = 4          # >= SN_injection_radius_cells+1
+
+nx1        = 32
+x1min      =-0.005
+x1max      = 0.005
+ix1_bc     = periodic
+ox1_bc     = periodic
+
+nx2        = 32
+x2min      =-0.005
+x2max      = 0.005
+ix2_bc     = periodic
+ox2_bc     = periodic
+
+nx3        = 32
+x3min      =-0.005
+x3max      = 0.005
+ix3_bc     = periodic
+ox3_bc     = periodic
+
+<parthenon/static_refinement0>
+x1min = 0.0001
+x1max = 0.0002
+x2min = 0.0001
+x2max = 0.0002
+x3min = 0.0001
+x3max = 0.0002
+level = 2
+
+<parthenon/meshblock>
+nx1        = 16
+nx2        = 16
+nx3        = 16
+
+<hydro>
+fluid          = euler
+gamma          = 1.6666666666666667
+eos            = adiabatic
+riemann        = hllc
+reconstruction = plm
+scratch_level  = 0
+# The SN deposit dumps a large, localized momentum/energy kick into a
+# handful of cells (mostly low-density background here, by design -- see
+# module docstring), which PLM can overshoot into negative pressure a
+# hundred-odd cycles later as the resulting blast wave steepens/is
+# under-resolved. Same mitigation used by other SN-feedback-enabled inputs
+# in this repo (cluster/star_orbits.in, cluster/hydro_agn_feedback_tracers.in).
+first_order_flux_correct = true
+
+He_mass_fraction = 0.25
+
+#########################################################
+#  Units: 1 Mpc / 1e14 Msun / 1 Gyr
+#########################################################
+<units>
+code_length_cgs = 3.085677580962325e+24
+code_mass_cgs   = 1.98841586e+47
+code_time_cgs   = 3.15576e+16
+
+#########################################################
+#  Uniform background + one overdense peak cell
+#########################################################
+<problem/star_formation>
+ic_mode  = single_peak
+rho_bg   = 100
+T_bg     = 1e7
+rho_peak = 5000         # code density units; overridden by the test script
+x_peak   = 0.0          # overridden by the test script (see module docstring)
+y_peak   = 0.0
+z_peak   = 0.0
+
+#########################################################
+#  Stellar particles / SN II feedback
+#########################################################
+<stars>
+enabled                     = true
+transport_mode              = none
+sf_virial_criterion_enabled = false
+sf_efficiency               = 10000.0 # per-cycle conversion probability 1-exp(-sf_efficiency
+                                       # *dt/t_dyn(rho_peak)); at rho_peak=5000 code units and
+                                       # this mesh's dt, sf_efficiency=100 (an earlier, WRONG
+                                       # "near-instant" guess) only gives ~34% per cycle, so
+                                       # different scenarios' stars (independently, per-cell
+                                       # hash-seeded) formed 1-2 cycles apart -- different
+                                       # injection_time, hence a completely different SN Poisson
+                                       # draw sequence later, silently invalidating the "same
+                                       # event, different placement" comparison this test relies
+                                       # on. 10000 drives the miss probability to ~1e-18: every
+                                       # scenario converts on cycle 1, deterministically.
+sf_mass_efficiency          = 0.5
+sf_density_threshold        = 3000    # code density units; overridden by the test script
+SN_II_enabled               = true
+SN_injection_radius_cells   = 3

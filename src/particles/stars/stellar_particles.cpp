@@ -201,24 +201,18 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                         "SN_injection_radius_cells.");
   stars_pkg->AddParam<>("SN_injection_radius_cells", r_cells);
 
-  // Physical (resolution-independent) SN deposition kernel smoothing length.
-  // Pinned to r_cells+1 cells at the *finest* level the mesh can ever reach
-  // (root cell size / 2^(numlevel-1)), rather than the local host cell's own
-  // dx. This guarantees the kernel footprint -- and therefore its
-  // normalization (weight_sum) -- is identical regardless of which
-  // refinement level actually hosts the star, which is what keeps a SN
-  // deposit self-consistent when it straddles a coarse/fine block boundary.
-  // The worst case for ghost-cell coverage is a host cell already at the
-  // finest level, where this reduces to the original r_cells+1 cells, so the
-  // PARTHENON_REQUIRE above remains a valid bound.
-  const auto root_nx1 = pin->GetInteger("parthenon/mesh", "nx1");
-  const auto root_x1min = pin->GetReal("parthenon/mesh", "x1min");
-  const auto root_x1max = pin->GetReal("parthenon/mesh", "x1max");
-  const auto numlevel = pin->GetOrAddInteger("parthenon/mesh", "numlevel", 1);
-  const Real dx_root = (root_x1max - root_x1min) / static_cast<Real>(root_nx1);
-  const Real dx_finest = dx_root / std::pow(2.0, numlevel - 1);
-  const Real SN_h_smooth = 0.5 * (r_cells + 1.0) * dx_finest;
-  stars_pkg->AddParam<>("SN_h_smooth", SN_h_smooth);
+  // Note: the SN deposition kernel's smoothing length is *not* a global,
+  // package-level constant (it used to be, pinned to a "finest level the
+  // mesh can ever reach" derived from parthenon/mesh/numlevel -- which
+  // silently defaulted to the wrong value for any refinement=static setup,
+  // since numlevel is only ever read by Parthenon itself for
+  // refinement=adaptive). It's now computed per SN event, from the host
+  // cell's own local dx at the time of the event -- see StellarFeedback::
+  // ApplyStellarFeedback/ApplyGhostFeedback in stellar_feedback.cpp, and the
+  // ComputeRegionFractions docstring in stellar_feedback.hpp for how a
+  // kernel that straddles a coarse/fine boundary is kept mass/momentum/
+  // energy-consistent despite the two sides no longer sharing one
+  // globally-pinned physical kernel size by construction.
 
   // Register empty lifetime tables as default (overwritten if SN_II_enabled)
   stars_pkg->AddParam("log_mass_table", parthenon::ParArray1D<Real>("log_mass_table", 0),
@@ -383,12 +377,20 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       stars_pkg->AddSwarmValue("v_y", ghost_name, real_swarmvalue_metadata);
       stars_pkg->AddSwarmValue("v_z", ghost_name, real_swarmvalue_metadata);
 
+      // M_ej_tot/p_SN_tot/p_terminal_Nsn carried here are already this
+      // region's share (host's own remaining region, or this particular
+      // neighbor direction's), scaled by ComputeRegionFractions -- so the
+      // receiving block only ever needs to normalize *its own* local,
+      // single-resolution weight_sum against them (recomputed fresh on
+      // arrival; not carried in the payload, unlike before).
       stars_pkg->AddSwarmValue("M_ej_tot", ghost_name, real_swarmvalue_metadata);
       stars_pkg->AddSwarmValue("p_SN_tot", ghost_name, real_swarmvalue_metadata);
       stars_pkg->AddSwarmValue("p_terminal_Nsn", ghost_name, real_swarmvalue_metadata);
 
-      // Need to communicate the total of the kernel weighting
-      stars_pkg->AddSwarmValue("weight_sum", ghost_name, real_swarmvalue_metadata);
+      // Physical kernel smoothing length, fixed once by the host (from its
+      // own local dx at the time of the event) and carried as-is so every
+      // participating block searches the same physical kernel radius.
+      stars_pkg->AddSwarmValue("h_smooth", ghost_name, real_swarmvalue_metadata);
 
       // Offset applied to push the particle across the block boundary so
       // Parthenon's swarm transfer picks it up; subtracted back out once

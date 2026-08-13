@@ -1,0 +1,118 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2026, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = Statistical test of the stochastic star formation recipe: seed a large number
+          of identical overdense "peak" cells (problem/star_formation ic_mode=multi_peak)
+          in an otherwise uniform box and let each of them stochastically turn into a
+          stellar particle. The physics parameters (rho_bg, rho_peak, sf thresholds,
+          n_peaks, tlim, ...) are set from the regression test script
+          (tst/regression/test_suites/star_formation_sfr_stats) via command line
+          overrides so that they stay in sync with the statistical analysis performed
+          there; the values below are only used if this input file is run standalone.
+
+<job>
+problem_id = star_formation
+
+#########################################################
+#  Output: single restart dump (initial + final) carrying
+#  the "stars" particle swarm used by the analysis script.
+#########################################################
+<parthenon/output0>
+file_type  = rst
+id         = restart
+hdf5_compression_level = 0
+
+# Optional coarse-cadence hdf5 dump of the hydro state, useful for visually
+# inspecting that no spurious density enhancement appears away from the
+# seeded peaks. Not read by the analysis script.
+<parthenon/output1>
+file_type  = hdf5
+variables  = prim
+dt         = 70.0
+id         = prim
+single_precision_output = true
+
+#########################################################
+#  Time
+#########################################################
+<parthenon/time>
+cfl        = 0.3
+integrator = vl2
+tlim       = 700.0     # code_time (Myr); overridden by the test script
+nlim       = 5000      # safety cap, well above the expected step count
+
+#########################################################
+#  Mesh: 4 kpc periodic cube, 64^3 root grid, no refinement
+#########################################################
+<parthenon/mesh>
+refinement = none
+nghost     = 3          # >= SN_injection_radius_cells+1, required even with SNe disabled
+
+nx1        = 64
+x1min      = 0.0
+x1max      = 4.0
+ix1_bc     = periodic
+ox1_bc     = periodic
+
+nx2        = 64
+x2min      = 0.0
+x2max      = 4.0
+ix2_bc     = periodic
+ox2_bc     = periodic
+
+nx3        = 64
+x3min      = 0.0
+x3max      = 4.0
+ix3_bc     = periodic
+ox3_bc     = periodic
+
+<parthenon/meshblock>
+nx1        = 32
+nx2        = 32
+nx3        = 32
+
+#########################################################
+#  Units: kpc / Msun / Myr
+#########################################################
+<units>
+code_length_cgs = 3.0856775809623245e+21   # 1 kpc
+code_mass_cgs   = 1.98841586e+33           # 1 Msun
+code_time_cgs   = 3.15576e+13              # 1 Myr
+
+#########################################################
+#  Hydro
+#########################################################
+<hydro>
+fluid           = euler
+eos             = adiabatic
+riemann         = hllc
+reconstruction  = plm
+gamma           = 1.6666666666666667
+He_mass_fraction = 0.25
+
+#########################################################
+#  Stellar particles / star formation
+#########################################################
+<stars>
+enabled                     = true
+sf_density_threshold        = 1.0e8   # code density units; overridden by test script
+sf_mass_efficiency          = 0.75
+sf_efficiency               = 0.5
+sf_virial_criterion_enabled = false
+SN_II_enabled                = false
+SN_Ia_enabled                = false
+transport_mode              = none
+seed_stars                  = false   # peaks come from the IC density field directly
+
+#########################################################
+#  Problem generator: multi_peak overdensities
+#########################################################
+<problem/star_formation>
+ic_mode  = multi_peak
+rho_bg   = 1.0e6   # code density units; overridden by test script
+T_bg     = 1.0e4   # K
+rho_peak = 3.0e8   # code density units; overridden by test script
+n_peaks  = 256      # per MeshBlock; overridden by test script
+rng_seed = 42

@@ -147,6 +147,21 @@ the mass efficiency epsilon, the particle mass is set to:
 and the cell density is updated as:
   rho -> rho * (1 - epsilon)
 This ensures mass conservation between the grid and the particle swarm.
+
+Density and momentum are scaled down by the same factor (1 - epsilon): since
+mom/rho is invariant under a common scaling, this leaves the cell's bulk
+velocity unchanged and the star simply inherits it. Total energy is *not*
+scaled the same way, on purpose: doing so would remove the same fraction of
+internal (thermal) energy as of mass, which at fixed cell volume drops the
+remaining gas pressure by that same factor -- an artificial local
+underpressure created by the sink operation itself (not by any real physics),
+which then relaxes by launching a pressure wave into neighboring cells and can
+perturb (or spuriously trigger) star formation nearby. Instead, only the
+star's share of *kinetic* energy is removed from cons(IEN); the internal-
+energy part is left untouched, so the remaining gas's pressure -- and its
+mechanical equilibrium with its neighbors -- is preserved exactly across the
+event. This is still exactly energy-conserving: the star carries away
+epsilon * KE_density * vol, nothing thermal.
 =============================================================================== */
 
 template <typename View4D, typename ParticleView, class EOS>
@@ -176,12 +191,18 @@ KOKKOS_INLINE_FUNCTION void TransferCellMassToParticle(
   vel_y(swarm_idx) = vy;
   vel_z(swarm_idx) = vz;
 
+  // Kinetic energy density of the cell *before* the transfer (prim not yet
+  // modified below); see the function docstring for why only this part of
+  // cons(IEN) is removed, rather than scaling total energy by (1 - epsilon).
+  const Real v2 = vx * vx + vy * vy + vz * vz;
+  const Real ke_density = 0.5 * prim(IDN, k, j, i) * v2;
+
   // Updating the conserved variables (as PrimToCons isn't yet implemented)
   cons(IDN, k, j, i) *= (1.0 - mass_efficiency);
   cons(IM1, k, j, i) *= (1.0 - mass_efficiency);
   cons(IM2, k, j, i) *= (1.0 - mass_efficiency);
   if (ndim == 3) cons(IM3, k, j, i) *= (1.0 - mass_efficiency);
-  cons(IEN, k, j, i) *= (1.0 - mass_efficiency);
+  cons(IEN, k, j, i) -= mass_efficiency * ke_density;
 
   // Resync prim from updated cons
   eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
