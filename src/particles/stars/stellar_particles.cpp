@@ -44,6 +44,7 @@
 #include "../../units.hpp"
 #include "../custom_rng.hpp"
 #include "../particles_utils.hpp"
+#include "star_formation.hpp"
 #include "stellar_particles.hpp"
 
 // Cluster headers
@@ -125,6 +126,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                    "might now be numerically stable.");
   }
   stars_pkg->AddParam<>("stars_mass_efficiency", stars_mass_efficiency);
+
+  // Which energy convention TransferCellMassToParticle uses for the cell's
+  // depleted mass -- see that function's docstring in star_formation.hpp.
+  // Defaults to "isobaric" since that's what the regression test suite was
+  // built and tuned against; "isothermal" is a 1:1 port of RAMSES's
+  // star_formation.f90 sink treatment.
+  const auto stars_sf_energy_mode_str =
+      pin->GetOrAddString("stars", "sf_energy_mode", "isobaric");
+  StarFormation::SFEnergyMode stars_sf_energy_mode;
+  if (stars_sf_energy_mode_str == "isobaric") {
+    stars_sf_energy_mode = StarFormation::SFEnergyMode::Isobaric;
+  } else if (stars_sf_energy_mode_str == "isothermal") {
+    stars_sf_energy_mode = StarFormation::SFEnergyMode::Isothermal;
+  } else {
+    PARTHENON_FAIL("stars/sf_energy_mode must be one of 'isobaric', 'isothermal'");
+  }
+  stars_pkg->AddParam<>("stars_sf_energy_mode", stars_sf_energy_mode);
 
   // Star formation efficiency per dynamical time (epsilon in
   // \dot{M}_\star = epsilon * M_gas / t_dyn)

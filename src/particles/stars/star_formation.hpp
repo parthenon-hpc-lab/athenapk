@@ -36,6 +36,13 @@ using parthenon::Coordinates_t;
 
 namespace StarFormation {
 
+// Which conserved-energy convention TransferCellMassToParticle uses when a
+// cell's mass is depleted into a star -- see that function's docstring.
+// Isobaric is the default (matches the behavior the regression test suite
+// was built and tuned against); Isothermal is a 1:1 port of RAMSES's
+// star_formation.f90 sink treatment.
+enum class SFEnergyMode { Isobaric, Isothermal };
+
 /* ===============================================================================
 EvaluateStarFormation: calculates cell-by-cell star formation rate based on the
 SMUGGLE star formation model (Marinacci et al. 2019). Density threshold only;
@@ -144,24 +151,44 @@ cell to a newly injected star particle, and decrements the cell conserved
 density accordingly. Given the cell gas mass M_gas = rho * dx * dy * dz and
 the mass efficiency epsilon, the particle mass is set to:
   m_star = epsilon * M_gas
-and the cell density is updated as:
+and the cell density (and, with it, momentum -- see below) is updated as:
   rho -> rho * (1 - epsilon)
-This ensures mass conservation between the grid and the particle swarm.
+This ensures mass conservation between the grid and the particle swarm,
+identically regardless of energy_mode -- the two modes only differ in what
+happens to the remaining energy budget.
 
-Density and momentum are scaled down by the same factor (1 - epsilon): since
-mom/rho is invariant under a common scaling, this leaves the cell's bulk
-velocity unchanged and the star simply inherits it. Total energy is *not*
-scaled the same way, on purpose: doing so would remove the same fraction of
-internal (thermal) energy as of mass, which at fixed cell volume drops the
-remaining gas pressure by that same factor -- an artificial local
-underpressure created by the sink operation itself (not by any real physics),
-which then relaxes by launching a pressure wave into neighboring cells and can
-perturb (or spuriously trigger) star formation nearby. Instead, only the
-star's share of *kinetic* energy is removed from cons(IEN); the internal-
-energy part is left untouched, so the remaining gas's pressure -- and its
-mechanical equilibrium with its neighbors -- is preserved exactly across the
-event. This is still exactly energy-conserving: the star carries away
-epsilon * KE_density * vol, nothing thermal.
+Density and momentum are always scaled down by the same factor (1 - epsilon):
+since mom/rho is invariant under a common scaling, this leaves the cell's
+bulk velocity unchanged and the star simply inherits it. energy_mode then
+selects one of two conventions for cons(IEN):
+
+  Isobaric (SFEnergyMode::Isobaric, the default -- matches the behavior the
+  regression test suite was built and tuned against): only the star's share
+  of *kinetic* energy is removed; internal (thermal) and magnetic energy are
+  left completely untouched. At fixed cell volume, leaving internal energy
+  density alone keeps the remaining gas's pressure exactly unchanged -- no
+  artificial local underpressure from the sink operation itself, which would
+  otherwise relax into a spurious pressure wave and potentially (re)trigger
+  star formation nearby. This does not keep temperature fixed (fewer moles
+  of gas holding the same thermal energy get hotter).
+
+  Isothermal (SFEnergyMode::Isothermal -- a 1:1 port of RAMSES's
+  star_formation.f90 sink; see its own header comment: "assumes an
+  isothermal transformation... gas velocity and sound speed are unchanged").
+  RAMSES converts to primitives, depletes *only* density (leaving velocity
+  and specific internal energy untouched), then converts back; since
+  specific internal energy (hence temperature) is preserved while density
+  drops, kinetic AND thermal energy density both scale down by (1 - epsilon)
+  same as density -- pressure drops proportionally with density instead of
+  being held fixed. We reproduce that directly on the conserved variables:
+    rho, mom  -> scaled by (1 - epsilon)      [velocity unchanged, both modes]
+    KE + IE   -> scaled by (1 - epsilon)      [specific IE unchanged]
+
+  In both modes, magnetic energy density is left completely alone: B itself
+  is never modified by this sink either way, so there is no "star's share"
+  of it to remove (nor, in RAMSES, of its NENER cosmic-ray bins, which have
+  no analog here). Both modes are exactly energy-conserving: the star simply
+  carries away epsilon * (KE_density [+ IE_density, isothermal only]) * vol.
 =============================================================================== */
 
 template <typename View4D, typename ParticleView, class EOS>
@@ -169,7 +196,8 @@ KOKKOS_INLINE_FUNCTION void TransferCellMassToParticle(
     View4D cons, View4D prim, const Coordinates_t &coords, const int k, const int j,
     const int i, const Real mass_efficiency, const int ndim, const int swarm_idx,
     ParticleView &pmass, ParticleView &vel_x, ParticleView &vel_y, ParticleView &vel_z,
-    const EOS &eos, const int nhydro, const int nscalars) {
+    const EOS &eos, const int nhydro, const int nscalars,
+    const SFEnergyMode energy_mode) {
 
   const Real dx = coords.Dxc<1>(i);
   const Real dy = coords.Dxc<2>(j);
@@ -192,17 +220,44 @@ KOKKOS_INLINE_FUNCTION void TransferCellMassToParticle(
   vel_z(swarm_idx) = vz;
 
   // Kinetic energy density of the cell *before* the transfer (prim not yet
-  // modified below); see the function docstring for why only this part of
-  // cons(IEN) is removed, rather than scaling total energy by (1 - epsilon).
+  // modified below); needed by both energy_mode branches.
   const Real v2 = vx * vx + vy * vy + vz * vz;
   const Real ke_density = 0.5 * prim(IDN, k, j, i) * v2;
 
-  // Updating the conserved variables (as PrimToCons isn't yet implemented)
+  // Isothermal only: internal (thermal) energy density, with magnetic
+  // energy backed out first so B's share is never subtracted below (B
+  // itself is never modified by this sink, in either mode -- see
+  // docstring). has_bfield is a runtime check (IB1 only a valid index into
+  // cons when this EOS's package registered B-field components) rather
+  // than an EOS-type if constexpr, since nhydro is already threaded
+  // through from the caller for exactly this purpose. Isobaric leaves
+  // ie_density at 0, which is exactly what reduces the shared formula
+  // below to "kinetic-only".
+  Real ie_density = 0.0;
+  if (energy_mode == SFEnergyMode::Isothermal) {
+    const bool has_bfield = (IB1 < nhydro);
+    Real me_density = 0.0;
+    if (has_bfield) {
+      const Real Bx = cons(IB1, k, j, i);
+      const Real By = cons(IB2, k, j, i);
+      const Real Bz = cons(IB3, k, j, i); // out-of-plane B is meaningful even if ndim==2
+      me_density = 0.5 * (Bx * Bx + By * By + Bz * Bz);
+    }
+    ie_density = cons(IEN, k, j, i) - ke_density - me_density;
+  }
+
   cons(IDN, k, j, i) *= (1.0 - mass_efficiency);
   cons(IM1, k, j, i) *= (1.0 - mass_efficiency);
   cons(IM2, k, j, i) *= (1.0 - mass_efficiency);
   if (ndim == 3) cons(IM3, k, j, i) *= (1.0 - mass_efficiency);
-  cons(IEN, k, j, i) -= mass_efficiency * ke_density;
+
+  // Isobaric: removes only the star's share of kinetic energy (ie_density
+  // is 0 above). Isothermal: also removes the star's share of internal
+  // energy. Magnetic energy is excluded from the subtracted amount either
+  // way (already backed out of ie_density above when it's nonzero), so
+  // cons(IEN) minus this share still contains the full, untouched
+  // E_magnetic afterward.
+  cons(IEN, k, j, i) -= mass_efficiency * (ke_density + ie_density);
 
   // Resync prim from updated cons
   eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);

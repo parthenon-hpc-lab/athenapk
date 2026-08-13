@@ -120,6 +120,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     bool virial_criterion = false;
     Real mass_efficiency = 0.0; // cell mass conversion factor for star formation
     Real sf_efficiency = 0.0;   // star formation rate efficiency
+    StarFormation::SFEnergyMode sf_energy_mode =
+        StarFormation::SFEnergyMode::Isobaric; // unused unless particles_type == Stars
     Real p_injection = -1.0;
     Real injection_threshold = -1.0;
     InjectionMode injection_mode = InjectionMode::FixedRate; // By default
@@ -170,6 +172,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       injection_threshold = particles_pkg->Param<Real>(swarm_name + "_density_threshold");
       mass_efficiency = particles_pkg->Param<Real>(swarm_name + "_mass_efficiency");
       sf_efficiency = particles_pkg->Param<Real>(swarm_name + "_sf_efficiency");
+      sf_energy_mode = particles_pkg->Param<StarFormation::SFEnergyMode>(
+          swarm_name + "_sf_energy_mode");
 
     } else {
       // Future packages (e.g. additional particle species) should add a
@@ -351,7 +355,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           if (particles_type == ParticlesType::Stars && mass_enabled) {
             StarFormation::TransferCellMassToParticle(
                 cons, prim, coords, k, j, i, mass_efficiency, ndim, swarm_idx, pmass, v_x,
-                v_y, v_z, eos, nhydro, nscalars);
+                v_y, v_z, eos, nhydro, nscalars, sf_energy_mode);
             pmass0(swarm_idx) = pmass(swarm_idx);
           }
         });
