@@ -40,7 +40,7 @@ class ClusterGravity : public gravity::SphericalGravity {
   // ClusterGravity specifically.
   ClusterGravity(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg)
       : ClusterGravity(pin) {
-    hydro_pkg->AddParam<gravity::SphericalGravity>("cluster_gravity", *this);
+    hydro_pkg->AddParam<gravity::SphericalGravity>("gravity_field", *this);
   }
 };
 
