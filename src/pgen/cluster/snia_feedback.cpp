@@ -39,10 +39,10 @@ SNIAFeedback::SNIAFeedback(parthenon::ParameterInput *pin,
 
   // Initialize the gravity from the cluster
   // Turn off the NFW and SMBH to get just the BCG gravity
-  bcg_gravity_.include_nfw_g_ = false;
-  bcg_gravity_.include_smbh_g_ = false;
+  bcg_gravity_.DisableNFW();
+  bcg_gravity_.DisableSMBH();
 
-  PARTHENON_REQUIRE(disabled_ || bcg_gravity_.which_bcg_g_ != BCG::NONE,
+  PARTHENON_REQUIRE(disabled_ || bcg_gravity_.WhichBCG() != BCG::NONE,
                     "BCG must be defined for SNIA Feedback to be enabled");
   hydro_pkg->AddParam<SNIAFeedback>("snia_feedback", *this);
 }
