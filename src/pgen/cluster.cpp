@@ -37,6 +37,7 @@
 // AthenaPK headers
 #include "../eos/adiabatic_glmmhd.hpp"
 #include "../eos/adiabatic_hydro.hpp"
+#include "../gravity/spherical_gravity.hpp"
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
 #include "../hydro/srcterms/tabular_cooling.hpp"
@@ -67,8 +68,8 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
 
   if (gravity_srcterm) {
-    const ClusterGravity &cluster_gravity =
-        hydro_pkg->Param<ClusterGravity>("cluster_gravity");
+    const gravity::SphericalGravity &cluster_gravity =
+        hydro_pkg->Param<gravity::SphericalGravity>("cluster_gravity");
 
     GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
   }
