@@ -221,7 +221,7 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
     const gravity::SphericalGravity &cluster_gravity =
         hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
 
-    GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
+    gravity::GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
   }
 
   const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
