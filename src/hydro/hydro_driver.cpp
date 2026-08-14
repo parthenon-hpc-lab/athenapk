@@ -644,54 +644,34 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto star_feedback =
           tl.AddTask(star_inject, StellarFeedback::StellarFeedback, mbd0.get(), tm);
 
-      // 2. Ship the ghost swarm across to whichever neighbor(s) each mirror
-      // was pushed into. Main star swarm hasn't moved yet, so it has
-      // nothing to send in this round; only ghost mirrors cross here.
-      auto send_ghost = tl.AddTask(star_feedback, &SwarmContainer::Send, sd.get(),
-                                   BoundaryCommSubset::all);
-      auto receive_ghost = tl.AddTask(send_ghost, &SwarmContainer::Receive, sd.get(),
-                                      BoundaryCommSubset::all);
+      // 2. Move the main star particles, before the comm round below.
+      // MoveStars only touches the "stars" swarm, never ghost_stars, so it
+      // can't disturb the ghost mirrors StellarFeedback just pushed; under
+      // TransportMode::Gravity (the default) it has no dependency on them.
+      auto star_move = tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
 
-      // 3. Finish applying feedback from ghost particles that just arrived
+      // 3. Single send/receive round for both the ghost mirrors and the
+      // main swarm's new positions (Send/Receive act on every registered
+      // swarm at once). A prior two-round version reused a not-yet-complete
+      // send buffer across rounds (MPI_Request_free doesn't wait for the
+      // send to finish) and hung under real multi-rank MPI; one round fixes
+      // it, matching the working Tracers pattern.
+      auto send =
+          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(), BoundaryCommSubset::all);
+      auto receive =
+          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+
+      // 4. Finish applying feedback from ghost particles that just arrived
       // from neighboring blocks: recover the true (un-pushed) position
       // from the stored offset, re-center the kernel, deposit into this
       // block's interior, then remove the now-consumed ghost particles.
       auto ghost_feedback =
-          tl.AddTask(receive_ghost, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
-
-      // 4. Move the main star particles.
-      auto star_move = tl.AddTask(ghost_feedback, Stars::MoveStars, mbd0.get(), tm);
-
-      // 5. Reset swarm communication before the second round. SwarmContainer::
-      // Send/Receive act on *every* registered swarm, not just the one a given
-      // round conceptually cares about, so round 2's "stars" send below reuses
-      // the same per-neighbor MPI request slot that round 1 already posted a
-      // (possibly empty) "stars" send into at step 2 -- round 1's Receive only
-      // waits on the *receive* side, nothing ever waits on/frees our own send
-      // requests except this reset task. Without a second one here, round 2's
-      // Send hits "Trying to create a new send before previous send completes!"
-      // under real multi-rank MPI (never triggered with a single rank, since
-      // same-rank neighbors take BoundarySwarm::Send's deep-copy fast path
-      // instead of MPI_Isend, so req_send is never touched at all serially).
-      auto reset_comms_2 =
-          tl.AddTask(star_move, &SwarmContainer::ResetCommunication, sd.get());
-
-      // 6. Second send/receive round: now the main swarm may have crossed
-      // block boundaries due to motion, so ship it across. Ghost mirrors
-      // were already fully consumed and removed in step 3, so this round
-      // only moves the main star swarm.
-      auto send_stars = tl.AddTask(reset_comms_2, &SwarmContainer::Send, sd.get(),
-                                   BoundaryCommSubset::all);
-      auto receive_stars = tl.AddTask(send_stars, &SwarmContainer::Receive, sd.get(),
-                                      BoundaryCommSubset::all);
+          tl.AddTask(receive, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
     }
 
-    // 7. Star formation (mass transfer to newly injected particles) and
-    // stellar feedback (SN mass/momentum/energy deposition, steps 1-3 above)
-    // both modify `cons` directly. Star formation re-syncs `prim` locally as
-    // it goes, but the SN deposition kernels do not, so re-run FillDerived
-    // here to bring `prim` back in sync with `cons` before tracer advection,
-    // AMR tagging, or any output/restart reads the stale primitives.
+    // 5. Star formation/feedback (steps 1/4 above) modify `cons` directly
+    // but don't re-sync `prim`, so re-run FillDerived before tracer
+    // advection, AMR tagging, or output/restart reads stale primitives.
     TaskRegion &fill_derived_stars_region = tc.AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = fill_derived_stars_region[i];
