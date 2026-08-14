@@ -81,7 +81,7 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
 
   auto hydro_pkg = pmesh->packages.Get("Hydro");
   const auto &cluster_gravity =
-      hydro_pkg->Param<gravity::SphericalGravity>("cluster_gravity");
+      hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
 
   const int n_stars = pin->GetOrAddInteger("problem/cluster/seed_stars", "n_stars", 100);
   const int rng_seed = pin->GetOrAddInteger("problem/cluster/seed_stars", "rng_seed", 42);
@@ -219,7 +219,7 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   if (gravity_srcterm) {
     const gravity::SphericalGravity &cluster_gravity =
-        hydro_pkg->Param<gravity::SphericalGravity>("cluster_gravity");
+        hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
 
     GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
   }

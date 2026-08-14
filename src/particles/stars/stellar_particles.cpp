@@ -497,18 +497,18 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
     // Pointer to the gravitational field, only set (non-null) when actually
     // needed. Avoids requiring a default constructor for SphericalGravity, and
-    // avoids touching the "cluster_gravity" param at all in setups that don't
+    // avoids touching the "gravity_field" param at all in setups that don't
     // register one. Looked up as the generic gravity::SphericalGravity base
     // type, so any pgen that registers one under this Param name works here,
     // not just cluster.
     const gravity::SphericalGravity *gravitational_field_ptr = nullptr;
     if (transport_mode == TransportMode::Gravity) {
-      PARTHENON_REQUIRE(hydro_pkg->AllParams().hasKey("cluster_gravity"),
+      PARTHENON_REQUIRE(hydro_pkg->AllParams().hasKey("gravity_field"),
                         "MoveStars requires a gravitational field; only setups "
                         "registering a gravity::SphericalGravity field are "
                         "currently supported.");
       gravitational_field_ptr =
-          &hydro_pkg->Param<gravity::SphericalGravity>("cluster_gravity");
+          &hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
     }
 
     auto &swarm = sd->Get(swarm_name);
