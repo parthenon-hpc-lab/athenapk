@@ -325,13 +325,12 @@ Real ComputeHostSmoothingLength(const parthenon::Coordinates_t &coords, const in
 // ========================================================================
 
 template <typename View4D>
-KOKKOS_INLINE_FUNCTION Real
-ComputeKernelAvgNH(View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
-                   const parthenon::Real x_star, const parthenon::Real y_star,
-                   const parthenon::Real z_star, const int k_host, const int j_host,
-                   const int i_host, const parthenon::Real h_smooth,
-                   const parthenon::Real code_density_cgs, const parthenon::Real mh_cgs,
-                   const parthenon::Real X_H) {
+KOKKOS_INLINE_FUNCTION Real ComputeKernelAvgNH(
+    View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
+    const parthenon::Real x_star, const parthenon::Real y_star,
+    const parthenon::Real z_star, const int k_host, const int j_host, const int i_host,
+    const parthenon::Real h_smooth, const parthenon::Real code_density_cgs,
+    const parthenon::Real mh_cgs, const parthenon::Real X_H) {
   using parthenon::Real;
   const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i_host));
   const Real r_max = 2.0 * h_smooth;
@@ -489,20 +488,19 @@ void DetectKernelOverlap(const parthenon::Coordinates_t &coords, const int ndim,
 // samples (fractions sum to exactly 1 by construction), total mass
 // conservation remains exact regardless of any of the above.
 // ========================================================================
-KOKKOS_INLINE_FUNCTION void
-ComputeRegionFractions(const parthenon::Coordinates_t &coords, const int ndim,
-                       const parthenon::Real x_star, const parthenon::Real y_star,
-                       const parthenon::Real z_star, const parthenon::Real h_smooth,
-                       const int k_host, const int j_host, const int i_host,
-                       const int r_search, const int kb_s, const int kb_e,
-                       const int jb_s, const int jb_e, const int ib_s, const int ib_e,
-                       const int active_axis[3], const int axis_offset[3],
-                       const int n_active, parthenon::Real fraction[8]) {
+KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
+    const parthenon::Coordinates_t &coords, const int ndim, const parthenon::Real x_star,
+    const parthenon::Real y_star, const parthenon::Real z_star,
+    const parthenon::Real h_smooth, const int k_host, const int j_host, const int i_host,
+    const int r_search, const int kb_s, const int kb_e, const int jb_s, const int jb_e,
+    const int ib_s, const int ib_e, const int active_axis[3], const int axis_offset[3],
+    const int n_active, parthenon::Real fraction[8]) {
   using parthenon::Real;
 
   const int n_neighbors = (1 << n_active) - 1; // 1, 3, or 7
 
-  for (int m = 0; m <= n_neighbors; ++m) fraction[m] = 0.0;
+  for (int m = 0; m <= n_neighbors; ++m)
+    fraction[m] = 0.0;
 
   // Physical coordinate of the host's own interior boundary face crossed
   // along each active axis -- the same face DetectKernelOverlap found
@@ -549,7 +547,7 @@ ComputeRegionFractions(const parthenon::Coordinates_t &coords, const int ndim,
           const int axis = active_axis[a];
           const Real coord = (axis == 0) ? x : (axis == 1) ? y : z;
           const bool outside = (axis_offset[axis] > 0) ? (coord > boundary[axis])
-                                                        : (coord < boundary[axis]);
+                                                       : (coord < boundary[axis]);
           if (outside) mask |= (1 << a);
         }
 
@@ -560,7 +558,8 @@ ComputeRegionFractions(const parthenon::Coordinates_t &coords, const int ndim,
   }
 
   if (total > 0.0) {
-    for (int m = 0; m <= n_neighbors; ++m) fraction[m] /= total;
+    for (int m = 0; m <= n_neighbors; ++m)
+      fraction[m] /= total;
   } else {
     // Degenerate fallback -- shouldn't trigger, since DetectKernelOverlap
     // already established kernel-weighted cells lie past the boundary
@@ -607,9 +606,9 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
                 const int i_host, const parthenon::Real vel_x_star,
                 const parthenon::Real vel_y_star, const parthenon::Real vel_z_star,
                 const parthenon::Real M_ej_tot, const parthenon::Real p_SN_tot,
-                const parthenon::Real p_terminal_nH_scaled, const parthenon::Real h_smooth,
-                const int kb_s, const int kb_e, const int jb_s, const int jb_e,
-                const int ib_s, const int ib_e) {
+                const parthenon::Real p_terminal_nH_scaled,
+                const parthenon::Real h_smooth, const int kb_s, const int kb_e,
+                const int jb_s, const int jb_e, const int ib_s, const int ib_e) {
 
   using parthenon::Real;
 

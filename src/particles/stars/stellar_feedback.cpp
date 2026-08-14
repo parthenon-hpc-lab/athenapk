@@ -246,12 +246,12 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             // view -- see ComputeKernelAvgNH docstring), used once for the
             // whole event; the same rescaled value is shared by every
             // region this event's kernel is later split across.
-            const Real nH_avg = ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n),
-                                                    k, j, i, h_smooth, code_density_cgs,
-                                                    mh_cgs, x_H);
+            const Real nH_avg =
+                ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i,
+                                   h_smooth, code_density_cgs, mh_cgs, x_H);
             const Real p_terminal_nH_scaled =
                 (nH_avg > 0.0) ? p_terminal_Nsn * Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0)
-                              : 0.0;
+                               : 0.0;
 
             // Which of the host's own interior boundaries (if any) this
             // event's kernel reaches past, using the same per-cell test
@@ -463,12 +463,12 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             // this pass numerically consistent with the interior-domain one
             // rather than risk a stray (0)^(-1/7) blowup), as the
             // interior-domain pass.
-            const Real nH_avg = ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k,
-                                                    j, i, h_smooth, code_density_cgs,
-                                                    mh_cgs, x_H);
+            const Real nH_avg =
+                ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i,
+                                   h_smooth, code_density_cgs, mh_cgs, x_H);
             const Real p_terminal_nH_scaled =
                 (nH_avg > 0.0) ? p_terminal_Nsn * Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0)
-                              : 0.0;
+                               : 0.0;
 
             // --- Spawn one ghost particle per overlapping neighbor direction --------
             // mask enumerates every non-empty subset of active_axis (1 to
@@ -619,10 +619,10 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
           int k, j, i;
           gswarm_d.Xtoijk(true_x, true_y, true_z, i, j, k);
 
-          const Real M_ej_tot = gM_ej_tot(g);           // already this region's share
-          const Real p_SN_tot = gp_SN_tot(g);           // already this region's share
+          const Real M_ej_tot = gM_ej_tot(g);             // already this region's share
+          const Real p_SN_tot = gp_SN_tot(g);             // already this region's share
           const Real p_terminal_Nsn = gp_terminal_Nsn(g); // already density-scaled
-          const Real h_smooth = gh_smooth(g);           // host-fixed physical radius
+          const Real h_smooth = gh_smooth(g);             // host-fixed physical radius
 
           ApplyKineticSNe(cons, coords, ndim, true_x, true_y, true_z, k, j, i, gv_x(g),
                           gv_y(g), gv_z(g), M_ej_tot, p_SN_tot, p_terminal_Nsn, h_smooth,
