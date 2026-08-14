@@ -37,6 +37,7 @@
 // AthenaPK headers
 #include "../eos/adiabatic_glmmhd.hpp"
 #include "../eos/adiabatic_hydro.hpp"
+#include "../gravity/spherical_gravity.hpp"
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
 #include "../hydro/srcterms/tabular_cooling.hpp"
@@ -76,7 +77,7 @@ using utils::few_modes_ft::FewModesFT;
 // at its call site to match HomogeneousAccelerationSrcTerm's own sign
 // convention -- see the comment there.
 KOKKOS_INLINE_FUNCTION void
-NonInertialFrameAcceleration(const ClusterGravity &subcluster_gravity,
+NonInertialFrameAcceleration(const gravity::SphericalGravity &subcluster_gravity,
                              const Real subcluster_x, const Real subcluster_y,
                              const Real subcluster_z, const Real r, Real &g_fict_x,
                              Real &g_fict_y, Real &g_fict_z) {
@@ -103,8 +104,10 @@ void UpdateSubclusterPosition(MeshData<Real> *md, const parthenon::SimTime &tm,
   Real subcluster_vz = hydro_pkg->Param<Real>("subcluster_vz");
 
   // Get gravity objects
-  const auto &cluster_gravity = hydro_pkg->Param<ClusterGravity>("cluster_gravity");
-  const auto &subcluster_gravity = hydro_pkg->Param<ClusterGravity>("subcluster_gravity");
+  const auto &cluster_gravity =
+      hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
+  const auto &subcluster_gravity =
+      hydro_pkg->Param<gravity::SphericalGravity>("subcluster_gravity_field");
 
   // Calculate distance from main cluster center (assumed to be at origin)
   Real r = std::sqrt(subcluster_x * subcluster_x + subcluster_y * subcluster_y +
@@ -215,32 +218,33 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
 
   if (gravity_srcterm) {
-    const ClusterGravity &cluster_gravity =
-        hydro_pkg->Param<ClusterGravity>("cluster_gravity");
+    const gravity::SphericalGravity &cluster_gravity =
+        hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
 
-    GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity, 0, 0, 0);
+    gravity::GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity, 0, 0, 0);
     if (hydro_pkg->Param<bool>("subcluster")) {
       // If subcluster is enabled, apply gravitational field source term for it
       const Real subcluster_x = hydro_pkg->Param<Real>("subcluster_x");
       const Real subcluster_y = hydro_pkg->Param<Real>("subcluster_y");
       const Real subcluster_z = hydro_pkg->Param<Real>("subcluster_z");
-      auto subcluster_gravity = hydro_pkg->Param<ClusterGravity>("subcluster_gravity");
-      GravitationalFieldSrcTerm(md, beta_dt, subcluster_gravity, subcluster_x,
-                                subcluster_y, subcluster_z);
+      const auto &subcluster_gravity =
+          hydro_pkg->Param<gravity::SphericalGravity>("subcluster_gravity_field");
+      gravity::GravitationalFieldSrcTerm(md, beta_dt, subcluster_gravity, subcluster_x,
+                                         subcluster_y, subcluster_z);
       // Add non-inertial source term for subcluster: this is a uniform
       // (position-independent) correction, see NonInertialFrameAcceleration
       // above. HomogeneousAccelerationSrcTerm subtracts its (gx,gy,gz)
       // argument from the gas momentum, so we negate the correction here to
       // end up applying +g_fict (not -g_fict) to the gas.
-      const Real r = std::sqrt(subcluster_x * subcluster_x +
-                               subcluster_y * subcluster_y +
+      const Real r = std::sqrt(subcluster_x * subcluster_x + subcluster_y * subcluster_y +
                                subcluster_z * subcluster_z);
       Real g_fict_x = 0.0;
       Real g_fict_y = 0.0;
       Real g_fict_z = 0.0;
       NonInertialFrameAcceleration(subcluster_gravity, subcluster_x, subcluster_y,
                                    subcluster_z, r, g_fict_x, g_fict_y, g_fict_z);
-      HomogeneousAccelerationSrcTerm(md, beta_dt, -g_fict_x, -g_fict_y, -g_fict_z);
+      gravity::HomogeneousAccelerationSrcTerm(md, beta_dt, -g_fict_x, -g_fict_y,
+                                              -g_fict_z);
     }
   }
 
@@ -745,10 +749,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       if (hydro_pkg->Param<bool>("subcluster")) {
         // The subcluster profile/position Params only exist when
         // problem/cluster/gravity/subcluster=true, see ProblemInitPackageData.
-        const auto &subcluster_he_sphere =
-            hydro_pkg->Param<
-                HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
-                "subcluster_hydrostatic_equilibrium_sphere");
+        const auto &subcluster_he_sphere = hydro_pkg->Param<
+            HydrostaticEquilibriumSphere<ClusterGravity, ACCEPTEntropyProfile>>(
+            "subcluster_hydrostatic_equilibrium_sphere");
 
         // Load subcluster position
         const Real x_sub = hydro_pkg->Param<Real>("subcluster_x");
