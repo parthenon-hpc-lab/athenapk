@@ -38,6 +38,7 @@
 // AthenaPK headers
 #include "../eos/adiabatic_glmmhd.hpp"
 #include "../eos/adiabatic_hydro.hpp"
+#include "../gravity/spherical_gravity.hpp"
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
 #include "../hydro/srcterms/tabular_cooling.hpp"
@@ -79,7 +80,8 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
   const Real current_time = tm.time;
 
   auto hydro_pkg = pmesh->packages.Get("Hydro");
-  const auto &cluster_gravity = hydro_pkg->Param<ClusterGravity>("cluster_gravity");
+  const auto &cluster_gravity =
+      hydro_pkg->Param<gravity::SphericalGravity>("cluster_gravity");
 
   const int n_stars = pin->GetOrAddInteger("problem/cluster/seed_stars", "n_stars", 100);
   const int rng_seed = pin->GetOrAddInteger("problem/cluster/seed_stars", "rng_seed", 42);
@@ -216,8 +218,8 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
 
   if (gravity_srcterm) {
-    const ClusterGravity &cluster_gravity =
-        hydro_pkg->Param<ClusterGravity>("cluster_gravity");
+    const gravity::SphericalGravity &cluster_gravity =
+        hydro_pkg->Param<gravity::SphericalGravity>("cluster_gravity");
 
     GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
   }

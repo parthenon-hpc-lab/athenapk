@@ -48,7 +48,7 @@
 #include "stellar_particles.hpp"
 
 // Cluster headers
-#include "../../pgen/cluster/cluster_gravity.hpp"
+#include "../../gravity/spherical_gravity.hpp"
 
 namespace Stars {
 using namespace parthenon::package::prelude;
@@ -496,16 +496,19 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     if (transport_mode == TransportMode::None) continue;
 
     // Pointer to the gravitational field, only set (non-null) when actually
-    // needed. Avoids requiring a default constructor for ClusterGravity, and
-    // avoids touching the "cluster_gravity" param at all in non-cluster
-    // setups.
-    const cluster::ClusterGravity *gravitational_field_ptr = nullptr;
+    // needed. Avoids requiring a default constructor for SphericalGravity, and
+    // avoids touching the "cluster_gravity" param at all in setups that don't
+    // register one. Looked up as the generic gravity::SphericalGravity base
+    // type, so any pgen that registers one under this Param name works here,
+    // not just cluster.
+    const gravity::SphericalGravity *gravitational_field_ptr = nullptr;
     if (transport_mode == TransportMode::Gravity) {
       PARTHENON_REQUIRE(hydro_pkg->AllParams().hasKey("cluster_gravity"),
-                        "MoveStars requires a gravitational field; "
-                        "only the cluster setup is currently supported.");
+                        "MoveStars requires a gravitational field; only setups "
+                        "registering a gravity::SphericalGravity field are "
+                        "currently supported.");
       gravitational_field_ptr =
-          &hydro_pkg->Param<cluster::ClusterGravity>("cluster_gravity");
+          &hydro_pkg->Param<gravity::SphericalGravity>("cluster_gravity");
     }
 
     auto &swarm = sd->Get(swarm_name);
