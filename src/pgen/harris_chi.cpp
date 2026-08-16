@@ -136,38 +136,25 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
   const Real gamma = pin->GetReal("hydro", "gamma");
   const Real gm1 = gamma - 1.0;
-  const Real x1min = pin->GetReal("parthenon/mesh", "x1min");
-  const Real x1max = pin->GetReal("parthenon/mesh", "x1max");
   const Real x2min = pin->GetReal("parthenon/mesh", "x2min");
   const Real x2max = pin->GetReal("parthenon/mesh", "x2max");
   const Real B0 = pin->GetOrAddReal("problem/harris_chi", "B0", 1.0);
-  // VK:start
   const Real chi = pin->GetOrAddReal("problem/harris_chi", "chi", 1.0);
-  const Real eta = pin->GetOrAddReal("diffusion", "ohm_diff_coeff_code", 0.0);
-  const Real S = 1 / eta;
-  const Real delta = pin->GetOrAddReal("problem/harris_chi", "delta", sqrt(1 / S));
-  const Real psi0 = pin->GetOrAddReal("problem/harris_chi", "psi0", 0.1);
-  const Real lx = pin->GetOrAddReal("problem/harris_chi", "lx", x1max - x1min);
-  const Real ly = pin->GetOrAddReal("problem/harris_chi", "ly", 2*(x2max - x2min));
+  // b is the asymmetry parameter used in Eq. (8) of Murphy et al.
+  // (arXiv:1305.3646): R = B_weak/B_strong = (1-b)/(1+b).
+  const Real b = pin->GetOrAddReal("problem/harris_chi", "b", 0.0);
+  const Real delta = pin->GetOrAddReal("problem/harris_chi", "delta", 0.1);
+  const Real eps_b = pin->GetOrAddReal("problem/harris_chi", "eps_b", 0.1);
+  const Real kx = pin->GetOrAddReal("problem/harris_chi", "kx", 20.0 * M_PI);
+  const Real ly = pin->GetOrAddReal("problem/harris_chi", "ly", x2max - x2min);
   const Real beta = pin->GetOrAddReal("problem/harris_chi", "beta", 1.0);
   const Real rho_hot = pin->GetOrAddReal("problem/harris_chi", "rho_hot", 0.2);
-  const Real vy_amp = pin->GetOrAddReal("problem/harris_chi", "vy_amp", 0.0);
+  const Real vy_amp = pin->GetOrAddReal("problem/harris_chi", "vy_amp", 0.01);
   const int rseed = pin->GetOrAddInteger("problem/harris_chi", "rseed", 1);
   const Real vy_width = pin->GetOrAddReal("problem/harris_chi", "vy_width", 0.1);
-
-  // VK:end
+  const Real sigma_y = pin->GetOrAddReal("problem/harris_chi", "sigma_y", 0.05 * ly);
 
   Kokkos::Random_XorShift64_Pool<parthenon::DevExecSpace> rand_pool(rseed + pmb->gid);
-
-  // const Real rho_hot = pin->GetOrAddReal("problem/harris_chi", "rho_hot", 0.2);
-  // const Real rho_cold = pin->GetOrAddReal("problem/harris_chi", "rho_cold", 1.2);
-  // const Real rho_sheet = pin->GetOrAddReal("problem/harris_chi", "rho_sheet", 1.0);
-  // const Real T_hot = pin->GetOrAddReal("problem/harris_chi", "T_hot", 0.5);
-  // const Real ls = pin->GetOrAddReal("problem/harris_chi", "ls", 0.5);
-  // const Real psi0 = pin->GetOrAddReal("problem/harris_chi", "psi0", 0.1);
-  // const Real lx = pin->GetOrAddReal("problem/harris_chi", "lx", x1max - x1min);
-  // const Real ly = pin->GetOrAddReal("problem/harris_chi", "ly", x2max - x2min);
-  // const Real chi = rho_cold / rho_hot;
 
   auto &mbd = pmb->meshblock_data.Get();
   auto &u = mbd->Get("cons").data;
@@ -178,34 +165,47 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
       KOKKOS_LAMBDA(const int k, const int j, const int i) {
         const Real x = coords.Xc<1>(i);
         const Real y = coords.Xc<2>(j);
-        const Real sech_y = 1.0 / Kokkos::cosh(y / delta);
-        const Real sech2_y = SQR(sech_y);
-        const Real pressure_far = beta * 0.5 * SQR(B0);
-        const Real pressure_offset = 0.5 * SQR(B0) * (sech2_y);
-        const Real pressure = pressure_far + pressure_offset;
-        const Real T_hot = pressure_far / rho_hot;
-        const Real temperature =
-            T_hot *
-            (0.5 * (1.0 + 1.0 / chi) + 0.5 * (1.0 - 1.0 / chi) * Kokkos::tanh(y / delta));
+        // Asymmetric equilibrium field, Eq. (8) of arXiv:1305.3646.
+        // The y -> -infinity side has magnitude B0, while the y ->
+        // +infinity side has magnitude BR = R B0.
+        const Real bx0 = B0 * (Kokkos::tanh(y / delta) - b) / (1.0 + b);
+        const Real BR = B0 * (1.0 - b) / (1.0 + b);
 
-        const Real density = pressure / temperature;
+        // Keep the density contrast independent of the magnetic asymmetry.
+        // This is the original chi profile, with rho(-infinity)/rho(+infinity)=chi.
+        const Real density = rho_hot *
+            (0.5 * (1.0 + chi) + 0.5 * (1.0 - chi) * Kokkos::tanh(y / delta));
 
-        // Equilibrium current-sheet field, Eqs. (10)-(11).
-        const Real bx0 = B0 * Kokkos::tanh(y / delta);
+        // Full unperturbed total-pressure balance:
+        // p(y) + Bx0(y)^2/2 = p_R + BR^2/2.
+        const Real pressure_R = beta * 0.5 * SQR(BR);
+        const Real pressure = pressure_R + 0.5 * (SQR(BR) - SQR(bx0));
 
         // Divergence-free magnetic perturbation, Eqs. (12)-(13).
-        const Real delta_bx = -(2.0 * M_PI * psi0 / ly) *
-                              Kokkos::cos(2.0 * M_PI * x / lx) *
-                              Kokkos::sin(2.0 * M_PI * y / ly);
-        const Real delta_by = (2.0 * M_PI * psi0 / lx) *
-                              Kokkos::sin(2.0 * M_PI * x / lx) *
-                              Kokkos::cos(2.0 * M_PI * y / ly);
+        const Real gauss_y =
+            Kokkos::exp(-0.5 * y * y / (sigma_y * sigma_y));
+
+        const Real delta_bx =
+            -(eps_b / kx) *
+            (y / (sigma_y * sigma_y)) *
+            Kokkos::cos(kx * x) *
+            gauss_y;
+
+        const Real delta_by =
+            eps_b *
+            Kokkos::sin(kx * x) *
+            gauss_y;
 
         auto rng = rand_pool.get_state();
         Real vy_pert = 0.0;
         if (vy_amp != 0.0) {
           const Real y_env = Kokkos::exp(-SQR(y / vy_width));
-          vy_pert = vy_amp * y_env * (2.0 * rng.drand() - 1.0);
+          // Box-Muller normal variate: a small, localized Gaussian noise seed.
+          const Real u1 = 1.0e-12 + (1.0 - 1.0e-12) * rng.drand();
+          const Real u2 = rng.drand();
+          const Real normal = Kokkos::sqrt(-2.0 * Kokkos::log(u1)) *
+                              Kokkos::cos(2.0 * M_PI * u2);
+          vy_pert = vy_amp * y_env * normal;
         }
         rand_pool.free_state(rng);
 
