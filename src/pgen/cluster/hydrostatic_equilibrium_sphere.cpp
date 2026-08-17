@@ -168,7 +168,7 @@ HydrostaticEquilibriumSphere<GravitationalField, EntropyProfile>::generate_P_rho
   }
 
   // Add some room for R_start and R_end
-  r_start = std::max(0.0, r_start - r_sampling_ * dr);
+  r_start = Kokkos::max(static_cast<Real>(0.0), r_start - r_sampling_ * dr);
   r_end += r_sampling_ * dr;
 
   // Compute number of cells needed

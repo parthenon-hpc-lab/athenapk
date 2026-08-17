@@ -19,6 +19,7 @@
 #include "globals.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
+#include "kokkos_types.hpp"
 #include "mesh/mesh.hpp"
 #include <iomanip>
 #include <ios>
@@ -357,7 +358,7 @@ void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *trac
     PARTHENON_THROW(
         "This line should not be reached as invalid n_lookback are caught above.");
   }
-  auto dncycles_d =
+  parthenon::ParArray1D<int> dncycles_d =
       Kokkos::create_mirror_view_and_copy(parthenon::DevMemSpace(), dncycles_h);
   tracers_pkg->AddParam("turbulence/n_lookback", n_lookback);
   tracers_pkg->AddParam("turbulence/dncycles_h", dncycles_h);
