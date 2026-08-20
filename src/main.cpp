@@ -96,6 +96,9 @@ int main(int argc, char *argv[]) {
   } else if (problem == "harris_chi") {
     pman.app_input->ProblemGenerator = harris_chi::ProblemGenerator;
     Hydro::ProblemInitPackageData = harris_chi::ProblemInitPackageData;
+  } else if (problem == "harris_chi_b") {
+    pman.app_input->ProblemGenerator = harris_chi_b::ProblemGenerator;
+    Hydro::ProblemInitPackageData = harris_chi_b::ProblemInitPackageData;
   } else if (problem == "kh") {
     pman.app_input->MeshProblemGenerator = kh::ProblemGenerator;
   } else if (problem == "lw_implode") {

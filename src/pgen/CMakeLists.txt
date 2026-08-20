@@ -27,5 +27,6 @@ target_sources(athenaPK PRIVATE
     sod.cpp
     shattering.cpp
     harris_chi.cpp
+    harris_chi_b.cpp
     turbulence.cpp
     )

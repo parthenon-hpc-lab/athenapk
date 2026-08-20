@@ -3,7 +3,7 @@
 // Copyright (c) 2021-2023, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
 //========================================================================================
-//! \file harris_chi.cpp
+//! \file harris_chi_b.cpp
 //! \brief Problem generator for a density-contrast Harris current sheet.
 //!
 //! REFERENCE: Sen and Keppens (Astron. Astrophys. 666, A28, 2022).
@@ -18,7 +18,7 @@
 #include "../hydro/diffusion/diffusion.hpp"
 #include "../main.hpp"
 
-namespace harris_chi {
+namespace harris_chi_b {
 using namespace parthenon::driver::prelude;
 
 Real AbsBcc1X0(MeshData<Real> *md) {
@@ -138,21 +138,21 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   const Real gm1 = gamma - 1.0;
   const Real x2min = pin->GetReal("parthenon/mesh", "x2min");
   const Real x2max = pin->GetReal("parthenon/mesh", "x2max");
-  const Real B0 = pin->GetOrAddReal("problem/harris_chi", "B0", 1.0);
-  const Real chi = pin->GetOrAddReal("problem/harris_chi", "chi", 1.0);
+  const Real B0 = pin->GetOrAddReal("problem/harris_chi_b", "B0", 1.0);
+  const Real chi = pin->GetOrAddReal("problem/harris_chi_b", "chi", 1.0);
   // b is the asymmetry parameter used in Eq. (8) of Murphy et al.
   // (arXiv:1305.3646): R = B_weak/B_strong = (1-b)/(1+b).
-  const Real b = pin->GetOrAddReal("problem/harris_chi", "b", 0.0);
-  const Real delta = pin->GetOrAddReal("problem/harris_chi", "delta", 0.1);
-  const Real eps_b = pin->GetOrAddReal("problem/harris_chi", "eps_b", 0.1);
-  const Real kx = pin->GetOrAddReal("problem/harris_chi", "kx", 20.0 * M_PI);
-  const Real ly = pin->GetOrAddReal("problem/harris_chi", "ly", x2max - x2min);
-  const Real beta = pin->GetOrAddReal("problem/harris_chi", "beta", 1.0);
-  const Real rho_hot = pin->GetOrAddReal("problem/harris_chi", "rho_hot", 0.2);
-  const Real vy_amp = pin->GetOrAddReal("problem/harris_chi", "vy_amp", 0.01);
-  const int rseed = pin->GetOrAddInteger("problem/harris_chi", "rseed", 1);
-  const Real vy_width = pin->GetOrAddReal("problem/harris_chi", "vy_width", 0.1);
-  const Real sigma_y = pin->GetOrAddReal("problem/harris_chi", "sigma_y", 0.05 * ly);
+  const Real b = pin->GetOrAddReal("problem/harris_chi_b", "b", 0.0);
+  const Real delta = pin->GetOrAddReal("problem/harris_chi_b", "delta", 0.1);
+  const Real eps_b = pin->GetOrAddReal("problem/harris_chi_b", "eps_b", 0.1);
+  const Real kx = pin->GetOrAddReal("problem/harris_chi_b", "kx", 20.0 * M_PI);
+  const Real ly = pin->GetOrAddReal("problem/harris_chi_b", "ly", x2max - x2min);
+  const Real beta = pin->GetOrAddReal("problem/harris_chi_b", "beta", 1.0);
+  const Real rho_hot = pin->GetOrAddReal("problem/harris_chi_b", "rho_hot", 0.2);
+  const Real vy_amp = pin->GetOrAddReal("problem/harris_chi_b", "vy_amp", 0.01);
+  const int rseed = pin->GetOrAddInteger("problem/harris_chi_b", "rseed", 1);
+  const Real vy_width = pin->GetOrAddReal("problem/harris_chi_b", "vy_width", 0.1);
+  const Real sigma_y = pin->GetOrAddReal("problem/harris_chi_b", "sigma_y", 0.05 * ly);
 
   Kokkos::Random_XorShift64_Pool<parthenon::DevExecSpace> rand_pool(rseed + pmb->gid);
 
@@ -222,4 +222,4 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
             0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
       });
 }
-} // namespace harris_chi
+} // namespace harris_chi_b
