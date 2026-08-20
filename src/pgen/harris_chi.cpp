@@ -123,10 +123,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
                                                     AbsBcc1X0, "AbsBcc1X0"));
   pkg->UpdateParam(parthenon::hist_param_key, hst_vars);
 
-  parthenon::HstVec_list hst_vecs = {};
-  hst_vecs.emplace_back(parthenon::HistoryOutputVec(parthenon::UserHistoryOperation::max,
-                                                    MaxAbsElectricField, "MaxAbsE"));
-  pkg->AddParam<>(parthenon::hist_vec_param_key, hst_vecs, true);
+//  parthenon::HstVec_list hst_vecs = {};
+//  hst_vecs.emplace_back(parthenon::HistoryOutputVec(parthenon::UserHistoryOperation::max,
+//                                                    MaxAbsElectricField, "MaxAbsE"));
+//  pkg->AddParam<>(parthenon::hist_vec_param_key, hst_vecs, true);
 }
 
 void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
