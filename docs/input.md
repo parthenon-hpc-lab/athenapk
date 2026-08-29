@@ -45,13 +45,13 @@ Parameter: `reconstruction` (string)
 - `dc` : donor cell/piecewise constant (first order)
 - `plm` : piecewise linear (second order)
 - `ppm` : piecewise parabolic (third order)
-- `mixed` : use independently selected schemes for hydro/passive-scalar and MHD variables;
-  set `mixed_hydro_reconstruction` and `mixed_mhd_reconstruction` below
 - `limo3` : LimO3 (third order)
 - `weno3` : WENO3 (third order)
 - `wenoz` : WENO-Z (third order but more accurate than WENO3)
+- `mixed` : use independently selected schemes for hydro/passive-scalar and MHD variables;
+  set `mixed_hydro_reconstruction` and `mixed_mhd_reconstruction` below.
 
-The schemes may require up to three ghost zones (`parthenon/mesh/num_ghost`); for
+Note, `ppm` and `wenoz` need at least three ghost zones (`parthenon/mesh/num_ghost`); for
 `mixed`, the requirement is the maximum required by the two selected schemes.
 
 For `mixed`, the available values for `mixed_hydro_reconstruction` and
