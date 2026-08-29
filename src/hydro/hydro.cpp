@@ -20,8 +20,7 @@
 #include "../pgen/pgen.hpp"
 #include "../recon/dc_simple.hpp"
 #include "../recon/limo3_simple.hpp"
-#include "../recon/mixed_plm_ppm.hpp"
-#include "../recon/mixed_ppm_plm.hpp"
+#include "../recon/mixed_recon.hpp"
 #include "../recon/plm_simple.hpp"
 #include "../recon/ppm_simple.hpp"
 #include "../recon/weno3_simple.hpp"
@@ -328,6 +327,25 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   const auto recon_str = pin->GetString("hydro", "reconstruction");
   int recon_need_nghost = 3; // largest number for the choices below
   auto recon = Reconstruction::undefined;
+  auto mixed_hydro_recon = Reconstruction::undefined;
+  auto mixed_mhd_recon = Reconstruction::undefined;
+  const auto parse_reconstruction = [](const std::string &name) {
+    if (name == "dc") return Reconstruction::dc;
+    if (name == "plm") return Reconstruction::plm;
+    if (name == "ppm") return Reconstruction::ppm;
+    if (name == "limo3") return Reconstruction::limo3;
+    if (name == "weno3") return Reconstruction::weno3;
+    if (name == "wenoz") return Reconstruction::wenoz;
+    return Reconstruction::undefined;
+  };
+  const auto reconstruction_nghost = [](const Reconstruction scheme) {
+    if (scheme == Reconstruction::dc) return 1;
+    if (scheme == Reconstruction::plm || scheme == Reconstruction::limo3 ||
+        scheme == Reconstruction::weno3)
+      return 2;
+    if (scheme == Reconstruction::ppm || scheme == Reconstruction::wenoz) return 3;
+    return -1;
+  };
   if (recon_str == "dc") {
     recon = Reconstruction::dc;
     recon_need_nghost = 1;
@@ -337,12 +355,20 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   } else if (recon_str == "ppm") {
     recon = Reconstruction::ppm;
     recon_need_nghost = 3;
-  } else if (recon_str == "mixed_plm_ppm") {
-    recon = Reconstruction::mixed_plm_ppm;
-    recon_need_nghost = 3;
-  } else if (recon_str == "mixed_ppm_plm") {
-    recon = Reconstruction::mixed_ppm_plm;
-    recon_need_nghost = 3;
+  } else if (recon_str == "mixed") {
+    recon = Reconstruction::mixed;
+    mixed_hydro_recon =
+        parse_reconstruction(pin->GetString("hydro", "mixed_hydro_reconstruction"));
+    mixed_mhd_recon =
+        parse_reconstruction(pin->GetString("hydro", "mixed_mhd_reconstruction"));
+    PARTHENON_REQUIRE_THROWS(mixed_hydro_recon != Reconstruction::undefined &&
+                                 mixed_mhd_recon != Reconstruction::undefined,
+                             "Mixed reconstruction schemes must be one of dc, plm, ppm, "
+                             "limo3, weno3, or wenoz.");
+    recon_need_nghost = std::max(reconstruction_nghost(mixed_hydro_recon),
+                                 reconstruction_nghost(mixed_mhd_recon));
+    pkg->AddParam<>("mixed_hydro_reconstruction", mixed_hydro_recon);
+    pkg->AddParam<>("mixed_mhd_reconstruction", mixed_mhd_recon);
   } else if (recon_str == "limo3") {
     recon = Reconstruction::limo3;
     recon_need_nghost = 2;
@@ -354,6 +380,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     recon_need_nghost = 3;
   } else {
     PARTHENON_FAIL("AthenaPK hydro: Unknown reconstruction method.");
+  }
+  if (recon == Reconstruction::mixed) {
+    PARTHENON_REQUIRE_THROWS(
+        fluid == Fluid::glmmhd,
+        "Mixed PLM/PPM reconstruction is only supported for GLMMHD.");
   }
   // Adding recon independently of flux function pointer as it's used in 3D flux func.
   pkg->AddParam<>("reconstruction", recon);
@@ -418,20 +449,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::none>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlle>(flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::mixed_plm_ppm, RiemannSolver::hlle>(
-      flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::mixed_ppm_plm, RiemannSolver::hlle>(
-      flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::mixed, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlle>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::dc, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::plm, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::ppm, RiemannSolver::hlld>(flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::mixed_plm_ppm, RiemannSolver::hlld>(
-      flux_functions);
-  add_flux_fun<Fluid::glmmhd, Reconstruction::mixed_ppm_plm, RiemannSolver::hlld>(
-      flux_functions);
+  add_flux_fun<Fluid::glmmhd, Reconstruction::mixed, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::weno3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::limo3, RiemannSolver::hlld>(flux_functions);
   add_flux_fun<Fluid::glmmhd, Reconstruction::wenoz, RiemannSolver::hlld>(flux_functions);
@@ -1069,6 +1094,12 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   auto pkg = pmb->packages.Get("Hydro");
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
+  Reconstruction mixed_hydro_recon = Reconstruction::undefined;
+  Reconstruction mixed_mhd_recon = Reconstruction::undefined;
+  if constexpr (recon == Reconstruction::mixed) {
+    mixed_hydro_recon = pkg->Param<Reconstruction>("mixed_hydro_reconstruction");
+    mixed_mhd_recon = pkg->Param<Reconstruction>("mixed_mhd_reconstruction");
+  }
 
   const auto &eos =
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
@@ -1104,7 +1135,12 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         // get reconstructed state on faces
-        Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        if constexpr (recon == Reconstruction::mixed) {
+          MixedReconRuntime<X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr,
+                                   mixed_hydro_recon, mixed_mhd_recon);
+        } else {
+          Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+        }
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
@@ -1149,7 +1185,12 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
                                             num_scratch_vars, nx1);
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
-            Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
+            if constexpr (recon == Reconstruction::mixed) {
+              MixedReconRuntime<X2DIR>(member, k, j, il, iu, prim, wlb, wr,
+                                       mixed_hydro_recon, mixed_mhd_recon);
+            } else {
+              Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
+            }
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
@@ -1197,7 +1238,12 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
                                             num_scratch_vars, nx1);
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
-            Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
+            if constexpr (recon == Reconstruction::mixed) {
+              MixedReconRuntime<X3DIR>(member, k, j, il, iu, prim, wlb, wr,
+                                       mixed_hydro_recon, mixed_mhd_recon);
+            } else {
+              Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
+            }
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 

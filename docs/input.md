@@ -45,14 +45,19 @@ Parameter: `reconstruction` (string)
 - `dc` : donor cell/piecewise constant (first order)
 - `plm` : piecewise linear (second order)
 - `ppm` : piecewise parabolic (third order)
-- `mixed_plm_ppm` : `plm` for hydro variables and `ppm` for magnetic fields
-- `mixed_ppm_plm` : `ppm` for hydro variables and `plm` for magnetic fields
+- `mixed` : use independently selected schemes for hydro/passive-scalar and MHD variables;
+  set `mixed_hydro_reconstruction` and `mixed_mhd_reconstruction` below
 - `limo3` : LimO3 (third order)
 - `weno3` : WENO3 (third order)
 - `wenoz` : WENO-Z (third order but more accurate than WENO3)
 
-Note, `ppm`, `mixed_plm_ppm`, `mixed_ppm_plm`, and `wenoz` need at least three
-ghost zones (`parthenon/mesh/num_ghost`).
+The schemes may require up to three ghost zones (`parthenon/mesh/num_ghost`); for
+`mixed`, the requirement is the maximum required by the two selected schemes.
+
+For `mixed`, the available values for `mixed_hydro_reconstruction` and
+`mixed_mhd_reconstruction` are `dc`, `plm`, `ppm`, `limo3`, `weno3`, and `wenoz`.
+Hydro primitive variables and passive scalars use the hydro scheme; magnetic field
+components and GLM psi use the MHD scheme.
 
 #### Floors
 
