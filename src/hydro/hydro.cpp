@@ -1130,6 +1130,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
         const auto &prim = prim_in(b);
         auto &cons = cons_in(b);
+        const auto mixed_hydro_recon_device = mixed_hydro_recon;
+        const auto mixed_mhd_recon_device = mixed_mhd_recon;
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                          num_scratch_vars, nx1);
         parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
@@ -1137,7 +1139,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         // get reconstructed state on faces
         if constexpr (recon == Reconstruction::mixed) {
           MixedReconRuntime<X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr,
-                                   mixed_hydro_recon, mixed_mhd_recon);
+                                   mixed_hydro_recon_device, mixed_mhd_recon_device);
         } else {
           Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
         }
@@ -1177,6 +1179,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
+          const auto mixed_hydro_recon_device = mixed_hydro_recon;
+          const auto mixed_mhd_recon_device = mixed_mhd_recon;
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
@@ -1187,7 +1191,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             // reconstruct L/R states at j
             if constexpr (recon == Reconstruction::mixed) {
               MixedReconRuntime<X2DIR>(member, k, j, il, iu, prim, wlb, wr,
-                                       mixed_hydro_recon, mixed_mhd_recon);
+                                       mixed_hydro_recon_device, mixed_mhd_recon_device);
             } else {
               Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
             }
@@ -1230,6 +1234,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
+          const auto mixed_hydro_recon_device = mixed_hydro_recon;
+          const auto mixed_mhd_recon_device = mixed_mhd_recon;
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
                                            num_scratch_vars, nx1);
           parthenon::ScratchPad2D<Real> wr(member.team_scratch(scratch_level),
@@ -1240,7 +1246,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
             // reconstruct L/R states at j
             if constexpr (recon == Reconstruction::mixed) {
               MixedReconRuntime<X3DIR>(member, k, j, il, iu, prim, wlb, wr,
-                                       mixed_hydro_recon, mixed_mhd_recon);
+                                       mixed_hydro_recon_device, mixed_mhd_recon_device);
             } else {
               Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
             }
