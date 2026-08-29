@@ -1130,6 +1130,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
       KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k, const int j) {
         const auto &prim = prim_in(b);
         auto &cons = cons_in(b);
+        const int ib_s = ib.s;
+        const int ib_e = ib.e;
         const auto mixed_hydro_recon_device = mixed_hydro_recon;
         const auto mixed_mhd_recon_device = mixed_mhd_recon;
         parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -1138,20 +1140,20 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
                                          num_scratch_vars, nx1);
         // get reconstructed state on faces
         if constexpr (recon == Reconstruction::mixed) {
-          MixedReconRuntime<X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr,
+          MixedReconRuntime<X1DIR>(member, k, j, ib_s - 1, ib_e + 1, prim, wl, wr,
                                    mixed_hydro_recon_device, mixed_mhd_recon_device);
         } else {
-          Reconstruct<recon, X1DIR>(member, k, j, ib.s - 1, ib.e + 1, prim, wl, wr);
+          Reconstruct<recon, X1DIR>(member, k, j, ib_s - 1, ib_e + 1, prim, wl, wr);
         }
         // Sync all threads in the team so that scratch memory is consistent
         member.team_barrier();
 
-        riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
+        riemann.Solve(member, k, j, ib_s, ib_e + 1, IV1, wl, wr, cons, eos, c_h);
         member.team_barrier();
 
         // Passive scalar fluxes
         for (auto n = nhydro; n < nhydro + nscalars; ++n) {
-          parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
+          parthenon::par_for_inner(member, ib_s, ib_e + 1, [&](const int i) {
             if (cons.flux(IV1, IDN, k, j, i) >= 0.0) {
               cons.flux(IV1, n, k, j, i) = cons.flux(IV1, IDN, k, j, i) * wl(n, i);
             } else {
@@ -1179,6 +1181,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int k) {
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
+          const int il_device = il;
+          const int iu_device = iu;
           const auto mixed_hydro_recon_device = mixed_hydro_recon;
           const auto mixed_mhd_recon_device = mixed_mhd_recon;
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -1190,21 +1194,23 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
           for (int j = jb.s - 1; j <= jb.e + 1; ++j) {
             // reconstruct L/R states at j
             if constexpr (recon == Reconstruction::mixed) {
-              MixedReconRuntime<X2DIR>(member, k, j, il, iu, prim, wlb, wr,
+              MixedReconRuntime<X2DIR>(member, k, j, il_device, iu_device, prim, wlb, wr,
                                        mixed_hydro_recon_device, mixed_mhd_recon_device);
             } else {
-              Reconstruct<recon, X2DIR>(member, k, j, il, iu, prim, wlb, wr);
+              Reconstruct<recon, X2DIR>(member, k, j, il_device, iu_device, prim, wlb,
+                                        wr);
             }
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
             if (j > jb.s - 1) {
-              riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
+              riemann.Solve(member, k, j, il_device, iu_device, IV2, wl, wr, cons, eos,
+                            c_h);
               member.team_barrier();
 
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
-                parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                parthenon::par_for_inner(member, il_device, iu_device, [&](const int i) {
                   if (cons.flux(IV2, IDN, k, j, i) >= 0.0) {
                     cons.flux(IV2, n, k, j, i) = cons.flux(IV2, IDN, k, j, i) * wl(n, i);
                   } else {
@@ -1234,6 +1240,8 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         KOKKOS_LAMBDA(parthenon::team_mbr_t member, const int b, const int j) {
           const auto &prim = prim_in(b);
           auto &cons = cons_in(b);
+          const int il_device = il;
+          const int iu_device = iu;
           const auto mixed_hydro_recon_device = mixed_hydro_recon;
           const auto mixed_mhd_recon_device = mixed_mhd_recon;
           parthenon::ScratchPad2D<Real> wl(member.team_scratch(scratch_level),
@@ -1245,21 +1253,23 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
           for (int k = kb.s - 1; k <= kb.e + 1; ++k) {
             // reconstruct L/R states at j
             if constexpr (recon == Reconstruction::mixed) {
-              MixedReconRuntime<X3DIR>(member, k, j, il, iu, prim, wlb, wr,
+              MixedReconRuntime<X3DIR>(member, k, j, il_device, iu_device, prim, wlb, wr,
                                        mixed_hydro_recon_device, mixed_mhd_recon_device);
             } else {
-              Reconstruct<recon, X3DIR>(member, k, j, il, iu, prim, wlb, wr);
+              Reconstruct<recon, X3DIR>(member, k, j, il_device, iu_device, prim, wlb,
+                                        wr);
             }
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();
 
             if (k > kb.s - 1) {
-              riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
+              riemann.Solve(member, k, j, il_device, iu_device, IV3, wl, wr, cons, eos,
+                            c_h);
               member.team_barrier();
 
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
-                parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                parthenon::par_for_inner(member, il_device, iu_device, [&](const int i) {
                   if (cons.flux(IV3, IDN, k, j, i) >= 0.0) {
                     cons.flux(IV3, n, k, j, i) = cons.flux(IV3, IDN, k, j, i) * wl(n, i);
                   } else {
