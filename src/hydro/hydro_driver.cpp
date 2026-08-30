@@ -21,6 +21,7 @@
 #include "../eos/adiabatic_hydro.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
+#include "../self_gravity/self_gravity.hpp"
 #include "../tracers/tracers.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
@@ -568,12 +569,42 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
                                         pmesh->multilevel);
   }
 
+  // Self-gravity is applied as a STAGE-CONSISTENT source: the Poisson equation is solved
+  // from each stage's updated density and the gravitational kick carries that stage's
+  // beta*dt weight, exactly like the hydro flux update and the other unsplit sources.
+  // Solving once on the final stage with a full dt instead makes the coupling fully
+  // operator-split and first order in time, because the predictor never feels gravity.
+  // Cost is one extra elliptic solve per step for VL2.
+  const bool use_self_gravity = pmesh->packages.AllPackages().count("self_gravity") > 0;
+  if (use_self_gravity) {
+    // Solve Poisson: this adds its own TaskRegion with num_partitions task lists.
+    SelfGravity::AddSolvePoissonTasks(tc, pmesh);
+
+    // Apply gravitational source term per partition, weighted by this stage's beta*dt.
+    TaskRegion &sg_source_region = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = sg_source_region[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      tl.AddTask(none, SelfGravity::ApplyGravitySource, mu0.get(), tm,
+                 integrator->beta[stage - 1] * integrator->dt);
+    }
+  }
+
   TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);
+  // The gravity source above modifies INTERIOR conserved variables after this stage's
+  // boundary exchange, so refresh the ghosts before FillDerived. Without this the
+  // primitive ghost zones used by the next stage's reconstruction would be missing one
+  // gravitational kick, unlike every other source term, all of which are applied before
+  // the stage's exchange.
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = single_tasklist_per_pack_region_3[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+    TaskID pre = none;
+    if (use_self_gravity) {
+      pre = parthenon::AddBoundaryExchangeTasks(none, tl, mu0, pmesh->multilevel);
+    }
     auto fill_derived =
-        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+        tl.AddTask(pre, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
   }
   const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
   // If any tasks modify the conserved variables before this place and after FillDerived,

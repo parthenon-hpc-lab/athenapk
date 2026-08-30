@@ -25,6 +25,7 @@
 #include "../recon/weno3_simple.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
+#include "../self_gravity/self_gravity.hpp"
 #include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "defs.hpp"
@@ -56,6 +57,16 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
   packages.Add(Tracers::Initialize(pin.get()));
+  // Self-gravity is enabled (and its Poisson solver selected) from its own block,
+  // e.g. `<self_gravity> solver = multigrid`. "none" (the default) disables it.
+  const auto self_gravity_solver = pin->GetOrAddString("self_gravity", "solver", "none");
+  PARTHENON_REQUIRE_THROWS(self_gravity_solver == "none" ||
+                               self_gravity_solver == "multigrid",
+                           "Unknown self_gravity/solver: '" + self_gravity_solver +
+                               "'. Valid options are 'none' and 'multigrid'.");
+  if (self_gravity_solver != "none") {
+    packages.Add(SelfGravity::Initialize(pin.get()));
+  }
   return packages;
 }
 
@@ -824,6 +835,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                       "refinement/maxdensity_refine_above");
     pkg->AddParam<Real>("refinement/maxdensity_deref_below", deref_below);
     pkg->AddParam<Real>("refinement/maxdensity_refine_above", refine_above);
+  } else if (refine_str == "jeans") {
+    pkg->CheckRefinementBlock = refinement::jeans::Jeans;
+    const auto njeans = pin->GetOrAddReal("refinement", "njeans", 0.0);
+    PARTHENON_REQUIRE(njeans > 0.,
+                      "Make sure to set refinement/njeans > 0 (typically 8-16).");
+    pkg->AddParam<Real>("refinement/njeans", njeans);
   } else if (refine_str == "user") {
     pkg->CheckRefinementBlock = Hydro::ProblemCheckRefinementBlock;
   }

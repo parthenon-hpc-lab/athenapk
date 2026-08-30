@@ -66,6 +66,12 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = linear_wave_mhd::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = linear_wave_mhd::UserWorkAfterLoop;
     Hydro::ProblemInitPackageData = linear_wave_mhd::ProblemInitPackageData;
+  } else if (problem == "jeans") {
+    pman.app_input->MeshProblemGenerator = jeans::ProblemGenerator;
+  } else if (problem == "collapse_be") {
+    pman.app_input->ProblemGenerator = collapse_be::ProblemGenerator;
+    Hydro::ProblemInitPackageData = collapse_be::ProblemInitPackageData;
+    Hydro::ProblemSourceUnsplit = collapse_be::ApplyBarotropicCooling;
   } else if (problem == "cpaw") {
     pman.app_input->InitUserMeshData = cpaw::InitUserMeshData;
     pman.app_input->ProblemGenerator = cpaw::ProblemGenerator;

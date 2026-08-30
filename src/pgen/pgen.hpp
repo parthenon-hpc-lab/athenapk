@@ -28,6 +28,22 @@ void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 } // namespace linear_wave_mhd
 
+namespace jeans {
+using namespace parthenon::driver::prelude;
+
+void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md);
+} // namespace jeans
+
+namespace collapse_be {
+using namespace parthenon::driver::prelude;
+
+void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+// Barotropic EOS enforcement, enrolled as Hydro::ProblemSourceUnsplit in main.cpp.
+void ApplyBarotropicCooling(MeshData<Real> *md, const parthenon::SimTime &tm,
+                            const Real beta_dt);
+} // namespace collapse_be
+
 namespace cpaw {
 using namespace parthenon::driver::prelude;
 

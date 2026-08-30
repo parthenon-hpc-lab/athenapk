@@ -22,10 +22,15 @@ add_executable(
         hydro/srcterms/tabular_cooling.cpp
         refinement/gradient.cpp
         refinement/other.cpp
+        refinement/jeans.cpp
         tracers/tracers.cpp
         tracers/tracers.hpp
         utils/few_modes_ft.cpp
         utils/few_modes_ft.hpp
+        self_gravity/self_gravity.cpp
+        self_gravity/self_gravity.hpp
+        self_gravity/self_gravity_driver.cpp
+        self_gravity/poisson_equation.hpp
 )
 
 add_subdirectory(pgen)
