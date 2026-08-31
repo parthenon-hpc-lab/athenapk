@@ -17,6 +17,7 @@ target_sources(athenaPK PRIVATE
     cpaw.cpp
     diffusion.cpp
     field_loop.cpp
+    harris_chi_b.cpp
     kh.cpp
     linear_wave.cpp
     linear_wave_mhd.cpp

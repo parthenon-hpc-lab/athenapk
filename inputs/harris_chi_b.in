@@ -1,0 +1,89 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2026, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the 3-Clause License (the "LICENSE");
+
+<comment>
+problem = Asymmetric Harris current sheet with density contrast, magnetic perturbation, and localized velocity noise
+
+<job>
+problem_id = harris_chi_b
+
+<problem/harris_chi_b>
+B0             = 1.0       # Strong-side asymptotic reconnecting field
+chi            = 3.0       # Density contrast rho(y->-inf) / rho(y->+inf)
+b              = 0.25      # Magnetic asymmetry; B_weak / B_strong = (1 - b) / (1 + b)
+delta          = 0.10      # Current-sheet half-thickness
+beta           = 1.0       # Weak-side asymptotic plasma beta used to set pressure balance
+rho0           = 1.0       # Hot-side density normalization
+mag_pert_amp   = 0.08      # Magnetic perturbation amplitude
+kx             = 5.0       # Perturbation mode number in x1; code multiplies by 2*pi
+mag_pert_width = 0.10      # Gaussian width of the magnetic perturbation in y
+vel_pert_amp   = 0.01      # RMS scale of the localized random vy seed
+vel_pert_width = 0.10      # Gaussian width of the velocity perturbation in y
+rseed          = 17        # Random seed for the velocity perturbation
+
+<parthenon/mesh>
+refinement = none
+nghost = 2
+
+nx1 = 256
+x1min = -1.0
+x1max = 1.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 256
+x2min = -0.25
+x2max = 0.25
+ix2_bc = outflow
+ox2_bc = outflow
+
+nx3 = 1
+x3min = -0.5
+x3max = 0.5
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1 = 64
+nx2 = 64
+nx3 = 1
+
+<parthenon/time>
+integrator = vl2
+cfl = 0.4
+tlim = 0.8
+nlim = 200000
+
+<hydro>
+fluid = glmmhd
+eos = adiabatic
+riemann = hlld
+reconstruction = plm
+gamma = 1.666666666666667
+first_order_flux_correct = true
+
+<parthenon/output0>
+file_type = hdf5
+dt = 0.05
+id = prim
+variables = prim
+
+<parthenon/output1>
+file_type = hst
+dt = 0.01
+
+<parthenon/output2>
+file_type = openpmd
+output_type = data
+dt = 0.05
+id = opmd
+variables = prim
+
+<parthenon/output3>
+file_type = openpmd
+output_type = x1slice
+slice_loc = 0.0
+dt = 0.01
+id = opmd_x0
+variables = prim
