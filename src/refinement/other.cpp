@@ -45,15 +45,17 @@ parthenon::AmrTag MaxDensity(MeshBlockData<Real> *rc) {
 // refinement condition: cubic refinement with activation check
 //
 // Refines every cell whose volume overlaps a cube of side refinement_width
-// centered on the origin. Tests cell EXTENT (face to face) against the
-// target region rather than cell CENTER: a center-only test only flags a
-// cell once its center happens to land inside the target box, so a
-// refinement_width smaller than the local cell size can fall entirely
-// between cell centers and never trigger any refinement at all, even though
-// the target region clearly overlaps part of a cell. The extent/extent
-// overlap (AABB) test below has no such failure mode -- as long as the
-// target box intersects a cell's volume at all, regardless of how small the
-// box is relative to the cell, that cell is flagged.
+// centered on (center_x0, center_x1, center_x2) (the origin by default, so
+// existing input files that don't set these keep the old behavior). Tests
+// cell EXTENT (face to face) against the target region rather than cell
+// CENTER: a center-only test only flags a cell once its center happens to
+// land inside the target box, so a refinement_width smaller than the local
+// cell size can fall entirely between cell centers and never trigger any
+// refinement at all, even though the target region clearly overlaps part of
+// a cell. The extent/extent overlap (AABB) test below has no such failure
+// mode -- as long as the target box intersects a cell's volume at all,
+// regardless of how small the box is relative to the cell, that cell is
+// flagged.
 parthenon::AmrTag Cubic(MeshBlockData<Real> *rc) {
 
   auto pmb = rc->GetBlockPointer();
@@ -69,6 +71,15 @@ parthenon::AmrTag Cubic(MeshBlockData<Real> *rc) {
   const Real refinement_width =
       pmb->packages.Get("Hydro")->Param<Real>("refinement/refinement_width");
   const Real half_width = refinement_width / 2.0;
+
+  // Center of the refinement region. Defaults to the origin so existing
+  // input files (which don't set these) keep the previous behavior.
+  const Real center_x0 =
+      pmb->packages.Get("Hydro")->Param<Real>("refinement/center_x0");
+  const Real center_x1 =
+      pmb->packages.Get("Hydro")->Param<Real>("refinement/center_x1");
+  const Real center_x2 =
+      pmb->packages.Get("Hydro")->Param<Real>("refinement/center_x2");
 
   // Retrieve bounds
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
@@ -87,8 +98,9 @@ parthenon::AmrTag Cubic(MeshBlockData<Real> *rc) {
   const Real z_min = coords.Xf<3>(kb.s);
   const Real z_max = coords.Xf<3>(kb.e + 1);
 
-  if (x_min > half_width || x_max < -half_width || y_min > half_width ||
-      y_max < -half_width || z_min > half_width || z_max < -half_width) {
+  if (x_min > center_x0 + half_width || x_max < center_x0 - half_width ||
+      y_min > center_x1 + half_width || y_max < center_x1 - half_width ||
+      z_min > center_x2 + half_width || z_max < center_x2 - half_width) {
     return parthenon::AmrTag::same; // Fully outside, no refinement needed
   }
 
@@ -106,9 +118,12 @@ parthenon::AmrTag Cubic(MeshBlockData<Real> *rc) {
         const Real cell_z_min = coords.Xf<3>(k);
         const Real cell_z_max = coords.Xf<3>(k + 1);
 
-        if (cell_x_min <= half_width && cell_x_max >= -half_width &&
-            cell_y_min <= half_width && cell_y_max >= -half_width &&
-            cell_z_min <= half_width && cell_z_max >= -half_width) {
+        if (cell_x_min <= center_x0 + half_width &&
+            cell_x_max >= center_x0 - half_width &&
+            cell_y_min <= center_x1 + half_width &&
+            cell_y_max >= center_x1 - half_width &&
+            cell_z_min <= center_x2 + half_width &&
+            cell_z_max >= center_x2 - half_width) {
           inside = true;
         }
       },

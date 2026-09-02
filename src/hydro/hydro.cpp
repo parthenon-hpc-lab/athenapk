@@ -831,8 +831,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     const auto active = pin->GetOrAddBoolean("refinement", "active", false);
     const auto refinement_width =
         pin->GetOrAddReal("refinement", "refinement_width", 0.0);
+    const auto center_x0 = pin->GetOrAddReal("refinement", "center_x0", 0.0);
+    const auto center_x1 = pin->GetOrAddReal("refinement", "center_x1", 0.0);
+    const auto center_x2 = pin->GetOrAddReal("refinement", "center_x2", 0.0);
     pkg->AddParam<>("refinement/active", active);
     pkg->AddParam<>("refinement/refinement_width", refinement_width);
+    pkg->AddParam<>("refinement/center_x0", center_x0);
+    pkg->AddParam<>("refinement/center_x1", center_x1);
+    pkg->AddParam<>("refinement/center_x2", center_x2);
   }
 
   if (ProblemInitPackageData != nullptr) {
