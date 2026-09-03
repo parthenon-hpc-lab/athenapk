@@ -43,6 +43,13 @@ namespace StarFormation {
 // star_formation.f90 sink treatment.
 enum class SFEnergyMode { Isobaric, Isothermal };
 
+// Which gravitational-collapse gate CheckVirialCollapse applies to a cell
+// that already passed the stochastic star-formation draw -- see that
+// function's docstring. Hopkins is the pin default (matches the behavior
+// the regression test suite was built and tuned against); Default is a
+// cheaper Cen & Ostriker (1992)-style alternative (div(v) < 0 and cold).
+enum class SFVirialCriterion { Hopkins, Default };
+
 /* ===============================================================================
 EvaluateStarFormation: calculates cell-by-cell star formation rate based on the
 SMUGGLE star formation model (Marinacci et al. 2019). Density threshold only;
@@ -97,24 +104,75 @@ KOKKOS_INLINE_FUNCTION Real EvaluateStarFormationProbability(
 }
 
 /* ===============================================================================
-CheckVirialCollapse: computes alpha_i (Eq. 9, Marinacci et al. 2019) and
-returns whether the cell is gravitationally bound (alpha_i <= 1). Meant to be
-called only after a cell has already been selected by the stochastic draw,
-since the velocity-gradient stencil is comparatively expensive.
+CheckVirialCollapse: decides whether a cell that already passed the
+stochastic star-formation draw is also allowed to collapse gravitationally,
+per one of two SFVirialCriterion gates:
+
+  Hopkins (matches the behavior the regression test suite was built and
+  tuned against): computes alpha_i (Eq. 9, Marinacci et al. 2019;
+  Hopkins+2013/2018c), the ratio of the cell's turbulent + thermal support to
+  its self-gravity, and requires the cell to be bound (alpha_i <= 1).
+
+  Default (Cen & Ostriker 1992): a much cheaper substitute requiring all
+  three of: (1) the local flow be compressive, div(v) < 0; (2) the cell be
+  cold, T < temperature_threshold (T in Kelvin, mbar_over_kb * P / rho --
+  same convention as ParticlesCriterion::TemperatureBelow in
+  particles_utils.hpp); (3) the cell be Jeans-unstable, i.e. its gas mass
+  exceed the local Jeans mass M_J = (pi^(5/2)/6) * c_s^3 / (G^(3/2) *
+  sqrt(rho)), with c_s^2 = gamma * P / rho.
+
+Meant to be called only after a cell has already been selected by the
+stochastic draw, since the velocity-gradient stencil is comparatively
+expensive.
 =============================================================================== */
 template <typename View4D>
-KOKKOS_INLINE_FUNCTION bool CheckVirialCollapse(View4D prim, const Coordinates_t &coords,
-                                                const int k, const int j, const int i,
-                                                const Real gravitational_constant,
-                                                const int ndim, const Real gamma) {
-
-  const Real rho = prim(IDN, k, j, i);
-  const Real press = prim(IPR, k, j, i);
-  const Real cs2 = gamma * press / rho;
+KOKKOS_INLINE_FUNCTION bool
+CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const int j,
+                    const int i, const Real gravitational_constant, const int ndim,
+                    const Real gamma, const SFVirialCriterion criterion,
+                    const Real mbar_over_kb, const Real temperature_threshold) {
 
   const Real dx = coords.Dxc<1>(k, j, i);
   const Real dy = coords.Dxc<2>(k, j, i);
   const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : dx;
+
+  if (criterion == SFVirialCriterion::Default) {
+    // div(v) = dvx/dx + dvy/dy [+ dvz/dz]; collapse allowed iff div(v) < 0
+    // AND the cell is cold enough (T < temperature_threshold) AND the cell
+    // is Jeans-unstable (its gas mass exceeds the local Jeans mass).
+    const Real dvx_dx = (prim(IV1, k, j, i + 1) - prim(IV1, k, j, i - 1)) / (2.0 * dx);
+    const Real dvy_dy = (prim(IV2, k, j + 1, i) - prim(IV2, k, j - 1, i)) / (2.0 * dy);
+    Real div_v = dvx_dx + dvy_dy;
+
+    if (ndim == 3) {
+      const Real dvz_dz = (prim(IV3, k + 1, j, i) - prim(IV3, k - 1, j, i)) / (2.0 * dz);
+      div_v += dvz_dz;
+    }
+
+    const Real rho = prim(IDN, k, j, i);
+    const Real press = prim(IPR, k, j, i);
+    const Real temperature = mbar_over_kb * press / rho;
+
+    // Jeans mass M_J = (pi^(5/2)/6) * c_s^3 / (G^(3/2) * sqrt(rho)); the
+    // cell's own gas mass must exceed it. Cell volume uses the same
+    // dz = 1 (2D) convention as EvaluateStarFormation's M_gas above, i.e.
+    // not the dz = dx stand-in used by the Hopkins branch below.
+    const Real cs2 = gamma * press / rho;
+    const Real cs = Kokkos::sqrt(cs2);
+    const Real jeans_mass = (Kokkos::pow(M_PI, 2.5) / 6.0) * cs * cs * cs /
+                            (Kokkos::pow(gravitational_constant, 1.5) * Kokkos::sqrt(rho));
+
+    const Real dz_vol = (ndim == 3) ? dz : 1.0; // dz == coords.Dxc<3>(...) when ndim == 3
+    const Real cell_mass = rho * dx * dy * dz_vol;
+
+    return (div_v < 0.0) && (temperature < temperature_threshold) &&
+           (cell_mass > jeans_mass);
+  }
+
+  // SFVirialCriterion::Hopkins
+  const Real rho = prim(IDN, k, j, i);
+  const Real press = prim(IPR, k, j, i);
+  const Real cs2 = gamma * press / rho;
 
   // Simplifies to regular dx if squared cell, geometric mean if not.
   const Real dx_cell = Kokkos::pow(dx * dy * dz, 1.0 / 3.0);

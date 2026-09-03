@@ -122,6 +122,9 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     Real sf_efficiency = 0.0;   // star formation rate efficiency
     StarFormation::SFEnergyMode sf_energy_mode =
         StarFormation::SFEnergyMode::Isobaric; // unused unless particles_type == Stars
+    StarFormation::SFVirialCriterion sf_virial_criterion =
+        StarFormation::SFVirialCriterion::Hopkins; // unused unless virial_criterion
+    Real sf_virial_temperature_threshold = 1.0e4; // unused unless SFVirialCriterion::Default
     Real p_injection = -1.0;
     Real injection_threshold = -1.0;
     InjectionMode injection_mode = InjectionMode::FixedRate; // By default
@@ -161,8 +164,10 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     } else if (pkg_name == "stars") {
       // --- Stars: per-cell stochastic star formation ------------------------------
       // Injection probability is evaluated cell-by-cell from a SMUGGLE-style star
-      // formation rate, optionally gated by the Hopkins+2018c virial criterion.
-      // This differs in nature from the tracers' fixed-rate recipe above.
+      // formation rate, optionally gated by a gravitational-collapse virial
+      // criterion (either Hopkins+2013/2018c or Cen & Ostriker 1992 -- see
+      // SFVirialCriterion in star_formation.hpp). This differs in nature from
+      // the tracers' fixed-rate recipe above.
       particles_type = ParticlesType::Stars;
       injection_mode = InjectionMode::PerCell;
       mass_enabled = true;
@@ -174,6 +179,10 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       sf_efficiency = particles_pkg->Param<Real>(swarm_name + "_sf_efficiency");
       sf_energy_mode = particles_pkg->Param<StarFormation::SFEnergyMode>(
           swarm_name + "_sf_energy_mode");
+      sf_virial_criterion = particles_pkg->Param<StarFormation::SFVirialCriterion>(
+          swarm_name + "_sf_virial_criterion");
+      sf_virial_temperature_threshold =
+          particles_pkg->Param<Real>(swarm_name + "_sf_temperature_threshold");
 
     } else {
       // Future packages (e.g. additional particle species) should add a
@@ -222,13 +231,15 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                   prim, coords, k, j, i, injection_threshold, sf_efficiency,
                   gravitational_constant, ndim, current_dt);
 
-              // Optional virial veto (Hopkins+2018c): cells that already passed
-              // the stochastic draw are additionally required to be
-              // gravitationally bound (alpha <= 1) before injection proceeds.
+              // Optional virial veto: cells that already passed the stochastic
+              // draw are additionally required to pass the selected
+              // gravitational-collapse gate (SFVirialCriterion) before
+              // injection proceeds.
               if (p_local > 0.0 && virial_criterion &&
                   !StarFormation::CheckVirialCollapse(
-                      prim, coords, k, j, i, gravitational_constant, ndim, gamma)) {
-                p_local = 0.0; // gravitationally unbound: veto injection
+                      prim, coords, k, j, i, gravitational_constant, ndim, gamma,
+                      sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold)) {
+                p_local = 0.0; // did not pass the collapse gate: veto injection
               }
             }
           }
@@ -318,12 +329,14 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                   prim, coords, k, j, i, injection_threshold, sf_efficiency,
                   gravitational_constant, ndim, current_dt);
 
-              // Optional virial veto (Hopkins+2018c): only applied to cells that
-              // already passed the stochastic draw above.
+              // Optional virial veto: only applied to cells that already
+              // passed the stochastic draw above -- see the selected
+              // gravitational-collapse gate (SFVirialCriterion) above.
               if (p_local > 0.0 && virial_criterion &&
                   !StarFormation::CheckVirialCollapse(
-                      prim, coords, k, j, i, gravitational_constant, ndim, gamma)) {
-                p_local = 0.0; // gravitationally unbound: veto injection
+                      prim, coords, k, j, i, gravitational_constant, ndim, gamma,
+                      sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold)) {
+                p_local = 0.0; // did not pass the collapse gate: veto injection
               }
             }
           }

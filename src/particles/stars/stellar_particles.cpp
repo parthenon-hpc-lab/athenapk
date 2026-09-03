@@ -155,10 +155,35 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
   stars_pkg->AddParam<>("stars_sf_efficiency", stars_sf_efficiency);
 
-  // Whether or not supplementary conditions from Hopkins+2018c should be included
+  // Whether or not a gravitational-collapse gate is applied, on top of the
+  // density threshold and stochastic draw, before a cell forms a star.
   const auto stars_virial_criterion_enabled =
       pin->GetOrAddBoolean("stars", "sf_virial_criterion_enabled", false);
   stars_pkg->AddParam<>("stars_virial_criterion_enabled", stars_virial_criterion_enabled);
+
+  // Which gate CheckVirialCollapse applies when the above is enabled -- see
+  // that function's docstring in star_formation.hpp. Defaults to "hopkins"
+  // since that's what the regression test suite was built and tuned
+  // against; "default" is the cheaper Cen & Ostriker (1992) alternative
+  // (div(v) < 0 and T < sf_temperature_threshold).
+  const auto stars_sf_virial_criterion_str =
+      pin->GetOrAddString("stars", "sf_virial_criterion", "hopkins");
+  StarFormation::SFVirialCriterion stars_sf_virial_criterion;
+  if (stars_sf_virial_criterion_str == "hopkins") {
+    stars_sf_virial_criterion = StarFormation::SFVirialCriterion::Hopkins;
+  } else if (stars_sf_virial_criterion_str == "default") {
+    stars_sf_virial_criterion = StarFormation::SFVirialCriterion::Default;
+  } else {
+    PARTHENON_FAIL("stars/sf_virial_criterion must be one of 'hopkins', 'default'");
+  }
+  stars_pkg->AddParam<>("stars_sf_virial_criterion", stars_sf_virial_criterion);
+
+  // Temperature ceiling used by the "default" virial criterion (Cen &
+  // Ostriker 1992): on top of div(v) < 0, only cells with T [K] below this
+  // threshold are allowed to collapse. Unused by "hopkins".
+  const auto stars_sf_temperature_threshold =
+      pin->GetOrAddReal("stars", "sf_temperature_threshold", 1.0e4);
+  stars_pkg->AddParam<>("stars_sf_temperature_threshold", stars_sf_temperature_threshold);
 
   // Feedback booleans
   const auto SN_II_enabled = pin->GetOrAddBoolean("stars", "SN_II_enabled", false);
