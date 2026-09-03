@@ -24,6 +24,7 @@
 #include "../recon/ppm_simple.hpp"
 #include "../recon/weno3_simple.hpp"
 #include "../recon/wenoz_simple.hpp"
+#include "../refinement/floor.hpp"
 #include "../refinement/refinement.hpp"
 #include "../tracers/tracers.hpp"
 #include "../units.hpp"
@@ -56,6 +57,7 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
   packages.Add(Tracers::Initialize(pin.get()));
+  packages.Add(refinement::floor::Initialize(pin.get()));
   return packages;
 }
 
