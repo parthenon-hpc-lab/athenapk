@@ -159,8 +159,9 @@ CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const
     // not the dz = dx stand-in used by the Hopkins branch below.
     const Real cs2 = gamma * press / rho;
     const Real cs = Kokkos::sqrt(cs2);
-    const Real jeans_mass = (Kokkos::pow(M_PI, 2.5) / 6.0) * cs * cs * cs /
-                            (Kokkos::pow(gravitational_constant, 1.5) * Kokkos::sqrt(rho));
+    const Real jeans_mass =
+        (Kokkos::pow(M_PI, 2.5) / 6.0) * cs * cs * cs /
+        (Kokkos::pow(gravitational_constant, 1.5) * Kokkos::sqrt(rho));
 
     const Real dz_vol = (ndim == 3) ? dz : 1.0; // dz == coords.Dxc<3>(...) when ndim == 3
     const Real cell_mass = rho * dx * dy * dz_vol;

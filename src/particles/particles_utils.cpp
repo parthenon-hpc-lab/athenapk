@@ -124,7 +124,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
         StarFormation::SFEnergyMode::Isobaric; // unused unless particles_type == Stars
     StarFormation::SFVirialCriterion sf_virial_criterion =
         StarFormation::SFVirialCriterion::Hopkins; // unused unless virial_criterion
-    Real sf_virial_temperature_threshold = 1.0e4; // unused unless SFVirialCriterion::Default
+    Real sf_virial_temperature_threshold =
+        1.0e4; // unused unless SFVirialCriterion::Default
     Real p_injection = -1.0;
     Real injection_threshold = -1.0;
     InjectionMode injection_mode = InjectionMode::FixedRate; // By default
@@ -236,9 +237,10 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               // gravitational-collapse gate (SFVirialCriterion) before
               // injection proceeds.
               if (p_local > 0.0 && virial_criterion &&
-                  !StarFormation::CheckVirialCollapse(
-                      prim, coords, k, j, i, gravitational_constant, ndim, gamma,
-                      sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold)) {
+                  !StarFormation::CheckVirialCollapse(prim, coords, k, j, i,
+                                                      gravitational_constant, ndim, gamma,
+                                                      sf_virial_criterion, mbar_over_kb,
+                                                      sf_virial_temperature_threshold)) {
                 p_local = 0.0; // did not pass the collapse gate: veto injection
               }
             }
@@ -333,9 +335,10 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               // passed the stochastic draw above -- see the selected
               // gravitational-collapse gate (SFVirialCriterion) above.
               if (p_local > 0.0 && virial_criterion &&
-                  !StarFormation::CheckVirialCollapse(
-                      prim, coords, k, j, i, gravitational_constant, ndim, gamma,
-                      sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold)) {
+                  !StarFormation::CheckVirialCollapse(prim, coords, k, j, i,
+                                                      gravitational_constant, ndim, gamma,
+                                                      sf_virial_criterion, mbar_over_kb,
+                                                      sf_virial_temperature_threshold)) {
                 p_local = 0.0; // did not pass the collapse gate: veto injection
               }
             }
