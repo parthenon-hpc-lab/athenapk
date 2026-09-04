@@ -18,6 +18,8 @@
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
 //========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 #include <cmath>
 #include <fstream>
@@ -38,6 +40,8 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
+#include "../../eos/adiabatic_glmmhd.hpp"
+#include "../../eos/adiabatic_hydro.hpp"
 #include "../../main.hpp"
 #include "../custom_rng.hpp"
 #include "../particles_utils.hpp"
@@ -60,7 +64,22 @@ and per unit time.
 =============================================================================== */
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
-  return ParticlesUtils::InjectParticles(mbd, tm, "tracers");
+  auto *pmb = mbd->GetParentPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto fluid = hydro_pkg->Param<Fluid>("fluid");
+
+  // InjectParticles is templated on the EOS type (needed by particle-mesh
+  // interactions that require it, e.g. star formation's mass transfer); tracers
+  // don't use it themselves, but still need to select and pass the active one.
+  if (fluid == Fluid::euler) {
+    return ParticlesUtils::InjectParticles(mbd, tm, "tracers",
+                                           hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+  } else if (fluid == Fluid::glmmhd) {
+    return ParticlesUtils::InjectParticles(mbd, tm, "tracers",
+                                           hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+  } else {
+    PARTHENON_FAIL("InjectTracers: unsupported fluid type.");
+  }
 }
 
 /* ===============================================================================
@@ -81,9 +100,6 @@ swarm object of each individual populations of tracers.
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto tracers_pkg = std::make_shared<StateDescriptor>("tracers");
   const bool enabled = pin->GetOrAddBoolean("tracers", "enabled", false);
-  const auto integrator_str = pin->GetString("parthenon/time", "integrator");
-  const auto advection_method_str =
-      pin->GetOrAddString("tracers", "advection_method", "fluxinterp");
 
   // =====================================================================
   // General parameters
@@ -93,17 +109,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // not)
   tracers_pkg->AddParam<>("initial_seed_done", false, Params::Mutability::Restart);
 
-  // Storing advection_method into enum class
-  AdvectMethod advection_method;
-  if (advection_method_str == "vinterp") {
-    advection_method = AdvectMethod::VInterp;
-  } else if (advection_method_str == "fluxinterp") {
-    advection_method = AdvectMethod::Flux;
-  } else if (advection_method_str == "montecarlo") {
-    advection_method = AdvectMethod::MonteCarlo;
-  } else {
-    advection_method = AdvectMethod::None;
-    PARTHENON_FAIL("Invalid advection_method: " + advection_method_str);
+  // Parse (and validate) the advection method only when tracers are actually
+  // enabled: an irrelevant/invalid value left over in the input file shouldn't
+  // block startup when the block below never runs. `advection_method` is still
+  // always stored, since e.g. hydro.cpp reads it unconditionally.
+  AdvectMethod advection_method = AdvectMethod::None;
+  if (enabled) {
+    const auto advection_method_str =
+        pin->GetOrAddString("tracers", "advection_method", "fluxinterp");
+    if (advection_method_str == "vinterp") {
+      advection_method = AdvectMethod::VInterp;
+    } else if (advection_method_str == "fluxinterp") {
+      advection_method = AdvectMethod::Flux;
+    } else if (advection_method_str == "montecarlo") {
+      advection_method = AdvectMethod::MonteCarlo;
+    } else {
+      PARTHENON_FAIL("Invalid advection_method: " + advection_method_str);
+    }
   }
 
   // Store the enum value in the tracer package
@@ -111,6 +133,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   tracers_pkg->AddParam<>("enabled", enabled);
 
   if (!enabled) return tracers_pkg;
+
+  const auto integrator_str = pin->GetString("parthenon/time", "integrator");
 
   // Setting up useful fields (face-centered velocity, IDs offsets),
   // also checking the integrator choice in case of flux-based advection
@@ -120,12 +144,29 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto swarm_names = pin->GetVector<std::string>("tracers", "swarm_names");
   tracers_pkg->AddParam<>("swarm_names", swarm_names);
 
+  // Swarms/tracers currently only support non-adaptive meshes (checked once here
+  // rather than once per population below).
+  PARTHENON_REQUIRE_THROWS(
+      !pin->DoesParameterExist("parthenon/mesh", "refinement") ||
+          pin->GetString("parthenon/mesh", "refinement") != "adaptive",
+      "Tracers/swarms currently only supported on non-adaptive meshes.");
+
+  // Integrator sanity check: both the Flux and Monte Carlo advection methods read
+  // back the flux/mass snapshot captured during the *last* stage's CalculateFluxes
+  // (AdvectTracers only runs once, at stage == nstages, c.f. hydro_driver.cpp) and
+  // combine it with the *full* step dt. That is only self-consistent for vl2's
+  // specific two-stage predictor/corrector structure, where the final stage's flux,
+  // scaled by the full dt, reconstructs the full-step conservative update -- for
+  // any other integrator (different stage count/weights) it would silently mix a
+  // sub-step flux with the wrong base state and the wrong dt scaling.
+  if (advection_method == AdvectMethod::Flux || advection_method == AdvectMethod::MonteCarlo) {
+    PARTHENON_REQUIRE(integrator_str == "vl2",
+                      "Provided tracer parameters only support vl2 integrator.");
+  }
+
   Metadata m;
   // Face-centered velocity
   if (advection_method == AdvectMethod::Flux) {
-    // Integrator sanity check
-    PARTHENON_REQUIRE(integrator_str == "vl2",
-                      "Provided tracer parameters only support vl2 integrator.");
     // Adding derived field
     m = Metadata({Metadata::Face, Metadata::Derived, Metadata::OneCopy},
                  std::vector<int>({1}));
@@ -196,6 +237,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         inj_crit = ParticlesCriterion::TemperatureAbove;
       } else if (injection_criterion == "temperature_below") {
         inj_crit = ParticlesCriterion::TemperatureBelow;
+      } else if (injection_criterion == "jet") {
+        // Geometric criterion selecting cells within the kinetic AGN jet region;
+        // the jet_radius/jet_offset/jet_thickness geometry itself is problem
+        // specific and populated via ProblemInitTracerData (see cluster.cpp).
+        inj_crit = ParticlesCriterion::Jet;
       } else {
         PARTHENON_FAIL("No injection criterion has been set.");
       }
@@ -310,11 +356,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // hydro one, but we should check if there's direct way to access Params of other
     // packages.
     const bool mhd = pin->GetString("hydro", "fluid") == "glmmhd";
-
-    PARTHENON_REQUIRE_THROWS(
-        !pin->DoesParameterExist("parthenon/mesh", "refinement") ||
-            pin->GetString("parthenon/mesh", "refinement") != "adaptive",
-        "Tracers/swarms currently only supported on non-adaptive meshes.");
 
     if (mhd) {
       tracers_pkg->AddSwarmValue("B_x", swarm_name, real_swarmvalue_metadata);
@@ -447,7 +488,8 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         const Real scale = (reference_level < 0)
                                ? 1.0
                                : ParticlesUtils::CalculateRefinementScale(
-                                     pmb->loc.level(), root_level, reference_level);
+                                     pmb->loc.level(), root_level, reference_level,
+                                     pmesh->ndim);
 
         const auto num_tracers_per_block = static_cast<int>(
             pmesh->GetNumberOfMeshBlockCells() * num_tracers_per_cell * scale);
@@ -543,11 +585,12 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
         // Updating the current block offset.
         block_offset += num_tracers_per_block;
-        std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
+        host_off(k_population) = ParticlesUtils::EncodeOffset(block_offset);
         Kokkos::deep_copy(off, host_off);
       }
-      tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
     }
+    // All blocks seeded: mark seeding as done once, not once per block.
+    tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
   } else {
     PARTHENON_THROW("Unknown tracer initial_seed_method");
   }
@@ -713,21 +756,35 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
               const Real Mi = Mcell_pack(0, k, j, i); // current cell mass
 
-              // Calculate each outgoing flux
-              const Real cell_surface = coords.Dxc<1>(i) * coords.Dxc<1>(i);
+              // Calculate each outgoing flux. Face areas are direction-specific
+              // (area_x = dy*dz, the y-z face the x-flux crosses, etc.), not a
+              // single dx^2 reused for every face -- that would silently assume a
+              // cubic/isotropic grid. In 2D, dz=1 acts as a per-unit-depth slab,
+              // consistent with the z-fluxes being disabled below.
+              const Real dx = coords.Dxc<1>(k, j, i);
+              const Real dy = coords.Dxc<2>(k, j, i);
+              const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
+              const Real area_x = dy * dz;
+              const Real area_y = dx * dz;
+              const Real area_z = dx * dy;
 
               const Real dM_xp =
-                  fmax(cons_pack.flux(IV1, IDN, k, j, i + 1) * cell_surface * dt, 0.0);
+                  fmax(cons_pack.flux(IV1, IDN, k, j, i + 1) * area_x * dt, 0.0);
               const Real dM_xm =
-                  fmax(-cons_pack.flux(IV1, IDN, k, j, i) * cell_surface * dt, 0.0);
+                  fmax(-cons_pack.flux(IV1, IDN, k, j, i) * area_x * dt, 0.0);
               const Real dM_yp =
-                  fmax(cons_pack.flux(IV2, IDN, k, j + 1, i) * cell_surface * dt, 0.0);
+                  fmax(cons_pack.flux(IV2, IDN, k, j + 1, i) * area_y * dt, 0.0);
               const Real dM_ym =
-                  fmax(-cons_pack.flux(IV2, IDN, k, j, i) * cell_surface * dt, 0.0);
-              const Real dM_zp =
-                  fmax(cons_pack.flux(IV3, IDN, k + 1, j, i) * cell_surface * dt, 0.0);
-              const Real dM_zm =
-                  fmax(-cons_pack.flux(IV3, IDN, k, j, i) * cell_surface * dt, 0.0);
+                  fmax(-cons_pack.flux(IV2, IDN, k, j, i) * area_y * dt, 0.0);
+              // z-direction fluxes only exist in 3D; in 2D there is no k+/-1
+              // neighbor to draw a face flux from.
+              Real dM_zp = 0.0, dM_zm = 0.0;
+              if (ndim == 3) {
+                dM_zp =
+                    fmax(cons_pack.flux(IV3, IDN, k + 1, j, i) * area_z * dt, 0.0);
+                dM_zm =
+                    fmax(-cons_pack.flux(IV3, IDN, k, j, i) * area_z * dt, 0.0);
+              }
 
               // Total outgoing flux (Delta M)
               const Real dM_out = dM_xp + dM_xm + dM_yp + dM_ym + dM_zp + dM_zm;
@@ -749,23 +806,29 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               const Real p_xm = dM_xm / denom;
               const Real p_yp = dM_yp / denom;
               const Real p_ym = dM_ym / denom;
-              const Real p_zp = dM_zp / denom;
+              const Real p_zp = (ndim == 3) ? dM_zp / denom : 0.0;
 
               // Calculate second probability
               Real r2 = rng_gen.drand();
               int di = 0, dj = 0, dk = 0;
-              if ((r2 -= p_xp) < 0.0)
+              if ((r2 -= p_xp) < 0.0) {
                 di = +1;
-              else if ((r2 -= p_xm) < 0.0)
+              } else if ((r2 -= p_xm) < 0.0) {
                 di = -1;
-              else if ((r2 -= p_yp) < 0.0)
+              } else if ((r2 -= p_yp) < 0.0) {
                 dj = +1;
-              else if ((r2 -= p_ym) < 0.0)
+              } else if ((r2 -= p_ym) < 0.0) {
                 dj = -1;
-              else if ((r2 -= p_zp) < 0.0)
-                dk = +1;
-              else
-                dk = -1;
+              } else if (ndim == 3) {
+                if ((r2 -= p_zp) < 0.0) {
+                  dk = +1;
+                } else {
+                  dk = -1;
+                }
+              }
+              // else (2D, floating-point residual after xp/xm/yp/ym): leave
+              // di=dj=dk=0 rather than falsely stepping in a nonexistent z
+              // direction.
 
               // Index of the new cell
               const int i_new = i + di;

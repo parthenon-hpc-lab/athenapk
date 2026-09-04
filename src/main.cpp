@@ -1,6 +1,9 @@
 // AthenaPK - a performance portable block structured AMR MHD code
 // Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE");
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 #include <sstream>
 
@@ -105,6 +108,7 @@ int main(int argc, char *argv[]) {
     Hydro::ProblemSourceUnsplit = cluster::ClusterUnsplitSrcTerm;
     Hydro::ProblemSourceFirstOrder = cluster::ClusterSplitSrcTerm;
     Hydro::ProblemEstimateTimestep = cluster::ClusterEstimateTimestep;
+    Tracers::ProblemInitTracerData = cluster::ProblemInitTracerData;
   } else if (problem == "shattering") {
     pman.app_input->InitUserMeshData = shattering::InitUserMeshData;
     pman.app_input->ProblemGenerator = shattering::ProblemGenerator;

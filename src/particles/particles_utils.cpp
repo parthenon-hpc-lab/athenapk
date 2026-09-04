@@ -18,6 +18,8 @@
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
 //========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 #include <string>
 #include <vector>
@@ -29,6 +31,8 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
+#include "../eos/adiabatic_glmmhd.hpp"
+#include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
 #include "custom_rng.hpp"
 #include "particles_utils.hpp"
@@ -48,8 +52,11 @@ are injected in a stochastic way, based on a target number of particle per cell 
 per unit time.
 =============================================================================== */
 
+template <class EOS>
 TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
-                           const std::string &pkg_name) {
+                           const std::string &pkg_name, const EOS &eos) {
+  (void)eos; // Not needed by the tracers path; threaded through for future packages
+             // (e.g. star formation's cell-to-particle mass transfer) that do.
 
   auto *pmb = mbd->GetParentPointer();
   auto *pmesh = pmb->pmy_mesh;
@@ -63,6 +70,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
   // Loading root grid level
   const int root_level = pmesh->GetRootLevel();
   const int gid = pmb->gid;
+  const auto ndim = pmb->pmy_mesh->ndim;
 
   // Getting variable required for temperature
   auto current_time = tm.time;
@@ -95,6 +103,20 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     Real injection_threshold = -1.0;
     InjectionMode injection_mode = InjectionMode::FixedRate; // By default
 
+    // Geometric parameters, only used by ParticlesCriterion::Jet.
+    Real jet_radius = -1.0;
+    Real jet_offset = -1.0;
+    Real jet_thickness = -1.0;
+    if (particles_pkg->AllParams().hasKey("jet_radius")) {
+      jet_radius = particles_pkg->Param<Real>("jet_radius");
+    }
+    if (particles_pkg->AllParams().hasKey("jet_offset")) {
+      jet_offset = particles_pkg->Param<Real>("jet_offset");
+    }
+    if (particles_pkg->AllParams().hasKey("jet_thickness")) {
+      jet_thickness = particles_pkg->Param<Real>("jet_thickness");
+    }
+
     // Here, distinguishing tracer package from other kind of particles (e.g. stars).
     // Each package is responsible for computing p_injection in [0, 1], the probability
     // that a single eligible cell spawns a particle at this timestep.
@@ -106,13 +128,13 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       // to avoid over-injection at high resolution.
       const auto reference_level =
           particles_pkg->Param<int>(swarm_name + "_reference_level");
-      const Real scale =
-          (reference_level < 0)
-              ? 1.0
-              : CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
+      const Real scale = (reference_level < 0)
+                             ? 1.0
+                             : CalculateRefinementScale(pmb->loc.level(), root_level,
+                                                        reference_level, ndim);
       const Real injection_rate =
           particles_pkg->Param<Real>(swarm_name + "_injection_rate");
-      const Real injection_threshold =
+      injection_threshold =
           particles_pkg->Param<Real>(swarm_name + "_injection_threshold");
 
       // Cap to [0, 1]: at most one particle injected per eligible cell per timestep
@@ -124,30 +146,18 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                       "'. Only 'tracers' is currently implemented.");
     }
 
-    auto ndim = pmb->pmy_mesh->ndim;
-
     IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
     IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
     IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-
-    const auto &x_min = pmb->coords.Xf<1>(ib.s);
-    const auto &y_min = pmb->coords.Xf<2>(jb.s);
-    const auto &z_min = pmb->coords.Xf<3>(kb.s);
-    const auto &x_max = pmb->coords.Xf<1>(ib.e + 1);
-    const auto &y_max = pmb->coords.Xf<2>(jb.e + 1);
-    const auto &z_max = pmb->coords.Xf<3>(kb.e + 1);
 
     int num_injected_particles_in_block = 0;
 
     pmb->par_reduce(
         "InjectParticles::FindCells", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i, int &lnpart) {
-          const Real x_cell = coords.Xc<1>(i);
-          const Real y_cell = coords.Xc<2>(j);
-          const Real z_cell = coords.Xc<3>(k);
-
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
-                                injection_threshold, mbar_over_kb, ndim)) {
+                                injection_threshold, mbar_over_kb, ndim, jet_radius,
+                                jet_offset, jet_thickness)) {
 
             const Real p_local = (injection_mode == InjectionMode::FixedRate)
                                      ? p_injection
@@ -162,8 +172,11 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
         },
         Kokkos::Sum<int>(num_injected_particles_in_block));
 
+    // No eligible cell drew a particle for this population this timestep: move on
+    // to the next population rather than bailing out of the whole function, which
+    // would otherwise silently skip injection for every population after this one.
     if (num_injected_particles_in_block == 0) {
-      return TaskStatus::complete;
+      continue;
     }
 
     auto injected_particles_context =
@@ -186,8 +199,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     Kokkos::View<int, parthenon::DevExecSpace> counter("counter");
     Kokkos::deep_copy(counter, 0);
 
-    std::uint64_t block_offset;
-    std::memcpy(&block_offset, &host_off(k_population), sizeof(std::uint64_t));
+    std::uint64_t block_offset = DecodeOffset(host_off(k_population));
 
     pmb->par_for(
         "InjectParticles::Initialize", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -197,7 +209,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           const Real z_cell = coords.Xc<3>(k);
 
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
-                                injection_threshold, mbar_over_kb, ndim)) {
+                                injection_threshold, mbar_over_kb, ndim, jet_radius,
+                                jet_offset, jet_thickness)) {
 
             const Real p_local = (injection_mode == InjectionMode::FixedRate)
                                      ? p_injection
@@ -213,9 +226,11 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
               x(swarm_idx) = x_cell;
               y(swarm_idx) = y_cell;
-              if (ndim == 3) {
-                z(swarm_idx) = z_cell;
-              }
+              // Always assign z, even in 2D: z_cell is the (valid, in-bounds) cell
+              // center of the current k, so this stays well-defined; leaving it
+              // untouched would mean an uninitialized/stale position for
+              // dynamically-injected particles in 2D runs.
+              z(swarm_idx) = z_cell;
 
               id(swarm_idx) = block_offset + counter_idx;
               t_inj(swarm_idx) = current_time;
@@ -227,11 +242,22 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
         });
 
     block_offset += num_injected_particles_in_block;
-    std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
+    host_off(k_population) = EncodeOffset(block_offset);
     Kokkos::deep_copy(off, host_off);
   }
   return TaskStatus::complete;
 }
+
+// Needed since InjectParticles is templated and defined in this translation unit:
+// explicitly instantiate for the EOS types it is actually called with.
+template TaskStatus InjectParticles<AdiabaticHydroEOS>(MeshBlockData<Real> *,
+                                                       parthenon::SimTime &,
+                                                       const std::string &,
+                                                       const AdiabaticHydroEOS &);
+template TaskStatus InjectParticles<AdiabaticGLMMHDEOS>(MeshBlockData<Real> *,
+                                                        parthenon::SimTime &,
+                                                        const std::string &,
+                                                        const AdiabaticGLMMHDEOS &);
 
 /* ===============================================================================
 RemoveParticles: loops on particles, check which ones have reach the end of their
@@ -304,7 +330,11 @@ TaskStatus RemoveParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
             if (removal_enabled) {
-              if (current_time - t_inj(n) >= ltime(n)) {
+              // ltime(n) < 0 (e.g. the "-1" default, see Initialize()) means "never
+              // removed": elapsed time is always >= 0, so without this guard that
+              // sentinel would instead cause immediate removal on the very next
+              // call.
+              if (ltime(n) >= 0.0 && current_time - t_inj(n) >= ltime(n)) {
                 bool keep_particle = false;
 
                 if (removal_exception) {
