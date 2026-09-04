@@ -159,7 +159,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // scaled by the full dt, reconstructs the full-step conservative update -- for
   // any other integrator (different stage count/weights) it would silently mix a
   // sub-step flux with the wrong base state and the wrong dt scaling.
-  if (advection_method == AdvectMethod::Flux || advection_method == AdvectMethod::MonteCarlo) {
+  if (advection_method == AdvectMethod::Flux ||
+      advection_method == AdvectMethod::MonteCarlo) {
     PARTHENON_REQUIRE(integrator_str == "vl2",
                       "Provided tracer parameters only support vl2 integrator.");
   }
@@ -485,11 +486,11 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         // Optinal check for refinement level
         const auto reference_level =
             tracers_pkg->Param<int>(swarm_name + "_reference_level");
-        const Real scale = (reference_level < 0)
-                               ? 1.0
-                               : ParticlesUtils::CalculateRefinementScale(
-                                     pmb->loc.level(), root_level, reference_level,
-                                     pmesh->ndim);
+        const Real scale =
+            (reference_level < 0)
+                ? 1.0
+                : ParticlesUtils::CalculateRefinementScale(pmb->loc.level(), root_level,
+                                                           reference_level, pmesh->ndim);
 
         const auto num_tracers_per_block = static_cast<int>(
             pmesh->GetNumberOfMeshBlockCells() * num_tracers_per_cell * scale);
@@ -780,10 +781,8 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               // neighbor to draw a face flux from.
               Real dM_zp = 0.0, dM_zm = 0.0;
               if (ndim == 3) {
-                dM_zp =
-                    fmax(cons_pack.flux(IV3, IDN, k + 1, j, i) * area_z * dt, 0.0);
-                dM_zm =
-                    fmax(-cons_pack.flux(IV3, IDN, k, j, i) * area_z * dt, 0.0);
+                dM_zp = fmax(cons_pack.flux(IV3, IDN, k + 1, j, i) * area_z * dt, 0.0);
+                dM_zm = fmax(-cons_pack.flux(IV3, IDN, k, j, i) * area_z * dt, 0.0);
               }
 
               // Total outgoing flux (Delta M)
