@@ -59,7 +59,15 @@ class TestCase(utils.test_case.TestCaseAbs):
         # Loading the data
         data = phdf.phdf(f"{parameters.output_path}/parthenon.restart.final.rhdf")
 
-        components = data.GetComponents(data.Info["ComponentNames"], flatten=False)
+        # This test enables tracers (see Prepare() above), which adds a
+        # "tracers_offsets" entry to the restart file's ComponentNames -- a
+        # per-block offsets array, not a cell-shaped hydro field, which phdf's
+        # Get() can't reshape and only the "cons_*" fields below are actually
+        # needed here, so filter ComponentNames down to those before reading.
+        cons_component_names = [
+            name for name in data.Info["ComponentNames"] if name.startswith("cons_")
+        ]
+        components = data.GetComponents(cons_component_names, flatten=False)
         density_sum = components["cons_density"].sum()
         try:
             np.testing.assert_array_max_ulp(density_sum, 64**3, maxulp=2)
@@ -156,7 +164,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             # Finally check that there's no unexpected extra data
             for ref_var in ref_data.keys():
                 if ref_var not in tracers.variables:
-                    print(f"TEST FAIL: Got extra swarm var '{var}' missing in ref data")
+                    print(
+                        f"TEST FAIL: Got extra swarm var '{ref_var}' missing in ref data"
+                    )
                     success = False
 
         if success:
