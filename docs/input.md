@@ -405,7 +405,7 @@ Two seeding methods are supported:
 
 - **`user`**
   - Uses the `ProblemSeedInitialTracers` callback to seed particles manually.
-  - See [callback documentation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/pgen.md#tracers)
+  - See [callback documentation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/user_pgen.md#tracers)
 
 ---
 

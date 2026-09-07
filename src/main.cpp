@@ -114,6 +114,9 @@ int main(int argc, char *argv[]) {
   } else if (problem == "star_formation") {
     pman.app_input->InitUserMeshData = star_formation::InitUserMeshData;
     pman.app_input->ProblemGenerator = star_formation::ProblemGenerator;
+  } else if (problem == "shattering") {
+    pman.app_input->InitUserMeshData = shattering::InitUserMeshData;
+    pman.app_input->ProblemGenerator = shattering::ProblemGenerator;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
   } else if (problem == "turbulence") {

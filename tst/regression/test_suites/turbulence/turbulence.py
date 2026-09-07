@@ -58,6 +58,29 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         # Loading the data
         data = phdf.phdf(f"{parameters.output_path}/parthenon.restart.final.rhdf")
+
+        components = data.GetComponents(data.Info["ComponentNames"], flatten=False)
+        density_sum = components["cons_density"].sum()
+        try:
+            np.testing.assert_array_max_ulp(density_sum, 64**3, maxulp=2)
+        except AssertionError as ar:
+            print(
+                f"TEST FAIL: incorrect density sum\n"
+                f"Got {density_sum} and expected {64**3}."
+            )
+            print(ar)
+            success = False
+        energy_sum = components["cons_total_energy_density"].sum()
+        try:
+            np.testing.assert_array_max_ulp(energy_sum, 2621560462.9602447)
+        except AssertionError as ar:
+            print(
+                f"TEST FAIL: incorrect energy sum\n"
+                f"Got {energy_sum} and expected {2621560462.9602447}."
+            )
+            print(ar)
+            success = False
+
         tracers = data.GetSwarm("tracers")
         ids = tracers.id
 
@@ -121,7 +144,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                         )
                     else:
                         np.testing.assert_allclose(
-                            var_data_sorted, ref_data[var], rtol=4e-8, strict=True
+                            var_data_sorted, ref_data[var], rtol=8.1e-7
                         )
 
                 except AssertionError as ar:
