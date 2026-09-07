@@ -722,44 +722,6 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
   }
 }
 
-// ========================================================================
-// Two functions to calculate the number of neighbors for a given stellar
-// particle firing a SN event.
-// ========================================================================
-
-// Compute per-axis overlap offset given kernel radius and interior bounds
-KOKKOS_INLINE_FUNCTION
-void ComputeOverlapOffsets(int i, int j, int k, int r_cells, int is, int ie, int js,
-                           int je, int ks, int ke, int &ox, int &oy, int &oz) {
-  ox = (i - r_cells < is) ? -1 : (i + r_cells > ie) ? 1 : 0;
-  oy = (j - r_cells < js) ? -1 : (j + r_cells > je) ? 1 : 0;
-  oz = (k - r_cells < ks) ? -1 : (k + r_cells > ke) ? 1 : 0;
-}
-
-// Enumerate all overlapping neighbor directions as (dx,dy,dz) triples,
-// each component either 0 or the corresponding offset — i.e. every
-// nonempty subset of the nonzero axes.
-template <typename Func>
-KOKKOS_INLINE_FUNCTION int ForEachOverlapNeighbor(int ox, int oy, int oz, Func &&f) {
-  int count = 0;
-  for (int dx = 0; dx <= 1; ++dx) {
-    for (int dy = 0; dy <= 1; ++dy) {
-      for (int dz = 0; dz <= 1; ++dz) {
-        if (dx == 0 && dy == 0 && dz == 0) continue; // skip empty subset
-        if (dx && ox == 0) continue;                 // axis not overlapping
-        if (dy && oy == 0) continue;
-        if (dz && oz == 0) continue;
-        int nx = dx ? ox : 0;
-        int ny = dy ? oy : 0;
-        int nz = dz ? oz : 0;
-        f(nx, ny, nz);
-        ++count;
-      }
-    }
-  }
-  return count;
-}
-
 // TODO: get rid of EOS? Seems like it's not needed in the end.
 //       the idea behind it was to apply the feedback using the prim, and using
 //       yet to be implemented PrimToCons. In the end went for Cons
