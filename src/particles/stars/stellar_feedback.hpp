@@ -731,6 +731,13 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus StellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 
+// History output reductions -- total instantaneous power (energy/time) currently
+// being deposited by each SN channel, read back from the "sn_ii_energy_injected"/
+// "sn_ia_energy_injected" Params ApplyStellarFeedback's own particle-loop
+// reduction accumulates into every step (see that accumulation's comment).
+parthenon::Real LocalReduceSNIIPower(parthenon::MeshData<parthenon::Real> *md);
+parthenon::Real LocalReduceSNIaPower(parthenon::MeshData<parthenon::Real> *md);
+
 } // namespace StellarFeedback
 
 #endif // STELLAR_FEEDBACK_HPP_

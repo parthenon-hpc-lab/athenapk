@@ -32,6 +32,7 @@
 #include "basic_types.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
+#include "mesh/domain.hpp"
 #include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 #include "utils/interpolation.hpp"
@@ -45,6 +46,7 @@
 #include "../custom_rng.hpp"
 #include "../particles_utils.hpp"
 #include "star_formation.hpp"
+#include "stellar_feedback.hpp"
 #include "stellar_particles.hpp"
 
 // Cluster headers
@@ -191,6 +193,20 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   stars_pkg->AddParam<>("SN_II_enabled", SN_II_enabled);
   stars_pkg->AddParam<>("SN_Ia_enabled", SN_Ia_enabled);
+
+  // Rank-wide totals ApplyStellarFeedback's particle-loop reduction accumulates
+  // into every step, read back by LocalReduceSNIIPower/LocalReduceSNIaPower for
+  // the sn_ii_power/sn_ia_power history outputs (see that accumulation's
+  // comment). sn_energy_reset_cycle starts at -1 so cycle 0 (an int, so never
+  // -1 itself) always triggers the first reset. Defaults to dt=0 (i.e.
+  // undefined power) until the first step.
+  stars_pkg->AddParam<Real>("sn_ii_energy_injected", 0.0,
+                            parthenon::Params::Mutability::Mutable);
+  stars_pkg->AddParam<Real>("sn_ia_energy_injected", 0.0,
+                            parthenon::Params::Mutability::Mutable);
+  stars_pkg->AddParam<Real>("sn_energy_dt", 0.0, parthenon::Params::Mutability::Mutable);
+  stars_pkg->AddParam<int>("sn_energy_reset_cycle", -1,
+                           parthenon::Params::Mutability::Mutable);
 
   // Total energy injection per event
   const auto E_SN_per_event =
@@ -437,8 +453,99 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // Meshblock-local initiliaze function to define the RNGs (for Poisson law)
   stars_pkg->UserWorkBeforeLoopMesh = InitialStars;
 
+  // Add user history output variables, in the same fashion as
+  // AGNFeedback::GetFeedbackPower (cluster/agn_feedback.cpp): star_formation_rate
+  // is a true per-block reduction (UserHistoryOperation::sum) over current gas
+  // state, while sn_ii_power/sn_ia_power are true per-block reductions over the
+  // star swarm (see StellarFeedback::LocalReduceSNIIPower/LocalReduceSNIaPower's
+  // docstring for why a real sum -- not AGN's single-global-value max-broadcast
+  // hack -- is the right operation here).
+  parthenon::HstVar_list hst_vars;
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(
+      parthenon::UserHistoryOperation::sum, LocalReduceStarFormationRate,
+      "star_formation_rate"));
+  if (SN_II_enabled) {
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                                       StellarFeedback::LocalReduceSNIIPower,
+                                                       "sn_ii_power"));
+  }
+  if (SN_Ia_enabled) {
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                                       StellarFeedback::LocalReduceSNIaPower,
+                                                       "sn_ia_power"));
+  }
+  stars_pkg->AddParam<>(parthenon::hist_param_key, hst_vars);
+
   return stars_pkg;
 } // Initialize
+
+/* ===============================================================================
+LocalReduceStarFormationRate: sums the instantaneous SMUGGLE star formation rate
+(EvaluateStarFormation) over every interior cell above the density threshold,
+additionally gated by CheckVirialCollapse when the virial criterion is enabled --
+i.e. exactly the criteria InjectStars' stochastic draw itself is built from,
+evaluated directly off current gas state. Unlike that draw, this has no RNG and
+no side effects, so (like AGNFeedback::GetFeedbackPower) it can be safely
+recomputed at output time. Follows the LocalReduceColdGas
+(cluster/cluster_reductions.cpp) template for reducing across every block packed
+into this MeshData.
+=============================================================================== */
+parthenon::Real LocalReduceStarFormationRate(MeshData<Real> *md) {
+  auto stars_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("stars");
+  if (!stars_pkg->Param<bool>("enabled")) return 0.0;
+
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const auto units = hydro_pkg->Param<Units>("units");
+  const Real gravitational_constant = units.gravitational_constant();
+  const auto gamma = hydro_pkg->Param<Real>("AdiabaticIndex");
+  Real mbar_over_kb = -1;
+  if (hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
+    mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
+  }
+
+  const auto threshold = stars_pkg->Param<Real>("stars_density_threshold");
+  const auto sf_efficiency = stars_pkg->Param<Real>("stars_sf_efficiency");
+  const auto virial_criterion = stars_pkg->Param<bool>("stars_virial_criterion_enabled");
+  const auto sf_virial_criterion =
+      stars_pkg->Param<StarFormation::SFVirialCriterion>("stars_sf_virial_criterion");
+  const auto sf_virial_temperature_threshold =
+      stars_pkg->Param<Real>("stars_sf_temperature_threshold");
+
+  const auto ndim = md->GetParentPointer()->ndim;
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
+
+  Real sfr = 0.0;
+  Kokkos::parallel_reduce(
+      "LocalReduceStarFormationRate",
+      Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
+          parthenon::DevExecSpace(), {0, kb.s, jb.s, ib.s},
+          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {1, 1, 1, ib.e + 1 - ib.s}),
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
+                    Real &sfr_team) {
+        auto &prim = prim_pack(b);
+        const auto &coords = prim_pack.GetCoords(b);
+
+        if (prim(IDN, k, j, i) <= threshold) return;
+
+        if (virial_criterion &&
+            !StarFormation::CheckVirialCollapse(prim, coords, k, j, i,
+                                                gravitational_constant, ndim, gamma,
+                                                sf_virial_criterion, mbar_over_kb,
+                                                sf_virial_temperature_threshold)) {
+          return;
+        }
+
+        sfr_team += StarFormation::EvaluateStarFormation(
+            prim, coords, k, j, i, threshold, sf_efficiency, gravitational_constant, ndim);
+      },
+      sfr);
+
+  return sfr;
+}
 
 /* ===============================================================================
 InitialStars: Sets up the per-MeshBlock RNG pool used for stochastic star formation

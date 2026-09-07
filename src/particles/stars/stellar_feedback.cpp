@@ -140,6 +140,10 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   const auto frec_d = stars_pkg->Param<parthenon::ParArray1D<Real>>("frec_table");
   const auto n_ejecta = stars_pkg->Param<int>("ejecta_table_size");
 
+  // Total energy injected by this block this step, across every swarm population
+  // -- see the sn_ii_energy_injected/sn_ia_energy_injected accumulation below.
+  Real block_total_E_SN_II = 0.0, block_total_E_SN_Ia = 0.0;
+
   for (const auto &swarm_name : swarm_names) {
     auto &swarm = sd->Get(swarm_name);
     auto swarm_d = swarm->GetDeviceContext();
@@ -160,8 +164,52 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
     auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
 
+    // Energy-only pre-pass: sums N_SN_X * E_SN_per_event (independent of the
+    // ejecta-mass clamping below -- see the sn_ii_power/sn_ia_power history
+    // reductions' docstring) for the sn_ii_power/sn_ia_power history outputs.
+    // Kept separate from the main deposition pass below rather than adding
+    // extra reduction targets to it: Parthenon's 1-D par_reduce overload only
+    // accepts a single trailing reducer, and the main pass's ghost-count
+    // reduction is entangled with the mass-clamp/kernel-overlap logic that
+    // ComputeSNIIEvents/ComputeSNIaEvents's inputs don't otherwise need. This
+    // does mean each active particle's event draw is evaluated twice (once
+    // here, once below) -- a bounded, once-per-step cost, not per-output-call.
+    Real block_E_SN_II = 0.0, block_E_SN_Ia = 0.0;
+    if (SN_II_enabled) {
+      Real local_E_SN_II = 0.0;
+      pmb->par_reduce(
+          "StellarFeedback::SNIIEnergy", 0, max_active_index,
+          KOKKOS_LAMBDA(const int n, Real &lenergy) {
+            if (!swarm_d.IsActive(n)) return;
+            int N_SN_II = 0;
+            Real M_ej_unused = 0.0;
+            ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
+                              log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
+                              msun_in_code_units, id(n), N_SN_II, M_ej_unused);
+            lenergy += N_SN_II * E_SN_per_event;
+          },
+          Kokkos::Sum<Real>(local_E_SN_II));
+      block_E_SN_II = local_E_SN_II;
+    }
+    if (SN_Ia_enabled) {
+      Real local_E_SN_Ia = 0.0;
+      pmb->par_reduce(
+          "StellarFeedback::SNIaEnergy", 0, max_active_index,
+          KOKKOS_LAMBDA(const int n, Real &lenergy) {
+            if (!swarm_d.IsActive(n)) return;
+            int N_SN_Ia = 0;
+            Real M_ej_unused = 0.0;
+            ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass0(n),
+                              msun_in_code_units, gyr_in_code_units, id(n), N_SN_Ia,
+                              M_ej_unused);
+            lenergy += N_SN_Ia * E_SN_per_event;
+          },
+          Kokkos::Sum<Real>(local_E_SN_Ia));
+      block_E_SN_Ia = local_E_SN_Ia;
+    }
+
     // First pass: filling meshblock interior with SNe deposit, derive the number of
-    // particles going into the ghost zone
+    // particles going into the ghost zone.
     int total_ghost_count = 0;
     pmb->par_reduce(
         "StellarFeedback::PartLoop", 0, max_active_index,
@@ -306,6 +354,8 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           }
         },
         Kokkos::Sum<int>(total_ghost_count));
+    block_total_E_SN_II += block_E_SN_II;
+    block_total_E_SN_Ia += block_E_SN_Ia;
 
     // Particles marked above are only flagged here; actually compact/remove
     // them from the swarm afterward.
@@ -545,6 +595,30 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     } // end for ghost_swarm_name
   } // end for swarm_name
 
+  // Fold this block's contribution into the rank-wide sn_ii_power/sn_ia_power
+  // accumulators (read by LocalReduceSNIIPower/LocalReduceSNIaPower at output
+  // time). ApplyStellarFeedback is only ever scheduled once per cycle (see its
+  // "stage == integrator->nstages" gate in hydro_driver.cpp) and, like the rest
+  // of the per-block task graph, runs on a single host thread by default
+  // (TaskCollection::Execute()'s Pool_t is constructed with exactly 1 worker),
+  // so these plain read-modify-write Param updates across blocks can't race:
+  // whichever block on this rank happens to run first for a new cycle resets
+  // the running total to 0 before adding its own share, every later block this
+  // same cycle just adds on top.
+  const auto last_reset_cycle = stars_pkg->Param<int>("sn_energy_reset_cycle");
+  if (last_reset_cycle != tm.ncycle) {
+    stars_pkg->UpdateParam<Real>("sn_ii_energy_injected", 0.0);
+    stars_pkg->UpdateParam<Real>("sn_ia_energy_injected", 0.0);
+    stars_pkg->UpdateParam<int>("sn_energy_reset_cycle", tm.ncycle);
+  }
+  stars_pkg->UpdateParam<Real>(
+      "sn_ii_energy_injected",
+      stars_pkg->Param<Real>("sn_ii_energy_injected") + block_total_E_SN_II);
+  stars_pkg->UpdateParam<Real>(
+      "sn_ia_energy_injected",
+      stars_pkg->Param<Real>("sn_ia_energy_injected") + block_total_E_SN_Ia);
+  stars_pkg->UpdateParam<Real>("sn_energy_dt", current_dt);
+
   return TaskStatus::complete;
 
 } // ApplyStellarFeedback
@@ -634,6 +708,33 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
   }
 
   return TaskStatus::complete;
+}
+
+// ========================================================================
+// LocalReduceSNIIPower/LocalReduceSNIaPower: read back sn_ii_energy_injected/
+// sn_ia_energy_injected -- the total energy each channel actually injected on
+// this rank this step, accumulated directly inside ApplyStellarFeedback's own
+// particle-loop reduction above rather than recomputed here (see that
+// accumulation's comment for why the lack of locking across the per-block
+// tasks that fill it in is safe) -- and convert to a power. Since these are
+// already full per-rank sums by the time output runs, and Parthenon calls a
+// history function exactly once per rank (on "md_base", every local block),
+// UserHistoryOperation::sum -- a genuine sum across ranks' independent
+// contributions, unlike AGN's single-global-value max-broadcast -- is the
+// correct cross-rank reduction.
+// ========================================================================
+parthenon::Real LocalReduceSNIIPower(MeshData<Real> *md) {
+  if (md->NumBlocks() == 0) return 0.0;
+  auto stars_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("stars");
+  const auto dt = stars_pkg->Param<Real>("sn_energy_dt");
+  return (dt > 0.0) ? stars_pkg->Param<Real>("sn_ii_energy_injected") / dt : 0.0;
+}
+
+parthenon::Real LocalReduceSNIaPower(MeshData<Real> *md) {
+  if (md->NumBlocks() == 0) return 0.0;
+  auto stars_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("stars");
+  const auto dt = stars_pkg->Param<Real>("sn_energy_dt");
+  return (dt > 0.0) ? stars_pkg->Param<Real>("sn_ia_energy_injected") / dt : 0.0;
 }
 
 } // namespace StellarFeedback
