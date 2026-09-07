@@ -202,17 +202,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                    "This is non-standard and may not be realistic.");
   }
 
-  // Kinetic fraction
-  const auto f_ek = pin->GetOrAddReal("stars", "SN_kinetic_efficiency", 1.0);
-  PARTHENON_REQUIRE(f_ek >= 0.0 && f_ek <= 1.0,
-                    "SN_kinetic_efficiency must be in [0, 1]");
-  if (f_ek != 1.0) {
-    PARTHENON_WARN("SN_kinetic_efficiency is not 1.0 - the remaining energy "
-                   "fraction would need to be deposited through another "
-                   "channel (e.g. thermal), which is not yet implemented");
-  }
-  stars_pkg->AddParam<>("SN_kinetic_efficiency", f_ek);
-
   // Warn if tabular cooling is enabled: the current lifetime and ejecta mass
   // tables (Portinari+ 1998) are only valid at solar metallicity. If cooling
   // drives gas to non-solar metallicities, SN II timing and ejecta yields

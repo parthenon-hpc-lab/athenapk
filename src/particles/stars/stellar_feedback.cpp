@@ -123,7 +123,6 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
   // Feedback physics parameters
   const auto E_SN_per_event = stars_pkg->Param<Real>("E_SN_per_event");
-  const auto f_ek = stars_pkg->Param<Real>("SN_kinetic_efficiency"); // Not used atm
   const auto p_t = 4.8e5 * units.msun() * units.km_s(); // terminal momentum per SN
   // Kernel radius, in cells, anchored to whichever block hosts the star at
   // the moment of the event -- see ComputeHostSmoothingLength.
