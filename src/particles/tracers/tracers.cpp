@@ -50,7 +50,6 @@
 namespace Tracers {
 using namespace parthenon::package::prelude;
 using parthenon::Coordinates_t;
-using TE = parthenon::TopologicalElement;
 using ParticlesCriterion = ParticlesUtils::ParticlesCriterion;
 
 namespace LCInterp = parthenon::interpolation::cent::linear;
@@ -116,11 +115,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   AdvectMethod advection_method = AdvectMethod::None;
   if (enabled) {
     const auto advection_method_str =
-        pin->GetOrAddString("tracers", "advection_method", "fluxinterp");
+        pin->GetOrAddString("tracers", "advection_method", "vinterp");
     if (advection_method_str == "vinterp") {
       advection_method = AdvectMethod::VInterp;
-    } else if (advection_method_str == "fluxinterp") {
-      advection_method = AdvectMethod::Flux;
     } else if (advection_method_str == "montecarlo") {
       advection_method = AdvectMethod::MonteCarlo;
     } else {
@@ -136,8 +133,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   const auto integrator_str = pin->GetString("parthenon/time", "integrator");
 
-  // Setting up useful fields (face-centered velocity, IDs offsets),
-  // also checking the integrator choice in case of flux-based advection
+  // Setting up useful fields (cell mass for Monte Carlo, IDs offsets),
+  // also checking the integrator choice in case of Monte Carlo advection
   PARTHENON_REQUIRE_THROWS(pin->DoesParameterExist("tracers", "swarm_names"),
                            "Need to define at least one particle population via "
                            "'swarm_names' when tracers are enabled.");
@@ -151,28 +148,21 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
           pin->GetString("parthenon/mesh", "refinement") != "adaptive",
       "Tracers/swarms currently only supported on non-adaptive meshes.");
 
-  // Integrator sanity check: both the Flux and Monte Carlo advection methods read
-  // back the flux/mass snapshot captured during the *last* stage's CalculateFluxes
+  // Integrator sanity check: the Monte Carlo advection method reads back the
+  // flux/mass snapshot captured during the *last* stage's CalculateFluxes
   // (AdvectTracers only runs once, at stage == nstages, c.f. hydro_driver.cpp) and
   // combine it with the *full* step dt. That is only self-consistent for vl2's
   // specific two-stage predictor/corrector structure, where the final stage's flux,
   // scaled by the full dt, reconstructs the full-step conservative update -- for
   // any other integrator (different stage count/weights) it would silently mix a
   // sub-step flux with the wrong base state and the wrong dt scaling.
-  if (advection_method == AdvectMethod::Flux ||
-      advection_method == AdvectMethod::MonteCarlo) {
+  if (advection_method == AdvectMethod::MonteCarlo) {
     PARTHENON_REQUIRE(integrator_str == "vl2",
                       "Provided tracer parameters only support vl2 integrator.");
   }
 
   Metadata m;
-  // Face-centered velocity
-  if (advection_method == AdvectMethod::Flux) {
-    // Adding derived field
-    m = Metadata({Metadata::Face, Metadata::Derived, Metadata::OneCopy},
-                 std::vector<int>({1}));
-    tracers_pkg->AddField("fvel", m); // face-centered velocity
-  } else if (advection_method == AdvectMethod::MonteCarlo) {
+  if (advection_method == AdvectMethod::MonteCarlo) {
     // For Monte Carlo, need to save a copy of the mass of each cell before its
     // value is updated by the fluxes (c.f. hydro.cpp)
     m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
@@ -613,8 +603,8 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
 /* ===============================================================================
 AdvectTracers: moves the tracers in each population for the current timestep.
-Two methods are implemented: velocity field interpolation (method 0), or advection
-through face-centered velocity (recommended).
+Two methods are implemented: velocity field interpolation, or a Monte Carlo
+scheme based on the mass fluxes exchanged between cells.
 =============================================================================== */
 
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
@@ -631,11 +621,6 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   const auto &cons_pack = mbd->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
   const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
   const auto &coords = pmb->coords;
-  // For flux interpolation (if needed)
-  auto fvel_pack = parthenon::VariablePack<parthenon::Real>{};
-  if (advection_method == AdvectMethod::Flux) {
-    fvel_pack = mbd->PackVariables(std::vector<std::string>{"fvel"});
-  }
   // For Monte Carlo method (if needed)
   auto Mcell_pack = parthenon::VariablePack<parthenon::Real>{};
   auto rng_pool = Kokkos::Random_XorShift64_Pool<>();
@@ -697,56 +682,6 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               if (ndim == 3) {
                 z(n) += dt * 0.5 * (vel_z(n) + vel_z_star);
               }
-            } else if (advection_method == AdvectMethod::Flux) {
-
-              int k, j, i;
-              swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
-
-              // Extracting the velocities of the left and right faces
-              // x-direction
-              const auto fvel_x_lft = fvel_pack(TE::F1, 0, k, j, i);
-              const auto fvel_x_rgt = fvel_pack(TE::F1, 0, k, j, i + 1);
-
-              // y-direction
-              const auto fvel_y_lft = fvel_pack(TE::F2, 0, k, j, i);
-              const auto fvel_y_rgt = fvel_pack(TE::F2, 0, k, j + 1, i);
-
-              // Calculating the interpolated velocity
-              // delta_x_over_dx is the distance between the tracer particle are the left
-              // face (so x_center - dx / 2)
-              const auto delta_x_over_dx =
-                  (x(n) - (coords.Xc<1>(i) - coords.Dxc<1>(k, j, i) / 2)) /
-                  coords.Dxc<1>(k, j, i);
-              const auto delta_y_over_dx =
-                  (y(n) - (coords.Xc<2>(j) - coords.Dxc<2>(k, j, i) / 2)) /
-                  coords.Dxc<2>(k, j, i);
-
-              // Interpolated velocities
-              const auto vel_x_new =
-                  (1 - delta_x_over_dx) * fvel_x_lft + delta_x_over_dx * fvel_x_rgt;
-              const auto vel_y_new =
-                  (1 - delta_y_over_dx) * fvel_y_lft + delta_y_over_dx * fvel_y_rgt;
-
-              // Full update using mean velocity
-              x(n) += dt * vel_x_new;
-              y(n) += dt * vel_y_new;
-
-              // First dimension in case of 3D
-              if (ndim == 3) {
-
-                const auto fvel_z_lft = fvel_pack(TE::F3, 0, k, j, i);
-                const auto fvel_z_rgt = fvel_pack(TE::F3, 0, k + 1, j, i);
-
-                const auto delta_z_over_dx =
-                    (z(n) - (coords.Xc<3>(k) - coords.Dxc<3>(k, j, i) / 2)) /
-                    coords.Dxc<3>(k, j, i);
-                const auto vel_z_new =
-                    (1 - delta_z_over_dx) * fvel_z_lft + delta_z_over_dx * fvel_z_rgt;
-
-                // Full update using mean velocity
-                z(n) += dt * vel_z_new;
-              }
-
             } else if (advection_method == AdvectMethod::MonteCarlo) {
               // Current cell indices for the particle
               int k, j, i;

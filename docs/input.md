@@ -346,8 +346,10 @@ enabled = true
 Specify the method for advecting tracers:
 
 ```ini
-advection_method = fluxinterp   # options: fluxinterp (recommended), vinterp
+advection_method = vinterp   # options: vinterp (default), montecarlo
 ```
+
+`montecarlo` requires the `vl2` integrator (see `tracers.cpp`).
 
 ---
 

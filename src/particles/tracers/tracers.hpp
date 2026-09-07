@@ -44,7 +44,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 extern InitPackageDataFun_t ProblemInitTracerData;
 
-enum class AdvectMethod { MonteCarlo, VInterp, Flux, None };
+enum class AdvectMethod { MonteCarlo, VInterp, None };
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);

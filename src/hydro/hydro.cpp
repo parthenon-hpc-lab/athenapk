@@ -1061,11 +1061,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   auto tracers_enabled = tracers_pkg->Param<bool>("enabled");
   auto advection_method = tracers_pkg->Param<AdvectMethod>("advection_method");
 
-  auto fvel = parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>>{};
-  if (advection_method == AdvectMethod::Flux) {
-    fvel = md->PackVariables(std::vector<std::string>{"fvel"});
-  }
-
   // If Monte-Carlo based advection, need to save the initial mass of each cell
   // before its value is being updated by the hydro solver.
   auto M_cell = parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>>{};
@@ -1130,15 +1125,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
         riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         member.team_barrier();
 
-        /* Storing the left and right states */
-        if (tracers_enabled && advection_method == AdvectMethod::Flux) {
-          parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
-            const Real flux = cons.flux(IV1, IDN, k, j, i);
-            fvel(b, TE::F1, 0, k, j, i) =
-                (flux >= 0.0) ? flux / wl(IDN, i) : flux / wr(IDN, i);
-          });
-        }
-
         // Passive scalar fluxes
         for (auto n = nhydro; n < nhydro + nscalars; ++n) {
           parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
@@ -1185,14 +1171,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
               riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
               member.team_barrier();
 
-              // Storing the left / right states for tracers
-              if (tracers_enabled && advection_method == AdvectMethod::Flux) {
-                parthenon::par_for_inner(member, il, iu, [&](const int i) {
-                  const Real flux = cons.flux(IV2, IDN, k, j, i);
-                  fvel(b, TE::F2, 0, k, j, i) =
-                      (flux >= 0.0) ? flux / wl(IDN, i) : flux / wr(IDN, i);
-                });
-              }
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
                 parthenon::par_for_inner(member, il, iu, [&](const int i) {
@@ -1241,14 +1219,6 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
               riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               member.team_barrier();
 
-              // Storing the left / right states for tracers
-              if (tracers_enabled && advection_method == AdvectMethod::Flux) {
-                parthenon::par_for_inner(member, il, iu, [&](const int i) {
-                  const Real flux = cons.flux(IV3, IDN, k, j, i);
-                  fvel(b, TE::F3, 0, k, j, i) =
-                      (flux >= 0.0) ? flux / wl(IDN, i) : flux / wr(IDN, i);
-                });
-              }
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
                 parthenon::par_for_inner(member, il, iu, [&](const int i) {
