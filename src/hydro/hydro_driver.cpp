@@ -19,9 +19,9 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../particles/tracers/tracers.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
-#include "../tracers/tracers.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
@@ -632,14 +632,17 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &pmb = blocks[n];
       auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
       auto &mbd0 = pmb->meshblock_data.Get("base");
-      auto tracer_advect =
-          tl.AddTask(none, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
 
+      auto tracer_inject = tl.AddTask(none, Tracers::InjectTracers, mbd0.get(), tm);
+      auto tracer_removal =
+          tl.AddTask(tracer_inject, Tracers::RemoveTracers, mbd0.get(), tm);
+      auto tracer_advect =
+          tl.AddTask(tracer_removal, Tracers::AdvectTracers, mbd0.get(), tm);
       auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
                              BoundaryCommSubset::all);
-
       auto receive =
           tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+      auto center = tl.AddTask(receive, Tracers::CenterTracers, mbd0.get(), tm);
     }
     // TODO(pgrete) Fix/cleanup once we got swarm packs.
     // We need just a single region with a single task in order to be able to use plain

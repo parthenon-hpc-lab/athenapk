@@ -328,47 +328,112 @@ and a notebook comparing various cooling tables (and their conversion) in [cooli
 
 #### Tracers
 
-Tracer particles can be enabled by setting `tracers/enabled=true` in the input file:
+Tracer particles can be enabled and configured via the `<tracers>` block in the input file.
 
-```
+---
+
+##### Enabling Tracers
+
+```ini
 <tracers>
 enabled = true
-
-initial_seed_method  = random_per_block    # alternative: user
-initial_num_tracers_per_cell = 0.125
-### Optional arguments
-#initial_rng_seed = INTEGER
 ```
 
-Two seeding methods are currently supported:
+---
 
-- `initial_seed_method=random_per_block`
-  - seeds particles at random positions in each block
-  - NOTE: the random number generator seed uses the unique block id. Therefore, simulations with the mesh decomposition (mesh and meshblock sizes) are identical independent of the number of MPI ranks used, but if the meshblock size is changed for given mesh (and thus the total number of blocks) the initial state will be different.
-  - `initial_num_tracers_per_cell` determines the number of seeded particles per cell
-  - `initial_rng_seed` (optional) is used as seed in addition to the block id.
-- `initial_seed_method=user`
-  - Calls a problem specific callback function (`ProblemSeedInitialTracers`), see [tracer callback documenation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/user_pgen.md#tracers).
+##### Advection Method
+
+Specify the method for advecting tracers:
+
+```ini
+advection_method = vinterp   # options: vinterp (default), montecarlo
+```
+
+`montecarlo` requires the `vl2` integrator (see `tracers.cpp`).
+
+---
+
+##### Swarm Populations
+
+Multiple tracer populations (swarms) can be defined and configured independently:
+
+```ini
+swarm_names = tracers0,tracers1 # examples, any name could work
+```
+
+Each swarm's parameters must be provided **within** the `<tracers>` section.
+
+###### Example:
+
+```ini
+# tracers0: persistent population of tracers injected initially
+tracers0_initial_num_tracers_per_cell = 1.0
+tracers0_injection_enabled    = false
+tracers0_removal_enabled      = false
+
+# tracers1: dynamically injected tracers
+tracers1_initial_num_tracers_per_cell = 0
+tracers1_injection_enabled    = true
+tracers1_injection_criteria   = density_above
+tracers1_injection_threshold  = 8.0 # in code units
+tracers1_injection_timescale  = 0.05
+tracers1_injection_num_target = 1
+
+tracers1_removal_enabled             = true
+tracers1_removal_exception           = true
+tracers1_removal_exception_criteria  = density_above
+tracers1_removal_exception_threshold = 8.0 # in code units
+tracers1_lifetime                    = 0.05
+```
+
+Note that to keep the population of dynamically injected tracers roughly stable in time, it is recommended to match `injection_timescale` and `lifetime`. If `lifetime` is much larger than the injection timescale (or if removal isn't even enabled), the particle's population can grow increasingly large in an uncontrolled fashion.
+
+---
+
+##### Initial Seeding
+
+```ini
+initial_seed_method = random_per_block   # alternative: user
+```
+
+Two seeding methods are supported:
+
+- **`random_per_block`**
+  - Seeds particles randomly in each mesh block.
+  - **Note**: the random number generator seed uses the unique block id. Therefore, simulations with the mesh decomposition (mesh and meshblock sizes) are identical independent of the number of MPI ranks used, but if the meshblock size is changed for given mesh (and thus the total number of blocks) the initial state will be different.
+  - Controlled by:
+    - `tracers0_initial_num_tracers_per_cell`
+    - Optional: `initial_rng_seed` to customize randomness
+
+- **`user`**
+  - Uses the `ProblemSeedInitialTracers` callback to seed particles manually.
+  - See [callback documentation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/pgen.md#tracers)
+
+---
+
+##### Output Configuration
 
 By default, swarm fields are written only to restart files.
 If they are required for "standard" output files (like single precision `hdf5`),
 they need to be added manually to the output block, e.g., (bottom two lines)
-```
+
+```ini
 <parthenon/output2>
-file_type  = hdf5       # Binary data dump
-variables   = prim   # variables to be output
-dt         = 0.1        # time increment between outputs
+file_type  = hdf5
+variables  = prim
+dt         = 0.1
 id         = prim
 single_precision_output = true
 
-swarms = tracers
+swarms = tracers0,tracers1
 tracers_variables = id, x, y, z, rho
-#write_swarm_xdmf=true  # uncomment to create an xdmf output (e.g., for Paraview or Visit)
+# write_swarm_xdmf = true   # optional: enables xdmf file for Paraview/Visit
 ```
 
 Tracers can be read/processed by Paraview or Visit (via the xdmf file)
 or by the `phdf` package shipped with the Parthenon submodule.
 A sample plotting script for the latter might look like
+
 ```python
 import matplotlib.pyplot as plt
 import numpy as np
