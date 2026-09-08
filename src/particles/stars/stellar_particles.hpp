@@ -58,12 +58,10 @@ TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 
-// History output reduction: total instantaneous star formation rate (mass/time)
-// summed over every density-thresholded, (optionally) virial-collapse-gated cell
-// -- i.e. the same SMUGGLE rate/gate InjectStars' stochastic draw is built from,
-// evaluated directly off current gas state rather than recomputing the draw
-// itself (which depends on a persistent per-block RNG pool and so, unlike the SN
-// event draws, cannot be safely re-evaluated here without disturbing it).
+// History output reduction: total instantaneous star formation rate summed
+// over every density-thresholded, virial-gated cell, evaluated off current
+// gas state rather than recomputing InjectStars' stochastic draw (which
+// uses a per-block RNG pool that cannot be re-evaluated without disturbing it).
 parthenon::Real LocalReduceStarFormationRate(parthenon::MeshData<parthenon::Real> *md);
 
 } // namespace Stars

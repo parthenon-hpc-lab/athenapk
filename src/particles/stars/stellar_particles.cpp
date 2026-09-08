@@ -61,14 +61,9 @@ using ParticlesCriterion = ParticlesUtils::ParticlesCriterion;
 namespace LCInterp = parthenon::interpolation::cent::linear;
 
 /* ===============================================================================
-InjectStars: called at each timestep, inject new stars particles in cells ful-
-filling a criterion indicated in the input parameter list. Since stars can't be
-injected at all timesteps (this would lead to a divergence of the stellar population,
-these are injected in a stochastic way, based on a target number of stars per cell
-and per unit time.
-
-Here, we used a wrapper function as we (might) need the EOS to modify the prim and
-use PrimToCons / ConsToPrim. Might not be needed in the end.
+InjectStars: called each timestep, injects new star particles in cells
+meeting an input-file criterion, stochastically (target rate per cell)
+rather than every timestep, to avoid diverging the stellar population.
 =============================================================================== */
 
 TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
@@ -130,10 +125,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("stars_mass_efficiency", stars_mass_efficiency);
 
   // Which energy convention TransferCellMassToParticle uses for the cell's
-  // depleted mass -- see that function's docstring in star_formation.hpp.
-  // Defaults to "isobaric" since that's what the regression test suite was
-  // built and tuned against; "isothermal" is a 1:1 port of RAMSES's
-  // star_formation.f90 sink treatment.
+  // depleted mass (see star_formation.hpp). Defaults to "isobaric" (matches
+  // the regression test suite); "isothermal" is a RAMSES sink port.
   const auto stars_sf_energy_mode_str =
       pin->GetOrAddString("stars", "sf_energy_mode", "isobaric");
   StarFormation::SFEnergyMode stars_sf_energy_mode;
@@ -163,11 +156,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       pin->GetOrAddBoolean("stars", "sf_virial_criterion_enabled", false);
   stars_pkg->AddParam<>("stars_virial_criterion_enabled", stars_virial_criterion_enabled);
 
-  // Which gate CheckVirialCollapse applies when the above is enabled -- see
-  // that function's docstring in star_formation.hpp. Defaults to "hopkins"
-  // since that's what the regression test suite was built and tuned
-  // against; "default" is the cheaper Cen & Ostriker (1992) alternative
-  // (div(v) < 0 and T < sf_temperature_threshold).
+  // Which gate CheckVirialCollapse applies when the above is enabled (see
+  // star_formation.hpp). Defaults to "hopkins" (matches the regression test
+  // suite); "default" is the cheaper Cen & Ostriker (1992) alternative.
   const auto stars_sf_virial_criterion_str =
       pin->GetOrAddString("stars", "sf_virial_criterion", "hopkins");
   StarFormation::SFVirialCriterion stars_sf_virial_criterion;
@@ -194,12 +185,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("SN_II_enabled", SN_II_enabled);
   stars_pkg->AddParam<>("SN_Ia_enabled", SN_Ia_enabled);
 
-  // Rank-wide totals ApplyStellarFeedback's particle-loop reduction accumulates
-  // into every step, read back by LocalReduceSNIIPower/LocalReduceSNIaPower for
-  // the sn_ii_power/sn_ia_power history outputs (see that accumulation's
-  // comment). sn_energy_reset_cycle starts at -1 so cycle 0 (an int, so never
-  // -1 itself) always triggers the first reset. Defaults to dt=0 (i.e.
-  // undefined power) until the first step.
+  // Rank-wide totals ApplyStellarFeedback accumulates every step, read back
+  // for the sn_ii_power/sn_ia_power history outputs. sn_energy_reset_cycle
+  // starts at -1 so cycle 0 always triggers the first reset; dt defaults to
+  // 0 (undefined power) until the first step.
   stars_pkg->AddParam<Real>("sn_ii_energy_injected", 0.0,
                             parthenon::Params::Mutability::Mutable);
   stars_pkg->AddParam<Real>("sn_ia_energy_injected", 0.0,
@@ -218,11 +207,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                    "This is non-standard and may not be realistic.");
   }
 
-  // Warn if tabular cooling is enabled: the current lifetime and ejecta mass
-  // tables (Portinari+ 1998) are only valid at solar metallicity. If cooling
-  // drives gas to non-solar metallicities, SN II timing and ejecta yields
-  // computed from these tables will not be self-consistent with the actual
-  // gas-phase metallicity in the simulation.
+  // Warn if tabular cooling is enabled: the lifetime/ejecta tables
+  // (Portinari+ 1998) are solar-metallicity only, so SN II timing/yields
+  // will be inconsistent with any non-solar metallicity gas it produces.
   const auto enable_cooling = pin->GetOrAddString("cooling", "enable_cooling", "none");
   if (enable_cooling == "tabular") {
     PARTHENON_WARN("cooling/enable_cooling is set to 'tabular', but the stellar "
@@ -249,18 +236,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                         "SN_injection_radius_cells.");
   stars_pkg->AddParam<>("SN_injection_radius_cells", r_cells);
 
-  // Note: the SN deposition kernel's smoothing length is *not* a global,
-  // package-level constant (it used to be, pinned to a "finest level the
-  // mesh can ever reach" derived from parthenon/mesh/numlevel -- which
-  // silently defaulted to the wrong value for any refinement=static setup,
-  // since numlevel is only ever read by Parthenon itself for
-  // refinement=adaptive). It's now computed per SN event, from the host
-  // cell's own local dx at the time of the event -- see StellarFeedback::
-  // ApplyStellarFeedback/ApplyGhostFeedback in stellar_feedback.cpp, and the
-  // ComputeRegionFractions docstring in stellar_feedback.hpp for how a
-  // kernel that straddles a coarse/fine boundary is kept mass/momentum/
-  // energy-consistent despite the two sides no longer sharing one
-  // globally-pinned physical kernel size by construction.
+  // Note: h_smooth is not a global constant (it used to be pinned to a
+  // "finest level" derived from parthenon/mesh/numlevel, which was wrong
+  // for refinement=static). It is now computed per SN event from the host
+  // cell's own local dx; see ApplyStellarFeedback/ComputeRegionFractions.
 
   // Register empty lifetime tables as default (overwritten if SN_II_enabled)
   stars_pkg->AddParam("log_mass_table", parthenon::ParArray1D<Real>("log_mass_table", 0),
@@ -318,12 +297,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     stars_pkg->UpdateParam("log_lifetime_table", log_lifetime_d);
     stars_pkg->UpdateParam("lifetime_table_size", n);
 
-    // =================================================================
-    // Portinari+ ejecta table at Zsun (Z=0.02): SN II progenitors only
-    // M  [Msun]: initial stellar mass
-    // Mr [Msun]: remnant mass
-    // f_rec = (M - Mr) / M stored directly; no log needed (bounded [0,1])
-    // =================================================================
+    // Portinari+ ejecta table at Zsun (Z=0.02), SN II progenitors only.
+    // M/Mr [Msun] are initial/remnant mass; f_rec = (M - Mr) / M is stored
+    // directly (already bounded in [0,1], no log needed).
     const std::vector<Real> sn_mass_table_msun = {8.0,  9.0,  12.0, 15.0,  20.0,
                                                   30.0, 40.0, 60.0, 100.0, 120.0};
 
@@ -426,18 +402,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       stars_pkg->AddSwarmValue("v_z", ghost_name, real_swarmvalue_metadata);
 
       // M_ej_tot/p_SN_tot/p_terminal_Nsn carried here are already this
-      // region's share (host's own remaining region, or this particular
-      // neighbor direction's), scaled by ComputeRegionFractions -- so the
-      // receiving block only ever needs to normalize *its own* local,
-      // single-resolution weight_sum against them (recomputed fresh on
-      // arrival; not carried in the payload, unlike before).
+      // region's share (scaled by ComputeRegionFractions), so the receiver
+      // only normalizes its own fresh weight_sum against them on arrival.
       stars_pkg->AddSwarmValue("M_ej_tot", ghost_name, real_swarmvalue_metadata);
       stars_pkg->AddSwarmValue("p_SN_tot", ghost_name, real_swarmvalue_metadata);
       stars_pkg->AddSwarmValue("p_terminal_Nsn", ghost_name, real_swarmvalue_metadata);
 
-      // Physical kernel smoothing length, fixed once by the host (from its
-      // own local dx at the time of the event) and carried as-is so every
-      // participating block searches the same physical kernel radius.
+      // Physical kernel smoothing length, fixed once by the host and carried
+      // as-is so every participating block searches the same radius.
       stars_pkg->AddSwarmValue("h_smooth", ghost_name, real_swarmvalue_metadata);
 
       // Offset applied to push the particle across the block boundary so
@@ -453,26 +425,22 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // Meshblock-local initiliaze function to define the RNGs (for Poisson law)
   stars_pkg->UserWorkBeforeLoopMesh = InitialStars;
 
-  // Add user history output variables, in the same fashion as
-  // AGNFeedback::GetFeedbackPower (cluster/agn_feedback.cpp): star_formation_rate
-  // is a true per-block reduction (UserHistoryOperation::sum) over current gas
-  // state, while sn_ii_power/sn_ia_power are true per-block reductions over the
-  // star swarm (see StellarFeedback::LocalReduceSNIIPower/LocalReduceSNIaPower's
-  // docstring for why a real sum -- not AGN's single-global-value max-broadcast
-  // hack -- is the right operation here).
+  // Add history outputs: star_formation_rate is summed over gas blocks,
+  // while sn_ii_power/sn_ia_power are summed over stellar-feedback block
+  // contributions across ranks.
   parthenon::HstVar_list hst_vars;
-  hst_vars.emplace_back(parthenon::HistoryOutputVar(
-      parthenon::UserHistoryOperation::sum, LocalReduceStarFormationRate,
-      "star_formation_rate"));
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
+                                                    LocalReduceStarFormationRate,
+                                                    "star_formation_rate"));
   if (SN_II_enabled) {
-    hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
-                                                       StellarFeedback::LocalReduceSNIIPower,
-                                                       "sn_ii_power"));
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::sum, StellarFeedback::LocalReduceSNIIPower,
+        "sn_ii_power"));
   }
   if (SN_Ia_enabled) {
-    hst_vars.emplace_back(parthenon::HistoryOutputVar(parthenon::UserHistoryOperation::sum,
-                                                       StellarFeedback::LocalReduceSNIaPower,
-                                                       "sn_ia_power"));
+    hst_vars.emplace_back(parthenon::HistoryOutputVar(
+        parthenon::UserHistoryOperation::sum, StellarFeedback::LocalReduceSNIaPower,
+        "sn_ia_power"));
   }
   stars_pkg->AddParam<>(parthenon::hist_param_key, hst_vars);
 
@@ -480,15 +448,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 } // Initialize
 
 /* ===============================================================================
-LocalReduceStarFormationRate: sums the instantaneous SMUGGLE star formation rate
-(EvaluateStarFormation) over every interior cell above the density threshold,
-additionally gated by CheckVirialCollapse when the virial criterion is enabled --
-i.e. exactly the criteria InjectStars' stochastic draw itself is built from,
-evaluated directly off current gas state. Unlike that draw, this has no RNG and
-no side effects, so (like AGNFeedback::GetFeedbackPower) it can be safely
-recomputed at output time. Follows the LocalReduceColdGas
-(cluster/cluster_reductions.cpp) template for reducing across every block packed
-into this MeshData.
+LocalReduceStarFormationRate: sums the instantaneous SMUGGLE star formation
+rate over cells above the density threshold, gated by CheckVirialCollapse
+when enabled -- the same criteria InjectStars uses, but with no RNG/side
+effects, so it is safe to recompute at output time.
 =============================================================================== */
 parthenon::Real LocalReduceStarFormationRate(MeshData<Real> *md) {
   auto stars_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("stars");
@@ -532,15 +495,15 @@ parthenon::Real LocalReduceStarFormationRate(MeshData<Real> *md) {
         if (prim(IDN, k, j, i) <= threshold) return;
 
         if (virial_criterion &&
-            !StarFormation::CheckVirialCollapse(prim, coords, k, j, i,
-                                                gravitational_constant, ndim, gamma,
-                                                sf_virial_criterion, mbar_over_kb,
-                                                sf_virial_temperature_threshold)) {
+            !StarFormation::CheckVirialCollapse(
+                prim, coords, k, j, i, gravitational_constant, ndim, gamma,
+                sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold)) {
           return;
         }
 
-        sfr_team += StarFormation::EvaluateStarFormation(
-            prim, coords, k, j, i, threshold, sf_efficiency, gravitational_constant, ndim);
+        sfr_team += StarFormation::EvaluateStarFormation(prim, coords, k, j, i, threshold,
+                                                         sf_efficiency,
+                                                         gravitational_constant, ndim);
       },
       sfr);
 
@@ -548,12 +511,10 @@ parthenon::Real LocalReduceStarFormationRate(MeshData<Real> *md) {
 }
 
 /* ===============================================================================
-InitialStars: Sets up the per-MeshBlock RNG pool used for stochastic star formation
-sampling, and initializes the "stars_offsets" field so that dynamically injected
-stellar particles receive globally unique IDs (see SeedInitialTracers in
-tracers.cpp for the analogous scheme used for tracer particles). No particles are
-actually seeded here — this function only prepares the block-local bookkeeping
-(RNG state and ID offset) needed by later calls to the injection routine.
+InitialStars: sets up the per-MeshBlock RNG pool for stochastic star
+formation sampling, and initializes "stars_offsets" so dynamically injected
+particles get globally unique IDs (cf. SeedInitialTracers in tracers.cpp).
+No particles are seeded here; this only prepares block-local bookkeeping.
 =============================================================================== */
 
 void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
@@ -616,12 +577,10 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
     if (transport_mode == TransportMode::None) continue;
 
-    // Pointer to the gravitational field, only set (non-null) when actually
-    // needed. Avoids requiring a default constructor for SphericalGravity, and
-    // avoids touching the "gravity_field" param at all in setups that don't
-    // register one. Looked up as the generic gravity::SphericalGravity base
-    // type, so any pgen that registers one under this Param name works here,
-    // not just cluster.
+    // Pointer to the gravitational field, only set when needed -- avoids
+    // requiring a default constructor and avoids touching the "gravity_field"
+    // param in setups that don't register one. Any pgen registering a
+    // gravity::SphericalGravity under this name works, not just cluster.
     const gravity::SphericalGravity *gravitational_field_ptr = nullptr;
     if (transport_mode == TransportMode::Gravity) {
       PARTHENON_REQUIRE(hydro_pkg->AllParams().hasKey("gravity_field"),

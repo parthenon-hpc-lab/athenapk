@@ -42,15 +42,11 @@ namespace StellarFeedback {
 // Enum for the buffer variables used to store SNe values
 enum SNDepositIndex { ISN_DN = 0, ISN_M1 = 1, ISN_M2 = 2, ISN_M3 = 3, ISN_EN = 4 };
 
-// ========================================================================
-// Standard M4 cubic spline kernel (Monaghan & Lattanzio 1985), 3D form.
-//
-// W(r, h) = (sigma_3d / h^3) *
-//   { 1 - 1.5 q^2 + 0.75 q^3,   0 <= q < 1
-//   { 0.25 (2 - q)^3,           1 <= q < 2
-//   { 0,                        q >= 2
-// where q = r / h. Compact support extends to r = 2h.
-// ========================================================================
+/* ===============================================================================
+Standard M4 cubic spline kernel (Monaghan & Lattanzio 1985), 3D form.
+W(r,h) = (sigma_3d/h^3) * {1-1.5q^2+0.75q^3 (0<=q<1); 0.25(2-q)^3 (1<=q<2);
+0 (q>=2)}, where q = r/h. Compact support extends to r = 2h.
+=============================================================================== */
 KOKKOS_INLINE_FUNCTION parthenon::Real CubicSplineKernel(const parthenon::Real r,
                                                          const parthenon::Real h) {
   using parthenon::Real;
@@ -69,16 +65,12 @@ KOKKOS_INLINE_FUNCTION parthenon::Real CubicSplineKernel(const parthenon::Real r
   }
 }
 
-// ========================================================================
-// Chabrier (2003) IMF in SMUGGLE form
-// phi(m) = A m^{-1} exp( -(log10(m/mc))^2 / (2 sigma^2) )   m <= 1 Msun
-// phi(m) = B m^{-2.3}                                         m >  1 Msun
-// Normalised so that integral_{m_min}^{m_max} m phi(m) dm = 1
-//
-// m_sim            : particle mass in simulation units
-// unit_mass_in_msun: conversion factor (sim mass unit in Msun)
-// Returns          : phi in simulation_units^{-1}
-// ========================================================================
+/* ===============================================================================
+Chabrier (2003) IMF in SMUGGLE form:
+phi(m) = A m^-1 exp(-(log10(m/mc))^2/(2 sigma^2)) for m<=1 Msun, else
+phi(m) = B m^-2.3. Normalised so integral_{m_min}^{m_max} m phi(m) dm = 1.
+m_sim is in simulation units; returns phi in simulation_units^-1.
+=============================================================================== */
 
 KOKKOS_INLINE_FUNCTION
 Real NormedChabrierIMF(const Real m_sim, const Real msun_in_code_units) {
@@ -104,23 +96,12 @@ Real NormedChabrierIMF(const Real m_sim, const Real msun_in_code_units) {
   return phi_msun / msun_in_code_units;
 }
 
-// ========================================================================
-// Stochastic Type II SN event count and total ejecta mass for a stellar
-// particle over timestep dt, using Portinari+ (1998) lifetime/ejecta
-// tables (Z=0.02) and a Chabrier (2003) IMF.
-//
-// Stars dying in [age, age+dt] map to a mass window [M1, M2] (clamped to
-// [8, 100] Msun) via the inverted lifetime table. Two integrals are
-// evaluated over [M1, M2] by log-spaced trapezoidal quadrature (Eq. 22-23):
-//
-//   N_SNII = (M_particle/Msun) * integral phi(m) dm
-//   M_ej   = (M_particle/Msun) * integral phi(m) f_rec(m) m dm
-//
-// log_mass_table/log_tau_table : Portinari+ lifetime grid [n_table entries]
-// log_sn_mass_table/frec_table : Portinari+ ejecta grid   [n_ejecta entries]
-// M_ejecta_out                 : total ejecta mass [code units]; 0 if N=0
-// Returns                      : Poisson draw of N_SNII
-// ========================================================================
+/* ===============================================================================
+Stochastic Type II SN event count/ejecta mass over dt, using Portinari+
+(1998) lifetime/ejecta tables and a Chabrier (2003) IMF: dying stars map
+to a mass window [M1,M2], and N_SNII/M_ej are log-spaced quadrature
+integrals of phi(m)/phi(m)*f_rec(m)*m over it (Eq. 22-23). 0 if N=0.
+=============================================================================== */
 KOKKOS_INLINE_FUNCTION void
 ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
                   const parthenon::ParArray1D<Real> &log_mass_table,
@@ -227,20 +208,12 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
   N_out = N;
 }
 
-// ========================================================================
-// Stochastic Type Ia SN event count and total ejecta mass for a stellar
-// particle over timestep dt, using the delay-time distribution (DTD) of
-// Maoz, Mannucci & Brandt (2012), following Marinacci et al. (2019, Eqs.
-// 24-26).
-//
-// DTD(t) = Theta(t - tau_8) * N0 * (t/tau_8)^-s * (s-1)/tau_8
-//
-// Integrated analytically in closed form over [age, age+dt] (Eq. 24).
-// Each SNIa releases a fixed ejecta mass M_SNIa = 1.37 Msun (Eq. 26).
-//
-// N_SN_Ia_out : number of SNIa events this timestep [output]
-// M_ejecta_out: total ejecta mass [code units]; 0 if N=0 [output]
-// ========================================================================
+/* ===============================================================================
+Stochastic Type Ia SN event count/ejecta mass over dt, from the
+delay-time distribution of Maoz, Mannucci & Brandt (2012) (Marinacci+
+2019 Eqs. 24-26), integrated analytically over [age, age+dt]. Each SNIa
+releases a fixed M_SNIa = 1.37 Msun (Eq. 26); M_ejecta_out is 0 if N=0.
+=============================================================================== */
 
 KOKKOS_INLINE_FUNCTION void
 ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
@@ -280,49 +253,35 @@ ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass
   N_SN_Ia_out = N;
 }
 
-// ========================================================================
-// Number of local cells (in index space) the deposition kernel must be
-// searched over so that its full physical support (2*h_smooth) is covered
-// at this cell's own resolution. h_smooth is a fixed physical length for a
-// given SN event (see ComputeHostSmoothingLength below) -- fixed once by
-// whichever block hosts the star, from *its own* local dx, and carried
-// as-is to any neighbor the kernel overlaps, so every participating block
-// searches the same physical radius even though they may search a
-// different number of (differently-sized) cells to cover it.
-// ========================================================================
+/* ===============================================================================
+Number of local cells the deposition kernel must be searched over so
+its full physical support (2*h_smooth) is covered at this resolution.
+h_smooth is fixed once per SN event from the host's own dx and carried
+as-is to neighbors, so the physical radius searched is always the same.
+=============================================================================== */
 KOKKOS_INLINE_FUNCTION
 int KernelSearchRadius(const parthenon::Real h_smooth, const parthenon::Real dx_local) {
   return static_cast<int>(Kokkos::ceil(2.0 * h_smooth / dx_local));
 }
 
-// ========================================================================
-// The SN deposition kernel's smoothing length for one event, fixed by the
-// star's host cell's own local resolution: r_cells+1 cells at whatever
-// level currently hosts the star. Deliberately *not* pinned to some global
-// "finest level the mesh can reach" constant (that's fragile -- it doesn't
-// exist for refinement=static setups, see stellar_particles.cpp) and not
-// recomputed per evaluating cell either (that was the AMR-inconsistency
-// this replaced: it made the kernel's physical footprint depend on which
-// side of a boundary happened to be evaluating it). One host-derived value
-// per event, carried unchanged to every neighbor that participates.
-// ========================================================================
+/* ===============================================================================
+The SN deposition kernel's smoothing length for one event, fixed by the
+star's host cell's own local resolution. Deliberately not pinned to a
+global "finest level" constant (fragile for refinement=static) nor
+recomputed per evaluating cell (which made the footprint AMR-inconsistent).
+=============================================================================== */
 KOKKOS_INLINE_FUNCTION
 Real ComputeHostSmoothingLength(const parthenon::Coordinates_t &coords, const int r_cells,
                                 const int i_host) {
   return 0.5 * (r_cells + 1.0) * coords.Dxc<1>(i_host);
 }
 
-// ========================================================================
-// Compute the kernel-weighted average hydrogen number density within a
-// stellar particle's SN injection sphere, used to rescale the terminal
-// momentum by local gas density. Host-only (uses the host block's own
-// ghost-inclusive view of its neighborhood, which for AMR ghost zones is
-// resampled onto the host's own resolution regardless of a neighbor's true
-// level) -- unlike the mass/momentum/energy deposit itself, this is a
-// smooth ambient-density estimate feeding a mild (n_H)^{-1/7} rescaling,
-// not a conserved quantity, so it does not need the same per-region
-// resolution-consistent treatment as ComputeRegionFractions below.
-// ========================================================================
+/* ===============================================================================
+Kernel-weighted average hydrogen number density within a stellar
+particle's SN injection sphere, used to rescale terminal momentum by
+local gas density. Host-only; since this feeds a mild n_H^-1/7 rescaling
+rather than a conserved quantity, it skips ComputeRegionFractions' treatment.
+=============================================================================== */
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION Real ComputeKernelAvgNH(
@@ -369,28 +328,12 @@ KOKKOS_INLINE_FUNCTION Real ComputeKernelAvgNH(
   return (weight_sum > 0.0) ? (nH_vol_sum / weight_sum) : 0.0;
 }
 
-// ========================================================================
-// Determine which axis directions (if any) a star's SN deposition kernel
-// actually reaches outside the host block's interior domain, using the
-// exact same per-cell criterion (physical distance within r_max =
-// 2*h_smooth AND nonzero cubic-spline weight) as ApplyKineticSNe's deposit
-// loop and ComputeRegionFractions' cell walk use to decide which cells
-// belong to the host's own region.
-//
-// This is deliberately factored out and called identically from both
-// passes over the "stars" swarm in stellar_feedback.cpp -- once in
-// ApplyStellarFeedback (to size the ghost-particle allocation and scale
-// the host's own deposit) and again in GhostFillLoop (to actually spawn
-// the ghost particles) -- so the two passes can never disagree on
-// which/how many ghost particles a given SN event needs. A cheaper
-// index-only box test (e.g. "is i_host +/- r_search inside the interior?")
-// is NOT equivalent: r_search is an integer cell count that overshoots the
-// true kernel radius whenever 2*h_smooth/dx isn't an exact multiple of dx
-// (i.e. whenever the host cell isn't at the mesh's absolute finest level),
-// so a box-only test can flag an axis as overlapping even though no
-// actually-weighted cell crosses the boundary there -- desynchronizing the
-// two passes' particle counts.
-// ========================================================================
+/* ===============================================================================
+Which axis directions a star's SN kernel reaches outside the host
+block's interior, using the same per-cell criterion ApplyKineticSNe and
+ComputeRegionFractions use. Called identically by both ghost-particle
+passes so their counts never desync; a cheaper box test would overshoot.
+=============================================================================== */
 KOKKOS_INLINE_FUNCTION
 void DetectKernelOverlap(const parthenon::Coordinates_t &coords, const int ndim,
                          const parthenon::Real x_star, const parthenon::Real y_star,
@@ -437,57 +380,12 @@ void DetectKernelOverlap(const parthenon::Coordinates_t &coords, const int ndim,
   oz = k_lo ? -1 : (k_hi ? 1 : 0);
 }
 
-// ========================================================================
-// Split a kernel's total weight between the host block's own remaining
-// region and each overlapping neighbor direction found by
-// DetectKernelOverlap, given as active_axis/axis_offset/n_active (the same
-// triple GhostFillLoop derives from ox, oy, oz to enumerate which ghost
-// particles to spawn). Region indexing matches that enumeration exactly:
-// fraction[0] is the host's own share; fraction[mask] for mask = 1 ..
-// (2^n_active - 1) is the share for the neighbor direction GhostFillLoop's
-// spawn loop builds from that same mask (bit a of mask set <=> offset
-// along active_axis[a]).
-//
-// This walks *the exact same* r_search cube of cells around the host cell
-// that ApplyKineticSNe's own Pass 1 and DetectKernelOverlap already do --
-// evaluated at the host's own resolution, including its ghost-zone
-// indices, via the same coords.Xc/CellVolume calls. An earlier version of
-// this function instead sampled the kernel on an independent, arbitrary-
-// resolution quadrature grid (unrelated to any block's actual cells); that
-// was replaced because it made fraction[region] a genuinely different
-// quantity from the weight_sum ApplyKineticSNe separately computes over
-// its own interior cells for that same region -- a continuum integral vs.
-// a discrete cell sum, which do not exactly agree at typical kernel
-// resolutions (a handful of cells across 2h) no matter how fine the
-// quadrature is made, since refining the quadrature only drives it closer
-// to the *continuum* value, not to the *discrete* one weight_sum will
-// actually use. That mismatch showed up as boost = sqrt(1 + m_i/dM_i)
-// differing, cell for cell, between an unsplit deposit and the same cell's
-// share of a split one, biasing momentum/energy by how many regions a
-// kernel happened to be divided into.
-//
-// Reusing the actual cell grid removes that mismatch by construction, for
-// same-level regions: fraction[0] is exactly weight_sum(host's own cells)
-// / weight_sum(the whole r_search cube, host resolution) -- so once
-// ApplyKineticSNe renormalizes fraction[0]*M_ej_tot by that *same*
-// weight_sum(host's own cells) it independently recomputes, the host's own
-// dx and dq cancel and every one of its cells gets exactly the same dM_i
-// it would have gotten from an unsplit deposit. The same argument applies
-// to a same-level neighbor's share: Parthenon's ghost-zone exchange
-// populates the host's ghost buffer with that neighbor's own interior data
-// at the *same* resolution, so the host's sum over those ghost indices
-// and the neighbor's own sum over its interior indices are evaluating
-// coords.Xc/CellVolume at numerically identical positions -- the same
-// equivalence, one hop further out. Across a coarse/fine boundary this can
-// only be approximate (the host's own dx cannot reflect a genuinely
-// differently-resolved neighbor's true cell layout without communication),
-// but that residual is no worse than the quadrature it replaces, and every
-// same-level split (face/edge/corner) is now exact up to floating point.
-//
-// Because fraction[] is still a normalized sum over one common set of
-// samples (fractions sum to exactly 1 by construction), total mass
-// conservation remains exact regardless of any of the above.
-// ========================================================================
+/* ===============================================================================
+Splits a kernel's weight between the host's own region and each
+overlapping neighbor found by DetectKernelOverlap (fraction[0] is the
+host's share). Walks the same cell cube ApplyKineticSNe uses, so
+same-level splits are exact; fraction[] still sums to 1 regardless.
+=============================================================================== */
 KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
     const parthenon::Coordinates_t &coords, const int ndim, const parthenon::Real x_star,
     const parthenon::Real y_star, const parthenon::Real z_star,
@@ -502,11 +400,10 @@ KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
   for (int m = 0; m <= n_neighbors; ++m)
     fraction[m] = 0.0;
 
-  // Physical coordinate of the host's own interior boundary face crossed
-  // along each active axis -- the same face DetectKernelOverlap found
-  // kernel weight beyond, expressed as a coordinate (via Xf) rather than a
-  // cell index so cells on either side compare correctly regardless of
-  // which block's own index space di/dj/dk below are offset from.
+  // Physical coordinate (via Xf, not a cell index) of the host's own
+  // interior boundary face that DetectKernelOverlap found kernel weight
+  // beyond, so cells on either side compare correctly regardless of
+  // index-space offsets.
   Real boundary[3] = {0.0, 0.0, 0.0};
   for (int a = 0; a < n_active; ++a) {
     const int axis = active_axis[a];
@@ -569,34 +466,12 @@ KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
   }
 }
 
-// ========================================================================
-// Deposit supernova ejecta mass, momentum and energy from a stellar
-// particle into the *calling block's own interior cells only*, via a
-// top-hat volume-weighted kernel.
-//
-// M_ej_tot, p_SN_tot and p_terminal_nH_scaled must already be fully
-// prepared by the caller: density-rescaled (via the host's ambient
-// ComputeKernelAvgNH estimate) and, whenever the event's kernel overlaps a
-// neighboring block, pre-multiplied by that region's ComputeRegionFractions
-// share. This function performs no cross-block bookkeeping of its own --
-// it simply spreads whatever payload it is given over its own interior
-// cells that fall inside the kernel, weighted by kernel value x cell
-// volume and normalised by a weight_sum computed fresh, here, from this
-// same block's own interior cells only (never ghost-zone cells, which for
-// a block at a different refinement level than a real neighbor would
-// carry that neighbor's data prolongated/restricted onto *this* block's
-// own dx -- exactly the resolution mismatch this two-level design avoids).
-// This makes every call -- whether for the host's own region or a ghost
-// replay on a neighbor -- structurally identical: same code, own
-// resolution, own interior cells, own fresh normalisation.
-//
-// h_smooth is a physical length (see ComputeHostSmoothingLength), fixed by
-// the host's own cell size at the moment of the SN event, so the kernel's
-// physical footprint (and hence the *set* of cells with nonzero weight) is
-// identical from every block's point of view; only r_search -- how many of
-// *this* block's own cells that footprint spans -- changes with local
-// resolution.
-// ========================================================================
+/* ===============================================================================
+Deposits SN ejecta mass/momentum/energy from a stellar particle into the
+calling block's own interior cells, via a top-hat volume-weighted
+kernel. M_ej_tot/p_SN_tot/p_terminal_nH_scaled must already be fully
+prepared by the caller; this does no cross-block bookkeeping of its own.
+=============================================================================== */
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION void
@@ -615,21 +490,10 @@ ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int 
   const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i_host));
   const Real r_max = 2.0 * h_smooth;
 
-  // --- Pass 1: kernel-weighted volume normalisation, this block's own
-  //             interior cells only ---
-  //
-  // weight_self tracks the r == 0 self-cell's own contribution (the cell
-  // exactly hosting the star, if any is found among the cells visited
-  // below): with vel_star == 0 (freshly-formed, pre-transport stars), the
-  // star sits exactly at its host cell's center, so r == 0 there and the
-  // radial kick direction (rx, ry, rz below) is undefined. mass has no such
-  // directional ambiguity and keeps using weight_sum (self-inclusive,
-  // unchanged); momentum/energy use weight_sum_mom (self-excluded, see
-  // Pass 2) so the self-cell's share of the momentum budget is
-  // redistributed among the other cells instead of silently discarded --
-  // otherwise that lost share would scale with 1/(this region's own cell
-  // count), making it placement-dependent once a kernel is split across
-  // several regions of different sizes.
+  // --- Pass 1: kernel-weighted volume normalisation, own interior cells ---
+  // weight_self tracks the r==0 self-cell, where the radial kick direction
+  // is undefined. Mass keeps using weight_sum (self-inclusive); momentum
+  // /energy use weight_sum_mom (self-excluded) so that share redistributes.
   Real weight_sum = 0.0;
   Real weight_self = 0.0;
   for (int dk = -r_search; dk <= r_search; dk++) {

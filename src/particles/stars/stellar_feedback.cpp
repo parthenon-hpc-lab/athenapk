@@ -164,16 +164,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
     auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
 
-    // Energy-only pre-pass: sums N_SN_X * E_SN_per_event (independent of the
-    // ejecta-mass clamping below -- see the sn_ii_power/sn_ia_power history
-    // reductions' docstring) for the sn_ii_power/sn_ia_power history outputs.
-    // Kept separate from the main deposition pass below rather than adding
-    // extra reduction targets to it: Parthenon's 1-D par_reduce overload only
-    // accepts a single trailing reducer, and the main pass's ghost-count
-    // reduction is entangled with the mass-clamp/kernel-overlap logic that
-    // ComputeSNIIEvents/ComputeSNIaEvents's inputs don't otherwise need. This
-    // does mean each active particle's event draw is evaluated twice (once
-    // here, once below) -- a bounded, once-per-step cost, not per-output-call.
+    // Passive pass: calculating total stellar energy output in this timestep
     Real block_E_SN_II = 0.0, block_E_SN_Ia = 0.0;
     if (SN_II_enabled) {
       Real local_E_SN_II = 0.0;
@@ -236,11 +227,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
 
           // ── Clamp ejecta to remaining particle mass budget ──────────────────
-          // If the requested ejecta mass exceeds what the particle actually has
-          // left, rescale mass AND the associated momentum/energy consistently
-          // (p_SN ~ sqrt(M_ej) at fixed N_SN*E_SN_per_event, so scaling mass by
-          // f rescales momentum by sqrt(f)), then flag the particle for removal
-          // since its mass budget is now fully exhausted.
+          // If requested ejecta exceeds what's left, rescale mass and momentum
+          // consistently (p_SN ~ sqrt(M_ej) at fixed N_SN*E_SN_per_event), and
+          // flag the particle for removal since its budget is now exhausted.
           bool remove_particle = false;
           Real mass_scale = 1.0;
           if (N_SN > 0 && M_ej_tot > pmass(n)) {
@@ -268,19 +257,10 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                     : 0.0;
             const Real p_SN_tot = p_SN_II + p_SN_Ia;
 
-            // Rescaling p_terminal to match the injected energy
-            // (terminal momentum depends on N_SN, not on the ejecta mass budget,
-            // so it is unaffected by the clamping above). Despite "terminal
-            // momentum" sounding like a per-cell ceiling, min(p_SN_tot*boost,
-            // p_terminal) in ApplyKineticSNe is evaluated *before* multiplying
-            // by the per-cell weight w -- i.e. p_terminal plays exactly the
-            // same extensive, event-total role as p_SN_tot there, and must be
-            // split by region fraction the same way below. Leaving it
-            // unscaled (as an earlier version of this code did) made every
-            // region's cells independently race to saturate the *full*
-            // event's terminal momentum, so an event split across N regions
-            // could deposit up to N times too much once several regions hit
-            // the cap.
+            // Terminal momentum depends on N_SN, not the ejecta mass budget.
+            // Despite the name it is an extensive event-total like p_SN_tot,
+            // so it must also be split by region fraction below -- leaving it
+            // unscaled let regions race to saturate the full cap, over-depositing.
             const Real p_terminal_Nsn =
                 Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
 
@@ -301,12 +281,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                                : 0.0;
 
             // Which of the host's own interior boundaries (if any) this
-            // event's kernel reaches past, using the same per-cell test
-            // ApplyKineticSNe's own deposit loop uses (see DetectKernelOverlap
-            // docstring). n_active == 0: kernel is entirely interior to the
-            // host, so it gets the full payload below with no quadrature
-            // needed and no ghost particles spawned -- identical to the
-            // single-block behavior this replaces.
+            // event's kernel reaches past (see DetectKernelOverlap). n_active
+            // == 0 means the kernel is entirely interior: full payload below,
+            // no ghost particles spawned -- identical to single-block behavior.
             const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
             int ox, oy, oz;
             DetectKernelOverlap(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
@@ -400,20 +377,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
             // --- Determine which block boundary(ies) the deposition kernel overlaps -
-            // Recomputed identically to the interior-domain pass (same host
-            // cell, same coords, nothing moved in between), using
-            // DetectKernelOverlap -- the exact same per-cell (distance +
-            // kernel-weight) test that pass used to size total_ghost_count
-            // above. A cheaper index-only box test (e.g. "i +/- r_search past
-            // the interior edge?") is NOT equivalent: r_search is an integer
-            // cell count that overshoots the true kernel radius whenever this
-            // host cell isn't at the mesh's finest level, so it can flag an
-            // axis as overlapping even though no actually-weighted cell
-            // crosses there -- desyncing this pass's particle count from
-            // total_ghost_count and tripping the slot-count sanity check
-            // below. ox/oy/oz encode the direction of overlap (-1, 0, or +1)
-            // per axis; active_axis records which axes actually overlap, so
-            // we only enumerate real neighbor directions below.
+            // Recomputed identically to the interior-domain pass via
+            // DetectKernelOverlap, so it can't desync this pass's count from
+            // total_ghost_count. ox/oy/oz give overlap direction per axis.
             const Real h_smooth = ComputeHostSmoothingLength(coords, r_cells, i);
             const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
             int ox, oy, oz;
@@ -434,11 +400,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             // included): 1 active axis -> 1 neighbor, 2 -> 3, 3 -> 7.
             const int n_neighbors = (1 << n_active) - 1; // 1, 3, or 7
 
-            // Same quadrature-derived split as the interior-domain pass
-            // (deterministic given the same star/host-cell inputs); fraction
-            // [mask] (mask = 1 .. n_neighbors) is this neighbor direction's
-            // share, matching the mask this loop's spawn step below builds
-            // from active_axis/axis_offset the same way.
+            // Same split as the interior-domain pass (deterministic given the
+            // same inputs); fraction[mask] (mask=1..n_neighbors) is this
+            // neighbor direction's share, matching the spawn step's mask below.
             Real fraction[8];
             ComputeRegionFractions(coords, ndim, x(n), y(n), z(n), h_smooth, k, j, i,
                                    r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -446,8 +410,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
             // --- Re-derive this particle's SN event counts and ejecta mass ---------
             // Uses the same reproducible RNG (keyed on particle id + time) as the
-            // interior-domain pass, so results are identical without needing to
-            // communicate them explicitly.
+            // interior-domain pass, so results are identical without communication.
             int N_SN_II = 0, N_SN_Ia = 0, N_SN = 0;
             Real M_ej_II_tot = 0.0, M_ej_Ia_tot = 0.0;
 
@@ -469,15 +432,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             if (N_SN == 0) return;
 
             // --- Clamp ejecta to the particle's remaining mass budget ---------------
-            // Mirrors the clamping applied on the interior-domain pass. That pass
-            // clamps against the particle's mass *before* this event's ejecta is
-            // subtracted, then immediately subtracts the (possibly clamped) result
-            // from pmass(n) -- so by the time this ghost pass runs, pmass(n) already
-            // reflects that subtraction. Reconstruct the same pre-event mass the
-            // interior pass clamped against by adding M_ej_tot back; pmass0(n) (the
-            // birth mass) would be wrong here since it ignores every earlier SN
-            // event and can be far larger than what the interior pass actually had
-            // available.
+            // Mirrors the interior-domain pass's clamp; reconstruct the
+            // pre-event mass by adding M_ej_tot back (pmass0, the birth mass,
+            // would be wrong: it ignores every earlier SN event).
             Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
             const Real pmass_before_event = pmass(n) + M_ej_tot;
             Real mass_scale = 1.0;
@@ -499,19 +456,14 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                     : 0.0;
             const Real p_SN_tot = p_SN_II + p_SN_Ia;
 
-            // Terminal momentum scales with the number of overlapping SN events,
-            // independent of the ejecta mass budget/clamping above. Extensive
-            // like p_SN_tot/M_ej_tot (see interior-domain pass), so it is
+            // Terminal momentum scales with N_SN, independent of the ejecta
+            // mass clamping above; extensive like p_SN_tot/M_ej_tot, so it is
             // split by region fraction below, same as those two.
             Real p_terminal_Nsn = Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
 
-            // Rescale terminal momentum by the local ambient density (<n_H>),
-            // sampled from the kernel footprint around the particle -- same
-            // host-only estimate, and the same nH_avg <= 0 fallback (kernel
-            // footprint devoid of gas -- not expected in practice, but keep
-            // this pass numerically consistent with the interior-domain one
-            // rather than risk a stray (0)^(-1/7) blowup), as the
-            // interior-domain pass.
+            // Rescale terminal momentum by local ambient density <n_H>, the
+            // same host-only estimate (and nH_avg<=0 fallback, avoiding a
+            // stray 0^(-1/7) blowup) as the interior-domain pass.
             const Real nH_avg =
                 ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i,
                                    h_smooth, code_density_cgs, mh_cgs, x_H);
@@ -542,14 +494,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               const int slot = Kokkos::atomic_fetch_add(&ghost_slot_counter(), 1);
               const int g = new_particles_context.GetNewParticleIndex(slot);
 
-              // ── Push the tracked position across the shared face into the
-              // first interior layer of the target neighbor, so Parthenon's
-              // swarm boundary/ownership check picks it up and transfers it
-              // via the normal send/receive machinery. Push distance is
-              // r_search cells along each active axis — the same radius used
-              // above to detect this overlap, so it's enough to guarantee
-              // crossing even for a particle that started at the far edge of
-              // its kernel radius from the boundary.
+              // ── Push the tracked position across the shared face so
+              // Parthenon's swarm ownership check transfers it normally.
+              // Push distance is r_search cells, enough to guarantee crossing.
               const Real dx_cell = coords.Dxc<1>(i);
               const Real dy_cell = coords.Dxc<2>(j);
               const Real dz_cell = (ndim == 3) ? coords.Dxc<3>(k) : 0.0;
@@ -562,11 +509,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               const Real gy_pushed = y(n) + push_y;
               const Real gz_pushed = z(n) + push_z;
 
-              // Store the pushed position plus the offset used to produce it
-              // (offset is subtracted back out on the receiving block to
-              // recover the true physical position for kernel centering),
-              // along with the full deposition payload the receiving block
-              // needs to apply feedback without recomputing SN events.
+              // Store the pushed position plus its offset (subtracted back out
+              // on the receiving block) and the full deposition payload, so
+              // the receiver can apply feedback without recomputing SN events.
               gx(g) = gx_pushed;
               gy(g) = gy_pushed;
               gz(g) = gz_pushed;
@@ -590,33 +535,27 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
       int final_slot_count = 0;
       Kokkos::deep_copy(final_slot_count, ghost_slot_counter);
       PARTHENON_REQUIRE(final_slot_count == total_ghost_count,
-                        "GhostFillLoop: slot counter mismatch — allocation and "
+                        "GhostFillLoop: slot counter mismatch, allocation and "
                         "fill passes disagree on ghost particle count.");
     } // end for ghost_swarm_name
   } // end for swarm_name
 
-  // Fold this block's contribution into the rank-wide sn_ii_power/sn_ia_power
-  // accumulators (read by LocalReduceSNIIPower/LocalReduceSNIaPower at output
-  // time). ApplyStellarFeedback is only ever scheduled once per cycle (see its
-  // "stage == integrator->nstages" gate in hydro_driver.cpp) and, like the rest
-  // of the per-block task graph, runs on a single host thread by default
-  // (TaskCollection::Execute()'s Pool_t is constructed with exactly 1 worker),
-  // so these plain read-modify-write Param updates across blocks can't race:
-  // whichever block on this rank happens to run first for a new cycle resets
-  // the running total to 0 before adding its own share, every later block this
-  // same cycle just adds on top.
+  // Accumulate this block's SN II/Ia energy into rank-wide totals.
+  // Reset once per cycle before the first block contributes.
+  // Task execution is single-threaded, so these read-modify-write updates cannot race.
+  // Store the current timestep for the output reduction.
   const auto last_reset_cycle = stars_pkg->Param<int>("sn_energy_reset_cycle");
   if (last_reset_cycle != tm.ncycle) {
     stars_pkg->UpdateParam<Real>("sn_ii_energy_injected", 0.0);
     stars_pkg->UpdateParam<Real>("sn_ia_energy_injected", 0.0);
     stars_pkg->UpdateParam<int>("sn_energy_reset_cycle", tm.ncycle);
   }
-  stars_pkg->UpdateParam<Real>(
-      "sn_ii_energy_injected",
-      stars_pkg->Param<Real>("sn_ii_energy_injected") + block_total_E_SN_II);
-  stars_pkg->UpdateParam<Real>(
-      "sn_ia_energy_injected",
-      stars_pkg->Param<Real>("sn_ia_energy_injected") + block_total_E_SN_Ia);
+  stars_pkg->UpdateParam<Real>("sn_ii_energy_injected",
+                               stars_pkg->Param<Real>("sn_ii_energy_injected") +
+                                   block_total_E_SN_II);
+  stars_pkg->UpdateParam<Real>("sn_ia_energy_injected",
+                               stars_pkg->Param<Real>("sn_ia_energy_injected") +
+                                   block_total_E_SN_Ia);
   stars_pkg->UpdateParam<Real>("sn_energy_dt", current_dt);
 
   return TaskStatus::complete;
@@ -645,17 +584,10 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
   const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
 
-  // Ghost particles arrive carrying their payload already fully prepared on
-  // the sending (host) block: M_ej_tot/p_SN_tot already scaled down to this
-  // neighbor direction's own ComputeRegionFractions share, p_terminal_Nsn
-  // already density-rescaled (a per-cell cap, shared as-is, so not
-  // fraction-scaled), and h_smooth -- the event's physical kernel radius,
-  // fixed by the host's own dx -- carried unchanged so this block searches
-  // the same physical footprint the host did, just expressed in its own
-  // (possibly differently-sized) cells. No need to touch the lifetime/
-  // ejecta tables, the RNG pool, or this block's own gas density here:
-  // ApplyKineticSNe below computes its own fresh, interior-only weight_sum
-  // from this block's own cells to spread the already-scaled payload.
+  // Ghost particles arrive with their payload already prepared on the
+  // sending (host) block: M_ej_tot/p_SN_tot region-scaled, p_terminal_Nsn
+  // density-rescaled, h_smooth unchanged. ApplyKineticSNe just spreads it
+  // using its own fresh weight_sum over this block's cells.
   for (const auto &swarm_name : swarm_names) {
     const auto ghost_name = "ghost_" + swarm_name;
     auto &gswarm = sd->Get(ghost_name);
@@ -710,19 +642,12 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
   return TaskStatus::complete;
 }
 
-// ========================================================================
-// LocalReduceSNIIPower/LocalReduceSNIaPower: read back sn_ii_energy_injected/
-// sn_ia_energy_injected -- the total energy each channel actually injected on
-// this rank this step, accumulated directly inside ApplyStellarFeedback's own
-// particle-loop reduction above rather than recomputed here (see that
-// accumulation's comment for why the lack of locking across the per-block
-// tasks that fill it in is safe) -- and convert to a power. Since these are
-// already full per-rank sums by the time output runs, and Parthenon calls a
-// history function exactly once per rank (on "md_base", every local block),
-// UserHistoryOperation::sum -- a genuine sum across ranks' independent
-// contributions, unlike AGN's single-global-value max-broadcast -- is the
-// correct cross-rank reduction.
-// ========================================================================
+/* ===============================================================================
+Read the rank-wide SN II/Ia injected energies accumulated by ApplyStellarFeedback
+and convert them to powers. Each history function runs once per rank, so use
+sum to combine the independent per-rank contributions across MPI ranks.
+Unlike AGN, these values are not globally duplicated, so max/broadcast is incorrect.
+=============================================================================== */
 parthenon::Real LocalReduceSNIIPower(MeshData<Real> *md) {
   if (md->NumBlocks() == 0) return 0.0;
   auto stars_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("stars");
