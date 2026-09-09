@@ -43,10 +43,10 @@ namespace StarFormation {
 enum class SFEnergyMode { Isobaric, Isothermal };
 
 // Which gravitational-collapse gate CheckVirialCollapse applies to a cell
-// that already passed the stochastic star-formation draw. Hopkins (default)
-// and GirmaTeyssier are alpha_crit-gated virial parameters; CenOstriker is
-// a cheaper Cen & Ostriker (1992) alternative (div(v) < 0, cold, Jeans).
-enum class SFVirialCriterion { Hopkins, CenOstriker, GirmaTeyssier };
+// that already passed the stochastic star-formation draw. Hopkins is the
+// default (matches the regression test suite); Default is a cheaper Cen &
+// Ostriker (1992)-style alternative (div(v) < 0 and cold).
+enum class SFVirialCriterion { Hopkins, Default };
 
 /* ===============================================================================
 EvaluateStarFormation: calculates cell-by-cell star formation rate based on the
@@ -101,24 +101,23 @@ KOKKOS_INLINE_FUNCTION Real EvaluateStarFormationProbability(
 }
 
 /* ===============================================================================
-CheckVirialCollapse: gates whether a cell already selected by the stochastic
-draw may also collapse gravitationally. Hopkins and GirmaTeyssier both use a
-Bertoldi & McKee-style virial parameter (alpha <= alpha_crit); CenOstriker
-uses div(v)<0, cold, and Jeans-unstable instead.
+CheckVirialCollapse: gates whether a cell already selected by the
+stochastic star-formation draw may also collapse gravitationally. Hopkins
+(default) requires alpha_i <= 1 (Eq. 9, Marinacci+2019); Default (cheaper,
+Cen & Ostriker 1992) requires div(v)<0, cold, and Jeans-unstable.
 =============================================================================== */
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION bool
 CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const int j,
                     const int i, const Real gravitational_constant, const int ndim,
                     const Real gamma, const SFVirialCriterion criterion,
-                    const Real mbar_over_kb, const Real temperature_threshold,
-                    const int nhydro, const Real alpha_crit) {
+                    const Real mbar_over_kb, const Real temperature_threshold) {
 
   const Real dx = coords.Dxc<1>(k, j, i);
   const Real dy = coords.Dxc<2>(k, j, i);
   const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : dx;
 
-  if (criterion == SFVirialCriterion::CenOstriker) {
+  if (criterion == SFVirialCriterion::Default) {
     // div(v) = dvx/dx + dvy/dy [+ dvz/dz]; collapse allowed iff div(v) < 0
     // AND the cell is cold enough (T < temperature_threshold) AND the cell
     // is Jeans-unstable (its gas mass exceeds the local Jeans mass).
@@ -152,9 +151,7 @@ CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const
            (cell_mass > jeans_mass);
   }
 
-  // SFVirialCriterion::Hopkins and SFVirialCriterion::GirmaTeyssier: both
-  // build a Bertoldi & McKee (1992)-style virial parameter from the same
-  // local turbulence proxy (velocity curl) and sound speed over cell size.
+  // SFVirialCriterion::Hopkins
   const Real rho = prim(IDN, k, j, i);
   const Real press = prim(IPR, k, j, i);
   const Real cs2 = gamma * press / rho;
@@ -180,34 +177,12 @@ CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const
   }
 
   const Real curl_v2 = curl_x * curl_x + curl_y * curl_y + curl_z * curl_z;
-
-  if (criterion == SFVirialCriterion::GirmaTeyssier) {
-    // Girma & Teyssier (2024, MNRAS 527, 6779), Eq. 13:
-    // alpha_vir,B = (15/pi) * (sigma_turb^2 + c_s^2 + v_A^2) / (G*rho*dx^2).
-    // sigma_turb^2 is estimated from the local curl(v), as above (reduces
-    // to 0 for solid-body/irrotational flow); v_A^2 is 0 with no B field.
-    const bool has_bfield = (IB1 < nhydro);
-    Real vA2 = 0.0;
-    if (has_bfield) {
-      const Real Bx = prim(IB1, k, j, i);
-      const Real By = prim(IB2, k, j, i);
-      const Real Bz = prim(IB3, k, j, i);
-      vA2 = (Bx * Bx + By * By + Bz * Bz) / rho;
-    }
-    const Real sigma_turb2 = curl_v2 * dx_cell * dx_cell;
-
-    const Real alpha_vir_B = (15.0 / M_PI) * (sigma_turb2 + cs2 + vA2) /
-                             (gravitational_constant * rho * dx_cell * dx_cell);
-
-    return alpha_vir_B <= alpha_crit;
-  }
-
-  // SFVirialCriterion::Hopkins
   const Real cs_over_dx2 = cs2 / (dx_cell * dx_cell); // Assumes squared cells
+
   const Real alpha =
       (curl_v2 + cs_over_dx2) / (8.0 * M_PI * gravitational_constant * rho);
 
-  return alpha <= alpha_crit;
+  return alpha <= 1.0;
 }
 
 /* ===============================================================================
