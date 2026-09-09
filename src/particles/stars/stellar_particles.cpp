@@ -158,25 +158,34 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   // Which gate CheckVirialCollapse applies when the above is enabled (see
   // star_formation.hpp). Defaults to "hopkins" (matches the regression test
-  // suite); "default" is the cheaper Cen & Ostriker (1992) alternative.
+  // suite); "hopkinsalfven" and "cenostriker" are the two alternatives.
   const auto stars_sf_virial_criterion_str =
       pin->GetOrAddString("stars", "sf_virial_criterion", "hopkins");
   StarFormation::SFVirialCriterion stars_sf_virial_criterion;
   if (stars_sf_virial_criterion_str == "hopkins") {
     stars_sf_virial_criterion = StarFormation::SFVirialCriterion::Hopkins;
-  } else if (stars_sf_virial_criterion_str == "default") {
-    stars_sf_virial_criterion = StarFormation::SFVirialCriterion::Default;
+  } else if (stars_sf_virial_criterion_str == "cenostriker") {
+    stars_sf_virial_criterion = StarFormation::SFVirialCriterion::CenOstriker;
+  } else if (stars_sf_virial_criterion_str == "hopkinsalfven") {
+    stars_sf_virial_criterion = StarFormation::SFVirialCriterion::HopkinsAlfven;
   } else {
-    PARTHENON_FAIL("stars/sf_virial_criterion must be one of 'hopkins', 'default'");
+    PARTHENON_FAIL("stars/sf_virial_criterion must be one of 'hopkins', 'cenostriker', "
+                   "'hopkinsalfven'");
   }
   stars_pkg->AddParam<>("stars_sf_virial_criterion", stars_sf_virial_criterion);
 
-  // Temperature ceiling used by the "default" virial criterion (Cen &
+  // Temperature ceiling used by the "cenostriker" virial criterion (Cen &
   // Ostriker 1992): on top of div(v) < 0, only cells with T [K] below this
-  // threshold are allowed to collapse. Unused by "hopkins".
+  // threshold are allowed to collapse. Unused by "hopkins"/"hopkinsalfven".
   const auto stars_sf_temperature_threshold =
       pin->GetOrAddReal("stars", "sf_temperature_threshold", 1.0e4);
   stars_pkg->AddParam<>("stars_sf_temperature_threshold", stars_sf_temperature_threshold);
+
+  // Critical virial parameter for the "hopkins"/"hopkinsalfven" alpha <=
+  // alpha_crit gate (Bertoldi & McKee 1992's standard value is 1.0).
+  // Unused by "cenostriker".
+  const auto stars_sf_alpha_crit = pin->GetOrAddReal("stars", "sf_alpha_crit", 1.0);
+  stars_pkg->AddParam<>("stars_sf_alpha_crit", stars_sf_alpha_crit);
 
   // Feedback booleans
   const auto SN_II_enabled = pin->GetOrAddBoolean("stars", "SN_II_enabled", false);
@@ -461,6 +470,7 @@ parthenon::Real LocalReduceStarFormationRate(MeshData<Real> *md) {
   const auto units = hydro_pkg->Param<Units>("units");
   const Real gravitational_constant = units.gravitational_constant();
   const auto gamma = hydro_pkg->Param<Real>("AdiabaticIndex");
+  const int nhydro = hydro_pkg->Param<int>("nhydro");
   Real mbar_over_kb = -1;
   if (hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
     mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
@@ -473,6 +483,7 @@ parthenon::Real LocalReduceStarFormationRate(MeshData<Real> *md) {
       stars_pkg->Param<StarFormation::SFVirialCriterion>("stars_sf_virial_criterion");
   const auto sf_virial_temperature_threshold =
       stars_pkg->Param<Real>("stars_sf_temperature_threshold");
+  const auto sf_alpha_crit = stars_pkg->Param<Real>("stars_sf_alpha_crit");
 
   const auto ndim = md->GetParentPointer()->ndim;
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -497,7 +508,8 @@ parthenon::Real LocalReduceStarFormationRate(MeshData<Real> *md) {
         if (virial_criterion &&
             !StarFormation::CheckVirialCollapse(
                 prim, coords, k, j, i, gravitational_constant, ndim, gamma,
-                sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold)) {
+                sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold,
+                nhydro, sf_alpha_crit)) {
           return;
         }
 

@@ -125,7 +125,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     StarFormation::SFVirialCriterion sf_virial_criterion =
         StarFormation::SFVirialCriterion::Hopkins; // unused unless virial_criterion
     Real sf_virial_temperature_threshold =
-        1.0e4; // unused unless SFVirialCriterion::Default
+        1.0e4;                // unused unless SFVirialCriterion::CenOstriker
+    Real sf_alpha_crit = 1.0; // unused unless Hopkins/HopkinsAlfven
     Real p_injection = -1.0;
     Real injection_threshold = -1.0;
     InjectionMode injection_mode = InjectionMode::FixedRate; // By default
@@ -164,11 +165,10 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
     } else if (pkg_name == "stars") {
       // --- Stars: per-cell stochastic star formation ------------------------------
-      // Injection probability is evaluated cell-by-cell from a SMUGGLE-style star
-      // formation rate, optionally gated by a gravitational-collapse virial
-      // criterion (either Hopkins+2013/2018c or Cen & Ostriker 1992 -- see
-      // SFVirialCriterion in star_formation.hpp). This differs in nature from
-      // the tracers' fixed-rate recipe above.
+      // Injection probability is evaluated cell-by-cell from a SMUGGLE-style
+      // rate, optionally gated by a virial gate: Hopkins/HopkinsAlfven
+      // (alpha <= alpha_crit) or CenOstriker (Cen & Ostriker 1992) -- see
+      // SFVirialCriterion in star_formation.hpp.
       particles_type = ParticlesType::Stars;
       injection_mode = InjectionMode::PerCell;
       mass_enabled = true;
@@ -184,6 +184,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           swarm_name + "_sf_virial_criterion");
       sf_virial_temperature_threshold =
           particles_pkg->Param<Real>(swarm_name + "_sf_temperature_threshold");
+      sf_alpha_crit = particles_pkg->Param<Real>(swarm_name + "_sf_alpha_crit");
 
     } else {
       // Future packages (e.g. additional particle species) should add a
@@ -237,10 +238,10 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               // gravitational-collapse gate (SFVirialCriterion) before
               // injection proceeds.
               if (p_local > 0.0 && virial_criterion &&
-                  !StarFormation::CheckVirialCollapse(prim, coords, k, j, i,
-                                                      gravitational_constant, ndim, gamma,
-                                                      sf_virial_criterion, mbar_over_kb,
-                                                      sf_virial_temperature_threshold)) {
+                  !StarFormation::CheckVirialCollapse(
+                      prim, coords, k, j, i, gravitational_constant, ndim, gamma,
+                      sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold,
+                      nhydro, sf_alpha_crit)) {
                 p_local = 0.0; // did not pass the collapse gate: veto injection
               }
             }
@@ -335,10 +336,10 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               // passed the stochastic draw above -- see the selected
               // gravitational-collapse gate (SFVirialCriterion) above.
               if (p_local > 0.0 && virial_criterion &&
-                  !StarFormation::CheckVirialCollapse(prim, coords, k, j, i,
-                                                      gravitational_constant, ndim, gamma,
-                                                      sf_virial_criterion, mbar_over_kb,
-                                                      sf_virial_temperature_threshold)) {
+                  !StarFormation::CheckVirialCollapse(
+                      prim, coords, k, j, i, gravitational_constant, ndim, gamma,
+                      sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold,
+                      nhydro, sf_alpha_crit)) {
                 p_local = 0.0; // did not pass the collapse gate: veto injection
               }
             }
