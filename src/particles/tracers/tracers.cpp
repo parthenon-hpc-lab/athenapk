@@ -327,14 +327,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     // TODO(pgrete) Add CheckDesired/required for vars
     // thermo variables
-    tracers_pkg->AddSwarmValue("density", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("rho", swarm_name, real_swarmvalue_metadata);
     tracers_pkg->AddSwarmValue("pressure", swarm_name, real_swarmvalue_metadata);
     tracers_pkg->AddSwarmValue("grad_pressure_x", swarm_name, real_swarmvalue_metadata);
     tracers_pkg->AddSwarmValue("grad_pressure_y", swarm_name, real_swarmvalue_metadata);
     tracers_pkg->AddSwarmValue("grad_pressure_z", swarm_name, real_swarmvalue_metadata);
-    tracers_pkg->AddSwarmValue("v_x", swarm_name, real_swarmvalue_metadata);
-    tracers_pkg->AddSwarmValue("v_y", swarm_name, real_swarmvalue_metadata);
-    tracers_pkg->AddSwarmValue("v_z", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("vel_x", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("vel_y", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("vel_z", swarm_name, real_swarmvalue_metadata);
 
     // Adding refinement level
     Metadata int_swarmvalue_metadata({Metadata::Integer});
@@ -643,9 +643,9 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
 
-    auto &vel_x = swarm->Get<Real>("v_x").Get();
-    auto &vel_y = swarm->Get<Real>("v_y").Get();
-    auto &vel_z = swarm->Get<Real>("v_z").Get();
+    auto &vel_x = swarm->Get<Real>("vel_x").Get();
+    auto &vel_y = swarm->Get<Real>("vel_y").Get();
+    auto &vel_z = swarm->Get<Real>("vel_z").Get();
 
     auto swarm_d = swarm->GetDeviceContext();
 
@@ -934,9 +934,9 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
       auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
       auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
       auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
-      auto &vel_x = swarm->Get<Real>("v_x").Get();
-      auto &vel_y = swarm->Get<Real>("v_y").Get();
-      auto &vel_z = swarm->Get<Real>("v_z").Get();
+      auto &vel_x = swarm->Get<Real>("vel_x").Get();
+      auto &vel_y = swarm->Get<Real>("vel_y").Get();
+      auto &vel_z = swarm->Get<Real>("vel_z").Get();
       // Assign some (definitely existing) default var
       auto B_x = vel_x.Get();
       auto B_y = vel_x.Get();
@@ -965,7 +965,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
         grad_B2_z = swarm->Get<Real>("grad_B2_z").Get();
       }
 
-      auto &density = swarm->Get<Real>("density").Get();
+      auto &rho = swarm->Get<Real>("rho").Get();
       auto &pressure = swarm->Get<Real>("pressure").Get();
       auto &grad_pressure_x = swarm->Get<Real>("grad_pressure_x").Get();
       auto &grad_pressure_y = swarm->Get<Real>("grad_pressure_y").Get();
@@ -1001,7 +1001,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
               level(n) = block_level;
 
               // Direct cell-centered access
-              density(n) = prim_pack(b, IDN, k, j, i);
+              rho(n) = prim_pack(b, IDN, k, j, i);
               vel_x(n) = prim_pack(b, IV1, k, j, i);
               vel_y(n) = prim_pack(b, IV2, k, j, i);
               if (ndim == 3) {
