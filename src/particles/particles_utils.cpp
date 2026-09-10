@@ -187,7 +187,9 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
     auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
-    auto &t_inj = swarm->Get<Real>("injection_time").Get();
+    const bool track_injection_time = swarm->Contains<Real>("injection_time");
+    auto t_inj = x.Get();
+    if (track_injection_time) t_inj = swarm->Get<Real>("injection_time").Get();
 
     Real lifetime;
     auto ltime = t_inj.Get();
@@ -233,7 +235,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               z(swarm_idx) = z_cell;
 
               id(swarm_idx) = block_offset + counter_idx;
-              t_inj(swarm_idx) = current_time;
+              if (track_injection_time) t_inj(swarm_idx) = current_time;
               if (removal_enabled) {
                 ltime(swarm_idx) = lifetime;
               }

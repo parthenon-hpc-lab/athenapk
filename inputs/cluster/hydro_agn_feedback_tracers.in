@@ -66,6 +66,7 @@ nx3         = 8        # Number of zones in X3-direction
 enabled = true
 advection_method = montecarlo
 swarm_names = tracers
+tracers_fields = injection_time, grad_pressure_x, grad_pressure_y, grad_pressure_z, div_v, rot_v
 initial_seed_method = random_per_block
 tracers_initial_num_tracers_per_cell = 0.0
 tracers_injection_enabled = true

@@ -232,7 +232,10 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, parthenon::SimTime &tm, const 
 
 This function is called right after the default `FillTracers` task.
 
-> The default `FillTracers` routine registers cell-centered key quantities (e.g., density `rho`, velocity `vel`, magnetic field `B`, etc.).
+The default `FillTracers` routine fills the standard fluid fields and any optional
+fields selected for that swarm with `SWARM_NAME_fields`. See
+[Per-swarm fields](input.md#per-swarm-fields) for the registry and the definition
+of each built-in diagnostic.
 
 ---
 

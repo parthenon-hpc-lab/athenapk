@@ -390,6 +390,54 @@ Note that to keep the population of dynamically injected tracers roughly stable 
 
 ---
 
+##### Per-swarm fields
+
+Every swarm always contains the position and ID fields managed by Parthenon plus
+the primitive variables: `rho`, `pressure`, `vel_x`, `vel_y`, and `vel_z`.
+MHD runs also contain `B_x`, `B_y`, and `B_z`.
+
+Additional fields are selected independently for each swarm with
+`SWARM_NAME_fields` in the `<tracers>` block. The default is an empty list. For
+example:
+
+```ini
+swarm_names = tracers0,tracers1
+tracers0_fields = level, div_v, rot_v
+tracers1_fields = injection_time, grad_pressure_x, grad_pressure_y
+```
+
+This registry controls which fields exist on each swarm. Selecting fields for a
+non-restart output remains a separate step in that output block, as described
+under [Output Configuration](#output-configuration).
+
+The available fields are:
+
+| Field | Value stored at the tracer position |
+| --- | --- |
+| `injection_time` | Simulation time at which the tracer was created, including tracers created during initial seeding. |
+| `lifetime` | Removal lifetime assigned to the tracer. This field requires `SWARM_NAME_removal_enabled=true`. |
+| `level` | Refinement level of the tracer's current mesh block. |
+| `grad_pressure_x`, `grad_pressure_y`, `grad_pressure_z` | Components of the pressure gradient, calculated with centered differences of the cell-centered pressure. The z component is zero in 2D. |
+| `div_v` | Velocity divergence, $`\nabla\!\cdot\!\boldsymbol{v}`$, calculated with centered differences. |
+| `rot_v` | Magnitude of the velocity curl, $`\lvert\nabla\!\times\!\boldsymbol{v}\rvert`$. In 2D this is the absolute value of its z component. |
+| `rot_B_x`, `rot_B_y`, `rot_B_z` | Components of $`\nabla\!\times\!\boldsymbol{B}`$, calculated with centered differences. These fields require `hydro/fluid=glmmhd`. |
+| `tens_B_x`, `tens_B_y`, `tens_B_z` | Components of the magnetic-tension term $`(\boldsymbol{B}\!\cdot\!\nabla)\boldsymbol{B}`$. These fields require `hydro/fluid=glmmhd`. |
+| `grad_B2_x`, `grad_B2_y`, `grad_B2_z` | Components of $`\nabla(B^2)`$, calculated with centered differences. These fields require `hydro/fluid=glmmhd`. |
+| `scalar_fraction` | The first passive scalar's primitive value (mass fraction). This field requires `hydro/nscalars=1`. |
+
+`level` is added automatically when Monte Carlo advection is used on a multilevel
+mesh, including meshes with static or adaptive refinement. That combination needs
+the previous refinement level when recentering tracers after communication.
+Enabling lifetime-based removal automatically adds `injection_time` and `lifetime`.
+These automatically added fields become part of that swarm's effective field
+registry.
+
+Unknown or duplicate field names, fields incompatible with the selected fluid,
+and `scalar_fraction` without exactly one passive scalar cause an error during
+startup. Optional fluid-derived fields are updated immediately before output.
+
+---
+
 ##### Initial Seeding
 
 ```ini
@@ -465,12 +513,9 @@ resulting in the following image:
 
 ![image](img/tracer_example.png)
 
-Following "restrictions" apply to the current tracer implementation:
-- Only 3D simulations.
-- Only one advection method (RK2/Heun's method).
-- All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`) are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
-- Default tracer values (such as the primitive fields) are only updated right before writing an output file.
-- Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.
+Following restrictions apply to the current tracer implementation:
+- The `scalar_fraction` field supports exactly one passive scalar.
+- Fluid-derived tracer values are only updated immediately before writing an output file.
 
 Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
 
