@@ -71,6 +71,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   const Real mag_pert_amp = pin->GetOrAddReal("problem/harris_chi_b", "mag_pert_amp", 0.1);
   const Real kx = 2.0 * M_PI * pin->GetOrAddReal("problem/harris_chi_b", "kx", 5.0);
   const Real ly = pin->GetOrAddReal("problem/harris_chi_b", "ly", x2max - x2min);
+  // Murphy et al.'s beta is defined on the strong-field side (B0), not the
+  // weak-field side. This keeps the equilibrium pressure positive for the
+  // full physical range 0 <= b <= 1.
   const Real beta = pin->GetOrAddReal("problem/harris_chi_b", "beta", 1.0);
   const Real rho_hot = pin->GetOrAddReal("problem/harris_chi_b", "rho0", 1.0);
   const Real vel_pert_amp = pin->GetOrAddReal("problem/harris_chi_b", "vel_pert_amp", 0.01);
@@ -95,17 +98,18 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         // The y -> -infinity side has magnitude B0, while the y ->
         // +infinity side has magnitude BR = R B0.
         const Real bx0 = B0 * (Kokkos::tanh(y / delta) - b) / (1.0 + b);
-        const Real BR = B0 * (1.0 - b) / (1.0 + b);
 
         // Keep the density contrast independent of the magnetic asymmetry.
         // This is the original chi profile, with rho(-infinity)/rho(+infinity)=chi.
         const Real density = rho_hot *
             (0.5 * (1.0 + chi) + 0.5 * (1.0 - chi) * Kokkos::tanh(y / delta));
 
-        // Full unperturbed total-pressure balance:
-        // p(y) + Bx0(y)^2/2 = p_R + BR^2/2.
-        const Real pressure_R = beta * 0.5 * SQR(BR);
-        const Real pressure = pressure_R + 0.5 * (SQR(BR) - SQR(bx0));
+        // Full unperturbed total-pressure balance in the convention of
+        // Murphy et al. (2013), Eq. (9): beta is the strong-side beta.
+        // Consequently, p(y) + Bx0(y)^2/2 = (1 + beta) B0^2/2,
+        // and pressure remains non-negative for 0 <= b <= 1.
+        const Real pressure_strong = beta * 0.5 * SQR(B0);
+        const Real pressure = pressure_strong + 0.5 * (SQR(B0) - SQR(bx0));
 
         // Divergence-free magnetic perturbation, Eqs. (12)-(13).
         const Real gauss_y =

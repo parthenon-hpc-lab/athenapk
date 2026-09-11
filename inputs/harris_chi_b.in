@@ -13,7 +13,7 @@ B0             = 1.0       # Strong-side asymptotic reconnecting field
 chi            = 3.0       # Density contrast rho(y->-inf) / rho(y->+inf)
 b              = 0.25      # Magnetic asymmetry; B_weak / B_strong = (1 - b) / (1 + b)
 delta          = 0.10      # Current-sheet half-thickness
-beta           = 1.0       # Weak-side asymptotic plasma beta used to set pressure balance
+beta           = 1.0       # Strong-side asymptotic plasma beta (Murphy et al. 2013 convention)
 rho0           = 1.0       # Hot-side density normalization
 mag_pert_amp   = 0.08      # Magnetic perturbation amplitude
 kx             = 5.0       # Perturbation mode number in x1; code multiplies by 2*pi
