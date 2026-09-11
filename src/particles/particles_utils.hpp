@@ -95,20 +95,20 @@ compile error instead of the silent out-of-bounds write it would otherwise be.
 =============================================================================== */
 
 inline Real EncodeOffset(const std::uint64_t offset) {
-  static_assert(sizeof(Real) >= sizeof(std::uint64_t),
-                "Encoding a particle ID offset into a single-precision Real would "
-                "overrun the element; tracers currently require a double-precision "
-                "(non-PARTHENON_SINGLE_PRECISION) build.");
+  PARTHENON_REQUIRE(sizeof(Real) >= sizeof(std::uint64_t),
+                    "Encoding a particle ID offset into a single-precision Real would "
+                    "overrun the element; tracers currently require a double-precision "
+                    "(non-PARTHENON_SINGLE_PRECISION) build.");
   Real encoded;
   std::memcpy(&encoded, &offset, sizeof(offset));
   return encoded;
 }
 
 inline std::uint64_t DecodeOffset(const Real &encoded) {
-  static_assert(sizeof(Real) >= sizeof(std::uint64_t),
-                "Decoding a particle ID offset from a single-precision Real would "
-                "over-read the element; tracers currently require a double-precision "
-                "(non-PARTHENON_SINGLE_PRECISION) build.");
+  PARTHENON_REQUIRE(sizeof(Real) >= sizeof(std::uint64_t),
+                    "Decoding a particle ID offset from a single-precision Real would "
+                    "over-read the element; tracers currently require a double-precision "
+                    "(non-PARTHENON_SINGLE_PRECISION) build.");
   std::uint64_t offset;
   std::memcpy(&offset, &encoded, sizeof(offset));
   return offset;
