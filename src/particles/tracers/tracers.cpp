@@ -951,8 +951,9 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 } // CenterTracers
 
 /* ===============================================================================
-FillTracers: calculate interpolated values of some fields (rho, vel, B, etc.) to
-damped into the output files.
+FillTracers: sample primitive quantities at tracer positions for vinterp and at
+host-cell centers for Monte Carlo. Derivative diagnostics use host-cell stencils
+for both methods.
 =============================================================================== */
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
@@ -961,6 +962,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+  const bool vinterp =
+      tracers_pkg->Param<AdvectMethod>("advection_method") == AdvectMethod::VInterp;
 
   // Get hydro/mhd fluid vars over all blocks
   auto nhydro = hydro_pkg->Param<int>("nhydro");
@@ -1063,7 +1066,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
       // update loop.
       const int max_active_index = swarm->GetMaxActiveIndex();
       pmb->par_for(
-          "FillTracers::CellCentered", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+          "FillTracers::PartLoop", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
             if (swarm_d.IsActive(n)) {
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
@@ -1076,15 +1079,26 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
               // First, store grid level
               if (trace_level) level(n) = block_level;
 
-              // Direct cell-centered access
-              rho(n) = prim_pack(b, IDN, k, j, i);
-              vel_x(n) = prim_pack(b, IV1, k, j, i);
-              vel_y(n) = prim_pack(b, IV2, k, j, i);
-              if (ndim == 3) {
-                vel_z(n) = prim_pack(b, IV3, k, j, i);
+              // VInterp's next Heun step uses these stored velocities, so they must
+              // be sampled at the particle position, just like its predictor velocity.
+              if (vinterp) {
+                rho(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IDN);
+                vel_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV1);
+                vel_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV2);
+                vel_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV3);
+                pressure(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IPR);
+              } else {
+                rho(n) = prim_pack(b, IDN, k, j, i);
+                vel_x(n) = prim_pack(b, IV1, k, j, i);
+                vel_y(n) = prim_pack(b, IV2, k, j, i);
+                if (ndim == 3) {
+                  vel_z(n) = prim_pack(b, IV3, k, j, i);
+                }
+                pressure(n) = prim_pack(b, IPR, k, j, i);
               }
-              pressure(n) = prim_pack(b, IPR, k, j, i);
 
+              // Keep derivative diagnostics at the host-cell center for both methods
+              // to avoid interpolating quantities that already require a stencil.
               if (trace_grad_pressure_x) {
                 grad_pressure_x(n) =
                     (prim_pack(b, IPR, k, j, i + 1) - prim_pack(b, IPR, k, j, i - 1)) /
@@ -1104,17 +1118,27 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
               // Add passive scalar fraction if it exists
               if (trace_scalar_fraction) {
-                scalar_fraction(n) = prim_pack(b, nhydro, k, j, i);
+                scalar_fraction(n) =
+                    vinterp ? LCInterp::Do(b, x(n), y(n), z(n), prim_pack, nhydro)
+                            : prim_pack(b, nhydro, k, j, i);
               }
 
               if (mhd) {
+                // Use cell-centered B in derivative diagnostics (including tension),
+                // even when the stored primitive B is interpolated to the particle.
                 const Real Bx = prim_pack(b, IB1, k, j, i);
                 const Real By = prim_pack(b, IB2, k, j, i);
                 const Real Bz = (ndim == 3) ? prim_pack(b, IB3, k, j, i) : 0.0;
 
-                B_x(n) = Bx;
-                B_y(n) = By;
-                B_z(n) = Bz;
+                if (vinterp) {
+                  B_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB1);
+                  B_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB2);
+                  B_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB3);
+                } else {
+                  B_x(n) = Bx;
+                  B_y(n) = By;
+                  B_z(n) = Bz;
+                }
 
                 if (trace_magnetic_diagnostics) {
                   // Calculate gradients of magnetic field components

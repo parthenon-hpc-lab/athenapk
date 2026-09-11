@@ -351,6 +351,18 @@ advection_method = vinterp   # options: vinterp (default), montecarlo
 
 `montecarlo` requires the `vl2` integrator (see `tracers.cpp`).
 
+With `vinterp`, density, pressure, velocity, magnetic field, and the optional
+passive-scalar fraction are linearly interpolated to each tracer's position.
+The stored velocity is also used in the next tracer integration step.
+With `montecarlo`, these quantities are sampled at the host-cell center.
+
+For both methods, derivative diagnostics (pressure gradients, divergence,
+vorticity, magnetic curl, magnetic tension, and the gradient of magnetic-field
+strength squared) are evaluated at the host-cell center without interpolation.
+This avoids the larger stencil needed to interpolate those diagnostics, but their
+values can jump when a tracer crosses a cell boundary. In particular, magnetic
+tension uses the host-cell magnetic field and its cell-centered derivatives.
+
 ---
 
 ##### Swarm Populations
@@ -412,7 +424,7 @@ under [Output Configuration](#output-configuration).
 
 The available fields are:
 
-| Field | Value stored at the tracer position |
+| Field | Value stored on the tracer |
 | --- | --- |
 | `injection_time` | Simulation time at which the tracer was created, including tracers created during initial seeding. |
 | `lifetime` | Removal lifetime assigned to the tracer. This field requires `SWARM_NAME_removal_enabled=true`. |
