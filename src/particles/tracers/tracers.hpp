@@ -57,6 +57,9 @@ extern FillTracersFun_t ProblemFillTracers;
 
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 
+// Contract: "tracers_offsets" already holds each block's ID slice when this runs
+// (see EncodeOffset/DecodeOffset). A callback assigning particle IDs must read
+// and advance that field, or later dynamic injection will reuse its IDs.
 using SeedInitialFun_t =
     std::function<void(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm)>;
 extern SeedInitialFun_t ProblemSeedInitialTracers;

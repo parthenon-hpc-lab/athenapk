@@ -347,6 +347,11 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
+  auto tracers_pkg = pmesh->packages.Get("tracers");
+  const bool fill_tracer_mcell =
+      tracers_pkg->Param<bool>("enabled") &&
+      tracers_pkg->Param<Tracers::AdvectMethod>("advection_method") ==
+          Tracers::AdvectMethod::MonteCarlo;
 
   TaskID none(0);
   // Number of task lists that can be executed indepenently and thus *may*
@@ -511,6 +516,12 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
     auto calc_flux = tl.AddTask(none, calc_flux_fun, mu0);
 
+    // Fill tracers' mass reference once, before this step's first conservative
+    // update, not on every stage (see FillTracerMCell).
+    if (stage == 1 && fill_tracer_mcell) {
+      tl.AddTask(none, FillTracerMCell, mu0.get());
+    }
+
     // TODO(pgrete) figure out what to do about the sources from the first stage
     // that are potentially disregarded when the (m)hd fluxes are corrected in the second
     // stage.
@@ -612,7 +623,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  auto tracers_pkg = pmesh->packages.Get("tracers");
   // First order operator split tracer advection
   if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
     const std::string swarm_name = "tracers";

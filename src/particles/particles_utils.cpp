@@ -27,6 +27,7 @@
 // Parthenon headers
 #include "basic_types.hpp"
 #include "kokkos_abstraction.hpp"
+#include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 #include <parthenon/package.hpp>
 
@@ -70,6 +71,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
   // Loading root grid level
   const int root_level = pmesh->GetRootLevel();
   const int gid = pmb->gid;
+  const int block_level = pmb->loc.level();
   const auto ndim = pmb->pmy_mesh->ndim;
 
   // Getting variable required for temperature
@@ -116,6 +118,14 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     if (particles_pkg->AllParams().hasKey("jet_thickness")) {
       jet_thickness = particles_pkg->Param<Real>("jet_thickness");
     }
+    // Same time-dependent jet axis as the actual kinetic feedback (see
+    // cluster/agn_feedback.cpp) -- a tilted/precessing jet then tags the region
+    // it actually deposits into, not a fixed z-axis cylinder.
+    const cluster::JetCoords jet_coords =
+        hydro_pkg->AllParams().hasKey("jet_coords_factory")
+            ? hydro_pkg->Param<cluster::JetCoordsFactory>("jet_coords_factory")
+                  .CreateJetCoords(current_time)
+            : cluster::JetCoords(0.0, 0.0);
 
     // Here, distinguishing tracer package from other kind of particles (e.g. stars).
     // Each package is responsible for computing p_injection in [0, 1], the probability
@@ -157,13 +167,14 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
         KOKKOS_LAMBDA(const int k, const int j, const int i, int &lnpart) {
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
                                 injection_threshold, mbar_over_kb, ndim, jet_radius,
-                                jet_offset, jet_thickness)) {
+                                jet_offset, jet_thickness, jet_coords)) {
 
             const Real p_local = (injection_mode == InjectionMode::FixedRate)
                                      ? p_injection
                                      : -1; // Could be replaced by e.g. SFR
 
-            auto seed = SeedFromIndices(k, j, i, gid, current_time);
+            auto seed =
+                SeedFromIndices(k, j, i, gid, static_cast<int>(k_population), current_time);
             auto rnd = random_double(seed);
             if (rnd < p_local) {
               lnpart += 1;
@@ -191,6 +202,15 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     auto t_inj = x.Get();
     if (track_injection_time) t_inj = swarm->Get<Real>("injection_time").Get();
 
+    // Downstream tasks (AdvectTracers, CenterTracers) run before this cycle's
+    // FillTracers, so a freshly injected particle needs these set here already.
+    auto &vel_x = swarm->Get<Real>("vel_x").Get();
+    auto &vel_y = swarm->Get<Real>("vel_y").Get();
+    auto &vel_z = swarm->Get<Real>("vel_z").Get();
+    const bool trace_level = swarm->Contains<int>("level");
+    parthenon::ParArrayND<int> level;
+    if (trace_level) level = swarm->Get<int>("level").Get();
+
     Real lifetime;
     auto ltime = t_inj.Get();
     if (removal_enabled) {
@@ -212,13 +232,14 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
                                 injection_threshold, mbar_over_kb, ndim, jet_radius,
-                                jet_offset, jet_thickness)) {
+                                jet_offset, jet_thickness, jet_coords)) {
 
             const Real p_local = (injection_mode == InjectionMode::FixedRate)
                                      ? p_injection
                                      : -1; // Could be replaced by e.g. SFR
 
-            auto seed = SeedFromIndices(k, j, i, gid, current_time);
+            auto seed =
+                SeedFromIndices(k, j, i, gid, static_cast<int>(k_population), current_time);
             auto rnd = random_double(seed);
 
             if (rnd < p_local) {
@@ -239,6 +260,13 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               if (removal_enabled) {
                 ltime(swarm_idx) = lifetime;
               }
+
+              // Cell-centered sample, exact since the particle sits at (i, j, k)'s
+              // center; matches FillTracers' non-interpolated (Monte Carlo) branch.
+              vel_x(swarm_idx) = prim(IV1, k, j, i);
+              vel_y(swarm_idx) = prim(IV2, k, j, i);
+              if (ndim == 3) vel_z(swarm_idx) = prim(IV3, k, j, i);
+              if (trace_level) level(swarm_idx) = block_level;
             }
           }
         });

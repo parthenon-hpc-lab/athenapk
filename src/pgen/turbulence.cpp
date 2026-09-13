@@ -368,6 +368,17 @@ void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *trac
   // If more are desired, the Problem Filling routine also needs an update.
   const auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
   const auto swarm_name = swarm_names.at(0);
+
+  // ProblemFillTracers needs injection_time to tell a just-injected particle apart
+  // from an old one, so it can seed its s/sdot history instead of shifting in zeros.
+  if (tracers_pkg->Param<bool>(swarm_name + "_injection_enabled")) {
+    const auto fields =
+        tracers_pkg->Param<std::vector<std::string>>(swarm_name + "_fields");
+    PARTHENON_REQUIRE_THROWS(
+        std::find(fields.begin(), fields.end(), "injection_time") != fields.end(),
+        "Turbulence density history ('n_lookback') requires 'injection_time' in '" +
+            swarm_name + "_fields' (or removal enabled) when injection is also on.");
+  }
   if (parthenon::Globals::my_rank == 0) {
     PARTHENON_WARN(
         "Turbulence pgen: Adding tracer ln(rho) history only to tracer population '" +
@@ -946,6 +957,7 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
                               const Real dt) {
 
   const auto current_cycle = tm.ncycle;
+  const auto current_time = tm.time;
 
   auto hydro_pkg = md->GetParentPointer()->packages.Get("Hydro");
   const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
@@ -1001,6 +1013,9 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
     auto &rho = swarm->Get<Real>("rho").Get();
     auto &s = swarm->Get<Real>("s").Get();
     auto &sdot = swarm->Get<Real>("sdot").Get();
+    const bool track_injection_time = swarm->Contains<Real>("injection_time");
+    auto t_inj = s.Get();
+    if (track_injection_time) t_inj = swarm->Get<Real>("injection_time").Get();
 
     auto swarm_d = swarm->GetDeviceContext();
 
@@ -1009,16 +1024,26 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
     pmb->par_for(
         "Turbulence::Fill Tracers", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
           if (swarm_d.IsActive(n)) {
-            auto s_idx = n_lookback - 1;
-            while (s_idx > 0) {
-              if (current_cycle % (dncycles_d(s_idx) - dncycles_d(s_idx - 1)) == 0) {
-                s(s_idx, n) = s(s_idx - 1, n);
-                sdot(s_idx, n) = sdot(s_idx - 1, n);
+            int s_idx;
+            // A particle injected this cycle has no real history yet: seed every
+            // lookback slot with its current value instead of shifting in zeros.
+            if (track_injection_time && t_inj(n) == current_time) {
+              for (s_idx = 0; s_idx < n_lookback; s_idx++) {
+                s(s_idx, n) = Kokkos::log(rho(n));
+                sdot(s_idx, n) = 0.0;
               }
-              s_idx -= 1;
+            } else {
+              s_idx = n_lookback - 1;
+              while (s_idx > 0) {
+                if (current_cycle % (dncycles_d(s_idx) - dncycles_d(s_idx - 1)) == 0) {
+                  s(s_idx, n) = s(s_idx - 1, n);
+                  sdot(s_idx, n) = sdot(s_idx - 1, n);
+                }
+                s_idx -= 1;
+              }
+              s(0, n) = Kokkos::log(rho(n));
+              sdot(0, n) = (s(0, n) - s(1, n)) / dt;
             }
-            s(0, n) = Kokkos::log(rho(n));
-            sdot(0, n) = (s(0, n) - s(1, n)) / dt;
 
             // Now that all s and sdot entries are updated, we calculate the (mean)
             // correlations

@@ -31,6 +31,7 @@
 #include <parthenon/package.hpp>
 
 #include "../main.hpp"
+#include "../pgen/cluster/jet_coords.hpp"
 #include "basic_types.hpp"
 
 using namespace parthenon::driver::prelude;
@@ -124,7 +125,8 @@ KOKKOS_INLINE_FUNCTION bool
 EvaluateCriterion(ParticlesCriterion crit, View4D prim, const Coordinates_t &coords,
                   const int k, const int j, const int i, const Real threshold,
                   const Real mbar_over_kb, const int ndim, const Real jet_radius = -1.0,
-                  const Real jet_offset = -1.0, const Real jet_thickness = -1.0) {
+                  const Real jet_offset = -1.0, const Real jet_thickness = -1.0,
+                  const cluster::JetCoords &jet_coords = cluster::JetCoords(0.0, 0.0)) {
 
   // Loading coordinates
   const Real dx = coords.Dxc<1>(k, j, i);
@@ -145,16 +147,16 @@ EvaluateCriterion(ParticlesCriterion crit, View4D prim, const Coordinates_t &coo
     return mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i) >= threshold;
 
   case ParticlesCriterion::Jet: {
-    // Geometric criterion selecting cells within a cylindrical shell around the
-    // z-axis, matching the kinetic AGN jet's injection region (see
-    // cluster/agn_feedback.cpp): radius < jet_radius and a height offset within
-    // [jet_offset, jet_offset + jet_thickness] on either side of the disk plane.
+    // Cylindrical shell around jet_coords' (possibly tilted/precessing) axis,
+    // matching the kinetic AGN jet's own region (cluster/agn_feedback.cpp) --
+    // not a fixed z-axis, which would drift out of sync with a moving jet.
     const Real x = coords.Xc<1>(k, j, i);
     const Real y = coords.Xc<2>(k, j, i);
     const Real z = (ndim == 3) ? coords.Xc<3>(k, j, i) : 0.0;
 
-    const Real r = Kokkos::sqrt(x * x + y * y);
-    const Real h = Kokkos::fabs(z);
+    Real r, cos_theta, sin_theta, h;
+    jet_coords.SimCartToJetCylCoords(x, y, z, r, cos_theta, sin_theta, h);
+    h = Kokkos::fabs(h);
 
     return (r < jet_radius) && (h >= jet_offset) && (h <= jet_offset + jet_thickness);
   }

@@ -386,14 +386,14 @@ tracers0_removal_enabled      = false
 # tracers1: dynamically injected tracers
 tracers1_initial_num_tracers_per_cell = 0
 tracers1_injection_enabled    = true
-tracers1_injection_criteria   = density_above
+tracers1_injection_criterion  = density_above
 tracers1_injection_threshold  = 8.0 # in code units
 tracers1_injection_timescale  = 0.05
 tracers1_injection_num_target = 1
 
 tracers1_removal_enabled             = true
 tracers1_removal_exception           = true
-tracers1_removal_exception_criteria  = density_above
+tracers1_removal_exception_criterion = density_above
 tracers1_removal_exception_threshold = 8.0 # in code units
 tracers1_lifetime                    = 0.05
 ```
@@ -446,7 +446,9 @@ registry.
 
 Unknown or duplicate field names, fields incompatible with the selected fluid,
 and `scalar_fraction` without exactly one passive scalar cause an error during
-startup. Optional fluid-derived fields are updated immediately before output.
+startup. Optional fluid-derived fields are updated by the hydro driver every
+full timestep (not just before writing an output), so an output simply
+reflects the values as of the last completed step.
 
 ---
 
@@ -467,7 +469,7 @@ Two seeding methods are supported:
 
 - **`user`**
   - Uses the `ProblemSeedInitialTracers` callback to seed particles manually.
-  - See [callback documentation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/pgen.md#tracers)
+  - See [callback documentation](user_pgen.md#initial-tracer-seeding)
 
 ---
 
@@ -486,9 +488,16 @@ id         = prim
 single_precision_output = true
 
 swarms = tracers0,tracers1
-tracers_variables = id, x, y, z, rho
+tracers0_variables = id, x, y, z, rho
+tracers1_variables = id, x, y, z, rho
 # write_swarm_xdmf = true   # optional: enables xdmf file for Paraview/Visit
 ```
+
+Each swarm listed in `swarms` needs its own `SWARM_NAME_variables` key (not
+`tracers_variables`, unless a swarm happens to be named `tracers`). The
+swarm-agnostic `swarm_variables` applies the same list to every listed swarm
+instead, but is only unambiguous with a single swarm; Parthenon warns (and
+still applies it to all of them) if there is more than one.
 
 Tracers can be read/processed by Paraview or Visit (via the xdmf file)
 or by the `phdf` package shipped with the Parthenon submodule.
@@ -527,7 +536,9 @@ resulting in the following image:
 
 Following restrictions apply to the current tracer implementation:
 - The `scalar_fraction` field supports exactly one passive scalar.
-- Fluid-derived tracer values are only updated immediately before writing an output file.
+- Only `parthenon/mesh/packs_per_rank=1` (the default) is currently supported.
+- Tracers require a double-precision build (no `PARTHENON_SINGLE_PRECISION`); see
+  the `EncodeOffset`/`DecodeOffset` comment in `particles_utils.hpp` for why.
 
 Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
 

@@ -44,7 +44,7 @@ uint64_t hash(uint64_t seed) {
 }
 
 // ===================================================================================
-// Generate a unique, deterministic seed from spatial indices, ID, and time
+// Generate a unique, deterministic seed from spatial indices, population, ID, and time
 // Adapted from:
 // https://ieeexplore.ieee.org/document/4273369
 //
@@ -53,11 +53,13 @@ uint64_t hash(uint64_t seed) {
 // bits (e.g. i, i+1 map to seeds exactly 73856093 apart before mixing), so the
 // raw combination alone is not safe to use as a seed. We run it through hash()
 // before returning so every caller gets a well-mixed value, rather than relying
-// on each call site to remember to re-hash it.
+// on each call site to remember to re-hash it. `population` (a swarm/population
+// index) is included so different tracer populations draw independent streams
+// even when sampling the same cell at the same time.
 // ===================================================================================
 
 KOKKOS_INLINE_FUNCTION
-uint64_t SeedFromIndices(int k, int j, int i, int gid, double time) {
+uint64_t SeedFromIndices(int k, int j, int i, int gid, int population, double time) {
 
   // Convert time to an integer
   // Since time is of order 1, need multiplication by 1e9 to keep the precision
@@ -68,6 +70,7 @@ uint64_t SeedFromIndices(int k, int j, int i, int gid, double time) {
   seed ^= static_cast<uint64_t>(j) * 19349663ull;
   seed ^= static_cast<uint64_t>(k) * 83492791ull;
   seed ^= static_cast<uint64_t>(gid) * 23456789ull;
+  seed ^= static_cast<uint64_t>(population) * 15485863ull;
   seed ^= static_cast<uint64_t>(time_scaled) * 53123459ull;
 
   return hash(seed);

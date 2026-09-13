@@ -168,17 +168,22 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       refinement != "none" || pin->GetOrAddBoolean("parthenon/mesh", "multigrid", false,
                                                    "enable a multigrid mesh");
 
-  // Integrator sanity check: the Monte Carlo advection method reads back the
-  // flux/mass snapshot captured during the *last* stage's CalculateFluxes
-  // (AdvectTracers only runs once, at stage == nstages, c.f. hydro_driver.cpp) and
-  // combine it with the *full* step dt. That is only self-consistent for vl2's
-  // specific two-stage predictor/corrector structure, where the final stage's flux,
-  // scaled by the full dt, reconstructs the full-step conservative update -- for
-  // any other integrator (different stage count/weights) it would silently mix a
-  // sub-step flux with the wrong base state and the wrong dt scaling.
+  // AdvectTracers pairs the last stage's fluxes (scaled by the full dt) with the
+  // M_cell mass reference filled once at stage 1 (see FillTracerMCell in
+  // hydro.cpp) -- only vl2's 2-stage structure makes that combination correct.
   if (advection_method == AdvectMethod::MonteCarlo) {
     PARTHENON_REQUIRE(integrator_str == "vl2",
                       "Provided tracer parameters only support vl2 integrator.");
+
+    // AdvectTracers looks up "rng_block_<gid>" every step, but that pool is only
+    // registered once at startup (SeedInitialTracers). Adaptive refinement changes
+    // gids afterward with no re-registration, so the lookup would throw mid-run.
+    PARTHENON_REQUIRE(refinement != "adaptive",
+                      "Monte Carlo tracer advection does not support "
+                      "'parthenon/mesh/refinement = adaptive': mesh blocks created or "
+                      "reassigned after startup have no registered RNG pool and the run "
+                      "will crash once the mesh changes. Use 'refinement = static' (or "
+                      "'none'), or switch 'tracers/advection_method' to 'vinterp'.");
   }
 
   Metadata m;
@@ -202,10 +207,18 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // =====================================================================
   const bool mhd = pin->GetString("hydro", "fluid") == "glmmhd";
   const auto nscalars = pin->GetOrAddInteger("hydro", "nscalars", 0);
+  // Old, pre-per-swarm-seed input files only set this; keep it as the default so
+  // they still work, but a SWARM_NAME_initial_rng_seed overrides it per population.
+  const auto global_rng_seed = pin->GetOrAddInteger("tracers", "initial_rng_seed", 0);
+  // Mirrors when Hydro::Initialize actually registers "mbar_over_kb" (c.f.
+  // hydro.cpp) -- without it, a temperature criterion would silently evaluate
+  // against EvaluateCriterion's -1 fallback instead of a real temperature.
+  const bool mbar_over_kb_available =
+      pin->DoesBlockExist("units") && pin->DoesParameterExist("hydro", "He_mass_fraction");
   for (const auto &swarm_name : swarm_names) {
 
-    const auto rng_seed =
-        pin->GetOrAddInteger("tracers", swarm_name + "_initial_rng_seed", 0);
+    const auto rng_seed = pin->GetOrAddInteger(
+        "tracers", swarm_name + "_initial_rng_seed", global_rng_seed);
 
     // Number of tracers per cell in the initial injection (t=0).
     // For both initial and dynamical injection, the seeding can be performed
@@ -231,6 +244,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // Injection parameters
     // =====================================================================
     if (injection_enabled) {
+      // IDs come from a private per-block slice reserved once at startup (see
+      // EncodeOffset/DecodeOffset); adaptive refinement reshuffles blocks
+      // afterward with no re-allocation strategy, so IDs would collide again.
+      PARTHENON_REQUIRE(refinement != "adaptive",
+                        "Dynamic tracer injection ('" + swarm_name +
+                            "_injection_enabled') does not support "
+                            "'parthenon/mesh/refinement = adaptive'. Use "
+                            "'refinement = static' (or 'none').");
+
       const auto injection_num_target =
           pin->GetOrAddReal("tracers", swarm_name + "_injection_num_target", -1);
       const auto injection_timescale =
@@ -258,13 +280,22 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       } else {
         PARTHENON_FAIL("No injection criterion has been set.");
       }
+      PARTHENON_REQUIRE_THROWS(
+          (inj_crit != ParticlesCriterion::TemperatureAbove &&
+           inj_crit != ParticlesCriterion::TemperatureBelow) ||
+              mbar_over_kb_available,
+          "tracers/" + swarm_name + "_injection_criterion=" + injection_criterion +
+              " requires units and gas composition. Set a 'units' block and "
+              "'hydro/He_mass_fraction' in the input file.");
 
-      // Pre-compute the injection rate (num_target / timescale).
-      // A negative value signals that injection is effectively disabled.
-      const Real injection_rate =
-          (injection_num_target > 0.0 && injection_timescale > 0.0)
-              ? injection_num_target / injection_timescale
-              : -1.0;
+      // Injection must actually inject something once enabled -- silently falling
+      // back to zero injection here would hide a missing/invalid input value.
+      PARTHENON_REQUIRE_THROWS(
+          injection_num_target > 0.0 && injection_timescale > 0.0,
+          "tracers/" + swarm_name + "_injection_enabled=true requires positive '" +
+              swarm_name + "_injection_num_target' and '" + swarm_name +
+              "_injection_timescale'.");
+      const Real injection_rate = injection_num_target / injection_timescale;
 
       tracers_pkg->AddParam<>(swarm_name + "_injection_rate", injection_rate);
       tracers_pkg->AddParam<>(swarm_name + "_injection_threshold", injection_threshold);
@@ -346,6 +377,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         } else {
           PARTHENON_FAIL("No removal exception criterion has been set.");
         }
+        PARTHENON_REQUIRE_THROWS(
+            (exc_crit != ParticlesCriterion::TemperatureAbove &&
+             exc_crit != ParticlesCriterion::TemperatureBelow) ||
+                mbar_over_kb_available,
+            "tracers/" + swarm_name +
+                "_removal_exception_criterion=" + removal_exception_criterion +
+                " requires units and gas composition. Set a 'units' block and "
+                "'hydro/He_mass_fraction' in the input file.");
 
         // Add parameters to the tracer package
         tracers_pkg->AddParam<>(swarm_name + "_removal_exception_criterion", exc_crit);
@@ -483,6 +522,22 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
   if (initial_seed_done) return;
 
+  // Reserve each block's private ID slice up front, regardless of
+  // initial_seed_method -- otherwise a block whose seeding skips this (seed_method
+  // = none, or an unaware user callback) starts dynamic injection at ID 0.
+  const uint64_t nbt = static_cast<uint64_t>(pmesh->nbtotal);
+  const uint64_t id_step = (std::numeric_limits<uint64_t>::max() - 1ULL) / nbt;
+  for (auto &pmb : pmesh->block_list) {
+    auto &off = pmb->meshblock_data.Get()->Get("tracers_offsets").data;
+    auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
+    for (std::size_t k_population = 0; k_population < swarm_names.size();
+        ++k_population) {
+      host_off(k_population) =
+          ParticlesUtils::EncodeOffset(static_cast<uint64_t>(pmb->gid) * id_step);
+    }
+    Kokkos::deep_copy(off, host_off);
+  }
+
   auto hydro_pkg = pmesh->packages.Get("Hydro");
 
   const auto seed_method = pin->GetOrAddString("tracers", "initial_seed_method", "none");
@@ -492,9 +547,6 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
     ProblemSeedInitialTracers(pmesh, pin, tm);
     tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
   } else if (seed_method == "random_per_block") {
-    // Initialize random number generator pool
-    int rng_seed = pin->GetOrAddInteger("tracers", "initial_rng_seed", 0);
-
     // First looping on blocks, then looping on populations (arbitrary)
     for (auto &pmb : pmesh->block_list) {
 
@@ -534,8 +586,12 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
         // Loading the swarm data
         auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get(swarm_name);
-        // Seed is meshblock gid for consistency across MPI decomposition
-        RNGPool rng_pool(pmb->gid + rng_seed);
+        // A large per-population offset keeps each population's stream distinct
+        // without perturbing the single-population case (k_population == 0).
+        const auto rng_seed = tracers_pkg->Param<int>(swarm_name + "_rng_seed");
+        uint64_t seed = static_cast<uint64_t>(pmb->gid) + static_cast<uint64_t>(rng_seed) +
+                        static_cast<uint64_t>(k_population) * utils::custom_rng::PHI_64;
+        RNGPool rng_pool(seed);
 
         IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
         IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -567,16 +623,9 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
           lifetime = tracers_pkg->Param<Real>(swarm_name + "_lifetime");
         }
 
-        // Getting the offset for the current meshblock
-        const uint64_t gid = static_cast<uint64_t>(pmb->gid); // global ID of the block
-        const uint64_t nbt =
-            static_cast<uint64_t>(pmesh->nbtotal); // total number of meshblocks
-
-        // Compute step size: (UINT64_MAX - 1) / nbt
-        const uint64_t step = (std::numeric_limits<uint64_t>::max() - 1ULL) / nbt;
-
-        // Compute block offset
-        uint64_t block_offset = gid * step;
+        // Base offset was already reserved for this block above; read it back and
+        // advance it by however many particles this call seeds.
+        uint64_t block_offset = ParticlesUtils::DecodeOffset(host_off(k_population));
 
         // Loading swarm
         auto swarm_d = swarm->GetDeviceContext();
@@ -741,14 +790,12 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
               const Real Mi = Mcell_pack(0, k, j, i); // current cell mass
 
-              // Calculate each outgoing flux. Face areas are direction-specific
-              // (area_x = dy*dz, the y-z face the x-flux crosses, etc.), not a
-              // single dx^2 reused for every face -- that would silently assume a
-              // cubic/isotropic grid. In 2D, dz=1 acts as a per-unit-depth slab,
-              // consistent with the z-fluxes being disabled below.
+              // Face areas are direction-specific (area_x = dy*dz, etc.), not a
+              // single dx^2 -- and dz is the real z-extent (matching M_cell's
+              // real cell Volume below), not a unit-depth stand-in, even in 2D.
               const Real dx = coords.Dxc<1>(k, j, i);
               const Real dy = coords.Dxc<2>(k, j, i);
-              const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
+              const Real dz = coords.Dxc<3>(k, j, i);
               const Real area_x = dy * dz;
               const Real area_y = dx * dz;
               const Real area_z = dx * dy;
@@ -855,6 +902,7 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     return TaskStatus::complete;
   }
   auto block_level = pmb->loc.level();
+  auto ndim = pmb->pmy_mesh->ndim;
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
   // Looping on the N independent swarms
@@ -898,28 +946,29 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
               // ======================================================================
 
-              // Particle just entered a more refined level
-              // It's at the center of an oct - randomly displace it to one of the 8 cells
+              // {i-1,i} (and {j-1,j}, {k-1,k} in 3D) are the coarse cell's actual
+              // two children per axis -- Xtoijk floors, so it always returns the
+              // "i" side; randomly pick one combination of the 4 (2D) or 8 (3D).
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
               auto rng_gen = rng_pool.get_state();
-
-              // Draw a random integer between 0 and 7 inclusive
-              int chosen_cell = rng_gen.urand() % 8;
+              const int n_children = (ndim == 3) ? 8 : 4;
+              int chosen_cell = rng_gen.urand() % n_children;
 
               // Free RNG state immediately
               rng_pool.free_state(rng_gen);
 
-              // Decode chosen_cell bits to determine direction
-              int di = (chosen_cell & 1) ? 1 : -1;
-              int dj = (chosen_cell & 2) ? 1 : -1;
-              int dk = (chosen_cell & 4) ? 1 : -1;
+              // Decode chosen_cell bits: 0 keeps the floored index, 1 steps back one.
+              int di = (chosen_cell & 1) ? 0 : -1;
+              int dj = (chosen_cell & 2) ? 0 : -1;
 
-              // Move particle to one of the 8 subcell centers
               x(n) = coords.Xc<1>(i + di);
               y(n) = coords.Xc<2>(j + dj);
-              z(n) = coords.Xc<3>(k + dk);
+              if (ndim == 3) {
+                int dk = (chosen_cell & 4) ? 0 : -1;
+                z(n) = coords.Xc<3>(k + dk);
+              }
 
             } else if (particle_level > block_level) {
 
@@ -1088,12 +1137,12 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                 vel_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV3);
                 pressure(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IPR);
               } else {
+                // A 2D mesh only forbids z-derivatives, not an out-of-plane vz: it
+                // stays a real, unwritten field otherwise.
                 rho(n) = prim_pack(b, IDN, k, j, i);
                 vel_x(n) = prim_pack(b, IV1, k, j, i);
                 vel_y(n) = prim_pack(b, IV2, k, j, i);
-                if (ndim == 3) {
-                  vel_z(n) = prim_pack(b, IV3, k, j, i);
-                }
+                vel_z(n) = prim_pack(b, IV3, k, j, i);
                 pressure(n) = prim_pack(b, IPR, k, j, i);
               }
 
@@ -1128,7 +1177,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                 // even when the stored primitive B is interpolated to the particle.
                 const Real Bx = prim_pack(b, IB1, k, j, i);
                 const Real By = prim_pack(b, IB2, k, j, i);
-                const Real Bz = (ndim == 3) ? prim_pack(b, IB3, k, j, i) : 0.0;
+                // A 2D mesh only forbids z-derivatives, not an out-of-plane Bz.
+                const Real Bz = prim_pack(b, IB3, k, j, i);
 
                 if (vinterp) {
                   B_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB1);
@@ -1164,14 +1214,14 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                                                         (2.0 * dz)
                                                   : 0.0;
 
-                  const Real dBz_dx = (ndim == 3) ? (prim_pack(b, IB3, k, j, i + 1) -
-                                                     prim_pack(b, IB3, k, j, i - 1)) /
-                                                        (2.0 * dx)
-                                                  : 0.0;
-                  const Real dBz_dy = (ndim == 3) ? (prim_pack(b, IB3, k, j + 1, i) -
-                                                     prim_pack(b, IB3, k, j - 1, i)) /
-                                                        (2.0 * dy)
-                                                  : 0.0;
+                  // dBz_dx/dBz_dy are in-plane derivatives of Bz -- valid in 2D too,
+                  // unlike dBx_dz/dBy_dz/dBz_dz just above, which are real z-derivatives.
+                  const Real dBz_dx =
+                      (prim_pack(b, IB3, k, j, i + 1) - prim_pack(b, IB3, k, j, i - 1)) /
+                      (2.0 * dx);
+                  const Real dBz_dy =
+                      (prim_pack(b, IB3, k, j + 1, i) - prim_pack(b, IB3, k, j - 1, i)) /
+                      (2.0 * dy);
                   const Real dBz_dz = (ndim == 3) ? (prim_pack(b, IB3, k + 1, j, i) -
                                                      prim_pack(b, IB3, k - 1, j, i)) /
                                                         (2.0 * dz)
@@ -1186,31 +1236,25 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                   if (trace_rot_B_y) rot_B_y(n) = rotBy;
                   if (trace_rot_B_z) rot_B_z(n) = rotBz;
 
-                  // Gradient of the squared magnetic-field magnitude.
+                  // Gradient of the squared magnetic-field magnitude. Bz contributes
+                  // to these in-plane derivatives in 2D too -- only dB2_dz (below)
+                  // is a real z-derivative and needs to stay zero there.
                   const Real dB2_dx =
                       ((prim_pack(b, IB1, k, j, i + 1) * prim_pack(b, IB1, k, j, i + 1) +
                         prim_pack(b, IB2, k, j, i + 1) * prim_pack(b, IB2, k, j, i + 1) +
-                        ((ndim == 3) ? prim_pack(b, IB3, k, j, i + 1) *
-                                           prim_pack(b, IB3, k, j, i + 1)
-                                     : 0.0)) -
+                        prim_pack(b, IB3, k, j, i + 1) * prim_pack(b, IB3, k, j, i + 1)) -
                        (prim_pack(b, IB1, k, j, i - 1) * prim_pack(b, IB1, k, j, i - 1) +
                         prim_pack(b, IB2, k, j, i - 1) * prim_pack(b, IB2, k, j, i - 1) +
-                        ((ndim == 3) ? prim_pack(b, IB3, k, j, i - 1) *
-                                           prim_pack(b, IB3, k, j, i - 1)
-                                     : 0.0))) /
+                        prim_pack(b, IB3, k, j, i - 1) * prim_pack(b, IB3, k, j, i - 1))) /
                       (2.0 * dx);
 
                   const Real dB2_dy =
                       ((prim_pack(b, IB1, k, j + 1, i) * prim_pack(b, IB1, k, j + 1, i) +
                         prim_pack(b, IB2, k, j + 1, i) * prim_pack(b, IB2, k, j + 1, i) +
-                        ((ndim == 3) ? prim_pack(b, IB3, k, j + 1, i) *
-                                           prim_pack(b, IB3, k, j + 1, i)
-                                     : 0.0)) -
+                        prim_pack(b, IB3, k, j + 1, i) * prim_pack(b, IB3, k, j + 1, i)) -
                        (prim_pack(b, IB1, k, j - 1, i) * prim_pack(b, IB1, k, j - 1, i) +
                         prim_pack(b, IB2, k, j - 1, i) * prim_pack(b, IB2, k, j - 1, i) +
-                        ((ndim == 3) ? prim_pack(b, IB3, k, j - 1, i) *
-                                           prim_pack(b, IB3, k, j - 1, i)
-                                     : 0.0))) /
+                        prim_pack(b, IB3, k, j - 1, i) * prim_pack(b, IB3, k, j - 1, i))) /
                       (2.0 * dy);
 
                   const Real dB2_dz = (ndim == 3)
@@ -1273,30 +1317,25 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                                                    prim_pack(b, IV2, k - 1, j, i)) /
                                                       (2.0 * dz)
                                                 : 0.0;
-                const Real dvz_dx = (ndim == 3) ? (prim_pack(b, IV3, k, j, i + 1) -
-                                                   prim_pack(b, IV3, k, j, i - 1)) /
-                                                      (2.0 * dx)
-                                                : 0.0;
-                const Real dvz_dy = (ndim == 3) ? (prim_pack(b, IV3, k, j + 1, i) -
-                                                   prim_pack(b, IV3, k, j - 1, i)) /
-                                                      (2.0 * dy)
-                                                : 0.0;
+                // dvz_dx/dvz_dy are in-plane derivatives of vz -- valid in 2D too,
+                // unlike dvx_dz/dvy_dz/dvz_dz above, which are real z-derivatives.
+                const Real dvz_dx =
+                    (prim_pack(b, IV3, k, j, i + 1) - prim_pack(b, IV3, k, j, i - 1)) /
+                    (2.0 * dx);
+                const Real dvz_dy =
+                    (prim_pack(b, IV3, k, j + 1, i) - prim_pack(b, IV3, k, j - 1, i)) /
+                    (2.0 * dy);
 
-                // Vorticity and compression
-                if (ndim == 3) {
-                  const Real omega_x = dvz_dy - dvy_dz;
-                  const Real omega_y = dvx_dz - dvz_dx;
-                  const Real omega_z = dvy_dx - dvx_dy;
-                  if (trace_rot_v) {
-                    rot_v(n) = std::sqrt(omega_x * omega_x + omega_y * omega_y +
-                                         omega_z * omega_z);
-                  }
-                  if (trace_div_v) div_v(n) = dvx_dx + dvy_dy + dvz_dz;
-                } else {
-                  const Real omega_z = dvy_dx - dvx_dy;
-                  if (trace_rot_v) rot_v(n) = std::abs(omega_z);
-                  if (trace_div_v) div_v(n) = dvx_dx + dvy_dy;
+                // Vorticity and compression: dvx_dz/dvy_dz/dvz_dz are already zero in
+                // 2D, so this reduces to the right in-plane-only result there too.
+                const Real omega_x = dvz_dy - dvy_dz;
+                const Real omega_y = dvx_dz - dvz_dx;
+                const Real omega_z = dvy_dx - dvx_dy;
+                if (trace_rot_v) {
+                  rot_v(n) = std::sqrt(omega_x * omega_x + omega_y * omega_y +
+                                       omega_z * omega_z);
                 }
+                if (trace_div_v) div_v(n) = dvx_dx + dvy_dy + dvz_dz;
               }
             }
           });

@@ -143,9 +143,14 @@ class TestCase(utils.test_case.TestCaseAbs):
                     var_data_sorted = var_data[order]
 
                 try:
+                    # IDs are integers spanning the uint64 range (see EncodeOffset/
+                    # DecodeOffset): rtol=2e-6 at that magnitude allows ~1e13 of
+                    # slop, so they need exact, not approximate, comparison.
+                    if var == "id":
+                        np.testing.assert_array_equal(var_data_sorted, ref_data[var])
                     # For serial tests, be more stringent.
                     # Need to track down the tiny differences when run with MPI.
-                    if False and parameters.mpi_cmd == "":
+                    elif False and parameters.mpi_cmd == "":
                         np.testing.assert_array_max_ulp(
                             var_data_sorted, ref_data[var], maxulp=2
                         )

@@ -82,7 +82,14 @@ class TestCase(utils.test_case.TestCaseAbs):
                     continue
 
                 var_data = tracers.Get(var)
-                if not np.allclose(var_data[order], ref_data[var], atol=tol):
+                # IDs are integers spanning the uint64 range (see EncodeOffset/
+                # DecodeOffset): a float tolerance can't tell distinct nearby IDs
+                # apart there, so they need exact, not approximate, comparison.
+                if var == "id":
+                    matches = np.array_equal(var_data[order], ref_data[var])
+                else:
+                    matches = np.allclose(var_data[order], ref_data[var], atol=tol, rtol=0.0)
+                if not matches:
                     diff = var_data[order] - ref_data[var]
                     print(f"TEST FAIL: swarm var '{var}' differs from reference!")
                     print("Max difference:", np.max(np.abs(diff)))
