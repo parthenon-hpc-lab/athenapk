@@ -192,26 +192,130 @@ callback is available, that is called once every time right before a data output
 
 ### Particles
 
-#### Tracers
+#### Tracer Particles
 
-In order to allow custom seeding of tracer particles (per problem generator), the
-`ProblemSeedInitialTracers` function can be defined.
+Tracer particles can be seeded at the start of the simulation and evolved. These can be also dynamically injected and removed as the simulation is running.
+
+---
+
+##### Initial Tracer Seeding
+
+To allow custom seeding of tracer particles per problem generator, define:
+
 ```c++
 void ProblemSeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 ```
-It is executed once when a simulation is started the very first time (i.e., it
-is not called on subsequent restarts).
-See the standard tracer seeding implementation[`SeedInitialTracers`](https://github.com/parthenon-hpc-lab/athenapk/blob/main/src/tracers/tracers.cpp) for reference on how to deposit particles.
 
+It is executed once when a simulation is started the very first time (i.e., it is not called on subsequent restarts). See the standard implementation [`SeedInitialTracers`](https://github.com/parthenon-hpc-lab/athenapk/blob/main/src/particles/tracers/tracers.cpp) for reference.
 
-To allow adding additional fields, the
+---
+
+##### Tracer Package Initialization
+
+To register custom tracer fields and parameters, define:
+
 ```c++
-void ProblemInitTracerData(ParameterInput * pin, parthenon::StateDescriptor *tracer_pkg);```
-callback is available.
-It is called at the end of the tracer package initialization and can be defined at the per-problem-generator level, see, e.g., the turbulence driver as an example.
-
-Similarly, a callback is available to fill those new fields (or more) via
-```c++
-TaskStatus ProblemFillTracers(MeshData<Real> *md, parthenon::SimTime &tm, const Real dt);
+void ProblemInitTracerData(ParameterInput * pin, parthenon::StateDescriptor *tracer_pkg);
 ```
-It is called right after the default `FillTracers` task in the driver.
+
+This is called after the default tracer package is initialized and allows the user to add additional fields or metadata to the tracer population.
+
+---
+
+##### Filling Tracer Fields
+
+To compute and assign additional per-tracer field values (e.g., interpolated fluid variables), define:
+
+```c++
+TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt);
+```
+
+This function is called right after the default `FillTracers` task.
+
+The default `FillTracers` routine fills the standard fluid fields and any optional
+fields selected for that swarm with `SWARM_NAME_fields`. See
+[Per-swarm fields](input.md#per-swarm-fields) for the registry and the definition
+of each built-in diagnostic.
+
+---
+
+##### Tracer Injection
+
+**Optionally**, tracers can be stochastically injected during runtime using:
+
+```c++
+TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+```
+
+This function is called at every timestep and injects new tracers into cells that fulfill a user-defined criterion (see next section). Tracer injection is governed by a target number of tracers per cell per unit time and uses a probabilistic approach to avoid uncontrolled growth of the tracer population. Because injection is stochastic but must be consistent between separate loops, a deterministic random number generator is required. An implementation using a cell-index-based seed is available in:
+
+```
+utils/custom_rng.hpp
+```
+
+---
+
+##### Injection Criteria
+
+The function that defines whether a cell is eligible for injection is:
+
+```c++
+template <typename View4D>
+KOKKOS_INLINE_FUNCTION bool
+EvaluateCriterion(ParticlesCriterion crit, View4D prim, const Coordinates_t &coords,
+                  const int k, const int j, const int i, const Real threshold,
+                  const Real mbar_over_kb, const int ndim, const Real jet_radius = -1.0,
+                  const Real jet_offset = -1.0, const Real jet_thickness = -1.0,
+                  const cluster::JetCoords &jet_coords = cluster::JetCoords(0.0, 0.0));
+```
+
+`jet_radius`/`jet_offset`/`jet_thickness`/`jet_coords` only matter for
+`ParticlesCriterion::Jet`: the thresholds default to a disabled (never-true)
+region, and `jet_coords` to an untilted, non-precessing z-axis.
+
+This should return `true` for cells that meet user-defined conditions (e.g., based on temperature, density, geometry, etc.).
+
+Only those cells will be considered for tracer injection during the current timestep.
+
+---
+
+##### Tracer Removal
+
+**Optionally**, tracers can also be removed once they exceed their lifetime:
+
+```c++
+TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+```
+
+This function scans through all tracer particles and removes those flagged for deletion (e.g., due to age or leaving the computational domain).
+
+---
+
+##### Tracer Advection
+
+The tracer's position is updated at each timestep in:
+
+```c++
+TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+```
+
+Two advection methods are currently implemented (`tracers/advection_method`, see
+[Advection Method](input.md#advection-method)):
+
+- **`vinterp`**: the primitive velocity is linearly interpolated to the tracer's
+  position and integrated with a Heun (RK2, predictor-corrector) step.
+- **`montecarlo`**: not a velocity-based scheme at all. Following Cadiou et al.
+  2019, a tracer sitting at a cell center probabilistically jumps to one of the
+  neighboring cells each step (6 in 3D, 4 in 2D), with jump probability
+  proportional to that face's outgoing mass flux relative to the cell's mass --
+  i.e., tracers are advected like mass elements riding the conservative flux,
+  not like particles with a velocity. It requires the `vl2` integrator (see
+  `tracers.cpp`).
+
+`montecarlo`'s randomness is reproducible across restarts: each RNG pool is
+re-derived deterministically from the current cycle number and block id (see
+`custom_rng.hpp`) rather than a persisted generator state, so as long as the
+cycle count is restored (which Parthenon's restart does), a restarted run
+regenerates the same stochastic sequence rather than silently diverging.
+
+---

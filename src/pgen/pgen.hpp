@@ -106,6 +106,7 @@ using namespace parthenon::driver::prelude;
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void InitUserMeshData(ParameterInput *pin);
+void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md);
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
                           const parthenon::SimTime &tm);

@@ -328,47 +328,181 @@ and a notebook comparing various cooling tables (and their conversion) in [cooli
 
 #### Tracers
 
-Tracer particles can be enabled by setting `tracers/enabled=true` in the input file:
+Tracer particles can be enabled and configured via the `<tracers>` block in the input file.
 
-```
+---
+
+##### Enabling Tracers
+
+```ini
 <tracers>
 enabled = true
-
-initial_seed_method  = random_per_block    # alternative: user
-initial_num_tracers_per_cell = 0.125
-### Optional arguments
-#initial_rng_seed = INTEGER
 ```
 
-Two seeding methods are currently supported:
+---
 
-- `initial_seed_method=random_per_block`
-  - seeds particles at random positions in each block
-  - NOTE: the random number generator seed uses the unique block id. Therefore, simulations with the mesh decomposition (mesh and meshblock sizes) are identical independent of the number of MPI ranks used, but if the meshblock size is changed for given mesh (and thus the total number of blocks) the initial state will be different.
-  - `initial_num_tracers_per_cell` determines the number of seeded particles per cell
-  - `initial_rng_seed` (optional) is used as seed in addition to the block id.
-- `initial_seed_method=user`
-  - Calls a problem specific callback function (`ProblemSeedInitialTracers`), see [tracer callback documenation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/user_pgen.md#tracers).
+##### Advection Method
+
+Specify the method for advecting tracers:
+
+```ini
+advection_method = vinterp   # options: vinterp (default), montecarlo
+```
+
+`montecarlo` requires the `vl2` integrator (see `tracers.cpp`).
+
+With `vinterp`, density, pressure, velocity, magnetic field, and the optional
+passive-scalar fraction are linearly interpolated to each tracer's position.
+The stored velocity is also used in the next tracer integration step.
+With `montecarlo`, these quantities are sampled at the host-cell center.
+
+For both methods, derivative diagnostics (pressure gradients, divergence,
+vorticity, magnetic curl, magnetic tension, and the gradient of magnetic-field
+strength squared) are evaluated at the host-cell center without interpolation.
+This avoids the larger stencil needed to interpolate those diagnostics, but their
+values can jump when a tracer crosses a cell boundary. In particular, magnetic
+tension uses the host-cell magnetic field and its cell-centered derivatives.
+
+---
+
+##### Swarm Populations
+
+Multiple tracer populations (swarms) can be defined and configured independently:
+
+```ini
+swarm_names = tracers0,tracers1 # examples, any name could work
+```
+
+Each swarm's parameters must be provided **within** the `<tracers>` section.
+
+###### Example:
+
+```ini
+# tracers0: persistent population of tracers injected initially
+tracers0_initial_num_tracers_per_cell = 1.0
+tracers0_injection_enabled    = false
+tracers0_removal_enabled      = false
+
+# tracers1: dynamically injected tracers
+tracers1_initial_num_tracers_per_cell = 0
+tracers1_injection_enabled    = true
+tracers1_injection_criterion  = density_above
+tracers1_injection_threshold  = 8.0 # in code units
+tracers1_injection_timescale  = 0.05
+tracers1_injection_num_target = 1
+
+tracers1_removal_enabled             = true
+tracers1_removal_exception           = true
+tracers1_removal_exception_criterion = density_above
+tracers1_removal_exception_threshold = 8.0 # in code units
+tracers1_lifetime                    = 0.05
+```
+
+Note that to keep the population of dynamically injected tracers roughly stable in time, it is recommended to match `injection_timescale` and `lifetime`. If `lifetime` is much larger than the injection timescale (or if removal isn't even enabled), the particle's population can grow increasingly large in an uncontrolled fashion.
+
+---
+
+##### Per-swarm fields
+
+Every swarm always contains the position and ID fields managed by Parthenon plus
+the primitive variables: `rho`, `pressure`, `vel_x`, `vel_y`, and `vel_z`.
+MHD runs also contain `B_x`, `B_y`, and `B_z`.
+
+Additional fields are selected independently for each swarm with
+`SWARM_NAME_fields` in the `<tracers>` block. The default is an empty list. For
+example:
+
+```ini
+swarm_names = tracers0,tracers1
+tracers0_fields = level, div_v, rot_v
+tracers1_fields = injection_time, grad_pressure_x, grad_pressure_y
+```
+
+This registry controls which fields exist on each swarm. Selecting fields for a
+non-restart output remains a separate step in that output block, as described
+under [Output Configuration](#output-configuration).
+
+The available fields are:
+
+| Field | Value stored on the tracer |
+| --- | --- |
+| `injection_time` | Simulation time at which the tracer was created, including tracers created during initial seeding. |
+| `lifetime` | Removal lifetime assigned to the tracer. This field requires `SWARM_NAME_removal_enabled=true`. |
+| `level` | Refinement level of the tracer's current mesh block. |
+| `grad_pressure_x`, `grad_pressure_y`, `grad_pressure_z` | Components of the pressure gradient, calculated with centered differences of the cell-centered pressure. The z component is zero in 2D. |
+| `div_v` | Velocity divergence, $`\nabla\!\cdot\!\boldsymbol{v}`$, calculated with centered differences. |
+| `rot_v` | Magnitude of the velocity curl, $`\lvert\nabla\!\times\!\boldsymbol{v}\rvert`$. In 2D this is the absolute value of its z component. |
+| `rot_B_x`, `rot_B_y`, `rot_B_z` | Components of $`\nabla\!\times\!\boldsymbol{B}`$, calculated with centered differences. These fields require `hydro/fluid=glmmhd`. |
+| `tens_B_x`, `tens_B_y`, `tens_B_z` | Components of the magnetic-tension term $`(\boldsymbol{B}\!\cdot\!\nabla)\boldsymbol{B}`$. These fields require `hydro/fluid=glmmhd`. |
+| `grad_B2_x`, `grad_B2_y`, `grad_B2_z` | Components of $`\nabla(B^2)`$, calculated with centered differences. These fields require `hydro/fluid=glmmhd`. |
+| `scalar_fraction` | The first passive scalar's primitive value (mass fraction). This field requires `hydro/nscalars=1`. |
+
+`level` is added automatically when Monte Carlo advection is used on a multilevel
+mesh, including meshes with static or adaptive refinement. That combination needs
+the previous refinement level when recentering tracers after communication.
+Enabling lifetime-based removal automatically adds `injection_time` and `lifetime`.
+These automatically added fields become part of that swarm's effective field
+registry.
+
+Unknown or duplicate field names, fields incompatible with the selected fluid,
+and `scalar_fraction` without exactly one passive scalar cause an error during
+startup. Optional fluid-derived fields are updated by the hydro driver every
+full timestep (not just before writing an output), so an output simply
+reflects the values as of the last completed step.
+
+---
+
+##### Initial Seeding
+
+```ini
+initial_seed_method = random_per_block   # alternative: user
+```
+
+Two seeding methods are supported:
+
+- **`random_per_block`**
+  - Seeds particles randomly in each mesh block.
+  - **Note**: the random number generator seed uses the unique block id. Therefore, simulations with the mesh decomposition (mesh and meshblock sizes) are identical independent of the number of MPI ranks used, but if the meshblock size is changed for given mesh (and thus the total number of blocks) the initial state will be different.
+  - Controlled by:
+    - `tracers0_initial_num_tracers_per_cell`
+    - Optional: `initial_rng_seed` to customize randomness
+
+- **`user`**
+  - Uses the `ProblemSeedInitialTracers` callback to seed particles manually.
+  - See [callback documentation](user_pgen.md#initial-tracer-seeding)
+
+---
+
+##### Output Configuration
 
 By default, swarm fields are written only to restart files.
 If they are required for "standard" output files (like single precision `hdf5`),
 they need to be added manually to the output block, e.g., (bottom two lines)
-```
+
+```ini
 <parthenon/output2>
-file_type  = hdf5       # Binary data dump
-variables   = prim   # variables to be output
-dt         = 0.1        # time increment between outputs
+file_type  = hdf5
+variables  = prim
+dt         = 0.1
 id         = prim
 single_precision_output = true
 
-swarms = tracers
-tracers_variables = id, x, y, z, rho
-#write_swarm_xdmf=true  # uncomment to create an xdmf output (e.g., for Paraview or Visit)
+swarms = tracers0,tracers1
+tracers0_variables = id, x, y, z, rho
+tracers1_variables = id, x, y, z, rho
+# write_swarm_xdmf = true   # optional: enables xdmf file for Paraview/Visit
 ```
+
+Each swarm listed in `swarms` needs its own `SWARM_NAME_variables` key (not
+`tracers_variables`, unless a swarm happens to be named `tracers`). The
+swarm-agnostic `swarm_variables` applies the same list to every listed swarm
+instead, but is only unambiguous with a single swarm; Parthenon warns (and
+still applies it to all of them) if there is more than one.
 
 Tracers can be read/processed by Paraview or Visit (via the xdmf file)
 or by the `phdf` package shipped with the Parthenon submodule.
 A sample plotting script for the latter might look like
+
 ```python
 import matplotlib.pyplot as plt
 import numpy as np
@@ -400,12 +534,11 @@ resulting in the following image:
 
 ![image](img/tracer_example.png)
 
-Following "restrictions" apply to the current tracer implementation:
-- Only 3D simulations.
-- Only one advection method (RK2/Heun's method).
-- All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`) are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
-- Default tracer values (such as the primitive fields) are only updated right before writing an output file.
-- Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.
+Following restrictions apply to the current tracer implementation:
+- The `scalar_fraction` field supports exactly one passive scalar.
+- Only `parthenon/mesh/packs_per_rank=1` (the default) is currently supported.
+- Tracers require a double-precision build (no `PARTHENON_SINGLE_PRECISION`); see
+  the `EncodeOffset`/`DecodeOffset` comment in `particles_utils.hpp` for why.
 
 Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
 

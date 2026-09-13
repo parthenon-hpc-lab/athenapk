@@ -29,11 +29,12 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
-#include "../main.hpp"
+#include "../../main.hpp"
 #include "basic_types.hpp"
 
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
+using parthenon::Coordinates_t;
 
 using RNGPool = Kokkos::Random_XorShift64_Pool<>;
 
@@ -43,8 +44,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 extern InitPackageDataFun_t ProblemInitTracerData;
 
-TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt);
+enum class AdvectMethod { MonteCarlo, VInterp, None };
 
+TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
 using FillTracersFun_t = std::function<TaskStatus(
     MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)>;
@@ -52,6 +57,9 @@ extern FillTracersFun_t ProblemFillTracers;
 
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 
+// Contract: "tracers_offsets" already holds each block's ID slice when this runs
+// (see EncodeOffset/DecodeOffset). A callback assigning particle IDs must read
+// and advance that field, or later dynamic injection will reuse its IDs.
 using SeedInitialFun_t =
     std::function<void(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm)>;
 extern SeedInitialFun_t ProblemSeedInitialTracers;

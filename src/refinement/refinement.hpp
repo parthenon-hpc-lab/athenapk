@@ -20,7 +20,7 @@ AmrTag VelocityGradient(MeshBlockData<Real> *rc);
 } // namespace gradient
 namespace other {
 parthenon::AmrTag MaxDensity(MeshBlockData<Real> *rc);
-}
+} // namespace other
 
 } // namespace refinement
 

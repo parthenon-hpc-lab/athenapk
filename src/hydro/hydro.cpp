@@ -17,6 +17,7 @@
 #include "../eos/adiabatic_glmmhd.hpp"
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
+#include "../particles/tracers/tracers.hpp"
 #include "../pgen/pgen.hpp"
 #include "../recon/dc_simple.hpp"
 #include "../recon/limo3_simple.hpp"
@@ -25,7 +26,6 @@
 #include "../recon/weno3_simple.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
-#include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "defs.hpp"
 #include "diffusion/diffusion.hpp"
@@ -51,6 +51,7 @@ namespace Hydro {
 
 using cooling::TabularCooling;
 using parthenon::HistoryOutputVar;
+using TE = parthenon::TopologicalElement;
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
@@ -1031,6 +1032,30 @@ TaskStatus CalculateFluxesTight(std::shared_ptr<MeshData<Real>> &md) {
   return TaskStatus::complete;
 }
 
+// Mass reference for Monte Carlo tracer advection: snapshot M^n once, at stage 1,
+// before the conservative update -- CalculateFluxes runs every stage and would
+// otherwise overwrite this with the intermediate (predictor) mass.
+TaskStatus FillTracerMCell(MeshData<Real> *md) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  auto M_cell = md->PackVariables(std::vector<std::string>{"M_cell"});
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "Fill tracer M_cell", parthenon::DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const auto &cons = cons_pack(b);
+        const auto &coords = cons_pack.GetCoords(b);
+        M_cell(b, 0, k, j, i) = cons(IDN, k, j, i) * coords.Volume<TE::CC>(k, j, i);
+      });
+
+  return TaskStatus::complete;
+}
+
 // Calculate fluxes using scratch pad memory, i.e., over cached pencils in i-dir.
 template <Fluid fluid, Reconstruction recon, RiemannSolver rsolver>
 TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
@@ -1054,6 +1079,7 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
 
+  // Loading equation of state
   const auto &eos =
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                            AdiabaticGLMMHDEOS>::type>("eos");
@@ -1268,9 +1294,9 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
   std::int64_t num_corrected, num_need_floor;
   // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
-  // of a single cell at the same time. So the neighboring cells need to be rechecked with
-  // the corrected fluxes as the corrected fluxes in one cell may result in the need to
-  // correct all the fluxes of an originally "good" neighboring cell.
+  // of a single cell at the same time. So the neighboring cells need to be rechecked
+  // with the corrected fluxes as the corrected fluxes in one cell may result in the
+  // need to correct all the fluxes of an originally "good" neighboring cell.
   size_t num_attempts = 0;
   do {
     num_corrected = 0;

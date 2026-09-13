@@ -19,9 +19,9 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../particles/tracers/tracers.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
-#include "../tracers/tracers.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
@@ -347,6 +347,11 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
+  auto tracers_pkg = pmesh->packages.Get("tracers");
+  const bool fill_tracer_mcell =
+      tracers_pkg->Param<bool>("enabled") &&
+      tracers_pkg->Param<Tracers::AdvectMethod>("advection_method") ==
+          Tracers::AdvectMethod::MonteCarlo;
 
   TaskID none(0);
   // Number of task lists that can be executed indepenently and thus *may*
@@ -511,6 +516,12 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
     auto calc_flux = tl.AddTask(none, calc_flux_fun, mu0);
 
+    // Fill tracers' mass reference once, before this step's first conservative
+    // update, not on every stage (see FillTracerMCell).
+    if (stage == 1 && fill_tracer_mcell) {
+      tl.AddTask(none, FillTracerMCell, mu0.get());
+    }
+
     // TODO(pgrete) figure out what to do about the sources from the first stage
     // that are potentially disregarded when the (m)hd fluxes are corrected in the second
     // stage.
@@ -612,7 +623,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  auto tracers_pkg = pmesh->packages.Get("tracers");
   // First order operator split tracer advection
   if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
     const std::string swarm_name = "tracers";
@@ -632,14 +642,17 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &pmb = blocks[n];
       auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
       auto &mbd0 = pmb->meshblock_data.Get("base");
-      auto tracer_advect =
-          tl.AddTask(none, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
 
+      auto tracer_inject = tl.AddTask(none, Tracers::InjectTracers, mbd0.get(), tm);
+      auto tracer_removal =
+          tl.AddTask(tracer_inject, Tracers::RemoveTracers, mbd0.get(), tm);
+      auto tracer_advect =
+          tl.AddTask(tracer_removal, Tracers::AdvectTracers, mbd0.get(), tm);
       auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
                              BoundaryCommSubset::all);
-
       auto receive =
           tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+      auto center = tl.AddTask(receive, Tracers::CenterTracers, mbd0.get(), tm);
     }
     // TODO(pgrete) Fix/cleanup once we got swarm packs.
     // We need just a single region with a single task in order to be able to use plain

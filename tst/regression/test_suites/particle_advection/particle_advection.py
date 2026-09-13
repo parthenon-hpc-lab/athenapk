@@ -35,8 +35,12 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/meshblock/nx2=16",
             "parthenon/meshblock/nx3=8",
             "tracers/enabled=true",
+            "tracers/advection_method=vinterp",
+            "tracers/swarm_names=tracers",
             "tracers/initial_seed_method=random_per_block",
-            "tracers/initial_num_tracers_per_cell=0.125",
+            "tracers/tracers_initial_num_tracers_per_cell=0.125",
+            "tracers/tracers_injection_enabled=false",
+            "tracers/tracers_removal_enabled=false",
             # disable driving and setup homogenous flow
             "problem/turbulence/accel_rms=0.0",
             "problem/turbulence/v0=1.5,1.0,0.75",

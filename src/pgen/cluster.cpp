@@ -11,6 +11,8 @@
 // optionally with an initial magnetic tower field. Includes AGN feedback, AGN
 // triggering via cold gas, simple SNIA Feedback, and simple stellar feedback
 //========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 // C headers
 
@@ -456,6 +458,29 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
       hydro_pkg->AddField("tmp_perturb", m);
     }
   }
+}
+
+//========================================================================================
+//! \fn void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *pkg)
+//! \brief Init problem-specific tracer data: the geometry of the kinetic AGN jet
+//! region, used by the "jet" tracer injection criterion (ParticlesCriterion::Jet)
+//! to seed tracers inside the same cylindrical shell that the kinetic jet feedback
+//! itself injects momentum into (see cluster/agn_feedback.cpp). Defaults match
+//! AGNFeedback's own kinetic_jet_radius/thickness/offset defaults, so that absent
+//! explicit overrides, the tracer region and the actual jet region always agree.
+//========================================================================================
+
+void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *pkg) {
+  const Real jet_radius =
+      pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_jet_radius", 0.01);
+  const Real jet_thickness =
+      pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_jet_thickness", 0.02);
+  const Real jet_offset =
+      pin->GetOrAddReal("problem/cluster/agn_feedback", "kinetic_jet_offset", 0.02);
+
+  pkg->AddParam<>("jet_radius", jet_radius, Params::Mutability::Restart);
+  pkg->AddParam<>("jet_offset", jet_offset, Params::Mutability::Restart);
+  pkg->AddParam<>("jet_thickness", jet_thickness, Params::Mutability::Restart);
 }
 
 //========================================================================================

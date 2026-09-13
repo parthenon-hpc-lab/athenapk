@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021-2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file turbulence.cpp
@@ -32,7 +32,7 @@
 
 // AthenaPK headers
 #include "../main.hpp"
-#include "../tracers/tracers.hpp"
+#include "../particles/tracers/tracers.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
 #include "utils/error_checking.hpp"
@@ -296,9 +296,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   }
 }
 
-void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *tracer_pkg) {
-  const auto swarm_name = tracer_pkg->Param<std::string>("swarm_name");
-
+void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *tracers_pkg) {
   // The legacy version (that was already used in sims for paper) was a bad choice as
   // it leaks information from sth problem specific to the tracers package.
   // The following logic is added for compatiblity with existing data (updating options
@@ -362,18 +360,39 @@ void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *trac
   }
   parthenon::ParArray1D<int> dncycles_d =
       Kokkos::create_mirror_view_and_copy(parthenon::DevMemSpace(), dncycles_h);
-  tracer_pkg->AddParam("turbulence/n_lookback", n_lookback);
-  tracer_pkg->AddParam("turbulence/dncycles_h", dncycles_h);
-  tracer_pkg->AddParam("turbulence/dncycles_d", dncycles_d);
+  tracers_pkg->AddParam("turbulence/n_lookback", n_lookback);
+  tracers_pkg->AddParam("turbulence/dncycles_h", dncycles_h);
+  tracers_pkg->AddParam("turbulence/dncycles_d", dncycles_d);
+
+  // Getting the population names and assign vars to first one.
+  // If more are desired, the Problem Filling routine also needs an update.
+  const auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+  const auto swarm_name = swarm_names.at(0);
+
+  // ProblemFillTracers needs injection_time to tell a just-injected particle apart
+  // from an old one, so it can seed its s/sdot history instead of shifting in zeros.
+  if (tracers_pkg->Param<bool>(swarm_name + "_injection_enabled")) {
+    const auto fields =
+        tracers_pkg->Param<std::vector<std::string>>(swarm_name + "_fields");
+    PARTHENON_REQUIRE_THROWS(
+        std::find(fields.begin(), fields.end(), "injection_time") != fields.end(),
+        "Turbulence density history ('n_lookback') requires 'injection_time' in '" +
+            swarm_name + "_fields' (or removal enabled) when injection is also on.");
+  }
+  if (parthenon::Globals::my_rank == 0) {
+    PARTHENON_WARN(
+        "Turbulence pgen: Adding tracer ln(rho) history only to tracer population '" +
+        swarm_name + "'.");
+  }
   // Using a vector to reduce code duplication.
   Metadata vreal_swarmvalue_metadata(
       {Metadata::Real, Metadata::Vector, Metadata::Restart},
       std::vector<int>{n_lookback});
-  tracer_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
-  tracer_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
+  tracers_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
+  tracers_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
   // Timestamps for the lookback entries
-  tracer_pkg->AddParam<>("turbulence/t_lookback", std::vector<Real>(n_lookback),
-                         Params::Mutability::Restart);
+  tracers_pkg->AddParam<>("turbulence/t_lookback", std::vector<Real>(n_lookback),
+                          Params::Mutability::Restart);
 }
 
 // SetPhases is used as InitMeshBlockUserData because phases need to be reset on remeshing
@@ -938,6 +957,7 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
                               const Real dt) {
 
   const auto current_cycle = tm.ncycle;
+  const auto current_time = tm.time;
 
   auto hydro_pkg = md->GetParentPointer()->packages.Get("Hydro");
   const auto mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
@@ -979,16 +999,23 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   // Get hydro/mhd fluid vars over all blocks
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  // Only update first swarm for now. If updated, the init above also needs an update
+  const auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+  const auto swarm_name = swarm_names.at(0);
+
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
     auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
-    auto &swarm = sd->Get("tracers");
+    auto &swarm = sd->Get(swarm_name);
 
     // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
     // pull swarm vars
     auto &rho = swarm->Get<Real>("rho").Get();
     auto &s = swarm->Get<Real>("s").Get();
     auto &sdot = swarm->Get<Real>("sdot").Get();
+    const bool track_injection_time = swarm->Contains<Real>("injection_time");
+    auto t_inj = s.Get();
+    if (track_injection_time) t_inj = swarm->Get<Real>("injection_time").Get();
 
     auto swarm_d = swarm->GetDeviceContext();
 
@@ -997,16 +1024,26 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
     pmb->par_for(
         "Turbulence::Fill Tracers", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
           if (swarm_d.IsActive(n)) {
-            auto s_idx = n_lookback - 1;
-            while (s_idx > 0) {
-              if (current_cycle % (dncycles_d(s_idx) - dncycles_d(s_idx - 1)) == 0) {
-                s(s_idx, n) = s(s_idx - 1, n);
-                sdot(s_idx, n) = sdot(s_idx - 1, n);
+            int s_idx;
+            // A particle injected this cycle has no real history yet: seed every
+            // lookback slot with its current value instead of shifting in zeros.
+            if (track_injection_time && t_inj(n) == current_time) {
+              for (s_idx = 0; s_idx < n_lookback; s_idx++) {
+                s(s_idx, n) = Kokkos::log(rho(n));
+                sdot(s_idx, n) = 0.0;
               }
-              s_idx -= 1;
+            } else {
+              s_idx = n_lookback - 1;
+              while (s_idx > 0) {
+                if (current_cycle % (dncycles_d(s_idx) - dncycles_d(s_idx - 1)) == 0) {
+                  s(s_idx, n) = s(s_idx - 1, n);
+                  sdot(s_idx, n) = sdot(s_idx - 1, n);
+                }
+                s_idx -= 1;
+              }
+              s(0, n) = Kokkos::log(rho(n));
+              sdot(0, n) = (s(0, n) - s(1, n)) / dt;
             }
-            s(0, n) = Kokkos::log(rho(n));
-            sdot(0, n) = (s(0, n) - s(1, n)) / dt;
 
             // Now that all s and sdot entries are updated, we calculate the (mean)
             // correlations
