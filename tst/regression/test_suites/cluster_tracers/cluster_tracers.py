@@ -88,7 +88,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                 if var == "id":
                     matches = np.array_equal(var_data[order], ref_data[var])
                 else:
-                    matches = np.allclose(var_data[order], ref_data[var], atol=tol, rtol=0.0)
+                    matches = np.allclose(
+                        var_data[order], ref_data[var], atol=tol, rtol=0.0
+                    )
                 if not matches:
                     diff = var_data[order] - ref_data[var]
                     print(f"TEST FAIL: swarm var '{var}' differs from reference!")

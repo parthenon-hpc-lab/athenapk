@@ -173,8 +173,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                                      ? p_injection
                                      : -1; // Could be replaced by e.g. SFR
 
-            auto seed =
-                SeedFromIndices(k, j, i, gid, static_cast<int>(k_population), current_time);
+            auto seed = SeedFromIndices(k, j, i, gid, static_cast<int>(k_population),
+                                        current_time);
             auto rnd = random_double(seed);
             if (rnd < p_local) {
               lnpart += 1;
@@ -238,8 +238,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                                      ? p_injection
                                      : -1; // Could be replaced by e.g. SFR
 
-            auto seed =
-                SeedFromIndices(k, j, i, gid, static_cast<int>(k_population), current_time);
+            auto seed = SeedFromIndices(k, j, i, gid, static_cast<int>(k_population),
+                                        current_time);
             auto rnd = random_double(seed);
 
             if (rnd < p_local) {

@@ -214,7 +214,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // hydro.cpp) -- without it, a temperature criterion would silently evaluate
   // against EvaluateCriterion's -1 fallback instead of a real temperature.
   const bool mbar_over_kb_available =
-      pin->DoesBlockExist("units") && pin->DoesParameterExist("hydro", "He_mass_fraction");
+      pin->DoesBlockExist("units") &&
+      pin->DoesParameterExist("hydro", "He_mass_fraction");
   for (const auto &swarm_name : swarm_names) {
 
     const auto rng_seed = pin->GetOrAddInteger(
@@ -290,11 +291,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
       // Injection must actually inject something once enabled -- silently falling
       // back to zero injection here would hide a missing/invalid input value.
-      PARTHENON_REQUIRE_THROWS(
-          injection_num_target > 0.0 && injection_timescale > 0.0,
-          "tracers/" + swarm_name + "_injection_enabled=true requires positive '" +
-              swarm_name + "_injection_num_target' and '" + swarm_name +
-              "_injection_timescale'.");
+      PARTHENON_REQUIRE_THROWS(injection_num_target > 0.0 && injection_timescale > 0.0,
+                               "tracers/" + swarm_name +
+                                   "_injection_enabled=true requires positive '" +
+                                   swarm_name + "_injection_num_target' and '" +
+                                   swarm_name + "_injection_timescale'.");
       const Real injection_rate = injection_num_target / injection_timescale;
 
       tracers_pkg->AddParam<>(swarm_name + "_injection_rate", injection_rate);
@@ -531,7 +532,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
     auto &off = pmb->meshblock_data.Get()->Get("tracers_offsets").data;
     auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
     for (std::size_t k_population = 0; k_population < swarm_names.size();
-        ++k_population) {
+         ++k_population) {
       host_off(k_population) =
           ParticlesUtils::EncodeOffset(static_cast<uint64_t>(pmb->gid) * id_step);
     }
@@ -589,7 +590,8 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         // A large per-population offset keeps each population's stream distinct
         // without perturbing the single-population case (k_population == 0).
         const auto rng_seed = tracers_pkg->Param<int>(swarm_name + "_rng_seed");
-        uint64_t seed = static_cast<uint64_t>(pmb->gid) + static_cast<uint64_t>(rng_seed) +
+        uint64_t seed = static_cast<uint64_t>(pmb->gid) +
+                        static_cast<uint64_t>(rng_seed) +
                         static_cast<uint64_t>(k_population) * utils::custom_rng::PHI_64;
         RNGPool rng_pool(seed);
 
@@ -1245,7 +1247,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                         prim_pack(b, IB3, k, j, i + 1) * prim_pack(b, IB3, k, j, i + 1)) -
                        (prim_pack(b, IB1, k, j, i - 1) * prim_pack(b, IB1, k, j, i - 1) +
                         prim_pack(b, IB2, k, j, i - 1) * prim_pack(b, IB2, k, j, i - 1) +
-                        prim_pack(b, IB3, k, j, i - 1) * prim_pack(b, IB3, k, j, i - 1))) /
+                        prim_pack(b, IB3, k, j, i - 1) *
+                            prim_pack(b, IB3, k, j, i - 1))) /
                       (2.0 * dx);
 
                   const Real dB2_dy =
@@ -1254,7 +1257,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                         prim_pack(b, IB3, k, j + 1, i) * prim_pack(b, IB3, k, j + 1, i)) -
                        (prim_pack(b, IB1, k, j - 1, i) * prim_pack(b, IB1, k, j - 1, i) +
                         prim_pack(b, IB2, k, j - 1, i) * prim_pack(b, IB2, k, j - 1, i) +
-                        prim_pack(b, IB3, k, j - 1, i) * prim_pack(b, IB3, k, j - 1, i))) /
+                        prim_pack(b, IB3, k, j - 1, i) *
+                            prim_pack(b, IB3, k, j - 1, i))) /
                       (2.0 * dy);
 
                   const Real dB2_dz = (ndim == 3)
