@@ -19,9 +19,11 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../particles/stars/stellar_feedback.hpp"
+#include "../particles/stars/stellar_particles.hpp"
+#include "../particles/tracers/tracers.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
-#include "../tracers/tracers.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
@@ -612,6 +614,73 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
+  // Star particles module
+  auto stars_pkg = pmesh->packages.Get("stars");
+  if (stage == integrator->nstages && stars_pkg->Param<bool>("enabled")) {
+
+    // Reset swarm communication before async particle tasks
+    TaskRegion &sync_region_stars = tc.AddRegion(1);
+    {
+      for (auto &pmb : blocks) {
+        auto &tl = sync_region_stars[0];
+        auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+        auto reset_comms =
+            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+      }
+    }
+
+    TaskRegion &async_region_stars = tc.AddRegion(blocks.size());
+    for (int n = 0; n < blocks.size(); n++) {
+      auto &tl = async_region_stars[n];
+      auto &pmb = blocks[n];
+      auto &mbd0 = pmb->meshblock_data.Get("base");
+      auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+
+      // 1. Inject new stars, then apply feedback: this fills the interior
+      // deposit directly and, for particles whose kernel overlaps a
+      // neighboring block, populates the local ghost swarm with pushed
+      // mirror particles (no cross-block motion yet).
+      auto star_inject = tl.AddTask(none, Stars::InjectStars, mbd0.get(), tm);
+      auto star_feedback =
+          tl.AddTask(star_inject, StellarFeedback::StellarFeedback, mbd0.get(), tm);
+
+      // 2. Move the main star particles, before the comm round below.
+      // MoveStars only touches the "stars" swarm, never ghost_stars, so it
+      // can't disturb the ghost mirrors StellarFeedback just pushed; under
+      // TransportMode::Gravity (the default) it has no dependency on them.
+      auto star_move = tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
+
+      // 3. Single send/receive round for both the ghost mirrors and the
+      // main swarm's new positions (Send/Receive act on every registered
+      // swarm at once). A prior two-round version reused a not-yet-complete
+      // send buffer across rounds (MPI_Request_free doesn't wait for the
+      // send to finish) and hung under real multi-rank MPI; one round fixes
+      // it, matching the working Tracers pattern.
+      auto send =
+          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(), BoundaryCommSubset::all);
+      auto receive =
+          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+
+      // 4. Finish applying feedback from ghost particles that just arrived
+      // from neighboring blocks: recover the true (un-pushed) position
+      // from the stored offset, re-center the kernel, deposit into this
+      // block's interior, then remove the now-consumed ghost particles.
+      auto ghost_feedback =
+          tl.AddTask(receive, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
+    }
+
+    // 5. Star formation/feedback (steps 1/4 above) modify `cons` directly
+    // but don't re-sync `prim`, so re-run FillDerived before tracer
+    // advection, AMR tagging, or output/restart reads stale primitives.
+    TaskRegion &fill_derived_stars_region = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = fill_derived_stars_region[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+    }
+  }
+
+  // Then move on to tracers
   auto tracers_pkg = pmesh->packages.Get("tracers");
   // First order operator split tracer advection
   if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
@@ -632,14 +701,17 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &pmb = blocks[n];
       auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
       auto &mbd0 = pmb->meshblock_data.Get("base");
-      auto tracer_advect =
-          tl.AddTask(none, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
 
+      auto tracer_inject = tl.AddTask(none, Tracers::InjectTracers, mbd0.get(), tm);
+      auto tracer_removal =
+          tl.AddTask(tracer_inject, Tracers::RemoveTracers, mbd0.get(), tm);
+      auto tracer_advect =
+          tl.AddTask(tracer_removal, Tracers::AdvectTracers, mbd0.get(), tm);
       auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
                              BoundaryCommSubset::all);
-
       auto receive =
           tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+      auto center = tl.AddTask(receive, Tracers::CenterTracers, mbd0.get(), tm);
     }
     // TODO(pgrete) Fix/cleanup once we got swarm packs.
     // We need just a single region with a single task in order to be able to use plain

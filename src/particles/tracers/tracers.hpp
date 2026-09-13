@@ -1,9 +1,9 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-// Tracer implementation refacored from https://github.com/lanl/phoebus
+// Tracer implementation refactored from https://github.com/lanl/phoebus
 //========================================================================================
 // © 2021-2023. Triad National Security, LLC. All rights reserved.
 // This program was produced under U.S. Government contract
@@ -17,6 +17,9 @@
 // license in this material to reproduce, prepare derivative works,
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
+//========================================================================================
+// This file was made in part with generative AI (Claude Sonnet 5).
+//========================================================================================
 
 #ifndef TRACERS_HPP_
 #define TRACERS_HPP_
@@ -29,11 +32,12 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
-#include "../main.hpp"
+#include "../../main.hpp"
 #include "basic_types.hpp"
 
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
+using parthenon::Coordinates_t;
 
 using RNGPool = Kokkos::Random_XorShift64_Pool<>;
 
@@ -43,8 +47,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 extern InitPackageDataFun_t ProblemInitTracerData;
 
-TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt);
+enum class AdvectMethod { MonteCarlo, VInterp, Flux, None };
 
+TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
 using FillTracersFun_t = std::function<TaskStatus(
     MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)>;

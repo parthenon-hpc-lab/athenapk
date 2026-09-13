@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2021-2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2021-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
 //! \file turbulence.cpp
@@ -19,7 +19,6 @@
 #include "globals.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
-#include "kokkos_types.hpp"
 #include "mesh/mesh.hpp"
 #include <iomanip>
 #include <ios>
@@ -32,7 +31,7 @@
 
 // AthenaPK headers
 #include "../main.hpp"
-#include "../tracers/tracers.hpp"
+#include "../particles/tracers/tracers.hpp"
 #include "../units.hpp"
 #include "../utils/few_modes_ft.hpp"
 #include "utils/error_checking.hpp"
@@ -296,9 +295,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg
   }
 }
 
-void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *tracer_pkg) {
-  const auto swarm_name = tracer_pkg->Param<std::string>("swarm_name");
-
+void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *tracers_pkg) {
   // The legacy version (that was already used in sims for paper) was a bad choice as
   // it leaks information from sth problem specific to the tracers package.
   // The following logic is added for compatiblity with existing data (updating options
@@ -360,20 +357,30 @@ void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *trac
     PARTHENON_THROW(
         "This line should not be reached as invalid n_lookback are caught above.");
   }
-  parthenon::ParArray1D<int> dncycles_d =
+  auto dncycles_d =
       Kokkos::create_mirror_view_and_copy(parthenon::DevMemSpace(), dncycles_h);
-  tracer_pkg->AddParam("turbulence/n_lookback", n_lookback);
-  tracer_pkg->AddParam("turbulence/dncycles_h", dncycles_h);
-  tracer_pkg->AddParam("turbulence/dncycles_d", dncycles_d);
+  tracers_pkg->AddParam("turbulence/n_lookback", n_lookback);
+  tracers_pkg->AddParam("turbulence/dncycles_h", dncycles_h);
+  tracers_pkg->AddParam("turbulence/dncycles_d", dncycles_d);
+
+  // Getting the population names and assign vars to first one.
+  // If more are desired, the Problem Filling routine also needs an update.
+  const auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+  const auto swarm_name = swarm_names.at(0);
+  if (parthenon::Globals::my_rank == 0) {
+    PARTHENON_WARN(
+        "Turbulence pgen: Adding tracer ln(rho) history only to tracer population '" +
+        swarm_name + "'.");
+  }
   // Using a vector to reduce code duplication.
   Metadata vreal_swarmvalue_metadata(
       {Metadata::Real, Metadata::Vector, Metadata::Restart},
       std::vector<int>{n_lookback});
-  tracer_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
-  tracer_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
+  tracers_pkg->AddSwarmValue("s", swarm_name, vreal_swarmvalue_metadata);
+  tracers_pkg->AddSwarmValue("sdot", swarm_name, vreal_swarmvalue_metadata);
   // Timestamps for the lookback entries
-  tracer_pkg->AddParam<>("turbulence/t_lookback", std::vector<Real>(n_lookback),
-                         Params::Mutability::Restart);
+  tracers_pkg->AddParam<>("turbulence/t_lookback", std::vector<Real>(n_lookback),
+                          Params::Mutability::Restart);
 }
 
 // SetPhases is used as InitMeshBlockUserData because phases need to be reset on remeshing
@@ -979,14 +986,18 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   // Get hydro/mhd fluid vars over all blocks
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  // Only update first swarm for now. If updated, the init above also needs an update
+  const auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+  const auto swarm_name = swarm_names.at(0);
+
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
     auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
-    auto &swarm = sd->Get("tracers");
+    auto &swarm = sd->Get(swarm_name);
 
     // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
     // pull swarm vars
-    auto &rho = swarm->Get<Real>("rho").Get();
+    auto &rho = swarm->Get<Real>("density").Get();
     auto &s = swarm->Get<Real>("s").Get();
     auto &sdot = swarm->Get<Real>("sdot").Get();
 

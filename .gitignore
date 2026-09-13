@@ -30,7 +30,12 @@ compile_commands.json
 # HDF5/Output Files
 *.phdf
 *.phdf.xdmf
+*.rhdf
 *.dat
+
+# Default output dir when a regression test is run manually (ctest itself writes
+# under build*/, already ignored above)
+tst/regression/test_suites/*/output/
 
 # jupyter notebook temp files
 .ipynb_checkpoints

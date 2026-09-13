@@ -17,6 +17,8 @@
 #include "../eos/adiabatic_glmmhd.hpp"
 #include "../eos/adiabatic_hydro.hpp"
 #include "../main.hpp"
+#include "../particles/stars/stellar_particles.hpp"
+#include "../particles/tracers/tracers.hpp"
 #include "../pgen/pgen.hpp"
 #include "../recon/dc_simple.hpp"
 #include "../recon/limo3_simple.hpp"
@@ -25,7 +27,6 @@
 #include "../recon/weno3_simple.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
-#include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "defs.hpp"
 #include "diffusion/diffusion.hpp"
@@ -51,11 +52,14 @@ namespace Hydro {
 
 using cooling::TabularCooling;
 using parthenon::HistoryOutputVar;
+using Tracers::AdvectMethod;
+using TE = parthenon::TopologicalElement;
 
 parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
   packages.Add(Tracers::Initialize(pin.get()));
+  packages.Add(Stars::Initialize(pin.get()));
   return packages;
 }
 
@@ -1051,9 +1055,42 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
   auto cons_in = md->PackVariablesAndFluxes(flags_ind);
   auto pkg = pmb->packages.Get("Hydro");
+  auto tracers_pkg = pmb->packages.Get("tracers");
   const auto nhydro = pkg->Param<int>("nhydro");
   const auto nscalars = pkg->Param<int>("nscalars");
 
+  // If necessary, load the left/right states.
+  auto tracers_enabled = tracers_pkg->Param<bool>("enabled");
+  auto advection_method = tracers_pkg->Param<AdvectMethod>("advection_method");
+
+  auto fvel = parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>>{};
+  if (advection_method == AdvectMethod::Flux) {
+    fvel = md->PackVariables(std::vector<std::string>{"fvel"});
+  }
+
+  // If Monte-Carlo based advection, need to save the initial mass of each cell
+  // before its value is being updated by the hydro solver.
+  auto M_cell = parthenon::MeshBlockPack<parthenon::VariablePack<parthenon::Real>>{};
+  if (tracers_enabled && advection_method == AdvectMethod::MonteCarlo) {
+    M_cell = md->PackVariables(std::vector<std::string>{"M_cell"});
+
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "Fill Mcell", parthenon::DevExecSpace(), 0,
+        cons_in.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto &cons = cons_in(b);
+          const auto &coords = cons_in.GetCoords(b);
+          auto &M = M_cell(b);
+
+          // Get the cell volume from device-accessible view
+          const Real dV = coords.Volume<TE::CC>(k, j, i);
+
+          // Store total cell mass
+          M(0, k, j, i) = cons(IDN, k, j, i) * dV;
+        });
+  }
+
+  // Loading equation of state
   const auto &eos =
       pkg->Param<typename std::conditional<fluid == Fluid::euler, AdiabaticHydroEOS,
                                            AdiabaticGLMMHDEOS>::type>("eos");
@@ -1094,6 +1131,15 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
 
         riemann.Solve(member, k, j, ib.s, ib.e + 1, IV1, wl, wr, cons, eos, c_h);
         member.team_barrier();
+
+        /* Storing the left and right states */
+        if (tracers_enabled && advection_method == AdvectMethod::Flux) {
+          parthenon::par_for_inner(member, ib.s, ib.e + 1, [&](const int i) {
+            const Real flux = cons.flux(IV1, IDN, k, j, i);
+            fvel(b, TE::F1, 0, k, j, i) =
+                (flux >= 0.0) ? flux / wl(IDN, i) : flux / wr(IDN, i);
+          });
+        }
 
         // Passive scalar fluxes
         for (auto n = nhydro; n < nhydro + nscalars; ++n) {
@@ -1141,6 +1187,14 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
               riemann.Solve(member, k, j, il, iu, IV2, wl, wr, cons, eos, c_h);
               member.team_barrier();
 
+              // Storing the left / right states for tracers
+              if (tracers_enabled && advection_method == AdvectMethod::Flux) {
+                parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                  const Real flux = cons.flux(IV2, IDN, k, j, i);
+                  fvel(b, TE::F2, 0, k, j, i) =
+                      (flux >= 0.0) ? flux / wl(IDN, i) : flux / wr(IDN, i);
+                });
+              }
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
                 parthenon::par_for_inner(member, il, iu, [&](const int i) {
@@ -1189,6 +1243,14 @@ TaskStatus CalculateFluxes(std::shared_ptr<MeshData<Real>> &md) {
               riemann.Solve(member, k, j, il, iu, IV3, wl, wr, cons, eos, c_h);
               member.team_barrier();
 
+              // Storing the left / right states for tracers
+              if (tracers_enabled && advection_method == AdvectMethod::Flux) {
+                parthenon::par_for_inner(member, il, iu, [&](const int i) {
+                  const Real flux = cons.flux(IV3, IDN, k, j, i);
+                  fvel(b, TE::F3, 0, k, j, i) =
+                      (flux >= 0.0) ? flux / wl(IDN, i) : flux / wr(IDN, i);
+                });
+              }
               // Passive scalar fluxes
               for (auto n = nhydro; n < nhydro + nscalars; ++n) {
                 parthenon::par_for_inner(member, il, iu, [&](const int i) {
@@ -1268,9 +1330,9 @@ TaskStatus FirstOrderFluxCorrect(MeshData<Real> *u0_data, MeshData<Real> *u1_dat
 
   std::int64_t num_corrected, num_need_floor;
   // Potentially need multiple attempts as flux correction corrects 6 (in 3D) fluxes
-  // of a single cell at the same time. So the neighboring cells need to be rechecked with
-  // the corrected fluxes as the corrected fluxes in one cell may result in the need to
-  // correct all the fluxes of an originally "good" neighboring cell.
+  // of a single cell at the same time. So the neighboring cells need to be rechecked
+  // with the corrected fluxes as the corrected fluxes in one cell may result in the
+  // need to correct all the fluxes of an originally "good" neighboring cell.
   size_t num_attempts = 0;
   do {
     num_corrected = 0;

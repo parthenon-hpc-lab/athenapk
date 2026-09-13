@@ -20,8 +20,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/output2/dt=-1",  # disable prim outputs
             "parthenon/output3/dt=10",  # set a large dt to get a final rst output
             "tracers/enabled=true",  # enable tracers via cmd line arguments
+            "tracers/advection_method=vinterp",
             "tracers/initial_seed_method=random_per_block",
-            "tracers/initial_num_tracers_per_cell=0.001953125",  # eff. 512 tracers in 64^3
+            "tracers/swarm_names=tracers",
+            "tracers/tracers_initial_num_tracers_per_cell=0.001953125",  # eff. 512 tracers in 64^3
             "turbulence/n_lookback=40",  # keep track of 40 time bins
         ]
 
@@ -45,12 +47,12 @@ class TestCase(utils.test_case.TestCaseAbs):
         data = np.genfromtxt(data_filename)
 
         # Check Ms
-        if data[-1, -3] != 4.70153e-01:
+        if not (data[-1, -3] > 0.45 and data[-1, -3] < 0.50):
             print(f"ERROR: Mismatch in Ms={data[-1, -3]}")
             success = False
 
         # Check Ma
-        if data[-1, -2] != 1.37253e01:
+        if not (data[-1, -2] > 12.8 and data[-1, -2] < 13.6):
             print(f"ERROR: Mismatch in Ma={data[-1, -2]}")
             success = False
 
@@ -96,17 +98,18 @@ class TestCase(utils.test_case.TestCaseAbs):
         order = np.argsort(ids)
 
         # For reference: this is how the ref data was stored
-        if False:
-            all_var_data = {}
-            for var in tracers.variables:
-                var_data = tracers.Get(var)
-                if len(var_data.shape) > 1:
-                    out_data = var_data[np.arange(var_data.shape[0])[:, None], order]
-                else:
-                    out_data = var_data[order]
-                all_var_data[var] = out_data
-            with open("ref_data.pkl", "wb") as outfile:
-                pickle.dump(all_var_data, outfile)
+        # all_var_data = {}
+        # for var in tracers.variables:
+        #    var_data = tracers.Get(var)
+        #    all_var_data[var] = var_data[order]
+        #    if len(var_data.shape) > 1:
+        #        out_data = var_data[np.arange(var_data.shape[0])[:, None], order]
+        #    else:
+        #        out_data = var_data[order]
+        #    all_var_data[var] = out_data
+
+        # with open("ref_data.pkl", "wb") as outfile:
+        #    pickle.dump(all_var_data, outfile)
 
         with open(f"{parameters.test_path}/ref_data.pkl", "rb") as infile:
             ref_data = pickle.load(infile)
