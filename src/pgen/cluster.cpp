@@ -176,9 +176,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    * Read Cluster Gravity Parameters
    ************************************************************/
 
-  // Build cluster_gravity object
+  // Build cluster_gravity object. Its constructor registers itself on hydro_pkg
+  // as the base gravity::SphericalGravity type under the "gravity_field" param
+  // (see ClusterGravity's constructor in cluster_gravity.hpp).
   ClusterGravity cluster_gravity(pin, hydro_pkg);
-  // hydro_pkg->AddParam<>("cluster_gravity", cluster_gravity);
 
   // Include gravity as a source term during evolution
   const bool gravity_srcterm =
