@@ -32,12 +32,9 @@ class ClusterGravity : public gravity::SphericalGravity {
   ClusterGravity(parthenon::ParameterInput *pin)
       : gravity::SphericalGravity(pin, "problem/cluster/gravity") {}
 
-  // ClusterGravity(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg)
-  // is called from cluster.cpp to add the ClusterGravity object to hydro_pkg. Registered
-  // as the base gravity::SphericalGravity type (a lossless slice -- ClusterGravity adds
-  // no members of its own) so any generic consumer -- e.g. a future stellar-particle
-  // mover, which only needs the gravitational field and not the cluster pgen -- can
-  // retrieve it without knowing about ClusterGravity specifically.
+  // Called from cluster.cpp to add the object to hydro_pkg. Registered as the base
+  // gravity::SphericalGravity type so any generic consumer can retrieve the field
+  // without depending on ClusterGravity specifically.
   ClusterGravity(parthenon::ParameterInput *pin, parthenon::StateDescriptor *hydro_pkg)
       : ClusterGravity(pin) {
     hydro_pkg->AddParam<gravity::SphericalGravity>("gravity_field", *this);
