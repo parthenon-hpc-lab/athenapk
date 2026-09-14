@@ -25,6 +25,7 @@ Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF
 - [[PR 185]](https://github.com/parthenon-hpc-lab/athenapk/pull/185) Add a script (`scripts/generate_uniform_cooling_table.py`) and reference data (`inputs/cooling_tables/tab13.txt`) to generate Gnat-Sternberg cooling tables from the original CIE data.  Users can use this script to create tables with custom uniform log10 T spacing (default dlogT=0.02) for use with the `TabularCooling` implementation.
 
 ### Changed (changing behavior/API/variables/...)
+- [[PR TBD]](https://github.com/parthenon-hpc-lab/athenapk/pull/TBD) Move the NFW+BCG+SMBH gravity implementation out of the cluster problem generator into a standalone `gravity::SphericalGravity` class (`src/gravity/spherical_gravity.hpp`) so it can be reused outside the cluster pgen. `ClusterGravity` is now a thin wrapper around it, instantiated against the cluster pgen's `problem/cluster/gravity` input block; the `hydro_pkg` param it registers is renamed from `cluster_gravity` to `gravity_field`. No behavior change for existing cluster simulations.
 
 ### Fixed (not changing behavior/API/variables/...)
 - [[PR 188]](https://github.com/parthenon-hpc-lab/athenapk/pull/188) Fix compilation in single precision

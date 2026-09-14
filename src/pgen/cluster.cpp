@@ -37,6 +37,7 @@
 // AthenaPK headers
 #include "../eos/adiabatic_glmmhd.hpp"
 #include "../eos/adiabatic_hydro.hpp"
+#include "../gravity/spherical_gravity.hpp"
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/gravitational_field.hpp"
 #include "../hydro/srcterms/tabular_cooling.hpp"
@@ -67,10 +68,10 @@ void ClusterUnsplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   const bool &gravity_srcterm = hydro_pkg->Param<bool>("gravity_srcterm");
 
   if (gravity_srcterm) {
-    const ClusterGravity &cluster_gravity =
-        hydro_pkg->Param<ClusterGravity>("cluster_gravity");
+    const gravity::SphericalGravity &cluster_gravity =
+        hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
 
-    GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
+    gravity::GravitationalFieldSrcTerm(md, beta_dt, cluster_gravity);
   }
 
   const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
@@ -175,9 +176,10 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
    * Read Cluster Gravity Parameters
    ************************************************************/
 
-  // Build cluster_gravity object
+  // Build cluster_gravity object. Its constructor registers itself on hydro_pkg
+  // as the base gravity::SphericalGravity type under the "gravity_field" param
+  // (see ClusterGravity's constructor in cluster_gravity.hpp).
   ClusterGravity cluster_gravity(pin, hydro_pkg);
-  // hydro_pkg->AddParam<>("cluster_gravity", cluster_gravity);
 
   // Include gravity as a source term during evolution
   const bool gravity_srcterm =
