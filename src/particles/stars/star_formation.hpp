@@ -154,7 +154,8 @@ CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const
 
   // SFVirialCriterion::Hopkins and SFVirialCriterion::HopkinsAlfven: both
   // build a Bertoldi & McKee (1992)-style virial parameter from the same
-  // local turbulence proxy (velocity curl) and sound speed over cell size.
+  // local turbulence proxy (full velocity gradient tensor) and sound speed
+  // over cell size.
   const Real rho = prim(IDN, k, j, i);
   const Real press = prim(IPR, k, j, i);
   const Real cs2 = gamma * press / rho;
@@ -162,24 +163,27 @@ CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const
   // Simplifies to regular dx if squared cell, geometric mean if not.
   const Real dx_cell = Kokkos::pow(dx * dy * dz, 1.0 / 3.0);
 
-  // Vorticity components: curl(v) = (dvz/dy - dvy/dz, dvx/dz - dvz/dx, dvy/dx - dvx/dy)
-  Real curl_x = 0.0, curl_y = 0.0, curl_z = 0.0;
-
+  // Velocity gradient tensor dv_i/dx_j. The virial parameter uses its
+  // Frobenius norm (sum of squares of every component), not just the
+  // vorticity (curl) part, since it must also capture compressive/shearing
+  // motions that carry no net rotation.
+  const Real dvx_dx = (prim(IV1, k, j, i + 1) - prim(IV1, k, j, i - 1)) / (2.0 * dx);
   const Real dvy_dx = (prim(IV2, k, j, i + 1) - prim(IV2, k, j, i - 1)) / (2.0 * dx);
   const Real dvx_dy = (prim(IV1, k, j + 1, i) - prim(IV1, k, j - 1, i)) / (2.0 * dy);
-  curl_z = dvy_dx - dvx_dy;
+  const Real dvy_dy = (prim(IV2, k, j + 1, i) - prim(IV2, k, j - 1, i)) / (2.0 * dy);
+
+  Real grad_v2 = dvx_dx * dvx_dx + dvy_dx * dvy_dx + dvx_dy * dvx_dy + dvy_dy * dvy_dy;
 
   if (ndim == 3) {
     const Real dvz_dx = (prim(IV3, k, j, i + 1) - prim(IV3, k, j, i - 1)) / (2.0 * dx);
     const Real dvx_dz = (prim(IV1, k + 1, j, i) - prim(IV1, k - 1, j, i)) / (2.0 * dz);
     const Real dvz_dy = (prim(IV3, k, j + 1, i) - prim(IV3, k, j - 1, i)) / (2.0 * dy);
     const Real dvy_dz = (prim(IV2, k + 1, j, i) - prim(IV2, k - 1, j, i)) / (2.0 * dz);
+    const Real dvz_dz = (prim(IV3, k + 1, j, i) - prim(IV3, k - 1, j, i)) / (2.0 * dz);
 
-    curl_x = dvz_dy - dvy_dz;
-    curl_y = dvx_dz - dvz_dx;
+    grad_v2 += dvz_dx * dvz_dx + dvx_dz * dvx_dz + dvz_dy * dvz_dy + dvy_dz * dvy_dz +
+               dvz_dz * dvz_dz;
   }
-
-  const Real curl_v2 = curl_x * curl_x + curl_y * curl_y + curl_z * curl_z;
 
   // HopkinsAlfven: Hopkins' own virial parameter with a magnetic support
   // term v_A^2 = B^2/rho folded into the numerator alongside cs^2 (v_A^2
@@ -198,7 +202,7 @@ CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const
   const Real cs_over_dx2 = (cs2 + vA2) / (dx_cell * dx_cell); // Assumes squared cells
 
   const Real alpha =
-      (curl_v2 + cs_over_dx2) / (8.0 * M_PI * gravitational_constant * rho);
+      (grad_v2 + cs_over_dx2) / (8.0 * M_PI * gravitational_constant * rho);
 
   return alpha <= alpha_crit;
 }
