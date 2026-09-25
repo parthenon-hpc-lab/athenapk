@@ -44,12 +44,6 @@ using SolverT = parthenon::solvers::BiCGSTABSolver<PoissEq, preconditioner_t>;
 
 namespace SelfGravity {
 
-// NOTE: Multi-rank GPU runs of the GMG hierarchy require the flux-correction
-// communication fence fix (parthenon-hpc-lab/parthenon#1405): without it a rank
-// could post its MPI send before the device-side buffer-pack kernel finished, so
-// neighbors received garbage ghost data and the preconditioned solve diverged
-// (grav.phi -> NaN). The pinned Parthenon submodule includes the fix, so no
-// runtime workaround (e.g. CUDA_LAUNCH_BLOCKING=1) is needed.
 void AddSolvePoissonTasks(TaskCollection &tc, Mesh *pmesh) {
   using namespace parthenon;
   TaskID none(0);
