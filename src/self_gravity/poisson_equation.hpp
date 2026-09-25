@@ -5,6 +5,20 @@
 // Copyright (c) 2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
+// Adapted from the Parthenon poisson_gmg example,
+// https://github.com/parthenon-hpc-lab/parthenon/tree/develop/example/poisson_gmg
+//========================================================================================
+// (C) (or copyright) 2023-2024. Triad National Security, LLC. All rights reserved.
+//
+// This program was produced under U.S. Government contract 89233218CNA000001 for Los
+// Alamos National Laboratory (LANL), which is operated by Triad National Security, LLC
+// for the U.S. Department of Energy/National Nuclear Security Administration. All rights
+// in the program are reserved by Triad National Security, LLC, and the U.S. Department
+// of Energy/National Nuclear Security Administration. The Government is granted for
+// itself and others acting on its behalf a nonexclusive, paid-up, irrevocable worldwide
+// license in this material to reproduce, prepare derivative works, distribute copies to
+// the public, perform publicly and display publicly, and to permit others to do so.
+//========================================================================================
 //! \file poisson_equation.hpp
 //! \brief Discrete Poisson operator handed to the Parthenon solvers. Adapted from
 //!        parthenon/example/poisson_gmg (C) Triad National Security, LLC.
