@@ -27,20 +27,11 @@
 // Parthenon headers
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
-#include <solvers/bicgstab_solver.hpp>
-#include <solvers/internal_prolongation.hpp>
-#include <solvers/mg_solver.hpp>
 #include <solvers/solver_base.hpp>
 #include <solvers/solver_utils.hpp>
 
 // AthenaPK headers
-#include "poisson_equation.hpp"
 #include "self_gravity.hpp"
-
-using PoissEq = SelfGravity::PoissonEquation<SelfGravity::grav::phi>;
-using prolongator_t = parthenon::solvers::ProlongationBlockInteriorZeroDirichlet;
-using preconditioner_t = parthenon::solvers::MGSolver<PoissEq, prolongator_t>;
-using SolverT = parthenon::solvers::BiCGSTABSolver<PoissEq, preconditioner_t>;
 
 namespace SelfGravity {
 
