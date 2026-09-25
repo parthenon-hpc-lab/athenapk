@@ -26,8 +26,9 @@
 //! exactly isothermal at c_s = 1 (p = rho); above it the gas stiffens to an adiabat of
 //! index gamma. gamma therefore only sets the stiff branch -- the run is isothermal
 //! everywhere the density is below `rhocrit`, whatever the EOS block says. The same
-//! source also zeroes the momentum outside r = rc, i.e. it imposes a fixed-velocity
-//! boundary on the ambient medium.
+//! source also zeroes the momentum of cells outside r = rc each stage, holding the
+//! ambient medium at rest. It does not seal the sphere: the face fluxes are computed
+//! before the source is applied, so mass and energy still cross r = rc.
 
 // C++ headers
 #include <cmath>    // sqrt, atan2, cos
@@ -203,8 +204,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 //!     e_th = rho/(gamma-1) * sqrt(1 + (rho/rhocrit)^(2(gamma-1)))
 //! which is isothermal (c_s = 1) for rho << rhocrit and adiabatic of index gamma for
 //! rho >> rhocrit. This is an EOS enforcement, not a differential cooling rate, so it
-//! does not depend on the time step. It also zeroes the momentum outside the sphere,
-//! i.e. it holds the ambient medium at rest.
+//! does not depend on the time step. It also zeroes the momentum of cells outside the
+//! sphere, holding the ambient medium at rest (face fluxes across r = rc are unaffected).
 void ApplyBarotropicCooling(MeshData<Real> *md, const parthenon::SimTime &tm,
                             const Real beta_dt) {
   auto hydro_pkg = md->GetParentPointer()->packages.Get("Hydro");

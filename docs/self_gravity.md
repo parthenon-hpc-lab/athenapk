@@ -182,8 +182,11 @@ Two problem generators exercise the solver and ship with matching input decks:
   with a barotropic equation of state, $e_{\rm th} = \rho/(\gamma-1)\sqrt{1 +
   (\rho/\rho_{\rm crit})^{2(\gamma-1)}}$, which is exactly isothermal below
   $\rho_{\rm crit}$ and stiffens to an adiabat of index $\gamma$ above it. `gamma`
-  therefore only sets the stiff branch. The same source also zeroes the momentum outside
-  the sphere radius, i.e. it imposes a fixed-velocity boundary on the ambient medium.
+  therefore only sets the stiff branch. The same source also zeroes the momentum of every
+  cell outside the sphere radius once per stage. This holds the ambient medium at rest but
+  does not seal the sphere: the face fluxes are computed before the source is applied,
+  from reconstructed states on both sides of $r = r_c$, so mass and energy still cross
+  it.
 
 ## Validation
 
