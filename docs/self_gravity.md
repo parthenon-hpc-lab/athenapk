@@ -73,10 +73,13 @@ Parthenon's geometric-multigrid (GMG) infrastructure.
   the round-off floor of the residual (about $10^{-13}$ relative to the right-hand side
   in double precision). A BiCGSTAB solve asked for less keeps iterating on round-off and
   can return a corrupted potential when it hits `max_iterations`.
-- The source term writes interior cells only and runs after the stage's boundary
-  exchange (the solve is global, so it cannot sit inside the stage task list), so the
-  ghost zones are re-communicated before `FillDerived`. Without that, the next stage's
-  reconstruction would use ghost values missing one gravitational kick.
+- The three gravity steps run between the stage's hydro update and the remaining unsplit
+  sources, in task regions of their own because the solve is global. Problem sources
+  that overwrite the state therefore act on the gravity-updated state, and the stage's
+  regular boundary exchange carries the gravitational kick into the ghost zones.
+- A problem generator can exclude part of the domain from the gravitating mass by setting
+  `SelfGravity::ProblemPoissonSourceMask` (in `main.cpp`, like the `Hydro::Problem*`
+  callbacks). It is applied to `grav.rhs` after the right-hand side has been assembled.
 - For fully periodic domains the **Jeans swindle** (`use_swindle`) subtracts the mean
   density so the periodic Poisson problem is well posed.
 
@@ -183,10 +186,13 @@ Two problem generators exercise the solver and ship with matching input decks:
   (\rho/\rho_{\rm crit})^{2(\gamma-1)}}$, which is exactly isothermal below
   $\rho_{\rm crit}$ and stiffens to an adiabat of index $\gamma$ above it. `gamma`
   therefore only sets the stiff branch. The same source also zeroes the momentum of every
-  cell outside the sphere radius once per stage. This holds the ambient medium at rest but
-  does not seal the sphere: the face fluxes are computed before the source is applied,
-  from reconstructed states on both sides of $r = r_c$, so mass and energy still cross
-  it.
+  cell outside the sphere radius once per stage, after the gravitational kick. This holds
+  the ambient medium at rest but does not seal the sphere: the face fluxes are computed
+  before the source is applied, from reconstructed states on both sides of $r = r_c$, so
+  mass and energy still cross it. The ambient medium is a pressure bath and does not
+  gravitate: as in Athena++'s collapse problem generators, the Poisson source is masked
+  outside $r_c$ (`collapse_be::MaskPoissonSource`). Holding gas at rest that feels and
+  exerts gravity would not be consistent.
 
 ## Validation
 

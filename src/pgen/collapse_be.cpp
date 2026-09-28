@@ -26,9 +26,10 @@
 //! exactly isothermal at c_s = 1 (p = rho); above it the gas stiffens to an adiabat of
 //! index gamma. gamma therefore only sets the stiff branch -- the run is isothermal
 //! everywhere the density is below `rhocrit`, whatever the EOS block says. The same
-//! source also zeroes the momentum of cells outside r = rc each stage, holding the
-//! ambient medium at rest. It does not seal the sphere: the face fluxes are computed
-//! before the source is applied, so mass and energy still cross r = rc.
+//! source also zeroes the momentum of cells outside r = rc each stage, after the
+//! gravitational kick, holding the ambient medium at rest. It does not seal the sphere:
+//! the face fluxes are computed before the source is applied, so mass and energy still
+//! cross r = rc. The ambient medium does not gravitate either (MaskPoissonSource).
 
 // C++ headers
 #include <cmath>    // sqrt, atan2, cos
@@ -41,6 +42,7 @@
 
 // AthenaPK headers
 #include "../main.hpp"
+#include "../self_gravity/self_gravity.hpp"
 #include "pgen.hpp"
 
 namespace collapse_be {
@@ -251,6 +253,43 @@ void ApplyBarotropicCooling(MeshData<Real> *md, const parthenon::SimTime &tm,
         const Real te =
             igm1 * rho * Kokkos::sqrt(1.0 + Kokkos::pow(rho / rhocrit, 2.0 * gm1));
         cons(IEN, k, j, i) = te + ke + me;
+      });
+}
+
+//----------------------------------------------------------------------------------------
+//! \fn void MaskPoissonSource(MeshData<Real> *md)
+//! \brief Zero the Poisson source outside r = rc, enrolled as
+//!        SelfGravity::ProblemPoissonSourceMask.
+//!
+//! The ambient medium is a pressure bath: it confines the sphere through the face
+//! fluxes, but it must not gravitate. Its mass exceeds the sphere's many times over, and
+//! it is held at rest by ApplyBarotropicCooling, which would be inconsistent with it
+//! feeling -- and exerting -- gravity. As in Athena++'s collapse problem generators, the
+//! mask is geometric, at the initial radius rc.
+void MaskPoissonSource(MeshData<Real> *md) {
+  auto pm = md->GetParentPointer();
+  const Real rc = pm->packages.Get("Hydro")->Param<Real>("collapse_be/rc");
+  const Real rcsq = rc * rc;
+  auto desc =
+      parthenon::MakePackDescriptor<SelfGravity::grav::rhs>(pm->resolved_packages.get());
+  auto pack = desc.GetPack(md);
+
+  IndexRange ib = md->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBoundsK(IndexDomain::entire);
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "collapse_be::MaskPoissonSource", parthenon::DevExecSpace(),
+      0, pack.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const auto &coords = pack.GetCoordinates(b);
+        const Real x = coords.template Xc<1>(i);
+        const Real y = coords.template Xc<2>(j);
+        const Real z = coords.template Xc<3>(k);
+        if (x * x + y * y + z * z > rcsq) {
+          pack(b, parthenon::TopologicalElement::CC, SelfGravity::grav::rhs(), k, j, i) =
+              0.0;
+        }
       });
 }
 

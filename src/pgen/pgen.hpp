@@ -42,6 +42,9 @@ void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 // Barotropic EOS enforcement, enrolled as Hydro::ProblemSourceUnsplit in main.cpp.
 void ApplyBarotropicCooling(MeshData<Real> *md, const parthenon::SimTime &tm,
                             const Real beta_dt);
+// Excludes the ambient medium (r > rc) from the gravitating mass; enrolled as
+// SelfGravity::ProblemPoissonSourceMask in main.cpp.
+void MaskPoissonSource(MeshData<Real> *md);
 } // namespace collapse_be
 
 namespace cpaw {

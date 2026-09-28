@@ -329,6 +329,7 @@ TaskStatus FillPoissonRHS(MeshData<Real> *md) {
         const Real rho = cons_pack(b, IDN, k, j, i);
         rhs_pack(b, te, grav::rhs(), k, j, i) = four_pi_G * (rho - grav_mean_rho);
       });
+  if (ProblemPoissonSourceMask != nullptr) ProblemPoissonSourceMask(md);
   return TaskStatus::complete;
 }
 

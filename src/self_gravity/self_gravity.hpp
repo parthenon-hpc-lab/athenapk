@@ -9,6 +9,7 @@
 //! \brief Interface of the self-gravity package (ported from Artemis, LANL).
 
 // C++ headers
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -64,6 +65,12 @@ void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt);
 
 // Solve for grav.phi from the current conserved density and copy it into grav.phi_prev.
 void AddSolvePoissonTasks(TaskCollection &tc, Mesh *pmesh);
+
+// Problem-specific hook applied to grav.rhs once it has been assembled, e.g. to exclude
+// part of the domain from the gravitating mass. nullptr (the default, set in main.cpp)
+// leaves the right-hand side untouched.
+using PoissonSourceMaskFun_t = std::function<void(MeshData<Real> *md)>;
+extern PoissonSourceMaskFun_t ProblemPoissonSourceMask;
 
 // rhs = 4 pi G (rho - rho_mean) on every cell including ghosts, from the conserved
 // density. An explicit task rather than a FillDerived callback, so its ordering is fixed
