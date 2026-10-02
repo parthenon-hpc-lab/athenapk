@@ -95,8 +95,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   hydro_pkg->AddParam<Real>("collapse_be/amp", amp);
   hydro_pkg->AddParam<Real>("collapse_be/omega", omega);
   hydro_pkg->AddParam<Real>("collapse_be/B0z", B0z);
-  hydro_pkg->AddParam<Real>("collapse_be/gamma", pin->GetReal("hydro", "gamma"));
-  hydro_pkg->AddParam<bool>("collapse_be/mhd", mhd);
 
   if (parthenon::Globals::my_rank == 0) {
     std::cout << "---  Bonnor-Ebert collapse (all quantities in code units)  ---\n"
@@ -136,8 +134,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   const Real amp = hydro_pkg->Param<Real>("collapse_be/amp");
   const Real omega = hydro_pkg->Param<Real>("collapse_be/omega");
   const Real B0z = hydro_pkg->Param<Real>("collapse_be/B0z");
-  const bool mhd = hydro_pkg->Param<bool>("collapse_be/mhd");
-  const Real igm1 = 1.0 / (hydro_pkg->Param<Real>("collapse_be/gamma") - 1.0);
+  const bool mhd = (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd);
+  const Real igm1 = 1.0 / (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
 
   // Ambient density: the profile value at r = rc, so the pressure is continuous.
   const Real rho_amb = f * BEProfile(be_radius);
@@ -218,8 +216,8 @@ void ApplyBarotropicCooling(MeshData<Real> *md, const parthenon::SimTime &tm,
   auto hydro_pkg = md->GetParentPointer()->packages.Get("Hydro");
   const Real rhocrit = hydro_pkg->Param<Real>("collapse_be/rhocrit");
   const Real rc = hydro_pkg->Param<Real>("collapse_be/rc");
-  const Real gm1 = hydro_pkg->Param<Real>("collapse_be/gamma") - 1.0;
-  const bool mhd = hydro_pkg->Param<bool>("collapse_be/mhd");
+  const Real gm1 = hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0;
+  const bool mhd = (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd);
   const Real igm1 = 1.0 / gm1;
   const Real rcsq = rc * rc;
 
