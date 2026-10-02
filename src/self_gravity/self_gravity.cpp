@@ -251,32 +251,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   using prolongator_t = parthenon::solvers::ProlongationBlockInteriorZeroDirichlet;
   using preconditioner_t = parthenon::solvers::MGSolver<PoissEq, prolongator_t>;
   const std::string solver_params_block = block_name + "/multigrid_solver_params";
-  // Runtime-selectable solver. "BiCGSTAB" (the default) is the robust choice.
-  // "MG" / "Multigrid" uses the *pure* geometric multigrid solver,
-  // which has no global inner-products (BiCGSTAB needs ~2 all-reduces/iteration),
-  // attacking the latency-bound bottleneck of the GPU self-gravity solve.
-  // NOTE: solver_type=MG (pure multigrid) needs an adequate smoother on AMR. SRJ1 (one
-  // weighted-Jacobi sweep) is enough on a UNIFORM grid but NOT across AMR fine-coarse
-  // boundaries, where the coarse-grid correction injects high-frequency error each
-  // V-cycle (the standalone V-cycle then has spectral radius > 1 and diverges). Use
-  // SRJ2/SRJ3 for MG on AMR; SRJ2 is the parthenon MGParams default and converges in
-  // ~6 V-cycles. BiCGSTAB tolerates SRJ1 because its Krylov outer loop stabilises a
-  // non-contractive preconditioner.
-  const std::string solver_type =
-      pin->GetOrAddString(solver_params_block, "solver_type", "BiCGSTAB");
-  std::shared_ptr<parthenon::solvers::SolverBase> psolver;
-  if (solver_type == "MG" || solver_type == "Multigrid") {
-    psolver = std::make_shared<parthenon::solvers::MGSolver<PoissEq, prolongator_t>>(
-        /*container_base=*/"base",
-        /*container_u=*/"phi",
-        /*container_rhs=*/"rhs", pin, solver_params_block, PoissEq(pin, block_name));
-  } else {
-    psolver =
-        std::make_shared<parthenon::solvers::BiCGSTABSolver<PoissEq, preconditioner_t>>(
-            /*container_base=*/"base",
-            /*container_u=*/"phi",
-            /*container_rhs=*/"rhs", pin, solver_params_block, PoissEq(pin, block_name));
-  }
+  // BiCGSTAB with a geometric multigrid preconditioner. Pure multigrid (MGSolver on its
+  // own) is not offered: on AMR meshes its V-cycles stall above the tolerance.
+  std::shared_ptr<parthenon::solvers::SolverBase> psolver =
+      std::make_shared<parthenon::solvers::BiCGSTABSolver<PoissEq, preconditioner_t>>(
+          /*container_base=*/"base",
+          /*container_u=*/"phi",
+          /*container_rhs=*/"rhs", pin, solver_params_block, PoissEq(pin, block_name));
   pkg->AddParam("solver_pointer", psolver);
 
   return pkg;
