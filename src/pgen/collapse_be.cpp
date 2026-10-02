@@ -81,15 +81,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
   PARTHENON_REQUIRE_THROWS(rhocrit > 0.0,
                            "problem/collapse_be/rhocrit must be positive.");
 
-  // The Bonnor-Ebert constants above are tabulated for 4*pi*G = 1, so the self-gravity
-  // package must use the same normalization or the two are silently inconsistent.
-  if (pin->DoesBlockExist("self_gravity")) {
-    const Real four_pi_G = pin->GetOrAddReal("self_gravity", "four_pi_G", 1.0);
-    PARTHENON_REQUIRE_THROWS(std::abs(four_pi_G - 1.0) < 1.0e-12,
-                             "The collapse_be normalization assumes 4*pi*G = 1 in code "
-                             "units, but self_gravity/four_pi_G != 1.");
-  }
-
   // Free-fall time of the central density f: t_ff = sqrt(3 pi / (32 G rho)) with
   // G = 1/(4 pi), i.e. t_ff = pi sqrt(3 / (8 f)).
   const Real tff = M_PI * std::sqrt(3.0 / (8.0 * f));
@@ -120,6 +111,20 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
               << "Omega * t_ff        : " << omegatff << "\n"
               << "Omega               : " << omega << std::endl;
   }
+}
+
+//----------------------------------------------------------------------------------------
+//! \fn void InitUserMeshData(Mesh *mesh, ParameterInput *pin)
+//! \brief Check that self-gravity, when on, uses the 4*pi*G = 1 normalization the
+//!        Bonnor-Ebert constants above assume. Reads the value the self-gravity package
+//!        already resolved, so the default of four_pi_G lives in one place only. Runs on
+//!        fresh starts and restarts, once all packages exist.
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
+  const auto &sg_pkg = mesh->packages.Get("self_gravity");
+  if (!sg_pkg->Param<bool>("enabled")) return;
+  PARTHENON_REQUIRE_THROWS(std::abs(sg_pkg->Param<Real>("four_pi_G") - 1.0) < 1.0e-12,
+                           "The collapse_be normalization assumes 4*pi*G = 1 in code "
+                           "units, but self_gravity/four_pi_G != 1.");
 }
 
 //----------------------------------------------------------------------------------------

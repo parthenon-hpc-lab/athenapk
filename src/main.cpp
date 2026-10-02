@@ -74,6 +74,7 @@ int main(int argc, char *argv[]) {
   } else if (problem == "jeans") {
     pman.app_input->MeshProblemGenerator = jeans::ProblemGenerator;
   } else if (problem == "collapse_be") {
+    pman.app_input->InitUserMeshData = collapse_be::InitUserMeshData;
     pman.app_input->ProblemGenerator = collapse_be::ProblemGenerator;
     Hydro::ProblemInitPackageData = collapse_be::ProblemInitPackageData;
     Hydro::ProblemSourceUnsplit = collapse_be::ApplyBarotropicCooling;

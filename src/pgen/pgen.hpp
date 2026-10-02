@@ -38,6 +38,7 @@ namespace collapse_be {
 using namespace parthenon::driver::prelude;
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
+void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 // Barotropic EOS enforcement, enrolled as Hydro::ProblemSourceUnsplit in main.cpp.
 void ApplyBarotropicCooling(MeshData<Real> *md, const parthenon::SimTime &tm,
