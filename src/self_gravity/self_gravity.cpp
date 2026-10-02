@@ -196,10 +196,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         Metadata::Cell,       Metadata::Independent, Metadata::FillGhost,
         Metadata::WithFluxes, Metadata::GMGRestrict, Metadata::GMGProlongate};
     Metadata m(flags);
-    // phi MG prolongation/restriction ops. Artemis uses
-    // ArtemisUtils::EnrollArtemisRefinementOps; we use Parthenon's built-in
-    // ProlongatePiecewiseConstant / RestrictAverage, the safe elliptic defaults.
-    m.RegisterRefinementOps<parthenon::refinement_ops::ProlongatePiecewiseConstant,
+    // Linear prolongation, like Artemis and the Parthenon poisson_gmg example. It fills
+    // the phi ghosts at fine-coarse boundaries. Compared to piecewise constant, the solve
+    // needs fewer iterations on AMR and the energy kick stays conservative across
+    // fine-coarse faces. The other grav fields use the same ops, since their ghosts are
+    // exchanged together with the hydro ones.
+    m.RegisterRefinementOps<parthenon::refinement_ops::ProlongateSharedLinear,
                             parthenon::refinement_ops::RestrictAverage>();
     pkg->AddField<grav::phi>(m);
   }
@@ -209,7 +211,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   {
     Metadata m(
         {Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::FillGhost});
-    m.RegisterRefinementOps<parthenon::refinement_ops::ProlongatePiecewiseConstant,
+    m.RegisterRefinementOps<parthenon::refinement_ops::ProlongateSharedLinear,
                             parthenon::refinement_ops::RestrictAverage>();
     pkg->AddField<grav::rhs>(m);
   }
@@ -221,14 +223,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   {
     Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::FillGhost,
                 Metadata::Restart});
-    m.RegisterRefinementOps<parthenon::refinement_ops::ProlongatePiecewiseConstant,
+    m.RegisterRefinementOps<parthenon::refinement_ops::ProlongateSharedLinear,
                             parthenon::refinement_ops::RestrictAverage>();
     pkg->AddField<grav::phi_prev>(m);
   }
   {
     Metadata m(
         {Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::FillGhost});
-    m.RegisterRefinementOps<parthenon::refinement_ops::ProlongatePiecewiseConstant,
+    m.RegisterRefinementOps<parthenon::refinement_ops::ProlongateSharedLinear,
                             parthenon::refinement_ops::RestrictAverage>();
     pkg->AddField<grav::phi0>(m);
   }
