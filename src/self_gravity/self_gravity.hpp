@@ -79,6 +79,11 @@ void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt);
 // Solve for grav.phi from the current conserved density and copy it into grav.phi_prev.
 void AddSolvePoissonTasks(TaskCollection &tc, Mesh *pmesh);
 
+// After the end-of-step super-time-stepping: copy grav.phi_prev back into grav.phi. The
+// RKL2 steps update every Independent field with fluxes and reset grav.phi from "u1",
+// which never holds the potential, so without this outputs and restarts get phi = 0.
+void AddRestorePhiTasks(TaskCollection &tc, Mesh *pmesh);
+
 // Problem-specific hook applied to grav.rhs once it has been assembled, e.g. to exclude
 // part of the domain from the gravitating mass. nullptr (the default, set in main.cpp)
 // leaves the right-hand side untouched.

@@ -131,6 +131,19 @@ void AddStepStartTasks(TaskCollection &tc, Mesh *pmesh, const int ncycle) {
   }
 }
 
+void AddRestorePhiTasks(TaskCollection &tc, Mesh *pmesh) {
+  using namespace parthenon;
+  TaskID none(0);
+  const int num_partitions = pmesh->DefaultNumPartitions();
+  TaskRegion &region = tc.AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; ++i) {
+    auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+    region[i].AddTask(
+        none, TF(solvers::utils::between_fields::CopyData<grav::phi_prev, grav::phi>),
+        md);
+  }
+}
+
 void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt) {
   using namespace parthenon;
   TaskID none(0);

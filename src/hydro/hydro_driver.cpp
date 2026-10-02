@@ -608,6 +608,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // then the STS tasks should be updated to not assume prim and cons are in sync.
   if (diffint == DiffInt::rkl2 && stage == integrator->nstages) {
     AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
+    // The STS runs after the last Poisson solve and wipes grav.phi (see there).
+    if (use_self_gravity) SelfGravity::AddRestorePhiTasks(tc, pmesh);
   }
 
   // Single task in single (serial) region to reset global vars used in reductions in the
