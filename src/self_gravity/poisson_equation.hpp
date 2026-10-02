@@ -229,9 +229,9 @@ class PoissonEquation {
   // Packed physical-boundary application for the solver BCFunc. The solver detects this
   // static method (has_SetBoundary trait) and uses it INSTEAD of the per-block
   // ApplyBoundaryConditionsOnCoarseOrFineMD, which loops over every block and launches a
-  // separate tiny physical-BC kernel per (block, face). In the deeply-refined collapse
-  // that per-block dispatch dominates the GPU launch/sync latency (order 1e5 GenericBC
-  // kernel launches in a handful of cycles). Here we apply the self-gravity phi BCs
+  // separate tiny physical-BC kernel per (block, face). The launch count scales as
+  // blocks x faces x smoother sweeps x multigrid levels, so on deep AMR meshes the
+  // per-block dispatch, not the arithmetic, dominates on GPUs. Here we apply the phi BCs
   // (zero-Dirichlet / Neumann-outflow, uniform Cartesian) to the WHOLE MeshData in ONE
   // par_for per face, gated by a per-block physical-boundary flag. The per-face iteration
   // space and the FixedFace / outflow ghost formulas are taken verbatim from parthenon's
