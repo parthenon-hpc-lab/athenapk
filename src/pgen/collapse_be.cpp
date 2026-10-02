@@ -274,9 +274,9 @@ void MaskPoissonSource(MeshData<Real> *md) {
       parthenon::MakePackDescriptor<SelfGravity::grav::rhs>(pm->resolved_packages.get());
   auto pack = desc.GetPack(md);
 
-  IndexRange ib = md->GetBoundsI(IndexDomain::entire);
-  IndexRange jb = md->GetBoundsJ(IndexDomain::entire);
-  IndexRange kb = md->GetBoundsK(IndexDomain::entire);
+  IndexRange ib = md->GetBoundsI(IndexDomain::interior);
+  IndexRange jb = md->GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = md->GetBoundsK(IndexDomain::interior);
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "collapse_be::MaskPoissonSource", parthenon::DevExecSpace(),

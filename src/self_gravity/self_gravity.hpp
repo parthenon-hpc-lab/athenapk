@@ -60,7 +60,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 // and copy it into grav.phi0.
 void AddStepStartTasks(TaskCollection &tc, Mesh *pmesh, const int ncycle);
 
-// Steps 1-3 above, after the stage's hydro update and boundary exchange.
+// Steps 1-3 above, after the stage's hydro update and before its boundary exchange.
 void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt);
 
 // Solve for grav.phi from the current conserved density and copy it into grav.phi_prev.
@@ -72,7 +72,7 @@ void AddSolvePoissonTasks(TaskCollection &tc, Mesh *pmesh);
 using PoissonSourceMaskFun_t = std::function<void(MeshData<Real> *md)>;
 extern PoissonSourceMaskFun_t ProblemPoissonSourceMask;
 
-// rhs = 4 pi G (rho - rho_mean) on every cell including ghosts, from the conserved
+// rhs = 4 pi G (rho - rho_mean) on the interior cells, from the conserved
 // density. An explicit task rather than a FillDerived callback, so its ordering is fixed
 // by the task graph and not by the hash order of the package dictionary.
 TaskStatus FillPoissonRHS(MeshData<Real> *md);

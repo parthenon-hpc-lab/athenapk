@@ -253,8 +253,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   return pkg;
 }
 
-// FillPoissonRHS: assemble rhs = 4 pi G (rho - rho_mean) from the conserved density.
-// Runs over ENTIRE (including ghosts) so solver sees consistent ghost values.
+// FillPoissonRHS: assemble rhs = 4 pi G (rho - rho_mean) from the conserved density, on
+// the interior cells; the solvers read only the interior of the right-hand side.
 TaskStatus FillPoissonRHS(MeshData<Real> *md) {
   auto pm = md->GetParentPointer();
   auto &grav_pkg = pm->packages.Get("self_gravity");
@@ -264,8 +264,7 @@ TaskStatus FillPoissonRHS(MeshData<Real> *md) {
   // Read the density from "cons". This solve runs after the stage's hydro update and
   // before FillDerived, so "cons" holds the end-of-stage density rho^(l) the algorithm
   // needs, while "prim" still holds the start-of-stage state. (At the start of a step the
-  // two agree: ConsToPrim writes any floors back into "cons".) The cons ghosts are valid
-  // because the stage's boundary exchange has already run.
+  // two agree: ConsToPrim writes any floors back into "cons".)
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   auto &resolved = pm->resolved_packages;
   auto desc_rhs = parthenon::MakePackDescriptor<grav::rhs>(resolved.get());
@@ -274,9 +273,6 @@ TaskStatus FillPoissonRHS(MeshData<Real> *md) {
   IndexRange ib = md->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBoundsK(IndexDomain::interior);
-  IndexRange ibe = md->GetBoundsI(IndexDomain::entire);
-  IndexRange jbe = md->GetBoundsJ(IndexDomain::entire);
-  IndexRange kbe = md->GetBoundsK(IndexDomain::entire);
   const int nblocks = md->NumBlocks();
 
   // --- Mean density (for Jeans swindle) via par_reduce + MPI Allreduce -------
@@ -321,10 +317,10 @@ TaskStatus FillPoissonRHS(MeshData<Real> *md) {
     grav_mean_rho = total_mass / total_volume;
   }
 
-  // --- Fill rhs over entire domain (incl. ghosts) ----------------------------
+  // --- Fill rhs on the interior ---------------------------------------------
   parthenon::par_for(
-      DEFAULT_LOOP_PATTERN, "SG::SetRHS", parthenon::DevExecSpace(), 0, nblocks - 1,
-      kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
+      DEFAULT_LOOP_PATTERN, "SG::SetRHS", parthenon::DevExecSpace(), 0, nblocks - 1, kb.s,
+      kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         const Real rho = cons_pack(b, IDN, k, j, i);
         rhs_pack(b, te, grav::rhs(), k, j, i) = four_pi_G * (rho - grav_mean_rho);
