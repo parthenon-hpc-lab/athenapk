@@ -96,22 +96,25 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                     "Self-gravity currently only supports UniformCartesian coordinates.");
 
   // --- Multigrid required ----------------------------------------------------
-  const bool mg_enabled = pin->GetOrAddBoolean("parthenon/mesh", "multigrid", false);
+  // Packages are set up before the Mesh, so Parthenon has not read its own parameters
+  // yet. Only Get them here (no GetOrAdd), so that the defaults stay in Parthenon.
+  const bool mg_enabled = pin->DoesParameterExist("parthenon/mesh", "multigrid") &&
+                          pin->GetBoolean("parthenon/mesh", "multigrid");
   PARTHENON_REQUIRE(mg_enabled, "Self-gravity requires parthenon/mesh/multigrid = true. "
                                 "Set it in your input file.");
 
   // --- 4 pi G ----------------------------------------------------------------
-  // The Poisson solver works entirely in code units: 4*pi*G is a plain input
-  // parameter. The default 1 is the usual normalization of the Jeans and
-  // Bonnor-Ebert setups; a problem posed in physical units simply passes the
-  // corresponding code-unit value here.
+  // 4*pi*G in code units. Nothing in the package converts units, so it is up to the
+  // input file to set the value that matches the units of the problem. The default 1
+  // is what the Jeans and collapse_be setups use.
   const Real four_pi_G = pin->GetOrAddReal(block_name, "four_pi_G", 1.0);
   PARTHENON_REQUIRE_THROWS(four_pi_G > 0.0, "self_gravity/four_pi_G must be positive.");
   pkg->AddParam("four_pi_G", four_pi_G);
 
   // --- Jeans swindle ---------------------------------------------------------
   auto is_periodic = [&](const std::string &face) {
-    return pin->GetOrAddString("parthenon/mesh", face, "outflow") == "periodic";
+    return pin->DoesParameterExist("parthenon/mesh", face) &&
+           pin->GetString("parthenon/mesh", face) == "periodic";
   };
   const bool fully_periodic = is_periodic("ix1_bc") && is_periodic("ox1_bc") &&
                               is_periodic("ix2_bc") && is_periodic("ox2_bc") &&

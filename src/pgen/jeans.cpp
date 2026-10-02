@@ -27,7 +27,7 @@ using namespace parthenon::driver::prelude;
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto hydro_pkg = pmesh->packages.Get("Hydro");
   const bool mhd = (hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd);
-  const Real gam = pin->GetReal("hydro", "gamma");
+  const Real gam = hydro_pkg->Param<Real>("AdiabaticIndex");
   const Real gm1 = gam - 1.0;
 
   // Problem parameters
