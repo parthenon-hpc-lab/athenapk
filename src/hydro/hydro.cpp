@@ -57,16 +57,7 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   parthenon::Packages_t packages;
   packages.Add(Hydro::Initialize(pin.get()));
   packages.Add(Tracers::Initialize(pin.get()));
-  // Self-gravity is enabled (and its Poisson solver selected) from its own block,
-  // e.g. `<self_gravity> solver = multigrid`. "none" (the default) disables it.
-  const auto self_gravity_solver = pin->GetOrAddString("self_gravity", "solver", "none");
-  PARTHENON_REQUIRE_THROWS(self_gravity_solver == "none" ||
-                               self_gravity_solver == "multigrid",
-                           "Unknown self_gravity/solver: '" + self_gravity_solver +
-                               "'. Valid options are 'none' and 'multigrid'.");
-  if (self_gravity_solver != "none") {
-    packages.Add(SelfGravity::Initialize(pin.get()));
-  }
+  packages.Add(SelfGravity::Initialize(pin.get()));
   return packages;
 }
 

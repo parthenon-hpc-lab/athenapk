@@ -63,6 +63,17 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto pkg = std::make_shared<StateDescriptor>("self_gravity");
   const std::string block_name = "self_gravity";
 
+  // --- Solver selection ------------------------------------------------------
+  // The package is always registered; `<self_gravity> solver` decides whether it does
+  // anything. "none" (the default) leaves it empty, like the tracers package.
+  const auto solver = pin->GetOrAddString(block_name, "solver", "none");
+  PARTHENON_REQUIRE_THROWS(solver == "none" || solver == "multigrid",
+                           "Unknown self_gravity/solver: '" + solver +
+                               "'. Valid options are 'none' and 'multigrid'.");
+  const bool enabled = (solver != "none");
+  pkg->AddParam<bool>("enabled", enabled);
+  if (!enabled) return pkg;
+
   // --- Coordinate system check -----------------------------------------------
   // This port supports Cartesian only. AthenaPK currently only supports
   // UniformCartesian anyway, so we just assert and move on.

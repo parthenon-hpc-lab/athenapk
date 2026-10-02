@@ -472,7 +472,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  const bool use_self_gravity = pmesh->packages.AllPackages().count("self_gravity") > 0;
+  const bool use_self_gravity =
+      pmesh->packages.Get("self_gravity")->Param<bool>("enabled");
   if (use_self_gravity && stage == 1) {
     SelfGravity::AddStepStartTasks(tc, pmesh, tm.ncycle);
   }

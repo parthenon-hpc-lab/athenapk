@@ -55,10 +55,9 @@ parthenon::AmrTag Jeans(MeshBlockData<Real> *rc) {
       "ratio exceeds 2, so a single Jeans-length-per-cell measure is ill-defined.");
 
   // 4 pi G in code units; 1 when self-gravity is not active (external potential).
-  const auto &pkgs = pmb->packages.AllPackages();
-  const Real four_pi_G = pkgs.count("self_gravity") > 0
-                             ? pkgs.at("self_gravity")->Param<Real>("four_pi_G")
-                             : 1.0;
+  const auto &sg_pkg = pmb->packages.Get("self_gravity");
+  const Real four_pi_G =
+      sg_pkg->Param<bool>("enabled") ? sg_pkg->Param<Real>("four_pi_G") : 1.0;
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
