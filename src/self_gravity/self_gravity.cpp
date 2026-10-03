@@ -400,11 +400,9 @@ KOKKOS_FORCEINLINE_FUNCTION Real PhiAvg(const Pack &p, const int b, const int k,
 // total energy is conserved to round-off (given a round-off accurate Poisson solve).
 TaskStatus ApplyGravityEnergy(MeshData<Real> *md, const Real beta_dt) {
   auto pm = md->GetParentPointer();
-  // "cons" together with its fluxes: the arguments are (variables to pack, variables
-  // whose fluxes to pack). Packed by name rather than by the Independent flag, which
-  // grav::phi also carries and which could shift the IDN index.
-  const auto &cons_pack = md->PackVariablesAndFluxes(std::vector<std::string>{"cons"},
-                                                     std::vector<std::string>{"cons"});
+  // "cons" together with its fluxes. Packed by name rather than by the Independent flag,
+  // which grav::phi also carries and which could shift the IDN index.
+  const auto &cons_pack = md->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
   auto desc_phi =
       parthenon::MakePackDescriptor<grav::phi, grav::phi0>(pm->resolved_packages.get());
   auto phi_pack = desc_phi.GetPack(md);
