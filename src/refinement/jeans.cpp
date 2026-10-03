@@ -26,8 +26,9 @@ using parthenon::IndexRange;
 //   lambda_J = 2*pi * c_s / sqrt(rho)    (hydro)
 //   lambda_J = 2*pi * (c_s + v_A) / sqrt(rho)   (MHD, Athena++ convention)
 // where v_A = sqrt(B^2 / rho) is the Alfven speed (Heaviside-Lorentz, no 4 pi).
-// four_pi_G is taken from the self_gravity package when it is active, so the
-// criterion stays correct for a normalization other than 4*pi*G = 1.
+// four_pi_G is taken from the self_gravity package, so the criterion stays correct for
+// a normalization other than 4*pi*G = 1. Without self-gravity there is no Jeans length,
+// so the criterion requires the package to be enabled.
 //
 // nj = lambda_J / dx is "Jeans length in cells"
 //   nj < njeans         -> refine
@@ -54,10 +55,11 @@ parthenon::AmrTag Jeans(MeshBlockData<Real> *rc) {
       "refinement/type=jeans assumes near-cubic cells, but this block's cell aspect "
       "ratio exceeds 2, so a single Jeans-length-per-cell measure is ill-defined.");
 
-  // 4 pi G in code units; 1 when self-gravity is not active (external potential).
   const auto &sg_pkg = pmb->packages.Get("self_gravity");
-  const Real four_pi_G =
-      sg_pkg->Param<bool>("enabled") ? sg_pkg->Param<Real>("four_pi_G") : 1.0;
+  PARTHENON_REQUIRE_THROWS(sg_pkg->Param<bool>("enabled"),
+                           "refinement/type = jeans needs self-gravity "
+                           "(self_gravity/solver = multigrid).");
+  const Real four_pi_G = sg_pkg->Param<Real>("four_pi_G");
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
