@@ -49,7 +49,7 @@ Parthenon's geometric-multigrid (GMG) infrastructure.
 
   | $N$ | $L_1(\rho)$ | order | modal-amplitude error | order |
   |-----|------------|-------|-----------------------|-------|
-  |  32 | 1.807e-09  |   —   | 1.947e-09 |   —   |
+  |  32 | 1.807e-09  |       | 1.947e-09 |       |
   |  64 | 4.354e-10  | 2.05  | 5.242e-10 | 1.89  |
   | 128 | 1.002e-10  | 2.12  | 1.325e-10 | 1.98  |
   | 256 | 2.289e-11  | 2.13  | 3.306e-11 | 2.00  |
@@ -130,15 +130,15 @@ code-unit value.
 | `<self_gravity>` | `{i,o}x{1,2,3}_bc` | `default` | Per-face gravity BC. `default` follows the hydro BC; `zero` = homogeneous Dirichlet. |
 | `<self_gravity>` | `packed_bc` | `true` | Apply the `zero`/`neumann` $\phi$ BCs to a whole `MeshData` in one kernel per face during the solve (large GPU launch-latency saving at deep AMR; bit-identical to the per-block path). Automatically falls back to the per-block path for any other face type. |
 | `<self_gravity/multigrid_solver_params>` | `preconditioner` | `Multigrid` | Krylov preconditioner. |
-| `<self_gravity/multigrid_solver_params>` | `max_iterations` | — | Maximum Krylov iterations per solve. |
-| `<self_gravity/multigrid_solver_params>` | `residual_tolerance`, `relative_residual_tolerance`, `absolute_residual_tolerance` | — | Convergence tolerances, see the [Parthenon solver documentation](https://parthenon-hpc-lab.github.io/parthenon/develop/src/solvers.html). |
+| `<self_gravity/multigrid_solver_params>` | `max_iterations` | Parthenon default | Maximum Krylov iterations per solve. |
+| `<self_gravity/multigrid_solver_params>` | `residual_tolerance`, `relative_residual_tolerance`, `absolute_residual_tolerance` | Parthenon defaults | Convergence tolerances, see the [Parthenon solver documentation](https://parthenon-hpc-lab.github.io/parthenon/develop/src/solvers.html). |
 
 > **Boundary-condition caveat.** Each face may be `zero` (homogeneous Dirichlet,
 > $\phi=0$), `neumann` (homogeneous Neumann, $\partial\phi/\partial n=0$, e.g. a
 > symmetry plane), or `default` (inherit the hydro BC; periodic faces give a periodic
 > $\phi$). An **all**-Neumann domain is gauge-unfixed (the potential is then determined
 > only up to an additive constant) and isolated-mass (multipole) BCs are **not**
-> implemented — use `zero` Dirichlet faces for isolated collapse problems (as in
+> implemented; use `zero` Dirichlet faces for isolated collapse problems (as in
 > `inputs/collapse_be.in`).
 
 ## Jeans-length refinement
@@ -165,11 +165,11 @@ $4\pi G=1$ units.
 
 Two problem generators exercise the solver and ship with matching input decks:
 
-- **`jeans`** (`src/pgen/jeans.cpp`, `inputs/jeans.in`) — a uniform periodic box with a
+- **`jeans`** (`src/pgen/jeans.cpp`, `inputs/jeans.in`): a uniform periodic box with a
   small sinusoidal density perturbation, used to validate the linear Jeans dispersion
   relation. The deck runs the Jeans-unstable regime; comment/uncomment `cs` for the
   stable one.
-- **`collapse_be`** (`src/pgen/collapse_be.cpp`, `inputs/collapse_be.in`) — collapse of
+- **`collapse_be`** (`src/pgen/collapse_be.cpp`, `inputs/collapse_be.in`): collapse of
   a marginally-stable Bonnor-Ebert sphere, driven to first-hydrostatic-core densities.
   The setup is posed entirely in code units, in the normalization of Tomida (2011):
   $4\pi G=1$, isothermal sound speed $c_s=1$, and central density of the *critical*

@@ -547,8 +547,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // Self-gravity (momentum source, Poisson solve, energy source; see
   // SelfGravity::AddStageTasks) acts between the hydro update and the remaining sources,
   // in regions of its own because the solve is global. Placing it before the sources
-  // lets a problem source that overwrites the state -- e.g. collapse_be holding the
-  // ambient medium at rest -- act on the gravity-updated state, and puts the gravity
+  // lets a problem source that overwrites the state (e.g. collapse_be holding the
+  // ambient medium at rest) act on the gravity-updated state, and puts the gravity
   // kick before the stage's boundary exchange, like every other source. Without
   // self-gravity the sources continue in the same task lists as the update.
   TaskRegion *sources_region = &single_tasklist_per_pack_region;

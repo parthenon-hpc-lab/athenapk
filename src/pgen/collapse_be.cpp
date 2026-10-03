@@ -15,7 +15,7 @@
 //! uses zero-Dirichlet boundary conditions (isolated-mass multipole boundary
 //! conditions are not implemented in AthenaPK).
 //!
-//! IMPORTANT -- this problem generator does NOT run an ideal-gas evolution, despite
+//! IMPORTANT: this problem generator does NOT run an ideal-gas evolution, despite
 //! `<hydro>/eos = adiabatic` and `gamma = 1.4` in the input file. The problem-specific
 //! unsplit source term ApplyBarotropicCooling (enrolled as Hydro::ProblemSourceUnsplit)
 //! OVERWRITES the total energy in every cell on every stage with
@@ -24,7 +24,7 @@
 //!
 //! which is a barotropic equation of state, not a cooling rate. Below `rhocrit` that is
 //! exactly isothermal at c_s = 1 (p = rho); above it the gas stiffens to an adiabat of
-//! index gamma. gamma therefore only sets the stiff branch -- the run is isothermal
+//! index gamma. gamma therefore only sets the stiff branch; the run is isothermal
 //! everywhere the density is below `rhocrit`, whatever the EOS block says. The same
 //! source also zeroes the momentum of cells outside r = rc each stage, after the
 //! gravitational kick, holding the ambient medium at rest. It does not seal the sphere:
@@ -267,7 +267,7 @@ void ApplyBarotropicCooling(MeshData<Real> *md, const parthenon::SimTime &tm,
 //! The ambient medium is a pressure bath: it confines the sphere through the face
 //! fluxes, but it must not gravitate. Its mass exceeds the sphere's many times over, and
 //! it is held at rest by ApplyBarotropicCooling, which would be inconsistent with it
-//! feeling -- and exerting -- gravity. As in Athena++'s collapse problem generators, the
+//! feeling (and exerting) gravity. As in Athena++'s collapse problem generators, the
 //! mask is geometric, at the initial radius rc.
 void MaskPoissonSource(MeshData<Real> *md) {
   auto pm = md->GetParentPointer();

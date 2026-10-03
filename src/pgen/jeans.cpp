@@ -42,7 +42,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   //   c_s^2 = gamma * p / rho  ->  p = rho * c_s^2 / gamma
   const Real p0 = rho0 * cs * cs / gam;
 
-  // Box length in x1 (from the mesh) -- used to set k
+  // Box length in x1 (from the mesh), used to set k
   const Real x1min = pin->GetReal("parthenon/mesh", "x1min");
   const Real x1max = pin->GetReal("parthenon/mesh", "x1max");
   const Real Lx = x1max - x1min;

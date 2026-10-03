@@ -64,7 +64,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 // Step 3 is exactly the divergence of a gravitational energy flux, so total energy
 // (kinetic + thermal + magnetic + gravitational) is conserved to round-off whenever the
 // last stage restarts from the start-of-step state (vl2, rk1). phi^(l-1) and phi^(0) are
-// kept in grav.phi_prev and grav.phi0, which -- unlike grav.phi -- are neither
+// kept in grav.phi_prev and grav.phi0, which (unlike grav.phi) are neither
 // Independent nor carry fluxes, so the hydro and super-time-stepping updates, which
 // select variables by those flags, never touch them.
 

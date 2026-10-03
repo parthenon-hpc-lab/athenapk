@@ -283,7 +283,7 @@ class PoissonEquation {
     // grids the pack covers only the subset of md blocks where phi is allocated (npb < md
     // NumBlocks), so we map each pack block to its MeshBlock by GID (q.GetGIDHost) rather
     // than assuming a 1:1 md-block correspondence. Blocks not carrying phi are simply not
-    // in the pack and (correctly) receive no BC -- the per-block path skips them too.
+    // in the pack and (correctly) receive no BC; the per-block path skips them too.
     // This lets the packed path cover the multigrid levels as well as the leaf grid.
     std::unordered_map<int, parthenon::MeshBlock *> gid2mb;
     for (int b = 0; b < md->NumBlocks(); ++b) {
@@ -298,7 +298,7 @@ class PoissonEquation {
       parthenon::MeshBlock *pmb = (it != gid2mb.end()) ? it->second : nullptr;
       // On the coarse buffer only blocks with coarser neighbors have it allocated (the
       // per-block ApplyBoundaryConditionsOnCoarseOrFine skips the rest,
-      // boundary_conditions .cpp:46) -- touching an unallocated coarse buffer is illegal,
+      // boundary_conditions .cpp:46). Touching an unallocated coarse buffer is illegal,
       // so gate on it here.
       const bool coarse_ok = pmb && ((!coarse) || pmb->HasCoarserNeighbors());
       for (int f = 0; f < 6; ++f) {

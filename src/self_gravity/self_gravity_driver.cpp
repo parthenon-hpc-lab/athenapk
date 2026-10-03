@@ -96,7 +96,7 @@ void AddStepStartTasks(TaskCollection &tc, Mesh *pmesh, const int ncycle) {
   // of this step's start-of-step density, and a restart file carries it over. It has to
   // be solved for on a fresh start (nothing has set it yet) and after the mesh changed,
   // since new blocks only hold interpolated values. Mesh::modified is true at
-  // construction, so it is ignored on the first step of a process -- which is exactly the
+  // construction, so it is ignored on the first step of a process, which is exactly the
   // restart case, where the stored potential is valid.
   const bool first_step_of_process = !pkg->Param<bool>("stepped");
   const bool fresh_start = (ncycle == 0);

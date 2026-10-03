@@ -240,8 +240,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // NOTE: the Poisson RHS is deliberately NOT assembled from FillDerived. It was, and
   // that made the result depend on package iteration order: Update::FillDerived loops
   // over Packages::AllPackages(), which is a Dictionary = std::unordered_map, so whether
-  // this package ran before or after Hydro's ConsToPrim -- i.e. whether the RHS saw this
-  // step's or the previous step's density, floored or unfloored -- was decided by hash
+  // this package ran before or after Hydro's ConsToPrim (i.e. whether the RHS saw this
+  // step's or the previous step's density, floored or unfloored) was decided by hash
   // order and could silently flip when an unrelated package was registered. The RHS is
   // now built as an explicit task at the head of AddSolvePoissonTasks, where the task
   // graph fixes the ordering.
