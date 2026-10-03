@@ -36,3 +36,4 @@ the paper), but can easily be modified in the code when needed:
 
 - [Galaxy Cluster and Cluster-like Problem Setup](cluster.md)
 - [Driven turbulence](turbulence.md)
+- [Jeans dispersion and Bonnor-Ebert collapse](self_gravity.md)
