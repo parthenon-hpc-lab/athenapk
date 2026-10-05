@@ -3,7 +3,7 @@
 // Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-// Particles implementation refacored from https://github.com/lanl/phoebus
+// Particles implementation refactored from https://github.com/lanl/phoebus
 //========================================================================================
 // © 2021-2023. Triad National Security, LLC. All rights reserved.
 // This program was produced under U.S. Government contract
@@ -22,12 +22,12 @@
 //========================================================================================
 
 #include <string>
-#include <variant>
 #include <vector>
 
 // Parthenon headers
 #include "basic_types.hpp"
 #include "kokkos_abstraction.hpp"
+#include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 #include <parthenon/package.hpp>
 
@@ -46,16 +46,6 @@ using parthenon::Coordinates_t;
 using utils::custom_rng::hash;
 using utils::custom_rng::random_double;
 using utils::custom_rng::SeedFromIndices;
-
-// Needed as particle-mesh interactions (e.g. star formation) require ConsToPrim.
-template TaskStatus InjectParticles<AdiabaticHydroEOS>(MeshBlockData<Real> *,
-                                                       parthenon::SimTime &,
-                                                       const std::string &,
-                                                       const AdiabaticHydroEOS &);
-template TaskStatus InjectParticles<AdiabaticGLMMHDEOS>(MeshBlockData<Real> *,
-                                                        parthenon::SimTime &,
-                                                        const std::string &,
-                                                        const AdiabaticGLMMHDEOS &);
 
 /* ===============================================================================
 InjectParticles: called at each timestep, inject new particles in cells fulfilling
@@ -78,23 +68,20 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
   // Get meshblock data
   auto particles_pkg = pmb->packages.Get(pkg_name);
   auto hydro_pkg = pmb->packages.Get("Hydro");
-  const auto units = hydro_pkg->Param<Units>("units");
-  const int nhydro = hydro_pkg->Param<int>("nhydro");
-  const int nscalars = hydro_pkg->Param<int>("nscalars");
 
   // Loading root grid level
   const int root_level = pmesh->GetRootLevel();
   const int gid = pmb->gid;
+  const int block_level = pmb->loc.level();
+  const auto ndim = pmb->pmy_mesh->ndim;
 
-  // Getting variable required for particle criterions
+  // Getting variable required for temperature
   auto current_time = tm.time;
   auto current_dt = tm.dt;
   Real mbar_over_kb = -1;
   if (hydro_pkg->AllParams().hasKey("mbar_over_kb")) {
     mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
   }
-  const auto gamma = hydro_pkg->Param<Real>("AdiabaticIndex");
-  const Real gravitational_constant = units.gravitational_constant();
 
   // Getting the offsets and copy to host
   auto &off = mbd->Get(pkg_name + "_offsets").data;
@@ -113,56 +100,75 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
     if (!injection_enabled) continue;
 
-    ParticlesCriterion injection_criterion = ParticlesCriterion::None; // default
     ParticlesType particles_type = ParticlesType::None;
+    InjectionMode injection_mode = InjectionMode::None;
+    ParticlesCriterion injection_criterion = ParticlesCriterion::None;
+    Real p_injection = -1.0;
+    Real injection_threshold = -1.0;
 
-    bool mass_enabled = false; // by default, massless particles (e.g. tracers)
+    // Star formation parameters, unused unless particles_type == Stars.
+    Real gravitational_constant = 0.0;
+    Real gamma = 0.0;
+    int nhydro = 0;
+    int nscalars = 0;
     bool virial_criterion = false;
     Real mass_efficiency = 0.0; // cell mass conversion factor for star formation
     Real sf_efficiency = 0.0;   // star formation rate efficiency
-    StarFormation::SFEnergyMode sf_energy_mode =
-        StarFormation::SFEnergyMode::Isobaric; // unused unless particles_type == Stars
+    StarFormation::SFEnergyMode sf_energy_mode = StarFormation::SFEnergyMode::Isobaric;
     StarFormation::SFVirialCriterion sf_virial_criterion =
-        StarFormation::SFVirialCriterion::Hopkins; // unused unless virial_criterion
-    Real sf_virial_temperature_threshold =
-        1.0e4;                // unused unless SFVirialCriterion::CenOstriker
-    Real sf_alpha_crit = 1.0; // unused unless Hopkins/HopkinsAlfven
-    Real p_injection = -1.0;
-    Real injection_threshold = -1.0;
-    InjectionMode injection_mode = InjectionMode::FixedRate; // By default
+        StarFormation::SFVirialCriterion::Hopkins;
+    Real sf_virial_temperature_threshold = 1.0e4; // only used by CenOstriker
+    Real sf_alpha_crit = 1.0;                     // only used by Hopkins/HopkinsAlfven
 
-    // ================================================================================
-    // Package-specific injection parameters
-    // --------------------------------------------------------------------------------
-    // Each package is responsible for computing p_injection in [0, 1]: the probability
-    // that a single eligible cell spawns a particle at this timestep. The exact
-    // recipe (and the notion of "eligible") differs between particle types below.
-    // ================================================================================
+    // Geometric parameters, only used by ParticlesCriterion::Jet.
+    Real jet_radius = -1.0;
+    Real jet_offset = -1.0;
+    Real jet_thickness = -1.0;
+    if (particles_pkg->AllParams().hasKey("jet_radius")) {
+      jet_radius = particles_pkg->Param<Real>("jet_radius");
+    }
+    if (particles_pkg->AllParams().hasKey("jet_offset")) {
+      jet_offset = particles_pkg->Param<Real>("jet_offset");
+    }
+    if (particles_pkg->AllParams().hasKey("jet_thickness")) {
+      jet_thickness = particles_pkg->Param<Real>("jet_thickness");
+    }
+    // Same time-dependent jet axis as the actual kinetic feedback (see
+    // cluster/agn_feedback.cpp) -- a tilted/precessing jet then tags the region
+    // it actually deposits into, not a fixed z-axis cylinder.
+    const cluster::JetCoords jet_coords =
+        hydro_pkg->AllParams().hasKey("jet_coords_factory")
+            ? hydro_pkg->Param<cluster::JetCoordsFactory>("jet_coords_factory")
+                  .CreateJetCoords(current_time)
+            : cluster::JetCoords(0.0, 0.0);
+
+    // Here, distinguishing tracer package from other kind of particles (e.g. stars).
+    // Each package is responsible for computing p_injection in [0, 1], the probability
+    // that a single eligible cell spawns a particle at this timestep.
     if (pkg_name == "tracers") {
-      // --- Tracers: fixed-rate stochastic injection -------------------------------
-      // Particles are injected at a fixed rate, targeting a given number of tracers
-      // per eligible cell over a characteristic timescale. The refinement scale
-      // corrects for finer levels having smaller cells, preventing over-injection
-      // at high resolution.
+      // Tracer-specific injection: particles are injected stochastically at a fixed
+      // rate, targeting a given number of tracers per eligible cell reached within
+      // a timescale. The refinement scale corrects for the fact that finer levels
+      // have smaller cells, so the injection probability is adjusted accordingly
+      // to avoid over-injection at high resolution.
       particles_type = ParticlesType::Tracers;
       injection_mode = InjectionMode::FixedRate;
-
       injection_criterion =
           particles_pkg->Param<ParticlesCriterion>(swarm_name + "_injection_criterion");
-      injection_threshold =
-          particles_pkg->Param<Real>(swarm_name + "_injection_threshold");
 
       const auto reference_level =
           particles_pkg->Param<int>(swarm_name + "_reference_level");
-      const Real refinement_scale =
-          (reference_level < 0)
-              ? 1.0
-              : CalculateRefinementScale(pmb->loc.level(), root_level, reference_level);
-
+      const Real scale = (reference_level < 0)
+                             ? 1.0
+                             : CalculateRefinementScale(pmb->loc.level(), root_level,
+                                                        reference_level, ndim);
       const Real injection_rate =
           particles_pkg->Param<Real>(swarm_name + "_injection_rate");
-      p_injection = std::clamp(injection_rate * current_dt * refinement_scale, 0.0, 1.0);
+      injection_threshold =
+          particles_pkg->Param<Real>(swarm_name + "_injection_threshold");
 
+      // Cap to [0, 1]: at most one particle injected per eligible cell per timestep
+      p_injection = std::max(0.0, std::min(1.0, injection_rate * tm.dt * scale));
     } else if (pkg_name == "stars") {
       // --- Stars: per-cell stochastic star formation ------------------------------
       // Injection probability is evaluated cell-by-cell from a SMUGGLE-style
@@ -171,7 +177,12 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       // SFVirialCriterion in star_formation.hpp.
       particles_type = ParticlesType::Stars;
       injection_mode = InjectionMode::PerCell;
-      mass_enabled = true;
+
+      const auto units = hydro_pkg->Param<Units>("units");
+      gravitational_constant = units.gravitational_constant();
+      gamma = hydro_pkg->Param<Real>("AdiabaticIndex");
+      nhydro = hydro_pkg->Param<int>("nhydro");
+      nscalars = hydro_pkg->Param<int>("nscalars");
 
       virial_criterion =
           particles_pkg->Param<bool>(swarm_name + "_virial_criterion_enabled");
@@ -185,7 +196,6 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       sf_virial_temperature_threshold =
           particles_pkg->Param<Real>(swarm_name + "_sf_temperature_threshold");
       sf_alpha_crit = particles_pkg->Param<Real>(swarm_name + "_sf_alpha_crit");
-
     } else {
       // Future packages (e.g. additional particle species) should add a
       // corresponding branch here.
@@ -193,18 +203,9 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                       "'. Only 'tracers' and 'stars' are currently implemented.");
     }
 
-    auto ndim = pmb->pmy_mesh->ndim;
-
     IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
     IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
     IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
-
-    const auto &x_min = pmb->coords.Xf<1>(ib.s);
-    const auto &y_min = pmb->coords.Xf<2>(jb.s);
-    const auto &z_min = pmb->coords.Xf<3>(kb.s);
-    const auto &x_max = pmb->coords.Xf<1>(ib.e + 1);
-    const auto &y_max = pmb->coords.Xf<2>(jb.e + 1);
-    const auto &z_max = pmb->coords.Xf<3>(kb.e + 1);
 
     int num_injected_particles_in_block = 0;
 
@@ -215,35 +216,31 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 
           // --- Fixed-rate injection (e.g. tracers) ------------------------------
           // A single boolean criterion gates injection; if satisfied, the cell
-          // gets the pre-computed, timestep-independent probability p_injection.
+          // gets the pre-computed probability p_injection.
           if (injection_mode == InjectionMode::FixedRate) {
             if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
-                                  injection_threshold, mbar_over_kb, ndim)) {
+                                  injection_threshold, mbar_over_kb, ndim, jet_radius,
+                                  jet_offset, jet_thickness, jet_coords)) {
               p_local = p_injection;
             }
 
             // --- Per-cell injection (e.g. stars) -----------------------------------
-            // Probability is recomputed from local cell properties every timestep,
-            // rather than being a single fixed value.
-          } else if (injection_mode == InjectionMode::PerCell) {
+            // Probability is recomputed from local cell properties every timestep.
+          } else if (injection_mode == InjectionMode::PerCell &&
+                     particles_type == ParticlesType::Stars) {
+            // SMUGGLE-style stochastic star formation rate (Marinacci+2019).
+            p_local = StarFormation::EvaluateStarFormationProbability(
+                prim, coords, k, j, i, injection_threshold, sf_efficiency,
+                gravitational_constant, ndim, current_dt);
 
-            if (particles_type == ParticlesType::Stars) {
-              // SMUGGLE-style stochastic star formation rate (Marinacci+2019).
-              p_local = StarFormation::EvaluateStarFormationProbability(
-                  prim, coords, k, j, i, injection_threshold, sf_efficiency,
-                  gravitational_constant, ndim, current_dt);
-
-              // Optional virial veto: cells that already passed the stochastic
-              // draw are additionally required to pass the selected
-              // gravitational-collapse gate (SFVirialCriterion) before
-              // injection proceeds.
-              if (p_local > 0.0 && virial_criterion &&
-                  !StarFormation::CheckVirialCollapse(
-                      prim, coords, k, j, i, gravitational_constant, ndim, gamma,
-                      sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold,
-                      nhydro, sf_alpha_crit)) {
-                p_local = 0.0; // did not pass the collapse gate: veto injection
-              }
+            // Optional virial veto: cells that fail the selected
+            // gravitational-collapse gate (SFVirialCriterion) cannot form stars.
+            if (p_local > 0.0 && virial_criterion &&
+                !StarFormation::CheckVirialCollapse(
+                    prim, coords, k, j, i, gravitational_constant, ndim, gamma,
+                    sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold,
+                    nhydro, sf_alpha_crit)) {
+              p_local = 0.0;
             }
           }
 
@@ -251,7 +248,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           // Common to both injection modes: a single RNG draw per cell decides
           // whether a particle is actually spawned this timestep.
           if (p_local > 0.0) {
-            const auto seed = SeedFromIndices(k, j, i, gid, current_time);
+            const auto seed = SeedFromIndices(k, j, i, gid, static_cast<int>(k_population),
+                                              current_time);
             const auto rnd = random_double(seed);
             if (rnd < p_local) {
               lnpart += 1;
@@ -260,8 +258,11 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
         },
         Kokkos::Sum<int>(num_injected_particles_in_block));
 
+    // No eligible cell drew a particle for this population this timestep: move on
+    // to the next population rather than bailing out of the whole function, which
+    // would otherwise silently skip injection for every population after this one.
     if (num_injected_particles_in_block == 0) {
-      return TaskStatus::complete;
+      continue;
     }
 
     auto injected_particles_context =
@@ -271,11 +272,27 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
-
     auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
-    auto &t_inj = swarm->Get<Real>("injection_time").Get();
+    const bool track_injection_time = swarm->Contains<Real>("injection_time");
+    auto t_inj = x.Get();
+    if (track_injection_time) t_inj = swarm->Get<Real>("injection_time").Get();
 
-    // Lifetime value (if needed)
+    // Downstream tasks (AdvectTracers, CenterTracers) run before this cycle's
+    // FillTracers, so a freshly injected particle needs these set here already.
+    // Tracers and stars register their velocity swarm values under different names
+    // ("vel_*" vs "v_*"); stars get theirs from TransferCellMassToParticle below.
+    const std::string vel_prefix =
+        (particles_type == ParticlesType::Stars) ? std::string("v_") : "vel_";
+    auto vel_x = x.Get();
+    auto vel_y = x.Get();
+    auto vel_z = x.Get();
+    vel_x = swarm->Get<Real>(vel_prefix + "x").Get();
+    vel_y = swarm->Get<Real>(vel_prefix + "y").Get();
+    vel_z = swarm->Get<Real>(vel_prefix + "z").Get();
+    const bool trace_level = swarm->Contains<int>("level");
+    parthenon::ParArrayND<int> level;
+    if (trace_level) level = swarm->Get<int>("level").Get();
+
     Real lifetime;
     auto ltime = t_inj.Get();
     if (removal_enabled) {
@@ -283,107 +300,112 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       ltime = swarm->Get<Real>("lifetime").Get();
     }
 
-    // Mass value (if needed)
-    // - pmass  = instantenous stellar particle mass
-    // - pmass0 = stellar particles mass at birth (needed to compute
+    // Mass value (stars only)
+    // - pmass  = instantaneous stellar particle mass
+    // - pmass0 = stellar particle mass at birth (needed to compute
     //            the number of SNe events / ejecta mass at each dt)
-    auto pmass = t_inj.Get(); // dummy type of initialization
-    auto pmass0 = t_inj.Get();
-    auto v_x = t_inj.Get();
-    auto v_y = t_inj.Get();
-    auto v_z = t_inj.Get();
-    if (mass_enabled) {
+    auto pmass = x.Get(); // dummy type of initialization
+    auto pmass0 = x.Get();
+    if (particles_type == ParticlesType::Stars) {
       pmass = swarm->Get<Real>("mass").Get();
       pmass0 = swarm->Get<Real>("birth_mass").Get();
-      v_x = swarm->Get<Real>("v_x").Get();
-      v_y = swarm->Get<Real>("v_y").Get();
-      v_z = swarm->Get<Real>("v_z").Get();
     }
 
     Kokkos::View<int, parthenon::DevExecSpace> counter("counter");
     Kokkos::deep_copy(counter, 0);
 
-    std::uint64_t block_offset;
-    std::memcpy(&block_offset, &host_off(k_population), sizeof(std::uint64_t));
+    std::uint64_t block_offset = DecodeOffset(host_off(k_population));
 
     pmb->par_for(
         "InjectParticles::Initialize", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int k, const int j, const int i) {
-          // --- Cell position and size --------------------------------------------
           const Real x_cell = coords.Xc<1>(i);
           const Real y_cell = coords.Xc<2>(j);
           const Real z_cell = coords.Xc<3>(k);
 
+          // Must match InjectParticles::FindCells exactly, so both passes draw
+          // the same cells.
           Real p_local = 0.0;
-
-          // --- Fixed-rate injection (e.g. tracers) -------------------------------
           if (injection_mode == InjectionMode::FixedRate) {
             if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
-                                  injection_threshold, mbar_over_kb, ndim)) {
+                                  injection_threshold, mbar_over_kb, ndim, jet_radius,
+                                  jet_offset, jet_thickness, jet_coords)) {
               p_local = p_injection;
             }
-
-            // --- Per-cell injection (e.g. stars) -----------------------------------
-          } else if (injection_mode == InjectionMode::PerCell) {
-
-            if (particles_type == ParticlesType::Stars) {
-              // SMUGGLE-style stochastic star formation rate (Marinacci+2019).
-              p_local = StarFormation::EvaluateStarFormationProbability(
-                  prim, coords, k, j, i, injection_threshold, sf_efficiency,
-                  gravitational_constant, ndim, current_dt);
-
-              // Optional virial veto: only applied to cells that already
-              // passed the stochastic draw above -- see the selected
-              // gravitational-collapse gate (SFVirialCriterion) above.
-              if (p_local > 0.0 && virial_criterion &&
-                  !StarFormation::CheckVirialCollapse(
-                      prim, coords, k, j, i, gravitational_constant, ndim, gamma,
-                      sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold,
-                      nhydro, sf_alpha_crit)) {
-                p_local = 0.0; // did not pass the collapse gate: veto injection
-              }
+          } else if (injection_mode == InjectionMode::PerCell &&
+                     particles_type == ParticlesType::Stars) {
+            p_local = StarFormation::EvaluateStarFormationProbability(
+                prim, coords, k, j, i, injection_threshold, sf_efficiency,
+                gravitational_constant, ndim, current_dt);
+            if (p_local > 0.0 && virial_criterion &&
+                !StarFormation::CheckVirialCollapse(
+                    prim, coords, k, j, i, gravitational_constant, ndim, gamma,
+                    sf_virial_criterion, mbar_over_kb, sf_virial_temperature_threshold,
+                    nhydro, sf_alpha_crit)) {
+              p_local = 0.0;
             }
           }
 
           if (p_local <= 0.0) return;
 
           // --- Stochastic draw ---------------------------------------------------
-          const auto seed = SeedFromIndices(k, j, i, gid, current_time);
+          const auto seed = SeedFromIndices(k, j, i, gid, static_cast<int>(k_population),
+                                            current_time);
           const auto rnd = random_double(seed);
           if (rnd >= p_local) return;
 
           // --- Particle initialization -------------------------------------------
           const int counter_idx = Kokkos::atomic_fetch_add(&counter(), 1);
-          const int swarm_idx =
-              injected_particles_context.GetNewParticleIndex(counter_idx);
+          const int swarm_idx = injected_particles_context.GetNewParticleIndex(counter_idx);
 
           x(swarm_idx) = x_cell;
           y(swarm_idx) = y_cell;
-          if (ndim == 3) {
-            z(swarm_idx) = z_cell;
-          }
+          // Always assign z, even in 2D: z_cell is the (valid, in-bounds) cell
+          // center of the current k, so this stays well-defined; leaving it
+          // untouched would mean an uninitialized/stale position for
+          // dynamically-injected particles in 2D runs.
+          z(swarm_idx) = z_cell;
 
           id(swarm_idx) = block_offset + counter_idx;
-          t_inj(swarm_idx) = current_time;
+          if (track_injection_time) t_inj(swarm_idx) = current_time;
           if (removal_enabled) {
             ltime(swarm_idx) = lifetime;
           }
 
-          if (particles_type == ParticlesType::Stars && mass_enabled) {
+          if (particles_type == ParticlesType::Stars) {
+            // Moves part of the cell's gas into the new star, which also inherits
+            // the cell velocity.
             StarFormation::TransferCellMassToParticle(
-                cons, prim, coords, k, j, i, mass_efficiency, ndim, swarm_idx, pmass, v_x,
-                v_y, v_z, eos, nhydro, nscalars, sf_energy_mode);
+                cons, prim, coords, k, j, i, mass_efficiency, ndim, swarm_idx, pmass,
+                vel_x, vel_y, vel_z, eos, nhydro, nscalars, sf_energy_mode);
             pmass0(swarm_idx) = pmass(swarm_idx);
+          } else {
+            // Cell-centered sample, exact since the particle sits at (i, j, k)'s
+            // center; matches FillTracers' non-interpolated (Monte Carlo) branch.
+            vel_x(swarm_idx) = prim(IV1, k, j, i);
+            vel_y(swarm_idx) = prim(IV2, k, j, i);
+            if (ndim == 3) vel_z(swarm_idx) = prim(IV3, k, j, i);
           }
+          if (trace_level) level(swarm_idx) = block_level;
         });
 
     block_offset += num_injected_particles_in_block;
-    std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
+    host_off(k_population) = EncodeOffset(block_offset);
     Kokkos::deep_copy(off, host_off);
-  } // end swarm_name loop
-
+  }
   return TaskStatus::complete;
 }
+
+// Needed since InjectParticles is templated and defined in this translation unit:
+// explicitly instantiate for the EOS types it is actually called with.
+template TaskStatus InjectParticles<AdiabaticHydroEOS>(MeshBlockData<Real> *,
+                                                       parthenon::SimTime &,
+                                                       const std::string &,
+                                                       const AdiabaticHydroEOS &);
+template TaskStatus InjectParticles<AdiabaticGLMMHDEOS>(MeshBlockData<Real> *,
+                                                        parthenon::SimTime &,
+                                                        const std::string &,
+                                                        const AdiabaticGLMMHDEOS &);
 
 /* ===============================================================================
 RemoveParticles: loops on particles, check which ones have reach the end of their
@@ -456,7 +478,11 @@ TaskStatus RemoveParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
             if (removal_enabled) {
-              if (current_time - t_inj(n) >= ltime(n)) {
+              // ltime(n) < 0 (e.g. the "-1" default, see Initialize()) means "never
+              // removed": elapsed time is always >= 0, so without this guard that
+              // sentinel would instead cause immediate removal on the very next
+              // call.
+              if (ltime(n) >= 0.0 && current_time - t_inj(n) >= ltime(n)) {
                 bool keep_particle = false;
 
                 if (removal_exception) {

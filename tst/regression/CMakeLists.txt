@@ -67,7 +67,11 @@ setup_test_both("cluster_hydro_agn_feedback" "--driver ${PROJECT_BINARY_DIR}/bin
 setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/agn_triggering.in --num_steps 3" "convergence")
 
-  setup_test_both("cluster_tracers" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  # Serial only: dynamic tracer injection seeds its RNG from (cell indices, block gid,
+  # time), and block gid assignment is decomposition-dependent, so the exact set of
+  # injected tracers -- and thus this test's exact-match comparison against
+  # ref_data.pkl -- isn't invariant across different rank counts.
+  setup_test_serial("cluster_tracers" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hydro_agn_feedback_tracers.in --num_steps 1" "regression")
 
   # Serial only for now: the 2-rank variant of setup_test_both crashes at cycle 0 for
@@ -90,10 +94,7 @@ setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/ath
   setup_test_serial("sn_feedback_refinement" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/sn_feedback_refinement.in --num_steps 5" "regression")
 
-  setup_test_both("particle_advection_fluxinterp" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/turbulence.in --num_steps 2" "regression")
-
-  setup_test_both("particle_advection_vinterp" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  setup_test_both("particle_advection" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/turbulence.in --num_steps 2" "regression")
   
   setup_test_serial("lw_implode_symmetry" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \

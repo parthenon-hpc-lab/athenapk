@@ -1,9 +1,9 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-// Tracer implementation refactored from https://github.com/lanl/phoebus
+// Tracer implementation refacored from https://github.com/lanl/phoebus
 //========================================================================================
 // © 2021-2023. Triad National Security, LLC. All rights reserved.
 // This program was produced under U.S. Government contract
@@ -17,9 +17,6 @@
 // license in this material to reproduce, prepare derivative works,
 // distribute copies to the public, perform publicly and display
 // publicly, and to permit others to do so.
-//========================================================================================
-// This file was made in part with generative AI (Claude Sonnet 5).
-//========================================================================================
 
 #ifndef TRACERS_HPP_
 #define TRACERS_HPP_
@@ -47,7 +44,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 extern InitPackageDataFun_t ProblemInitTracerData;
 
-enum class AdvectMethod { MonteCarlo, VInterp, Flux, None };
+enum class AdvectMethod { MonteCarlo, VInterp, None };
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
@@ -60,6 +57,9 @@ extern FillTracersFun_t ProblemFillTracers;
 
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 
+// Contract: "tracers_offsets" already holds each block's ID slice when this runs
+// (see EncodeOffset/DecodeOffset). A callback assigning particle IDs must read
+// and advance that field, or later dynamic injection will reuse its IDs.
 using SeedInitialFun_t =
     std::function<void(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm)>;
 extern SeedInitialFun_t ProblemSeedInitialTracers;

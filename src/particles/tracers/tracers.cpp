@@ -21,6 +21,7 @@
 // This file was made in part with generative AI (Claude Sonnet 5).
 //========================================================================================
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <string>
@@ -50,10 +51,26 @@
 namespace Tracers {
 using namespace parthenon::package::prelude;
 using parthenon::Coordinates_t;
-using TE = parthenon::TopologicalElement;
 using ParticlesCriterion = ParticlesUtils::ParticlesCriterion;
 
 namespace LCInterp = parthenon::interpolation::cent::linear;
+
+namespace {
+const std::vector<std::string> optional_swarm_fields{
+    "injection_time",  "lifetime",       "grad_pressure_x", "grad_pressure_y",
+    "grad_pressure_z", "level",          "div_v",           "rot_v",
+    "rot_B_x",         "rot_B_y",        "rot_B_z",         "tens_B_x",
+    "tens_B_y",        "tens_B_z",       "grad_B2_x",       "grad_B2_y",
+    "grad_B2_z",       "scalar_fraction"};
+
+bool ContainsField(const std::vector<std::string> &fields, const std::string &field) {
+  return std::find(fields.begin(), fields.end(), field) != fields.end();
+}
+
+void AddFieldIfMissing(std::vector<std::string> &fields, const std::string &field) {
+  if (!ContainsField(fields, field)) fields.push_back(field);
+}
+} // namespace
 
 /* ===============================================================================
 InjectTracers: called at each timestep, inject new tracer particles in cells ful-
@@ -68,6 +85,9 @@ TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
 
+  // InjectParticles is templated on the EOS type (needed by particle-mesh
+  // interactions that require it, e.g. star formation's mass transfer); tracers
+  // don't use it themselves, but still need to select and pass the active one.
   if (fluid == Fluid::euler) {
     return ParticlesUtils::InjectParticles(mbd, tm, "tracers",
                                            hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
@@ -97,9 +117,6 @@ swarm object of each individual populations of tracers.
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto tracers_pkg = std::make_shared<StateDescriptor>("tracers");
   const bool enabled = pin->GetOrAddBoolean("tracers", "enabled", false);
-  const auto integrator_str = pin->GetString("parthenon/time", "integrator");
-  const auto advection_method_str =
-      pin->GetOrAddString("tracers", "advection_method", "fluxinterp");
 
   // =====================================================================
   // General parameters
@@ -109,17 +126,21 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // not)
   tracers_pkg->AddParam<>("initial_seed_done", false, Params::Mutability::Restart);
 
-  // Storing advection_method into enum class
-  AdvectMethod advection_method;
-  if (advection_method_str == "vinterp") {
-    advection_method = AdvectMethod::VInterp;
-  } else if (advection_method_str == "fluxinterp") {
-    advection_method = AdvectMethod::Flux;
-  } else if (advection_method_str == "montecarlo") {
-    advection_method = AdvectMethod::MonteCarlo;
-  } else {
-    advection_method = AdvectMethod::None;
-    PARTHENON_FAIL("Invalid advection_method: " + advection_method_str);
+  // Parse (and validate) the advection method only when tracers are actually
+  // enabled: an irrelevant/invalid value left over in the input file shouldn't
+  // block startup when the block below never runs. `advection_method` is still
+  // always stored, since e.g. hydro.cpp reads it unconditionally.
+  AdvectMethod advection_method = AdvectMethod::None;
+  if (enabled) {
+    const auto advection_method_str =
+        pin->GetOrAddString("tracers", "advection_method", "vinterp");
+    if (advection_method_str == "vinterp") {
+      advection_method = AdvectMethod::VInterp;
+    } else if (advection_method_str == "montecarlo") {
+      advection_method = AdvectMethod::MonteCarlo;
+    } else {
+      PARTHENON_FAIL("Invalid advection_method: " + advection_method_str);
+    }
   }
 
   // Store the enum value in the tracer package
@@ -128,25 +149,45 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   if (!enabled) return tracers_pkg;
 
-  // Setting up useful fields (face-centered velocity, IDs offsets),
-  // also checking the integrator choice in case of flux-based advection
+  const auto integrator_str = pin->GetString("parthenon/time", "integrator");
+
+  // Setting up useful fields (cell mass for Monte Carlo, IDs offsets),
+  // also checking the integrator choice in case of Monte Carlo advection
   PARTHENON_REQUIRE_THROWS(pin->DoesParameterExist("tracers", "swarm_names"),
                            "Need to define at least one particle population via "
                            "'swarm_names' when tracers are enabled.");
   auto swarm_names = pin->GetVector<std::string>("tracers", "swarm_names");
   tracers_pkg->AddParam<>("swarm_names", swarm_names);
 
-  Metadata m;
-  // Face-centered velocity
-  if (advection_method == AdvectMethod::Flux) {
-    // Integrator sanity check
+  // Package initialization happens before the Mesh exists, so mirror Mesh's
+  // multilevel input check here when deciding which swarm values to register.
+  const auto refinement = pin->GetOrAddString(
+      "parthenon/mesh", "refinement", "none",
+      std::vector<std::string>{"none", "static", "adaptive"}, "mesh refinement mode");
+  const bool multilevel =
+      refinement != "none" || pin->GetOrAddBoolean("parthenon/mesh", "multigrid", false,
+                                                   "enable a multigrid mesh");
+
+  // AdvectTracers pairs the last stage's fluxes (scaled by the full dt) with the
+  // M_cell mass reference filled once at stage 1 (see FillTracerMCell in
+  // hydro.cpp) -- only vl2's 2-stage structure makes that combination correct.
+  if (advection_method == AdvectMethod::MonteCarlo) {
     PARTHENON_REQUIRE(integrator_str == "vl2",
                       "Provided tracer parameters only support vl2 integrator.");
-    // Adding derived field
-    m = Metadata({Metadata::Face, Metadata::Derived, Metadata::OneCopy},
-                 std::vector<int>({1}));
-    tracers_pkg->AddField("fvel", m); // face-centered velocity
-  } else if (advection_method == AdvectMethod::MonteCarlo) {
+
+    // AdvectTracers looks up "rng_block_<gid>" every step, but that pool is only
+    // registered once at startup (SeedInitialTracers). Adaptive refinement changes
+    // gids afterward with no re-registration, so the lookup would throw mid-run.
+    PARTHENON_REQUIRE(refinement != "adaptive",
+                      "Monte Carlo tracer advection does not support "
+                      "'parthenon/mesh/refinement = adaptive': mesh blocks created or "
+                      "reassigned after startup have no registered RNG pool and the run "
+                      "will crash once the mesh changes. Use 'refinement = static' (or "
+                      "'none'), or switch 'tracers/advection_method' to 'vinterp'.");
+  }
+
+  Metadata m;
+  if (advection_method == AdvectMethod::MonteCarlo) {
     // For Monte Carlo, need to save a copy of the mass of each cell before its
     // value is updated by the fluxes (c.f. hydro.cpp)
     m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
@@ -164,10 +205,21 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // =====================================================================
   // Population specific parameters
   // =====================================================================
+  const bool mhd = pin->GetString("hydro", "fluid") == "glmmhd";
+  const auto nscalars = pin->GetOrAddInteger("hydro", "nscalars", 0);
+  // Old, pre-per-swarm-seed input files only set this; keep it as the default so
+  // they still work, but a SWARM_NAME_initial_rng_seed overrides it per population.
+  const auto global_rng_seed = pin->GetOrAddInteger("tracers", "initial_rng_seed", 0);
+  // Mirrors when Hydro::Initialize actually registers "mbar_over_kb" (c.f.
+  // hydro.cpp) -- without it, a temperature criterion would silently evaluate
+  // against EvaluateCriterion's -1 fallback instead of a real temperature.
+  const bool mbar_over_kb_available =
+      pin->DoesBlockExist("units") &&
+      pin->DoesParameterExist("hydro", "He_mass_fraction");
   for (const auto &swarm_name : swarm_names) {
 
-    const auto rng_seed =
-        pin->GetOrAddInteger("tracers", swarm_name + "_initial_rng_seed", 0);
+    const auto rng_seed = pin->GetOrAddInteger(
+        "tracers", swarm_name + "_initial_rng_seed", global_rng_seed);
 
     // Number of tracers per cell in the initial injection (t=0).
     // For both initial and dynamical injection, the seeding can be performed
@@ -193,6 +245,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // Injection parameters
     // =====================================================================
     if (injection_enabled) {
+      // IDs come from a private per-block slice reserved once at startup (see
+      // EncodeOffset/DecodeOffset); adaptive refinement reshuffles blocks
+      // afterward with no re-allocation strategy, so IDs would collide again.
+      PARTHENON_REQUIRE(refinement != "adaptive",
+                        "Dynamic tracer injection ('" + swarm_name +
+                            "_injection_enabled') does not support "
+                            "'parthenon/mesh/refinement = adaptive'. Use "
+                            "'refinement = static' (or 'none').");
+
       const auto injection_num_target =
           pin->GetOrAddReal("tracers", swarm_name + "_injection_num_target", -1);
       const auto injection_timescale =
@@ -212,16 +273,30 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         inj_crit = ParticlesCriterion::TemperatureAbove;
       } else if (injection_criterion == "temperature_below") {
         inj_crit = ParticlesCriterion::TemperatureBelow;
+      } else if (injection_criterion == "jet") {
+        // Geometric criterion selecting cells within the kinetic AGN jet region;
+        // the jet_radius/jet_offset/jet_thickness geometry itself is problem
+        // specific and populated via ProblemInitTracerData (see cluster.cpp).
+        inj_crit = ParticlesCriterion::Jet;
       } else {
         PARTHENON_FAIL("No injection criterion has been set.");
       }
+      PARTHENON_REQUIRE_THROWS(
+          (inj_crit != ParticlesCriterion::TemperatureAbove &&
+           inj_crit != ParticlesCriterion::TemperatureBelow) ||
+              mbar_over_kb_available,
+          "tracers/" + swarm_name + "_injection_criterion=" + injection_criterion +
+              " requires units and gas composition. Set a 'units' block and "
+              "'hydro/He_mass_fraction' in the input file.");
 
-      // Pre-compute the injection rate (num_target / timescale).
-      // A negative value signals that injection is effectively disabled.
-      const Real injection_rate =
-          (injection_num_target > 0.0 && injection_timescale > 0.0)
-              ? injection_num_target / injection_timescale
-              : -1.0;
+      // Injection must actually inject something once enabled -- silently falling
+      // back to zero injection here would hide a missing/invalid input value.
+      PARTHENON_REQUIRE_THROWS(injection_num_target > 0.0 && injection_timescale > 0.0,
+                               "tracers/" + swarm_name +
+                                   "_injection_enabled=true requires positive '" +
+                                   swarm_name + "_injection_num_target' and '" +
+                                   swarm_name + "_injection_timescale'.");
+      const Real injection_rate = injection_num_target / injection_timescale;
 
       tracers_pkg->AddParam<>(swarm_name + "_injection_rate", injection_rate);
       tracers_pkg->AddParam<>(swarm_name + "_injection_threshold", injection_threshold);
@@ -237,6 +312,38 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     const auto removal_enabled =
         pin->GetOrAddBoolean("tracers", swarm_name + "_removal_enabled", false);
     tracers_pkg->AddParam<>(swarm_name + "_removal_enabled", removal_enabled);
+
+    auto fields = pin->GetOrAddVector<std::string>("tracers", swarm_name + "_fields",
+                                                   std::vector<std::string>{});
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+      PARTHENON_REQUIRE_THROWS(ContainsField(optional_swarm_fields, fields[i]),
+                               "Unknown field '" + fields[i] + "' in tracers/" +
+                                   swarm_name + "_fields.");
+      PARTHENON_REQUIRE_THROWS(
+          std::find(fields.begin(), fields.begin() + i, fields[i]) == fields.begin() + i,
+          "Duplicate field '" + fields[i] + "' in tracers/" + swarm_name + "_fields.");
+    }
+    if (removal_enabled) {
+      AddFieldIfMissing(fields, "injection_time");
+      AddFieldIfMissing(fields, "lifetime");
+    }
+    if (advection_method == AdvectMethod::MonteCarlo && multilevel) {
+      AddFieldIfMissing(fields, "level");
+    }
+    PARTHENON_REQUIRE_THROWS(!ContainsField(fields, "lifetime") || removal_enabled,
+                             "Field 'lifetime' requires tracers/" + swarm_name +
+                                 "_removal_enabled=true.");
+    for (const auto &field : fields) {
+      const bool magnetic_field = field.rfind("rot_B_", 0) == 0 ||
+                                  field.rfind("tens_B_", 0) == 0 ||
+                                  field.rfind("grad_B2_", 0) == 0;
+      PARTHENON_REQUIRE_THROWS(!magnetic_field || mhd,
+                               "Field '" + field + "' in tracers/" + swarm_name +
+                                   "_fields requires hydro/fluid=glmmhd.");
+    }
+    PARTHENON_REQUIRE_THROWS(!ContainsField(fields, "scalar_fraction") || nscalars == 1,
+                             "Field 'scalar_fraction' requires hydro/nscalars=1.");
+    tracers_pkg->AddParam<>(swarm_name + "_fields", fields);
 
     // =====================================================================
     // Removal parameters
@@ -271,6 +378,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         } else {
           PARTHENON_FAIL("No removal exception criterion has been set.");
         }
+        PARTHENON_REQUIRE_THROWS(
+            (exc_crit != ParticlesCriterion::TemperatureAbove &&
+             exc_crit != ParticlesCriterion::TemperatureBelow) ||
+                mbar_over_kb_available,
+            "tracers/" + swarm_name +
+                "_removal_exception_criterion=" + removal_exception_criterion +
+                " requires units and gas composition. Set a 'units' block and "
+                "'hydro/He_mass_fraction' in the input file.");
 
         // Add parameters to the tracer package
         tracers_pkg->AddParam<>(swarm_name + "_removal_exception_criterion", exc_crit);
@@ -296,59 +411,47 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     tracers_pkg->AddSwarm(swarm_name, swarm_metadata);
     Metadata real_swarmvalue_metadata({Metadata::Real});
 
-    tracers_pkg->AddSwarmValue("injection_time", swarm_name,
-                               Metadata({Metadata::Real, Metadata::Restart}));
-
-    // If needed, adding the lifetime of the particle
-    if (removal_enabled) {
+    // Keep a canonical registration order so input-list ordering cannot alter the
+    // swarm pool layout.
+    if (ContainsField(fields, "injection_time")) {
+      tracers_pkg->AddSwarmValue("injection_time", swarm_name,
+                                 Metadata({Metadata::Real, Metadata::Restart}));
+    }
+    if (ContainsField(fields, "lifetime")) {
       tracers_pkg->AddSwarmValue("lifetime", swarm_name,
                                  Metadata({Metadata::Real, Metadata::Restart}));
     }
-    // TODO(pgrete) Add CheckDesired/required for vars
-    // thermo variables
-    tracers_pkg->AddSwarmValue("density", swarm_name, real_swarmvalue_metadata);
+
+    tracers_pkg->AddSwarmValue("rho", swarm_name, real_swarmvalue_metadata);
     tracers_pkg->AddSwarmValue("pressure", swarm_name, real_swarmvalue_metadata);
-    tracers_pkg->AddSwarmValue("grad_pressure_x", swarm_name, real_swarmvalue_metadata);
-    tracers_pkg->AddSwarmValue("grad_pressure_y", swarm_name, real_swarmvalue_metadata);
-    tracers_pkg->AddSwarmValue("grad_pressure_z", swarm_name, real_swarmvalue_metadata);
-    tracers_pkg->AddSwarmValue("v_x", swarm_name, real_swarmvalue_metadata);
-    tracers_pkg->AddSwarmValue("v_y", swarm_name, real_swarmvalue_metadata);
-    tracers_pkg->AddSwarmValue("v_z", swarm_name, real_swarmvalue_metadata);
+    for (const auto *field : {"grad_pressure_x", "grad_pressure_y", "grad_pressure_z"}) {
+      if (ContainsField(fields, field))
+        tracers_pkg->AddSwarmValue(field, swarm_name, real_swarmvalue_metadata);
+    }
+    tracers_pkg->AddSwarmValue("vel_x", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("vel_y", swarm_name, real_swarmvalue_metadata);
+    tracers_pkg->AddSwarmValue("vel_z", swarm_name, real_swarmvalue_metadata);
 
-    // Adding refinement level
-    Metadata int_swarmvalue_metadata({Metadata::Integer});
-    tracers_pkg->AddSwarmValue("level", swarm_name, int_swarmvalue_metadata);
-
-    // mfournier: adding additional variables for cluster environment.
-    tracers_pkg->AddSwarmValue("div_v", swarm_name, real_swarmvalue_metadata);
-    tracers_pkg->AddSwarmValue("rot_v", swarm_name, real_swarmvalue_metadata);
-    // TODO(pgrete) this should be safe because we call this package init after the
-    // hydro one, but we should check if there's direct way to access Params of other
-    // packages.
-    const bool mhd = pin->GetString("hydro", "fluid") == "glmmhd";
-
-    PARTHENON_REQUIRE_THROWS(
-        !pin->DoesParameterExist("parthenon/mesh", "refinement") ||
-            pin->GetString("parthenon/mesh", "refinement") != "adaptive",
-        "Tracers/swarms currently only supported on non-adaptive meshes.");
+    if (ContainsField(fields, "level")) {
+      tracers_pkg->AddSwarmValue("level", swarm_name, Metadata({Metadata::Integer}));
+    }
+    for (const auto *field : {"div_v", "rot_v"}) {
+      if (ContainsField(fields, field))
+        tracers_pkg->AddSwarmValue(field, swarm_name, real_swarmvalue_metadata);
+    }
 
     if (mhd) {
       tracers_pkg->AddSwarmValue("B_x", swarm_name, real_swarmvalue_metadata);
       tracers_pkg->AddSwarmValue("B_y", swarm_name, real_swarmvalue_metadata);
       tracers_pkg->AddSwarmValue("B_z", swarm_name, real_swarmvalue_metadata);
-      tracers_pkg->AddSwarmValue("rot_B_x", swarm_name, real_swarmvalue_metadata);
-      tracers_pkg->AddSwarmValue("rot_B_y", swarm_name, real_swarmvalue_metadata);
-      tracers_pkg->AddSwarmValue("rot_B_z", swarm_name, real_swarmvalue_metadata);
-      tracers_pkg->AddSwarmValue("tens_B_x", swarm_name, real_swarmvalue_metadata);
-      tracers_pkg->AddSwarmValue("tens_B_y", swarm_name, real_swarmvalue_metadata);
-      tracers_pkg->AddSwarmValue("tens_B_z", swarm_name, real_swarmvalue_metadata);
-      tracers_pkg->AddSwarmValue("grad_B2_x", swarm_name, real_swarmvalue_metadata);
-      tracers_pkg->AddSwarmValue("grad_B2_y", swarm_name, real_swarmvalue_metadata);
-      tracers_pkg->AddSwarmValue("grad_B2_z", swarm_name, real_swarmvalue_metadata);
+      for (const auto *field : {"rot_B_x", "rot_B_y", "rot_B_z", "tens_B_x", "tens_B_y",
+                                "tens_B_z", "grad_B2_x", "grad_B2_y", "grad_B2_z"}) {
+        if (ContainsField(fields, field))
+          tracers_pkg->AddSwarmValue(field, swarm_name, real_swarmvalue_metadata);
+      }
     }
 
-    auto nscalars = pin->GetOrAddInteger("hydro", "nscalars", 0);
-    if (nscalars == 1) { // Currently only supporting one passive scalar
+    if (ContainsField(fields, "scalar_fraction")) {
       tracers_pkg->AddSwarmValue("scalar_fraction", swarm_name, real_swarmvalue_metadata);
     }
   }
@@ -368,6 +471,7 @@ condition.
 =============================================================================== */
 
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
+
   // Loading root grid level
   const int root_level = pmesh->GetRootLevel();
   const Real current_time = tm.time;
@@ -419,6 +523,22 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
   if (initial_seed_done) return;
 
+  // Reserve each block's private ID slice up front, regardless of
+  // initial_seed_method -- otherwise a block whose seeding skips this (seed_method
+  // = none, or an unaware user callback) starts dynamic injection at ID 0.
+  const uint64_t nbt = static_cast<uint64_t>(pmesh->nbtotal);
+  const uint64_t id_step = (std::numeric_limits<uint64_t>::max() - 1ULL) / nbt;
+  for (auto &pmb : pmesh->block_list) {
+    auto &off = pmb->meshblock_data.Get()->Get("tracers_offsets").data;
+    auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
+    for (std::size_t k_population = 0; k_population < swarm_names.size();
+         ++k_population) {
+      host_off(k_population) =
+          ParticlesUtils::EncodeOffset(static_cast<uint64_t>(pmb->gid) * id_step);
+    }
+    Kokkos::deep_copy(off, host_off);
+  }
+
   auto hydro_pkg = pmesh->packages.Get("Hydro");
 
   const auto seed_method = pin->GetOrAddString("tracers", "initial_seed_method", "none");
@@ -428,9 +548,6 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
     ProblemSeedInitialTracers(pmesh, pin, tm);
     tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
   } else if (seed_method == "random_per_block") {
-    // Initialize random number generator pool
-    int rng_seed = pin->GetOrAddInteger("tracers", "initial_rng_seed", 0);
-
     // First looping on blocks, then looping on populations (arbitrary)
     for (auto &pmb : pmesh->block_list) {
 
@@ -459,18 +576,24 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         // Optinal check for refinement level
         const auto reference_level =
             tracers_pkg->Param<int>(swarm_name + "_reference_level");
-        const Real scale = (reference_level < 0)
-                               ? 1.0
-                               : ParticlesUtils::CalculateRefinementScale(
-                                     pmb->loc.level(), root_level, reference_level);
+        const Real scale =
+            (reference_level < 0)
+                ? 1.0
+                : ParticlesUtils::CalculateRefinementScale(pmb->loc.level(), root_level,
+                                                           reference_level, pmesh->ndim);
 
         const auto num_tracers_per_block = static_cast<int>(
             pmesh->GetNumberOfMeshBlockCells() * num_tracers_per_cell * scale);
 
         // Loading the swarm data
         auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get(swarm_name);
-        // Seed is meshblock gid for consistency across MPI decomposition
-        RNGPool rng_pool(pmb->gid + rng_seed);
+        // A large per-population offset keeps each population's stream distinct
+        // without perturbing the single-population case (k_population == 0).
+        const auto rng_seed = tracers_pkg->Param<int>(swarm_name + "_rng_seed");
+        uint64_t seed = static_cast<uint64_t>(pmb->gid) +
+                        static_cast<uint64_t>(rng_seed) +
+                        static_cast<uint64_t>(k_population) * utils::custom_rng::PHI_64;
+        RNGPool rng_pool(seed);
 
         IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
         IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
@@ -490,7 +613,9 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
         auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
         auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
-        auto &t_inj = swarm->Get<Real>("injection_time").Get();
+        const bool track_injection_time = swarm->Contains<Real>("injection_time");
+        auto t_inj = x.Get();
+        if (track_injection_time) t_inj = swarm->Get<Real>("injection_time").Get();
 
         // Assigning default value
         Real lifetime;
@@ -500,17 +625,9 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
           lifetime = tracers_pkg->Param<Real>(swarm_name + "_lifetime");
         }
 
-        // Getting the offset for the current meshblock
-        // Getting the offset for the current meshblock
-        const uint64_t gid = static_cast<uint64_t>(pmb->gid); // global ID of the block
-        const uint64_t nbt =
-            static_cast<uint64_t>(pmesh->nbtotal); // total number of meshblocks
-
-        // Compute step size: (UINT64_MAX - 1) / nbt
-        const uint64_t step = (std::numeric_limits<uint64_t>::max() - 1ULL) / nbt;
-
-        // Compute block offset
-        uint64_t block_offset = gid * step;
+        // Base offset was already reserved for this block above; read it back and
+        // advance it by however many particles this call seeds.
+        uint64_t block_offset = ParticlesUtils::DecodeOffset(host_off(k_population));
 
         // Loading swarm
         auto swarm_d = swarm->GetDeviceContext();
@@ -544,11 +661,11 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
               // Update IDs and injection time / lifetime
               id(n) = block_offset + n;
 
+              if (track_injection_time) {
+                t_inj(n) = current_time;
+              }
               if (removal_enabled) {
-                t_inj(n) = current_time;
                 ltime(n) = lifetime;
-              } else {
-                t_inj(n) = current_time;
               }
 
               rng_pool.free_state(rng_gen);
@@ -559,11 +676,12 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
         // Updating the current block offset.
         block_offset += num_tracers_per_block;
-        std::memcpy(&host_off(k_population), &block_offset, sizeof(std::uint64_t));
+        host_off(k_population) = ParticlesUtils::EncodeOffset(block_offset);
         Kokkos::deep_copy(off, host_off);
       }
-      tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
     }
+    // All blocks seeded: mark seeding as done once, not once per block.
+    tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
   } else {
     PARTHENON_THROW("Unknown tracer initial_seed_method");
   }
@@ -585,8 +703,8 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
 /* ===============================================================================
 AdvectTracers: moves the tracers in each population for the current timestep.
-Two methods are implemented: velocity field interpolation (method 0), or advection
-through face-centered velocity (recommended).
+Two methods are implemented: velocity field interpolation, or a Monte Carlo
+scheme based on the mass fluxes exchanged between cells.
 =============================================================================== */
 
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
@@ -603,11 +721,6 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   const auto &cons_pack = mbd->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
   const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
   const auto &coords = pmb->coords;
-  // For flux interpolation (if needed)
-  auto fvel_pack = parthenon::VariablePack<parthenon::Real>{};
-  if (advection_method == AdvectMethod::Flux) {
-    fvel_pack = mbd->PackVariables(std::vector<std::string>{"fvel"});
-  }
   // For Monte Carlo method (if needed)
   auto Mcell_pack = parthenon::VariablePack<parthenon::Real>{};
   auto rng_pool = Kokkos::Random_XorShift64_Pool<>();
@@ -630,9 +743,9 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
 
-    auto &vel_x = swarm->Get<Real>("v_x").Get();
-    auto &vel_y = swarm->Get<Real>("v_y").Get();
-    auto &vel_z = swarm->Get<Real>("v_z").Get();
+    auto &vel_x = swarm->Get<Real>("vel_x").Get();
+    auto &vel_y = swarm->Get<Real>("vel_y").Get();
+    auto &vel_z = swarm->Get<Real>("vel_z").Get();
 
     auto swarm_d = swarm->GetDeviceContext();
 
@@ -669,56 +782,6 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               if (ndim == 3) {
                 z(n) += dt * 0.5 * (vel_z(n) + vel_z_star);
               }
-            } else if (advection_method == AdvectMethod::Flux) {
-
-              int k, j, i;
-              swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
-
-              // Extracting the velocities of the left and right faces
-              // x-direction
-              const auto fvel_x_lft = fvel_pack(TE::F1, 0, k, j, i);
-              const auto fvel_x_rgt = fvel_pack(TE::F1, 0, k, j, i + 1);
-
-              // y-direction
-              const auto fvel_y_lft = fvel_pack(TE::F2, 0, k, j, i);
-              const auto fvel_y_rgt = fvel_pack(TE::F2, 0, k, j + 1, i);
-
-              // Calculating the interpolated velocity
-              // delta_x_over_dx is the distance between the tracer particle are the left
-              // face (so x_center - dx / 2)
-              const auto delta_x_over_dx =
-                  (x(n) - (coords.Xc<1>(i) - coords.Dxc<1>(k, j, i) / 2)) /
-                  coords.Dxc<1>(k, j, i);
-              const auto delta_y_over_dx =
-                  (y(n) - (coords.Xc<2>(j) - coords.Dxc<2>(k, j, i) / 2)) /
-                  coords.Dxc<2>(k, j, i);
-
-              // Interpolated velocities
-              const auto vel_x_new =
-                  (1 - delta_x_over_dx) * fvel_x_lft + delta_x_over_dx * fvel_x_rgt;
-              const auto vel_y_new =
-                  (1 - delta_y_over_dx) * fvel_y_lft + delta_y_over_dx * fvel_y_rgt;
-
-              // Full update using mean velocity
-              x(n) += dt * vel_x_new;
-              y(n) += dt * vel_y_new;
-
-              // First dimension in case of 3D
-              if (ndim == 3) {
-
-                const auto fvel_z_lft = fvel_pack(TE::F3, 0, k, j, i);
-                const auto fvel_z_rgt = fvel_pack(TE::F3, 0, k + 1, j, i);
-
-                const auto delta_z_over_dx =
-                    (z(n) - (coords.Xc<3>(k) - coords.Dxc<3>(k, j, i) / 2)) /
-                    coords.Dxc<3>(k, j, i);
-                const auto vel_z_new =
-                    (1 - delta_z_over_dx) * fvel_z_lft + delta_z_over_dx * fvel_z_rgt;
-
-                // Full update using mean velocity
-                z(n) += dt * vel_z_new;
-              }
-
             } else if (advection_method == AdvectMethod::MonteCarlo) {
               // Current cell indices for the particle
               int k, j, i;
@@ -729,21 +792,31 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
               const Real Mi = Mcell_pack(0, k, j, i); // current cell mass
 
-              // Calculate each outgoing flux
-              const Real cell_surface = coords.Dxc<1>(i) * coords.Dxc<1>(i);
+              // Face areas are direction-specific (area_x = dy*dz, etc.), not a
+              // single dx^2 -- and dz is the real z-extent (matching M_cell's
+              // real cell Volume below), not a unit-depth stand-in, even in 2D.
+              const Real dx = coords.Dxc<1>(k, j, i);
+              const Real dy = coords.Dxc<2>(k, j, i);
+              const Real dz = coords.Dxc<3>(k, j, i);
+              const Real area_x = dy * dz;
+              const Real area_y = dx * dz;
+              const Real area_z = dx * dy;
 
               const Real dM_xp =
-                  fmax(cons_pack.flux(IV1, IDN, k, j, i + 1) * cell_surface * dt, 0.0);
+                  fmax(cons_pack.flux(IV1, IDN, k, j, i + 1) * area_x * dt, 0.0);
               const Real dM_xm =
-                  fmax(-cons_pack.flux(IV1, IDN, k, j, i) * cell_surface * dt, 0.0);
+                  fmax(-cons_pack.flux(IV1, IDN, k, j, i) * area_x * dt, 0.0);
               const Real dM_yp =
-                  fmax(cons_pack.flux(IV2, IDN, k, j + 1, i) * cell_surface * dt, 0.0);
+                  fmax(cons_pack.flux(IV2, IDN, k, j + 1, i) * area_y * dt, 0.0);
               const Real dM_ym =
-                  fmax(-cons_pack.flux(IV2, IDN, k, j, i) * cell_surface * dt, 0.0);
-              const Real dM_zp =
-                  fmax(cons_pack.flux(IV3, IDN, k + 1, j, i) * cell_surface * dt, 0.0);
-              const Real dM_zm =
-                  fmax(-cons_pack.flux(IV3, IDN, k, j, i) * cell_surface * dt, 0.0);
+                  fmax(-cons_pack.flux(IV2, IDN, k, j, i) * area_y * dt, 0.0);
+              // z-direction fluxes only exist in 3D; in 2D there is no k+/-1
+              // neighbor to draw a face flux from.
+              Real dM_zp = 0.0, dM_zm = 0.0;
+              if (ndim == 3) {
+                dM_zp = fmax(cons_pack.flux(IV3, IDN, k + 1, j, i) * area_z * dt, 0.0);
+                dM_zm = fmax(-cons_pack.flux(IV3, IDN, k, j, i) * area_z * dt, 0.0);
+              }
 
               // Total outgoing flux (Delta M)
               const Real dM_out = dM_xp + dM_xm + dM_yp + dM_ym + dM_zp + dM_zm;
@@ -765,23 +838,29 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               const Real p_xm = dM_xm / denom;
               const Real p_yp = dM_yp / denom;
               const Real p_ym = dM_ym / denom;
-              const Real p_zp = dM_zp / denom;
+              const Real p_zp = (ndim == 3) ? dM_zp / denom : 0.0;
 
               // Calculate second probability
               Real r2 = rng_gen.drand();
               int di = 0, dj = 0, dk = 0;
-              if ((r2 -= p_xp) < 0.0)
+              if ((r2 -= p_xp) < 0.0) {
                 di = +1;
-              else if ((r2 -= p_xm) < 0.0)
+              } else if ((r2 -= p_xm) < 0.0) {
                 di = -1;
-              else if ((r2 -= p_yp) < 0.0)
+              } else if ((r2 -= p_yp) < 0.0) {
                 dj = +1;
-              else if ((r2 -= p_ym) < 0.0)
+              } else if ((r2 -= p_ym) < 0.0) {
                 dj = -1;
-              else if ((r2 -= p_zp) < 0.0)
-                dk = +1;
-              else
-                dk = -1;
+              } else if (ndim == 3) {
+                if ((r2 -= p_zp) < 0.0) {
+                  dk = +1;
+                } else {
+                  dk = -1;
+                }
+              }
+              // else (2D, floating-point residual after xp/xm/yp/ym): leave
+              // di=dj=dk=0 rather than falsely stepping in a nonexistent z
+              // direction.
 
               // Index of the new cell
               const int i_new = i + di;
@@ -821,10 +900,11 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   // Get tracer data
   auto tracers_pkg = pmb->packages.Get("tracers");
   auto advection_method = tracers_pkg->Param<AdvectMethod>("advection_method");
-  if (advection_method != AdvectMethod::MonteCarlo) {
+  if (advection_method != AdvectMethod::MonteCarlo || !pmb->pmy_mesh->multilevel) {
     return TaskStatus::complete;
   }
   auto block_level = pmb->loc.level();
+  auto ndim = pmb->pmy_mesh->ndim;
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
   // Looping on the N independent swarms
@@ -868,28 +948,29 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
               // ======================================================================
 
-              // Particle just entered a more refined level
-              // It's at the center of an oct - randomly displace it to one of the 8 cells
+              // {i-1,i} (and {j-1,j}, {k-1,k} in 3D) are the coarse cell's actual
+              // two children per axis -- Xtoijk floors, so it always returns the
+              // "i" side; randomly pick one combination of the 4 (2D) or 8 (3D).
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
               auto rng_gen = rng_pool.get_state();
-
-              // Draw a random integer between 0 and 7 inclusive
-              int chosen_cell = rng_gen.urand() % 8;
+              const int n_children = (ndim == 3) ? 8 : 4;
+              int chosen_cell = rng_gen.urand() % n_children;
 
               // Free RNG state immediately
               rng_pool.free_state(rng_gen);
 
-              // Decode chosen_cell bits to determine direction
-              int di = (chosen_cell & 1) ? 1 : -1;
-              int dj = (chosen_cell & 2) ? 1 : -1;
-              int dk = (chosen_cell & 4) ? 1 : -1;
+              // Decode chosen_cell bits: 0 keeps the floored index, 1 steps back one.
+              int di = (chosen_cell & 1) ? 0 : -1;
+              int dj = (chosen_cell & 2) ? 0 : -1;
 
-              // Move particle to one of the 8 subcell centers
               x(n) = coords.Xc<1>(i + di);
               y(n) = coords.Xc<2>(j + dj);
-              z(n) = coords.Xc<3>(k + dk);
+              if (ndim == 3) {
+                int dk = (chosen_cell & 4) ? 0 : -1;
+                z(n) = coords.Xc<3>(k + dk);
+              }
 
             } else if (particle_level > block_level) {
 
@@ -921,8 +1002,9 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 } // CenterTracers
 
 /* ===============================================================================
-FillTracers: calculate interpolated values of some fields (rho, vel, B, etc.) to
-damped into the output files.
+FillTracers: sample primitive quantities at tracer positions for vinterp and at
+host-cell centers for Monte Carlo. Derivative diagnostics use host-cell stencils
+for both methods.
 =============================================================================== */
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
@@ -931,6 +1013,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+  const bool vinterp =
+      tracers_pkg->Param<AdvectMethod>("advection_method") == AdvectMethod::VInterp;
 
   // Get hydro/mhd fluid vars over all blocks
   auto nhydro = hydro_pkg->Param<int>("nhydro");
@@ -949,17 +1033,58 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
       // TODO(pgrete) cleanup once get swarm packs (currently in development upstream)
       // pull swarm vars
-      auto &level = swarm->Get<int>("level").Get();
       auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
       auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
       auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
-      auto &vel_x = swarm->Get<Real>("v_x").Get();
-      auto &vel_y = swarm->Get<Real>("v_y").Get();
-      auto &vel_z = swarm->Get<Real>("v_z").Get();
-      // Assign some (definitely existing) default var
+      auto &vel_x = swarm->Get<Real>("vel_x").Get();
+      auto &vel_y = swarm->Get<Real>("vel_y").Get();
+      auto &vel_z = swarm->Get<Real>("vel_z").Get();
+      const bool trace_level = swarm->Contains<int>("level");
+      parthenon::ParArrayND<int> level;
+      if (trace_level) level = swarm->Get<int>("level").Get();
+
+      // Use an existing field as an unused placeholder for optional Real fields.
+      const bool trace_grad_pressure_x = swarm->Contains<Real>("grad_pressure_x");
+      const bool trace_grad_pressure_y = swarm->Contains<Real>("grad_pressure_y");
+      const bool trace_grad_pressure_z = swarm->Contains<Real>("grad_pressure_z");
+      auto grad_pressure_x = vel_x.Get();
+      auto grad_pressure_y = vel_x.Get();
+      auto grad_pressure_z = vel_x.Get();
+      if (trace_grad_pressure_x)
+        grad_pressure_x = swarm->Get<Real>("grad_pressure_x").Get();
+      if (trace_grad_pressure_y)
+        grad_pressure_y = swarm->Get<Real>("grad_pressure_y").Get();
+      if (trace_grad_pressure_z)
+        grad_pressure_z = swarm->Get<Real>("grad_pressure_z").Get();
+
+      const bool trace_div_v = swarm->Contains<Real>("div_v");
+      const bool trace_rot_v = swarm->Contains<Real>("rot_v");
+      auto div_v = vel_x.Get();
+      auto rot_v = vel_x.Get();
+      if (trace_div_v) div_v = swarm->Get<Real>("div_v").Get();
+      if (trace_rot_v) rot_v = swarm->Get<Real>("rot_v").Get();
+
+      const bool trace_scalar_fraction = swarm->Contains<Real>("scalar_fraction");
+      auto scalar_fraction = vel_x.Get();
+      if (trace_scalar_fraction)
+        scalar_fraction = swarm->Get<Real>("scalar_fraction").Get();
+
       auto B_x = vel_x.Get();
       auto B_y = vel_x.Get();
       auto B_z = vel_x.Get();
+      const bool trace_rot_B_x = swarm->Contains<Real>("rot_B_x");
+      const bool trace_rot_B_y = swarm->Contains<Real>("rot_B_y");
+      const bool trace_rot_B_z = swarm->Contains<Real>("rot_B_z");
+      const bool trace_tens_B_x = swarm->Contains<Real>("tens_B_x");
+      const bool trace_tens_B_y = swarm->Contains<Real>("tens_B_y");
+      const bool trace_tens_B_z = swarm->Contains<Real>("tens_B_z");
+      const bool trace_grad_B2_x = swarm->Contains<Real>("grad_B2_x");
+      const bool trace_grad_B2_y = swarm->Contains<Real>("grad_B2_y");
+      const bool trace_grad_B2_z = swarm->Contains<Real>("grad_B2_z");
+      const bool trace_magnetic_diagnostics =
+          trace_rot_B_x || trace_rot_B_y || trace_rot_B_z || trace_tens_B_x ||
+          trace_tens_B_y || trace_tens_B_z || trace_grad_B2_x || trace_grad_B2_y ||
+          trace_grad_B2_z;
       auto rot_B_x = vel_x.Get();
       auto rot_B_y = vel_x.Get();
       auto rot_B_z = vel_x.Get();
@@ -973,40 +1098,26 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
         B_x = swarm->Get<Real>("B_x").Get();
         B_y = swarm->Get<Real>("B_y").Get();
         B_z = swarm->Get<Real>("B_z").Get();
-        rot_B_x = swarm->Get<Real>("rot_B_x").Get();
-        rot_B_y = swarm->Get<Real>("rot_B_y").Get();
-        rot_B_z = swarm->Get<Real>("rot_B_z").Get();
-        tens_B_x = swarm->Get<Real>("tens_B_x").Get();
-        tens_B_y = swarm->Get<Real>("tens_B_y").Get();
-        tens_B_z = swarm->Get<Real>("tens_B_z").Get();
-        grad_B2_x = swarm->Get<Real>("grad_B2_x").Get();
-        grad_B2_y = swarm->Get<Real>("grad_B2_y").Get();
-        grad_B2_z = swarm->Get<Real>("grad_B2_z").Get();
+        if (trace_rot_B_x) rot_B_x = swarm->Get<Real>("rot_B_x").Get();
+        if (trace_rot_B_y) rot_B_y = swarm->Get<Real>("rot_B_y").Get();
+        if (trace_rot_B_z) rot_B_z = swarm->Get<Real>("rot_B_z").Get();
+        if (trace_tens_B_x) tens_B_x = swarm->Get<Real>("tens_B_x").Get();
+        if (trace_tens_B_y) tens_B_y = swarm->Get<Real>("tens_B_y").Get();
+        if (trace_tens_B_z) tens_B_z = swarm->Get<Real>("tens_B_z").Get();
+        if (trace_grad_B2_x) grad_B2_x = swarm->Get<Real>("grad_B2_x").Get();
+        if (trace_grad_B2_y) grad_B2_y = swarm->Get<Real>("grad_B2_y").Get();
+        if (trace_grad_B2_z) grad_B2_z = swarm->Get<Real>("grad_B2_z").Get();
       }
 
-      auto &density = swarm->Get<Real>("density").Get();
+      auto &rho = swarm->Get<Real>("rho").Get();
       auto &pressure = swarm->Get<Real>("pressure").Get();
-      auto &grad_pressure_x = swarm->Get<Real>("grad_pressure_x").Get();
-      auto &grad_pressure_y = swarm->Get<Real>("grad_pressure_y").Get();
-      auto &grad_pressure_z = swarm->Get<Real>("grad_pressure_z").Get();
-
-      // mfournier: Additional variables: vorticity,compression
-      auto &div_v = swarm->Get<Real>("div_v").Get();
-      auto &rot_v = swarm->Get<Real>("rot_v").Get();
-      // Check if passive scalar exists
-      const auto nscalars = hydro_pkg->Param<int>("nscalars");
-      // Assign default var if no scalars exist
-      auto scalar_fraction = div_v.Get();
-      if (nscalars == 1) { // Currently only supporting one passive scalar
-        scalar_fraction = swarm->Get<Real>("scalar_fraction").Get();
-      }
 
       auto swarm_d = swarm->GetDeviceContext();
 
       // update loop.
       const int max_active_index = swarm->GetMaxActiveIndex();
       pmb->par_for(
-          "FillTracers::CellCentered", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+          "FillTracers::PartLoop", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
             if (swarm_d.IsActive(n)) {
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
@@ -1017,196 +1128,218 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
               const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
 
               // First, store grid level
-              level(n) = block_level;
+              if (trace_level) level(n) = block_level;
 
-              // Direct cell-centered access
-              density(n) = prim_pack(b, IDN, k, j, i);
-              vel_x(n) = prim_pack(b, IV1, k, j, i);
-              vel_y(n) = prim_pack(b, IV2, k, j, i);
-              if (ndim == 3) {
+              // VInterp's next Heun step uses these stored velocities, so they must
+              // be sampled at the particle position, just like its predictor velocity.
+              if (vinterp) {
+                rho(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IDN);
+                vel_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV1);
+                vel_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV2);
+                vel_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV3);
+                pressure(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IPR);
+              } else {
+                // A 2D mesh only forbids z-derivatives, not an out-of-plane vz: it
+                // stays a real, unwritten field otherwise.
+                rho(n) = prim_pack(b, IDN, k, j, i);
+                vel_x(n) = prim_pack(b, IV1, k, j, i);
+                vel_y(n) = prim_pack(b, IV2, k, j, i);
                 vel_z(n) = prim_pack(b, IV3, k, j, i);
+                pressure(n) = prim_pack(b, IPR, k, j, i);
               }
-              pressure(n) = prim_pack(b, IPR, k, j, i);
 
-              // Compute pressure gradients
-              const Real dP_dx =
-                  (prim_pack(b, IPR, k, j, i + 1) - prim_pack(b, IPR, k, j, i - 1)) /
-                  (2.0 * dx);
-              const Real dP_dy =
-                  (prim_pack(b, IPR, k, j + 1, i) - prim_pack(b, IPR, k, j - 1, i)) /
-                  (2.0 * dy);
-              const Real dP_dz = (ndim == 3) ? (prim_pack(b, IPR, k + 1, j, i) -
-                                                prim_pack(b, IPR, k - 1, j, i)) /
-                                                   (2.0 * dz)
-                                             : 0.0;
-              grad_pressure_x(n) = dP_dx;
-              grad_pressure_y(n) = dP_dy;
-              grad_pressure_z(n) = dP_dz;
+              // Keep derivative diagnostics at the host-cell center for both methods
+              // to avoid interpolating quantities that already require a stencil.
+              if (trace_grad_pressure_x) {
+                grad_pressure_x(n) =
+                    (prim_pack(b, IPR, k, j, i + 1) - prim_pack(b, IPR, k, j, i - 1)) /
+                    (2.0 * dx);
+              }
+              if (trace_grad_pressure_y) {
+                grad_pressure_y(n) =
+                    (prim_pack(b, IPR, k, j + 1, i) - prim_pack(b, IPR, k, j - 1, i)) /
+                    (2.0 * dy);
+              }
+              if (trace_grad_pressure_z) {
+                grad_pressure_z(n) = (ndim == 3) ? (prim_pack(b, IPR, k + 1, j, i) -
+                                                    prim_pack(b, IPR, k - 1, j, i)) /
+                                                       (2.0 * dz)
+                                                 : 0.0;
+              }
 
               // Add passive scalar fraction if it exists
-              if (nscalars == 1) {
-                scalar_fraction(n) = prim_pack(b, nhydro, k, j, i);
+              if (trace_scalar_fraction) {
+                scalar_fraction(n) =
+                    vinterp ? LCInterp::Do(b, x(n), y(n), z(n), prim_pack, nhydro)
+                            : prim_pack(b, nhydro, k, j, i);
               }
 
               if (mhd) {
+                // Use cell-centered B in derivative diagnostics (including tension),
+                // even when the stored primitive B is interpolated to the particle.
                 const Real Bx = prim_pack(b, IB1, k, j, i);
                 const Real By = prim_pack(b, IB2, k, j, i);
-                const Real Bz = (ndim == 3) ? prim_pack(b, IB3, k, j, i) : 0.0;
+                // A 2D mesh only forbids z-derivatives, not an out-of-plane Bz.
+                const Real Bz = prim_pack(b, IB3, k, j, i);
 
-                B_x(n) = Bx;
-                B_y(n) = By;
-                B_z(n) = Bz;
+                if (vinterp) {
+                  B_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB1);
+                  B_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB2);
+                  B_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB3);
+                } else {
+                  B_x(n) = Bx;
+                  B_y(n) = By;
+                  B_z(n) = Bz;
+                }
 
-                // Calculate gradients of magnetic field components
-                const Real dBx_dx =
-                    (prim_pack(b, IB1, k, j, i + 1) - prim_pack(b, IB1, k, j, i - 1)) /
-                    (2.0 * dx);
-                const Real dBx_dy =
-                    (prim_pack(b, IB1, k, j + 1, i) - prim_pack(b, IB1, k, j - 1, i)) /
-                    (2.0 * dy);
-                const Real dBx_dz = (ndim == 3) ? (prim_pack(b, IB1, k + 1, j, i) -
-                                                   prim_pack(b, IB1, k - 1, j, i)) /
-                                                      (2.0 * dz)
-                                                : 0.0;
+                if (trace_magnetic_diagnostics) {
+                  // Calculate gradients of magnetic field components
+                  const Real dBx_dx =
+                      (prim_pack(b, IB1, k, j, i + 1) - prim_pack(b, IB1, k, j, i - 1)) /
+                      (2.0 * dx);
+                  const Real dBx_dy =
+                      (prim_pack(b, IB1, k, j + 1, i) - prim_pack(b, IB1, k, j - 1, i)) /
+                      (2.0 * dy);
+                  const Real dBx_dz = (ndim == 3) ? (prim_pack(b, IB1, k + 1, j, i) -
+                                                     prim_pack(b, IB1, k - 1, j, i)) /
+                                                        (2.0 * dz)
+                                                  : 0.0;
 
-                const Real dBy_dx =
-                    (prim_pack(b, IB2, k, j, i + 1) - prim_pack(b, IB2, k, j, i - 1)) /
-                    (2.0 * dx);
-                const Real dBy_dy =
-                    (prim_pack(b, IB2, k, j + 1, i) - prim_pack(b, IB2, k, j - 1, i)) /
-                    (2.0 * dy);
-                const Real dBy_dz = (ndim == 3) ? (prim_pack(b, IB2, k + 1, j, i) -
-                                                   prim_pack(b, IB2, k - 1, j, i)) /
-                                                      (2.0 * dz)
-                                                : 0.0;
+                  const Real dBy_dx =
+                      (prim_pack(b, IB2, k, j, i + 1) - prim_pack(b, IB2, k, j, i - 1)) /
+                      (2.0 * dx);
+                  const Real dBy_dy =
+                      (prim_pack(b, IB2, k, j + 1, i) - prim_pack(b, IB2, k, j - 1, i)) /
+                      (2.0 * dy);
+                  const Real dBy_dz = (ndim == 3) ? (prim_pack(b, IB2, k + 1, j, i) -
+                                                     prim_pack(b, IB2, k - 1, j, i)) /
+                                                        (2.0 * dz)
+                                                  : 0.0;
 
-                const Real dBz_dx = (ndim == 3) ? (prim_pack(b, IB3, k, j, i + 1) -
-                                                   prim_pack(b, IB3, k, j, i - 1)) /
-                                                      (2.0 * dx)
-                                                : 0.0;
-                const Real dBz_dy = (ndim == 3) ? (prim_pack(b, IB3, k, j + 1, i) -
-                                                   prim_pack(b, IB3, k, j - 1, i)) /
-                                                      (2.0 * dy)
-                                                : 0.0;
-                const Real dBz_dz = (ndim == 3) ? (prim_pack(b, IB3, k + 1, j, i) -
-                                                   prim_pack(b, IB3, k - 1, j, i)) /
-                                                      (2.0 * dz)
-                                                : 0.0;
+                  // dBz_dx/dBz_dy are in-plane derivatives of Bz -- valid in 2D too,
+                  // unlike dBx_dz/dBy_dz/dBz_dz just above, which are real z-derivatives.
+                  const Real dBz_dx =
+                      (prim_pack(b, IB3, k, j, i + 1) - prim_pack(b, IB3, k, j, i - 1)) /
+                      (2.0 * dx);
+                  const Real dBz_dy =
+                      (prim_pack(b, IB3, k, j + 1, i) - prim_pack(b, IB3, k, j - 1, i)) /
+                      (2.0 * dy);
+                  const Real dBz_dz = (ndim == 3) ? (prim_pack(b, IB3, k + 1, j, i) -
+                                                     prim_pack(b, IB3, k - 1, j, i)) /
+                                                        (2.0 * dz)
+                                                  : 0.0;
 
-                // Calculate curl(B) components
-                const Real rotBx = dBz_dy - dBy_dz;
-                const Real rotBy = dBx_dz - dBz_dx;
-                const Real rotBz = dBy_dx - dBx_dy;
+                  // Calculate curl(B) components
+                  const Real rotBx = dBz_dy - dBy_dz;
+                  const Real rotBy = dBx_dz - dBz_dx;
+                  const Real rotBz = dBy_dx - dBx_dy;
 
-                rot_B_x(n) = rotBx;
-                rot_B_y(n) = rotBy;
-                rot_B_z(n) = rotBz;
+                  if (trace_rot_B_x) rot_B_x(n) = rotBx;
+                  if (trace_rot_B_y) rot_B_y(n) = rotBy;
+                  if (trace_rot_B_z) rot_B_z(n) = rotBz;
 
-                // --- Magnetic pressure gradient: -grad(B^2 / 2) ---
-                const Real dB2_dx =
-                    ((prim_pack(b, IB1, k, j, i + 1) * prim_pack(b, IB1, k, j, i + 1) +
-                      prim_pack(b, IB2, k, j, i + 1) * prim_pack(b, IB2, k, j, i + 1) +
-                      ((ndim == 3) ? prim_pack(b, IB3, k, j, i + 1) *
-                                         prim_pack(b, IB3, k, j, i + 1)
-                                   : 0.0)) -
-                     (prim_pack(b, IB1, k, j, i - 1) * prim_pack(b, IB1, k, j, i - 1) +
-                      prim_pack(b, IB2, k, j, i - 1) * prim_pack(b, IB2, k, j, i - 1) +
-                      ((ndim == 3) ? prim_pack(b, IB3, k, j, i - 1) *
-                                         prim_pack(b, IB3, k, j, i - 1)
-                                   : 0.0))) /
-                    (2.0 * dx);
+                  // Gradient of the squared magnetic-field magnitude. Bz contributes
+                  // to these in-plane derivatives in 2D too -- only dB2_dz (below)
+                  // is a real z-derivative and needs to stay zero there.
+                  const Real dB2_dx =
+                      ((prim_pack(b, IB1, k, j, i + 1) * prim_pack(b, IB1, k, j, i + 1) +
+                        prim_pack(b, IB2, k, j, i + 1) * prim_pack(b, IB2, k, j, i + 1) +
+                        prim_pack(b, IB3, k, j, i + 1) * prim_pack(b, IB3, k, j, i + 1)) -
+                       (prim_pack(b, IB1, k, j, i - 1) * prim_pack(b, IB1, k, j, i - 1) +
+                        prim_pack(b, IB2, k, j, i - 1) * prim_pack(b, IB2, k, j, i - 1) +
+                        prim_pack(b, IB3, k, j, i - 1) *
+                            prim_pack(b, IB3, k, j, i - 1))) /
+                      (2.0 * dx);
 
-                const Real dB2_dy =
-                    ((prim_pack(b, IB1, k, j + 1, i) * prim_pack(b, IB1, k, j + 1, i) +
-                      prim_pack(b, IB2, k, j + 1, i) * prim_pack(b, IB2, k, j + 1, i) +
-                      ((ndim == 3) ? prim_pack(b, IB3, k, j + 1, i) *
-                                         prim_pack(b, IB3, k, j + 1, i)
-                                   : 0.0)) -
-                     (prim_pack(b, IB1, k, j - 1, i) * prim_pack(b, IB1, k, j - 1, i) +
-                      prim_pack(b, IB2, k, j - 1, i) * prim_pack(b, IB2, k, j - 1, i) +
-                      ((ndim == 3) ? prim_pack(b, IB3, k, j - 1, i) *
-                                         prim_pack(b, IB3, k, j - 1, i)
-                                   : 0.0))) /
-                    (2.0 * dy);
+                  const Real dB2_dy =
+                      ((prim_pack(b, IB1, k, j + 1, i) * prim_pack(b, IB1, k, j + 1, i) +
+                        prim_pack(b, IB2, k, j + 1, i) * prim_pack(b, IB2, k, j + 1, i) +
+                        prim_pack(b, IB3, k, j + 1, i) * prim_pack(b, IB3, k, j + 1, i)) -
+                       (prim_pack(b, IB1, k, j - 1, i) * prim_pack(b, IB1, k, j - 1, i) +
+                        prim_pack(b, IB2, k, j - 1, i) * prim_pack(b, IB2, k, j - 1, i) +
+                        prim_pack(b, IB3, k, j - 1, i) *
+                            prim_pack(b, IB3, k, j - 1, i))) /
+                      (2.0 * dy);
 
-                const Real dB2_dz = (ndim == 3) ? ((prim_pack(b, IB1, k + 1, j, i) *
-                                                        prim_pack(b, IB1, k + 1, j, i) +
-                                                    prim_pack(b, IB2, k + 1, j, i) *
-                                                        prim_pack(b, IB2, k + 1, j, i) +
-                                                    prim_pack(b, IB3, k + 1, j, i) *
-                                                        prim_pack(b, IB3, k + 1, j, i)) -
-                                                   (prim_pack(b, IB1, k - 1, j, i) *
-                                                        prim_pack(b, IB1, k - 1, j, i) +
-                                                    prim_pack(b, IB2, k - 1, j, i) *
-                                                        prim_pack(b, IB2, k - 1, j, i) +
-                                                    prim_pack(b, IB3, k - 1, j, i) *
-                                                        prim_pack(b, IB3, k - 1, j, i))) /
-                                                      (2.0 * dz)
-                                                : 0.0;
+                  const Real dB2_dz = (ndim == 3)
+                                          ? ((prim_pack(b, IB1, k + 1, j, i) *
+                                                  prim_pack(b, IB1, k + 1, j, i) +
+                                              prim_pack(b, IB2, k + 1, j, i) *
+                                                  prim_pack(b, IB2, k + 1, j, i) +
+                                              prim_pack(b, IB3, k + 1, j, i) *
+                                                  prim_pack(b, IB3, k + 1, j, i)) -
+                                             (prim_pack(b, IB1, k - 1, j, i) *
+                                                  prim_pack(b, IB1, k - 1, j, i) +
+                                              prim_pack(b, IB2, k - 1, j, i) *
+                                                  prim_pack(b, IB2, k - 1, j, i) +
+                                              prim_pack(b, IB3, k - 1, j, i) *
+                                                  prim_pack(b, IB3, k - 1, j, i))) /
+                                                (2.0 * dz)
+                                          : 0.0;
 
-                grad_B2_x(n) = dB2_dx;
-                grad_B2_y(n) = dB2_dy;
-                grad_B2_z(n) = dB2_dz;
+                  if (trace_grad_B2_x) grad_B2_x(n) = dB2_dx;
+                  if (trace_grad_B2_y) grad_B2_y(n) = dB2_dy;
+                  if (trace_grad_B2_z) grad_B2_z(n) = dB2_dz;
 
-                // --- Magnetic tension: (B · ∇)B ---
-                const Real tens_x = Bx * dBx_dx + By * dBx_dy + Bz * dBx_dz;
-                const Real tens_y = Bx * dBy_dx + By * dBy_dy + Bz * dBy_dz;
-                const Real tens_z = Bx * dBz_dx + By * dBz_dy + Bz * dBz_dz;
+                  // --- Magnetic tension: (B · ∇)B ---
+                  const Real tens_x = Bx * dBx_dx + By * dBx_dy + Bz * dBx_dz;
+                  const Real tens_y = Bx * dBy_dx + By * dBy_dy + Bz * dBy_dz;
+                  const Real tens_z = Bx * dBz_dx + By * dBz_dy + Bz * dBz_dz;
 
-                tens_B_x(n) = tens_x;
-                tens_B_y(n) = tens_y;
-                tens_B_z(n) = tens_z;
+                  if (trace_tens_B_x) tens_B_x(n) = tens_x;
+                  if (trace_tens_B_y) tens_B_y(n) = tens_y;
+                  if (trace_tens_B_z) tens_B_z(n) = tens_z;
+                }
               }
 
-              // Central differences using neighbors
-              const Real dvx_dx =
-                  (prim_pack(b, IV1, k, j, i + 1) - prim_pack(b, IV1, k, j, i - 1)) /
-                  (2.0 * dx);
-              const Real dvy_dy =
-                  (prim_pack(b, IV2, k, j + 1, i) - prim_pack(b, IV2, k, j - 1, i)) /
-                  (2.0 * dy);
-              Real dvz_dz = 0.0;
-              if (ndim == 3) {
-                dvz_dz =
-                    (prim_pack(b, IV3, k + 1, j, i) - prim_pack(b, IV3, k - 1, j, i)) /
-                    (2.0 * dz);
-              }
+              if (trace_div_v || trace_rot_v) {
+                // Central differences using neighbors
+                const Real dvx_dx =
+                    (prim_pack(b, IV1, k, j, i + 1) - prim_pack(b, IV1, k, j, i - 1)) /
+                    (2.0 * dx);
+                const Real dvy_dy =
+                    (prim_pack(b, IV2, k, j + 1, i) - prim_pack(b, IV2, k, j - 1, i)) /
+                    (2.0 * dy);
+                Real dvz_dz = 0.0;
+                if (ndim == 3) {
+                  dvz_dz =
+                      (prim_pack(b, IV3, k + 1, j, i) - prim_pack(b, IV3, k - 1, j, i)) /
+                      (2.0 * dz);
+                }
 
-              const Real dvx_dy =
-                  (prim_pack(b, IV1, k, j + 1, i) - prim_pack(b, IV1, k, j - 1, i)) /
-                  (2.0 * dy);
-              const Real dvx_dz = (ndim == 3) ? (prim_pack(b, IV1, k + 1, j, i) -
-                                                 prim_pack(b, IV1, k - 1, j, i)) /
-                                                    (2.0 * dz)
-                                              : 0.0;
-              const Real dvy_dx =
-                  (prim_pack(b, IV2, k, j, i + 1) - prim_pack(b, IV2, k, j, i - 1)) /
-                  (2.0 * dx);
-              const Real dvy_dz = (ndim == 3) ? (prim_pack(b, IV2, k + 1, j, i) -
-                                                 prim_pack(b, IV2, k - 1, j, i)) /
-                                                    (2.0 * dz)
-                                              : 0.0;
-              const Real dvz_dx = (ndim == 3) ? (prim_pack(b, IV3, k, j, i + 1) -
-                                                 prim_pack(b, IV3, k, j, i - 1)) /
-                                                    (2.0 * dx)
-                                              : 0.0;
-              const Real dvz_dy = (ndim == 3) ? (prim_pack(b, IV3, k, j + 1, i) -
-                                                 prim_pack(b, IV3, k, j - 1, i)) /
-                                                    (2.0 * dy)
-                                              : 0.0;
+                const Real dvx_dy =
+                    (prim_pack(b, IV1, k, j + 1, i) - prim_pack(b, IV1, k, j - 1, i)) /
+                    (2.0 * dy);
+                const Real dvx_dz = (ndim == 3) ? (prim_pack(b, IV1, k + 1, j, i) -
+                                                   prim_pack(b, IV1, k - 1, j, i)) /
+                                                      (2.0 * dz)
+                                                : 0.0;
+                const Real dvy_dx =
+                    (prim_pack(b, IV2, k, j, i + 1) - prim_pack(b, IV2, k, j, i - 1)) /
+                    (2.0 * dx);
+                const Real dvy_dz = (ndim == 3) ? (prim_pack(b, IV2, k + 1, j, i) -
+                                                   prim_pack(b, IV2, k - 1, j, i)) /
+                                                      (2.0 * dz)
+                                                : 0.0;
+                // dvz_dx/dvz_dy are in-plane derivatives of vz -- valid in 2D too,
+                // unlike dvx_dz/dvy_dz/dvz_dz above, which are real z-derivatives.
+                const Real dvz_dx =
+                    (prim_pack(b, IV3, k, j, i + 1) - prim_pack(b, IV3, k, j, i - 1)) /
+                    (2.0 * dx);
+                const Real dvz_dy =
+                    (prim_pack(b, IV3, k, j + 1, i) - prim_pack(b, IV3, k, j - 1, i)) /
+                    (2.0 * dy);
 
-              // Vorticity and compression
-              if (ndim == 3) {
+                // Vorticity and compression: dvx_dz/dvy_dz/dvz_dz are already zero in
+                // 2D, so this reduces to the right in-plane-only result there too.
                 const Real omega_x = dvz_dy - dvy_dz;
                 const Real omega_y = dvx_dz - dvz_dx;
                 const Real omega_z = dvy_dx - dvx_dy;
-                rot_v(n) =
-                    std::sqrt(omega_x * omega_x + omega_y * omega_y + omega_z * omega_z);
-                div_v(n) = dvx_dx + dvy_dy + dvz_dz;
-              } else {
-                const Real omega_z = dvy_dx - dvx_dy;
-                rot_v(n) = std::abs(omega_z);
-                div_v(n) = dvx_dx + dvy_dy;
+                if (trace_rot_v) {
+                  rot_v(n) = std::sqrt(omega_x * omega_x + omega_y * omega_y +
+                                       omega_z * omega_z);
+                }
+                if (trace_div_v) div_v(n) = dvx_dx + dvy_dy + dvz_dz;
               }
             }
           });
