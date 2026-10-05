@@ -119,7 +119,11 @@ class TestCase(utils.test_case.TestCaseAbs):
     def g_from_r(self, r):
         r = np.maximum(r, self.g_smoothing_radius)
         r2 = r * r
-        g = self.g_const_nfw * (np.log(1.0 + r / self.r_nfw_s) - r / (r + self.r_nfw_s)) / r2
+        g = (
+            self.g_const_nfw
+            * (np.log(1.0 + r / self.r_nfw_s) - r / (r + self.r_nfw_s))
+            / r2
+        )
         g += self.g_const_bcg / (1.0 + r / self.r_bcg_s) ** 2
         g += self.g_const_smbh / r2
         return g

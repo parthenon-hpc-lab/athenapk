@@ -31,8 +31,8 @@
 #include <parthenon/package.hpp>
 
 #include "../main.hpp"
-#include "../units.hpp"
 #include "../pgen/cluster/jet_coords.hpp"
+#include "../units.hpp"
 #include "basic_types.hpp"
 
 using namespace parthenon::driver::prelude;

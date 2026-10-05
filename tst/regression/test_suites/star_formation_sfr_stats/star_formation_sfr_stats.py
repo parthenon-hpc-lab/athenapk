@@ -101,12 +101,12 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"{post_event_density:.3e} is not below the SF threshold "
             f"{self.sf_density_threshold:.3e} -- peaks would re-trigger."
         )
-        assert self.rho_peak > self.sf_density_threshold, (
-            "Test design error: rho_peak must exceed sf_density_threshold."
-        )
-        assert self.rho_bg < 0.1 * self.sf_density_threshold, (
-            "Test design error: rho_bg is not comfortably below threshold."
-        )
+        assert (
+            self.rho_peak > self.sf_density_threshold
+        ), "Test design error: rho_peak must exceed sf_density_threshold."
+        assert (
+            self.rho_bg < 0.1 * self.sf_density_threshold
+        ), "Test design error: rho_bg is not comfortably below threshold."
 
         # ------------------------------------------------------------------
         # Theoretical Poisson rate and run duration.

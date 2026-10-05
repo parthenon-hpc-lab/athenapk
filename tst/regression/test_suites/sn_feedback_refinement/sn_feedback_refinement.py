@@ -150,7 +150,9 @@ class TestCase(utils.test_case.TestCaseAbs):
         # repo use.
         self.nlim = 105
 
-        assert self.rho_peak * (1.0 - self.sf_mass_efficiency) < self.sf_density_threshold, (
+        assert (
+            self.rho_peak * (1.0 - self.sf_mass_efficiency) < self.sf_density_threshold
+        ), (
             "Test design error: post-event density is not below threshold -- peak "
             "would re-trigger star formation."
         )
@@ -192,9 +194,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         vol = dz[:, :, None, None] * dy[:, None, :, None] * dx[:, None, None, :]
 
         mass = np.sum(cons[:, 0] * vol)
-        p_vec = np.array(
-            [np.sum(cons[:, c] * vol) for c in (1, 2, 3)]
-        )
+        p_vec = np.array([np.sum(cons[:, c] * vol) for c in (1, 2, 3)])
         energy = np.sum(cons[:, 4] * vol)
         return mass, p_vec, energy
 
@@ -325,9 +325,17 @@ class TestCase(utils.test_case.TestCaseAbs):
                 # Faint cell-edge outlines double as a placement check: with
                 # them visible, "same cell" between the peak and star markers
                 # below can be read off directly rather than eyeballed.
-                pcm = ax.pcolormesh(H, V, dens, cmap="viridis", vmin=vmin, vmax=vmax,
-                                    shading="flat", edgecolors=(1, 1, 1, 0.15),
-                                    linewidth=0.3)
+                pcm = ax.pcolormesh(
+                    H,
+                    V,
+                    dens,
+                    cmap="viridis",
+                    vmin=vmin,
+                    vmax=vmax,
+                    shading="flat",
+                    edgecolors=(1, 1, 1, 0.15),
+                    linewidth=0.3,
+                )
 
                 hc_centers = 0.5 * (hf[b, :-1] + hf[b, 1:])
                 vc_centers = 0.5 * (vf[b, :-1] + vf[b, 1:])
@@ -342,23 +350,52 @@ class TestCase(utils.test_case.TestCaseAbs):
                 # code velocity units, not comparable to the position axes, so
                 # arrow length here encodes only *relative* magnitude/direction
                 # -- exactly what a symmetry-by-eye check needs.
-                ax.quiver(np.concatenate(quiver_h), np.concatenate(quiver_v),
-                          np.concatenate(quiver_u), np.concatenate(quiver_w),
-                          color="white", width=0.004, alpha=0.85)
+                ax.quiver(
+                    np.concatenate(quiver_h),
+                    np.concatenate(quiver_v),
+                    np.concatenate(quiver_u),
+                    np.concatenate(quiver_w),
+                    color="white",
+                    width=0.004,
+                    alpha=0.85,
+                )
 
             if peak_pos is not None:
                 # Map peak_pos's 3 components onto this panel's (h, v) axes the
                 # same way star_pos was mapped above: xy panel -> (x, y), xz
                 # panel -> (x, z).
                 peak_hv = (peak_pos[0], peak_pos[1] if label == "xy" else peak_pos[2])
-                ax.plot(*peak_hv, marker="x", markersize=12, markeredgecolor="white",
-                        markeredgewidth=2.5, linestyle="none", zorder=4)
-                ax.plot(*peak_hv, marker="x", markersize=12, markeredgecolor="black",
-                        markeredgewidth=1.2, linestyle="none", zorder=5,
-                        label="intended peak")
-            ax.plot(h0, v0, marker="*", markersize=16, markerfacecolor="crimson",
-                    markeredgecolor="black", markeredgewidth=0.8, linestyle="none",
-                    zorder=5, label="star")
+                ax.plot(
+                    *peak_hv,
+                    marker="x",
+                    markersize=12,
+                    markeredgecolor="white",
+                    markeredgewidth=2.5,
+                    linestyle="none",
+                    zorder=4,
+                )
+                ax.plot(
+                    *peak_hv,
+                    marker="x",
+                    markersize=12,
+                    markeredgecolor="black",
+                    markeredgewidth=1.2,
+                    linestyle="none",
+                    zorder=5,
+                    label="intended peak",
+                )
+            ax.plot(
+                h0,
+                v0,
+                marker="*",
+                markersize=16,
+                markerfacecolor="crimson",
+                markeredgecolor="black",
+                markeredgewidth=0.8,
+                linestyle="none",
+                zorder=5,
+                label="star",
+            )
             if peak_pos is not None:
                 ax.legend(loc="upper right", fontsize=8, framealpha=0.85)
             ax.set_xlim(h0 - half_width, h0 + half_width)
@@ -423,22 +460,27 @@ class TestCase(utils.test_case.TestCaseAbs):
             star_pos = self._star_position(last) or pos
             try:
                 self._plot_kernel_slices(
-                    last, star_pos,
+                    last,
+                    star_pos,
                     f"{parameters.output_path}/sn_feedback_kernel_{name}.png",
                     f"[{name}] SN kernel deposit at t={last.Time:.6g} Gyr",
                     peak_pos=pos,
                 )
             except Exception as e:  # pragma: no cover - purely diagnostic
-                print(f"Warning: failed to generate kernel slice plot for "
-                      f"'{name}' ({e}).")
+                print(
+                    f"Warning: failed to generate kernel slice plot for "
+                    f"'{name}' ({e})."
+                )
 
             print(
                 f"\n[{name}] pos={pos}, {len(files)} dumps, "
                 f"t: {first.Time:.6g} -> {last.Time:.6g} Gyr "
                 f"(cycle {first.NCycle} -> {last.NCycle})"
             )
-            print(f"  grid mass:   {m0:.10e} -> {m1:.10e}  (star mass final: "
-                  f"{star_mass_final:.6e})")
+            print(
+                f"  grid mass:   {m0:.10e} -> {m1:.10e}  (star mass final: "
+                f"{star_mass_final:.6e})"
+            )
             print(f"  grid dP:     {dP}")
             print(f"  grid dE:     {dE:.6e}")
 
@@ -446,8 +488,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             mass_residual = (m1 - m0) + star_mass_final
             mass_scale = max(abs(m0), 1e-300)
             rel_residual = abs(mass_residual) / mass_scale
-            print(f"  mass conservation residual: {mass_residual:.3e} "
-                  f"(rel={rel_residual:.3e})")
+            print(
+                f"  mass conservation residual: {mass_residual:.3e} "
+                f"(rel={rel_residual:.3e})"
+            )
             if rel_residual > self.mass_reltol:
                 print(
                     f"TEST FAIL [{name}]: mass not conserved between grid and star "
