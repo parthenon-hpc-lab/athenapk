@@ -46,3 +46,7 @@ Testing
 # generate_cluster_input.ipynb files
 inputs/cluster/generate_cluster_input.ipynb
 inputs/cluster/my_cluster.input
+
+# Python bytecode caches
+__pycache__/
+*.pyc
