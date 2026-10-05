@@ -248,8 +248,8 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           // Common to both injection modes: a single RNG draw per cell decides
           // whether a particle is actually spawned this timestep.
           if (p_local > 0.0) {
-            const auto seed = SeedFromIndices(k, j, i, gid, static_cast<int>(k_population),
-                                              current_time);
+            const auto seed = SeedFromIndices(
+                k, j, i, gid, static_cast<int>(k_population), current_time);
             const auto rnd = random_double(seed);
             if (rnd < p_local) {
               lnpart += 1;
@@ -349,14 +349,15 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           if (p_local <= 0.0) return;
 
           // --- Stochastic draw ---------------------------------------------------
-          const auto seed = SeedFromIndices(k, j, i, gid, static_cast<int>(k_population),
-                                            current_time);
+          const auto seed =
+              SeedFromIndices(k, j, i, gid, static_cast<int>(k_population), current_time);
           const auto rnd = random_double(seed);
           if (rnd >= p_local) return;
 
           // --- Particle initialization -------------------------------------------
           const int counter_idx = Kokkos::atomic_fetch_add(&counter(), 1);
-          const int swarm_idx = injected_particles_context.GetNewParticleIndex(counter_idx);
+          const int swarm_idx =
+              injected_particles_context.GetNewParticleIndex(counter_idx);
 
           x(swarm_idx) = x_cell;
           y(swarm_idx) = y_cell;
