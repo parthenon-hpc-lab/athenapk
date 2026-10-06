@@ -319,3 +319,34 @@ cycle count is restored (which Parthenon's restart does), a restarted run
 regenerates the same stochastic sequence rather than silently diverging.
 
 ---
+
+#### Star Particles
+
+See [Star particles](stars.md) for the model and its input parameters.
+
+##### Initial Star Seeding
+
+To seed an initial star population (e.g., for testing star transport), define:
+
+```c++
+void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
+```
+
+and register it in `main.cpp` with `Stars::ProblemSeedInitialStars = ...`. It is called
+when `stars/seed_stars = true`, once on the very first start (not on restarts), after
+each block's particle-ID range has been reserved in the `stars_offsets` field. For each
+new star, set:
+
+- the position and `v_x`, `v_y`, `v_z`;
+- `mass`, `birth_mass` and `injection_time`;
+- `birth_x`, `birth_y`, `birth_z`, which must be distinct between stars born at the same
+  time, since they key each star's SN random draws;
+- `id`: the block's offset (`ParticlesUtils::DecodeOffset`) plus a counter, advancing
+  the stored offset afterwards; or `ParticlesUtils::kDummyParticleId` when the stars
+  package parameter `stars_unique_ids` is `false` (adaptive refinement).
+
+See `cluster::ProblemSeedInitialStars` in
+[`cluster.cpp`](https://github.com/parthenon-hpc-lab/athenapk/blob/main/src/pgen/cluster.cpp)
+for reference.
+
+---
