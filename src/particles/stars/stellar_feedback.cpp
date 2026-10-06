@@ -162,7 +162,10 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     auto &pmass0 = swarm->Get<Real>("birth_mass")
                        .Get(); // Birth mass of the stellar particle (constant)
     auto &t_inj = swarm->Get<Real>("injection_time").Get();
-    auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
+    // Birth position: with t_inj, keys the SN draws (IDs may be dummies under AMR)
+    auto &birth_x = swarm->Get<Real>("birth_x").Get();
+    auto &birth_y = swarm->Get<Real>("birth_y").Get();
+    auto &birth_z = swarm->Get<Real>("birth_z").Get();
 
     // Passive pass: calculating total stellar energy output in this timestep
     Real block_E_SN_II = 0.0, block_E_SN_Ia = 0.0;
@@ -176,7 +179,10 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             Real M_ej_unused = 0.0;
             ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
                               log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
-                              msun_in_code_units, id(n), N_SN_II, M_ej_unused);
+                              msun_in_code_units,
+                              utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
+                                                               birth_y(n), birth_z(n)),
+                              N_SN_II, M_ej_unused);
             lenergy += N_SN_II * E_SN_per_event;
           },
           Kokkos::Sum<Real>(local_E_SN_II));
@@ -191,8 +197,10 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             int N_SN_Ia = 0;
             Real M_ej_unused = 0.0;
             ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass0(n),
-                              msun_in_code_units, gyr_in_code_units, id(n), N_SN_Ia,
-                              M_ej_unused);
+                              msun_in_code_units, gyr_in_code_units,
+                              utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
+                                                               birth_y(n), birth_z(n)),
+                              N_SN_Ia, M_ej_unused);
             lenergy += N_SN_Ia * E_SN_per_event;
           },
           Kokkos::Sum<Real>(local_E_SN_Ia));
@@ -214,13 +222,18 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           if (SN_II_enabled) {
             ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
                               log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
-                              msun_in_code_units, id(n), N_SN_II, M_ej_II_tot);
+                              msun_in_code_units,
+                              utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
+                                                               birth_y(n), birth_z(n)),
+                              N_SN_II, M_ej_II_tot);
             N_SN += N_SN_II;
           }
           if (SN_Ia_enabled) {
             ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass0(n),
-                              msun_in_code_units, gyr_in_code_units, id(n), N_SN_Ia,
-                              M_ej_Ia_tot);
+                              msun_in_code_units, gyr_in_code_units,
+                              utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
+                                                               birth_y(n), birth_z(n)),
+                              N_SN_Ia, M_ej_Ia_tot);
             N_SN += N_SN_Ia;
           }
 
@@ -438,14 +451,18 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             if (SN_II_enabled) {
               ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
                                 log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d,
-                                n_ejecta, msun_in_code_units, id(n), N_SN_II,
-                                M_ej_II_tot);
+                                n_ejecta, msun_in_code_units,
+                                utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
+                                                                 birth_y(n), birth_z(n)),
+                                N_SN_II, M_ej_II_tot);
               N_SN += N_SN_II;
             }
             if (SN_Ia_enabled) {
               ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass0(n),
-                                msun_in_code_units, gyr_in_code_units, id(n), N_SN_Ia,
-                                M_ej_Ia_tot);
+                                msun_in_code_units, gyr_in_code_units,
+                                utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
+                                                                 birth_y(n), birth_z(n)),
+                                N_SN_Ia, M_ej_Ia_tot);
               N_SN += N_SN_Ia;
             }
 

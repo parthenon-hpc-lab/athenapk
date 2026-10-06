@@ -119,6 +119,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
         StarFormation::SFVirialCriterion::Hopkins;
     Real sf_virial_temperature_threshold = 1.0e4; // only used by CenOstriker
     Real sf_alpha_crit = 1.0;                     // only used by Hopkins/HopkinsAlfven
+    bool unique_ids = true; // false: every new particle gets kDummyParticleId
 
     // Geometric parameters, only used by ParticlesCriterion::Jet.
     Real jet_radius = -1.0;
@@ -196,6 +197,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       sf_virial_temperature_threshold =
           particles_pkg->Param<Real>(swarm_name + "_sf_temperature_threshold");
       sf_alpha_crit = particles_pkg->Param<Real>(swarm_name + "_sf_alpha_crit");
+      unique_ids = particles_pkg->Param<bool>(swarm_name + "_unique_ids");
     } else {
       // Future packages (e.g. additional particle species) should add a
       // corresponding branch here.
@@ -304,11 +306,19 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     // - pmass  = instantaneous stellar particle mass
     // - pmass0 = stellar particle mass at birth (needed to compute
     //            the number of SNe events / ejecta mass at each dt)
+    // - birth_x/y/z = birth position, keys the SN random draws (with the
+    //                 injection time) independently of the particle ID
     auto pmass = x.Get(); // dummy type of initialization
     auto pmass0 = x.Get();
+    auto birth_x = x.Get();
+    auto birth_y = x.Get();
+    auto birth_z = x.Get();
     if (particles_type == ParticlesType::Stars) {
       pmass = swarm->Get<Real>("mass").Get();
       pmass0 = swarm->Get<Real>("birth_mass").Get();
+      birth_x = swarm->Get<Real>("birth_x").Get();
+      birth_y = swarm->Get<Real>("birth_y").Get();
+      birth_z = swarm->Get<Real>("birth_z").Get();
     }
 
     Kokkos::View<int, parthenon::DevExecSpace> counter("counter");
@@ -367,7 +377,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           // dynamically-injected particles in 2D runs.
           z(swarm_idx) = z_cell;
 
-          id(swarm_idx) = block_offset + counter_idx;
+          id(swarm_idx) = unique_ids ? block_offset + counter_idx : kDummyParticleId;
           if (track_injection_time) t_inj(swarm_idx) = current_time;
           if (removal_enabled) {
             ltime(swarm_idx) = lifetime;
@@ -380,6 +390,9 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                 cons, prim, coords, k, j, i, mass_efficiency, ndim, swarm_idx, pmass,
                 vel_x, vel_y, vel_z, eos, nhydro, nscalars, sf_energy_mode);
             pmass0(swarm_idx) = pmass(swarm_idx);
+            birth_x(swarm_idx) = x_cell;
+            birth_y(swarm_idx) = y_cell;
+            birth_z(swarm_idx) = z_cell;
           } else {
             // Cell-centered sample, exact since the particle sits at (i, j, k)'s
             // center; matches FillTracers' non-interpolated (Monte Carlo) branch.

@@ -379,6 +379,24 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                            Metadata({Metadata::Real, Metadata::Restart}));
   stars_pkg->AddSwarmValue("injection_time", "stars",
                            Metadata({Metadata::Real, Metadata::Restart}));
+  // Birth position, which (with injection_time) keys the SN random draws, so
+  // these never depend on the particle ID.
+  for (const auto &name : {"birth_x", "birth_y", "birth_z"}) {
+    stars_pkg->AddSwarmValue(name, "stars",
+                             Metadata({Metadata::Real, Metadata::Restart}));
+  }
+
+  // Particle IDs are unique only if blocks never change after initialization:
+  // with adaptive refinement, new blocks don't inherit an ID offset, so stars
+  // get a dummy ID (ParticlesUtils::kDummyParticleId) and IDs are labels only.
+  const bool stars_unique_ids =
+      pin->GetOrAddString("parthenon/mesh", "refinement", "none") != "adaptive";
+  if (!stars_unique_ids) {
+    PARTHENON_WARN("Adaptive mesh refinement is enabled: star particle IDs cannot be "
+                   "kept unique, so every star gets the dummy ID UINT64_MAX. SN "
+                   "randomness is keyed to birth time and position, not to the ID.");
+  }
+  stars_pkg->AddParam<>("stars_unique_ids", stars_unique_ids);
 
   // Adding offsets for particle IDs
   const int stars_n_populations = static_cast<int>(swarm_names.size());

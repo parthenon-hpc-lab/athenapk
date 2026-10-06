@@ -96,6 +96,26 @@ uint64_t SeedFromParticle(std::uint64_t particle_id, double time) {
 }
 
 // ===================================================================================
+// Per-star key from its birth time and birth position, used to seed the SN draws
+// instead of the particle ID (which is not unique under AMR, see stars/
+// stellar_particles.cpp). A cell forms at most one star per step and cell centres
+// differ between refinement levels, so the key is unique. The values are hashed
+// bit-exactly (as doubles), so the key does not change as the star moves.
+// ===================================================================================
+
+KOKKOS_INLINE_FUNCTION
+uint64_t DoubleBits(const double v) { return Kokkos::bit_cast<uint64_t>(v); }
+
+KOKKOS_INLINE_FUNCTION
+uint64_t SeedFromBirth(const double t_birth, const double x_birth, const double y_birth,
+                       const double z_birth) {
+  uint64_t seed = hash(DoubleBits(t_birth));
+  seed = hash(seed ^ DoubleBits(x_birth));
+  seed = hash(seed ^ DoubleBits(y_birth));
+  return hash(seed ^ DoubleBits(z_birth));
+}
+
+// ===================================================================================
 // Converts the uint64_t seed to a pseudo-random [0,1] double, see e.g.
 // https://docs.oracle.com/javase/8/docs/api/java/util/Random.html#nextDouble--
 // ===================================================================================

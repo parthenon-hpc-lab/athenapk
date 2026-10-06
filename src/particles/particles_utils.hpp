@@ -26,6 +26,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <limits>
 
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
@@ -40,6 +41,11 @@ using namespace parthenon::package::prelude;
 using parthenon::Coordinates_t;
 
 namespace ParticlesUtils {
+
+// Particle ID given to every star when IDs cannot be kept unique (adaptive mesh
+// refinement, see Stars::Initialize). IDs are then labels only.
+inline constexpr std::uint64_t kDummyParticleId =
+    std::numeric_limits<std::uint64_t>::max();
 
 /* ===================================================================================
 The injection routine requires to first loop on the cells to calculate the size of

@@ -45,6 +45,7 @@
 #include "../hydro/srcterms/gravitational_field.hpp"
 #include "../hydro/srcterms/tabular_cooling.hpp"
 #include "../main.hpp"
+#include "../particles/particles_utils.hpp"
 #include "../utils/few_modes_ft.hpp"
 
 // Cluster headers
@@ -128,6 +129,10 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
       auto &pmass = swarm->Get<Real>("mass").Get();
       auto &pmass0 = swarm->Get<Real>("birth_mass").Get();
       auto &t_inj = swarm->Get<Real>("injection_time").Get();
+      auto &birth_x = swarm->Get<Real>("birth_x").Get();
+      auto &birth_y = swarm->Get<Real>("birth_y").Get();
+      auto &birth_z = swarm->Get<Real>("birth_z").Get();
+      const bool unique_ids = stars_pkg->Param<bool>(swarm_name + "_unique_ids");
 
       uint64_t block_offset;
       std::memcpy(&block_offset, &host_off(k_population), sizeof(std::uint64_t));
@@ -193,7 +198,10 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
             pmass(n) = 0.0;
             pmass0(n) = 0.0;
             t_inj(n) = current_time;
-            id(n) = block_offset + new_n;
+            id(n) = unique_ids ? block_offset + new_n : ParticlesUtils::kDummyParticleId;
+            birth_x(n) = x_rand;
+            birth_y(n) = y_rand;
+            birth_z(n) = z_rand;
 
             rng_pool.free_state(rng_gen);
 

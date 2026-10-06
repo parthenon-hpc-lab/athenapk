@@ -108,7 +108,7 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
                   const parthenon::ParArray1D<Real> &log_tau_table, const int n_table,
                   const parthenon::ParArray1D<Real> &log_sn_mass_table,
                   const parthenon::ParArray1D<Real> &frec_table, const int n_ejecta,
-                  const Real msun_in_code_units, const std::uint64_t particle_id,
+                  const Real msun_in_code_units, const std::uint64_t particle_key,
                   int &N_out, Real &M_ejecta_out) {
 
   N_out = 0;
@@ -196,7 +196,7 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
 
   // Compute IMF-weighted mean ejecta mass per SN event, then scale by the
   // actual discrete event count N to get total ejecta mass (in code units).
-  const uint64_t seed = utils::custom_rng::SeedFromParticle(particle_id, t) ^
+  const uint64_t seed = utils::custom_rng::SeedFromParticle(particle_key, t) ^
                         utils::custom_rng::SN_II_STREAM;
   const int N = utils::custom_rng::PoissonSampleDeterministic(seed, N_expected);
 
@@ -215,10 +215,12 @@ delay-time distribution of Maoz, Mannucci & Brandt (2012) (Marinacci+
 releases a fixed M_SNIa = 1.37 Msun (Eq. 26); M_ejecta_out is 0 if N=0.
 =============================================================================== */
 
-KOKKOS_INLINE_FUNCTION void
-ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
-                  const Real msun_in_code_units, const Real gyr_in_code_units,
-                  const std::uint64_t particle_id, int &N_SN_Ia_out, Real &M_ejecta_out) {
+KOKKOS_INLINE_FUNCTION void ComputeSNIaEvents(const Real t_inj, const Real t,
+                                              const Real dt, const Real mass,
+                                              const Real msun_in_code_units,
+                                              const Real gyr_in_code_units,
+                                              const std::uint64_t particle_key,
+                                              int &N_SN_Ia_out, Real &M_ejecta_out) {
   N_SN_Ia_out = 0;
   M_ejecta_out = 0.0;
 
@@ -244,7 +246,7 @@ ComputeSNIaEvents(const Real t_inj, const Real t, const Real dt, const Real mass
   const Real N_expected = integral * mass_msun;
   if (N_expected <= 0.0) return;
 
-  const uint64_t seed = utils::custom_rng::SeedFromParticle(particle_id, t) ^
+  const uint64_t seed = utils::custom_rng::SeedFromParticle(particle_key, t) ^
                         utils::custom_rng::SN_Ia_STREAM;
   const int N = utils::custom_rng::PoissonSampleDeterministic(seed, N_expected);
   if (N > 0) {
