@@ -111,10 +111,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("initial_seed_done", false,
                         parthenon::Params::Mutability::Restart);
 
-  // Star formation cell density threshold: minimum density value that cell need
-  // to exceed for star formation probability to be > 0
-  const auto stars_density_threshold =
-      pin->GetOrAddReal("stars", "sf_density_threshold", -1);
+  // Star formation cell density threshold (code units): required and positive, as
+  // star formation is always on once stars are enabled.
+  PARTHENON_REQUIRE(pin->DoesParameterExist("stars", "sf_density_threshold"),
+                    "stars/sf_density_threshold must be set when stars are enabled.");
+  const auto stars_density_threshold = pin->GetReal("stars", "sf_density_threshold");
+  PARTHENON_REQUIRE(stars_density_threshold > 0.0,
+                    "stars/sf_density_threshold must be positive.");
   stars_pkg->AddParam<>("stars_density_threshold", stars_density_threshold);
 
   // In case of a star formation event in a cell, fraction of the cells mass
@@ -235,19 +238,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   // Injection kernel parameters
   const auto r_cells = pin->GetOrAddInteger("stars", "SN_injection_radius_cells", 2);
-  const auto num_ghost = pin->GetInteger("parthenon/mesh", "nghost");
-  // +1 accounts for the worst-case sub-cell offset of the particle from the
-  // host cell center: since the kernel is centered on the particle's true
-  // position we need enough cells in the ghost region to calculate average
-  // hydrogen density and calculating momentum deposition.
-  PARTHENON_REQUIRE(r_cells + 1 <= num_ghost,
-                    "SN_injection_radius_cells (" + std::to_string(r_cells) +
-                        ") requires " + std::to_string(r_cells + 1) +
-                        " ghost cells (to account for particle offset from cell "
-                        "center), but only " +
-                        std::to_string(num_ghost) +
-                        " are available. Increase nghost or reduce "
-                        "SN_injection_radius_cells.");
+  // Only SN feedback needs the ghost width: +1 for the star's offset from its
+  // host cell center, since the kernel (<n_H>, deposits) is centered on the star.
+  if (SN_II_enabled || SN_Ia_enabled) {
+    const auto num_ghost = pin->GetInteger("parthenon/mesh", "nghost");
+    PARTHENON_REQUIRE(r_cells + 1 <= num_ghost,
+                      "SN_injection_radius_cells (" + std::to_string(r_cells) +
+                          ") requires " + std::to_string(r_cells + 1) +
+                          " ghost cells (to account for particle offset from cell "
+                          "center), but only " +
+                          std::to_string(num_ghost) +
+                          " are available. Increase nghost or reduce "
+                          "SN_injection_radius_cells.");
+  }
   stars_pkg->AddParam<>("SN_injection_radius_cells", r_cells);
 
   // Note: h_smooth is not a global constant (it used to be pinned to a
@@ -344,9 +347,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     stars_pkg->UpdateParam("ejecta_table_size", n_ejecta);
   }
 
-  // either gravity or advection (advect. for tests as gravity only in cluster)
-  const auto star_transport_mode_str =
-      pin->GetOrAddString("stars", "transport_mode", "advection");
+  // Required: gravity, advection (testing only) or none.
+  PARTHENON_REQUIRE(pin->DoesParameterExist("stars", "transport_mode"),
+                    "stars/transport_mode must be set when stars are enabled: "
+                    "'gravity', 'advection' (testing only) or 'none'.");
+  const auto star_transport_mode_str = pin->GetString("stars", "transport_mode");
   TransportMode star_transport_mode;
   if (star_transport_mode_str == "gravity") {
     star_transport_mode = TransportMode::Gravity;
@@ -569,6 +574,26 @@ skips it, keeping the restored offsets and particles (cf. SeedInitialTracers).
 
 void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   auto stars_pkg = pmesh->packages.Get("stars");
+
+  // Star formation needs G in code units, hence a <units> block. Hydro registers
+  // mbar_over_kb and He_mass_fraction only with <units> and hydro/He_mass_fraction;
+  // without them temperatures come out negative.
+  const auto &hydro_params = pmesh->packages.Get("Hydro")->AllParams();
+  PARTHENON_REQUIRE(hydro_params.hasKey("units"),
+                    "Stars need a <units> block (star formation uses the gravitational "
+                    "constant in code units).");
+  const bool has_composition = hydro_params.hasKey("mbar_over_kb");
+  PARTHENON_REQUIRE(has_composition ||
+                        !(stars_pkg->Param<bool>("stars_virial_criterion_enabled") &&
+                          stars_pkg->Param<StarFormation::SFVirialCriterion>(
+                              "stars_sf_virial_criterion") ==
+                              StarFormation::SFVirialCriterion::CenOstriker),
+                    "stars/sf_virial_criterion = cenostriker needs a <units> block and "
+                    "hydro/He_mass_fraction (temperature threshold).");
+  PARTHENON_REQUIRE(has_composition || !(stars_pkg->Param<bool>("SN_II_enabled") ||
+                                         stars_pkg->Param<bool>("SN_Ia_enabled")),
+                    "Stellar SN feedback needs a <units> block and "
+                    "hydro/He_mass_fraction (hydrogen number density).");
 
   const auto initial_seed_done = stars_pkg->Param<bool>("initial_seed_done");
   if (parthenon::Globals::my_rank == 0) {
