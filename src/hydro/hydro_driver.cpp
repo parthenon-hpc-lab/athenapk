@@ -615,16 +615,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         hydro_pkg.get());
   }
 
-  if (stage == integrator->nstages) {
-    TaskRegion &tr = tc.AddRegion(num_partitions);
-    for (int i = 0; i < num_partitions; i++) {
-      auto &tl = tr[i];
-      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      auto new_dt = tl.AddTask(none, parthenon::Update::EstimateTimestep<MeshData<Real>>,
-                               mu0.get());
-    }
-  }
-
   // Star particles module
   auto stars_pkg = pmesh->packages.Get("stars");
   if (stage == integrator->nstages && stars_pkg->Param<bool>("enabled")) {
@@ -680,14 +670,33 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(receive, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
     }
 
-    // 5. Star formation/feedback (steps 1/4 above) modify `cons` directly
-    // but don't re-sync `prim`, so re-run FillDerived before tracer
-    // advection, AMR tagging, or output/restart reads stale primitives.
+    // 5. Star formation/feedback (steps 1/4 above) modify interior `cons` after
+    // this stage's boundary exchange. Exchange ghost cells again, so neighbor
+    // blocks see these changes (consistent face fluxes next step, tracer
+    // interpolation, AMR tagging), then re-sync `prim` with FillDerived before
+    // tracer advection, AMR tagging, the timestep estimate, or output/restart.
     TaskRegion &fill_derived_stars_region = tc.AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = fill_derived_stars_region[i];
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+      const auto any = parthenon::BoundaryType::any;
+      auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
+      auto bnd_exchange =
+          parthenon::AddBoundaryExchangeTasks(start_bnd, tl, mu0, pmesh->multilevel);
+      tl.AddTask(bnd_exchange, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+    }
+  }
+
+  // Estimate the next cycle's timestep from the final gas state of this cycle,
+  // i.e. after the operator-split stellar sources above (an SN-heated cell must
+  // limit the next dt). Tracers below don't modify the gas.
+  if (stage == integrator->nstages) {
+    TaskRegion &tr = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = tr[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto new_dt = tl.AddTask(none, parthenon::Update::EstimateTimestep<MeshData<Real>>,
+                               mu0.get());
     }
   }
 
