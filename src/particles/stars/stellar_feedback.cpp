@@ -56,6 +56,53 @@ using parthenon::Coordinates_t;
 using TE = parthenon::TopologicalElement;
 using ParticlesCriterion = ParticlesUtils::ParticlesCriterion;
 
+// Layout of the per-star SN event payload built in ApplyStellarFeedback
+enum SNPayloadIndex {
+  PL_M_EJ = 0,       // ejecta mass (clamped to the star's remaining mass)
+  PL_E_SN,           // star-frame SN energy
+  PL_P_SN,           // unboosted SN momentum
+  PL_P_TERM,         // terminal momentum, rescaled by <n_H>
+  PL_H,              // kernel smoothing length (host resolution)
+  PL_FP,             // FIRE-2 vector-weight factors f_+ (3 entries)
+  PL_FM = PL_FP + 3, // f_- (3 entries)
+  PL_N = PL_FM + 3
+};
+
+/* ===============================================================================
+SplitEventKernel: which of the host block's interior boundaries an event's
+kernel reaches past (DetectKernelOverlap), in the axis-list form
+ComputeRegionFractions expects, and the resulting region fractions
+(fraction[0] = host share). Geometry only, so the host deposit and the ghost
+fill always get identical splits.
+=============================================================================== */
+KOKKOS_INLINE_FUNCTION void
+SplitEventKernel(const Coordinates_t &coords, const int ndim, const Real x_star,
+                 const Real y_star, const Real z_star, const int k, const int j,
+                 const int i, const Real h_smooth, const Real f_plus[3],
+                 const Real f_minus[3], const int kb_s, const int kb_e, const int jb_s,
+                 const int jb_e, const int ib_s, const int ib_e, int axis_offset[3],
+                 int active_axis[3], int &n_active, Real fraction[8]) {
+  const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
+  DetectKernelOverlap(coords, ndim, x_star, y_star, z_star, k, j, i, h_smooth, r_search,
+                      kb_s, kb_e, jb_s, jb_e, ib_s, ib_e, axis_offset[0], axis_offset[1],
+                      axis_offset[2]);
+  n_active = 0;
+  for (int a = 0; a < 3; ++a) {
+    active_axis[a] = -1;
+  }
+  for (int a = 0; a < 3; ++a) {
+    if (axis_offset[a] != 0) active_axis[n_active++] = a;
+  }
+  for (int m = 0; m < 8; ++m) {
+    fraction[m] = (m == 0) ? 1.0 : 0.0;
+  }
+  if (n_active > 0) {
+    ComputeRegionFractions(coords, ndim, x_star, y_star, z_star, h_smooth, k, j, i,
+                           r_search, kb_s, kb_e, jb_s, jb_e, ib_s, ib_e, active_axis,
+                           axis_offset, n_active, f_plus, f_minus, fraction);
+  }
+}
+
 template TaskStatus ApplyStellarFeedback<AdiabaticHydroEOS>(MeshBlockData<Real> *,
                                                             parthenon::SimTime &,
                                                             const AdiabaticHydroEOS &);
@@ -207,162 +254,157 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
       block_E_SN_Ia = local_E_SN_Ia;
     }
 
-    // First pass: filling meshblock interior with SNe deposit, derive the number of
-    // particles going into the ghost zone.
+    // Per-star SN event payload: computed once in the first pass, before any
+    // deposit, then consumed by both the host deposit and the ghost fill. Stars
+    // exhausted by their event are only removed after both, so the ghost fill
+    // still sees them. event_flag: 0 = no event, 1 = event, 2 = event that
+    // exhausts the star's mass budget.
+    const int npart = max_active_index + 1;
+    if (npart <= 0) continue;
+    Kokkos::View<Real **, parthenon::DevMemSpace> payload("sn_payload", npart, PL_N);
+    Kokkos::View<int *, parthenon::DevMemSpace> event_flag("sn_event_flag", npart);
+
+    // First pass: SN events and the full event payload (counts, clamped ejecta,
+    // energy, momenta, kernel size, <n_H>, vector-weight factors). Reads the gas
+    // state before any of this step's deposits. Also counts the ghost particles
+    // needed for kernels reaching into neighboring blocks.
     int total_ghost_count = 0;
     pmb->par_reduce(
-        "StellarFeedback::PartLoop", 0, max_active_index,
+        "StellarFeedback::EventPayload", 0, max_active_index,
         KOKKOS_LAMBDA(const int n, int &lN_ghost) {
+          event_flag(n) = 0;
           if (!swarm_d.IsActive(n)) return;
 
           // ── Compute number of feedback events ──────────────────────────────
+          const uint64_t birth_key = utils::custom_rng::SeedFromBirth(
+              t_inj(n), birth_x(n), birth_y(n), birth_z(n));
           int N_SN_II = 0, N_SN_Ia = 0, N_SN = 0;
           Real M_ej_II_tot = 0.0, M_ej_Ia_tot = 0.0;
 
           if (SN_II_enabled) {
             ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
                               log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
-                              msun_in_code_units,
-                              utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
-                                                               birth_y(n), birth_z(n)),
-                              N_SN_II, M_ej_II_tot);
+                              msun_in_code_units, birth_key, N_SN_II, M_ej_II_tot);
             N_SN += N_SN_II;
           }
           if (SN_Ia_enabled) {
             ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass0(n),
-                              msun_in_code_units, gyr_in_code_units,
-                              utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
-                                                               birth_y(n), birth_z(n)),
-                              N_SN_Ia, M_ej_Ia_tot);
+                              msun_in_code_units, gyr_in_code_units, birth_key, N_SN_Ia,
+                              M_ej_Ia_tot);
             N_SN += N_SN_Ia;
           }
-
-          Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
+          if (N_SN == 0) return;
 
           // ── Clamp ejecta to remaining particle mass budget ──────────────────
           // If requested ejecta exceeds what's left, rescale mass and momentum
           // consistently (p_SN ~ sqrt(M_ej) at fixed N_SN*E_SN_per_event), and
           // flag the particle for removal since its budget is now exhausted.
-          bool remove_particle = false;
-          Real mass_scale = 1.0;
-          if (N_SN > 0 && M_ej_tot > pmass(n)) {
-            mass_scale = (M_ej_tot > 0.0) ? (pmass(n) / M_ej_tot) : 0.0;
+          Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
+          bool exhausted = false;
+          if (M_ej_tot > pmass(n)) {
+            const Real mass_scale = (M_ej_tot > 0.0) ? (pmass(n) / M_ej_tot) : 0.0;
             M_ej_II_tot *= mass_scale;
             M_ej_Ia_tot *= mass_scale;
             M_ej_tot = pmass(n);
-            remove_particle = true;
+            exhausted = true;
           }
 
-          // ── Apply feedback on the grid if any SN occurred ──────────────────
-          if (N_SN > 0) {
-            int k, j, i;
-            swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+          int k, j, i;
+          swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-            // Eq. 21: total momentum as sum of per-type terms
-            const Real momentum_scale = Kokkos::sqrt(mass_scale);
-            const Real p_SN_II =
-                (M_ej_II_tot > 0.0)
-                    ? Kokkos::sqrt(2.0 * N_SN_II * E_SN_per_event * M_ej_II_tot)
-                    : 0.0;
-            const Real p_SN_Ia =
-                (M_ej_Ia_tot > 0.0)
-                    ? Kokkos::sqrt(2.0 * N_SN_Ia * E_SN_per_event * M_ej_Ia_tot)
-                    : 0.0;
-            const Real p_SN_tot = p_SN_II + p_SN_Ia;
+          // Eq. 21: total momentum as sum of per-type terms
+          const Real p_SN_II =
+              (M_ej_II_tot > 0.0)
+                  ? Kokkos::sqrt(2.0 * N_SN_II * E_SN_per_event * M_ej_II_tot)
+                  : 0.0;
+          const Real p_SN_Ia =
+              (M_ej_Ia_tot > 0.0)
+                  ? Kokkos::sqrt(2.0 * N_SN_Ia * E_SN_per_event * M_ej_Ia_tot)
+                  : 0.0;
 
-            // Total SN energy coupled in the star frame (SMUGGLE eq. 20, f_SN = 1).
-            // Fixed by the event count, independent of the momentum boost.
-            const Real E_SN_tot = N_SN * E_SN_per_event;
+          // Terminal momentum depends on N_SN, not the ejecta mass budget, and
+          // is rescaled by the ambient density <n_H> around the star (host's own
+          // ghost-inclusive view, see ComputeKernelAvgNH). It is an extensive
+          // event total like p_SN, so it is split by region fraction later.
+          const Real h_smooth = ComputeHostSmoothingLength(coords, r_cells, i);
+          const Real nH_avg =
+              ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
+                                 code_density_cgs, mh_cgs, x_H);
+          const Real p_terminal_Nsn =
+              Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
+          const Real p_terminal_nH_scaled =
+              (nH_avg > 0.0) ? p_terminal_Nsn * Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0)
+                             : 0.0;
 
-            // Terminal momentum depends on N_SN, not the ejecta mass budget.
-            // Despite the name it is an extensive event-total like p_SN_tot,
-            // so it must also be split by region fraction below -- leaving it
-            // unscaled let regions race to saturate the full cap, over-depositing.
-            const Real p_terminal_Nsn =
-                Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
+          // FIRE-2 vector-weight factors over the full kernel (geometry only),
+          // shared by every region this event is split across.
+          const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
+          Real f_plus[3], f_minus[3];
+          ComputeVectorWeightFactors(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
+                                     r_search, f_plus, f_minus);
 
-            // Physical kernel smoothing length for this event, fixed by the
-            // host cell's own local dx (see ComputeHostSmoothingLength) and
-            // carried unchanged to every block the kernel overlaps.
-            const Real h_smooth = ComputeHostSmoothingLength(coords, r_cells, i);
-
-            // Ambient density around the star (host's own ghost-inclusive
-            // view -- see ComputeKernelAvgNH docstring), used once for the
-            // whole event; the same rescaled value is shared by every
-            // region this event's kernel is later split across.
-            const Real nH_avg =
-                ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i,
-                                   h_smooth, code_density_cgs, mh_cgs, x_H);
-            const Real p_terminal_nH_scaled =
-                (nH_avg > 0.0) ? p_terminal_Nsn * Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0)
-                               : 0.0;
-
-            // Which of the host's own interior boundaries (if any) this
-            // event's kernel reaches past (see DetectKernelOverlap). n_active
-            // == 0 means the kernel is entirely interior: full payload below,
-            // no ghost particles spawned -- identical to single-block behavior.
-            const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
-            int ox, oy, oz;
-            DetectKernelOverlap(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
-                                r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, ox, oy, oz);
-
-            const int axis_offset[3] = {ox, oy, oz};
-            int active_axis[3] = {-1, -1, -1};
-            int n_active = 0;
-            if (ox != 0) active_axis[n_active++] = 0;
-            if (oy != 0) active_axis[n_active++] = 1;
-            if (oz != 0) active_axis[n_active++] = 2;
-            const int n_neighbors = (n_active > 0) ? ((1 << n_active) - 1) : 0;
-
-            // FIRE-2 vector-weight factors over the full kernel (geometry only),
-            // shared by every region this event is split across.
-            Real f_plus[3], f_minus[3];
-            ComputeVectorWeightFactors(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
-                                       r_search, f_plus, f_minus);
-
-            // fraction[0] is the host's own share; see ComputeRegionFractions
-            // for how the rest are indexed (matches GhostFillLoop's mask
-            // convention exactly, so it can rederive the same split below
-            // for the ghost payload without needing it communicated here).
-            Real fraction[8] = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-            if (n_active > 0) {
-              ComputeRegionFractions(coords, ndim, x(n), y(n), z(n), h_smooth, k, j, i,
-                                     r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-                                     active_axis, axis_offset, n_active, f_plus, f_minus,
-                                     fraction);
-            }
-
-            // Deposit the host's own region directly; every other region
-            // (if any) is picked up below via the ghost swarm. All budgets are
-            // extensive event totals, scaled by this region's fraction.
-            ApplyKineticSNe(cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n), v_y(n),
-                            v_z(n), fraction[0] * M_ej_tot, fraction[0] * E_SN_tot,
-                            fraction[0] * p_SN_tot, fraction[0] * p_terminal_nH_scaled,
-                            h_smooth, f_plus, f_minus, kb.s, kb.e, jb.s, jb.e, ib.s,
-                            ib.e);
-
-            lN_ghost += n_neighbors;
-
-            // Reducing the instantaneous mass of the stellar particle by the
-            // total ejecta mass actually injected
-            pmass(n) -= M_ej_tot;
-
-            if (remove_particle) {
-              swarm_d.MarkParticleForRemoval(n);
-            }
+          payload(n, PL_M_EJ) = M_ej_tot;
+          // Total SN energy coupled in the star frame (SMUGGLE eq. 20, f_SN = 1),
+          // fixed by the event count, independent of the momentum boost.
+          payload(n, PL_E_SN) = N_SN * E_SN_per_event;
+          payload(n, PL_P_SN) = p_SN_II + p_SN_Ia;
+          payload(n, PL_P_TERM) = p_terminal_nH_scaled;
+          payload(n, PL_H) = h_smooth;
+          for (int a = 0; a < 3; ++a) {
+            payload(n, PL_FP + a) = f_plus[a];
+            payload(n, PL_FM + a) = f_minus[a];
           }
+          event_flag(n) = exhausted ? 2 : 1;
+
+          int ox, oy, oz;
+          DetectKernelOverlap(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth, r_search,
+                              kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, ox, oy, oz);
+          const int n_active = (ox != 0) + (oy != 0) + (oz != 0);
+          lN_ghost += (1 << n_active) - 1; // 0, 1, 3, or 7 neighbor regions
         },
         Kokkos::Sum<int>(total_ghost_count));
     block_total_E_SN_II += block_E_SN_II;
     block_total_E_SN_Ia += block_E_SN_Ia;
 
-    // Particles marked above are only flagged here; actually compact/remove
-    // them from the swarm afterward.
-    swarm->RemoveMarkedParticles();
+    // Second pass: deposit each event's host share and reduce the star's mass.
+    // Exhausted stars are only marked here; they stay active until after the
+    // ghost fill below.
+    pmb->par_for(
+        "StellarFeedback::HostDeposit", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+          if (event_flag(n) == 0) return;
 
-    // Second pass: allocate data in the corresponding ghost swarm "gswarm", rederive
-    // quantities (using the reproducible RNG), and copy the deposition payload for
-    // every particle whose SN kernel overlapped a neighboring block's domain.
+          int k, j, i;
+          swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+          const Real h_smooth = payload(n, PL_H);
+          const Real f_plus[3] = {payload(n, PL_FP), payload(n, PL_FP + 1),
+                                  payload(n, PL_FP + 2)};
+          const Real f_minus[3] = {payload(n, PL_FM), payload(n, PL_FM + 1),
+                                   payload(n, PL_FM + 2)};
+
+          int axis_offset[3], active_axis[3], n_active;
+          Real fraction[8];
+          SplitEventKernel(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth, f_plus,
+                           f_minus, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, axis_offset,
+                           active_axis, n_active, fraction);
+
+          // Deposit the host's own region directly; every other region (if any)
+          // is picked up below via the ghost swarm. All budgets are extensive
+          // event totals, scaled by this region's fraction.
+          ApplyKineticSNe(
+              cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n), v_y(n), v_z(n),
+              fraction[0] * payload(n, PL_M_EJ), fraction[0] * payload(n, PL_E_SN),
+              fraction[0] * payload(n, PL_P_SN), fraction[0] * payload(n, PL_P_TERM),
+              h_smooth, f_plus, f_minus, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e);
+
+          // Reducing the instantaneous mass of the stellar particle by the
+          // total ejecta mass actually injected (into every region)
+          pmass(n) -= payload(n, PL_M_EJ);
+          if (event_flag(n) == 2) swarm_d.MarkParticleForRemoval(n);
+        });
+
+    // Third pass: allocate data in the corresponding ghost swarm "gswarm" and copy
+    // each neighbor region's share of the stored event payload, for every star
+    // whose SN kernel overlaps a neighboring block's domain.
     if (total_ghost_count > 0) {
       const auto ghost_swarm_name = "ghost_" + swarm_name;
       auto &gswarm = sd->Get(ghost_swarm_name);
@@ -399,118 +441,31 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
       pmb->par_for(
           "StellarFeedback::GhostFillLoop", 0, max_active_index,
           KOKKOS_LAMBDA(const int n) {
-            if (!swarm_d.IsActive(n)) return;
+            if (event_flag(n) == 0) return;
 
-            // --- Locate the particle's host cell -----------------------------------
             int k, j, i;
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+            const Real h_smooth = payload(n, PL_H);
+            const Real f_plus[3] = {payload(n, PL_FP), payload(n, PL_FP + 1),
+                                    payload(n, PL_FP + 2)};
+            const Real f_minus[3] = {payload(n, PL_FM), payload(n, PL_FM + 1),
+                                     payload(n, PL_FM + 2)};
 
-            // --- Determine which block boundary(ies) the deposition kernel overlaps -
-            // Recomputed identically to the interior-domain pass via
-            // DetectKernelOverlap, so it can't desync this pass's count from
-            // total_ghost_count. ox/oy/oz give overlap direction per axis.
-            const Real h_smooth = ComputeHostSmoothingLength(coords, r_cells, i);
-            const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
-            int ox, oy, oz;
-            DetectKernelOverlap(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
-                                r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, ox, oy, oz);
-
-            const int axis_offset[3] = {ox, oy, oz};
-            int active_axis[3] = {-1, -1, -1};
-            int n_active = 0;
-            if (ox != 0) active_axis[n_active++] = 0;
-            if (oy != 0) active_axis[n_active++] = 1;
-            if (oz != 0) active_axis[n_active++] = 2;
+            // Same deterministic split as the host deposit, so this pass can't
+            // desync from total_ghost_count.
+            int axis_offset[3], active_axis[3], n_active;
+            Real fraction[8];
+            SplitEventKernel(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth, f_plus,
+                             f_minus, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, axis_offset,
+                             active_axis, n_active, fraction);
 
             // No overlap with any neighbor: nothing to deposit into a ghost swarm.
             if (n_active == 0) return;
 
             // Number of distinct neighbor directions to cover (edges/corners
             // included): 1 active axis -> 1 neighbor, 2 -> 3, 3 -> 7.
-            const int n_neighbors = (1 << n_active) - 1; // 1, 3, or 7
-
-            // Same vector-weight factors and split as the interior-domain pass
-            // (deterministic given the same inputs); fraction[mask]
-            // (mask=1..n_neighbors) is this neighbor direction's share,
-            // matching the spawn step's mask below.
-            Real f_plus[3], f_minus[3];
-            ComputeVectorWeightFactors(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
-                                       r_search, f_plus, f_minus);
-            Real fraction[8];
-            ComputeRegionFractions(coords, ndim, x(n), y(n), z(n), h_smooth, k, j, i,
-                                   r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-                                   active_axis, axis_offset, n_active, f_plus, f_minus,
-                                   fraction);
-
-            // --- Re-derive this particle's SN event counts and ejecta mass ---------
-            // Uses the same reproducible RNG (keyed on particle id + time) as the
-            // interior-domain pass, so results are identical without communication.
-            int N_SN_II = 0, N_SN_Ia = 0, N_SN = 0;
-            Real M_ej_II_tot = 0.0, M_ej_Ia_tot = 0.0;
-
-            if (SN_II_enabled) {
-              ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
-                                log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d,
-                                n_ejecta, msun_in_code_units,
-                                utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
-                                                                 birth_y(n), birth_z(n)),
-                                N_SN_II, M_ej_II_tot);
-              N_SN += N_SN_II;
-            }
-            if (SN_Ia_enabled) {
-              ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass0(n),
-                                msun_in_code_units, gyr_in_code_units,
-                                utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
-                                                                 birth_y(n), birth_z(n)),
-                                N_SN_Ia, M_ej_Ia_tot);
-              N_SN += N_SN_Ia;
-            }
-
-            // No SN event this step: no deposition payload to forward.
-            if (N_SN == 0) return;
-
-            // --- Clamp ejecta to the particle's remaining mass budget ---------------
-            // Mirrors the interior-domain pass's clamp; reconstruct the
-            // pre-event mass by adding M_ej_tot back (pmass0, the birth mass,
-            // would be wrong: it ignores every earlier SN event).
-            Real M_ej_tot = M_ej_II_tot + M_ej_Ia_tot;
-            const Real pmass_before_event = pmass(n) + M_ej_tot;
-            Real mass_scale = 1.0;
-            if (M_ej_tot > pmass_before_event) {
-              mass_scale = (M_ej_tot > 0.0) ? (pmass_before_event / M_ej_tot) : 0.0;
-              M_ej_II_tot *= mass_scale;
-              M_ej_Ia_tot *= mass_scale;
-              M_ej_tot = pmass_before_event;
-            }
-
-            // --- Total injected momentum (Eq. 21): sum of per-channel terms --------
-            const Real p_SN_II =
-                (M_ej_II_tot > 0.0)
-                    ? Kokkos::sqrt(2.0 * N_SN_II * E_SN_per_event * M_ej_II_tot)
-                    : 0.0;
-            const Real p_SN_Ia =
-                (M_ej_Ia_tot > 0.0)
-                    ? Kokkos::sqrt(2.0 * N_SN_Ia * E_SN_per_event * M_ej_Ia_tot)
-                    : 0.0;
-            const Real p_SN_tot = p_SN_II + p_SN_Ia;
-
-            // Same star-frame SN energy as the interior-domain pass.
-            const Real E_SN_tot = N_SN * E_SN_per_event;
-
-            // Terminal momentum scales with N_SN, independent of the ejecta
-            // mass clamping above; extensive like p_SN_tot/M_ej_tot, so it is
-            // split by region fraction below, same as those two.
-            Real p_terminal_Nsn = Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
-
-            // Rescale terminal momentum by local ambient density <n_H>, the
-            // same host-only estimate (and nH_avg<=0 fallback, avoiding a
-            // stray 0^(-1/7) blowup) as the interior-domain pass.
-            const Real nH_avg =
-                ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i,
-                                   h_smooth, code_density_cgs, mh_cgs, x_H);
-            const Real p_terminal_nH_scaled =
-                (nH_avg > 0.0) ? p_terminal_Nsn * Kokkos::pow(nH_avg / 1.0, -1.0 / 7.0)
-                               : 0.0;
+            const int n_neighbors = (1 << n_active) - 1;
+            const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
 
             // --- Spawn one ghost particle per overlapping neighbor direction --------
             // mask enumerates every non-empty subset of active_axis (1 to
@@ -538,37 +493,26 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               // ── Push the tracked position across the shared face so
               // Parthenon's swarm ownership check transfers it normally.
               // Push distance is r_search cells, enough to guarantee crossing.
-              const Real dx_cell = coords.Dxc<1>(i);
-              const Real dy_cell = coords.Dxc<2>(j);
-              const Real dz_cell = (ndim == 3) ? coords.Dxc<3>(k) : 0.0;
-
-              const Real push_x = nx * r_search * dx_cell;
-              const Real push_y = ny * r_search * dy_cell;
-              const Real push_z = nz * r_search * dz_cell;
-
-              const Real gx_pushed = x(n) + push_x;
-              const Real gy_pushed = y(n) + push_y;
-              const Real gz_pushed = z(n) + push_z;
+              const Real push_x = nx * r_search * coords.Dxc<1>(i);
+              const Real push_y = ny * r_search * coords.Dxc<2>(j);
+              const Real push_z = (ndim == 3) ? nz * r_search * coords.Dxc<3>(k) : 0.0;
 
               // Store the pushed position plus its offset (subtracted back out
-              // on the receiving block) and the full deposition payload, so
-              // the receiver can apply feedback without recomputing SN events.
-              gx(g) = gx_pushed;
-              gy(g) = gy_pushed;
-              gz(g) = gz_pushed;
+              // on the receiving block) and this region's share of the payload,
+              // so the receiver can apply feedback without recomputing SN events.
+              gx(g) = x(n) + push_x;
+              gy(g) = y(n) + push_y;
+              gz(g) = z(n) + push_z;
               g_offset_x(g) = push_x;
               g_offset_y(g) = push_y;
               g_offset_z(g) = push_z;
               gv_x(g) = v_x(n);
               gv_y(g) = v_y(n);
               gv_z(g) = v_z(n);
-              // M_ej_tot/E_SN_tot/p_SN_tot/p_terminal_nH_scaled are all
-              // extensive event totals, scaled down to this neighbor
-              // direction's own share via fraction[mask] (see above).
-              gM_ej_tot(g) = fraction[mask] * M_ej_tot;
-              gE_SN_tot(g) = fraction[mask] * E_SN_tot;
-              gp_SN_tot(g) = fraction[mask] * p_SN_tot;
-              gp_terminal_Nsn(g) = fraction[mask] * p_terminal_nH_scaled;
+              gM_ej_tot(g) = fraction[mask] * payload(n, PL_M_EJ);
+              gE_SN_tot(g) = fraction[mask] * payload(n, PL_E_SN);
+              gp_SN_tot(g) = fraction[mask] * payload(n, PL_P_SN);
+              gp_terminal_Nsn(g) = fraction[mask] * payload(n, PL_P_TERM);
               gh_smooth(g) = h_smooth;
               gf_plus_x(g) = f_plus[0];
               gf_plus_y(g) = f_plus[1];
@@ -586,6 +530,10 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                         "GhostFillLoop: slot counter mismatch, allocation and "
                         "fill passes disagree on ghost particle count.");
     } // end for ghost_swarm_name
+
+    // Only now that both the host deposit and the ghost fill have consumed their
+    // payload, remove the stars whose mass budget the event exhausted.
+    swarm->RemoveMarkedParticles();
   } // end for swarm_name
 
   // Accumulate this block's SN II/Ia energy into rank-wide totals.
