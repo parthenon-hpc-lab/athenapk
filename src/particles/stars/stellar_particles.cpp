@@ -418,6 +418,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // If SNe activated, need a ghost swarm to carry SN deposition payloads
   // across block boundaries for kernels that overlap a neighbor's domain.
   if (SN_II_enabled || SN_Ia_enabled) {
+    // Per-step gas density snapshot read by the SN momentum boost and <n_H>
+    // (see ApplyStellarFeedback); rewritten every step, so not a restart field.
+    stars_pkg->AddField("sn_rho_snapshot",
+                        Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy}));
+
     std::vector<std::string> ghost_swarm_names;
     for (const auto &name : swarm_names) {
       ghost_swarm_names.push_back("ghost_" + name);

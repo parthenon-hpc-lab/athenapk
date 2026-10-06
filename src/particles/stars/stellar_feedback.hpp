@@ -283,11 +283,13 @@ Kernel-weighted average hydrogen number density within a stellar
 particle's SN injection sphere, used to rescale terminal momentum by
 local gas density. Host-only; since this feeds a mild n_H^-1/7 rescaling
 rather than a conserved quantity, it skips ComputeRegionFractions' treatment.
+rho_snap is the step's density snapshot (component 0, see
+ApplyStellarFeedback), ghost cells included.
 =============================================================================== */
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION Real ComputeKernelAvgNH(
-    View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
+    View4D &rho_snap, const parthenon::Coordinates_t &coords, const int ndim,
     const parthenon::Real x_star, const parthenon::Real y_star,
     const parthenon::Real z_star, const int k_host, const int j_host, const int i_host,
     const parthenon::Real h_smooth, const parthenon::Real code_density_cgs,
@@ -320,7 +322,7 @@ KOKKOS_INLINE_FUNCTION Real ComputeKernelAvgNH(
         const Real weight = w_kernel * vol;
         weight_sum += weight;
 
-        const Real rho_cgs = cons(IDN, kk, jj, ii) * code_density_cgs;
+        const Real rho_cgs = rho_snap(0, kk, jj, ii) * code_density_cgs;
         const Real nH_cell = X_H * rho_cgs / mh_cgs;
         nH_vol_sum += nH_cell * weight;
       }
@@ -567,13 +569,16 @@ dp_b = wbar_b p_SN min(sqrt(1 + m_b/dm_b), p_t/p_SN), with s_b = |wbar_b| and
 wbar_b normalised by the same sum over this region (sum_b wbar_b = 0). These are then
 boosted to the simulation frame (eqs. 23-24) and added to cons; the thermal/kinetic split
 follows from primitive recovery. All budgets must already be this region's
-share; this does no cross-block bookkeeping of its own.
+share; this does no cross-block bookkeeping of its own. The boost reads the
+cell gas mass m_b from rho_snap, the step's density snapshot taken before any
+SN deposit (component 0, see ApplyStellarFeedback), so overlapping events
+don't depend on their order.
 =============================================================================== */
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
-    View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
-    const parthenon::Real x_star, const parthenon::Real y_star,
+    View4D &cons, View4D &rho_snap, const parthenon::Coordinates_t &coords,
+    const int ndim, const parthenon::Real x_star, const parthenon::Real y_star,
     const parthenon::Real z_star, const int k_host, const int j_host, const int i_host,
     const parthenon::Real vel_x_star, const parthenon::Real vel_y_star,
     const parthenon::Real vel_z_star, const parthenon::Real M_ej_tot,
@@ -636,7 +641,7 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
         // Star-frame momentum: boosted for the unresolved PdV work done on the
         // swept-up mass m_b + dm_b, capped at the terminal momentum.
         // The cell holding the star at its centre has wvec = 0: no momentum.
-        const Real m_i = cons(IDN, kk, jj, ii) * vol;
+        const Real m_i = rho_snap(0, kk, jj, ii) * vol;
         const Real boost = (dM > 0.0) ? Kokkos::sqrt(1.0 + m_i / dM) : 1.0;
         const Real p_cell = Kokkos::min(p_SN_tot * boost, p_terminal_nH_scaled);
         Real dp[3];

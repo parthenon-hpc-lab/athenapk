@@ -144,6 +144,23 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   auto &cons = mbd->PackVariables(std::vector<std::string>{"cons"});
   auto &prim = mbd->PackVariables(std::vector<std::string>{"prim"});
   auto &coords = pmb->coords;
+
+  // Density snapshot for this step's SN feedback, taken after star formation and
+  // before any SN deposit, ghost cells included (<n_H> reads them). Every event's
+  // <n_H> and momentum boost read it instead of the live cons, which other events
+  // are depositing into, so results don't depend on the order of overlapping
+  // events. ApplyGhostFeedback reads the same snapshot later in the step.
+  auto &rho_snap = mbd->PackVariables(std::vector<std::string>{"sn_rho_snapshot"});
+  {
+    const auto kbe = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
+    const auto jbe = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
+    const auto ibe = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
+    pmb->par_for(
+        "StellarFeedback::DensitySnapshot", kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
+        KOKKOS_LAMBDA(const int k, const int j, const int i) {
+          rho_snap(0, k, j, i) = cons(IDN, k, j, i);
+        });
+  }
   auto gid = pmb->gid;
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
@@ -328,8 +345,8 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           // event total like p_SN, so it is split by region fraction later.
           const Real h_smooth = ComputeHostSmoothingLength(coords, r_cells, i);
           const Real nH_avg =
-              ComputeKernelAvgNH(cons, coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
-                                 code_density_cgs, mh_cgs, x_H);
+              ComputeKernelAvgNH(rho_snap, coords, ndim, x(n), y(n), z(n), k, j, i,
+                                 h_smooth, code_density_cgs, mh_cgs, x_H);
           const Real p_terminal_Nsn =
               Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
           const Real p_terminal_nH_scaled =
@@ -390,11 +407,12 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           // Deposit the host's own region directly; every other region (if any)
           // is picked up below via the ghost swarm. All budgets are extensive
           // event totals, scaled by this region's fraction.
-          ApplyKineticSNe(
-              cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n), v_y(n), v_z(n),
-              fraction[0] * payload(n, PL_M_EJ), fraction[0] * payload(n, PL_E_SN),
-              fraction[0] * payload(n, PL_P_SN), fraction[0] * payload(n, PL_P_TERM),
-              h_smooth, f_plus, f_minus, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e);
+          ApplyKineticSNe(cons, rho_snap, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n),
+                          v_y(n), v_z(n), fraction[0] * payload(n, PL_M_EJ),
+                          fraction[0] * payload(n, PL_E_SN),
+                          fraction[0] * payload(n, PL_P_SN),
+                          fraction[0] * payload(n, PL_P_TERM), h_smooth, f_plus, f_minus,
+                          kb.s, kb.e, jb.s, jb.e, ib.s, ib.e);
 
           // Reducing the instantaneous mass of the stellar particle by the
           // total ejecta mass actually injected (into every region)
@@ -571,6 +589,9 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
   auto ndim = pmb->pmy_mesh->ndim;
 
   auto &cons = mbd->PackVariables(std::vector<std::string>{"cons"});
+  // Same density snapshot as this block's ApplyStellarFeedback (taken earlier this
+  // step), so ghost deposits ignore every deposit made since.
+  auto &rho_snap = mbd->PackVariables(std::vector<std::string>{"sn_rho_snapshot"});
   auto &coords = pmb->coords;
   auto gid = pmb->gid;
 
@@ -636,9 +657,10 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
           const Real f_plus[3] = {gf_plus_x(g), gf_plus_y(g), gf_plus_z(g)};
           const Real f_minus[3] = {gf_minus_x(g), gf_minus_y(g), gf_minus_z(g)};
 
-          ApplyKineticSNe(cons, coords, ndim, true_x, true_y, true_z, k, j, i, gv_x(g),
-                          gv_y(g), gv_z(g), M_ej_tot, E_SN_tot, p_SN_tot, p_terminal_Nsn,
-                          h_smooth, f_plus, f_minus, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e);
+          ApplyKineticSNe(cons, rho_snap, coords, ndim, true_x, true_y, true_z, k, j, i,
+                          gv_x(g), gv_y(g), gv_z(g), M_ej_tot, E_SN_tot, p_SN_tot,
+                          p_terminal_Nsn, h_smooth, f_plus, f_minus, kb.s, kb.e, jb.s,
+                          jb.e, ib.s, ib.e);
 
           gswarm_d.MarkParticleForRemoval(g);
         });
