@@ -127,8 +127,14 @@ double random_double(uint64_t seed) { return (hash(seed) >> 11) * (1.0 / (1ULL <
 // Poisson sampler via Knuth's algorithm
 //
 // Draws an integer from a Poisson distribution with mean lambda using
-// repeated uniform draws. Exact for all lambda; average loop iterations
-// equals lambda, so keep lambda small (< ~20) for performance.
+// repeated uniform draws. Knuth's product method is exact only while exp(-lambda)
+// and the running product stay representable (lambda <~ 700 in double precision):
+// beyond that the result would be set by floating-point underflow (~745). Larger
+// means are therefore drawn as a sum of independent Poisson draws of mean
+// lambda / n_chunks <= kPoissonMaxChunk, which is exactly Poisson(lambda). For
+// lambda <= kPoissonMaxChunk this is a single draw, identical to before. The work
+// is done in double precision regardless of Real. Average loop iterations equal
+// lambda, so very large means are slow (but correct).
 //
 // seed    : deterministic seed (e.g. from SeedFromParticle), combined with an
 //           internal counter to draw a stream of independent uniforms
@@ -136,19 +142,27 @@ double random_double(uint64_t seed) { return (hash(seed) >> 11) * (1.0 / (1ULL <
 // Returns : Poisson-distributed integer sample
 // ===================================================================================
 
+inline constexpr double kPoissonMaxChunk = 500.0;
+
 KOKKOS_INLINE_FUNCTION
 int PoissonSampleDeterministic(uint64_t seed, const Real lambda) {
   if (lambda <= 0.0) return 0;
-  const Real L = Kokkos::exp(-lambda);
-  int k = 0;
-  Real p = 1.0;
-  uint64_t counter = 0;
-  do {
-    k++;
-    p *= random_double(hash(seed + counter)); // counter-based stream, not pool state
-    counter++;
-  } while (p > L);
-  return k - 1;
+  const int n_chunks = static_cast<int>(Kokkos::ceil(lambda / kPoissonMaxChunk));
+  const double chunk_lambda = static_cast<double>(lambda) / n_chunks;
+  const double L = Kokkos::exp(-chunk_lambda);
+  int total = 0;
+  uint64_t counter = 0; // one stream across all chunks, so the chunks are independent
+  for (int c = 0; c < n_chunks; ++c) {
+    int k = 0;
+    double p = 1.0;
+    do {
+      k++;
+      p *= random_double(hash(seed + counter)); // counter-based stream, not pool state
+      counter++;
+    } while (p > L);
+    total += k - 1;
+  }
+  return total;
 }
 } // namespace utils::custom_rng
 
