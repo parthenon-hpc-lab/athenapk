@@ -634,20 +634,6 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
     if (transport_mode == TransportMode::None) continue;
 
-    // Pointer to the gravitational field, only set when needed -- avoids
-    // requiring a default constructor and avoids touching the "gravity_field"
-    // param in setups that don't register one. Any pgen registering a
-    // gravity::SphericalGravity under this name works, not just cluster.
-    const gravity::SphericalGravity *gravitational_field_ptr = nullptr;
-    if (transport_mode == TransportMode::Gravity) {
-      PARTHENON_REQUIRE(hydro_pkg->AllParams().hasKey("gravity_field"),
-                        "MoveStars requires a gravitational field; only setups "
-                        "registering a gravity::SphericalGravity field are "
-                        "currently supported.");
-      gravitational_field_ptr =
-          &hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
-    }
-
     auto &swarm = sd->Get(swarm_name);
 
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
@@ -663,101 +649,117 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     // update loop.
     const int max_active_index = swarm->GetMaxActiveIndex();
 
-    pmb->par_for(
-        "MoveStars::PartLoop", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
-          if (swarm_d.IsActive(n)) {
+    if (transport_mode == TransportMode::Gravity) {
+      // Any pgen registering a gravity::SphericalGravity under "gravity_field"
+      // works, not just cluster. The kernel captures a value copy (it is a
+      // device-copyable functor), never a pointer into the host-side Params,
+      // which device kernels cannot dereference on GPU backends.
+      PARTHENON_REQUIRE(hydro_pkg->AllParams().hasKey("gravity_field"),
+                        "MoveStars requires a gravitational field; only setups "
+                        "registering a gravity::SphericalGravity field are "
+                        "currently supported.");
+      const auto gravitational_field =
+          hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
 
-            if (transport_mode == TransportMode::Gravity) {
-              // Estimate how many sub-steps are needed to resolve the local
-              // orbital/dynamical timescale to some safety factor.
-              const Real xp0 = x(n), yp0 = y(n), zp0 = z(n);
-              const Real r0 = sqrt(xp0 * xp0 + yp0 * yp0 + zp0 * zp0);
-              const Real g0 = gravitational_field_ptr->g_from_r(r0);
+      pmb->par_for(
+          "MoveStars::Gravity", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+            if (!swarm_d.IsActive(n)) return;
+            // Estimate how many sub-steps are needed to resolve the local
+            // orbital/dynamical timescale to some safety factor.
+            const Real xp0 = x(n), yp0 = y(n), zp0 = z(n);
+            const Real r0 = sqrt(xp0 * xp0 + yp0 * yp0 + zp0 * zp0);
+            const Real g0 = gravitational_field.g_from_r(r0);
 
-              // Local dynamical time ~ sqrt(r / g), guard against g0 == 0 (r0 == 0).
-              const Real t_dyn = (g0 > 0.0) ? sqrt(r0 / g0) : current_dt;
+            // Local dynamical time ~ sqrt(r / g), guard against g0 == 0 (r0 == 0).
+            const Real t_dyn = (g0 > 0.0) ? sqrt(r0 / g0) : current_dt;
 
-              // Safety factor: require several sub-steps per dynamical time.
-              const Real cfl_star = 0.1; // TODO: read from pin, store in Param
-              int n_sub = static_cast<int>(ceil(current_dt / (cfl_star * t_dyn)));
-              n_sub = Kokkos::max(n_sub, 1);
-              n_sub = Kokkos::min(n_sub, 1000);
+            // Safety factor: require several sub-steps per dynamical time.
+            const Real cfl_star = 0.1; // TODO: read from pin, store in Param
+            int n_sub = static_cast<int>(ceil(current_dt / (cfl_star * t_dyn)));
+            n_sub = Kokkos::max(n_sub, 1);
+            n_sub = Kokkos::min(n_sub, 1000);
 
-              const Real dt_sub = current_dt / static_cast<Real>(n_sub);
-              const Real half_dt_sub = 0.5 * dt_sub;
+            const Real dt_sub = current_dt / static_cast<Real>(n_sub);
+            const Real half_dt_sub = 0.5 * dt_sub;
 
-              for (int s = 0; s < n_sub; ++s) {
+            for (int s = 0; s < n_sub; ++s) {
 
-                // Compute acceleration at current position xn
-                const Real xp = x(n), yp = y(n), zp = z(n);
-                const Real r = sqrt(xp * xp + yp * yp + zp * zp);
-                const Real g = gravitational_field_ptr->g_from_r(r);
-                // Guard against r == 0 (e.g. a purely radial orbit through the
-                // cluster center): direction is undefined there, so treat the
-                // acceleration as zero rather than dividing by zero.
-                const Real inv_r = (r > 0.0) ? 1.0 / r : 0.0;
-                const Real gx = -g * xp * inv_r, gy = -g * yp * inv_r,
-                           gz = -g * zp * inv_r; // inward!
+              // Compute acceleration at current position xn
+              const Real xp = x(n), yp = y(n), zp = z(n);
+              const Real r = sqrt(xp * xp + yp * yp + zp * zp);
+              const Real g = gravitational_field.g_from_r(r);
+              // Guard against r == 0 (e.g. a purely radial orbit through the
+              // cluster center): direction is undefined there, so treat the
+              // acceleration as zero rather than dividing by zero.
+              const Real inv_r = (r > 0.0) ? 1.0 / r : 0.0;
+              const Real gx = -g * xp * inv_r, gy = -g * yp * inv_r,
+                         gz = -g * zp * inv_r; // inward!
 
-                // Kick 1
-                vel_x(n) += gx * half_dt_sub;
-                vel_y(n) += gy * half_dt_sub;
-                vel_z(n) += gz * half_dt_sub;
+              // Kick 1
+              vel_x(n) += gx * half_dt_sub;
+              vel_y(n) += gy * half_dt_sub;
+              vel_z(n) += gz * half_dt_sub;
 
-                // Drift
-                x(n) += vel_x(n) * dt_sub;
-                y(n) += vel_y(n) * dt_sub;
-                z(n) += vel_z(n) * dt_sub;
+              // Drift
+              x(n) += vel_x(n) * dt_sub;
+              y(n) += vel_y(n) * dt_sub;
+              z(n) += vel_z(n) * dt_sub;
 
-                // Kick 2 at new position
-                const Real r2 = sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
-                const Real g2 = gravitational_field_ptr->g_from_r(r2);
-                const Real inv_r2 = (r2 > 0.0) ? 1.0 / r2 : 0.0;
-                const Real gx2 = -g2 * x(n) * inv_r2, gy2 = -g2 * y(n) * inv_r2,
-                           gz2 = -g2 * z(n) * inv_r2;
+              // Kick 2 at new position
+              const Real r2 = sqrt(x(n) * x(n) + y(n) * y(n) + z(n) * z(n));
+              const Real g2 = gravitational_field.g_from_r(r2);
+              const Real inv_r2 = (r2 > 0.0) ? 1.0 / r2 : 0.0;
+              const Real gx2 = -g2 * x(n) * inv_r2, gy2 = -g2 * y(n) * inv_r2,
+                         gz2 = -g2 * z(n) * inv_r2;
 
-                vel_x(n) += gx2 * half_dt_sub;
-                vel_y(n) += gy2 * half_dt_sub;
-                vel_z(n) += gz2 * half_dt_sub;
-              }
-
-            } else if (transport_mode == TransportMode::Advection) {
-
-              const auto x_star = x(n) + current_dt * vel_x(n);
-              const auto y_star = y(n) + current_dt * vel_y(n);
-              const auto z_star = z(n) + current_dt * vel_z(n);
-
-              // v^{*,n+1} = v(x^{*,n+1}, t^{n+1})
-              // First parameter b=0 assume to operate on a pack of a single block and
-              // needs to be updated if this becomes a MeshData function
-              const auto vel_x_star =
-                  LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV1);
-              const auto vel_y_star =
-                  LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV2);
-              const auto vel_z_star =
-                  LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV3);
-
-              // Full update using mean velocity
-              x(n) += current_dt * 0.5 * (vel_x(n) + vel_x_star);
-              y(n) += current_dt * 0.5 * (vel_y(n) + vel_y_star);
-
-              if (ndim == 3) {
-                z(n) += current_dt * 0.5 * (vel_z(n) + vel_z_star);
-              }
-
-              // Then update the velocity for the next time step using new position
-              vel_x(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV1);
-              vel_y(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV2);
-              if (ndim == 3) {
-                vel_z(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV3);
-              }
+              vel_x(n) += gx2 * half_dt_sub;
+              vel_y(n) += gy2 * half_dt_sub;
+              vel_z(n) += gz2 * half_dt_sub;
             }
 
             // === Update neighbor block index ===
             bool unused_temp = true;
             swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
-          }
-        });
+          });
+    } else { // TransportMode::Advection
+      pmb->par_for(
+          "MoveStars::Advection", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+            if (!swarm_d.IsActive(n)) return;
+
+            const auto x_star = x(n) + current_dt * vel_x(n);
+            const auto y_star = y(n) + current_dt * vel_y(n);
+            const auto z_star = z(n) + current_dt * vel_z(n);
+
+            // v^{*,n+1} = v(x^{*,n+1}, t^{n+1})
+            // First parameter b=0 assume to operate on a pack of a single block and
+            // needs to be updated if this becomes a MeshData function
+            const auto vel_x_star =
+                LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV1);
+            const auto vel_y_star =
+                LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV2);
+            const auto vel_z_star =
+                LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV3);
+
+            // Full update using mean velocity
+            x(n) += current_dt * 0.5 * (vel_x(n) + vel_x_star);
+            y(n) += current_dt * 0.5 * (vel_y(n) + vel_y_star);
+
+            if (ndim == 3) {
+              z(n) += current_dt * 0.5 * (vel_z(n) + vel_z_star);
+            }
+
+            // Then update the velocity for the next time step using new position
+            vel_x(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV1);
+            vel_y(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV2);
+            if (ndim == 3) {
+              vel_z(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV3);
+            }
+
+            // === Update neighbor block index ===
+            bool unused_temp = true;
+            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
+          });
+    }
 
   } // end swarm_name loop
 
