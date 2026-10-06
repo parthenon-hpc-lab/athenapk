@@ -124,22 +124,10 @@ KOKKOS_INLINE_FUNCTION
 double random_double(uint64_t seed) { return (hash(seed) >> 11) * (1.0 / (1ULL << 53)); }
 
 // ===================================================================================
-// Poisson sampler via Knuth's algorithm
-//
-// Draws an integer from a Poisson distribution with mean lambda using
-// repeated uniform draws. Knuth's product method is exact only while exp(-lambda)
-// and the running product stay representable (lambda <~ 700 in double precision):
-// beyond that the result would be set by floating-point underflow (~745). Larger
-// means are therefore drawn as a sum of independent Poisson draws of mean
-// lambda / n_chunks <= kPoissonMaxChunk, which is exactly Poisson(lambda). For
-// lambda <= kPoissonMaxChunk this is a single draw, identical to before. The work
-// is done in double precision regardless of Real. Average loop iterations equal
-// lambda, so very large means are slow (but correct).
-//
-// seed    : deterministic seed (e.g. from SeedFromParticle), combined with an
-//           internal counter to draw a stream of independent uniforms
-// lambda  : expected number of events (>= 0)
-// Returns : Poisson-distributed integer sample
+// Poisson(lambda) sampler (Knuth's method) on a counter-based stream from seed.
+// Knuth underflows for lambda >~ 700, so larger means are drawn as a sum of
+// independent draws of mean <= kPoissonMaxChunk (exactly Poisson); below that it is
+// a single draw. Computed in double regardless of Real; cost grows like lambda.
 // ===================================================================================
 
 inline constexpr double kPoissonMaxChunk = 500.0;

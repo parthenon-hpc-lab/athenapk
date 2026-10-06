@@ -66,16 +66,10 @@ using namespace parthenon::package::prelude;
 using utils::few_modes_ft::FewModesFT;
 
 /* ===============================================================================
-ProblemSeedInitialStars: cluster-specific test seeding routine for the stars
-particle module. Places a population of test stellar particles at randomly
-sampled radii (log-uniform between r_min and r_max) around the cluster center,
-each with an isotropically random position on its radius sphere. Each particle
-is assigned a tangential velocity of magnitude v_circ = sqrt(r * g(r)), where
-g(r) is the cluster's gravitational acceleration profile (NFW + BCG + SMBH, cf.
-ClusterGravity::g_from_r), so that it should trace a closed circular orbit under
-the MoveStars leapfrog integrator. Intended purely for testing star transport
-under gravity (star_transport_mode = gravity); particles carry zero mass and no
-other stellar feedback bookkeeping is performed here.
+ProblemSeedInitialStars: test seeding for star transport under gravity. Places
+zero-mass stars uniformly at random within each block, keeping those within r_max
+of the cluster center, each with a tangential velocity v_circ = sqrt(r * g(r))
+from the cluster gravity profile, so they trace circular orbits under MoveStars.
 =============================================================================== */
 void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   auto stars_pkg = pmesh->packages.Get("stars");

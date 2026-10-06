@@ -75,15 +75,11 @@ EvaluateStarFormation(View4D prim, const Coordinates_t &coords, const int k, con
 }
 
 /* ===============================================================================
-EvaluateStarFormationProbability: converts the SMUGGLE star formation rate
-into a per-timestep injection probability. A star takes only the fraction
-mass_efficiency of the cell (a grid cell can't be converted entirely), so the
-whole-cell SMUGGLE probability 1 - exp(-SFR*dt/M_gas) is scaled by
-M_gas/m_star = 1/mass_efficiency (Springel & Hernquist 2003):
-P = min(1, (1 - exp(-SFR*dt/M_gas)) / mass_efficiency).
-The expected mass formed per step, P * mass_efficiency * M_gas, then matches
-SFR*dt, i.e. the star_formation_rate history output. Still only density-gated;
-the virial check is applied separately by the caller.
+EvaluateStarFormationProbability: per-step star formation probability. A star
+takes only mass_efficiency of the cell, so the whole-cell SMUGGLE probability is
+scaled by 1/mass_efficiency (Springel & Hernquist 2003):
+P = min(1, (1 - exp(-SFR*dt/M_gas)) / mass_efficiency), i.e. a mean formed mass
+of SFR*dt. Density-gated only; the caller applies the virial check.
 =============================================================================== */
 
 template <typename View4D>

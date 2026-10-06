@@ -279,12 +279,10 @@ Real ComputeHostSmoothingLength(const parthenon::Coordinates_t &coords, const in
 }
 
 /* ===============================================================================
-Kernel-weighted average hydrogen number density within a stellar
-particle's SN injection sphere, used to rescale terminal momentum by
-local gas density. Host-only; since this feeds a mild n_H^-1/7 rescaling
-rather than a conserved quantity, it skips ComputeRegionFractions' treatment.
-rho_snap is the step's density snapshot (component 0, see
-ApplyStellarFeedback), ghost cells included.
+Kernel-weighted average hydrogen number density within a star's SN injection
+sphere, used to rescale the terminal momentum. Host-only, read from the step's
+density snapshot rho_snap (component 0, ghost cells included); since it feeds a
+mild n_H^-1/7 rescaling, it skips ComputeRegionFractions' treatment.
 =============================================================================== */
 
 template <typename View4D>
@@ -561,18 +559,11 @@ KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
 }
 
 /* ===============================================================================
-Deposits one SN event's share into the calling block's own interior cells,
-following FIRE-2/SMUGGLE (Hopkins et al. 2018, Sects. 2.2-2.3). In the star
-frame each cell b receives mass dm_b = s_b M_ej, total energy dE_b = s_b E_SN
-(fixed, independent of the momentum boost) and momentum
-dp_b = wbar_b p_SN min(sqrt(1 + m_b/dm_b), p_t/p_SN), with s_b = |wbar_b| and
-wbar_b normalised by the same sum over this region (sum_b wbar_b = 0). These are then
-boosted to the simulation frame (eqs. 23-24) and added to cons; the thermal/kinetic split
-follows from primitive recovery. All budgets must already be this region's
-share; this does no cross-block bookkeeping of its own. The boost reads the
-cell gas mass m_b from rho_snap, the step's density snapshot taken before any
-SN deposit (component 0, see ApplyStellarFeedback), so overlapping events
-don't depend on their order.
+Deposits one SN event's region share into this block's interior cells
+(FIRE-2/SMUGGLE, Hopkins et al. 2018): in the star frame, mass s_b*M_ej, energy
+s_b*E_SN and momentum wbar_b*p_SN*min(sqrt(1 + m_b/dm_b), p_t/p_SN), with
+s_b = |wbar_b|; then boosted to the simulation frame (eqs. 23-24). m_b is read
+from the density snapshot rho_snap, so overlapping events are order-independent.
 =============================================================================== */
 
 template <typename View4D>
