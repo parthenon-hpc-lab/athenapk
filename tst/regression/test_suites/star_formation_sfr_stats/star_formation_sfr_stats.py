@@ -10,10 +10,12 @@
 # Seeds N identical, well-separated overdense "peak" cells (problem/star_formation
 # ic_mode=multi_peak) in an otherwise uniform box and runs until every peak has
 # stochastically turned into a star. The per-step injection probability is
-# p = 1 - exp(-lambda*dt) with lambda = sf_efficiency / t_dyn(rho_peak); since this is
-# constant while a peak survives, its conversion time is an exact draw from
-# Exponential(lambda), giving a clean 1:1 comparison to Poisson statistics via a
-# Kolmogorov-Smirnov test. rho_peak/threshold/mass_efficiency are chosen so each peak
+# p = (1 - exp(-lambda_sf*dt)) / sf_mass_efficiency with lambda_sf = sf_efficiency /
+# t_dyn(rho_peak), so that the expected formed mass matches the SFR (each star takes
+# only sf_mass_efficiency of the cell). Since p is constant while a peak survives, its
+# conversion time is an Exponential(lambda) draw with lambda = lambda_sf /
+# sf_mass_efficiency (to first order in lambda_sf*dt), compared to Poisson statistics
+# via a Kolmogorov-Smirnov test. rho_peak/threshold/mass_efficiency are chosen so each peak
 # converts exactly once (post-event density falls below threshold) and rho_bg sits far
 # below threshold. "No spurious star formation elsewhere" is checked without needing to
 # reproduce the C++ std::shuffle peak placement in Python: every legitimate star must
@@ -112,7 +114,9 @@ class TestCase(utils.test_case.TestCaseAbs):
         # Theoretical Poisson rate and run duration.
         # ------------------------------------------------------------------
         self.t_dyn = np.sqrt(3.0 * np.pi / (32.0 * self.G_code * self.rho_peak))
-        self.lam = self.sf_efficiency / self.t_dyn  # 1/Myr
+        # Conversion rate of a peak: the SFR-based rate divided by the fraction of the
+        # cell each star takes (see the probability in star_formation.hpp).
+        self.lam = self.sf_efficiency / self.t_dyn / self.sf_mass_efficiency  # 1/Myr
 
         # tlim s.t. P(any of N peaks still unconverted) = N*exp(-lambda*tlim) is
         # utterly negligible (~exp(-15) ~ 3e-7 here).

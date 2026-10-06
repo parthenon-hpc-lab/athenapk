@@ -76,16 +76,21 @@ EvaluateStarFormation(View4D prim, const Coordinates_t &coords, const int k, con
 
 /* ===============================================================================
 EvaluateStarFormationProbability: converts the SMUGGLE star formation rate
-into a per-timestep Poisson injection probability, P = 1 - exp(-SFR*dt/M_gas).
-Still only density-gated; the virial check is applied separately by the
-caller after the stochastic draw.
+into a per-timestep injection probability. A star takes only the fraction
+mass_efficiency of the cell (a grid cell can't be converted entirely), so the
+whole-cell SMUGGLE probability 1 - exp(-SFR*dt/M_gas) is scaled by
+M_gas/m_star = 1/mass_efficiency (Springel & Hernquist 2003):
+P = min(1, (1 - exp(-SFR*dt/M_gas)) / mass_efficiency).
+The expected mass formed per step, P * mass_efficiency * M_gas, then matches
+SFR*dt, i.e. the star_formation_rate history output. Still only density-gated;
+the virial check is applied separately by the caller.
 =============================================================================== */
 
 template <typename View4D>
 KOKKOS_INLINE_FUNCTION Real EvaluateStarFormationProbability(
     View4D prim, const Coordinates_t &coords, const int k, const int j, const int i,
     const Real threshold, const Real epsilon, const Real gravitational_constant,
-    const int ndim, const Real dt) {
+    const int ndim, const Real dt, const Real mass_efficiency) {
 
   const Real dx = coords.Dxc<1>(k, j, i);
   const Real dy = coords.Dxc<2>(k, j, i);
@@ -97,7 +102,7 @@ KOKKOS_INLINE_FUNCTION Real EvaluateStarFormationProbability(
 
   if (sfr <= 0.0) return 0.0;
 
-  return 1.0 - Kokkos::exp(-sfr * dt / M_gas);
+  return Kokkos::min(1.0, (1.0 - Kokkos::exp(-sfr * dt / M_gas)) / mass_efficiency);
 }
 
 /* ===============================================================================

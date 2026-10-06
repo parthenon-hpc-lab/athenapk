@@ -233,7 +233,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
             // SMUGGLE-style stochastic star formation rate (Marinacci+2019).
             p_local = StarFormation::EvaluateStarFormationProbability(
                 prim, coords, k, j, i, injection_threshold, sf_efficiency,
-                gravitational_constant, ndim, current_dt);
+                gravitational_constant, ndim, current_dt, mass_efficiency);
 
             // Optional virial veto: cells that fail the selected
             // gravitational-collapse gate (SFVirialCriterion) cannot form stars.
@@ -346,7 +346,7 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                      particles_type == ParticlesType::Stars) {
             p_local = StarFormation::EvaluateStarFormationProbability(
                 prim, coords, k, j, i, injection_threshold, sf_efficiency,
-                gravitational_constant, ndim, current_dt);
+                gravitational_constant, ndim, current_dt, mass_efficiency);
             if (p_local > 0.0 && virial_criterion &&
                 !StarFormation::CheckVirialCollapse(
                     prim, coords, k, j, i, gravitational_constant, ndim, gamma,
