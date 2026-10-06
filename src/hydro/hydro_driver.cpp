@@ -19,6 +19,8 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../particles/stars/stellar_feedback.hpp"
+#include "../particles/stars/stellar_particles.hpp"
 #include "../particles/tracers/tracers.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
@@ -613,6 +615,81 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
         hydro_pkg.get());
   }
 
+  // Star particles module
+  auto stars_pkg = pmesh->packages.Get("stars");
+  if (stage == integrator->nstages && stars_pkg->Param<bool>("enabled")) {
+
+    // Reset swarm communication before async particle tasks
+    TaskRegion &sync_region_stars = tc.AddRegion(1);
+    {
+      for (auto &pmb : blocks) {
+        auto &tl = sync_region_stars[0];
+        auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+        auto reset_comms =
+            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+      }
+    }
+
+    TaskRegion &async_region_stars = tc.AddRegion(blocks.size());
+    for (int n = 0; n < blocks.size(); n++) {
+      auto &tl = async_region_stars[n];
+      auto &pmb = blocks[n];
+      auto &mbd0 = pmb->meshblock_data.Get("base");
+      auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+
+      // 1. Inject new stars, then apply feedback: this fills the interior
+      // deposit directly and, for particles whose kernel overlaps a
+      // neighboring block, populates the local ghost swarm with pushed
+      // mirror particles (no cross-block motion yet).
+      auto star_inject = tl.AddTask(none, Stars::InjectStars, mbd0.get(), tm);
+      auto star_feedback =
+          tl.AddTask(star_inject, StellarFeedback::StellarFeedback, mbd0.get(), tm);
+
+      // 2. Move the main star particles, before the comm round below.
+      // MoveStars only touches the "stars" swarm, never ghost_stars, so it
+      // can't disturb the ghost mirrors StellarFeedback just pushed; under
+      // TransportMode::Gravity (the default) it has no dependency on them.
+      auto star_move = tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
+
+      // 3. Single send/receive round for both the ghost mirrors and the
+      // main swarm's new positions (Send/Receive act on every registered
+      // swarm at once). A prior two-round version reused a not-yet-complete
+      // send buffer across rounds (MPI_Request_free doesn't wait for the
+      // send to finish) and hung under real multi-rank MPI; one round fixes
+      // it, matching the working Tracers pattern.
+      auto send =
+          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(), BoundaryCommSubset::all);
+      auto receive =
+          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+
+      // 4. Finish applying feedback from ghost particles that just arrived
+      // from neighboring blocks: recover the true (un-pushed) position
+      // from the stored offset, re-center the kernel, deposit into this
+      // block's interior, then remove the now-consumed ghost particles.
+      auto ghost_feedback =
+          tl.AddTask(receive, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
+    }
+
+    // 5. Star formation/feedback (steps 1/4 above) modify interior `cons` after
+    // this stage's boundary exchange. Exchange ghost cells again, so neighbor
+    // blocks see these changes (consistent face fluxes next step, tracer
+    // interpolation, AMR tagging), then re-sync `prim` with FillDerived before
+    // tracer advection, AMR tagging, the timestep estimate, or output/restart.
+    TaskRegion &fill_derived_stars_region = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = fill_derived_stars_region[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      const auto any = parthenon::BoundaryType::any;
+      auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
+      auto bnd_exchange =
+          parthenon::AddBoundaryExchangeTasks(start_bnd, tl, mu0, pmesh->multilevel);
+      tl.AddTask(bnd_exchange, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+    }
+  }
+
+  // Estimate the next cycle's timestep from the final gas state of this cycle,
+  // i.e. after the operator-split stellar sources above (an SN-heated cell must
+  // limit the next dt). Tracers below don't modify the gas.
   if (stage == integrator->nstages) {
     TaskRegion &tr = tc.AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
@@ -623,6 +700,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
+  // Then move on to tracers
   // First order operator split tracer advection
   if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
     const std::string swarm_name = "tracers";

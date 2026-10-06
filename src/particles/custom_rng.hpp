@@ -28,6 +28,13 @@ inline constexpr uint64_t PHI_64 = 0x9e3779b97f4a7c15ULL;    // floor(2^64 / phi
 inline constexpr uint64_t SILVER_64 = 0xbf58476d1ce4e5b9ULL; // SplitMix64 first mixer
 
 // ===================================================================================
+// Tags so SN II and SN Ia draw independent, reproducible Poisson samples
+// from the same (particle_id, time) seed, instead of correlated numbers.
+// ===================================================================================
+inline constexpr uint64_t SN_II_STREAM = 0x1ULL; // Type II SN event count
+inline constexpr uint64_t SN_Ia_STREAM = 0x2ULL; // Type Ia SN event count
+
+// ===================================================================================
 // Scramble the seed into a uniformly-distributed pseudo-random 64-bit integer
 // Implementation based on SplitMix64 hash function, see e.g.
 // https://github.com/indiesoftby/defold-splitmix64/blob/main/splitmix64/src/main.cpp
@@ -77,6 +84,38 @@ uint64_t SeedFromIndices(int k, int j, int i, int gid, int population, double ti
 }
 
 // ===================================================================================
+// Same using particle IDs
+// ===================================================================================
+
+KOKKOS_INLINE_FUNCTION
+uint64_t SeedFromParticle(std::uint64_t particle_id, double time) {
+  uint64_t time_scaled = static_cast<uint64_t>(time * 1e9);
+  uint64_t seed = particle_id * PHI_64;
+  seed ^= time_scaled * SILVER_64;
+  return hash(seed);
+}
+
+// ===================================================================================
+// Per-star key from its birth time and birth position, used to seed the SN draws
+// instead of the particle ID (which is not unique under AMR, see stars/
+// stellar_particles.cpp). A cell forms at most one star per step and cell centres
+// differ between refinement levels, so the key is unique. The values are hashed
+// bit-exactly (as doubles), so the key does not change as the star moves.
+// ===================================================================================
+
+KOKKOS_INLINE_FUNCTION
+uint64_t DoubleBits(const double v) { return Kokkos::bit_cast<uint64_t>(v); }
+
+KOKKOS_INLINE_FUNCTION
+uint64_t SeedFromBirth(const double t_birth, const double x_birth, const double y_birth,
+                       const double z_birth) {
+  uint64_t seed = hash(DoubleBits(t_birth));
+  seed = hash(seed ^ DoubleBits(x_birth));
+  seed = hash(seed ^ DoubleBits(y_birth));
+  return hash(seed ^ DoubleBits(z_birth));
+}
+
+// ===================================================================================
 // Converts the uint64_t seed to a pseudo-random [0,1] double, see e.g.
 // https://docs.oracle.com/javase/8/docs/api/java/util/Random.html#nextDouble--
 // ===================================================================================
@@ -84,6 +123,35 @@ uint64_t SeedFromIndices(int k, int j, int i, int gid, int population, double ti
 KOKKOS_INLINE_FUNCTION
 double random_double(uint64_t seed) { return (hash(seed) >> 11) * (1.0 / (1ULL << 53)); }
 
+// ===================================================================================
+// Poisson(lambda) sampler (Knuth's method) on a counter-based stream from seed.
+// Knuth underflows for lambda >~ 700, so larger means are drawn as a sum of
+// independent draws of mean <= kPoissonMaxChunk (exactly Poisson); below that it is
+// a single draw. Computed in double regardless of Real; cost grows like lambda.
+// ===================================================================================
+
+inline constexpr double kPoissonMaxChunk = 500.0;
+
+KOKKOS_INLINE_FUNCTION
+int PoissonSampleDeterministic(uint64_t seed, const Real lambda) {
+  if (lambda <= 0.0) return 0;
+  const int n_chunks = static_cast<int>(Kokkos::ceil(lambda / kPoissonMaxChunk));
+  const double chunk_lambda = static_cast<double>(lambda) / n_chunks;
+  const double L = Kokkos::exp(-chunk_lambda);
+  int total = 0;
+  uint64_t counter = 0; // one stream across all chunks, so the chunks are independent
+  for (int c = 0; c < n_chunks; ++c) {
+    int k = 0;
+    double p = 1.0;
+    do {
+      k++;
+      p *= random_double(hash(seed + counter)); // counter-based stream, not pool state
+      counter++;
+    } while (p > L);
+    total += k - 1;
+  }
+  return total;
+}
 } // namespace utils::custom_rng
 
 #endif // CUSTOM_RNG_HPP

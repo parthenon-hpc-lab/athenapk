@@ -106,6 +106,7 @@ using namespace parthenon::driver::prelude;
 
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void InitUserMeshData(ParameterInput *pin);
+void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 void ProblemInitTracerData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md);
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
@@ -123,6 +124,14 @@ using namespace parthenon::driver::prelude;
 void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 } // namespace shattering
+
+namespace star_formation {
+using namespace parthenon::driver::prelude;
+
+void InitUserMeshData(Mesh *mesh, parthenon::ParameterInput *pin);
+void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
+} // namespace star_formation
 
 namespace sod {
 using namespace parthenon::driver::prelude;

@@ -542,6 +542,12 @@ Following restrictions apply to the current tracer implementation:
 
 Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
 
+#### Stars
+
+Star particles (star formation and supernova feedback) are configured via the
+`<stars>` block. See [Star particles](stars.md) for the model, requirements and
+the full parameter reference.
+
 ## Boundary conditions
 
 In addition to enrolling custom boundary conditions, three general options are currently supported by default:
