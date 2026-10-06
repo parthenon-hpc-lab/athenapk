@@ -209,9 +209,10 @@ CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const
 
 /* ===============================================================================
 TransferCellMassToParticle: moves fraction epsilon of a cell's gas mass into
-a new star, scaling density/momentum by (1-epsilon). energy_mode picks
-cons(IEN)'s convention: Isobaric (default) removes only kinetic energy;
-Isothermal (a RAMSES port) scales kinetic+thermal with density. B untouched.
+a new star, scaling density, all three momenta (also in 2D) and passive scalar
+densities by (1-epsilon). energy_mode picks cons(IEN)'s convention: Isobaric
+(default) removes only kinetic energy; Isothermal (a RAMSES port) scales
+kinetic+thermal with density. B untouched.
 =============================================================================== */
 
 template <typename View4D, typename ParticleView, class EOS>
@@ -234,7 +235,9 @@ KOKKOS_INLINE_FUNCTION void TransferCellMassToParticle(
   // Current cell velocity (unchanged by mass transfer)
   const Real vx = prim(IV1, k, j, i);
   const Real vy = prim(IV2, k, j, i);
-  const Real vz = (ndim == 3) ? prim(IV3, k, j, i) : 0.0;
+  // AthenaPK evolves all three momentum components also in 1D/2D (2.5D), so
+  // vz is kept (and IM3 scaled below) regardless of ndim.
+  const Real vz = prim(IV3, k, j, i);
 
   // Update particle arrays
   pmass(swarm_idx) = delta_mass;
@@ -266,7 +269,13 @@ KOKKOS_INLINE_FUNCTION void TransferCellMassToParticle(
   cons(IDN, k, j, i) *= (1.0 - mass_efficiency);
   cons(IM1, k, j, i) *= (1.0 - mass_efficiency);
   cons(IM2, k, j, i) *= (1.0 - mass_efficiency);
-  if (ndim == 3) cons(IM3, k, j, i) *= (1.0 - mass_efficiency);
+  cons(IM3, k, j, i) *= (1.0 - mass_efficiency);
+
+  // Passive scalars are stored as densities: deplete them with the gas so the
+  // remaining gas keeps its concentrations (the star takes its share along).
+  for (int n = nhydro; n < nhydro + nscalars; ++n) {
+    cons(n, k, j, i) *= (1.0 - mass_efficiency);
+  }
 
   // Isobaric: removes only kinetic energy (ie_density is 0 above).
   // Isothermal: also removes internal energy. Magnetic energy is always
