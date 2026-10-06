@@ -106,6 +106,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   if (!enabled) return stars_pkg;
 
+  // Whether the one-time setup in InitialStars (ID offsets, optional seeding)
+  // has run. Written to restart files, so a restarted run doesn't redo it.
+  stars_pkg->AddParam<>("initial_seed_done", false,
+                        parthenon::Params::Mutability::Restart);
+
   // Star formation cell density threshold: minimum density value that cell need
   // to exceed for star formation probability to be > 0
   const auto stars_density_threshold =
@@ -532,39 +537,47 @@ parthenon::Real LocalReduceStarFormationRate(MeshData<Real> *md) {
 }
 
 /* ===============================================================================
-InitialStars: sets up the per-MeshBlock RNG pool for stochastic star
-formation sampling, and initializes "stars_offsets" so dynamically injected
-particles get globally unique IDs (cf. SeedInitialTracers in tracers.cpp).
-No particles are seeded here; this only prepares block-local bookkeeping.
+InitialStars: on the first start only, reserves each block's slice of the
+particle-ID space in "stars_offsets" (so dynamically injected stars get
+globally unique IDs) and optionally seeds an initial population. Parthenon
+also calls this hook on restart; the restored "initial_seed_done" flag then
+skips it, keeping the restored offsets and particles (cf. SeedInitialTracers).
 =============================================================================== */
 
 void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   auto stars_pkg = pmesh->packages.Get("stars");
 
-  // Block local RNG + stars_offsets initialization for every block first.
+  const auto initial_seed_done = stars_pkg->Param<bool>("initial_seed_done");
+  if (parthenon::Globals::my_rank == 0) {
+    std::cout << "[Stars] Initial setup "
+              << (initial_seed_done ? "already done, skipping."
+                                    : "not yet done, proceeding.")
+              << std::endl;
+  }
+  if (initial_seed_done) return;
+
+  // Reserve each block's private ID slice, for every population, before any
+  // seeding: block_offset = gid * ((UINT64_MAX - 1) / nbtotal).
+  const auto swarm_names = stars_pkg->Param<std::vector<std::string>>("swarm_names");
+  const uint64_t nbt = static_cast<uint64_t>(pmesh->nbtotal);
+  const uint64_t id_step = (std::numeric_limits<uint64_t>::max() - 1ULL) / nbt;
   for (auto &pmb : pmesh->block_list) {
-    uint64_t seed = std::hash<uint64_t>{}(
-        static_cast<uint64_t>(tm.ncycle) * utils::custom_rng::PHI_64 ^
-        static_cast<uint64_t>(pmb->gid) * utils::custom_rng::SILVER_64);
-    auto rng_pool = Kokkos::Random_XorShift64_Pool<>(seed);
-    stars_pkg->AddParam<>("rng_block_" + std::to_string(pmb->gid), rng_pool);
-
-    auto &mbd = pmb->meshblock_data.Get();
-    auto &off = mbd->Get("stars_offsets").data;
+    auto &off = pmb->meshblock_data.Get()->Get("stars_offsets").data;
     auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
-
-    const uint64_t gid = static_cast<uint64_t>(pmb->gid);
-    const uint64_t nbt = static_cast<uint64_t>(pmesh->nbtotal);
-    const uint64_t step = (std::numeric_limits<uint64_t>::max() - 1ULL) / nbt;
-    uint64_t block_offset = gid * step;
-
-    std::memcpy(&host_off(0), &block_offset, sizeof(std::uint64_t));
+    for (std::size_t k_population = 0; k_population < swarm_names.size();
+         ++k_population) {
+      host_off(k_population) =
+          ParticlesUtils::EncodeOffset(static_cast<uint64_t>(pmb->gid) * id_step);
+    }
     Kokkos::deep_copy(off, host_off);
   }
 
   // Only now, after every block's offset is properly initialized, seed once.
   const auto seed_stars = pin->GetOrAddBoolean("stars", "seed_stars", false);
   if (seed_stars) ProblemSeedInitialStars(pmesh, pin, tm);
+
+  // Set even without seeding, so a restart never resets the ID offsets.
+  stars_pkg->UpdateParam<bool>("initial_seed_done", true);
 }
 
 /* ===============================================================================
