@@ -5,11 +5,13 @@
 //========================================================================================
 //! \file star_formation.cpp
 //! \brief Test problems for star formation and supernova feedback.
-//!        Two IC modes are supported:
+//!        Three IC modes are supported:
 //!          - "single_peak": one overdense cell at the box center (legacy setup)
 //!          - "multi_peak":  N_peak randomly placed overdense cells per MeshBlock,
 //!                           all sharing the same density/pressure, for statistical
 //!                           tests of the SFR stochastic sampling.
+//!          - "uniform":     background only, e.g. for a single seeded star
+//!                           (stars/seed_stars) and a supernova blast wave test.
 
 // C++ headers
 #include <cmath>
@@ -25,6 +27,7 @@
 
 // AthenaPK headers
 #include "../main.hpp"
+#include "../particles/particles_utils.hpp"
 #include "../units.hpp"
 #include "utils/error_checking.hpp"
 
@@ -33,7 +36,7 @@ using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using parthenon::Coordinates_t;
 
-enum class ICMode { SinglePeak, MultiPeak };
+enum class ICMode { SinglePeak, MultiPeak, Uniform };
 
 // ========================================================================================
 //! \fn void InitUserMeshData(Mesh *mesh, ParameterInput *pin)
@@ -55,9 +58,11 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
     ic_mode = ICMode::SinglePeak;
   } else if (ic_mode_str == "multi_peak") {
     ic_mode = ICMode::MultiPeak;
+  } else if (ic_mode_str == "uniform") {
+    ic_mode = ICMode::Uniform;
   } else {
-    PARTHENON_FAIL("problem/star_formation/ic_mode must be 'single_peak' or "
-                   "'multi_peak'");
+    PARTHENON_FAIL("problem/star_formation/ic_mode must be 'single_peak', "
+                   "'multi_peak' or 'uniform'");
   }
   pkg->AddParam<>("problem/star_formation/ic_mode", ic_mode);
 
@@ -192,7 +197,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
         }
       }
     }
-  } else { // ICMode::MultiPeak
+  } else if (ic_mode == ICMode::MultiPeak) {
     const auto n_peaks = pkg->Param<int>("problem/star_formation/n_peaks");
     const auto rng_seed = pkg->Param<uint64_t>("problem/star_formation/rng_seed");
 
@@ -229,6 +234,74 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
   }
 
   u_dev.DeepCopy(u);
+}
+
+// ========================================================================================
+//! \fn void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, SimTime &tm)
+//! \brief One star of mass star_mass (Msun) at rest at (star_x, star_y, star_z),
+//!        added to the block containing that point (first population only).
+// ========================================================================================
+void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
+  auto stars_pkg = pmesh->packages.Get("stars");
+  const auto swarm_name = stars_pkg->Param<std::vector<std::string>>("swarm_names")[0];
+  const auto units = pmesh->packages.Get("Hydro")->Param<Units>("units");
+  const std::string blk = "problem/star_formation";
+  const Real xs = pin->GetOrAddReal(blk, "star_x", 0.0);
+  const Real ys = pin->GetOrAddReal(blk, "star_y", 0.0);
+  const Real zs = pin->GetOrAddReal(blk, "star_z", 0.0);
+  const Real ms = pin->GetOrAddReal(blk, "star_mass", 100.0) * units.msun();
+  const bool unique_ids = stars_pkg->Param<bool>(swarm_name + "_unique_ids");
+
+  for (auto &pmb : pmesh->block_list) {
+    const auto &c = pmb->coords;
+    const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+    const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+    const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+    const bool host = xs >= c.Xf<1>(ib.s) && xs < c.Xf<1>(ib.e + 1) &&
+                      ys >= c.Xf<2>(jb.s) && ys < c.Xf<2>(jb.e + 1) &&
+                      zs >= c.Xf<3>(kb.s) && zs < c.Xf<3>(kb.e + 1);
+    if (!host) continue;
+
+    auto &off = pmb->meshblock_data.Get()->Get("stars_offsets").data;
+    auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
+    std::uint64_t block_offset;
+    std::memcpy(&block_offset, &host_off(0), sizeof(std::uint64_t));
+
+    auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get(swarm_name);
+    auto ctx = swarm->AddEmptyParticles(1);
+    auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
+    auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
+    auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+    auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
+    auto &vx = swarm->Get<Real>("v_x").Get();
+    auto &vy = swarm->Get<Real>("v_y").Get();
+    auto &vz = swarm->Get<Real>("v_z").Get();
+    auto &pmass = swarm->Get<Real>("mass").Get();
+    auto &pmass0 = swarm->Get<Real>("birth_mass").Get();
+    auto &t_inj = swarm->Get<Real>("injection_time").Get();
+    auto &birth_x = swarm->Get<Real>("birth_x").Get();
+    auto &birth_y = swarm->Get<Real>("birth_y").Get();
+    auto &birth_z = swarm->Get<Real>("birth_z").Get();
+    const Real t0 = tm.time;
+    const std::uint64_t new_id =
+        unique_ids ? block_offset : ParticlesUtils::kDummyParticleId;
+
+    pmb->par_for(
+        "ProblemSeedInitialStars::SingleStar", 0, 0, KOKKOS_LAMBDA(const int new_n) {
+          const int n = ctx.GetNewParticleIndex(new_n);
+          x(n) = birth_x(n) = xs;
+          y(n) = birth_y(n) = ys;
+          z(n) = birth_z(n) = zs;
+          vx(n) = vy(n) = vz(n) = 0.0;
+          pmass(n) = pmass0(n) = ms;
+          t_inj(n) = t0;
+          id(n) = new_id;
+        });
+
+    block_offset += 1;
+    std::memcpy(&host_off(0), &block_offset, sizeof(std::uint64_t));
+    Kokkos::deep_copy(off, host_off);
+  }
 }
 
 } // namespace star_formation

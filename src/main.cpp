@@ -118,6 +118,7 @@ int main(int argc, char *argv[]) {
   } else if (problem == "star_formation") {
     pman.app_input->InitUserMeshData = star_formation::InitUserMeshData;
     pman.app_input->ProblemGenerator = star_formation::ProblemGenerator;
+    Stars::ProblemSeedInitialStars = star_formation::ProblemSeedInitialStars;
   } else if (problem == "shattering") {
     pman.app_input->InitUserMeshData = shattering::InitUserMeshData;
     pman.app_input->ProblemGenerator = shattering::ProblemGenerator;

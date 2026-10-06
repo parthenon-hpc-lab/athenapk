@@ -130,6 +130,7 @@ using namespace parthenon::driver::prelude;
 
 void InitUserMeshData(Mesh *mesh, parthenon::ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
+void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 } // namespace star_formation
 
 namespace sod {

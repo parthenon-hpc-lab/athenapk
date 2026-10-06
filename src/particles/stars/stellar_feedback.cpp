@@ -191,6 +191,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   // Kernel radius, in cells, anchored to whichever block hosts the star at
   // the moment of the event -- see ComputeHostSmoothingLength.
   const auto r_cells = stars_pkg->Param<int>("SN_injection_radius_cells");
+  const auto test_event_age = stars_pkg->Param<Real>("SN_test_event_age");
 
   // Portinari+ lifetime table (always present)
   const auto log_mass_d = stars_pkg->Param<parthenon::ParArray1D<Real>>("log_mass_table");
@@ -243,7 +244,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             Real M_ej_unused = 0.0;
             ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
                               log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
-                              msun_in_code_units,
+                              msun_in_code_units, test_event_age,
                               utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
                                                                birth_y(n), birth_z(n)),
                               N_SN_II, M_ej_unused);
@@ -301,7 +302,8 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           if (SN_II_enabled) {
             ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
                               log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
-                              msun_in_code_units, birth_key, N_SN_II, M_ej_II_tot);
+                              msun_in_code_units, test_event_age, birth_key, N_SN_II,
+                              M_ej_II_tot);
             N_SN += N_SN_II;
           }
           if (SN_Ia_enabled) {

@@ -258,6 +258,7 @@ All parameters below go in the `<stars>` block.
 | `SN_Ia_enabled` | `false` | type Ia SN feedback |
 | `E_SN_per_event` | `1.0e51` | energy per SN, erg |
 | `SN_injection_radius_cells` | `2` | kernel radius in host cells: $2h = (r+1)\Delta x$ |
+| `SN_test_event_age` | `-1` (off) | testing only: replaces the SN II rate by exactly one event per star at this age (code time units), with the IMF-mean ejecta of 8–100 M$_\odot$ stars; requires `SN_II_enabled` |
 
 ## Test problems and regression tests
 
@@ -266,6 +267,10 @@ All parameters below go in the `<stars>` block.
   `rho_peak` in pressure equilibrium. These are set in `<problem/star_formation>`:
   either one peak at (`x_peak`, `y_peak`, `z_peak`) with `ic_mode = single_peak`,
   or `n_peaks` random peaks per block with `ic_mode = multi_peak` (`rng_seed`).
+  `ic_mode = uniform` sets the background only; with `stars/seed_stars = true` it
+  then places one star of `star_mass` (M$_\odot$) at rest at (`star_x`, `star_y`,
+  `star_z`). Combined with `SN_test_event_age = 0`, this gives a single supernova
+  blast wave to compare with the Sedov–Taylor solution.
 - **Cluster star seeding** (`stars/seed_stars = true` with `problem_id = cluster`):
   zero-mass stars on circular orbits within `r_max` of the cluster center, for
   testing `transport_mode = gravity`. Parameters `n_stars` (per MPI rank), `r_max`

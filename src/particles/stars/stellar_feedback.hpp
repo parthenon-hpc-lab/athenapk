@@ -100,7 +100,8 @@ Real NormedChabrierIMF(const Real m_sim, const Real msun_in_code_units) {
 Stochastic Type II SN event count/ejecta mass over dt, using Portinari+
 (1998) lifetime/ejecta tables and a Chabrier (2003) IMF: dying stars map
 to a mass window [M1,M2], and N_SNII/M_ej are log-spaced quadrature
-integrals of phi(m)/phi(m)*f_rec(m)*m over it (Eq. 22-23). 0 if N=0.
+integrals of phi(m)/phi(m)*f_rec(m)*m over it (Eq. 22-23). Testing: with
+test_event_age >= 0, one event with the 8-100 Msun mean ejecta at that age.
 =============================================================================== */
 KOKKOS_INLINE_FUNCTION void
 ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
@@ -108,8 +109,8 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
                   const parthenon::ParArray1D<Real> &log_tau_table, const int n_table,
                   const parthenon::ParArray1D<Real> &log_sn_mass_table,
                   const parthenon::ParArray1D<Real> &frec_table, const int n_ejecta,
-                  const Real msun_in_code_units, const std::uint64_t particle_key,
-                  int &N_out, Real &M_ejecta_out) {
+                  const Real msun_in_code_units, const Real test_event_age,
+                  const std::uint64_t particle_key, int &N_out, Real &M_ejecta_out) {
 
   N_out = 0;
   M_ejecta_out = 0.0;
@@ -119,6 +120,8 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
 
   const Real M_min_SNII = 8.0 * msun_in_code_units;
   const Real M_max_SNII = 100.0 * msun_in_code_units;
+  const bool forced = test_event_age >= 0.0;
+  if (forced && !(age <= test_event_age && test_event_age < age_p)) return;
 
   const Real log_age = Kokkos::log10(age);
   const Real log_age_p = Kokkos::log10(age_p);
@@ -159,8 +162,8 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
     return frec_table(lo) + frac * (frec_table(hi) - frec_table(lo));
   };
 
-  const Real M_high = mass_from_tau(log_age);
-  const Real M_low = mass_from_tau(log_age_p);
+  const Real M_high = forced ? M_max_SNII : mass_from_tau(log_age);
+  const Real M_low = forced ? M_min_SNII : mass_from_tau(log_age_p);
 
   const Real M1 = Kokkos::max(M_low, M_min_SNII);
   const Real M2 = Kokkos::min(M_high, M_max_SNII);
@@ -198,7 +201,8 @@ ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass
   // actual discrete event count N to get total ejecta mass (in code units).
   const uint64_t seed = utils::custom_rng::SeedFromParticle(particle_key, t) ^
                         utils::custom_rng::SN_II_STREAM;
-  const int N = utils::custom_rng::PoissonSampleDeterministic(seed, N_expected);
+  const int N =
+      forced ? 1 : utils::custom_rng::PoissonSampleDeterministic(seed, N_expected);
 
   if (N > 0) {
     const Real mean_ejecta_per_event = integral_Mej / integral_N;

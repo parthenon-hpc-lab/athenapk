@@ -202,6 +202,16 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<>("SN_II_enabled", SN_II_enabled);
   stars_pkg->AddParam<>("SN_Ia_enabled", SN_Ia_enabled);
 
+  // Testing only: every star has exactly one SN II at this age (code time units)
+  const auto SN_test_event_age = pin->GetOrAddReal("stars", "SN_test_event_age", -1.0);
+  if (SN_test_event_age >= 0.0) {
+    PARTHENON_WARN("stars/SN_test_event_age is set: SN II rates are replaced by a single "
+                   "forced event per star (testing only).");
+    PARTHENON_REQUIRE(SN_II_enabled,
+                      "stars/SN_test_event_age requires SN_II_enabled = true");
+  }
+  stars_pkg->AddParam<>("SN_test_event_age", SN_test_event_age);
+
   // Rank-wide totals ApplyStellarFeedback accumulates every step, read back
   // for the sn_ii_power/sn_ia_power history outputs. sn_energy_reset_cycle
   // starts at -1 so cycle 0 always triggers the first reset; dt defaults to
