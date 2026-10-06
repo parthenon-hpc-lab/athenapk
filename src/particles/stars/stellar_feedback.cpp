@@ -257,6 +257,10 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                     : 0.0;
             const Real p_SN_tot = p_SN_II + p_SN_Ia;
 
+            // Total SN energy coupled in the star frame (SMUGGLE eq. 20, f_SN = 1).
+            // Fixed by the event count, independent of the momentum boost.
+            const Real E_SN_tot = N_SN * E_SN_per_event;
+
             // Terminal momentum depends on N_SN, not the ejecta mass budget.
             // Despite the name it is an extensive event-total like p_SN_tot,
             // so it must also be split by region fraction below -- leaving it
@@ -297,6 +301,12 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             if (oz != 0) active_axis[n_active++] = 2;
             const int n_neighbors = (n_active > 0) ? ((1 << n_active) - 1) : 0;
 
+            // FIRE-2 vector-weight factors over the full kernel (geometry only),
+            // shared by every region this event is split across.
+            Real f_plus[3], f_minus[3];
+            ComputeVectorWeightFactors(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
+                                       r_search, f_plus, f_minus);
+
             // fraction[0] is the host's own share; see ComputeRegionFractions
             // for how the rest are indexed (matches GhostFillLoop's mask
             // convention exactly, so it can rederive the same split below
@@ -305,19 +315,18 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             if (n_active > 0) {
               ComputeRegionFractions(coords, ndim, x(n), y(n), z(n), h_smooth, k, j, i,
                                      r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-                                     active_axis, axis_offset, n_active, fraction);
+                                     active_axis, axis_offset, n_active, f_plus, f_minus,
+                                     fraction);
             }
 
             // Deposit the host's own region directly; every other region
-            // (if any) is picked up below via the ghost swarm. M_ej_tot,
-            // p_SN_tot and p_terminal_nH_scaled are all extensive event
-            // totals, so all three are scaled by this region's fraction.
-            if (fraction[0] > 0.0) {
-              ApplyKineticSNe(cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n),
-                              v_y(n), v_z(n), fraction[0] * M_ej_tot,
-                              fraction[0] * p_SN_tot, fraction[0] * p_terminal_nH_scaled,
-                              h_smooth, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e);
-            }
+            // (if any) is picked up below via the ghost swarm. All budgets are
+            // extensive event totals, scaled by this region's fraction.
+            ApplyKineticSNe(cons, coords, ndim, x(n), y(n), z(n), k, j, i, v_x(n), v_y(n),
+                            v_z(n), fraction[0] * M_ej_tot, fraction[0] * E_SN_tot,
+                            fraction[0] * p_SN_tot, fraction[0] * p_terminal_nH_scaled,
+                            h_smooth, f_plus, f_minus, kb.s, kb.e, jb.s, jb.e, ib.s,
+                            ib.e);
 
             lN_ghost += n_neighbors;
 
@@ -358,6 +367,13 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
       auto &gp_SN_tot = gswarm->Get<Real>("p_SN_tot").Get();
       auto &gp_terminal_Nsn = gswarm->Get<Real>("p_terminal_Nsn").Get();
       auto &gh_smooth = gswarm->Get<Real>("h_smooth").Get();
+      auto &gE_SN_tot = gswarm->Get<Real>("E_SN_tot").Get();
+      auto &gf_plus_x = gswarm->Get<Real>("f_plus_x").Get();
+      auto &gf_plus_y = gswarm->Get<Real>("f_plus_y").Get();
+      auto &gf_plus_z = gswarm->Get<Real>("f_plus_z").Get();
+      auto &gf_minus_x = gswarm->Get<Real>("f_minus_x").Get();
+      auto &gf_minus_y = gswarm->Get<Real>("f_minus_y").Get();
+      auto &gf_minus_z = gswarm->Get<Real>("f_minus_z").Get();
       auto &g_offset_x = gswarm->Get<Real>("offset_x").Get();
       auto &g_offset_y = gswarm->Get<Real>("offset_y").Get();
       auto &g_offset_z = gswarm->Get<Real>("offset_z").Get();
@@ -400,13 +416,18 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             // included): 1 active axis -> 1 neighbor, 2 -> 3, 3 -> 7.
             const int n_neighbors = (1 << n_active) - 1; // 1, 3, or 7
 
-            // Same split as the interior-domain pass (deterministic given the
-            // same inputs); fraction[mask] (mask=1..n_neighbors) is this
-            // neighbor direction's share, matching the spawn step's mask below.
+            // Same vector-weight factors and split as the interior-domain pass
+            // (deterministic given the same inputs); fraction[mask]
+            // (mask=1..n_neighbors) is this neighbor direction's share,
+            // matching the spawn step's mask below.
+            Real f_plus[3], f_minus[3];
+            ComputeVectorWeightFactors(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
+                                       r_search, f_plus, f_minus);
             Real fraction[8];
             ComputeRegionFractions(coords, ndim, x(n), y(n), z(n), h_smooth, k, j, i,
                                    r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-                                   active_axis, axis_offset, n_active, fraction);
+                                   active_axis, axis_offset, n_active, f_plus, f_minus,
+                                   fraction);
 
             // --- Re-derive this particle's SN event counts and ejecta mass ---------
             // Uses the same reproducible RNG (keyed on particle id + time) as the
@@ -455,6 +476,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                     ? Kokkos::sqrt(2.0 * N_SN_Ia * E_SN_per_event * M_ej_Ia_tot)
                     : 0.0;
             const Real p_SN_tot = p_SN_II + p_SN_Ia;
+
+            // Same star-frame SN energy as the interior-domain pass.
+            const Real E_SN_tot = N_SN * E_SN_per_event;
 
             // Terminal momentum scales with N_SN, independent of the ejecta
             // mass clamping above; extensive like p_SN_tot/M_ej_tot, so it is
@@ -521,13 +545,20 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
               gv_x(g) = v_x(n);
               gv_y(g) = v_y(n);
               gv_z(g) = v_z(n);
-              // M_ej_tot/p_SN_tot/p_terminal_nH_scaled are all extensive
-              // event totals, scaled down to this neighbor direction's own
-              // share via fraction[mask] (see above).
+              // M_ej_tot/E_SN_tot/p_SN_tot/p_terminal_nH_scaled are all
+              // extensive event totals, scaled down to this neighbor
+              // direction's own share via fraction[mask] (see above).
               gM_ej_tot(g) = fraction[mask] * M_ej_tot;
+              gE_SN_tot(g) = fraction[mask] * E_SN_tot;
               gp_SN_tot(g) = fraction[mask] * p_SN_tot;
               gp_terminal_Nsn(g) = fraction[mask] * p_terminal_nH_scaled;
               gh_smooth(g) = h_smooth;
+              gf_plus_x(g) = f_plus[0];
+              gf_plus_y(g) = f_plus[1];
+              gf_plus_z(g) = f_plus[2];
+              gf_minus_x(g) = f_minus[0];
+              gf_minus_y(g) = f_minus[1];
+              gf_minus_z(g) = f_minus[2];
             }
           });
 
@@ -607,6 +638,13 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
     auto &gp_SN_tot = gswarm->Get<Real>("p_SN_tot").Get();
     auto &gp_terminal_Nsn = gswarm->Get<Real>("p_terminal_Nsn").Get();
     auto &gh_smooth = gswarm->Get<Real>("h_smooth").Get();
+    auto &gE_SN_tot = gswarm->Get<Real>("E_SN_tot").Get();
+    auto &gf_plus_x = gswarm->Get<Real>("f_plus_x").Get();
+    auto &gf_plus_y = gswarm->Get<Real>("f_plus_y").Get();
+    auto &gf_plus_z = gswarm->Get<Real>("f_plus_z").Get();
+    auto &gf_minus_x = gswarm->Get<Real>("f_minus_x").Get();
+    auto &gf_minus_y = gswarm->Get<Real>("f_minus_y").Get();
+    auto &gf_minus_z = gswarm->Get<Real>("f_minus_z").Get();
 
     auto &g_offset_x = gswarm->Get<Real>("offset_x").Get();
     auto &g_offset_y = gswarm->Get<Real>("offset_y").Get();
@@ -625,13 +663,17 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
           gswarm_d.Xtoijk(true_x, true_y, true_z, i, j, k);
 
           const Real M_ej_tot = gM_ej_tot(g);             // already this region's share
+          const Real E_SN_tot = gE_SN_tot(g);             // already this region's share
           const Real p_SN_tot = gp_SN_tot(g);             // already this region's share
           const Real p_terminal_Nsn = gp_terminal_Nsn(g); // already density-scaled
           const Real h_smooth = gh_smooth(g);             // host-fixed physical radius
+          // Host-computed vector-weight factors over the full kernel
+          const Real f_plus[3] = {gf_plus_x(g), gf_plus_y(g), gf_plus_z(g)};
+          const Real f_minus[3] = {gf_minus_x(g), gf_minus_y(g), gf_minus_z(g)};
 
           ApplyKineticSNe(cons, coords, ndim, true_x, true_y, true_z, k, j, i, gv_x(g),
-                          gv_y(g), gv_z(g), M_ej_tot, p_SN_tot, p_terminal_Nsn, h_smooth,
-                          kb.s, kb.e, jb.s, jb.e, ib.s, ib.e);
+                          gv_y(g), gv_z(g), M_ej_tot, E_SN_tot, p_SN_tot, p_terminal_Nsn,
+                          h_smooth, f_plus, f_minus, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e);
 
           gswarm_d.MarkParticleForRemoval(g);
         });
@@ -639,7 +681,65 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
     gswarm->RemoveMarkedParticles();
   }
 
+  // Every SN deposit into this block (its own events and the ghost payloads
+  // received above) is done by now.
+  ApplyInternalEnergyFloor(mbd);
+
   return TaskStatus::complete;
+}
+
+/* ===============================================================================
+Internal-energy floor after all SN deposits of a step (Hopkins et al. 2018,
+App. E). The coupled total energy is fixed while the momentum is not reduced
+(psi = phi = 1), so the thermal remainder can turn negative in cells whose
+gas recedes from the star. Uses the hydro pressure/temperature floors, or the
+smallest positive Real if neither is set.
+=============================================================================== */
+void ApplyInternalEnergyFloor(MeshBlockData<Real> *mbd) {
+  auto *pmb = mbd->GetParentPointer();
+  auto hydro_pkg = pmb->packages.Get("Hydro");
+  const auto fluid = hydro_pkg->Param<Fluid>("fluid");
+
+  Real pfloor, efloor;
+  if (fluid == Fluid::euler) {
+    const auto &eos = hydro_pkg->Param<AdiabaticHydroEOS>("eos");
+    pfloor = eos.GetPressureFloor();
+    efloor = eos.GetInternalEFloor();
+  } else if (fluid == Fluid::glmmhd) {
+    const auto &eos = hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos");
+    pfloor = eos.GetPressureFloor();
+    efloor = eos.GetInternalEFloor();
+  } else {
+    PARTHENON_FAIL("ApplyInternalEnergyFloor: unsupported fluid type.");
+  }
+  const Real gm1 = hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0;
+  const bool has_bfield = (IB1 < hydro_pkg->Param<int>("nhydro"));
+  const Real tiny = std::numeric_limits<Real>::min();
+
+  auto &cons = mbd->PackVariables(std::vector<std::string>{"cons"});
+  const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+  const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+
+  pmb->par_for(
+      "StellarFeedback::InternalEnergyFloor", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+        const Real rho = cons(IDN, k, j, i);
+        const Real ke = 0.5 *
+                        (cons(IM1, k, j, i) * cons(IM1, k, j, i) +
+                         cons(IM2, k, j, i) * cons(IM2, k, j, i) +
+                         cons(IM3, k, j, i) * cons(IM3, k, j, i)) /
+                        rho;
+        const Real me = has_bfield ? 0.5 * (cons(IB1, k, j, i) * cons(IB1, k, j, i) +
+                                            cons(IB2, k, j, i) * cons(IB2, k, j, i) +
+                                            cons(IB3, k, j, i) * cons(IB3, k, j, i))
+                                   : 0.0;
+        Real e_min = Kokkos::max(pfloor / gm1, rho * efloor);
+        if (e_min <= 0.0) e_min = tiny;
+        if (cons(IEN, k, j, i) - ke - me < e_min) {
+          cons(IEN, k, j, i) = ke + me + e_min;
+        }
+      });
 }
 
 /* ===============================================================================

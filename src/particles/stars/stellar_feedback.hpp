@@ -381,10 +381,103 @@ void DetectKernelOverlap(const parthenon::Coordinates_t &coords, const int ndim,
 }
 
 /* ===============================================================================
-Splits a kernel's weight between the host's own region and each
-overlapping neighbor found by DetectKernelOverlap (fraction[0] is the
-host's share). Walks the same cell cube ApplyKineticSNe uses, so
-same-level splits are exact; fraction[] still sums to 1 regardless.
+FIRE-2 vector-weight correction factors f_{+,-} per axis (Hopkins et al. 2018,
+MNRAS 477, 1578, eqs. 9-10), summed over the full kernel at the host's
+resolution. They only depend on geometry, so the host computes them once per
+event and ships them to every block the kernel overlaps. With them the vector
+weights cancel exactly (sum_b wbar_b = 0), even for an off-centre star.
+=============================================================================== */
+KOKKOS_INLINE_FUNCTION void ComputeVectorWeightFactors(
+    const parthenon::Coordinates_t &coords, const int ndim, const parthenon::Real x_star,
+    const parthenon::Real y_star, const parthenon::Real z_star, const int k_host,
+    const int j_host, const int i_host, const parthenon::Real h_smooth,
+    const int r_search, parthenon::Real f_plus[3], parthenon::Real f_minus[3]) {
+  using parthenon::Real;
+  const Real r_max = 2.0 * h_smooth;
+  const int rk = (ndim == 3) ? r_search : 0;
+  Real s_plus[3] = {0.0, 0.0, 0.0};
+  Real s_minus[3] = {0.0, 0.0, 0.0};
+
+  for (int dk = -rk; dk <= rk; dk++) {
+    for (int dj = -r_search; dj <= r_search; dj++) {
+      for (int di = -r_search; di <= r_search; di++) {
+        const int kk = k_host + dk;
+        const int jj = j_host + dj;
+        const int ii = i_host + di;
+        const Real d[3] = {coords.Xc<1>(ii) - x_star, coords.Xc<2>(jj) - y_star,
+                           (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0};
+        const Real r2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        if (r2 <= 0.0 || r2 > r_max * r_max) continue;
+        const Real r = Kokkos::sqrt(r2);
+        const Real w = CubicSplineKernel(r, h_smooth) * coords.CellVolume(kk, jj, ii);
+        if (w <= 0.0) continue;
+        for (int a = 0; a < 3; ++a) {
+          const Real xhat = d[a] / r;
+          if (xhat > 0.0) {
+            s_plus[a] += w * xhat;
+          } else {
+            s_minus[a] -= w * xhat;
+          }
+        }
+      }
+    }
+  }
+
+  for (int a = 0; a < 3; ++a) {
+    f_plus[a] = 1.0;
+    f_minus[a] = 1.0;
+    if (s_plus[a] > 0.0 && s_minus[a] > 0.0) {
+      const Real q = s_minus[a] / s_plus[a];
+      f_plus[a] = Kokkos::sqrt(0.5 * (1.0 + q * q));
+      f_minus[a] = Kokkos::sqrt(0.5 * (1.0 + 1.0 / (q * q)));
+    }
+  }
+}
+
+/* ===============================================================================
+Weights of one kernel cell: the unnormalised FIRE-2 vector weight wvec (eq. 9,
+used for momentum) and the scalar weight sigma = |wvec| (mass and energy). The
+cell holding the star exactly at its centre (r == 0) has no direction: it gets
+a scalar share only (sigma = its kernel weight, wvec = 0), i.e. its energy
+share is purely thermal. Returns false outside the kernel support.
+=============================================================================== */
+KOKKOS_INLINE_FUNCTION bool
+KernelCellWeights(const parthenon::Coordinates_t &coords, const int ndim,
+                  const parthenon::Real x_star, const parthenon::Real y_star,
+                  const parthenon::Real z_star, const int kk, const int jj, const int ii,
+                  const parthenon::Real h_smooth, const parthenon::Real f_plus[3],
+                  const parthenon::Real f_minus[3], parthenon::Real &sigma,
+                  parthenon::Real wvec[3]) {
+  using parthenon::Real;
+  const Real d[3] = {coords.Xc<1>(ii) - x_star, coords.Xc<2>(jj) - y_star,
+                     (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0};
+  const Real r2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+  const Real r_max = 2.0 * h_smooth;
+  if (r2 > r_max * r_max) return false;
+
+  const Real r = Kokkos::sqrt(r2);
+  const Real w = CubicSplineKernel(r, h_smooth) * coords.CellVolume(kk, jj, ii);
+  if (w <= 0.0) return false;
+
+  if (r2 <= 0.0) {
+    wvec[0] = wvec[1] = wvec[2] = 0.0;
+    sigma = w;
+    return true;
+  }
+  for (int a = 0; a < 3; ++a) {
+    const Real xhat = d[a] / r;
+    wvec[a] = w * xhat * ((xhat > 0.0) ? f_plus[a] : f_minus[a]);
+  }
+  sigma = Kokkos::sqrt(wvec[0] * wvec[0] + wvec[1] * wvec[1] + wvec[2] * wvec[2]);
+  return true;
+}
+
+/* ===============================================================================
+Splits a kernel's weight (the scalar weights sigma, which also normalise the
+momentum, see ApplyKineticSNe) between the host's own region and each
+overlapping neighbor found by DetectKernelOverlap (fraction[0] is the host's
+share). Walks the same cells ApplyKineticSNe uses, so same-level splits are
+exact; fraction[] still sums to 1 regardless.
 =============================================================================== */
 KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
     const parthenon::Coordinates_t &coords, const int ndim, const parthenon::Real x_star,
@@ -392,7 +485,8 @@ KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
     const parthenon::Real h_smooth, const int k_host, const int j_host, const int i_host,
     const int r_search, const int kb_s, const int kb_e, const int jb_s, const int jb_e,
     const int ib_s, const int ib_e, const int active_axis[3], const int axis_offset[3],
-    const int n_active, parthenon::Real fraction[8]) {
+    const int n_active, const parthenon::Real f_plus[3], const parthenon::Real f_minus[3],
+    parthenon::Real fraction[8]) {
   using parthenon::Real;
 
   const int n_neighbors = (1 << n_active) - 1; // 1, 3, or 7
@@ -416,28 +510,25 @@ KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
     }
   }
 
-  const Real r_max = 2.0 * h_smooth;
+  const int rk = (ndim == 3) ? r_search : 0;
   Real total = 0.0;
 
-  for (int dk = -r_search; dk <= r_search; dk++) {
+  for (int dk = -rk; dk <= rk; dk++) {
     for (int dj = -r_search; dj <= r_search; dj++) {
       for (int di = -r_search; di <= r_search; di++) {
-        const int kk = k_host + (ndim == 3 ? dk : 0);
+        const int kk = k_host + dk;
         const int jj = j_host + dj;
         const int ii = i_host + di;
+
+        Real sigma, wvec[3];
+        if (!KernelCellWeights(coords, ndim, x_star, y_star, z_star, kk, jj, ii, h_smooth,
+                               f_plus, f_minus, sigma, wvec)) {
+          continue;
+        }
 
         const Real x = coords.Xc<1>(ii);
         const Real y = coords.Xc<2>(jj);
         const Real z = (ndim == 3) ? coords.Xc<3>(kk) : z_star;
-        const Real dx = x - x_star;
-        const Real dy = y - y_star;
-        const Real dz = (ndim == 3) ? (z - z_star) : 0.0;
-        const Real r2 = dx * dx + dy * dy + dz * dz;
-        if (r2 > r_max * r_max) continue;
-
-        const Real w_kernel = CubicSplineKernel(Kokkos::sqrt(r2), h_smooth);
-        if (w_kernel <= 0.0) continue;
-        const Real w = w_kernel * coords.CellVolume(kk, jj, ii);
 
         int mask = 0;
         for (int a = 0; a < n_active; ++a) {
@@ -448,8 +539,8 @@ KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
           if (outside) mask |= (1 << a);
         }
 
-        fraction[mask] += w;
-        total += w;
+        fraction[mask] += sigma;
+        total += sigma;
       }
     }
   }
@@ -459,128 +550,110 @@ KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
       fraction[m] /= total;
   } else {
     // Degenerate fallback -- shouldn't trigger, since DetectKernelOverlap
-    // already established kernel-weighted cells lie past the boundary
-    // using this exact same per-cell criterion. Keep everything on the
-    // host rather than silently discarding mass/momentum if it ever does.
+    // already found kernel-weighted cells past the boundary. Keep everything
+    // on the host rather than silently discarding mass/energy/momentum.
     fraction[0] = 1.0;
   }
 }
 
 /* ===============================================================================
-Deposits SN ejecta mass/momentum/energy from a stellar particle into the
-calling block's own interior cells, via a top-hat volume-weighted
-kernel. M_ej_tot/p_SN_tot/p_terminal_nH_scaled must already be fully
-prepared by the caller; this does no cross-block bookkeeping of its own.
+Deposits one SN event's share into the calling block's own interior cells,
+following FIRE-2/SMUGGLE (Hopkins et al. 2018, Sects. 2.2-2.3). In the star
+frame each cell b receives mass dm_b = s_b M_ej, total energy dE_b = s_b E_SN
+(fixed, independent of the momentum boost) and momentum
+dp_b = wbar_b p_SN min(sqrt(1 + m_b/dm_b), p_t/p_SN), with s_b = |wbar_b| and
+wbar_b normalised by the same sum over this region (sum_b wbar_b = 0). These are then
+boosted to the simulation frame (eqs. 23-24) and added to cons; the thermal/kinetic split
+follows from primitive recovery. All budgets must already be this region's
+share; this does no cross-block bookkeeping of its own.
 =============================================================================== */
 
 template <typename View4D>
-KOKKOS_INLINE_FUNCTION void
-ApplyKineticSNe(View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
-                const parthenon::Real x_star, const parthenon::Real y_star,
-                const parthenon::Real z_star, const int k_host, const int j_host,
-                const int i_host, const parthenon::Real vel_x_star,
-                const parthenon::Real vel_y_star, const parthenon::Real vel_z_star,
-                const parthenon::Real M_ej_tot, const parthenon::Real p_SN_tot,
-                const parthenon::Real p_terminal_nH_scaled,
-                const parthenon::Real h_smooth, const int kb_s, const int kb_e,
-                const int jb_s, const int jb_e, const int ib_s, const int ib_e) {
+KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
+    View4D &cons, const parthenon::Coordinates_t &coords, const int ndim,
+    const parthenon::Real x_star, const parthenon::Real y_star,
+    const parthenon::Real z_star, const int k_host, const int j_host, const int i_host,
+    const parthenon::Real vel_x_star, const parthenon::Real vel_y_star,
+    const parthenon::Real vel_z_star, const parthenon::Real M_ej_tot,
+    const parthenon::Real E_SN_tot, const parthenon::Real p_SN_tot,
+    const parthenon::Real p_terminal_nH_scaled, const parthenon::Real h_smooth,
+    const parthenon::Real f_plus[3], const parthenon::Real f_minus[3], const int kb_s,
+    const int kb_e, const int jb_s, const int jb_e, const int ib_s, const int ib_e) {
 
   using parthenon::Real;
 
   const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i_host));
-  const Real r_max = 2.0 * h_smooth;
+  const int rk = (ndim == 3) ? r_search : 0;
 
-  // --- Pass 1: kernel-weighted volume normalisation, own interior cells ---
-  // weight_self tracks the r==0 self-cell, where the radial kick direction
-  // is undefined. Mass keeps using weight_sum (self-inclusive); momentum
-  // /energy use weight_sum_mom (self-excluded) so that share redistributes.
-  Real weight_sum = 0.0;
-  Real weight_self = 0.0;
-  for (int dk = -r_search; dk <= r_search; dk++) {
+  // --- Pass 1: normalisation over this block's own interior cells ---
+  Real sigma_sum = 0.0;
+  for (int dk = -rk; dk <= rk; dk++) {
     for (int dj = -r_search; dj <= r_search; dj++) {
       for (int di = -r_search; di <= r_search; di++) {
-        const int kk = k_host + (ndim == 3 ? dk : 0);
+        const int kk = k_host + dk;
         const int jj = j_host + dj;
         const int ii = i_host + di;
         if (kk < kb_s || kk > kb_e || jj < jb_s || jj > jb_e || ii < ib_s || ii > ib_e)
           continue;
 
-        const Real dx = coords.Xc<1>(ii) - x_star;
-        const Real dy = coords.Xc<2>(jj) - y_star;
-        const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
-        const Real r2 = dx * dx + dy * dy + dz * dz;
-        if (r2 > r_max * r_max) continue;
-
-        const Real w_kernel = CubicSplineKernel(Kokkos::sqrt(r2), h_smooth);
-        if (w_kernel <= 0.0) continue;
-
-        const Real weight = w_kernel * coords.CellVolume(kk, jj, ii);
-        weight_sum += weight;
-        if (r2 <= 0.0) weight_self = weight;
+        Real sigma, wvec[3];
+        if (!KernelCellWeights(coords, ndim, x_star, y_star, z_star, kk, jj, ii, h_smooth,
+                               f_plus, f_minus, sigma, wvec)) {
+          continue;
+        }
+        sigma_sum += sigma;
       }
     }
   }
 
-  if (weight_sum <= 0.0) return;
-  const Real weight_sum_mom = weight_sum - weight_self;
+  if (sigma_sum <= 0.0) return;
+  const Real v2_star =
+      vel_x_star * vel_x_star + vel_y_star * vel_y_star + vel_z_star * vel_z_star;
 
   // --- Pass 2: deposit mass, momentum and energy, same cell set as above ---
-
-  for (int dk = -r_search; dk <= r_search; dk++) {
+  for (int dk = -rk; dk <= rk; dk++) {
     for (int dj = -r_search; dj <= r_search; dj++) {
       for (int di = -r_search; di <= r_search; di++) {
-        const int kk = k_host + (ndim == 3 ? dk : 0);
+        const int kk = k_host + dk;
         const int jj = j_host + dj;
         const int ii = i_host + di;
         if (kk < kb_s || kk > kb_e || jj < jb_s || jj > jb_e || ii < ib_s || ii > ib_e)
           continue;
 
-        const Real dx = coords.Xc<1>(ii) - x_star;
-        const Real dy = coords.Xc<2>(jj) - y_star;
-        const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
-        const Real r2 = dx * dx + dy * dy + dz * dz;
-        if (r2 > r_max * r_max) continue;
-
-        const Real r = Kokkos::sqrt(r2);
-        const Real w_kernel = CubicSplineKernel(r, h_smooth);
-        if (w_kernel <= 0.0) continue;
+        Real sigma, wvec[3];
+        if (!KernelCellWeights(coords, ndim, x_star, y_star, z_star, kk, jj, ii, h_smooth,
+                               f_plus, f_minus, sigma, wvec)) {
+          continue;
+        }
 
         const Real vol = coords.CellVolume(kk, jj, ii);
-        const Real weight = w_kernel * vol;
-        const Real w = weight / weight_sum;
+        const Real s = sigma / sigma_sum;
+        const Real dM = s * M_ej_tot;      // star frame == simulation frame
+        const Real dE_star = s * E_SN_tot; // star frame, independent of the boost
 
-        const Real dM = w * M_ej_tot;
-        const Real drho = dM / vol;
-
-        const Real rho_i = cons(IDN, kk, jj, ii);
-        const Real m_i = rho_i * vol;
+        // Star-frame momentum: boosted for the unresolved PdV work done on the
+        // swept-up mass m_b + dm_b, capped at the terminal momentum.
+        // The cell holding the star at its centre has wvec = 0: no momentum.
+        const Real m_i = cons(IDN, kk, jj, ii) * vol;
         const Real boost = (dM > 0.0) ? Kokkos::sqrt(1.0 + m_i / dM) : 1.0;
+        const Real p_cell = Kokkos::min(p_SN_tot * boost, p_terminal_nH_scaled);
+        Real dp[3];
+        for (int a = 0; a < 3; ++a) {
+          dp[a] = wvec[a] / sigma_sum * p_cell;
+        }
 
-        // Guard against the singular self-term (r == 0): direction is undefined
-        // there, so this cell gets no kick (w_mom = 0, see weight_sum_mom above)
-        // -- its share of the momentum budget is instead redistributed among the
-        // other cells via their own larger w_mom, rather than silently dropped.
-        const bool is_self = (r2 <= 0.0);
-        const Real w_mom =
-            (is_self || weight_sum_mom <= 0.0) ? 0.0 : weight / weight_sum_mom;
-        const Real dp_i = w_mom * Kokkos::min(p_SN_tot * boost, p_terminal_nH_scaled);
+        // Boost to the simulation frame (Hopkins et al. 2018, eqs. 23-24)
+        const Real dpx = dp[0] + dM * vel_x_star;
+        const Real dpy = dp[1] + dM * vel_y_star;
+        const Real dpz = dp[2] + dM * vel_z_star;
+        const Real dE = dE_star + dp[0] * vel_x_star + dp[1] * vel_y_star +
+                        dp[2] * vel_z_star + 0.5 * dM * v2_star;
 
-        const Real rx = (r > 0.0) ? dx / r : 0.0;
-        const Real ry = (r > 0.0) ? dy / r : 0.0;
-        const Real rz = (r > 0.0) ? dz / r : 0.0;
-
-        const Real u_inject = (dM > 0.0) ? dp_i / dM : 0.0;
-        const Real u_x = u_inject * rx + vel_x_star;
-        const Real u_y = u_inject * ry + vel_y_star;
-        const Real u_z = (ndim == 3) ? (u_inject * rz + vel_z_star) : 0.0;
-
-        const Real dE = 0.5 * drho * (u_x * u_x + u_y * u_y + u_z * u_z);
-
-        Kokkos::atomic_add(&cons(IDN, kk, jj, ii), drho);
-        Kokkos::atomic_add(&cons(IM1, kk, jj, ii), drho * u_x);
-        Kokkos::atomic_add(&cons(IM2, kk, jj, ii), drho * u_y);
-        if (ndim == 3) Kokkos::atomic_add(&cons(IM3, kk, jj, ii), drho * u_z);
-        Kokkos::atomic_add(&cons(IEN, kk, jj, ii), dE);
+        Kokkos::atomic_add(&cons(IDN, kk, jj, ii), dM / vol);
+        Kokkos::atomic_add(&cons(IM1, kk, jj, ii), dpx / vol);
+        Kokkos::atomic_add(&cons(IM2, kk, jj, ii), dpy / vol);
+        Kokkos::atomic_add(&cons(IM3, kk, jj, ii), dpz / vol);
+        Kokkos::atomic_add(&cons(IEN, kk, jj, ii), dE / vol);
       }
     }
   }
@@ -593,12 +666,14 @@ template <class EOS>
 TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                                 const EOS &eos);
 TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+void ApplyInternalEnergyFloor(MeshBlockData<Real> *mbd);
 TaskStatus StellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 
-// History output reductions -- total instantaneous power (energy/time) currently
-// being deposited by each SN channel, read back from the "sn_ii_energy_injected"/
-// "sn_ia_energy_injected" Params ApplyStellarFeedback's own particle-loop
-// reduction accumulates into every step (see that accumulation's comment).
+// History output reductions -- total instantaneous power (energy/time) deposited
+// by each SN channel, read back from the "sn_ii_energy_injected"/
+// "sn_ia_energy_injected" Params ApplyStellarFeedback accumulates every step.
+// Since ApplyKineticSNe couples exactly N_SN * E_SN_per_event per event in the
+// star frame, this nominal energy equals the deposited star-frame energy.
 parthenon::Real LocalReduceSNIIPower(parthenon::MeshData<parthenon::Real> *md);
 parthenon::Real LocalReduceSNIaPower(parthenon::MeshData<parthenon::Real> *md);
 

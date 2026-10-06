@@ -421,6 +421,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       // as-is so every participating block searches the same radius.
       stars_pkg->AddSwarmValue("h_smooth", ghost_name, real_swarmvalue_metadata);
 
+      // This region's share of the event's star-frame SN energy, and the
+      // host-computed FIRE-2 vector-weight factors f_{+,-} (full kernel), so
+      // the receiver builds the same momentum weights as the host.
+      stars_pkg->AddSwarmValue("E_SN_tot", ghost_name, real_swarmvalue_metadata);
+      for (const auto &f_name :
+           {"f_plus_x", "f_plus_y", "f_plus_z", "f_minus_x", "f_minus_y", "f_minus_z"}) {
+        stars_pkg->AddSwarmValue(f_name, ghost_name, real_swarmvalue_metadata);
+      }
+
       // Offset applied to push the particle across the block boundary so
       // Parthenon's swarm transfer picks it up; subtracted back out once
       // the particle lands in the neighbor block, to recover the true
