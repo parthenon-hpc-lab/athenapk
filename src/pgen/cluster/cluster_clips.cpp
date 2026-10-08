@@ -1,11 +1,12 @@
-
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
 // Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
-//! \file agn_triggering.cpp
-//  \brief  Class for computing AGN triggering from Bondi-like and cold gas accretion
+// This file was made in part with generative AI (Claude Opus 5.5).
+//========================================================================================
+//! \file cluster_clips.cpp
+//  \brief  Density, velocity, Alfven velocity, energy and dust-to-gas clips near the AGN
 
 // Parthenon headers
 #include "kokkos_abstraction.hpp"
@@ -16,6 +17,7 @@
 #include <parthenon/package.hpp>
 
 // AthenaPK headers
+#include "../../dust/dust.hpp"
 #include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../eos/adiabatic_hydro.hpp"
 
@@ -56,7 +58,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
 
   if (clip_r > 0 && (dfloor > 0 || eceil < std::numeric_limits<Real>::infinity() ||
                      vceil < std::numeric_limits<Real>::infinity() ||
-                     vAceil < std::numeric_limits<Real>::infinity())) {
+                     vAceil < std::numeric_limits<Real>::infinity() || dtgfloor > 0)) {
     // Grab some necessary variables
     const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
     const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
@@ -75,7 +77,7 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
     Real added_dfloor_mass = 0.0, removed_vceil_energy = 0.0, added_vAceil_mass = 0.0,
          removed_eceil_energy = 0.0, added_dust_mass = 0.0;
 
-    Real num_grain_compositions, dust_num_grains_sizes, dust_scalar_idx_start;
+    int num_grain_compositions = 0, dust_num_grains_sizes = 0, dust_scalar_idx_start = 0;
     const int dust_on = hydro_pkg->Param<bool>("dust_on") ? 1 : 0;
     if (dust_on == 1) {
       dust_num_grains_sizes = hydro_pkg->Param<int>("dust_num_grains_sizes");
@@ -168,29 +170,24 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
               // sum dust mass over all size bins and compositions
               for (int gc_i = 0; gc_i < num_grain_compositions; gc_i++) {
                 for (int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i++) {
-                  int index_into_Mi = dust_scalar_idx_start +
-                                      (2 * ((gc_i * dust_num_grains_sizes) + gs_i)) + 1;
-                  int index_into_Ni = dust_scalar_idx_start +
-                                      (2 * ((gc_i * dust_num_grains_sizes) + gs_i));
-                  total_dust_density += cons(index_into_Mi, k, j, i);
+                  const int index_into_Ni = dust::DustNiIndex(
+                      dust_scalar_idx_start, dust_num_grains_sizes, gc_i, gs_i);
+                  total_dust_density += cons(index_into_Ni + 1, k, j, i);
                 }
               }
               Real dtg_ratio = total_dust_density / cons(IDN, k, j, i);
-              if (dtg_ratio < dtgfloor) {
+              // A cell without dust has no size distribution to rescale (0 * inf = NaN)
+              if (dtg_ratio > 0. && dtg_ratio < dtgfloor) {
                 // Update dtg ratio using the new density after clips applied
                 added_dust_mass_team += (dtgfloor - dtg_ratio) * cons(IDN, k, j, i) *
                                         coords.CellVolume(k, j, i);
                 const Real added_dust_factor = dtgfloor / dtg_ratio;
                 for (int gc_i = 0; gc_i < num_grain_compositions; gc_i++) {
                   for (int gs_i = 0; gs_i < dust_num_grains_sizes; gs_i++) {
-                    int index_into_Mi = dust_scalar_idx_start +
-                                        (2 * ((gc_i * dust_num_grains_sizes) + gs_i)) + 1;
-                    int index_into_Ni = dust_scalar_idx_start +
-                                        (2 * ((gc_i * dust_num_grains_sizes) + gs_i));
-                    cons(index_into_Mi, k, j, i) =
-                        cons(index_into_Mi, k, j, i) * added_dust_factor;
-                    cons(index_into_Ni, k, j, i) =
-                        cons(index_into_Ni, k, j, i) * added_dust_factor;
+                    const int index_into_Ni = dust::DustNiIndex(
+                        dust_scalar_idx_start, dust_num_grains_sizes, gc_i, gs_i);
+                    cons(index_into_Ni, k, j, i) *= added_dust_factor;
+                    cons(index_into_Ni + 1, k, j, i) *= added_dust_factor;
                   }
                 }
               }

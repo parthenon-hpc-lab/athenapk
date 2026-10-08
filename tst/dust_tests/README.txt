@@ -1,7 +1,31 @@
-### Convergence Tests/ Benchmark Tests Against Ideal (Monte Carlo) Simulation
-This test is designed to see how well the grid-based implementation fares against a python-based monte carlo simulation which simulates the evolution of `N_particles` particles in a uniform box that cools just due to dust cooling (ie no gas cooling)
-Main script is `dust_run_onezone_model_singlesim.py`
-For a benchmark test you should set `running_mode= “single”`
-For convergence tests, generate and run the desired matrix of params using `python convergence_tests_generator.py 1`  with the “1” indicating you want to actually sbatch the jobs - note you need to specify your sbatch file in the script. This script should be run on a login node
-If running convergence tests you need to set `running_mode= “convergence”` in `dust_run_onezone_model_singlesim.py` and set Nbins_dummy to any number of dust bins within the convergence matrix that ran okay - basically just so the code knows where to look to read some simulation parameters. The onezone run data will be solved under that specific simulation directory but will be equally relevant for all runs regardless of the number of grain size bins. The final output of the script will be saved comparison histograms and fractional error plots of the grid-implementation of the dust versus the monte-carlo ideal solution.
-Nbins_list has to match the range given in num_grainsize_bins_list in convergence_tests_generator.py
+### One-zone convergence and benchmark tests
+
+These tests compare the grid implementation with a Monte Carlo model in
+`onezone_funcs.py`, which follows `N_particles` grains in a uniform box cooled
+only by dust (no gas cooling).
+
+The Monte Carlo model uses the same grain physics as the code: the same
+sputtering and accretion rates, Dwek & Werner heating, and the same
+n_H / n_e = 2X / (2X + Y). Agreement therefore checks the size-bin
+discretisation and the time integration, not the physics itself.
+
+Main script: `dust_run_onezone_model_singlesim.py`.
+
+The input files and scripts contain absolute paths from the original cluster
+(cooling table, AGB table, `sims_parent_dir`, sbatch file). Edit these first.
+
+Benchmark run:
+- Set `running_mode = "single"` in `dust_run_onezone_model_singlesim.py`.
+
+Convergence tests:
+1. Run `python convergence_tests_generator.py 1` on a login node. The `1` makes
+   it submit the jobs with sbatch; set your sbatch file in the script first.
+2. Set `running_mode = "convergence"` in `dust_run_onezone_model_singlesim.py`.
+3. Set `Nbins_dummy` to any bin count from the matrix whose run finished. It is
+   only used to read the simulation parameters. The one-zone solution is saved
+   under that run's directory, but applies to all bin counts.
+4. `Nbins_list` must match `num_grainsize_bins_list` in
+   `convergence_tests_generator.py`.
+
+The script saves histograms and fractional-error plots comparing the grid
+solution with the Monte Carlo one.

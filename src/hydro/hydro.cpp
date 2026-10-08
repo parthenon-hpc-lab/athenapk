@@ -3,6 +3,8 @@
 // Copyright (c) 2020-2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
+// This file was made in part with generative AI (Claude Opus 5.5).
+//========================================================================================
 
 #include <algorithm>
 #include <limits>
@@ -728,7 +730,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   pkg->AddParam<bool>("dust_on", dust_on);
   if (!dust_on) {
     pkg->AddParam<std::string>("dust_time_integrator", "none");
-    pkg->AddParam<bool>("dust_subcycle_with_cooling", "false");
+    pkg->AddParam<bool>("dust_subcycle_with_cooling", false);
     pkg->AddParam<int>("dust_num_grains_sizes", 0);
   }
 
@@ -799,7 +801,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
 
   /************************************************************
-   * Read Dust 2
+   * Read Dust
    ************************************************************/
   dust::Dust dust(pin, pkg.get());
   auto disable_all_gas_cooling_for_testing =
@@ -816,34 +818,33 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     auto dust_time_integrator = pin->GetString("dust", "time_integrator");
     PARTHENON_REQUIRE(dust_time_integrator == "euler" || dust_time_integrator == "heun",
                       "Invalid dust time integrator!");
-    auto max_frac_change_in_dust_bin = pin->GetOrAddReal("dust", "max_dM_in_bin", -1.);
+    // With subcycle = true dust is only evolved inside the tabular cooling subcycles
+    PARTHENON_REQUIRE(
+        !dust_subcycle_with_cooling || cooling == Cooling::tabular,
+        "<dust> subcycle = true requires <cooling> enable_cooling = tabular; "
+        "otherwise set <dust> subcycle = false");
+    if (!dust_subcycle_with_cooling && dust_time_integrator == "heun" &&
+        parthenon::Globals::my_rank == 0) {
+      std::cout << "### WARNING: <dust> time_integrator = heun only applies with "
+                   "subcycle = true. The split dust update uses adot at the start of "
+                   "the step."
+                << std::endl;
+    }
     pkg->AddParam<bool>("dust_subcycle_with_cooling", dust_subcycle_with_cooling);
     pkg->AddParam<std::string>("dust_time_integrator", dust_time_integrator);
-    std::vector<std::string> dust_var_names = {"density"};
+    // Number and mass density per (composition, size bin), both needed by the piecewise
+    // reconstructions
+    const int num_grain_compositions = (carbonaceous_grains + silicate_grains);
+    const int num_dust_scalars = 2 * num_grain_compositions * num_grain_size_bins;
 
-    int num_dust_vars = dust_var_names.size();
-    int num_grain_compositions = (carbonaceous_grains + silicate_grains);
-    int num_dust_bins = num_grain_compositions * num_grain_size_bins;
-    int num_dust_scalars =
-        2 * num_dust_bins * num_dust_vars; // 2 since we must store both mass and density
-                                           // for the piecewise linear/loglinear schemes
-
-    pkg->AddParam<Real>("max_frac_change_in_dust_bin", max_frac_change_in_dust_bin);
-
-    // pkg->AddParam<int>("dust_num_grains_bins", num_dust_scalars);
     pkg->AddParam<int>("dust_num_grain_compositions", num_grain_compositions);
     pkg->AddParam<int>("dust_num_grains_sizes", num_grain_size_bins);
 
-    pkg->AddParam<int>("dust_scalar_idx_start",
-                       running_scalar_idx); // taking into account the jet_scalar
+    pkg->AddParam<int>("dust_scalar_idx_start", running_scalar_idx);
     pkg->AddParam<int>("dust_scalar_idx_end", running_scalar_idx + num_dust_scalars - 1);
     running_scalar_idx += num_dust_scalars;
 
-    // Athena++ code paper: "**Ci (primitive variable) is the specific density of each
-    // scalar and (ρCi) is the mass of each scalar species (conserved variable).**"
-    // in ConstoPrim for tracer: prim(n, k, j, i) = cons(n, k, j, i) * di. with di =
-    // 1/cons(IDN, k, j, i); So cons = prim * density
-
+    // As passive scalars, cons holds the densities and prim = cons / rho
     std::vector<std::string> dust_grain_compositions_names = {};
     // Order is carbonaceous_grains, silicate_grains
     if (carbonaceous_grains) {
@@ -876,13 +877,18 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     pkg->AddParam("dust_silicate_grains", silicate_grains ? 1 : 0);
     pkg->AddParam("dust_grain_compositions_names", dust_grain_compositions_names);
 
-    // std::cout << "num_dust_scalars" << num_dust_scalars << std::endl;
-
     const auto &DustObj = pkg->Param<dust::Dust>("dust");
-    if (DustObj.dust_cooling_mode_ == dust::DustCoolingMode::DWEKWERNER1981) {
-
-      const int dust_cool_table_N_Tbins =
-          pin->GetInteger("dust", "dust_cool_table_N_Tbins");
+    // dust_cool_table_N_Tbins <= 0: Dwek & Werner rates are computed on the fly instead
+    // of being read from a lookup table
+    const int dust_cool_table_N_Tbins =
+        DustObj.dust_cooling_mode_ == dust::DustCoolingMode::DWEKWERNER1981
+            ? pin->GetInteger("dust", "dust_cool_table_N_Tbins")
+            : -1;
+    PARTHENON_REQUIRE(dust_cool_table_N_Tbins != 1,
+                      "<dust> dust_cool_table_N_Tbins must be <= 0 (on-the-fly rates) or "
+                      ">= 2 (lookup table)");
+    pkg->AddParam("dust_cool_table_N_Tbins", dust_cool_table_N_Tbins);
+    if (dust_cool_table_N_Tbins > 1) {
       // H is same as in https://arxiv.org/pdf/2402.18515 eqn 1, just in code units
       auto dust_cool_table_array_logH = parthenon::ParArray2D<Real>(
           "dust_cool_table", num_grain_size_bins, dust_cool_table_N_Tbins);
@@ -892,17 +898,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
           Kokkos::create_mirror_view(dust_cool_table_array_logH);
       auto host_dust_cool_table_array_logtemp =
           Kokkos::create_mirror_view(dust_cool_table_array_logtemp);
-      for (int temp_i = 0.; temp_i < dust_cool_table_N_Tbins; temp_i++) {
-        Real temp =
-            0. + temp_i * ((9. - 0.) /
-                           dust_cool_table_N_Tbins); // from 1 to 1e9K in log-equal steps
+      for (int temp_i = 0; temp_i < dust_cool_table_N_Tbins; temp_i++) {
+        // log10(T) from 0 to 9 (N-1)/N in equal steps (top entry is below 1e9 K)
+        Real temp = 0. + temp_i * ((9. - 0.) / dust_cool_table_N_Tbins);
         host_dust_cool_table_array_logtemp(temp_i) = temp;
-        // printf("temp_i=%d host_dust_cool_table_array_logtemp(temp_i) =%e \n",temp_i,
-        // host_dust_cool_table_array_logtemp(temp_i) );
         for (int gs_i = 0; gs_i < num_grain_size_bins; gs_i++) {
-
           const Real dust_de_dt_this_grain_bin = dust::PreComputeDwekWernerGrainCooling(
-              Kokkos::pow(10., temp), gs_i, DustObj.dwek_werner_regime_coeff_,
+              std::pow(10., temp), gs_i, DustObj.dwek_werner_regime_coeff_,
               DustObj.dwek_werner_coeff_a_code_units_,
               DustObj.dwek_werner_coeff_b_code_units_,
               DustObj.dwek_werner_coeff_c_code_units_,
@@ -927,71 +929,27 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                     host_dust_cool_table_array_logtemp[n_temp_dust - 1]);
       pkg->AddParam("dustcool_d_log_temp", host_dust_cool_table_array_logtemp[1] -
                                                host_dust_cool_table_array_logtemp[0]);
-      pkg->AddParam("dust_cool_table_N_Tbins", dust_cool_table_N_Tbins);
-      // printf("dustcool_d_log_temp=%e \n", host_dust_cool_table_array_logtemp[1] -
-      // host_dust_cool_table_array_logtemp[0]); printf("A dustcool_gog_temp_start = %e
-      // host_dust_cool_table_array_logtemp[0]=%e \n",
-      // pkg->Param<Real>("dustcool_log_temp_start"),host_dust_cool_table_array_logtemp[0]);
 
-      // Precompute cooling tables to write to file just for user interest. Only do on one
-      // rank since we will write to file. just run on host
-      std::string file_tag = "dust_cooling_table.txt";
-      std::string folder_path;
-      folder_path = "./dust_cool_table/";
-      pkg->AddParam("dust_cooling_table_path", std::filesystem::current_path().string() +
-                                                   "/" + folder_path + file_tag);
+      // Written for reference only: log10 T and log10 H per size bin
       if (parthenon::Globals::my_rank == 0) {
-        const auto &DustObj = pkg->Param<dust::Dust>("dust");
-        std::string column_name;
-        std::ostringstream oss;
-        // oss << std::setw(3) << std::setfill('0') << dust_i;
-        oss.str(""); // clear the string buffer
-        oss.clear(); // reset error/EOF flags
-        // Check if folder exists, if not create it
-        std::filesystem::create_directories(folder_path);
-        std::ofstream cool_file;
-        std::cout << "currentdir = " << std::filesystem::current_path() << '\n';
-
-        cool_file.open(folder_path + file_tag,
-                       std::ofstream::out | std::ofstream::trunc); // overwrite if exists
-        if (!cool_file.is_open())
-          std::cerr << "Error: Unable to open file 'dust_cooling_table.txt' for writing."
-                    << std::endl;
-
+        std::filesystem::create_directories("./dust_cool_table/");
+        std::ofstream cool_file("./dust_cool_table/dust_cooling_table.txt",
+                                std::ofstream::out | std::ofstream::trunc);
+        PARTHENON_REQUIRE(cool_file.is_open(), "Could not write the dust cooling table");
+        const auto &a_mid =
+            pkg->Param<std::vector<Real>>("host_grain_midbin_sizes_microm");
+        cool_file << std::setprecision(5) << "# T (K)|";
         for (int gs_i = 0; gs_i < num_grain_size_bins; gs_i++) {
-          if (gs_i == 0) {
-            cool_file << "# T (K)" << "|";
-          }
-          cool_file << std::setprecision(5)
-                    << pkg->Param<std::vector<Real>>(
-                           "host_grain_midbin_sizes_microm")[gs_i]
-                    << "|";
+          cool_file << a_mid[gs_i] << "|";
         }
         cool_file << "\n";
-
-        for (int temp_i = 0.; temp_i < dust_cool_table_N_Tbins; temp_i++) {
-          Real temp =
-              0. +
-              temp_i * ((9. - 0.) /
-                        dust_cool_table_N_Tbins); // from 1 to 1e9K in log-equal steps
+        for (int temp_i = 0; temp_i < dust_cool_table_N_Tbins; temp_i++) {
+          cool_file << host_dust_cool_table_array_logtemp(temp_i) << " ";
           for (int gs_i = 0; gs_i < num_grain_size_bins; gs_i++) {
-            const Real dust_de_dt_this_grain_bin = dust::PreComputeDwekWernerGrainCooling(
-                Kokkos::pow(10., temp), gs_i, DustObj.dwek_werner_regime_coeff_,
-                DustObj.dwek_werner_coeff_a_code_units_,
-                DustObj.dwek_werner_coeff_b_code_units_,
-                DustObj.dwek_werner_coeff_c_code_units_,
-                pkg->Param<std::vector<Real>>("host_grain_midbin_sizes_microm"));
-            // printf("Kokkos::pow(10., temp)=%e gs_i = %d dust_de_dt_this_grain_bin=%e
-            // \n", Kokkos::pow(10., temp), gs_i, dust_de_dt_this_grain_bin);
-            if (gs_i == 0) {
-              cool_file << std::setprecision(5) << temp << " ";
-            }
-            cool_file << std::setprecision(5)
-                      << Kokkos::log10(Kokkos::abs(dust_de_dt_this_grain_bin)) << " ";
+            cool_file << host_dust_cool_table_array_logH(gs_i, temp_i) << " ";
           }
           cool_file << std::endl;
         }
-        cool_file.close();
       }
     }
 

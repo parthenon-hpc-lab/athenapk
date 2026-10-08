@@ -3,6 +3,8 @@
 // Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
+// This file was made in part with generative AI (Claude Opus 5.5).
+//========================================================================================
 //! \file tabular_cooling.cpp
 //  \brief Applies  tabular cooling
 //
@@ -303,8 +305,6 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
                                                const RKStepper rk_stepper) const {
 
   const auto dt = dt_; // HACK capturing parameters still broken with Cuda 11.6 ...
-  const auto current_time =
-      current_time_; // HACK capturing parameters still broken with Cuda 11.6 ...
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
   // Grab member variables for compiler
@@ -326,80 +326,13 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
   const Real internal_e_floor = temp_floor / mbar_gm1_over_kb; // specific internal en.
 
-  // Consider Dust
-  // FJJ TODO clean this up so if we do not evolve dust with subcycling, mem allocations
-  // are kept to a minimum
+  // Dust: IR cooling of the gas, and the grain-size update on the cooling subcycles
   const auto &DustObj = hydro_pkg->Param<dust::Dust>("dust");
-  // Create a device-safe instance of the DustDevObj
-  dust::DustDevice DustDevObj{
-      DustObj.grain_midbin_sizes_microm_,
-      DustObj.grainsize_bin_edges_microm_,
-      DustObj.single_grain_masses_,
-      DustObj.single_grain_densities_,
-      DustObj.nH_to_ne_,
-      DustObj.dwek_werner_coeff_a_code_units_,
-      DustObj.dwek_werner_coeff_b_code_units_,
-      DustObj.dwek_werner_coeff_c_code_units_,
-      DustObj.dwek_werner_regime_coeff_,
-      DustObj.code_to_microm_,
-
-  };
-  // printf("C DustDevObj=%d DustObj=%d
-  // \n",DustDevObj.grain_midbin_sizes_microm.extent(0),
-  // DustObj.grain_midbin_sizes_microm_.extent(0)); printf("C2 DustDevObj=%d DustObj=%d
-  // \n",DustDevObj.single_grain_densities.extent(0),
-  // DustObj.single_grain_densities_.extent(0));
-
+  auto DustDevObj = dust::DustDevice::FromDust(DustObj);
   DustDevObj.SetupDustForEvolutionandCoolingKernel(md);
-  const auto dust_cooling_mode_ = DustObj.dust_cooling_mode_;
-  std::string dust_cooling_table_path;
-
-  int dust_on = hydro_pkg->Param<bool>("dust_on") ? 1 : 0;
-
-
-  // FJJ Machinery for recording the AGB wind mass contributions
-  int agb_history_num_rbins = 2; // some small number for low-memory usage if no AGB winds
-  std::vector<double> r_bin_edges;
-  if (DustDevObj.agb_winds_on == 1 && DustObj.write_dust_history_to_file_) {
-    agb_history_num_rbins = DustObj.num_r_bins_;
-    r_bin_edges =
-        DustObj.get_r_bin_edges(); // broken if we try to use DustObj.r_bin_edges directly
-  } else {
-    r_bin_edges = {0.0, 0.0}; // dummy values
-  }
-  Kokkos::View<double *, Kokkos::LayoutRight> reduction_view_agb_injected_mass_s(
-      "reduction_view_agb_injected_mass_s", agb_history_num_rbins);
-  Kokkos::Experimental::ScatterView<double *, Kokkos::LayoutRight>
-      scatter_f_agb_injected_mass_s(reduction_view_agb_injected_mass_s);
-  scatter_f_agb_injected_mass_s.reset();
-  Kokkos::View<double *, Kokkos::LayoutRight> reduction_view_agb_injected_mass_c(
-      "reduction_view_agb_injected_mass_c", agb_history_num_rbins);
-  Kokkos::Experimental::ScatterView<double *, Kokkos::LayoutRight>
-      scatter_f_agb_injected_mass_c(reduction_view_agb_injected_mass_c);
-  scatter_f_agb_injected_mass_c.reset();
-  Kokkos::View<double *, Kokkos::LayoutRight> reduction_view_stellar_mass(
-      "reduction_view_stellar_mass", agb_history_num_rbins);
-  Kokkos::Experimental::ScatterView<double *, Kokkos::LayoutRight> scatter_f_stellar_mass(
-      reduction_view_stellar_mass);
-  scatter_f_stellar_mass.reset();
-  // Create Kokkos views of the bins that are accessible to the GPU
-  Kokkos::View<double *> device_r_bin_edges("device_r_bin_edges",
-                                            agb_history_num_rbins + 1);
-  auto host_r_bin_edges = Kokkos::create_mirror_view(device_r_bin_edges);
-  for (size_t i = 0; i < r_bin_edges.size(); ++i) {
-    if (DustObj.write_dust_history_to_file_) {
-      host_r_bin_edges(i) = r_bin_edges[i];
-    } else {
-      host_r_bin_edges(i) = 0.;
-    }
-  }
-  Kokkos::deep_copy(device_r_bin_edges, host_r_bin_edges);
-  if (DustDevObj.dust_subcycle_with_cooling == 1) {
-    if (Globals::my_rank == 0) {
-      printf("Will update dust on cooling sub-cycle steps \n");
-    }
-  }
-  // FJJ END of Machinery for recording the AGB wind mass contributions
+  dust::AGBInjectionHistory agb_history(DustObj,
+                                        DustDevObj.agb_winds_on == 1 &&
+                                            DustDevObj.dust_subcycle_with_cooling == 1);
 
   // Grab some necessary variables
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
@@ -440,43 +373,16 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         auto DeDt_wrapper = [&](const Real t, const Real e, bool &valid) {
           Real gas_dedT = cooling_table_obj.DeDt(
               e, rho, valid); // in dimensions of erg cm^3/s but in code units
-          if (DustDevObj.we_have_dust_cooling == 0 || !valid) {
-            return gas_dedT;
-          } else {
-            Real dust_de_dt;
-            Real temperature = mbar_gm1_over_kb * e;
-
-            if (dust_cooling_mode_ == DustCoolingMode::DWEKWERNER1981) {
-              // printf("temp 1 %e \n", temperature);
-
-              if (DustDevObj.dustCoolTableNTbins > 0) {
-                dust_de_dt = DustDevObj.DwekWernerCoolingLookup(
-                    temperature, rho, cooling_table_obj.x_H_over_m_h2_, k, j, i, cons,
-                    coords);
-              } else {
-                dust_de_dt = DustDevObj.DwekWernerCooling(
-                    temperature, rho, cooling_table_obj.x_H_over_m_h2_,
-                    DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords,
-                    DustDevObj.dust_piecewise_mode_int);
-              }
-              // if(fabs((dust_de_dt-dust_de_dt2)/dust_de_dt2) > 0.5){
-              // printf("dust_de_dt_lookup=%e dust_de_dt_orig=%e
-              // \n",dust_de_dt,dust_de_dt2);
-              // }
-            } else if (dust_cooling_mode_ == DustCoolingMode::DWEKWERNER1981_INTEGRATED) {
-              dust_de_dt = DustDevObj.DwekWernerCoolingIntegrated(
-                  temperature, rho, cooling_table_obj.x_H_over_m_h2_,
-                  DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords,
-                  DustDevObj.dust_piecewise_mode_int);
-            }
-
-            if (DustDevObj.disable_all_gas_cooling_for_testing == 1) {
-              // only include dust cooling
-              gas_dedT = 0.;
-            }
-
-            return gas_dedT + dust_de_dt;
+          if (DustDevObj.disable_all_gas_cooling_for_testing == 1) {
+            // only include dust cooling
+            gas_dedT = 0.;
           }
+          if (!valid) {
+            return gas_dedT;
+          }
+          return gas_dedT + DustDevObj.CoolingRate(mbar_gm1_over_kb * e, rho,
+                                                   cooling_table_obj.x_H_over_m_h2_, k, j,
+                                                   i, cons, coords);
         };
 
         Real sub_t = 0; // current subcycle time
@@ -575,133 +481,16 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
           } while (reattempt_sub);
           // Accept this subcycle
 
-          // Split - Step the dust
+          // Grain-size update over this subcycle, with AGB injection split around it.
+          // heun: da/dt averaged over the start and end temperature of the subcycle.
           if (DustDevObj.dust_subcycle_with_cooling == 1) {
-            const auto x = coords.Xc<1>(i);
-            const auto y = coords.Xc<2>(j);
-            const auto z = coords.Xc<3>(k);
-            const auto r = Kokkos::sqrt(x * x + y * y + z * z);
-            const auto volume = coords.CellVolume(k, j, i);
-            int rbin_idx = -1;
-
-            if (DustDevObj.agb_winds_on == 1) {
-              // first source injection split step
-              Real total_mass_C = 0.; // Total Mass, not a density
-              Real total_mass_S = 0.; // Total Mass, not a density
-              Real stellar_mass_this_cell = 0;
-              DustAddAGBWindContribution(total_mass_C, total_mass_S,
-                                         stellar_mass_this_cell, b, k, j, i, cons_pack,
-                                         DustDevObj, sub_dt / 2);
-              auto f_a_dust_agb_injected_mass_s = scatter_f_agb_injected_mass_s.access();
-              auto f_a_dust_agb_injected_mass_c = scatter_f_agb_injected_mass_c.access();
-              auto f_a_stellar_mass = scatter_f_stellar_mass.access();
-              for (int rbin_i = 0; rbin_i < agb_history_num_rbins; rbin_i++) {
-                if ((r > device_r_bin_edges[rbin_i]) &&
-                    (r <= device_r_bin_edges[rbin_i + 1])) {
-                  rbin_idx = rbin_i;
-                  break;
-                }
-              }
-              if (rbin_idx != -1) {
-                f_a_dust_agb_injected_mass_c[rbin_idx] += total_mass_C;
-                f_a_dust_agb_injected_mass_s[rbin_idx] += total_mass_S;
-                if (sub_t == 0) { // run in first cooling sub-step and only in this split
-                                  // step . otherwise will add many duplicates of the
-                                  // stellar masses in each sub-step
-                  f_a_stellar_mass[rbin_idx] += stellar_mass_this_cell;
-                }
-              }
-            }
-            if (DustDevObj.dust_time_integrator_int == 1) {
-              // update Nj_new and Mj_new Views without changing cons_pack
-              DustDoUpdateStepEulerInCoolingSubcycle(
-                  internal_e, b, k, j, i, cons_pack, DustDevObj, kb, jb, ib, sub_dt,
-                  DustDevObj.Mj_new, DustDevObj.Nj_new, DustDevObj.a_dot_view);
-            } else if (DustDevObj.dust_time_integrator_int == 2) {
-              // update Nj_new and Mj_new Views without changing cons_pack
-              DustDoUpdateStepHeunsInCoolingSubcycle(
-                  internal_e, b, k, j, i, cons_pack, DustDevObj, kb, jb, ib, sub_dt,
-                  DustDevObj.Mj_new, DustDevObj.Nj_new, DustDevObj.a_dot_view,
-                  DustDevObj.heun_state_0, DustDevObj.heun_state_1,
-                  DustDevObj.heun_state_2);
-              // if(b==0){printf("END Nj_new(0, 1, b, k - kb.s, j - jb.s, i - ib.s) = %e
-              // \n", DustDevObj.Nj_new(0, 1, b, k - kb.s, j - jb.s, i - ib.s));}
-            }
-
-            // Update cons variables from Mj_new, Nj_new obtained  performing the
-            // conservative update
-            for (int gc_i = 0; gc_i < DustDevObj.num_grain_compositions; gc_i++) {
-              for (int gs_i = 0; gs_i < DustDevObj.dust_num_grains_sizes; gs_i += 1) {
-                // WriteNewDust_with_adot
-                int index_into_Ni = DustDevObj.dust_scalar_idx_start +
-                                    (gc_i * 2 * DustDevObj.dust_num_grains_sizes) +
-                                    (2 * gs_i);
-                int index_into_Mi = index_into_Ni + 1;
-
-                // printf("DustDevObj.Nj_new(gc_i, gs_i,b, k - kb.s, j - jb.s, i -
-                // ib.s)/cons(index_into_Ni, k, j, i)  = %e \n", DustDevObj.Nj_new(gc_i,
-                // gs_i,b, k - kb.s, j - jb.s, i - ib.s) /(volume*cons(index_into_Ni, k,
-                // j, i) ));
-                cons(index_into_Ni, k, j, i) = std::max(
-                    DustDevObj.Nj_new(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) /
-                        volume,
-                    0.);
-                // printf("DustDevObj.Mj_new(gc_i, gs_i,b, k - kb.s, j - jb.s, i -
-                // ib.s)/cons(index_into_Mi, k, j, i)  = %e \n", DustDevObj.Mj_new(gc_i,
-                // gs_i,b, k - kb.s, j - jb.s, i - ib.s) /(volume*cons(index_into_Mi, k,
-                // j, i) ));
-                cons(index_into_Mi, k, j, i) = std::max(
-                    DustDevObj.Mj_new(gc_i, gs_i, b, k - kb.s, j - jb.s, i - ib.s) /
-                        volume,
-                    0.);
-
-                // Just triple make sure the values are updated in both cons and cons_pack
-                // FJJ remove later once verified
-                KOKKOS_ASSERT(cons(index_into_Mi, k, j, i) ==
-                              cons_pack(b, index_into_Mi, k, j, i));
-                KOKKOS_ASSERT(cons(index_into_Ni, k, j, i) ==
-                              cons_pack(b, index_into_Ni, k, j, i));
-              }
-            }
-
-            if (DustDevObj.agb_winds_on == 1) {
-              // second source injection split step with updated cons
-              Real total_mass_C = 0.; // Total Mass, not a density
-              Real total_mass_S = 0.; // Total Mass, not a density
-              Real stellar_mass_this_cell = 0;
-              DustAddAGBWindContribution(total_mass_C, total_mass_S,
-                                         stellar_mass_this_cell, b, k, j, i, cons_pack,
-                                         DustDevObj, sub_dt / 2);
-              auto f_a_dust_agb_injected_mass_s = scatter_f_agb_injected_mass_s.access();
-              auto f_a_dust_agb_injected_mass_c = scatter_f_agb_injected_mass_c.access();
-              if (rbin_idx != -1) {
-                f_a_dust_agb_injected_mass_c[rbin_idx] += total_mass_C;
-                f_a_dust_agb_injected_mass_s[rbin_idx] += total_mass_S;
-              }
-            }
-            if (DustDevObj.slope_limiting == 1) {
-              // slope limiting if the reconstruction method is linear, like in McKinnon
-              // int gb_i = (gc_i*grain_midbin_sizes_microm.extent(0)) + gs_i;
-              for (int gc_i = 0; gc_i < DustDevObj.num_grain_compositions; gc_i++) {
-                for (int gs_i = 0; gs_i < DustDevObj.dust_num_grains_sizes; gs_i += 1) {
-                  // WriteNewDust_with_adot
-                  int index_into_Ni = DustDevObj.dust_scalar_idx_start +
-                                      (gc_i * 2 * DustDevObj.dust_num_grains_sizes) +
-                                      (2 * gs_i);
-                  int index_into_Mi = index_into_Ni + 1;
-                  DustSlopeLimitingLinSlope(
-                      index_into_Mi, index_into_Ni, DustDevObj.code_to_microm, gs_i, gc_i,
-                      volume, cons, k, j, i, DustDevObj.grainsize_bin_edges_microm,
-                      DustDevObj.grain_midbin_sizes_microm,
-                      DustDevObj.single_grain_densities, 0);
-                  DustSlopeLimitingLinSlope(
-                      index_into_Mi, index_into_Ni, DustDevObj.code_to_microm, gs_i, gc_i,
-                      volume, cons, k, j, i, DustDevObj.grainsize_bin_edges_microm,
-                      DustDevObj.grain_midbin_sizes_microm,
-                      DustDevObj.single_grain_densities, 1);
-                }
-              }
-            } // slope_limiting == 1
+            const Real temperature_end = DustDevObj.dust_time_integrator_int == 2
+                                             ? mbar_gm1_over_kb * internal_e_next_h
+                                             : -1.;
+            // count the stellar mass once per step, not once per subcycle
+            DustUpdateCell(b, k, j, i, cons_pack, DustDevObj, kb, jb, ib, sub_dt,
+                           mbar_gm1_over_kb * internal_e, temperature_end, true,
+                           agb_history, sub_t == 0);
           }
 
           sub_t += sub_dt;
@@ -743,33 +532,7 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         prim(IPR, k, j, i) = rho * internal_e * gm1;
       });
 
-  if (DustDevObj.agb_winds_on == 1 && DustObj.write_dust_history_to_file_ &&
-      DustDevObj.dust_subcycle_with_cooling == 1) {
-    Kokkos::Experimental::contribute(reduction_view_agb_injected_mass_c,
-                                     scatter_f_agb_injected_mass_c);
-    Kokkos::View<double *, Kokkos::LayoutRight, Kokkos::HostSpace>
-        host_reduction_view_agb_injected_mass_c =
-            Kokkos::create_mirror_view(reduction_view_agb_injected_mass_c);
-    Kokkos::deep_copy(host_reduction_view_agb_injected_mass_c,
-                      reduction_view_agb_injected_mass_c);
-    Kokkos::Experimental::contribute(reduction_view_agb_injected_mass_s,
-                                     scatter_f_agb_injected_mass_s);
-    Kokkos::View<double *, Kokkos::LayoutRight, Kokkos::HostSpace>
-        host_reduction_view_agb_injected_mass_s =
-            Kokkos::create_mirror_view(reduction_view_agb_injected_mass_s);
-    Kokkos::deep_copy(host_reduction_view_agb_injected_mass_s,
-                      reduction_view_agb_injected_mass_s);
-    Kokkos::Experimental::contribute(reduction_view_stellar_mass, scatter_f_stellar_mass);
-    Kokkos::View<double *, Kokkos::LayoutRight, Kokkos::HostSpace>
-        host_reduction_view_stellar_mass =
-            Kokkos::create_mirror_view(reduction_view_stellar_mass);
-    Kokkos::deep_copy(host_reduction_view_stellar_mass, reduction_view_stellar_mass);
-    DustObj.WriteAGBInjectionHistory(
-        agb_history_num_rbins, host_reduction_view_agb_injected_mass_c,
-        host_reduction_view_agb_injected_mass_s, host_reduction_view_stellar_mass,
-        host_r_bin_edges, md, dt,
-        current_time_); // FJJ TODO - work out how to pass an absolue tm.time here
-  }
+  agb_history.Write(DustObj, md, dt, current_time_);
 }
 
 void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
@@ -922,59 +685,11 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
   Real min_cooling_time = std::numeric_limits<Real>::infinity();
   Kokkos::Min<Real> reducer_min(min_cooling_time);
 
-  // Consider Dust
-  const auto &DustObj = hydro_pkg->Param<dust::Dust>("dust");
-  int we_have_dust_cooling;
-  int dust_scalar_idx_start;
-  int dust_scalar_idx_end;
-  auto dust_cooling_mode_ = DustObj.dust_cooling_mode_;
-  // std::optional<Real> nH_to_ne;
-
   const int disable_all_gas_cooling_for_testing =
       hydro_pkg->Param<int>("disable_all_gas_cooling_for_testing");
-  if (hydro_pkg->Param<bool>("dust_on")) {
-    we_have_dust_cooling = 1;
-    // nH_to_ne = hydro_pkg->Param<Real>("nH_to_ne");
+  auto DustDevObj = dust::DustDevice::FromDust(hydro_pkg->Param<dust::Dust>("dust"));
+  DustDevObj.SetupDustDevice(hydro_pkg.get(), md->GetBlockData(0)->GetBlockPointer());
 
-    dust_scalar_idx_start = hydro_pkg->Param<int>("dust_scalar_idx_start");
-    dust_scalar_idx_end = hydro_pkg->Param<int>("dust_scalar_idx_end");
-
-    switch (dust_cooling_mode_) {
-    case dust::DustCoolingMode::OFF:
-      we_have_dust_cooling = 0;
-      break;
-    case dust::DustCoolingMode::DWEKWERNER1981:
-      break;
-    case dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED:
-      break;
-    }
-  } else {
-    we_have_dust_cooling = 0;
-  }
-
-  int dust_piecewise_mode_int = 0;
-  if (DustObj.piecewise_mode_ == dust::DustPiecewiseMode::LINEAR) {
-    dust_piecewise_mode_int = 1;
-  } else if (DustObj.piecewise_mode_ == dust::DustPiecewiseMode::LOGLINEAR) {
-    dust_piecewise_mode_int = 2;
-  }
-
-  // Create a device-safe instance of the DustDevObj
-  dust::DustDevice DustDevObj{DustObj.grain_midbin_sizes_microm_,
-                              DustObj.grainsize_bin_edges_microm_,
-                              DustObj.single_grain_masses_,
-                              DustObj.single_grain_densities_,
-                              DustObj.nH_to_ne_,
-                              DustObj.dwek_werner_coeff_a_code_units_,
-                              DustObj.dwek_werner_coeff_b_code_units_,
-                              DustObj.dwek_werner_coeff_c_code_units_,
-                              DustObj.dwek_werner_regime_coeff_,
-                              DustObj.code_to_microm_
-
-  };
-  DustDevObj.SetupDustForEvolutionandCoolingKernel(md);
-  // printf("[FJJ DEBUG] DustDevObj.code_to_microm = %g in TabularCooling \n",
-  // DustDevObj.code_to_microm);
   Kokkos::parallel_reduce(
       "TabularCooling::TimeStep",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
@@ -989,35 +704,10 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
 
         const Real internal_e = pres / (rho * gm1);
 
-        Real dust_de_dt;
-        if (we_have_dust_cooling == 1) {
-          // FJJ TEST DUST printf("considering dust in TabularCooling::TimeStep \n");
-          auto &cons = cons_pack(b);
-          auto &coords = cons_pack.GetCoords(b);
-          Real temperature = mbar_gm1_over_kb * internal_e;
+        const Real dust_de_dt = DustDevObj.CoolingRate(
+            mbar_gm1_over_kb * internal_e, rho, cooling_table_obj.x_H_over_m_h2_, k, j, i,
+            cons_pack(b), cons_pack.GetCoords(b));
 
-          if (dust_cooling_mode_ == DustCoolingMode::DWEKWERNER1981) {
-            if (DustDevObj.dustCoolTableNTbins > 0) {
-              dust_de_dt = DustDevObj.DwekWernerCoolingLookup(
-                  temperature, rho, cooling_table_obj.x_H_over_m_h2_, k, j, i, cons,
-                  coords);
-            } else {
-              dust_de_dt = DustDevObj.DwekWernerCooling(
-                  temperature, rho, cooling_table_obj.x_H_over_m_h2_,
-                  dust_scalar_idx_start, k, j, i, cons, coords, dust_piecewise_mode_int);
-            }
-          } else if (dust_cooling_mode_ ==
-                     dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED) {
-            dust_de_dt = DustDevObj.DwekWernerCoolingIntegrated(
-                temperature, rho, cooling_table_obj.x_H_over_m_h2_, dust_scalar_idx_start,
-                k, j, i, cons, coords, dust_piecewise_mode_int);
-          }
-        } else {
-          dust_de_dt = 0.;
-        }
-
-        // FJJ TEST DUST  printf("dust / gas de_dt in TabularCooling::TimeStep \n",
-        // dust_de_dt / cooling_table_obj.DeDt(internal_e, rho));
         Real gas_de_dt;
         if (disable_all_gas_cooling_for_testing == 1) {
           gas_de_dt = 0.;

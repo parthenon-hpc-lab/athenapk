@@ -3,6 +3,8 @@
 // Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
+// This file was made in part with generative AI (Claude Opus 5.5).
+//========================================================================================
 //! \file cluster.cpp
 //  \brief Idealized galaxy cluster problem generator
 //
@@ -95,11 +97,9 @@ void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
   const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
   stellar_feedback.FeedbackSrcTerm(md, dt, tm);
 
+  // Without subcycling, dust grain sizes are updated here instead of in the cooling
   if (hydro_pkg->Param<bool>("dust_on") &&
       !hydro_pkg->Param<bool>("dust_subcycle_with_cooling")) {
-    if (parthenon::Globals::my_rank == 0) {
-      printf("Will update dust on cooling as a ClusterSplitSrcTerm \n");
-    }
     dust::DustUpdateDriver(md, dt, tm);
   }
 
@@ -145,8 +145,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     const Real uniform_gas_pres = pin->GetReal("problem/cluster/uniform_gas", "pres");
     const Real uniform_gas_dust_to_gas =
         pin->GetOrAddReal("problem/cluster/uniform_gas", "uniform_gas_dust_to_gas", 0.);
-    const Real user_min_dt_uniform_gas = pin->GetOrAddReal(
-        "problem/cluster/uniform_gas", "min_dt", std::numeric_limits<Real>::max());
 
     hydro_pkg->AddParam<>("uniform_gas_rho", uniform_gas_rho);
     hydro_pkg->AddParam<>("uniform_gas_ux", uniform_gas_ux);
@@ -154,7 +152,6 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     hydro_pkg->AddParam<>("uniform_gas_uz", uniform_gas_uz);
     hydro_pkg->AddParam<>("uniform_gas_pres", uniform_gas_pres);
     hydro_pkg->AddParam<>("uniform_gas_dust_to_gas", uniform_gas_dust_to_gas);
-    hydro_pkg->AddParam<>("user_min_dt_uniform_gas", user_min_dt_uniform_gas);
   }
 
   /************************************************************
@@ -193,7 +190,7 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
     hydro_pkg->AddParam<>("dipole_b_field_mz", dipole_b_field_mz);
   }
 
-  if (hydro_pkg->Param<bool>("dust_on")) {
+  if (hydro_pkg->Param<bool>("dust_on") && hydro_pkg->Param<bool>("AGB_winds_on")) {
     dust::CalculateDustReturnPerSolarMassofStars(pin, hydro_pkg);
   }
 
@@ -861,17 +858,14 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
     const auto &DustObj = hydro_pkg->Param<dust::Dust>("dust");
     Units units(pin);
-    // Real gram_to_code = units.g();
     Real init_dtg_mass_ratio;
     Real init_run_stellar_injection_time;
 
-    int dust_scalar_idx_start = hydro_pkg->Param<int>("dust_scalar_idx_start");
-    int dust_scalar_idx_end = hydro_pkg->Param<int>("dust_scalar_idx_end");
-    int dust_num_grains_sizes = hydro_pkg->Param<int>("dust_num_grains_sizes");
-    int num_grain_compositions = hydro_pkg->Param<int>("dust_num_grain_compositions");
-    int num_dust_bins = num_grain_compositions * dust_num_grains_sizes;
+    const int dust_scalar_idx_start = hydro_pkg->Param<int>("dust_scalar_idx_start");
+    const int dust_num_grains_sizes = hydro_pkg->Param<int>("dust_num_grains_sizes");
+    const int num_grain_compositions =
+        hydro_pkg->Param<int>("dust_num_grain_compositions");
     int dust_init_profile = DustObj.init_profile_;
-    // auto initial_dust_bin_mass_ratios =  DustObj.initial_dust_bin_mass_ratios_;
 
     int carbonaceous_grains = hydro_pkg->Param<int>("dust_carbonaceous_grains");
     int silicate_grains = hydro_pkg->Param<int>("dust_silicate_grains");
@@ -891,16 +885,14 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     Real m200_code =
         pin->GetOrAddReal("problem/cluster/gravity", "m_nfw_200", 8.5e14 * units.msun());
     Real m200_msun = m200_code / units.msun();
-    Real rho_crit_Msun_kpc3 = 127.;
-    Real r200_kpc = Kokkos::pow(
-        (3 * m200_msun / (4 * Kokkos::numbers::pi * 200 * rho_crit_Msun_kpc3)), 1. / 3.);
-    // printf("r200 = %g  kpc \n", r200_kpc);
+    Real rho_crit_Msun_kpc3 = 127.; // critical density today
+    Real r200_kpc = std::cbrt(3 * m200_msun / (4 * M_PI * 200 * rho_crit_Msun_kpc3));
 
     const Real microm_to_code = units.cm() * 1.e-4;
     const Real code_to_microm = 1. / microm_to_code;
     const Real r200 = r200_kpc * units.kpc();
 
-    std::optional<int> init_grainsize_distribution = -1;
+    int init_grainsize_distribution = -1;
     Real flat_graindist_in_range_amin =
         pin->GetOrAddReal("dust", "flat_graindist_in_range_amin_microM", 1);
     Real flat_graindist_in_range_amax =
@@ -918,12 +910,13 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       init_grainsize_distribution = 3;
       hydro_pkg->AddParam<>("flat_graindist_in_range_amin", flat_graindist_in_range_amin);
       hydro_pkg->AddParam<>("flat_graindist_in_range_amax", flat_graindist_in_range_amax);
+    } else {
+      PARTHENON_FAIL("Unknown <dust> init_grainsize_distribution. Options are MRN, "
+                     "MRN_inverse, flat and flat_in_range");
     }
-    // else if(init_grainsize_distribution_str == "AGB"){init_grainsize_distribution = 1;}
 
     const auto &grain_midbin_sizes_microm = DustObj.grain_midbin_sizes_microm_;
     const auto &single_grain_densities = DustObj.single_grain_densities_;
-    // const auto &single_grain_masses  = DustObj.single_grain_masses_;
     const auto &grainsize_bin_edges_microm = DustObj.grainsize_bin_edges_microm_;
 
     hydro_pkg->AddParam<>("dust_grainsize_bin_edges_microM", grainsize_bin_edges_microm);
@@ -939,34 +932,13 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
       init_uniform_gas_local = 1;
       init_dtg_mass_ratio = hydro_pkg->Param<Real>("uniform_gas_dust_to_gas");
     } else if (dust_init_profile == 1) {
-      // Constant DTG ratio
       init_dtg_mass_ratio = DustObj.init_dtg_mass_ratio_;
-    } else if (dust_init_profile == 2) {
-      ; // We have Vogelsberger_DTG profile
     } else if (dust_init_profile == 3) {
-      // Run the stellar injection model for init_run_stellar_injection_time to give init
-      // conds
+      // dust injected by the AGB winds over init_run_stellar_injection_time
       init_run_stellar_injection_time = DustObj.init_run_stellar_injection_time_;
-    } else {
-      PARTHENON_FAIL("Dust init_profile not implemented yet");
     }
 
-    dust_scalar_idx_start = hydro_pkg->Param<int>("dust_scalar_idx_start");
-    dust_scalar_idx_end = hydro_pkg->Param<int>("dust_scalar_idx_end");
-
-    dust::DustDevice DustDevObj{
-        DustObj.grain_midbin_sizes_microm_,
-        DustObj.grainsize_bin_edges_microm_,
-        DustObj.single_grain_masses_,
-        DustObj.single_grain_densities_,
-        DustObj.nH_to_ne_,
-        DustObj.dwek_werner_coeff_a_code_units_,
-        DustObj.dwek_werner_coeff_b_code_units_,
-        DustObj.dwek_werner_coeff_c_code_units_,
-        DustObj.dwek_werner_regime_coeff_,
-        DustObj.code_to_microm_,
-
-    };
+    auto DustDevObj = dust::DustDevice::FromDust(DustObj);
     DustDevObj.SetupDustDevice(hydro_pkg.get(), pmb);
     const auto &dtgfloor = hydro_pkg->Param<Real>("cluster_dtgfloor");
 
@@ -976,14 +948,9 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         ib.s, ib.e,
         KOKKOS_LAMBDA(const int &b, const int &gc_i, const int &gs_i, const int &k,
                       const int &j, const int &i) {
-          // dust_i runs from 0 to number of dust types * number of size bins. It will be
-          // half the size of the total number of dust variables in the cons pack, which
-          // stores both mass and number density for each bin
-
-          int index_into_Mi =
-              dust_scalar_idx_start + (2 * ((gc_i * dust_num_grains_sizes) + gs_i)) + 1;
-          int index_into_Ni =
-              dust_scalar_idx_start + (2 * ((gc_i * dust_num_grains_sizes) + gs_i));
+          const int index_into_Ni =
+              dust::DustNiIndex(dust_scalar_idx_start, dust_num_grains_sizes, gc_i, gs_i);
+          const int index_into_Mi = index_into_Ni + 1;
 
           const auto &coords = cons.GetCoords(b);
           const auto &u = cons(b);
@@ -995,39 +962,32 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           Real volume = coords.CellVolume(k, j, i);
           Real total_dust_mass = 0.;
           Real total_dust_mass_this_gc_i;
-          Real total_injected_dust_mass = 0.;
 
           if (init_uniform_gas_local || dust_init_profile == 1) {
             total_dust_mass = u(IDN, k, j, i) * init_dtg_mass_ratio * volume;
-            // printf("[FJJ Test] Initialising constant DTG with value total_dust_mass =
-            // %g \n", total_dust_mass);
           } else if (dust_init_profile == 2) {
             Real vogelsberger_DTG = dust::Vogelsberger19InitialDTG(r, r200);
             total_dust_mass = std::max(u(IDN, k, j, i) * vogelsberger_DTG * volume,
                                        dtgfloor * u(IDN, k, j, i) * volume);
           } else if (dust_init_profile == 3) {
-            // Aim - to know the total dust injected by the AGBWinds in time
-            // init_run_stellar_injection_time - we may add this amount of dust later but
-            // with a NON-agb distribution, ie, to model pre-sputtered dust in the initial
-            // conditions via an MRN profile
-            Real total_mass_C = 0; // Total Mass, not a density
-            Real total_mass_S = 0; // Total Mass, not a density
-            Real stellar_mass_this_cell = 0;
-            DustCalculateAGBWindContribution(
-                total_mass_C, total_mass_S, total_dust_mass, stellar_mass_this_cell, b, k,
-                j, i, cons_pack, DustDevObj, init_run_stellar_injection_time);
-            // printf("A) total_mass_C=%e total_mass_S=%e \n",total_mass_C,total_mass_S);
-            // insert the amount of dust added by stellar injection, or the minimum amount
-            // allowed by the floor:
+            // Dust mass the AGB winds inject over init_run_stellar_injection_time. It is
+            // given the init_grainsize_distribution rather than the AGB distribution, to
+            // mimic dust that has already been processed (e.g. sputtered).
+            Real total_mass_C = 0, total_mass_S = 0, stellar_mass_this_cell = 0;
+            dust::DustAddAGBWindContribution(
+                total_mass_C, total_mass_S, stellar_mass_this_cell, b, k, j, i, cons_pack,
+                DustDevObj, init_run_stellar_injection_time, false);
+            total_dust_mass = total_mass_C + total_mass_S;
 
+            // Insert the dust injected by the AGB winds, or the minimum allowed by the
+            // floor. Outside the AGB region, split the floor mass using the AGB C/Si
+            // ratio
             if (total_dust_mass > 1e-50) {
               Real renorm_fractor_for_dtgfloor =
                   std::max(total_dust_mass, dtgfloor * u(IDN, k, j, i) * volume) /
                   total_dust_mass;
               total_mass_C *= renorm_fractor_for_dtgfloor;
               total_mass_S *= renorm_fractor_for_dtgfloor;
-              // if total_mass_C == 0 or total_mass_S == 0 we are outside range of AGB
-              // winds, so need to be clever how we get the S/C ratio
               if (carbonaceous_grains == 1 && silicate_grains == 1) {
                 if (gc_i == 0) {
                   total_dust_mass_this_gc_i = total_mass_C;
@@ -1035,37 +995,27 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                   total_dust_mass_this_gc_i = total_mass_S;
                 }
               } else {
-                total_dust_mass_this_gc_i =
-                    total_dust_mass *
-                    renorm_fractor_for_dtgfloor; // Only one of these will be non-zero in
-                                                 // this case if we only have 1
-                                                 // composition
+                total_dust_mass_this_gc_i = total_dust_mass * renorm_fractor_for_dtgfloor;
               }
             } else {
+              // A negative dtgfloor disables the floor: no dust outside the AGB region
+              const Real floor_dust_mass =
+                  std::max(dtgfloor, 0.) * u(IDN, k, j, i) * volume;
 
-              // if total_mass_C == 0 or total_mass_S == 0 we are outside range of AGB
-              // winds, so need to be clever how we get the S/C ratio
               if (carbonaceous_grains == 1 && silicate_grains == 1) {
                 const Real C_ratio =
                     DustDevObj.dust_return_carbon_mass_fraction_per_megayear /
                     (DustDevObj.dust_return_carbon_mass_fraction_per_megayear +
                      DustDevObj.dust_return_silicates_mass_fraction_per_megayear);
-                if (gc_i == 0 && total_mass_C < 1e-50) {
-                  total_dust_mass_this_gc_i =
-                      C_ratio * dtgfloor * u(IDN, k, j, i) * volume;
-                } else if (gc_i == 1 && total_mass_S < 1e-50) {
-                  total_dust_mass_this_gc_i =
-                      (1. - C_ratio) * dtgfloor * u(IDN, k, j, i) * volume;
-                }
+                total_dust_mass_this_gc_i =
+                    (gc_i == 0 ? C_ratio : 1. - C_ratio) * floor_dust_mass;
               } else {
-                total_dust_mass_this_gc_i = dtgfloor * u(IDN, k, j, i) * volume;
+                total_dust_mass_this_gc_i = floor_dust_mass;
               }
             }
-          } else {
-            PARTHENON_FAIL("No DTG prescription set");
           }
 
-          // normalise the masses if more than one grain
+          // split between compositions (stellar_profile already did)
           if (dust_init_profile != 3) {
             if (carbonaceous_grains == 1 && silicate_grains == 1) {
               if (gc_i == 0) {
@@ -1082,7 +1032,6 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
             }
           }
 
-          // Make sure these fields are zerod before adding to them
           u(index_into_Mi, k, j, i) = 0;
           u(index_into_Ni, k, j, i) = 0;
 
@@ -1107,22 +1056,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
                 gs_i, gc_i, volume, u, k, j, i, grainsize_bin_edges_microm,
                 grain_midbin_sizes_microm, single_grain_densities,
                 flat_graindist_in_range_amin, flat_graindist_in_range_amax);
-          } else {
-            PARTHENON_FAIL("Initial grainsize dist not supported");
           }
-
-          if (std::abs(u(index_into_Mi, k, j, i)) < 1e-80 ||
-              std::abs(u(index_into_Ni, k, j, i)) < 1e-80) {
-            printf(
-                "u(index_into_Mi, k, j, i)=%e u(index_into_Ni, k, j, i)=%e "
-                "total_dust_mass_this_gc_i=%e init_grainsize_distribution=%d r = %e \n",
-                u(index_into_Mi, k, j, i), u(index_into_Ni, k, j, i),
-                total_dust_mass_this_gc_i, init_grainsize_distribution, r);
-          }
-        }); // Dust:Initialise Dust Fields
-
-  } // if(hydro_pkg->Param<bool>("dust_on"))
-} // ProblemGenerator
+        });
+  }
+}
 
 void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
                           const parthenon::SimTime & /*tm*/) {
@@ -1134,50 +1071,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
   // get prim vars
   auto &data = pmb->meshblock_data.Get();
   auto const &prim = data->Get("prim").data;
-  auto &mbd = pmb->meshblock_data.Get(); // shared_ptr<MeshBlockData<Real>>
-  const auto cons = mbd->PackVariables(std::vector<std::string>{"cons"});
-
-  // auto const &cons = data->Get("cons").data;
-
-  // Consider Dust
-  const auto &DustObj = pkg->Param<dust::Dust>("dust");
-  int we_have_dust_cooling;
-  auto dust_cooling_mode_ = DustObj.dust_cooling_mode_;
-  std::optional<Real> nH_to_ne;
-  if (pkg->Param<bool>("dust_on")) {
-    we_have_dust_cooling = 1;
-    nH_to_ne = pkg->Param<Real>("nH_to_ne");
-    switch (dust_cooling_mode_) {
-    case dust::DustCoolingMode::OFF:
-      we_have_dust_cooling = 0;
-      break;
-    case dust::DustCoolingMode::DWEKWERNER1981:
-      break;
-    case dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED:
-      break;
-    }
-  } else {
-    we_have_dust_cooling = 0;
-  }
-  // Create a device-safe instance of the DustDevObj
-  dust::DustDevice DustDevObj{
-      DustObj.grain_midbin_sizes_microm_,
-      DustObj.grainsize_bin_edges_microm_,
-      DustObj.single_grain_masses_,
-      DustObj.single_grain_densities_,
-      DustObj.nH_to_ne_,
-      DustObj.dwek_werner_coeff_a_code_units_,
-      DustObj.dwek_werner_coeff_b_code_units_,
-      DustObj.dwek_werner_coeff_c_code_units_,
-      DustObj.dwek_werner_regime_coeff_,
-      DustObj.code_to_microm_,
-
-  };
-
-  if (pkg->Param<bool>("dust_on")) {
-    DustDevObj.SetupDustDevice(pkg.get(), pmb);
-  }
-  // const auto  dust_cooling_mode_ = DustObj.dust_cooling_mode_;
+  const auto cons = data->PackVariables(std::vector<std::string>{"cons"});
+  auto DustDevObj = dust::DustDevice::FromDust(pkg->Param<dust::Dust>("dust"));
+  DustDevObj.SetupDustDevice(pkg.get(), pmb);
 
   // get derived fields
   auto &log10_radius = data->Get("log10_cell_radius").data;
@@ -1265,26 +1161,9 @@ void UserWorkBeforeOutput(MeshBlock *pmb, ParameterInput *pin,
 
             // compute cooling time
             const Real eint = P / (rho * gm1);
-            Real temperature = mbar_gm1_over_kb * eint;
-            Real dust_de_dt = 0;
-            if (dust_cooling_mode_ == dust::DustCoolingMode::DWEKWERNER1981) {
-              if (DustDevObj.dustCoolTableNTbins > 0) {
-                dust_de_dt = DustDevObj.DwekWernerCoolingLookup(
-                    temperature, rho, cooling_table_obj.x_H_over_m_h2_, k, j, i, cons,
-                    coords);
-              } else {
-                dust_de_dt = DustDevObj.DwekWernerCooling(
-                    temperature, rho, cooling_table_obj.x_H_over_m_h2_,
-                    DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords,
-                    DustDevObj.dust_piecewise_mode_int);
-              }
-            } else if (dust_cooling_mode_ ==
-                       dust::DustCoolingMode::DWEKWERNER1981_INTEGRATED) {
-              dust_de_dt = DustDevObj.DwekWernerCoolingIntegrated(
-                  temperature, rho, cooling_table_obj.x_H_over_m_h2_,
-                  DustDevObj.dust_scalar_idx_start, k, j, i, cons, coords,
-                  DustDevObj.dust_piecewise_mode_int);
-            }
+            const Real dust_de_dt = DustDevObj.CoolingRate(
+                mbar_gm1_over_kb * eint, rho, cooling_table_obj.x_H_over_m_h2_, k, j, i,
+                cons, coords);
             Real edot_gas = gas_luminosity(k, j, i);
             cooling_time_with_dust(k, j, i) =
                 (dust_de_dt + edot_gas != 0) ? -eint / (dust_de_dt + edot_gas) : NAN;
