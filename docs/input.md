@@ -315,6 +315,30 @@ d_log_temp_tol = 1e-8              # Tolerance in cooling table between subseque
 #d_e_tol = 1e-8                    # Tolerance for the relative error in the change of internal energy for the error bound subcyling integrators (rk12 and rk45). Unused for Townsend integrator.
 ```
 
+The `townsend_per_cell` integrator is a variant of `townsend` for a cooling function that
+differs from cell to cell, $\Lambda_\mathrm{cell}(T) = \Lambda(T) + \Lambda_\mathrm{extra,cell}(T)$.
+Instead of a temporal evolution function tabulated at startup, each cell integrates
+$\int \mathrm{d}T / \Lambda_\mathrm{cell}$ down from its own temperature, one table segment at a
+time, evaluating $\Lambda_\mathrm{cell}$ only at the table temperatures it crosses.
+The result is exact for the piecewise power law through $\Lambda_\mathrm{cell}$ at the table
+temperatures (segments with slope 1 are supported).
+It requires $\Lambda_\mathrm{cell} > 0$ at the table temperatures.
+Without an extra term it agrees with `townsend` to round-off.
+The cooling `cfl` only uses the table, not the extra term.
+
+The extra term is provided in code (see `TabularCooling::TownsendPerCellSrcTerm`).
+For testing, a power law with a coefficient that varies linearly in x1 can be set in the input:
+```
+<cooling>
+integrator = townsend_per_cell
+extra_cooling = power_law          # Lambda_extra = s(x1) * extra_lambda_x * (T / extra_temp_x)^extra_beta
+extra_lambda_x = 1e-26             # In the units of the table (i.e., scaled by lambda_units_cgs)
+extra_temp_x = 5e5                 # Reference temperature in K
+extra_beta = 1.0                   # Power-law slope
+extra_s_x1min = 0.0                # s at x1min; s is linear in x1 and must be non-negative
+extra_s_x1max = 2.0                # s at x1max
+```
+
 *Note* several special cases for handling the lower end of the cooling table/low temperatures:
 - Cooling is turned off once the temperature reaches the lower end of the cooling table. Within the cooling function, gas does not cool past the cooling table.
 - If the global temperature floor `<hydro/Tfloor>` is higher than the lower end of the cooling table, then the global temperature floor takes precedence.
