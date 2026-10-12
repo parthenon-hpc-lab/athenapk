@@ -3,6 +3,8 @@
 // Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
+// This file was made in part with generative AI (Claude Opus 5.5).
+//========================================================================================
 //! \file tabular_cooling.cpp
 //  \brief Applies  tabular cooling
 //
@@ -12,6 +14,7 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <type_traits>
 
 // Parthenon headers
 #include <coordinates/uniform_cartesian.hpp>
@@ -26,6 +29,39 @@
 
 namespace cooling {
 using namespace parthenon;
+
+namespace {
+/* ===============================================================================
+Expm1OverX / Log1pOverX: expm1(x) / x and log1p(x) / x, extended continuously to
+x = 0. They give the power-law segment integral and its inverse without dividing
+by (1 - alpha), so alpha = 1 segments need no special case.
+=============================================================================== */
+KOKKOS_INLINE_FUNCTION Real Expm1OverX(const Real x) {
+  return (x == 0.0) ? 1.0 : Kokkos::expm1(x) / x;
+}
+KOKKOS_INLINE_FUNCTION Real Log1pOverX(const Real x) {
+  return (x == 0.0) ? 1.0 : Kokkos::log1p(x) / x;
+}
+
+/* ===============================================================================
+LinearPowerLawExtraCooling: test-only per-cell term s(x1) * lambda_x * (T / temp_x)^beta,
+with s linear in x1 between s_x1min and s_x1max at the mesh boundaries (and
+constant beyond them, i.e., in ghost cells outside the mesh).
+=============================================================================== */
+template <typename Pack>
+struct LinearPowerLawExtraCooling {
+  Pack pack; // only used for the cell coordinates
+  Real lambda_x, temp_x, beta, s_x1min, s_x1max, x1min, x1max;
+
+  KOKKOS_INLINE_FUNCTION PowerLawCooling operator()(const int b, const int k, const int j,
+                                                    const int i) const {
+    const auto &coords = pack.GetCoords(b);
+    Real f = (coords.template Xc<1>(i) - x1min) / (x1max - x1min);
+    f = (f < 0.0) ? 0.0 : ((f > 1.0) ? 1.0 : f);
+    return PowerLawCooling{(s_x1min + f * (s_x1max - s_x1min)) * lambda_x, temp_x, beta};
+  }
+};
+} // namespace
 
 TabularCooling::TabularCooling(ParameterInput *pin,
                                std::shared_ptr<parthenon::StateDescriptor> hydro_pkg) {
@@ -57,9 +93,13 @@ TabularCooling::TabularCooling(ParameterInput *pin,
     integrator_ = CoolIntegrator::rk45;
   } else if (integrator_str == "townsend") {
     integrator_ = CoolIntegrator::townsend;
+  } else if (integrator_str == "townsend_per_cell") {
+    integrator_ = CoolIntegrator::townsend_per_cell;
   } else {
     integrator_ = CoolIntegrator::undefined;
   }
+  const bool is_townsend = (integrator_ == CoolIntegrator::townsend) ||
+                           (integrator_ == CoolIntegrator::townsend_per_cell);
   max_iter_ = pin->GetOrAddInteger("cooling", "max_iter", 100);
   cooling_time_cfl_ = pin->GetOrAddReal("cooling", "cfl", 0.1);
   d_log_temp_tol_ = pin->GetOrAddReal("cooling", "d_log_temp_tol", 1e-8);
@@ -175,7 +215,7 @@ TabularCooling::TabularCooling(ParameterInput *pin,
     // The Dedt() function currently relies on an equally spaced cooling table for faster
     // lookup (direct indexing). It is used in the subcycling method and in order to
     // restrict `dt` by a cooling cfl.
-    if (((integrator_ != CoolIntegrator::townsend) || (cooling_time_cfl_ > 0.0)) &&
+    if ((!is_townsend || (cooling_time_cfl_ > 0.0)) &&
         (fabs(d_log_temp_i - d_log_temp) / d_log_temp > d_log_temp_tol_)) {
       msg << "### FATAL ERROR in function [TabularCooling::TabularCooling]" << std::endl
           << "d_log_temp in table is uneven at i=" << i << " log_temp=" << log_temps[i]
@@ -213,7 +253,7 @@ TabularCooling::TabularCooling(ParameterInput *pin,
     Kokkos::deep_copy(log_lambdas_, host_log_lambdas);
   }
   // Setup Townsend cooling, i.e., precalulcate piecewise powerlaw approx.
-  if (integrator_ == CoolIntegrator::townsend) {
+  if (is_townsend) {
     lambdas_ = ParArray1D<Real>("lambdas_", n_temp_);
     temps_ = ParArray1D<Real>("temps_", n_temp_);
 
@@ -227,6 +267,12 @@ TabularCooling::TabularCooling(ParameterInput *pin,
     // Copy host_lambdas into device memory
     Kokkos::deep_copy(lambdas_, host_lambdas);
     Kokkos::deep_copy(temps_, host_temps);
+  }
+  // The per-cell integrator builds its power laws at run time, so only standard
+  // Townsend needs the precomputed coefficients
+  if (integrator_ == CoolIntegrator::townsend) {
+    auto host_lambdas = Kokkos::create_mirror_view_and_copy(HostMemSpace(), lambdas_);
+    auto host_temps = Kokkos::create_mirror_view_and_copy(HostMemSpace(), temps_);
 
     // Coeffs are for intervals, i.e., only n_temp_ - 1 entries
     const auto n_bins = n_temp_ - 1;
@@ -273,6 +319,29 @@ TabularCooling::TabularCooling(ParameterInput *pin,
   cooling_table_obj_ = CoolingTableObj(log_lambdas_, log_temp_start_, log_temp_final_,
                                        d_log_temp_, n_temp_, mbar_over_kb,
                                        adiabatic_index, 1.0 - He_mass_fraction, units);
+
+  // Test-only extra cooling term, for testing the per-cell integrator
+  const auto extra_cooling_str = pin->GetOrAddString("cooling", "extra_cooling", "none");
+  extra_power_law_ = (extra_cooling_str == "power_law");
+  PARTHENON_REQUIRE(extra_power_law_ || extra_cooling_str == "none",
+                    "Unknown cooling/extra_cooling. Supported: 'none' and 'power_law'.");
+  if (extra_power_law_) {
+    PARTHENON_REQUIRE(integrator_ == CoolIntegrator::townsend_per_cell,
+                      "cooling/extra_cooling requires integrator = townsend_per_cell.");
+    // Same units as the table
+    extra_lambda_x_ = pin->GetReal("cooling", "extra_lambda_x") / lambda_units;
+    extra_temp_x_ = pin->GetReal("cooling", "extra_temp_x");
+    extra_beta_ = pin->GetReal("cooling", "extra_beta");
+    extra_s_x1min_ = pin->GetReal("cooling", "extra_s_x1min");
+    extra_s_x1max_ = pin->GetReal("cooling", "extra_s_x1max");
+    x1min_ = pin->GetReal("parthenon/mesh", "x1min");
+    x1max_ = pin->GetReal("parthenon/mesh", "x1max");
+    // The per-cell integrator needs Lambda_cell > 0 at the table nodes
+    PARTHENON_REQUIRE(extra_lambda_x_ > 0.0 && extra_temp_x_ > 0.0,
+                      "cooling/extra_lambda_x and extra_temp_x must be positive.");
+    PARTHENON_REQUIRE(extra_s_x1min_ >= 0.0 && extra_s_x1max_ >= 0.0,
+                      "cooling/extra_s_x1min and extra_s_x1max must be non-negative.");
+  }
 }
 
 void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
@@ -282,6 +351,17 @@ void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
     SubcyclingFixedIntSrcTerm<RK45Stepper>(md, dt, RK45Stepper());
   } else if (integrator_ == CoolIntegrator::townsend) {
     TownsendSrcTerm(md, dt);
+  } else if (integrator_ == CoolIntegrator::townsend_per_cell) {
+    if (extra_power_law_) {
+      const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+      using Pack = std::decay_t<decltype(cons_pack)>;
+      TownsendPerCellSrcTerm(md, dt,
+                             LinearPowerLawExtraCooling<Pack>{
+                                 cons_pack, extra_lambda_x_, extra_temp_x_, extra_beta_,
+                                 extra_s_x1min_, extra_s_x1max_, x1min_, x1max_});
+    } else {
+      TownsendPerCellSrcTerm(md, dt, NoExtraCooling());
+    }
   } else {
     PARTHENON_FAIL("Unknown cooling integrator.");
   }
@@ -599,6 +679,121 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         cons(IEN, k, j, i) += rho * (internal_e_new - internal_e);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
+        prim(IPR, k, j, i) = rho * internal_e_new * gm1;
+      });
+}
+
+/* ===============================================================================
+TownsendPerCellSrcTerm: exact Townsend (2009) step for Lambda_cell = Lambda_table +
+Lambda_extra, where extra(b, k, j, i) returns the cell's Lambda_extra(T). Instead of a
+precomputed Y(T), each cell integrates dT / Lambda_cell down from its own temperature,
+one power-law segment at a time, evaluating Lambda_cell only at the nodes it crosses.
+=============================================================================== */
+template <typename ExtraCooling>
+void TabularCooling::TownsendPerCellSrcTerm(MeshData<Real> *md, const Real dt_,
+                                            const ExtraCooling extra) const {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const bool mhd_enabled = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
+
+  // Grab member variables for compiler
+  const auto dt = dt_; // HACK capturing parameters still broken with Cuda 11.6 ...
+
+  const auto units = hydro_pkg->Param<Units>("units");
+  const auto gm1 = (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
+  const auto mbar_gm1_over_kb = hydro_pkg->Param<Real>("mbar_over_kb") * gm1;
+  const Real X_by_mh2 =
+      std::pow((1 - hydro_pkg->Param<Real>("He_mass_fraction")) / units.mh(), 2);
+
+  const auto lambdas = lambdas_;
+  const auto temps = temps_;
+  const int nbins = static_cast<int>(n_temp_) - 1;
+
+  const auto internal_e_floor = T_floor_ / mbar_gm1_over_kb;
+  const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
+
+  // Grab some necessary variables
+  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  // need to include ghost zones as this source is called prior to the other fluxes when
+  // split
+  IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
+
+  par_for(
+      DEFAULT_LOOP_PATTERN, "TabularCooling::TownsendPerCellSrcTerm", DevExecSpace(), 0,
+      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
+        auto &cons = cons_pack(b);
+        auto &prim = prim_pack(b);
+        // Need to use `cons` here as prim may still contain state at t_0;
+        const auto rho = cons(IDN, k, j, i);
+        auto internal_e =
+            cons(IEN, k, j, i) - 0.5 *
+                                     (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
+                                      SQR(cons(IM3, k, j, i))) /
+                                     rho;
+        if (mhd_enabled) {
+          internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
+                               SQR(cons(IB3, k, j, i)));
+        }
+        internal_e /= rho;
+
+        // Same floor and low-temperature handling as TownsendSrcTerm
+        if (internal_e <= internal_e_floor) {
+          cons(IEN, k, j, i) += rho * (internal_e_floor - internal_e);
+          prim(IPR, k, j, i) = rho * internal_e_floor * gm1;
+          return;
+        }
+        const auto temp = mbar_gm1_over_kb * internal_e;
+        if (temp < temp_cool_floor) {
+          return;
+        }
+
+        // Value of the integral of dT / Lambda_cell from T_new to temp set by the step
+        Real remaining = mbar_gm1_over_kb * rho * X_by_mh2 * dt;
+
+        // Segment [temps(idx), temps(idx + 1)] containing temp (the last one above it)
+        int idx = 0;
+        while ((idx < nbins - 1) && (temps(idx + 1) < temp)) {
+          idx += 1;
+        }
+
+        const auto lambda_extra = extra(b, k, j, i);
+        Real lambda_lo = lambdas(idx) + lambda_extra(temps(idx));
+        Real lambda_up = lambdas(idx + 1) + lambda_extra(temps(idx + 1));
+        Real temp_hi = temp;
+        Real temp_new = temp_cool_floor; // kept if the step cools below the table
+        while (true) {
+          // Lambda_cell = lambda_hi * (T / temp_hi)^alpha on [temps(idx), temp_hi]
+          const Real alpha = Kokkos::log(lambda_up / lambda_lo) /
+                             Kokkos::log(temps(idx + 1) / temps(idx));
+          const Real log_ratio = Kokkos::log(temp_hi / temps(idx));
+          const Real lambda_hi = lambda_lo * Kokkos::exp(alpha * log_ratio);
+          // Remaining integral and the segment integral, in units of temp_hi / lambda_hi
+          const Real w_step = remaining * lambda_hi / temp_hi;
+          const Real w_seg = log_ratio * Expm1OverX((alpha - 1.0) * log_ratio);
+          if (w_step <= w_seg) {
+            // ln(T_new / temp_hi) = ln(1 - (1 - alpha) w_step) / (1 - alpha)
+            temp_new =
+                temp_hi * Kokkos::exp(-w_step * Log1pOverX((alpha - 1.0) * w_step));
+            break;
+          }
+          if (idx == 0) {
+            break;
+          }
+          remaining -= w_seg * temp_hi / lambda_hi;
+          temp_hi = temps(idx);
+          idx -= 1;
+          lambda_up = lambda_lo;
+          lambda_lo = lambdas(idx) + lambda_extra(temps(idx));
+        }
+
+        // Set new temp (at the lowest to the lower end of the cooling table)
+        const auto internal_e_new = temp_new > temp_cool_floor
+                                        ? temp_new / mbar_gm1_over_kb
+                                        : temp_cool_floor / mbar_gm1_over_kb;
+        cons(IEN, k, j, i) += rho * (internal_e_new - internal_e);
         prim(IPR, k, j, i) = rho * internal_e_new * gm1;
       });
 }

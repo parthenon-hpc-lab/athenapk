@@ -3,6 +3,8 @@
 // Copyright (c) 2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-clause BSD License, see LICENSE file for details
 //========================================================================================
+// This file was made in part with generative AI (Claude Opus 5.5).
+//========================================================================================
 //! \file tabular_cooling.hpp
 //  \brief Class for defining tabular cooling
 #ifndef HYDRO_SRCTERMS_TABULAR_COOLING_HPP_
@@ -85,7 +87,7 @@ struct RK45Stepper {
   }
 };
 
-enum class CoolIntegrator { undefined, rk12, rk45, townsend };
+enum class CoolIntegrator { undefined, rk12, rk45, townsend, townsend_per_cell };
 
 class CoolingTableObj {
   /************************************************************
@@ -179,6 +181,32 @@ class CoolingTableObj {
   }
 };
 
+// Extra cooling rate of one cell, Lambda_extra(T) = norm * (T / temp_ref)^beta, in the
+// (code) units of the cooling table
+struct PowerLawCooling {
+  parthenon::Real norm, temp_ref, beta;
+  KOKKOS_INLINE_FUNCTION parthenon::Real operator()(const parthenon::Real temp) const {
+    return norm * pow(temp / temp_ref, beta);
+  }
+};
+
+/* ===============================================================================
+NoExtraCooling: per-cell term for TownsendPerCellSrcTerm that vanishes everywhere.
+Like any per-cell term, extra(b, k, j, i) returns the cell's Lambda_extra(T); with this
+one the per-cell integrator reduces to standard Townsend (up to round-off).
+=============================================================================== */
+struct NoExtraCooling {
+  struct Cell {
+    KOKKOS_INLINE_FUNCTION parthenon::Real operator()(const parthenon::Real) const {
+      return 0.0;
+    }
+  };
+  KOKKOS_INLINE_FUNCTION Cell operator()(const int, const int, const int,
+                                         const int) const {
+    return Cell();
+  }
+};
+
 class TabularCooling {
  private:
   // Defines uniformly spaced log temperature range of the table
@@ -199,6 +227,13 @@ class TabularCooling {
   parthenon::ParArray1D<parthenon::Real> townsend_alpha_k_;
 
   CoolIntegrator integrator_;
+
+  // Test-only extra cooling for townsend_per_cell (<cooling>/extra_cooling = power_law):
+  // Lambda_extra = s(x1) * lambda_x * (T / temp_x)^beta, with s linear in x1 between
+  // its values at the x1 boundaries of the mesh
+  bool extra_power_law_ = false;
+  parthenon::Real extra_lambda_x_ = 0.0, extra_temp_x_ = 1.0, extra_beta_ = 0.0;
+  parthenon::Real extra_s_x1min_ = 0.0, extra_s_x1max_ = 0.0, x1min_ = 0.0, x1max_ = 1.0;
 
   // Temperature floor (assumed in Kelvin and only used in cooling function)
   // This is either the temperature floor used by the hydro method or the
@@ -233,6 +268,11 @@ class TabularCooling {
   // Townsend 2009 exact integration scheme
   void TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                        const parthenon::Real dt) const;
+
+  // Townsend 2009 for a cooling function that differs from cell to cell
+  template <typename ExtraCooling>
+  void TownsendPerCellSrcTerm(parthenon::MeshData<parthenon::Real> *md,
+                              const parthenon::Real dt, const ExtraCooling extra) const;
 
   // (Adaptive) subcyling using a fixed integration scheme
   template <typename RKStepper>
