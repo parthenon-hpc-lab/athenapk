@@ -14,21 +14,35 @@
 //========================================================================================
 //
 // Geometry: outer averaging shell R_shell = AGNTriggering::accretion_radius_; inner
-// jet-launch sphere R_jet = R_shell/3, split by the z=0 plane into two hemispheres along
-// n_hat = +z.
+// jet-launch sphere R_jet = kJetRadiusFraction * R_shell, split by the z=0 plane into two
+// hemispheres along n_hat = +z.
 //
-// Per-step pipeline (once per full step, not per RK sub-stage). Steps 1-6 run at
-// stage==1; step 7 (the actual injection) runs later, from ClusterSplitSrcTerm
-// (cluster.cpp) at stage==nstages, after this step's flux updates, so freshly-injected
-// fast material only affects the *next* step's dt estimate.
+// Per-step pipeline (once per full step, not per RK sub-stage), on the step's final
+// state: steps 1-6 run in their own region right after the last RK stage's update and
+// Strang-split sources (hydro_driver.cpp), and step 7 (the actual injection) right
+// after that, first thing in ClusterSplitSrcTerm (cluster.cpp). The injection is thus
+// solved for exactly the state it is applied to (so the costs charged to the
+// reservoir are those actually incurred), and freshly-injected fast material only
+// affects the *next* step's dt estimate.
 //   1. Reset: zero this step's scratch sums.
 //   2-3. ReduceShell / MPIReduceShell: shell-averaged <rho>,<p>,<u> (Sec 2.3).
-//   4-5. ReduceJetRegion / MPIReduceJetRegion: mass drain (Sec 2.5) and momentum/
-//        magnetic quadratic coefficients (Sec 2.6/2.7).
-//   6. SolveInjection: host-only, grow the reservoir (Eq. 1), check the trigger gate,
-//        solve f/f_B, update the SMBH mass ledger.
+//   4-5. ReduceJetRegion / MPIReduceJetRegion: mass drain and its costs (Sec 2.5) and
+//        momentum/magnetic quadratic coefficients (Sec 2.6/2.7).
+//   6. SolveInjection: host-only, grow the reservoir (Eq. 1), accrete onto the SMBH
+//        from the drained mass, check the trigger gate, solve f/f_B, log the drained
+//        mass.
 //   7. Apply: per-partition, if triggered, apply the injection.
-//   8. ResyncSMBHMassAndGravity: always runs, pushes the SMBH mass into ClusterGravity.
+//   8. ResyncSMBHMassAndGravity: always runs (at stage==1 of the next step), pushes the
+//        SMBH mass into ClusterGravity.
+//
+// Energy budget of an injection, as in AREPO's rw17 jet module: an injection triggers
+// once the reservoir exceeds the energy needed to reset the jet region to the jet state,
+// i.e., the heating dE_therm (W23 Eq. 9), minus the energy dE_drain that the drained
+// mass takes out of the grid (or added mass brings in) at each cell's own specific
+// energy and velocity, plus the magnetic field (W17 Eq. 10-13). The kick gets the rest,
+// so the gas energy changes by exactly the reservoir. The energy that left with the
+// drained mass, dE_mass = Delta m times the ambient specific energy (W23 Eq. 7), is
+// then charged to the reservoir, which can go negative and so delays the next injection.
 
 #include <cmath>
 
@@ -38,6 +52,11 @@
 #include <parthenon/package.hpp>
 
 namespace cluster {
+
+// Radius of the jet-launch sphere as a fraction of the outer averaging shell's radius
+// R_shell (= AGNTriggering::accretion_radius_), as in AREPO's rw17 jet module
+// (RW_JET_LOBE_RADIUS_FRAC; W23: 1.65 kpc inside 5 kpc).
+constexpr parthenon::Real kJetRadiusFraction = 0.33;
 
 // Cubic spline smoothing kernel (W17 Eq. 4), normalized to integrate to 1 over r<=h.
 KOKKOS_INLINE_FUNCTION parthenon::Real CubicSplineKernel(const parthenon::Real r,
@@ -55,7 +74,9 @@ KOKKOS_INLINE_FUNCTION parthenon::Real CubicSplineKernel(const parthenon::Real r
 
 // Momentum-kick weight for the two z>0/z<0 jet lobes: CubicSplineKernel(r,h) weighted by
 // (z/h)^2 so the kick vanishes smoothly (not via a hard sign flip) at the z=0 midplane
-// instead of jumping discontinuously there. Used by WeinbergerJetFeedbackReduceJetRegion,
+// instead of jumping discontinuously there, and favours on-axis cells (as W23 Sec 2.2.1
+// describes; W17 Eq. 15's w(|dr_i|) is for W17's two off-centre jet spheres). Used by
+// WeinbergerJetFeedbackReduceJetRegion,
 // WeinbergerApplyInjection and ApplyFixedJetProfile: all three must call this same
 // function, or the momentum solved for and the momentum actually deposited drift apart.
 KOKKOS_INLINE_FUNCTION parthenon::Real JetMomentumKernel(const parthenon::Real r,
@@ -141,7 +162,8 @@ void WeinbergerJetFeedbackInit(parthenon::ParameterInput *pin,
 parthenon::TaskStatus WeinbergerJetFeedbackReset(parthenon::StateDescriptor *hydro_pkg);
 
 // Sec 2.3: local kernel-weighted partial sums over the outer shell (R_jet < r <= R_shell)
-// of rho, p, u. No-op if not Weinberger mode.
+// of rho, p, u. Reads the current cons (refreshing prim from it for the cells read,
+// see the .cpp). No-op if not Weinberger mode.
 parthenon::TaskStatus
 WeinbergerJetFeedbackReduceShell(parthenon::MeshData<parthenon::Real> *md);
 
@@ -151,7 +173,8 @@ WeinbergerJetFeedbackMPIReduceShell(parthenon::StateDescriptor *hydro_pkg);
 
 // Sec 2.5/2.6/2.7 dry run: local partial sums over the inner jet-launch sphere (mass
 // drain, momentum- and magnetic-quadratic coefficients). Must run after
-// WeinbergerJetFeedbackMPIReduceShell. Does not mutate cons.
+// WeinbergerJetFeedbackMPIReduceShell. Reads the current cons (refreshing prim from it
+// for the cells read, see the .cpp) but does not otherwise modify the state.
 parthenon::TaskStatus
 WeinbergerJetFeedbackReduceJetRegion(parthenon::MeshData<parthenon::Real> *md);
 
@@ -172,9 +195,9 @@ WeinbergerJetFeedbackSolveInjection(parthenon::StateDescriptor *hydro_pkg,
 parthenon::TaskStatus WeinbergerJetFeedbackApply(parthenon::MeshData<parthenon::Real> *md,
                                                  const parthenon::Real dt);
 
-// Sec 2.8: resync ClusterGravity's cached SMBH mass from the "weinberger_smbh_mass"
-// ledger. Always runs (cheap no-op otherwise); also applies a restored ledger value
-// after a restart.
+// Sec 2.8: resync ClusterGravity's SMBH mass to its gravitating mass, the accreted
+// "weinberger_smbh_mass" plus the not yet accreted "weinberger_drained_mass". Always
+// runs (cheap no-op otherwise); also applies restored values after a restart.
 parthenon::TaskStatus
 WeinbergerResyncSMBHMassAndGravity(parthenon::StateDescriptor *hydro_pkg);
 

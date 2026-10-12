@@ -166,7 +166,7 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         cons(IEN, k, j, i) += cell_delta_energy_density;
 
         // Update prims
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
       },
       stellar_mass);
   hydro_pkg->UpdateParam(

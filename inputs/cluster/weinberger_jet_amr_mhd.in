@@ -167,7 +167,7 @@ bz = 0
 
 <problem/cluster/agn_triggering>
 triggering_mode = NONE
-accretion_radius = 0.00495     # R_shell = 3*R_jet = 3*1.65 kpc = 4.95 kpc,
+accretion_radius = 0.005       # R_shell = 5 kpc, R_jet = 0.33*R_shell = 1.65 kpc (W23),
                                 # required > 0 even with triggering_mode=NONE
                                 # (reused directly as R_shell by Weinberger)
 

@@ -314,12 +314,18 @@ jet_feedback_mode = default # or weinberger
   mass-bookkeeping and thermal-floor redesign of [Weinberger
   2023](https://doi.org/10.1093/mnras/stad1396). Rather than depositing
   power continuously, the AGN power is accumulated into an energy reservoir
-  each step; once the reservoir crosses a triggering threshold, it is spent
-  all at once as a narrow, high-velocity kinetic kick launched from a small
-  region around the AGN, and the reservoir is reset. This mode is purely
-  kinetic by construction (`thermal_fraction`/`kinetic_fraction` do not
-  apply), and it uses its own set of parameters described below rather than
-  the fixed-geometry ones described in the rest of this section.
+  each step; once the reservoir covers the cost of resetting a small region
+  around the AGN to the jet state (draining it to the jet density, heating it
+  to pressure equilibrium with its surroundings and, for MHD, magnetizing
+  it), it is spent all at once, on that reset and, for the remainder, on a
+  narrow, high-velocity bipolar kinetic kick, and the reservoir is reset.
+  Each injection changes the gas energy by exactly the spent reservoir; the
+  energy that leaves with the gas drained onto the SMBH (at the ambient
+  specific energy) is then charged to the reservoir, which can go negative
+  and so delays the next injection, as in AREPO's implementation.
+  `thermal_fraction`/`kinetic_fraction` do not apply, and
+  this mode uses its own set of parameters described below rather than the
+  fixed-geometry ones described in the rest of this section.
 
 #### Setting up Weinberger feedback
 
@@ -328,19 +334,17 @@ To switch to Weinberger-mode feedback, in addition to setting
 `accretion_radius` (see AGN Triggering, above) must be set to a value
 greater than zero: it is reused directly as the radius of the outer shell
 over which ambient conditions are averaged, with the inner jet-launching
-region set to a third of that radius. `fixed_power` and/or a
+region set to 0.33 of that radius (as in AREPO). `fixed_power` and/or a
 triggering mode still control how fast the energy reservoir grows, exactly
-as in `default` mode above; `thermal_fraction` must be `0` and
-`kinetic_fraction` must be `1`, since Weinberger mode has no thermal
-component and no top-level kinetic/magnetic split.
+as in `default` mode above; `thermal_fraction`, `kinetic_fraction` and
+`magnetic_fraction` are ignored (with a warning if set), since Weinberger
+mode determines its own energy split.
 ```
 <problem/cluster/agn_triggering>
 accretion_radius = 0.06 # in code_length; also sets the jet-launch region
 
 <problem/cluster/agn_feedback>
 jet_feedback_mode = weinberger
-thermal_fraction = 0.0
-kinetic_fraction = 1.0
 fixed_power = 5.0e-4 # and/or agn_triggering as above
 efficiency = 1.0e-3
 ```
@@ -354,6 +358,16 @@ beta_jet = 100.0               # unitless; plasma beta P_th/P_B at the jet base
 magnetic field instead of kinetic motion, and **must** be set explicitly
 whenever `<hydro>/fluid = glmmhd`, since there is no physically sensible
 default; it is unused (and does not need to be set) for `fluid = euler`.
+
+With a triggering mode, the accretion rate is estimated from the outer shell
+only, and, following Weinberger 2023, the SMBH accretes from the gas drained
+from the jet-launch region instead of removing gas around it, so
+`removed_accreted_mass` must not be set to `true`. The SMBH mass (which the
+Bondi-like modes use) and the drained gas not yet accreted are reported in
+the `weinberger_smbh_mass_msun` and `weinberger_drained_mass_msun` history
+columns; the latter can be negative until the next injection drains more gas.
+As in AREPO, the drained gas stays on the SMBH: its gravity uses the sum of
+the two.
 
 For testing, the reservoir/trigger pipeline can be bypassed and a fixed jet
 profile enforced every step instead of the physical trigger:

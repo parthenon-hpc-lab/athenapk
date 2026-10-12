@@ -395,58 +395,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  // JetFeedbackMode::Weinberger: accumulated-energy-triggered jet injection.
-  // Reservoir growth + trigger gate solve run once per full step (stage==1
-  // only, not per RK sub-stage -- see AGNFeedback::FeedbackSrcTerm's
-  // early-return comment for why), strictly after the AGN triggering region
-  // above so agn_triggering.GetAccretionRate() is already finalized for this
-  // step. Every task here is an internal no-op (cheap Params lookup + early
-  // return) when jet_feedback_mode != Weinberger, but the whole region is
-  // additionally gated on the "weinberger_energy_reservoir" Param only
-  // existing for that mode, mirroring the AGN-triggering/magnetic-tower
-  // gating style above.
-  //
-  // NOTE: the actual cons-mutating injection (WeinbergerJetFeedbackApply) is
-  // deliberately NOT called here -- it runs later, from ClusterSplitSrcTerm
-  // (ProblemSourceFirstOrder, see cluster.cpp), after this step's RK-stage
-  // flux/Godunov updates have all completed, so the freshly-injected fast
-  // material is never re-fluxed this same step with a dt that was fixed
-  // before it existed. It reads the f/f_B/triggered-flag Params solved here,
-  // so it must run after this region, which it does by construction (this
-  // region is stage==1; ClusterSplitSrcTerm's call only fires at
-  // stage==nstages).
-  if ((stage == 1) && hydro_pkg->AllParams().hasKey("weinberger_energy_reservoir")) {
-    // Single region/tasklist required for the same reason as above: several
-    // steps here MPI_Allreduce, which needs one consistent tasklist across ranks.
-    TaskRegion &single_task_region = tc.AddRegion(1);
-    auto &tl = single_task_region[0];
-
-    auto prev_task =
-        tl.AddTask(none, cluster::WeinbergerJetFeedbackReset, hydro_pkg.get());
-
-    for (int i = 0; i < num_partitions; i++) {
-      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      prev_task =
-          tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackReduceShell, mu0.get());
-    }
-    prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackMPIReduceShell,
-                           hydro_pkg.get());
-
-    for (int i = 0; i < num_partitions; i++) {
-      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      prev_task =
-          tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackReduceJetRegion, mu0.get());
-    }
-    prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackMPIReduceJetRegion,
-                           hydro_pkg.get());
-
-    // Host-only global trigger check + f/f_B solve -- must run exactly once
-    // here, NOT once per partition (see the wiring warning at
-    // WeinbergerJetFeedbackSolveInjection's definition).
-    tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackSolveInjection, hydro_pkg.get(),
-               tm.dt);
-  }
-
   // Sec 2.8: resync ClusterGravity's cached SMBH mass from the
   // "weinberger_smbh_mass" ledger before any gravity source-term evaluation
   // this step. Always runs (stage==1 only; the mass cannot change again until
@@ -574,6 +522,13 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
+  // JetFeedbackMode::Weinberger solves its jet injection (with global MPI reductions)
+  // between the last stage's update and the first-order split sources that apply it,
+  // see the Weinberger region below the following one.
+  const bool weinberger_end_of_step =
+      (stage == integrator->nstages) &&
+      hydro_pkg->AllParams().hasKey("weinberger_energy_reservoir");
+
   // note that task within this region that contains one tasklist per pack
   // could still be executed in parallel
   TaskRegion &single_tasklist_per_pack_region = tc.AddRegion(num_partitions);
@@ -632,6 +587,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto source_split_strang_final =
           tl.AddTask(source_unsplit, AddSplitSourcesStrang, mu0.get(), tm);
 
+      // JetFeedbackMode::Weinberger: first-order split sources and boundary exchange
+      // are added after the jet injection solve below instead.
+      if (weinberger_end_of_step) continue;
+
       // Add operator split source terms at first order, i.e., full dt update
       // after all stages of the integration.
       // Not recommended for but allows easy "reset" of variable for some
@@ -646,6 +605,66 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // best impl. Go with default call (split local/nonlocal) for now.
     parthenon::AddBoundaryExchangeTasks(source_split_first_order | start_bnd, tl, mu0,
                                         pmesh->multilevel);
+  }
+
+  // JetFeedbackMode::Weinberger: accumulated-energy-triggered jet injection, solved
+  // once per full step (not per RK sub-stage -- see AGNFeedback::FeedbackSrcTerm's
+  // early-return comment for why) on the step's final state, i.e., after the last
+  // stage's update and Strang-split sources above. The injection itself
+  // (WeinbergerJetFeedbackApply) runs right after, as the first first-order split
+  // source (ClusterSplitSrcTerm, see cluster.cpp), on exactly the state solved for
+  // here -- so the mass/thermal/magnetic/kinetic costs charged to the reservoir (and
+  // the drained mass logged on the SMBH ledger) are those of the injection actually
+  // applied. Injecting after the update also means the freshly-injected fast material
+  // is never re-fluxed with a dt fixed before it existed, but is first seen by the
+  // next step's timestep estimate. agn_triggering.GetAccretionRate() was finalized
+  // in the stage==1 AGN triggering region above.
+  if (weinberger_end_of_step) {
+    {
+      // Single region/tasklist required for the same reason as for AGN triggering
+      // above: several steps here MPI_Allreduce, which needs one consistent tasklist
+      // across ranks.
+      TaskRegion &single_task_region = tc.AddRegion(1);
+      auto &tl = single_task_region[0];
+
+      auto prev_task =
+          tl.AddTask(none, cluster::WeinbergerJetFeedbackReset, hydro_pkg.get());
+
+      for (int i = 0; i < num_partitions; i++) {
+        auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+        prev_task =
+            tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackReduceShell, mu0.get());
+      }
+      prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackMPIReduceShell,
+                             hydro_pkg.get());
+
+      for (int i = 0; i < num_partitions; i++) {
+        auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+        prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackReduceJetRegion,
+                               mu0.get());
+      }
+      prev_task = tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackMPIReduceJetRegion,
+                             hydro_pkg.get());
+
+      // Host-only global trigger check + f/f_B solve -- must run exactly once
+      // here, NOT once per partition (see the wiring warning at
+      // WeinbergerJetFeedbackSolveInjection's definition).
+      tl.AddTask(prev_task, cluster::WeinbergerJetFeedbackSolveInjection, hydro_pkg.get(),
+                 tm.dt);
+    }
+
+    // First-order split sources (including the injection) and boundary exchange, as
+    // added in the region above otherwise. Its boundary buffer receives were already
+    // started there.
+    TaskRegion &apply_region = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; i++) {
+      auto &tl = apply_region[i];
+      auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+      auto source_split_first_order =
+          tl.AddTask(none, AddSplitSourcesFirstOrder, mu0.get(), tm);
+      parthenon::AddBoundaryExchangeTasks(source_split_first_order, tl, mu0,
+                                          pmesh->multilevel);
+    }
   }
 
   TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);

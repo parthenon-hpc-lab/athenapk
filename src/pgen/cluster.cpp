@@ -88,27 +88,18 @@ void ClusterSplitSrcTerm(MeshData<Real> *md, const parthenon::SimTime &tm,
                          const Real dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
+  // JetFeedbackMode::Weinberger: apply the injection solved for this step by the
+  // Weinberger region at the end of the last stage in hydro_driver.cpp, which
+  // reduced over the state right before this function. Must come first in here so
+  // that it acts on exactly that state, i.e., so that the costs charged to the
+  // reservoir are those actually incurred. Runs after every RK-stage flux update of
+  // the step, so the freshly-injected fast material is first seen by the next
+  // step's timestep estimate. No-op (self-gated) for jet_feedback_mode_ !=
+  // Weinberger.
+  WeinbergerJetFeedbackApply(md, dt);
+
   const auto &stellar_feedback = hydro_pkg->Param<StellarFeedback>("stellar_feedback");
   stellar_feedback.FeedbackSrcTerm(md, dt, tm);
-
-  // JetFeedbackMode::Weinberger: apply this step's already-solved injection
-  // (WeinbergerJetFeedbackSolveInjection, still run once per step at
-  // stage==1 in hydro_driver.cpp -- upstream of, and unaffected by, this
-  // move) here instead of in its own pre-flux stage==1 region. This runs
-  // once per full step, at stage==nstages, strictly after every RK-stage
-  // flux/Godunov update for the step has already completed (see
-  // AddSplitSourcesFirstOrder's call site in hydro_driver.cpp) -- so the
-  // freshly-injected fast material is never re-fluxed this step with a dt
-  // that was fixed before it existed, and is instead first seen by the
-  // *next* step's timestep estimate, which correctly accounts for it. Fixes
-  // the dt-collapse-after-injection bug (see the checkpoint commit this
-  // change follows). No-op (self-gated) for jet_feedback_mode_ != Weinberger,
-  // and identical either way regardless of whether this step's power came
-  // from fixed_power, AGN-triggering-driven accretion, or both (both are
-  // already combined into a single Edot_jet by GetFeedbackPower before
-  // SolveInjection ever runs; Apply only consumes the resulting f/f_B and
-  // triggered flag, not the power source).
-  WeinbergerJetFeedbackApply(md, dt);
 
   ApplyClusterClips(md, tm, dt);
 }
@@ -132,7 +123,7 @@ Real ClusterEstimateTimestep(MeshData<Real> *md) {
 //! \brief AMR refinement criterion for <refinement>/type = user (wired in main.cpp).
 //! Combines two independent conditions, either of which can trigger refine:
 //!  1. Force (and keep) the maximum refinement level within r <= R_jet of the AGN,
-//!     where R_jet = accretion_radius/3 is the same jet-launch-sphere radius
+//!     where R_jet = 0.33 accretion_radius is the same jet-launch-sphere radius
 //!     JetFeedbackMode::Weinberger itself injects into (see the r_jet derivation
 //!     in agn_feedback_weinberger.cpp's WeinbergerJetFeedback{Reduce,Apply}* --
 //!     duplicated here rather than factored out, matching that file's own
@@ -159,7 +150,7 @@ parthenon::AmrTag ProblemCheckRefinementBlock(MeshBlockData<Real> *mbd) {
   // jet_feedback_mode=default input decks that opt into type=user only for
   // the tracer criterion below.
   const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
-  const Real r_jet = agn_triggering.accretion_radius_ / 3.0;
+  const Real r_jet = agn_triggering.accretion_radius_ * kJetRadiusFraction;
 
   const auto &bs = pmb->block_size;
   // Distance from 0 to the nearest point of [lo,hi] along one axis.
@@ -328,8 +319,9 @@ void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *hyd
           "-- ProblemCheckRefinementBlock's jet-tracer criterion reads that "
           "scalar unconditionally.");
 
-      const Real jet_tracer_refine_above =
-          pin->GetOrAddReal("problem/cluster/refinement", "jet_tracer_refine_above", 0.5);
+      // Default from W23 (Sec 2.2.1): refine where the jet mass fraction exceeds 1e-3.
+      const Real jet_tracer_refine_above = pin->GetOrAddReal(
+          "problem/cluster/refinement", "jet_tracer_refine_above", 1e-3);
       const Real jet_tracer_deref_below =
           pin->GetOrAddReal("problem/cluster/refinement", "jet_tracer_deref_below",
                             jet_tracer_refine_above / 5.0);

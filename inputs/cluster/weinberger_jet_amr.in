@@ -25,8 +25,8 @@
 #
 # --- Jet-launch sphere / forced refinement --------------------------------
 # Requested: jet-injection sphere (R_jet) = 1.65 kpc, forced to max level.
-# R_jet = accretion_radius/3 always (agn_feedback_weinberger.cpp), so
-# accretion_radius (R_shell) = 3 * 1.65 kpc = 4.95 kpc = 0.00495 code_length.
+# R_jet = 0.33*accretion_radius always (agn_feedback_weinberger.hpp), so
+# accretion_radius (R_shell) = 1.65 kpc / 0.33 = 5 kpc = 0.005 code_length.
 # cluster::ProblemCheckRefinementBlock (src/pgen/cluster.cpp, new this
 # session) forces AmrTag::refine for any meshblock whose bounding box comes
 # within R_jet of the origin -- independent of, and takes priority over, the
@@ -174,7 +174,7 @@ pres = 4.302506169870091
 
 <problem/cluster/agn_triggering>
 triggering_mode = NONE
-accretion_radius = 0.00495     # R_shell = 3*R_jet = 3*1.65 kpc = 4.95 kpc,
+accretion_radius = 0.005       # R_shell = 5 kpc, R_jet = 0.33*R_shell = 1.65 kpc (W23),
                                 # required > 0 even with triggering_mode=NONE
                                 # (reused directly as R_shell by Weinberger)
 

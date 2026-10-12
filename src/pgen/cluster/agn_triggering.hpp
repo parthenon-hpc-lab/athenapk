@@ -46,7 +46,7 @@ class AGNTriggering {
   // r < accretion_radius_ sphere). Defaults to 0 (no exclusion, i.e. the
   // original full-sphere behavior, exactly preserved for any caller that
   // doesn't need this) UNLESS problem/cluster/agn_feedback/jet_feedback_mode
-  // == "weinberger", in which case it defaults to accretion_radius_/3 to
+  // == "weinberger", in which case it defaults to 0.33 accretion_radius_ to
   // automatically match JetFeedbackMode::Weinberger's own R_jet (see
   // agn_feedback_weinberger.hpp) -- W23 Sec 2.2.1 is explicit that the
   // accretion-rate estimate should come from the *outer shell* only, not the

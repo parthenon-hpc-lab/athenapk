@@ -24,8 +24,8 @@
 # GEOMETRY. Single meshblock == full mesh (so n_clumps_per_block below is the
 # *exact* total clump count, not a per-block count times however many blocks
 # happen to intersect the annulus -- same convention as
-# weinberger_injection_kick.in). accretion_radius (R_shell) = 4.95 kpc ->
-# R_jet = R_shell/3 = 1.65 kpc (accretion_inner_radius_'s weinberger default,
+# weinberger_injection_kick.in). accretion_radius (R_shell) = 5 kpc ->
+# R_jet = 0.33*R_shell = 1.65 kpc (accretion_inner_radius_'s weinberger default,
 # see agn_triggering.hpp), matching the rest of the weinberger_jet_amr*.in
 # family. Box: 30 kpc wide, comfortably containing R_shell with margin.
 # gravity_srcterm=false (deliberately static/ballistic-free, same
@@ -154,13 +154,13 @@ enable = true
 placement = random_shell       # the only mode now, see cold_clumps.hpp
 n_clumps_per_block = 6         # single meshblock (see above) -> 6 clumps total
 temperature = 1e4               # K
-min_radius = 0.00165            # R_jet   = R_shell/3 = 1.65 kpc: annulus inner edge
-max_radius = 0.00495            # R_shell = accretion_radius = 4.95 kpc: outer edge
+min_radius = 0.00165            # R_jet   = 0.33*R_shell = 1.65 kpc: annulus inner edge
+max_radius = 0.005              # R_shell = accretion_radius = 5 kpc: outer edge
 rng_seed = 11
 
 <problem/cluster/agn_triggering>
 triggering_mode = COLD_GAS
-accretion_radius = 0.00495     # R_shell = 3*R_jet = 3*1.65 kpc = 4.95 kpc
+accretion_radius = 0.005       # R_shell = 5 kpc, R_jet = 0.33*R_shell = 1.65 kpc (W23)
 cold_temp_thresh = 100000.0    # K -- above clump T (1e4 K), below ambient (2e7 K)
 cold_t_acc       = 0.01        # Gyr = 10 Myr -- clump consumption timescale
 

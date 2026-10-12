@@ -48,8 +48,8 @@ class AGNFeedback {
   // existing AGNTriggering/AGNFeedback parameters above, not duplicated here --
   // see agn_feedback_weinberger.hpp for the full parameter list and rationale.
   //   weinberger_jet_density_: rho_jet, the target jet-launch-region density
-  //     (W17 Sec 2.1, rho_target). Only meaningful for jet_feedback_mode_ ==
-  //     Weinberger.
+  //     (W17 Sec 2.1, rho_target), in code units (input in g/cm^3). Only
+  //     meaningful for jet_feedback_mode_ == Weinberger.
   //   beta_jet_: standard plasma beta P_th/P_B at the jet base (large value =
   //     weakly magnetized). Internally inverted (beta_jet_inv = 1/beta_jet_)
   //     only at the point of use in the W17 Eq. 3/5/10 equations -- the

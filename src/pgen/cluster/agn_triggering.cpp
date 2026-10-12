@@ -25,6 +25,7 @@
 #include "../../main.hpp"
 #include "../../units.hpp"
 #include "agn_feedback.hpp"
+#include "agn_feedback_weinberger.hpp"
 #include "agn_triggering.hpp"
 #include "cluster_utils.hpp"
 
@@ -50,6 +51,14 @@ AGNTriggeringMode ParseAGNTriggeringMode(const std::string &mode_str) {
   return AGNTriggeringMode::NONE;
 }
 
+namespace {
+// JetFeedbackMode::Weinberger changes some AGNTriggering defaults and constraints.
+bool IsWeinbergerJetFeedback(parthenon::ParameterInput *pin) {
+  return pin->GetOrAddString("problem/cluster/agn_feedback", "jet_feedback_mode",
+                             "default") == "weinberger";
+}
+} // namespace
+
 AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
                              parthenon::StateDescriptor *hydro_pkg,
                              const std::string &block)
@@ -59,10 +68,7 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
       accretion_radius_(pin->GetOrAddReal(block, "accretion_radius", 0)),
       accretion_inner_radius_(pin->GetOrAddReal(
           block, "accretion_inner_radius",
-          (pin->GetOrAddString("problem/cluster/agn_feedback", "jet_feedback_mode",
-                               "default") == "weinberger")
-              ? accretion_radius_ / 3.0
-              : 0.0)),
+          IsWeinbergerJetFeedback(pin) ? accretion_radius_ * kJetRadiusFraction : 0.0)),
       cold_temp_thresh_(pin->GetOrAddReal(block, "cold_temp_thresh", 0)),
       cold_t_acc_(pin->GetOrAddReal(block, "cold_t_acc", 0)),
       bondi_alpha_(pin->GetOrAddReal(block, "bondi_alpha", 0)),
@@ -72,10 +78,19 @@ AGNTriggering::AGNTriggering(parthenon::ParameterInput *pin,
       bondi_n0_(pin->GetOrAddReal(block, "bondi_n0", 0)),
       bondi_beta_(pin->GetOrAddReal(block, "bondi_beta", 0)),
       accretion_cfl_(pin->GetOrAddReal(block, "accretion_cfl", 1e-1)),
-      remove_accreted_mass_(pin->GetOrAddBoolean(block, "removed_accreted_mass", true)),
+      remove_accreted_mass_(pin->GetOrAddBoolean(block, "removed_accreted_mass",
+                                                 !IsWeinbergerJetFeedback(pin))),
       write_to_file_(pin->GetOrAddBoolean(block, "write_to_file", false)),
       triggering_filename_(
           pin->GetOrAddString(block, "triggering_filename", "agn_triggering.dat")) {
+
+  // JetFeedbackMode::Weinberger: the SMBH accretes from the gas drained from the jet
+  // region (W23 Sec 2.2.1, see agn_feedback_weinberger.cpp), so also removing the
+  // accreted gas around the SMBH here would remove it twice.
+  PARTHENON_REQUIRE_THROWS(
+      !(IsWeinbergerJetFeedback(pin) && remove_accreted_mass_),
+      "jet_feedback_mode=weinberger: the SMBH accretes from the gas drained from the jet "
+      "region, so problem/cluster/agn_triggering/removed_accreted_mass must be false.");
 
   const auto units = hydro_pkg->Param<Units>("units");
   const parthenon::Real He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
@@ -197,7 +212,7 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
               AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(),
                                              k, j, i);
               // Update the Primitives
-              eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
+              eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
             }
           }
         }
@@ -320,7 +335,7 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
                                          i);
 
           // Update the Primitives
-          eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
+          eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
         }
       });
 }
@@ -360,9 +375,14 @@ AGNTriggering::GetAccretionRate(parthenon::StateDescriptor *hydro_pkg) const {
       PARTHENON_FAIL("### FATAL ERROR in AGNTriggering::AccretionRate unsupported "
                      "Bondi-like triggering");
     }
+    // JetFeedbackMode::Weinberger tracks the SMBH mass as it accretes (W23 Eq. 12 uses
+    // the current m_BH).
+    const Real m_smbh = hydro_pkg->AllParams().hasKey("weinberger_smbh_mass")
+                            ? hydro_pkg->Param<Real>("weinberger_smbh_mass")
+                            : bondi_M_smbh_;
     const Real mdot =
-        alpha * 2 * M_PI * pow(units.gravitational_constant(), 2) *
-        pow(bondi_M_smbh_, 2) * mean_mass_weighted_density /
+        alpha * 2 * M_PI * pow(units.gravitational_constant(), 2) * pow(m_smbh, 2) *
+        mean_mass_weighted_density /
         (pow(pow(mean_mass_weighted_velocity, 2) + pow(mean_mass_weighted_cs, 2),
              3. / 2.));
 

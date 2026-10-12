@@ -51,6 +51,18 @@ KOKKOS_INLINE_FUNCTION Real JetTargetSpecificEnergy(const Real u_old, const Real
   const Real u_target = avg_p / ((1.0 + beta_jet_inv) * (gamma - 1.0) * rho_jet);
   return Kokkos::max(u_old, u_target); // W23: only ever raise, never lower
 }
+
+// Sec 2.5: factor applied to a jet-region cell's velocity when its density is reset to
+// rho_jet. Drained mass leaves with the cell's own velocity (factor 1); mass added to a
+// cell below rho_jet comes in at rest, conserving the cell's momentum (factor
+// rho_old/rho_jet). AREPO adds it at the cell's velocity instead, which rarely matters
+// on its moving mesh but does on this static grid: after a kick, the cells in the jet
+// region hold fast, rarefied jet gas, and refilling them at that velocity costs extra
+// kinetic energy (~20% of the first burst in a test), delaying the next injection.
+KOKKOS_INLINE_FUNCTION Real JetResetVelocityFactor(const Real rho_old,
+                                                   const Real rho_jet) {
+  return rho_old < rho_jet ? rho_old / rho_jet : 1.0;
+}
 } // namespace
 
 // Registers the Weinberger-mode Params (energy reservoir, SMBH mass ledger, per-step
@@ -60,7 +72,7 @@ void WeinbergerJetFeedbackInit(ParameterInput *pin, StateDescriptor *hydro_pkg) 
   PARTHENON_REQUIRE_THROWS(
       pin->GetOrAddReal("problem/cluster/agn_triggering", "accretion_radius", 0) > 0,
       "jet_feedback_mode=weinberger requires problem/cluster/agn_triggering/"
-      "accretion_radius > 0 (reused directly as R_shell; R_jet = R_shell/3).");
+      "accretion_radius > 0 (reused directly as R_shell; R_jet = 0.33 R_shell).");
 
   const auto units = hydro_pkg->Param<Units>("units");
   const Real m_smbh_initial =
@@ -69,33 +81,28 @@ void WeinbergerJetFeedbackInit(ParameterInput *pin, StateDescriptor *hydro_pkg) 
                             Params::Mutability::Restart);
   hydro_pkg->AddParam<Real>("weinberger_smbh_mass", m_smbh_initial,
                             Params::Mutability::Restart);
+  // Sec 2.8: gas drained from the jet region (W23's Delta m) not yet accreted by the
+  // SMBH, see WeinbergerJetFeedbackSolveInjection.
+  hydro_pkg->AddParam<Real>("weinberger_drained_mass", 0.0, Params::Mutability::Restart);
 
   // Per-step scratch sums; also the f/f_B/triggered hand-off from
   // WeinbergerJetFeedbackSolveInjection to WeinbergerJetFeedbackApply, and the
   // required/dE_*/reservoir_at_trigger diagnostics fed to the history outputs below.
-  for (const auto &key : {"weinberger_shell_sum_wV",
-                          "weinberger_shell_sum_rhowV",
-                          "weinberger_shell_sum_pwV",
-                          "weinberger_shell_sum_uwV",
-                          "weinberger_shell_avg_rho",
-                          "weinberger_shell_avg_p",
-                          "weinberger_shell_avg_u",
-                          "weinberger_jet_sum_dm",
-                          "weinberger_jet_sum_dEtherm",
-                          "weinberger_jet_sum_A",
-                          "weinberger_jet_sum_B",
-                          "weinberger_jet_sum_um",
-                          "weinberger_jet_sum_B2V",
-                          "weinberger_jet_sum_L",
-                          "weinberger_jet_sum_Q",
-                          "weinberger_injection_f",
-                          "weinberger_injection_f_B",
-                          "weinberger_injection_triggered",
-                          "weinberger_hst_required",
-                          "weinberger_hst_dE_mass",
-                          "weinberger_hst_dE_therm",
-                          "weinberger_hst_dE_B",
-                          "weinberger_hst_reservoir_at_trigger"}) {
+  for (const auto &key :
+       {"weinberger_shell_sum_wV",      "weinberger_shell_sum_rhowV",
+        "weinberger_shell_sum_pwV",     "weinberger_shell_sum_rhovxwV",
+        "weinberger_shell_sum_rhovywV", "weinberger_shell_sum_rhovzwV",
+        "weinberger_shell_avg_rho",     "weinberger_shell_avg_p",
+        "weinberger_shell_avg_u",       "weinberger_shell_avg_ekin",
+        "weinberger_jet_sum_dm",        "weinberger_jet_sum_dEtherm",
+        "weinberger_jet_sum_dEdrain",   "weinberger_jet_sum_A",
+        "weinberger_jet_sum_B",         "weinberger_jet_sum_um",
+        "weinberger_jet_sum_B2V",       "weinberger_jet_sum_L",
+        "weinberger_jet_sum_Q",         "weinberger_injection_f",
+        "weinberger_injection_f_B",     "weinberger_injection_triggered",
+        "weinberger_hst_required",      "weinberger_hst_dE_mass",
+        "weinberger_hst_dE_therm",      "weinberger_hst_dE_drain",
+        "weinberger_hst_dE_B",          "weinberger_hst_reservoir_at_trigger"}) {
     hydro_pkg->AddParam<Real>(key, 0.0, Params::Mutability::Mutable);
   }
 
@@ -150,9 +157,9 @@ void WeinbergerJetFeedbackInit(ParameterInput *pin, StateDescriptor *hydro_pkg) 
         pin->GetOrAddReal("problem/cluster/agn_triggering", "accretion_radius", 0);
     std::cout << "[Weinberger][init] R_shell = " << r_shell
               << " code_length = " << r_shell / units.kpc() << " kpc" << std::endl;
-    std::cout << "[Weinberger][init] R_jet   = " << r_shell / 3.0
-              << " code_length = " << (r_shell / 3.0) / units.kpc() << " kpc"
-              << std::endl;
+    std::cout << "[Weinberger][init] R_jet   = " << r_shell * kJetRadiusFraction
+              << " code_length = " << (r_shell * kJetRadiusFraction) / units.kpc()
+              << " kpc" << std::endl;
     std::cout << "[Weinberger][init] rho_jet = " << agn_feedback.weinberger_jet_density_
               << " code_density = "
               << agn_feedback.weinberger_jet_density_ / units.g_cm3() << " g/cm^3"
@@ -173,7 +180,7 @@ void WeinbergerJetFeedbackInit(ParameterInput *pin, StateDescriptor *hydro_pkg) 
   auto hst_vars = hydro_pkg->Param<parthenon::HstVar_list>(parthenon::hist_param_key);
 
   // Sec 2.4: the reservoir, its value at the most recent trigger (0 otherwise), the cost
-  // gate, and its three components.
+  // gate, and its components.
   hst_vars.emplace_back(parthenon::HistoryOutputVar(
       parthenon::UserHistoryOperation::max,
       [](MeshData<Real> *md) {
@@ -209,6 +216,13 @@ void WeinbergerJetFeedbackInit(ParameterInput *pin, StateDescriptor *hydro_pkg) 
         return hydro_pkg->Param<Real>("weinberger_hst_dE_therm");
       },
       "weinberger_dE_therm"));
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(
+      parthenon::UserHistoryOperation::max,
+      [](MeshData<Real> *md) {
+        auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+        return hydro_pkg->Param<Real>("weinberger_hst_dE_drain");
+      },
+      "weinberger_dE_drain"));
   hst_vars.emplace_back(parthenon::HistoryOutputVar(
       parthenon::UserHistoryOperation::max,
       [](MeshData<Real> *md) {
@@ -297,6 +311,15 @@ void WeinbergerJetFeedbackInit(ParameterInput *pin, StateDescriptor *hydro_pkg) 
         return hydro_pkg->Param<Real>("weinberger_smbh_mass") / units.msun();
       },
       "weinberger_smbh_mass_msun"));
+  hst_vars.emplace_back(parthenon::HistoryOutputVar(
+      parthenon::UserHistoryOperation::max,
+      [](MeshData<Real> *md) {
+        auto pmb = md->GetBlockData(0)->GetBlockPointer();
+        auto hydro_pkg = pmb->packages.Get("Hydro");
+        const auto units = hydro_pkg->Param<Units>("units");
+        return hydro_pkg->Param<Real>("weinberger_drained_mass") / units.msun();
+      },
+      "weinberger_drained_mass_msun"));
 
   // Sec 2.3 outer-shell kernel averages and the resolution health check (sum(w*V),
   // expect O(1) if the shell is resolved).
@@ -339,37 +362,43 @@ parthenon::TaskStatus WeinbergerJetFeedbackReset(parthenon::StateDescriptor *hyd
   }
   for (const auto &key :
        {"weinberger_shell_sum_wV", "weinberger_shell_sum_rhowV",
-        "weinberger_shell_sum_pwV", "weinberger_shell_sum_uwV", "weinberger_jet_sum_dm",
-        "weinberger_jet_sum_dEtherm", "weinberger_jet_sum_A", "weinberger_jet_sum_B",
-        "weinberger_jet_sum_um", "weinberger_jet_sum_B2V", "weinberger_jet_sum_L",
-        "weinberger_jet_sum_Q"}) {
+        "weinberger_shell_sum_pwV", "weinberger_shell_sum_rhovxwV",
+        "weinberger_shell_sum_rhovywV", "weinberger_shell_sum_rhovzwV",
+        "weinberger_jet_sum_dm", "weinberger_jet_sum_dEtherm", "weinberger_jet_sum_A",
+        "weinberger_jet_sum_B", "weinberger_jet_sum_um", "weinberger_jet_sum_B2V",
+        "weinberger_jet_sum_L", "weinberger_jet_sum_Q", "weinberger_jet_sum_dEdrain",
+        "weinberger_fixed_profile_power"}) {
     hydro_pkg->UpdateParam<Real>(key, 0.0);
   }
   return TaskStatus::complete;
 }
 
-parthenon::TaskStatus
-WeinbergerJetFeedbackReduceShell(parthenon::MeshData<parthenon::Real> *md) {
+// The reduction passes run between the last stage's update and the injection (see
+// hydro_driver.cpp), where `prim` still holds that stage's input state. They refresh
+// it from `cons` (eos.ConsToPrim, as WeinbergerApplyInjection and the subsequent
+// FillDerived do) for every cell they read, so the injection is solved for exactly
+// the state it is then applied to.
+template <typename EOS>
+void WeinbergerReduceShell(parthenon::MeshData<parthenon::Real> *md, const EOS &eos) {
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
-  if (agn_feedback.jet_feedback_mode_ != JetFeedbackMode::Weinberger) {
-    return TaskStatus::complete;
-  }
-
   const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
   const Real r_shell = agn_triggering.accretion_radius_;
-  const Real r_jet = r_shell / 3.0;
-  const Real gm1 = hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0;
+  const Real r_jet = kJetRadiusFraction * r_shell;
+  const bool is_mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-  Real sum_wV = 0, sum_rhowV = 0, sum_pwV = 0, sum_uwV = 0;
+  Real sum_wV = 0, sum_rhowV = 0, sum_pwV = 0, sum_rhovxwV = 0, sum_rhovywV = 0,
+       sum_rhovzwV = 0;
 
   Kokkos::parallel_reduce(
       "WeinbergerJetFeedbackReduceShell",
@@ -378,24 +407,34 @@ WeinbergerJetFeedbackReduceShell(parthenon::MeshData<parthenon::Real> *md) {
           {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
           {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i, Real &lwV,
-                    Real &lrhowV, Real &lpwV, Real &luwV) {
+                    Real &lrhowV, Real &lpwV, Real &lrhovxwV, Real &lrhovywV,
+                    Real &lrhovzwV) {
+        auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        const auto &coords = prim_pack.GetCoords(b);
+        const auto &coords = cons_pack.GetCoords(b);
         const Real x = coords.Xc<1>(i), y = coords.Xc<2>(j), z = coords.Xc<3>(k);
         const Real r = sqrt(x * x + y * y + z * z);
         if (r > r_jet && r <= r_shell) {
+          eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
           const Real V = coords.CellVolume(k, j, i);
           const Real w = CubicSplineKernel(r, r_shell) * V;
           const Real rho = prim(IDN, k, j, i);
-          const Real p = prim(IPR, k, j, i);
-          const Real u = p / (gm1 * rho);
+          // Total (thermal + magnetic) pressure, as in AREPO's rw17 jet module.
+          Real p = prim(IPR, k, j, i);
+          if (is_mhd) {
+            const Real Bx = prim(IB1, k, j, i), By = prim(IB2, k, j, i),
+                       Bz = prim(IB3, k, j, i);
+            p += 0.5 * (Bx * Bx + By * By + Bz * Bz);
+          }
           lwV += w;
           lrhowV += rho * w;
           lpwV += p * w;
-          luwV += u * w;
+          lrhovxwV += rho * prim(IV1, k, j, i) * w;
+          lrhovywV += rho * prim(IV2, k, j, i) * w;
+          lrhovzwV += rho * prim(IV3, k, j, i) * w;
         }
       },
-      sum_wV, sum_rhowV, sum_pwV, sum_uwV);
+      sum_wV, sum_rhowV, sum_pwV, sum_rhovxwV, sum_rhovywV, sum_rhovzwV);
 
   hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_wV",
                                hydro_pkg->Param<Real>("weinberger_shell_sum_wV") +
@@ -406,10 +445,33 @@ WeinbergerJetFeedbackReduceShell(parthenon::MeshData<parthenon::Real> *md) {
   hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_pwV",
                                hydro_pkg->Param<Real>("weinberger_shell_sum_pwV") +
                                    sum_pwV);
-  hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_uwV",
-                               hydro_pkg->Param<Real>("weinberger_shell_sum_uwV") +
-                                   sum_uwV);
+  hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_rhovxwV",
+                               hydro_pkg->Param<Real>("weinberger_shell_sum_rhovxwV") +
+                                   sum_rhovxwV);
+  hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_rhovywV",
+                               hydro_pkg->Param<Real>("weinberger_shell_sum_rhovywV") +
+                                   sum_rhovywV);
+  hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_rhovzwV",
+                               hydro_pkg->Param<Real>("weinberger_shell_sum_rhovzwV") +
+                                   sum_rhovzwV);
+}
 
+parthenon::TaskStatus
+WeinbergerJetFeedbackReduceShell(parthenon::MeshData<parthenon::Real> *md) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
+  if (agn_feedback.jet_feedback_mode_ != JetFeedbackMode::Weinberger) {
+    return TaskStatus::complete;
+  }
+
+  const auto fluid = hydro_pkg->Param<Fluid>("fluid");
+  if (fluid == Fluid::euler) {
+    WeinbergerReduceShell(md, hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+  } else if (fluid == Fluid::glmmhd) {
+    WeinbergerReduceShell(md, hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+  } else {
+    PARTHENON_FAIL("WeinbergerJetFeedbackReduceShell: Unknown EOS");
+  }
   return TaskStatus::complete;
 }
 
@@ -420,58 +482,68 @@ WeinbergerJetFeedbackMPIReduceShell(parthenon::StateDescriptor *hydro_pkg) {
     return TaskStatus::complete;
   }
 
-  Real sums[4] = {
+  Real sums[6] = {
       hydro_pkg->Param<Real>("weinberger_shell_sum_wV"),
       hydro_pkg->Param<Real>("weinberger_shell_sum_rhowV"),
       hydro_pkg->Param<Real>("weinberger_shell_sum_pwV"),
-      hydro_pkg->Param<Real>("weinberger_shell_sum_uwV"),
+      hydro_pkg->Param<Real>("weinberger_shell_sum_rhovxwV"),
+      hydro_pkg->Param<Real>("weinberger_shell_sum_rhovywV"),
+      hydro_pkg->Param<Real>("weinberger_shell_sum_rhovzwV"),
   };
-  AllreduceSum(sums, 4);
+  AllreduceSum(sums, 6);
   hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_wV", sums[0]);
   hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_rhowV", sums[1]);
   hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_pwV", sums[2]);
-  hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_uwV", sums[3]);
+  hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_rhovxwV", sums[3]);
+  hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_rhovywV", sums[4]);
+  hydro_pkg->UpdateParam<Real>("weinberger_shell_sum_rhovzwV", sums[5]);
 
-  // Sec 2.3: kernel-weighted shell averages; fall back to 0 (not NaN) if no
-  // cell fell in the shell.
-  const Real denom = sums[0];
-  const Real avg_rho = denom > 0 ? sums[1] / denom : 0.0;
-  const Real avg_p = denom > 0 ? sums[2] / denom : 0.0;
-  const Real avg_u = denom > 0 ? sums[3] / denom : 0.0;
+  // Sec 2.3: kernel-weighted shell averages. As in AREPO, the specific energy the
+  // drained mass is priced at (dE_mass) is the mass-weighted <p>/((gamma-1)<rho>) plus
+  // the bulk kinetic energy of the mass-weighted ambient velocity, and a shell without
+  // any cell is an error.
+  PARTHENON_REQUIRE_THROWS(sums[0] > 0,
+                           "jet_feedback_mode=weinberger: no cell center in the outer "
+                           "shell between R_jet and accretion_radius.");
+  const Real gm1 = hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0;
+  const Real avg_rho = sums[1] / sums[0];
+  const Real avg_p = sums[2] / sums[0];
+  const Real vx = sums[3] / sums[1], vy = sums[4] / sums[1], vz = sums[5] / sums[1];
   hydro_pkg->UpdateParam<Real>("weinberger_shell_avg_rho", avg_rho);
   hydro_pkg->UpdateParam<Real>("weinberger_shell_avg_p", avg_p);
-  hydro_pkg->UpdateParam<Real>("weinberger_shell_avg_u", avg_u);
+  hydro_pkg->UpdateParam<Real>("weinberger_shell_avg_u", avg_p / (gm1 * avg_rho));
+  hydro_pkg->UpdateParam<Real>("weinberger_shell_avg_ekin",
+                               0.5 * (vx * vx + vy * vy + vz * vz));
 
   return TaskStatus::complete;
 }
 
-parthenon::TaskStatus
-WeinbergerJetFeedbackReduceJetRegion(parthenon::MeshData<parthenon::Real> *md) {
+template <typename EOS>
+void WeinbergerReduceJetRegion(parthenon::MeshData<parthenon::Real> *md, const EOS &eos) {
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
 
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
-  if (agn_feedback.jet_feedback_mode_ != JetFeedbackMode::Weinberger) {
-    return TaskStatus::complete;
-  }
-
   const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
-  const Real r_jet = agn_triggering.accretion_radius_ / 3.0;
+  const Real r_jet = agn_triggering.accretion_radius_ * kJetRadiusFraction;
   const Real gm1 = hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0;
   const Real gamma = gm1 + 1.0;
   const Real rho_jet = agn_feedback.weinberger_jet_density_;
   const Real beta_jet_inv = 1.0 / agn_feedback.beta_jet_; // 0 for beta_jet_ == inf
   const Real avg_p = hydro_pkg->Param<Real>("weinberger_shell_avg_p");
   const bool is_mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
+  const auto nhydro = hydro_pkg->Param<int>("nhydro");
+  const auto nscalars = hydro_pkg->Param<int>("nscalars");
 
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   Real sum_dm = 0, sum_dEtherm = 0, sum_A = 0, sum_B = 0, sum_um = 0, sum_B2V = 0,
-       sum_L = 0, sum_Q = 0;
+       sum_L = 0, sum_Q = 0, sum_dEdrain = 0;
 
   Kokkos::parallel_reduce(
       "WeinbergerJetFeedbackReduceJetRegion",
@@ -481,33 +553,44 @@ WeinbergerJetFeedbackReduceJetRegion(parthenon::MeshData<parthenon::Real> *md) {
           {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i, Real &ldm,
                     Real &ldEtherm, Real &lA, Real &lB, Real &lum, Real &lB2V, Real &lL,
-                    Real &lQ) {
+                    Real &lQ, Real &ldEdrain) {
+        auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
-        const auto &coords = prim_pack.GetCoords(b);
+        const auto &coords = cons_pack.GetCoords(b);
         const Real x = coords.Xc<1>(i), y = coords.Xc<2>(j), z = coords.Xc<3>(k);
         const Real r2perp = x * x + y * y;
         const Real r = sqrt(r2perp + z * z);
         if (r > r_jet) return;
 
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
         const Real V = coords.CellVolume(k, j, i);
         const Real rho_old = prim(IDN, k, j, i);
-        const Real vz_old = prim(IV3, k, j, i);
+        const Real vx_old = prim(IV1, k, j, i), vy_old = prim(IV2, k, j, i),
+                   vz_old = prim(IV3, k, j, i);
         const Real u_old = prim(IPR, k, j, i) / (gm1 * rho_old);
 
         const Real dm_i = (rho_old - rho_jet) * V;
         const Real u_jet_i =
             JetTargetSpecificEnergy(u_old, avg_p, beta_jet_inv, rho_jet, gamma);
         const Real m_i = rho_jet * V;
+        // Velocity after the density reset, as in WeinbergerApplyInjection.
+        const Real vfac = JetResetVelocityFactor(rho_old, rho_jet);
+        const Real v2_old = vx_old * vx_old + vy_old * vy_old + vz_old * vz_old;
 
         ldm += dm_i;
         ldEtherm += m_i * (u_jet_i - u_old);
+        // Thermal + kinetic energy the density reset itself (at the cell's own u_old,
+        // before the heating to u_jet_i above and the kick below) carries out of the
+        // cell with drained mass (> 0), or brings in with added mass (< 0).
+        ldEdrain += rho_old * V * (u_old + 0.5 * v2_old) -
+                    m_i * (u_old + 0.5 * vfac * vfac * v2_old);
 
         // Sec 2.6: A/B quadratic coefficients for f (W17 Eq. 16), from the same
         // JetMomentumKernel weight applied to vz in WeinbergerApplyInjection below.
         const Real w_i = JetMomentumKernel(r, z, r_jet);
         const Real sgn_z = (z >= 0) ? 1.0 : -1.0;
         lA += 0.5 * w_i * w_i * m_i;
-        lB += w_i * (m_i * vz_old * sgn_z);
+        lB += w_i * (m_i * vfac * vz_old * sgn_z);
 
         if (is_mhd) {
           lum += u_jet_i * m_i;
@@ -529,7 +612,7 @@ WeinbergerJetFeedbackReduceJetRegion(parthenon::MeshData<parthenon::Real> *md) {
           lQ += 0.5 * (bx_shape * bx_shape + by_shape * by_shape) * V;
         }
       },
-      sum_dm, sum_dEtherm, sum_A, sum_B, sum_um, sum_B2V, sum_L, sum_Q);
+      sum_dm, sum_dEtherm, sum_A, sum_B, sum_um, sum_B2V, sum_L, sum_Q, sum_dEdrain);
 
   hydro_pkg->UpdateParam<Real>("weinberger_jet_sum_dm",
                                hydro_pkg->Param<Real>("weinberger_jet_sum_dm") + sum_dm);
@@ -549,7 +632,27 @@ WeinbergerJetFeedbackReduceJetRegion(parthenon::MeshData<parthenon::Real> *md) {
                                hydro_pkg->Param<Real>("weinberger_jet_sum_L") + sum_L);
   hydro_pkg->UpdateParam<Real>("weinberger_jet_sum_Q",
                                hydro_pkg->Param<Real>("weinberger_jet_sum_Q") + sum_Q);
+  hydro_pkg->UpdateParam<Real>("weinberger_jet_sum_dEdrain",
+                               hydro_pkg->Param<Real>("weinberger_jet_sum_dEdrain") +
+                                   sum_dEdrain);
+}
 
+parthenon::TaskStatus
+WeinbergerJetFeedbackReduceJetRegion(parthenon::MeshData<parthenon::Real> *md) {
+  auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
+  const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
+  if (agn_feedback.jet_feedback_mode_ != JetFeedbackMode::Weinberger) {
+    return TaskStatus::complete;
+  }
+
+  const auto fluid = hydro_pkg->Param<Fluid>("fluid");
+  if (fluid == Fluid::euler) {
+    WeinbergerReduceJetRegion(md, hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+  } else if (fluid == Fluid::glmmhd) {
+    WeinbergerReduceJetRegion(md, hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+  } else {
+    PARTHENON_FAIL("WeinbergerJetFeedbackReduceJetRegion: Unknown EOS");
+  }
   return TaskStatus::complete;
 }
 
@@ -560,7 +663,7 @@ WeinbergerJetFeedbackMPIReduceJetRegion(parthenon::StateDescriptor *hydro_pkg) {
     return TaskStatus::complete;
   }
 
-  Real sums[8] = {
+  Real sums[9] = {
       hydro_pkg->Param<Real>("weinberger_jet_sum_dm"),
       hydro_pkg->Param<Real>("weinberger_jet_sum_dEtherm"),
       hydro_pkg->Param<Real>("weinberger_jet_sum_A"),
@@ -569,8 +672,9 @@ WeinbergerJetFeedbackMPIReduceJetRegion(parthenon::StateDescriptor *hydro_pkg) {
       hydro_pkg->Param<Real>("weinberger_jet_sum_B2V"),
       hydro_pkg->Param<Real>("weinberger_jet_sum_L"),
       hydro_pkg->Param<Real>("weinberger_jet_sum_Q"),
+      hydro_pkg->Param<Real>("weinberger_jet_sum_dEdrain"),
   };
-  AllreduceSum(sums, 8);
+  AllreduceSum(sums, 9);
   hydro_pkg->UpdateParam<Real>("weinberger_jet_sum_dm", sums[0]);
   hydro_pkg->UpdateParam<Real>("weinberger_jet_sum_dEtherm", sums[1]);
   hydro_pkg->UpdateParam<Real>("weinberger_jet_sum_A", sums[2]);
@@ -579,6 +683,7 @@ WeinbergerJetFeedbackMPIReduceJetRegion(parthenon::StateDescriptor *hydro_pkg) {
   hydro_pkg->UpdateParam<Real>("weinberger_jet_sum_B2V", sums[5]);
   hydro_pkg->UpdateParam<Real>("weinberger_jet_sum_L", sums[6]);
   hydro_pkg->UpdateParam<Real>("weinberger_jet_sum_Q", sums[7]);
+  hydro_pkg->UpdateParam<Real>("weinberger_jet_sum_dEdrain", sums[8]);
 
   return TaskStatus::complete;
 }
@@ -617,7 +722,7 @@ void WeinbergerApplyInjection(parthenon::MeshData<parthenon::Real> *md, const Re
         const Real r = sqrt(r2perp + z * z);
         if (r > r_jet) return;
 
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
 
         const Real rho_old = prim(IDN, k, j, i);
         const Real vx_old = prim(IV1, k, j, i), vy_old = prim(IV2, k, j, i),
@@ -641,20 +746,22 @@ void WeinbergerApplyInjection(parthenon::MeshData<parthenon::Real> *md, const Re
         }
 
         // Sec 2.6: velocity kick Delta v_i = w_i * f * sgn(z) along n_hat = z_hat, must
-        // use the same weight as WeinbergerJetFeedbackReduceJetRegion above.
+        // use the same weight as WeinbergerJetFeedbackReduceJetRegion above, on top of
+        // the velocity after the density reset (JetResetVelocityFactor).
+        const Real vfac = JetResetVelocityFactor(rho_old, rho_jet);
+        const Real vx = vfac * vx_old, vy = vfac * vy_old;
         const Real w_i = JetMomentumKernel(r, z, r_jet);
         const Real sgn_z = (z >= 0) ? 1.0 : -1.0;
-        const Real vz_final = vz_old + w_i * f * sgn_z;
+        const Real vz_final = vfac * vz_old + w_i * f * sgn_z;
 
         // Sec 2.5: reset to the jet-region target state, not an additive injection.
         // +e_B_old carries the pre-existing field energy through unchanged (see above);
         // the f_B kick below adds its own incremental energy on top.
         cons(IDN, k, j, i) = rho_jet;
-        cons(IM1, k, j, i) = rho_jet * vx_old;
-        cons(IM2, k, j, i) = rho_jet * vy_old;
+        cons(IM1, k, j, i) = rho_jet * vx;
+        cons(IM2, k, j, i) = rho_jet * vy;
         cons(IM3, k, j, i) = rho_jet * vz_final;
-        const Real ke =
-            0.5 * rho_jet * (vx_old * vx_old + vy_old * vy_old + vz_final * vz_final);
+        const Real ke = 0.5 * rho_jet * (vx * vx + vy * vy + vz_final * vz_final);
         cons(IEN, k, j, i) = rho_jet * u_jet_i + ke + e_B_old;
 
         if (is_mhd && f_B != 0.0) {
@@ -671,11 +778,16 @@ void WeinbergerApplyInjection(parthenon::MeshData<parthenon::Real> *md, const Re
               Bx_old * dBx + By_old * dBy + 0.5 * (dBx * dBx + dBy * dBy);
         }
 
+        // Passive scalars follow the density reset, keeping their mass fractions (as in
+        // AREPO); the jet tracer is then pinned to 1.
+        for (int n = nhydro; n < nhydro + nscalars; ++n) {
+          cons(n, k, j, i) *= rho_jet / rho_old;
+        }
         if (enable_tracer) {
           cons(nhydro, k, j, i) = 1.0 * cons(IDN, k, j, i);
         }
 
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
         PARTHENON_REQUIRE(prim(IPR, k, j, i) > 0,
                           "Weinberger jet injection leads to negative pressure");
       });
@@ -685,13 +797,13 @@ void WeinbergerApplyInjection(parthenon::MeshData<parthenon::Real> *md, const Re
 // sphere, see weinberger_fixed_jet_profile in WeinbergerJetFeedbackInit. Ignores f/f_B;
 // velocity is JetMomentumKernel-shaped, normalized via JetMomentumKernelPeak so the
 // maximum |vz| is exactly fixed_v. Density is a hard step to fixed_rho; hydro-only (no
-// MHD term). ke_injected (output): total kinetic energy written (Allreduced), for the
-// caller to report an instantaneous power (ke_injected/dt).
+// MHD term). de_injected (output): the change of total energy this causes in this
+// partition's blocks (Allreduced), for the caller to report the injected power.
 template <typename EOS>
 void ApplyFixedJetProfile(parthenon::MeshData<parthenon::Real> *md, const Real r_jet,
                           const Real fixed_rho, const Real fixed_v, const Real avg_p,
                           const Real beta_jet_inv, const Real gamma,
-                          const bool enable_tracer, const EOS &eos, Real &ke_injected) {
+                          const bool enable_tracer, const EOS &eos, Real &de_injected) {
   using parthenon::IndexDomain;
   using parthenon::IndexRange;
 
@@ -709,7 +821,7 @@ void ApplyFixedJetProfile(parthenon::MeshData<parthenon::Real> *md, const Real r
   // Normalizes the profile below so its maximum |vz| is exactly fixed_v.
   const Real w_peak = JetMomentumKernelPeak(r_jet);
 
-  Real lke = 0.0;
+  Real lde = 0.0;
   Kokkos::parallel_reduce(
       "ApplyFixedJetProfile",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
@@ -717,7 +829,7 @@ void ApplyFixedJetProfile(parthenon::MeshData<parthenon::Real> *md, const Real r
           {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
           {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
-                    Real &lke_team) {
+                    Real &lde_team) {
         auto &cons = cons_pack(b);
         auto &prim = prim_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
@@ -726,8 +838,9 @@ void ApplyFixedJetProfile(parthenon::MeshData<parthenon::Real> *md, const Real r
         const Real r = sqrt(rperp * rperp + z * z);
         if (r > r_jet) return;
 
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
 
+        const Real e_old = cons(IEN, k, j, i);
         const Real rho_old = prim(IDN, k, j, i);
         const Real u_old = prim(IPR, k, j, i) / (gm1 * rho_old);
         const Real u_jet_i =
@@ -744,19 +857,23 @@ void ApplyFixedJetProfile(parthenon::MeshData<parthenon::Real> *md, const Real r
         const Real ke = 0.5 * fixed_rho * vz * vz;
         cons(IEN, k, j, i) = fixed_rho * u_jet_i + ke;
 
+        // Passive scalars follow the density reset, as in WeinbergerApplyInjection.
+        for (int n = nhydro; n < nhydro + nscalars; ++n) {
+          cons(n, k, j, i) *= fixed_rho / rho_old;
+        }
         if (enable_tracer) {
           cons(nhydro, k, j, i) = 1.0 * cons(IDN, k, j, i);
         }
 
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
         PARTHENON_REQUIRE(prim(IPR, k, j, i) > 0,
                           "Fixed jet profile leads to negative pressure");
 
-        lke_team += ke * coords.CellVolume(k, j, i);
+        lde_team += (cons(IEN, k, j, i) - e_old) * coords.CellVolume(k, j, i);
       },
-      lke);
-  AllreduceSum(&lke, 1);
-  ke_injected = lke;
+      lde);
+  AllreduceSum(&lde, 1);
+  de_injected = lde;
 }
 
 // WIRING WARNING: reservoir growth and the trigger-gate check are global scalar
@@ -770,15 +887,32 @@ WeinbergerJetFeedbackSolveInjection(parthenon::StateDescriptor *hydro_pkg,
   if (agn_feedback.jet_feedback_mode_ != JetFeedbackMode::Weinberger) {
     return TaskStatus::complete;
   }
+  // AGN feedback switched off: no reservoir growth, accretion or injection.
+  if (agn_feedback.disabled_) {
+    hydro_pkg->UpdateParam<Real>("weinberger_injection_triggered", 0.0);
+    return TaskStatus::complete;
+  }
 
   // Sec 2.4 / W17 Eq. 1: grow the reservoir by the step's jet power
   // (AGNFeedback::GetFeedbackPower: fixed_power + efficiency*Mdot_acc*c^2).
   const Real edot_jet = agn_feedback.GetFeedbackPower(hydro_pkg);
   Real reservoir = hydro_pkg->Param<Real>("weinberger_energy_reservoir") + edot_jet * dt;
 
+  // Sec 2.8 / W23 Sec 2.2.1: the SMBH accretes the step's accreted mass from the gas
+  // drained from the jet region (logged below), instead of from gas removed around it
+  // (see AGNTriggering's removed_accreted_mass). The drained-mass ledger runs negative
+  // if the SMBH accretes more than has been drained so far, until the next drain.
+  const auto &agn_triggering = hydro_pkg->Param<AGNTriggering>("agn_triggering");
+  const Real m_acc = agn_triggering.GetAccretionRate(hydro_pkg) * dt;
+  hydro_pkg->UpdateParam<Real>("weinberger_smbh_mass",
+                               hydro_pkg->Param<Real>("weinberger_smbh_mass") + m_acc);
+  hydro_pkg->UpdateParam<Real>("weinberger_drained_mass",
+                               hydro_pkg->Param<Real>("weinberger_drained_mass") - m_acc);
+
   const Real avg_u = hydro_pkg->Param<Real>("weinberger_shell_avg_u");
   const Real sum_dm = hydro_pkg->Param<Real>("weinberger_jet_sum_dm");
   const Real sum_dEtherm = hydro_pkg->Param<Real>("weinberger_jet_sum_dEtherm");
+  const Real sum_dEdrain = hydro_pkg->Param<Real>("weinberger_jet_sum_dEdrain");
   const Real sum_A = hydro_pkg->Param<Real>("weinberger_jet_sum_A");
   const Real sum_B = hydro_pkg->Param<Real>("weinberger_jet_sum_B");
   const Real sum_um = hydro_pkg->Param<Real>("weinberger_jet_sum_um");
@@ -790,34 +924,58 @@ WeinbergerJetFeedbackSolveInjection(parthenon::StateDescriptor *hydro_pkg,
   const Real beta_jet_inv = 1.0 / agn_feedback.beta_jet_;
   const bool is_mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
 
-  // W23 mass-drain cost (Sec 2.5): the specific energy carried away by the
-  // drained mass, evaluated at the shell-averaged <u>, not each cell's own u.
-  const Real dE_mass = sum_dm * avg_u;
+  // W23 mass-drain cost (Sec 2.5, W23 Eq. 7): the energy that leaves the system with
+  // the net drained mass, at the ambient specific energy (see MPIReduceShell) rather
+  // than each cell's own.
+  const Real dE_mass =
+      sum_dm * (avg_u + hydro_pkg->Param<Real>("weinberger_shell_avg_ekin"));
   const Real dE_therm = sum_dEtherm;
+  // What resetting each cell to rho_jet (at its own u and velocity) actually carries
+  // out of the grid with the drained mass, or brings in with added mass. It is part of
+  // the reset's cost below, so that the drained mass takes nothing beyond dE_mass out
+  // of the gas, and redistributing mass between fast and slow cells neither creates
+  // nor destroys kinetic energy.
+  const Real dE_drain = sum_dEdrain;
 
   // Sec 2.7 / W17 Eq. 10: magnetic energy needed to reach the beta_jet target, clamped
-  // to >=0.
+  // to >=0, and 0 if there is no field to inject (sum_Q == 0) rather than charging the
+  // reservoir for energy that cannot be injected.
   const Real dE_B_target =
-      is_mhd ? std::max(0.0, beta_jet_inv * (gamma - 1.0) * sum_um - sum_B2V) : 0.0;
+      (is_mhd && sum_Q > 0)
+          ? std::max(0.0, beta_jet_inv * (gamma - 1.0) * sum_um - sum_B2V)
+          : 0.0;
 
-  const Real required = dE_mass + dE_therm + dE_B_target;
+  // AREPO's "preparation" energy: the actual energy change of resetting the jet region
+  // to the jet state, before the kick (can be < 0 when dE_drain is large).
+  const Real required = dE_therm - dE_drain + dE_B_target;
 
   hydro_pkg->UpdateParam<Real>("weinberger_hst_required", required);
   hydro_pkg->UpdateParam<Real>("weinberger_hst_dE_mass", dE_mass);
   hydro_pkg->UpdateParam<Real>("weinberger_hst_dE_therm", dE_therm);
+  hydro_pkg->UpdateParam<Real>("weinberger_hst_dE_drain", dE_drain);
   hydro_pkg->UpdateParam<Real>("weinberger_hst_dE_B", dE_B_target);
 
-  // Sec 2.4 trigger gate (W17 Eq. 1: Delta E_kin >= 0). Full-consumption policy: the
-  // entire remainder becomes kinetic energy and the reservoir resets to zero.
-  if (reservoir >= required) {
+  // Sec 2.4 trigger gate (W17 Eq. 1: Delta E_kin > 0) on the reset's cost, as in
+  // AREPO, plus energy in the reservoir (so nothing is injected without AGN power) and
+  // jet-region cells to kick (sum_A > 0, else the reservoir would be consumed without
+  // injecting anything). Full-consumption policy: the entire remainder becomes kinetic
+  // energy, so the gas energy changes by exactly the reservoir; dE_mass is then charged
+  // to the reservoir, which can thus go negative and delay the next injection (AREPO).
+  if (sum_A <= 0 && parthenon::Globals::my_rank == 0) {
+    static bool warned = false;
+    if (!warned) {
+      PARTHENON_WARN("jet_feedback_mode=weinberger: no cell center within R_jet = "
+                     "0.33 accretion_radius, so no injection until there is one.");
+      warned = true;
+    }
+  }
+  if (reservoir > 0 && sum_A > 0 && reservoir > required) {
     const Real dE_kin = reservoir - required;
 
     // Sec 2.6 / W17 Eq. 16, expanded to A f^2 + B f - dE_kin = 0 (quadratic since the
     // p_i,old cross-term does not vanish in general).
-    Real f = 0.0;
-    if (sum_A > 0) {
-      f = (-sum_B + std::sqrt(sum_B * sum_B + 4.0 * sum_A * dE_kin)) / (2.0 * sum_A);
-    }
+    const Real f =
+        (-sum_B + std::sqrt(sum_B * sum_B + 4.0 * sum_A * dE_kin)) / (2.0 * sum_A);
 
     // Sec 2.7 / W17 Eq. 13, same structure, solved for f_B given dE_B_target above.
     Real f_B = 0.0;
@@ -826,19 +984,21 @@ WeinbergerJetFeedbackSolveInjection(parthenon::StateDescriptor *hydro_pkg,
           (-sum_L + std::sqrt(sum_L * sum_L + 4.0 * sum_Q * dE_B_target)) / (2.0 * sum_Q);
     }
 
-    // Sec 2.8: log the drained mass onto the SMBH mass ledger.
-    hydro_pkg->UpdateParam<Real>("weinberger_smbh_mass",
-                                 hydro_pkg->Param<Real>("weinberger_smbh_mass") + sum_dm);
+    // Sec 2.8: log the drained mass, which the SMBH accretes from (W23: "logged and
+    // used in the accretion routine").
+    hydro_pkg->UpdateParam<Real>("weinberger_drained_mass",
+                                 hydro_pkg->Param<Real>("weinberger_drained_mass") +
+                                     sum_dm);
 
     hydro_pkg->UpdateParam<Real>("weinberger_injection_f", f);
     hydro_pkg->UpdateParam<Real>("weinberger_injection_f_B", f_B);
     hydro_pkg->UpdateParam<Real>("weinberger_injection_triggered", 1.0);
-    // Stashed separately since reservoir itself is about to be zeroed below (full
+    // Stashed separately since reservoir itself is about to be consumed below (full
     // consumption); zero on non-triggered steps so a nonzero value here always marks a
     // triggered cycle.
     hydro_pkg->UpdateParam<Real>("weinberger_hst_reservoir_at_trigger", reservoir);
 
-    reservoir = 0.0;
+    reservoir = -dE_mass;
   } else {
     hydro_pkg->UpdateParam<Real>("weinberger_injection_triggered", 0.0);
     // Zero stale f/f_B too, so the history columns aren't misleading on a step that
@@ -858,14 +1018,16 @@ parthenon::TaskStatus WeinbergerJetFeedbackApply(parthenon::MeshData<parthenon::
                                                  const parthenon::Real dt) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
   const auto &agn_feedback = hydro_pkg->Param<AGNFeedback>("agn_feedback");
-  if (agn_feedback.jet_feedback_mode_ != JetFeedbackMode::Weinberger) {
+  if (agn_feedback.jet_feedback_mode_ != JetFeedbackMode::Weinberger ||
+      agn_feedback.disabled_) {
     return TaskStatus::complete;
   }
 
   // Prescribed-jet-profile mode bypasses the reservoir/trigger gate, runs every step.
   if (hydro_pkg->Param<bool>("weinberger_fixed_jet_profile")) {
     const Real r_jet =
-        hydro_pkg->Param<AGNTriggering>("agn_triggering").accretion_radius_ / 3.0;
+        hydro_pkg->Param<AGNTriggering>("agn_triggering").accretion_radius_ *
+        kJetRadiusFraction;
     const Real fixed_rho = hydro_pkg->Param<Real>("weinberger_fixed_jet_rho");
     const Real fixed_v = hydro_pkg->Param<Real>("weinberger_fixed_jet_v");
     const Real avg_p = hydro_pkg->Param<Real>("weinberger_shell_avg_p");
@@ -877,16 +1039,20 @@ parthenon::TaskStatus WeinbergerJetFeedbackApply(parthenon::MeshData<parthenon::
                              "weinberger_fixed_jet_profile: ApplyFixedJetProfile is "
                              "hydro-only (no MHD term implemented); this run's fluid "
                              "should be euler.");
-    Real ke_injected = 0.0;
+    Real de_injected = 0.0;
     ApplyFixedJetProfile(md, r_jet, fixed_rho, fixed_v, avg_p, beta_jet_inv, gamma,
                          enable_tracer, hydro_pkg->Param<AdiabaticHydroEOS>("eos"),
-                         ke_injected);
+                         de_injected);
 
     // fixed_power isn't meaningful here (density/velocity/region are hand-set); report
-    // the actual instantaneous power instead, for agn_feedback_power/
-    // weinberger_edot_jet_erg_s to read.
-    const Real power_code = (dt > 0) ? ke_injected / dt : 0.0;
-    hydro_pkg->UpdateParam<Real>("weinberger_fixed_profile_power", power_code);
+    // the actual injected power instead, for agn_feedback_power/
+    // weinberger_edot_jet_erg_s to read, summed over partitions (reset every step by
+    // WeinbergerJetFeedbackReset).
+    if (dt > 0) {
+      hydro_pkg->UpdateParam<Real>(
+          "weinberger_fixed_profile_power",
+          hydro_pkg->Param<Real>("weinberger_fixed_profile_power") + de_injected / dt);
+    }
     return TaskStatus::complete;
   }
 
@@ -896,8 +1062,8 @@ parthenon::TaskStatus WeinbergerJetFeedbackApply(parthenon::MeshData<parthenon::
 
   const Real f = hydro_pkg->Param<Real>("weinberger_injection_f");
   const Real f_B = hydro_pkg->Param<Real>("weinberger_injection_f_B");
-  const Real r_jet =
-      hydro_pkg->Param<AGNTriggering>("agn_triggering").accretion_radius_ / 3.0;
+  const Real r_jet = hydro_pkg->Param<AGNTriggering>("agn_triggering").accretion_radius_ *
+                     kJetRadiusFraction;
   const Real rho_jet = agn_feedback.weinberger_jet_density_;
   const Real avg_p = hydro_pkg->Param<Real>("weinberger_shell_avg_p");
   const Real gamma = hydro_pkg->Param<Real>("AdiabaticIndex");
@@ -928,7 +1094,15 @@ WeinbergerResyncSMBHMassAndGravity(parthenon::StateDescriptor *hydro_pkg) {
   if (!hydro_pkg->AllParams().hasKey("weinberger_smbh_mass")) {
     return TaskStatus::complete;
   }
-  const Real m_smbh = hydro_pkg->Param<Real>("weinberger_smbh_mass");
+  // Gravitating SMBH mass: the accreted mass plus the drained gas not yet accreted,
+  // which AREPO likewise keeps on the black hole particle (Bondi uses the accreted mass
+  // only, see AGNTriggering::GetAccretionRate).
+  const Real m_smbh = hydro_pkg->Param<Real>("weinberger_smbh_mass") +
+                      hydro_pkg->Param<Real>("weinberger_drained_mass");
+  PARTHENON_REQUIRE_THROWS(m_smbh > 0,
+                           "jet_feedback_mode=weinberger: the SMBH's gravitating mass "
+                           "(accreted + drained) is not positive; weinberger_jet_density "
+                           "is likely far above the ambient density.");
   auto cluster_gravity = hydro_pkg->Param<ClusterGravity>("cluster_gravity");
   cluster_gravity.SetSMBHMass(m_smbh);
   hydro_pkg->UpdateParam<ClusterGravity>("cluster_gravity", cluster_gravity);

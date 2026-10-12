@@ -63,7 +63,7 @@
 # without also having to relax a stratified atmosphere first.
 #
 # Box: 20 kpc wide (vs. 200 kpc in weinberger_cold_clumps_test.in).
-# accretion_radius (R_shell) = 6 kpc -> R_jet = R_shell/3 = 2 kpc (derived,
+# accretion_radius (R_shell) = 6 kpc -> R_jet = 0.33*R_shell = 1.98 kpc (derived,
 # see agn_triggering.hpp's accretion_inner_radius_ default for weinberger).
 # Ambient background: rho = 1e-25 g/cm^3, T = 2e7 K (typical hot-ICM values),
 # converted to code units below (code_density_cgs = code_mass_cgs /
@@ -207,7 +207,7 @@ pres = 4.302506169870091
 enable = false
 n_clumps_per_block = 5        # single meshblock (see above) -> 5 clumps total
 temperature = 1e4             # K
-min_radius = 0.002            # R_jet  =  R_shell/3 = 2 kpc: shell inner edge
+min_radius = 0.00198          # R_jet  =  0.33*R_shell = 1.98 kpc: shell inner edge
 max_radius = 0.006            # R_shell = accretion_radius  = 6 kpc: outer edge
 rng_seed = 7
 

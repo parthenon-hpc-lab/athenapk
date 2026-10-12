@@ -61,9 +61,10 @@ AGNFeedback::AGNFeedback(parthenon::ParameterInput *pin,
           pin->GetOrAddReal("problem/cluster/agn_feedback", "magnetic_fraction", 0.0)),
       jet_feedback_mode_(ParseJetFeedbackMode(pin->GetOrAddString(
           "problem/cluster/agn_feedback", "jet_feedback_mode", "default"))),
-      weinberger_jet_density_(
-          pin->GetOrAddReal("problem/cluster/agn_feedback", "weinberger_jet_density",
-                            1e-28 * hydro_pkg->Param<Units>("units").g_cm3())),
+      // input in g/cm^3, like weinberger_fixed_jet_rho
+      weinberger_jet_density_(pin->GetOrAddReal("problem/cluster/agn_feedback",
+                                                "weinberger_jet_density", 1e-28) *
+                              hydro_pkg->Param<Units>("units").g_cm3()),
       beta_jet_(pin->GetOrAddReal("problem/cluster/agn_feedback", "beta_jet",
                                   std::numeric_limits<Real>::infinity())),
       thermal_radius_(
@@ -467,7 +468,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             //  momentum, and total energy added depend on the triggered power.
             ///////////////////////////////////////////////////////////////////
 
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
 
             cons(IDN, k, j, i) += jet_density;
             cons(IM1, k, j, i) += jet_momentum * sign_jet * jet_axis_x;
@@ -483,7 +484,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
               cons(nhydro, k, j, i) = 1.0 * cons(IDN, k, j, i);
             }
 
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
           }
 
           // Apply velocity ceiling
@@ -511,7 +512,7 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           }
         }
 
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i, coords);
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
         PARTHENON_REQUIRE(prim(IPR, k, j, i) > 0,
                           "Kinetic injection leads to negative pressure");
       });
