@@ -23,9 +23,8 @@
 # can only come from a non-peak cell) and (2) a unique birth position (no re-triggering).
 #
 # Note: injection_time is stamped with tm.time *before* tm.time += tm.dt for the step in
-# which the draw succeeded, i.e. the start of that interval rather than the (unobservable
-# sub-step) true event time. Check 5 below corrects for this with an interval-midpoint
-# shift before comparing to the continuous-time theory.
+# which the draw succeeded, i.e. the start of that interval. Check 5 below therefore
+# compares against the discrete-time (geometric) distribution of formation steps.
 
 import sys
 import numpy as np
@@ -227,23 +226,25 @@ class TestCase(utils.test_case.TestCaseAbs):
         # --- Check 5: statistical pace matches the theoretical Poisson process ----
         t_inj = stars.Get("injection_time")
 
-        # injection_time is stamped at the *start* of the timestep during which the
-        # stochastic draw succeeded (see module docstring, item 2); shift by the
-        # interval midpoint -- the unbiased point estimate -- before comparing against
-        # the continuous-time theoretical prediction. dt is derived from the run itself
-        # (Time/NCycle) rather than hardcoded, since it's set by the background sound
-        # speed/CFL and stays essentially constant through the run.
-        dt_estimate = data.Time / data.NCycle if data.NCycle > 0 else 0.0
-        t_cmp = t_inj + 0.5 * dt_estimate
-        print(f"Estimated (near-constant) timestep: {dt_estimate:.4f} Myr")
+        # Stars form only at step boundaries: injection_time is the start t_n = n*dt of
+        # the step whose draw succeeded, and each step a remaining peak converts with
+        # the same probability P = (1 - exp(-eps*dt/t_dyn)) / eps_m (constant dt, as
+        # the gas stays static). So n is geometric, P(n) = (1-P)^n P, and the theory
+        # is compared at the actual step times rather than as a continuous process.
+        dt_estimate = float(np.min(np.diff(np.unique(t_inj))))
+        n_step = np.rint(t_inj / dt_estimate)
+        p_step = (
+            1.0 - np.exp(-self.sf_efficiency * dt_estimate / self.t_dyn)
+        ) / self.sf_mass_efficiency
+        print(f"Timestep: {dt_estimate:.4f} Myr, per-step probability P = {p_step:.5f}")
 
-        mean_t = np.mean(t_cmp)
-        std_t = np.std(t_cmp)
-        theory_mean = 1.0 / self.lam
-        theory_std = 1.0 / self.lam
+        mean_t = np.mean(t_inj)
+        std_t = np.std(t_inj)
+        theory_mean = dt_estimate * (1.0 - p_step) / p_step
+        theory_std = dt_estimate * np.sqrt(1.0 - p_step) / p_step
         print(
-            f"lambda_theory = {self.lam:.6e} 1/Myr "
-            f"(mean wait = {theory_mean:.3f} Myr)"
+            f"lambda_theory = {self.lam:.6e} 1/Myr; discrete-time mean wait = "
+            f"{theory_mean:.3f} Myr, std = {theory_std:.3f} Myr"
         )
         print(f"Empirical mean injection time: {mean_t:.3f} Myr")
         print(f"Empirical std injection time:  {std_t:.3f} Myr")
@@ -263,17 +264,23 @@ class TestCase(utils.test_case.TestCaseAbs):
             )
             success = False
 
-        # Probability-integral transform: under H0, u is Uniform(0,1).
-        u = 1.0 - np.exp(-self.lam * t_cmp)
+        # Randomized probability-integral transform for a discrete distribution:
+        # u = F(n-1) + V (F(n) - F(n-1)), V ~ U(0,1), is Uniform(0,1) under H0.
+        cdf = lambda n: 1.0 - (1.0 - p_step) ** (n + 1)  # noqa: E731
+        rng = np.random.default_rng(12345)
+        u = cdf(n_step - 1) + rng.uniform(size=n_step.size) * (
+            cdf(n_step) - cdf(n_step - 1)
+        )
         ks_stat, ks_pvalue = stats.kstest(u, "uniform")
-        print(f"KS test vs. Exponential(lambda): D={ks_stat:.4f}, p={ks_pvalue:.4f}")
+        print(f"KS test vs. geometric(P): D={ks_stat:.4f}, p={ks_pvalue:.4f}")
         if ks_pvalue < self.ks_pvalue_min:
             print(
                 f"TEST FAIL: KS test p-value {ks_pvalue:.4f} is below the "
                 f"threshold {self.ks_pvalue_min} -- injection times are not "
-                "consistent with the expected Poisson process."
+                "consistent with the expected per-step formation probability."
             )
             success = False
+        t_cmp = t_inj
 
         # --- Diagnostic plot (non-blocking) ----------------------------------------
         try:
@@ -289,7 +296,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 "k--",
                 label=r"$\lambda e^{-\lambda t}$ (theory)",
             )
-            axes[0].set_xlabel("injection time + dt/2 [Myr]")
+            axes[0].set_xlabel("injection time [Myr]")
             axes[0].set_ylabel("probability density")
             axes[0].legend()
             axes[0].set_title("Injection time distribution")
@@ -303,7 +310,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 "k--",
                 label=r"$1-e^{-\lambda t}$ (theory)",
             )
-            axes[1].set_xlabel("injection time + dt/2 [Myr]")
+            axes[1].set_xlabel("injection time [Myr]")
             axes[1].set_ylabel("CDF")
             axes[1].legend()
             axes[1].set_title(f"KS D={ks_stat:.4f}, p={ks_pvalue:.4f}")

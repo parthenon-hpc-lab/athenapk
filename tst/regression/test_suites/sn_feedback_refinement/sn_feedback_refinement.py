@@ -24,11 +24,11 @@
 # nesting requirement (Parthenon keeps any two adjacent blocks within one level of each
 # other) cascades far enough that the *entire* domain outside the patch comes out at
 # level 1, not the bare root level -- block A included -- so steps 1-4 exercise a
-# same-level (level 1) neighbor split, not a root-level one; see __init__. The particle
-# id (block_offset + a per-block counter, independent of position within the block, see
-# ProblemGenerator / InjectParticles) and hence the deterministic (id, time)-seeded RNG
-# draw for the SN event count/ejecta mass is identical across all four. That makes them
-# a clean, apples-to-apples comparison: the *same* SN event, distributed across a
+# same-level (level 1) neighbor split, not a root-level one; see __init__. SN draws are
+# keyed on each star's birth time and position, so stochastic events would differ
+# between placements; the input therefore forces exactly one SN II right at formation
+# (stars/SN_test_event_age = 0), with the same ejecta for every placement. That makes
+# them a clean, apples-to-apples comparison: the *same* SN event, distributed across a
 # different number of blocks each time, must deposit the same total mass/momentum/
 # energy into the grid regardless.
 #
@@ -125,30 +125,11 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.tlim = 0.02  # code_time (Gyr, 20 Myr); a generous ceiling that should
         # never actually bind -- nlim below is what actually stops the run.
 
-        # This test only cares about the *deposit itself*, not the blast wave it
-        # kicks off, or (crucially) about more than one deposit: this stellar
-        # population's IMF spans a range of lifetimes, so once the first (short-
-        # lived, ~4-5 Myr) SN II burst fires, further bursts keep firing nearly every
-        # following cycle as longer-lived progenitors reach their death times --
-        # empirically, cycle 104 (identical across placements: the shared CFL-limited
-        # dt sequence up to that point is set globally by the statically-refined
-        # patch, present in every scenario's mesh regardless of where the star itself
-        # ends up) is the *first* burst, visible as the first drop in dt (the newly-
-        # kicked cells' higher sound speed tightening the CFL constraint), and cycles
-        # 105+ layer on more (stochastically independent) bursts. Only comparing a
-        # single, common burst across placements keeps the interior/face/edge/corner
-        # comparison below clean; letting multiple stochastic bursts accumulate would
-        # let any placement-dependent difference in one burst's *local* deposit
-        # pattern (not its total, which is exactly conserved -- see mass check)
-        # perturb the following cycles' CFL dt and hence which random SN counts they
-        # draw, compounding placement-dependent divergence for no physics reason.
-        # nlim=105 stops one cycle after the first burst -- mass/momentum/energy
-        # already fully applied to cons by then. first_order_flux_correct in the
-        # input guards against the negative-pressure failure that eventually shows up
-        # if the blast wave is followed for hundreds more cycles; unnecessary at this
-        # short an nlim, but kept since it's what other SN-feedback inputs in this
-        # repo use.
-        self.nlim = 105
+        # Only the deposit itself is compared: the star forms and its forced SN goes
+        # off in the first cycle, and the run stops right after it, so no hydro step
+        # (whose first-order flux correction isn't conservative across meshblock
+        # faces) blurs the comparison.
+        self.nlim = 1
 
         assert (
             self.rho_peak * (1.0 - self.sf_mass_efficiency) < self.sf_density_threshold
@@ -196,7 +177,8 @@ class TestCase(utils.test_case.TestCaseAbs):
         mass = np.sum(cons[:, 0] * vol)
         p_vec = np.array([np.sum(cons[:, c] * vol) for c in (1, 2, 3)])
         energy = np.sum(cons[:, 4] * vol)
-        return mass, p_vec, energy
+        p_abs = np.sum(np.sqrt(np.sum(cons[:, 1:4] ** 2, axis=1)) * vol)
+        return mass, p_vec, energy, p_abs
 
     @staticmethod
     def _star_mass(data):
@@ -442,8 +424,8 @@ class TestCase(utils.test_case.TestCaseAbs):
             first = phdf.phdf(files[0])
             last = phdf.phdf(files[-1])
 
-            m0, p0, e0 = self._grid_totals(first)
-            m1, p1, e1 = self._grid_totals(last)
+            m0, p0, e0, _ = self._grid_totals(first)
+            m1, p1, e1, p_abs = self._grid_totals(last)
             star_mass_final = self._star_mass(last)
 
             dP = p1 - p0
@@ -505,6 +487,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 "dE": dE,
                 "n_dumps": len(files),
                 "star_mass_final": star_mass_final,
+                "p_abs": p_abs,
             }
 
         if success is False and not results:
@@ -516,7 +499,9 @@ class TestCase(utils.test_case.TestCaseAbs):
         if ref_name in results:
             dP_ref = results[ref_name]["dP"]
             dE_ref = results[ref_name]["dE"]
-            p_scale = max(np.linalg.norm(dP_ref), 1e-300)
+            # The net momentum is ~0 by symmetry (star at a cell centre), so compare
+            # its change against the gross injected momentum sum |rho v| dV.
+            p_scale = max(results[ref_name]["p_abs"], 1e-300)
             e_scale = max(abs(dE_ref), 1e-300)
 
             for name in self.same_level_scenarios[1:]:

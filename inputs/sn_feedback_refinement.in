@@ -125,4 +125,5 @@ sf_efficiency               = 10000.0 # per-cycle conversion probability 1-exp(-
 sf_mass_efficiency          = 0.5
 sf_density_threshold        = 3000    # code density units; overridden by the test script
 SN_II_enabled               = true
+SN_test_event_age           = 0.0     # one SN at formation: same event for every placement
 SN_injection_radius_cells   = 3
