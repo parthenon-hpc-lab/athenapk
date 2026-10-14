@@ -30,10 +30,12 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "bvals/boundary_conditions.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "parthenon_array_generic.hpp"
+#include "parthenon_mpi.hpp"
 #include "utils/error_checking.hpp"
 #include "utils/interpolation.hpp"
 #include <parthenon/package.hpp>
@@ -224,6 +226,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<Real>("sn_energy_dt", 0.0, parthenon::Params::Mutability::Mutable);
   stars_pkg->AddParam<int>("sn_energy_reset_cycle", -1,
                            parthenon::Params::Mutability::Mutable);
+  // Swarms needing a boundary exchange this cycle (kStarSwarmComm, kGhostSwarmComm)
+  stars_pkg->AddParam<int>("swarm_comm_flags", 0, parthenon::Params::Mutability::Mutable);
 
   // Total energy injection per event
   const auto E_SN_per_event =
@@ -640,10 +644,9 @@ void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
 }
 
 /* ===============================================================================
-MoveStars: Kind of similar to AdvectTracers (see tracers.cpp), though we move the
-gas solely out of the local gravitational field using a leapfrog integrator (as in
-the SMUGGLE model). Could potentially be improved to include hydrodynamical drag.
-Also includes tracers-like advection for testing.
+MoveStars: leapfrog in the analytic gravitational field (as in SMUGGLE), or
+tracer-like advection for testing. Counts the stars that left their block and
+flags the stars swarm exchange (kStarSwarmComm) only if any did.
 =============================================================================== */
 
 TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
@@ -683,8 +686,9 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
     auto swarm_d = swarm->GetDeviceContext();
 
-    // update loop.
+    // update loop; n_left counts the stars that moved out of this block
     const int max_active_index = swarm->GetMaxActiveIndex();
+    int n_left = 0;
 
     if (transport_mode == TransportMode::Gravity) {
       // Any pgen registering a gravity::SphericalGravity under "gravity_field"
@@ -698,8 +702,9 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
       const auto gravitational_field =
           hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
 
-      pmb->par_for(
-          "MoveStars::Gravity", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+      pmb->par_reduce(
+          "MoveStars::Gravity", 0, max_active_index,
+          KOKKOS_LAMBDA(const int n, int &lleft) {
             if (!swarm_d.IsActive(n)) return;
             // Estimate how many sub-steps are needed to resolve the local
             // orbital/dynamical timescale to some safety factor.
@@ -755,12 +760,15 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             }
 
             // === Update neighbor block index ===
-            bool unused_temp = true;
-            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
-          });
+            bool on_block = true;
+            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_block);
+            if (!on_block) lleft += 1;
+          },
+          Kokkos::Sum<int>(n_left));
     } else { // TransportMode::Advection
-      pmb->par_for(
-          "MoveStars::Advection", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+      pmb->par_reduce(
+          "MoveStars::Advection", 0, max_active_index,
+          KOKKOS_LAMBDA(const int n, int &lleft) {
             if (!swarm_d.IsActive(n)) return;
 
             const auto x_star = x(n) + current_dt * vel_x(n);
@@ -793,14 +801,91 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             }
 
             // === Update neighbor block index ===
-            bool unused_temp = true;
-            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
-          });
+            bool on_block = true;
+            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_block);
+            if (!on_block) lleft += 1;
+          },
+          Kokkos::Sum<int>(n_left));
     }
+    if (n_left > 0) FlagSwarmComm(stars_pkg.get(), kStarSwarmComm);
 
   } // end swarm_name loop
 
   return TaskStatus::complete;
 } // MoveStars
+
+/* ===============================================================================
+Per-cycle swarm exchange flags. Blocks OR in kStarSwarmComm / kGhostSwarmComm
+on the host (task lists run on one host thread), then one MPI_BOR reduction
+makes every block on every rank skip the same exchanges: a Send/Receive pair
+must happen on all blocks or on none, or the receivers would wait forever.
+=============================================================================== */
+void FlagSwarmComm(StateDescriptor *stars_pkg, const int bits) {
+  stars_pkg->UpdateParam<int>("swarm_comm_flags",
+                              stars_pkg->Param<int>("swarm_comm_flags") | bits);
+}
+
+TaskStatus ResetSwarmCommFlags(StateDescriptor *stars_pkg) {
+  stars_pkg->UpdateParam<int>("swarm_comm_flags", 0);
+  return TaskStatus::complete;
+}
+
+TaskStatus ReduceSwarmCommFlags(StateDescriptor *stars_pkg) {
+#ifdef MPI_PARALLEL
+  int flags = stars_pkg->Param<int>("swarm_comm_flags");
+  PARTHENON_MPI_CHECK(
+      MPI_Allreduce(MPI_IN_PLACE, &flags, 1, MPI_INT, MPI_BOR, MPI_COMM_WORLD));
+  stars_pkg->UpdateParam<int>("swarm_comm_flags", flags);
+#endif
+  return TaskStatus::complete;
+}
+
+// Names of the swarms whose exchange the (reduced) flags require this cycle
+std::vector<std::string> SwarmsToExchange(StateDescriptor *stars_pkg) {
+  const int flags = stars_pkg->Param<int>("swarm_comm_flags");
+  std::vector<std::string> names;
+  if (flags & kStarSwarmComm) {
+    for (const auto &n : stars_pkg->Param<std::vector<std::string>>("swarm_names")) {
+      names.push_back(n);
+    }
+  }
+  if ((flags & kGhostSwarmComm) && stars_pkg->AllParams().hasKey("ghost_swarm_names")) {
+    for (const auto &n :
+         stars_pkg->Param<std::vector<std::string>>("ghost_swarm_names")) {
+      names.push_back(n);
+    }
+  }
+  return names;
+}
+
+TaskStatus SendStarSwarms(MeshBlockData<Real> *mbd) {
+  PARTHENON_INSTRUMENT
+  auto *pmb = mbd->GetParentPointer();
+  auto stars_pkg = pmb->packages.Get("stars");
+  auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+  for (const auto &name : SwarmsToExchange(stars_pkg.get())) {
+    sd->Get(name)->Send(parthenon::BoundaryCommSubset::all);
+  }
+  return TaskStatus::complete;
+}
+
+// Same steps as SwarmContainer::Receive, restricted to the exchanged swarms
+TaskStatus ReceiveStarSwarms(MeshBlockData<Real> *mbd) {
+  PARTHENON_INSTRUMENT
+  auto *pmb = mbd->GetParentPointer();
+  auto stars_pkg = pmb->packages.Get("stars");
+  auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+  int success = 0, total = 0;
+  for (const auto &name : SwarmsToExchange(stars_pkg.get())) {
+    auto &swarm = sd->Get(name);
+    if (swarm->Receive(parthenon::BoundaryCommSubset::all)) {
+      success++;
+      parthenon::ApplySwarmBoundaryConditions(swarm);
+      swarm->RemoveMarkedParticles();
+    }
+    total++;
+  }
+  return (success == total) ? TaskStatus::complete : TaskStatus::incomplete;
+}
 
 } // namespace Stars

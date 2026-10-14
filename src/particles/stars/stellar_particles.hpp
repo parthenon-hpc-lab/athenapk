@@ -58,6 +58,16 @@ TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 
+// Bits of the per-cycle "swarm_comm_flags": which swarms need a boundary
+// exchange this cycle (a star left its block / ghost particles were created).
+constexpr int kStarSwarmComm = 1;
+constexpr int kGhostSwarmComm = 2;
+void FlagSwarmComm(StateDescriptor *stars_pkg, const int bits);
+TaskStatus ResetSwarmCommFlags(StateDescriptor *stars_pkg);
+TaskStatus ReduceSwarmCommFlags(StateDescriptor *stars_pkg);
+TaskStatus SendStarSwarms(MeshBlockData<Real> *mbd);
+TaskStatus ReceiveStarSwarms(MeshBlockData<Real> *mbd);
+
 // History output reduction: total instantaneous star formation rate summed
 // over every density-thresholded, virial-gated cell, evaluated off current
 // gas state rather than recomputing InjectStars' stochastic draw (which

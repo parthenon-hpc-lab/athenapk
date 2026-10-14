@@ -427,6 +427,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     // each neighbor region's share of the stored event payload, for every star
     // whose SN kernel overlaps a neighboring block's domain.
     if (total_ghost_count > 0) {
+      Stars::FlagSwarmComm(stars_pkg.get(), Stars::kGhostSwarmComm);
       const auto ghost_swarm_name = "ghost_" + swarm_name;
       auto &gswarm = sd->Get(ghost_swarm_name);
 

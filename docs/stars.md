@@ -192,6 +192,10 @@ the neighbor deposits after the swarm communication. At the same refinement leve
 the split is exact. Across refinement levels each region's totals are conserved,
 but the distribution is approximate.
 
+The swarm communication only runs when needed: one global flag per cycle records
+whether any star left its block and whether any ghost particle was created, and
+the `stars` and `ghost_stars` exchanges are skipped on every block otherwise.
+
 After star formation and feedback, the gas ghost cells are exchanged again and the
 next timestep is estimated from the resulting state, so a SN-heated cell limits
 the next timestep.

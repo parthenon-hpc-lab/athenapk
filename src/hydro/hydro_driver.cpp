@@ -619,55 +619,55 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   auto stars_pkg = pmesh->packages.Get("stars");
   if (stage == integrator->nstages && stars_pkg->Param<bool>("enabled")) {
 
-    // Reset swarm communication before async particle tasks
+    // Reset swarm communication and this cycle's exchange flags
     TaskRegion &sync_region_stars = tc.AddRegion(1);
     {
+      auto &tl = sync_region_stars[0];
+      tl.AddTask(none, Stars::ResetSwarmCommFlags, stars_pkg.get());
       for (auto &pmb : blocks) {
-        auto &tl = sync_region_stars[0];
         auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
-        auto reset_comms =
-            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+        tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
       }
     }
 
     TaskRegion &async_region_stars = tc.AddRegion(blocks.size());
     for (int n = 0; n < blocks.size(); n++) {
       auto &tl = async_region_stars[n];
-      auto &pmb = blocks[n];
-      auto &mbd0 = pmb->meshblock_data.Get("base");
-      auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+      auto &mbd0 = blocks[n]->meshblock_data.Get("base");
 
       // 1. Inject new stars, then apply feedback: this fills the interior
       // deposit directly and, for particles whose kernel overlaps a
       // neighboring block, populates the local ghost swarm with pushed
-      // mirror particles (no cross-block motion yet).
+      // mirror particles (flagging the ghost swarm exchange).
       auto star_inject = tl.AddTask(none, Stars::InjectStars, mbd0.get(), tm);
       auto star_feedback =
           tl.AddTask(star_inject, StellarFeedback::StellarFeedback, mbd0.get(), tm);
 
-      // 2. Move the main star particles, before the comm round below.
-      // MoveStars only touches the "stars" swarm, never ghost_stars, so it
-      // can't disturb the ghost mirrors StellarFeedback just pushed; under
-      // TransportMode::Gravity (the default) it has no dependency on them.
-      auto star_move = tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
+      // 2. Move the main star particles (flagging the stars swarm exchange if
+      // any left its block). MoveStars never touches the ghost swarm.
+      tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
+    }
 
-      // 3. Single send/receive round for both the ghost mirrors and the
-      // main swarm's new positions (Send/Receive act on every registered
-      // swarm at once). A prior two-round version reused a not-yet-complete
-      // send buffer across rounds (MPI_Request_free doesn't wait for the
-      // send to finish) and hung under real multi-rank MPI; one round fixes
-      // it, matching the working Tracers pattern.
-      auto send =
-          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(), BoundaryCommSubset::all);
-      auto receive =
-          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+    // 3. One global decision per swarm: exchange it on every block or on none
+    // (a skipped Send with a pending Receive would hang). Most cycles nothing
+    // leaves any block, and the whole exchange is skipped.
+    TaskRegion &stars_comm_flags_region = tc.AddRegion(1);
+    stars_comm_flags_region[0].AddTask(none, Stars::ReduceSwarmCommFlags,
+                                       stars_pkg.get());
 
-      // 4. Finish applying feedback from ghost particles that just arrived
-      // from neighboring blocks: recover the true (un-pushed) position
-      // from the stored offset, re-center the kernel, deposit into this
-      // block's interior, then remove the now-consumed ghost particles.
-      auto ghost_feedback =
-          tl.AddTask(receive, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
+    TaskRegion &async_region_stars_comm = tc.AddRegion(blocks.size());
+    for (int n = 0; n < blocks.size(); n++) {
+      auto &tl = async_region_stars_comm[n];
+      auto &mbd0 = blocks[n]->meshblock_data.Get("base");
+
+      // Single send/receive round for the flagged swarms (a two-round version
+      // reused a not-yet-complete send buffer and hung under multi-rank MPI).
+      auto send = tl.AddTask(none, Stars::SendStarSwarms, mbd0.get());
+      auto receive = tl.AddTask(send, Stars::ReceiveStarSwarms, mbd0.get());
+
+      // 4. Apply the feedback carried by the ghost particles that arrived from
+      // neighboring blocks, then remove them.
+      tl.AddTask(receive, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
     }
 
     // 5. Star formation/feedback (steps 1/4 above) modify interior `cons` after
