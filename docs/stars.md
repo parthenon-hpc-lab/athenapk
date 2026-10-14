@@ -182,8 +182,9 @@ where $\langle n_H\rangle$ (cm⁻³) is the kernel-averaged hydrogen density.
   variables.
 - **Gas state.** $m_b$ and $\langle n_H\rangle$ come from a density snapshot taken
   before the step's deposits, so overlapping events don't depend on their order.
-- **Energy floor.** After all deposits, the gas internal energy is floored at the
-  hydro `pfloor`/`Tfloor` (or the smallest positive number if neither is set). The
+- **Energy floor.** After all deposits, the gas internal energy of every block that
+  received one is floored at the hydro `pfloor`/`Tfloor` (or the smallest positive
+  number if neither is set). The
   floor can be needed where gas moves fast relative to the star. Set a floor when
   using SN feedback.
 

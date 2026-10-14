@@ -500,6 +500,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                           StellarFeedback::SNFlagView("sn_event_flag", 0), mut);
     stars_pkg->AddParam<>("sn_ghost_slot_counter",
                           StellarFeedback::SNCounterView("sn_ghost_slot_counter"), mut);
+    // Per local block: last cycle its density snapshot was taken (see
+    // TakeDensitySnapshot), i.e. the last cycle it got an SN deposit
+    stars_pkg->AddParam<>("sn_snapshot_cycle", std::vector<int>(), mut);
 
     std::vector<std::string> ghost_swarm_names;
     for (const auto &name : swarm_names) {

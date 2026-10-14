@@ -87,6 +87,39 @@ KOKKOS_INLINE_FUNCTION int ActiveAxes(const int axis_offset[3], int active_axis[
   return n_active;
 }
 
+/* ===============================================================================
+Takes the block's density snapshot (read by <n_H> and the momentum boost instead
+of the live cons, so overlapping events are order-independent) before its first
+SN deposit of the cycle, and stamps the block. Blocks without any deposit skip
+the snapshot and the energy floor. Returns false if already taken this cycle.
+=============================================================================== */
+bool TakeDensitySnapshot(MeshBlock *pmb, MeshBlockData<Real> *mbd,
+                         StateDescriptor *stars_pkg, const int ncycle,
+                         const IndexDomain domain) {
+  auto *stamp = stars_pkg->MutableParam<std::vector<int>>("sn_snapshot_cycle");
+  if (static_cast<int>(stamp->size()) <= pmb->lid) stamp->resize(pmb->lid + 1, -1);
+  if ((*stamp)[pmb->lid] == ncycle) return false;
+  (*stamp)[pmb->lid] = ncycle;
+
+  auto &cons = mbd->PackVariables(std::vector<std::string>{"cons"});
+  auto &rho_snap = mbd->PackVariables(std::vector<std::string>{"sn_rho_snapshot"});
+  const auto kb = pmb->cellbounds.GetBoundsK(domain);
+  const auto jb = pmb->cellbounds.GetBoundsJ(domain);
+  const auto ib = pmb->cellbounds.GetBoundsI(domain);
+  pmb->par_for(
+      "StellarFeedback::DensitySnapshot", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int k, const int j, const int i) {
+        rho_snap(0, k, j, i) = cons(IDN, k, j, i);
+      });
+  return true;
+}
+
+// Whether this block got any SN deposit this cycle (see TakeDensitySnapshot)
+bool HasDensitySnapshot(MeshBlock *pmb, StateDescriptor *stars_pkg, const int ncycle) {
+  const auto &stamp = stars_pkg->Param<std::vector<int>>("sn_snapshot_cycle");
+  return pmb->lid < static_cast<int>(stamp.size()) && stamp[pmb->lid] == ncycle;
+}
+
 template TaskStatus ApplyStellarFeedback<AdiabaticHydroEOS>(MeshBlockData<Real> *,
                                                             parthenon::SimTime &,
                                                             const AdiabaticHydroEOS &);
@@ -131,21 +164,11 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   auto &coords = pmb->coords;
 
   // Density snapshot for this step's SN feedback, taken after star formation and
-  // before any SN deposit, ghost cells included (<n_H> reads them). Every event's
-  // <n_H> and momentum boost read it instead of the live cons, which other events
-  // are depositing into, so results don't depend on the order of overlapping
-  // events. ApplyGhostFeedback reads the same snapshot later in the step.
+  // only once this block has an event, ghost cells included (<n_H> reads them).
+  // Until then nothing has been deposited, so the event pass reads the live cons.
+  // ApplyGhostFeedback reads the same snapshot later in the step.
   auto &rho_snap = mbd->PackVariables(std::vector<std::string>{"sn_rho_snapshot"});
-  {
-    const auto kbe = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
-    const auto jbe = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
-    const auto ibe = pmb->cellbounds.GetBoundsI(IndexDomain::entire);
-    pmb->par_for(
-        "StellarFeedback::DensitySnapshot", kbe.s, kbe.e, jbe.s, jbe.e, ibe.s, ibe.e,
-        KOKKOS_LAMBDA(const int k, const int j, const int i) {
-          rho_snap(0, k, j, i) = cons(IDN, k, j, i);
-        });
-  }
+  bool snapshot_taken = HasDensitySnapshot(pmb, stars_pkg.get(), tm.ncycle);
   auto gid = pmb->gid;
 
   auto hydro_pkg = pmb->packages.Get("Hydro");
@@ -236,8 +259,10 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     // First pass: SN events and the full event payload (counts, clamped ejecta,
     // energy, momenta, kernel size, <n_H>, vector-weight factors, region split
     // and host normalisation, see KernelGeometryPass). Reads the gas
-    // state before any of this step's deposits. Also sums the events, exhausted
+    // state before any of this step's deposits: the live cons until a previous
+    // swarm deposited here, then the snapshot. Also sums the events, exhausted
     // stars, ghost particles needed and the SN II/Ia energies (history outputs).
+    const auto rho_src = snapshot_taken ? rho_snap : cons;
     SNEventSums sums;
     pmb->par_reduce(
         "StellarFeedback::EventPayload", 0, max_active_index,
@@ -303,7 +328,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i));
           Real nH_avg, f_plus[3], f_minus[3];
           int axis_offset[3];
-          KernelGeometryPass(rho_snap, coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
+          KernelGeometryPass(rho_src, coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth,
                              r_search, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
                              code_density_cgs, mh_cgs, x_H, nH_avg, f_plus, f_minus,
                              axis_offset[0], axis_offset[1], axis_offset[2]);
@@ -351,6 +376,10 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     block_total_E_SN_Ia += sums.e_ia;
     if (sums.n_events == 0) continue;
     const int total_ghost_count = sums.n_ghost;
+    if (!snapshot_taken) {
+      TakeDensitySnapshot(pmb, mbd, stars_pkg.get(), tm.ncycle, IndexDomain::entire);
+      snapshot_taken = true;
+    }
 
     // Second pass: deposit each event's host share and reduce the star's mass.
     // Exhausted stars are only marked here; they stay active until after the
@@ -558,8 +587,8 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
   auto ndim = pmb->pmy_mesh->ndim;
 
   auto &cons = mbd->PackVariables(std::vector<std::string>{"cons"});
-  // Same density snapshot as this block's ApplyStellarFeedback (taken earlier this
-  // step), so ghost deposits ignore every deposit made since.
+  // Same density snapshot as this block's ApplyStellarFeedback (if it had events),
+  // so ghost deposits ignore every deposit made since; else taken below.
   auto &rho_snap = mbd->PackVariables(std::vector<std::string>{"sn_rho_snapshot"});
   auto &coords = pmb->coords;
   auto gid = pmb->gid;
@@ -579,7 +608,11 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
     auto &gswarm = sd->Get(ghost_name);
     auto gswarm_d = gswarm->GetDeviceContext();
     auto max_active_index = gswarm->GetMaxActiveIndex();
-    if (max_active_index < 0) continue; // nothing arrived this step
+    // Nothing arrived this step (the max active index outlives removed particles)
+    if (gswarm->GetNumActive() == 0) continue;
+
+    // A block without events of its own takes its snapshot here (interior only)
+    TakeDensitySnapshot(pmb, mbd, stars_pkg.get(), tm.ncycle, IndexDomain::interior);
 
     auto &gx = gswarm->Get<Real>(swarm_position::x::name()).Get();
     auto &gy = gswarm->Get<Real>(swarm_position::y::name()).Get();
@@ -642,8 +675,8 @@ TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) 
   }
 
   // Every SN deposit into this block (its own events and the ghost payloads
-  // received above) is done by now.
-  ApplyInternalEnergyFloor(mbd);
+  // received above) is done by now. Blocks without any deposit need no floor.
+  if (HasDensitySnapshot(pmb, stars_pkg.get(), tm.ncycle)) ApplyInternalEnergyFloor(mbd);
 
   return TaskStatus::complete;
 }
