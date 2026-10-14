@@ -23,6 +23,7 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include <Kokkos_Random.hpp>
 #include <parthenon/parthenon.hpp>
 
 // AthenaPK headers
@@ -237,11 +238,11 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 }
 
 // ========================================================================================
-//! \fn void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, SimTime &tm)
+//! \fn void SeedSingleStar(Mesh *pmesh, ParameterInput *pin, SimTime &tm)
 //! \brief One star of mass star_mass (Msun) at rest at (star_x, star_y, star_z),
 //!        added to the block containing that point (first population only).
 // ========================================================================================
-void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
+static void SeedSingleStar(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   auto stars_pkg = pmesh->packages.Get("stars");
   const auto swarm_name = stars_pkg->Param<std::vector<std::string>>("swarm_names")[0];
   const auto units = pmesh->packages.Get("Hydro")->Param<Units>("units");
@@ -301,6 +302,94 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
     block_offset += 1;
     std::memcpy(&host_off(0), &block_offset, sizeof(std::uint64_t));
     Kokkos::deep_copy(off, host_off);
+  }
+}
+
+// ========================================================================================
+//! \fn void SeedRandomStars(Mesh *pmesh, ParameterInput *pin, SimTime &tm)
+//! \brief n_stars_per_block stars of mass star_mass (Msun) at rest, uniform in each
+//!        block, with ages uniform in [0, star_age_max] Myr (first population only).
+// ========================================================================================
+static void SeedRandomStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
+  auto stars_pkg = pmesh->packages.Get("stars");
+  const auto swarm_name = stars_pkg->Param<std::vector<std::string>>("swarm_names")[0];
+  const auto units = pmesh->packages.Get("Hydro")->Param<Units>("units");
+  const std::string blk = "problem/star_formation";
+  const int n_per_block = pin->GetOrAddInteger(blk, "n_stars_per_block", 100);
+  const Real ms = pin->GetOrAddReal(blk, "star_mass", 1000.0) * units.msun();
+  const Real age_max = pin->GetOrAddReal(blk, "star_age_max", 40.0) * units.myr();
+  const int rng_seed = pin->GetOrAddInteger(blk, "rng_seed", 42);
+  const bool unique_ids = stars_pkg->Param<bool>(swarm_name + "_unique_ids");
+  const int nx3 = pin->GetInteger("parthenon/mesh", "nx3");
+  const Real t0 = tm.time;
+  if (n_per_block <= 0) return;
+
+  for (auto &pmb : pmesh->block_list) {
+    const auto &c = pmb->coords;
+    const auto ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+    const auto jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+    const auto kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+    const Real x_min = c.Xf<1>(ib.s), x_max = c.Xf<1>(ib.e + 1);
+    const Real y_min = c.Xf<2>(jb.s), y_max = c.Xf<2>(jb.e + 1);
+    const Real z_min = c.Xf<3>(kb.s), z_max = c.Xf<3>(kb.e + 1);
+
+    auto &off = pmb->meshblock_data.Get()->Get("stars_offsets").data;
+    auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
+    std::uint64_t block_offset;
+    std::memcpy(&block_offset, &host_off(0), sizeof(std::uint64_t));
+
+    auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get(swarm_name);
+    auto ctx = swarm->AddEmptyParticles(n_per_block);
+    auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
+    auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
+    auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+    auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
+    auto &vx = swarm->Get<Real>("v_x").Get();
+    auto &vy = swarm->Get<Real>("v_y").Get();
+    auto &vz = swarm->Get<Real>("v_z").Get();
+    auto &pmass = swarm->Get<Real>("mass").Get();
+    auto &pmass0 = swarm->Get<Real>("birth_mass").Get();
+    auto &t_inj = swarm->Get<Real>("injection_time").Get();
+    auto &birth_x = swarm->Get<Real>("birth_x").Get();
+    auto &birth_y = swarm->Get<Real>("birth_y").Get();
+    auto &birth_z = swarm->Get<Real>("birth_z").Get();
+    const std::uint64_t first_id = block_offset;
+    Kokkos::Random_XorShift64_Pool<> rng_pool(pmb->gid + rng_seed);
+
+    pmb->par_for(
+        "ProblemSeedInitialStars::RandomStars", 0, n_per_block - 1,
+        KOKKOS_LAMBDA(const int new_n) {
+          auto rng_gen = rng_pool.get_state();
+          const int n = ctx.GetNewParticleIndex(new_n);
+          x(n) = birth_x(n) = x_min + rng_gen.drand() * (x_max - x_min);
+          y(n) = birth_y(n) = y_min + rng_gen.drand() * (y_max - y_min);
+          z(n) = birth_z(n) =
+              (nx3 > 1) ? z_min + rng_gen.drand() * (z_max - z_min) : z_min;
+          vx(n) = vy(n) = vz(n) = 0.0;
+          pmass(n) = pmass0(n) = ms;
+          t_inj(n) = t0 - rng_gen.drand() * age_max;
+          id(n) = unique_ids ? first_id + new_n : ParticlesUtils::kDummyParticleId;
+          rng_pool.free_state(rng_gen);
+        });
+
+    block_offset += n_per_block;
+    std::memcpy(&host_off(0), &block_offset, sizeof(std::uint64_t));
+    Kokkos::deep_copy(off, host_off);
+  }
+}
+
+// ========================================================================================
+//! \fn void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, SimTime &tm)
+//! \brief Dispatch on problem/star_formation/seed_mode: "single" or "random".
+// ========================================================================================
+void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
+  const auto mode = pin->GetOrAddString("problem/star_formation", "seed_mode", "single");
+  if (mode == "single") {
+    SeedSingleStar(pmesh, pin, tm);
+  } else if (mode == "random") {
+    SeedRandomStars(pmesh, pin, tm);
+  } else {
+    PARTHENON_THROW("problem/star_formation/seed_mode must be 'single' or 'random'.");
   }
 }
 

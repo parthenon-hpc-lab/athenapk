@@ -111,6 +111,7 @@ template TaskStatus ApplyStellarFeedback<AdiabaticGLMMHDEOS>(MeshBlockData<Real>
                                                              const AdiabaticGLMMHDEOS &);
 
 TaskStatus StellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
+  PARTHENON_INSTRUMENT
   auto *pmb = mbd->GetParentPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
@@ -580,6 +581,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
 // Tackles kernel overlapping with neighboring meshblocks
 TaskStatus ApplyGhostFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
+  PARTHENON_INSTRUMENT
   auto *pmb = mbd->GetParentPointer();
   auto stars_pkg = pmb->packages.Get("stars");
 

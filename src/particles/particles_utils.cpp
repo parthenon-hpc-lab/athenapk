@@ -58,6 +58,7 @@ per unit time.
 template <class EOS>
 TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                            const std::string &pkg_name, const EOS &eos) {
+  PARTHENON_INSTRUMENT
 
   auto *pmb = mbd->GetParentPointer();
   auto *pmesh = pmb->pmy_mesh;

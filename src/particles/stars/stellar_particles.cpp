@@ -67,6 +67,7 @@ rather than every timestep, to avoid diverging the stellar population.
 =============================================================================== */
 
 TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
+  PARTHENON_INSTRUMENT
   auto *pmb = mbd->GetParentPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
@@ -646,6 +647,7 @@ Also includes tracers-like advection for testing.
 =============================================================================== */
 
 TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
+  PARTHENON_INSTRUMENT
 
   auto *pmb = mbd->GetParentPointer();
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
