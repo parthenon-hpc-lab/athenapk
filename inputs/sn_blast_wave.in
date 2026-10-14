@@ -1,0 +1,105 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2026, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = Single forced SN II from a star at rest near the corner shared by the root
+          meshblocks, off its host cell center, in a uniform cold medium (n_H = 1,
+          T = 100 K). Used by the sn_blast_wave regression test, which switches between
+          uniform, static and adaptive refinement and moves the star via command line
+          overrides. The static refinement region (x > 0, one level) is only used with
+          parthenon/mesh/refinement = static.
+
+<job>
+problem_id = star_formation
+
+<parthenon/output0>
+file_type = hdf5
+variables = cons
+swarms    = stars
+stars_variables = mass
+dt        = 1.0e9     # initial and final dumps only
+id        = blast
+
+<parthenon/time>
+cfl           = 0.3
+integrator    = vl2
+tlim          = 300.0  # kyr
+nlim          = 1
+dt_init       = 1.0e-3 # the cold background alone would allow a very long first step
+dt_init_force = true
+
+<parthenon/mesh>
+refinement = none
+numlevel   = 2
+nghost     = 4
+
+nx1    = 32
+x1min  = -64.0
+x1max  = 64.0
+ix1_bc = outflow
+ox1_bc = outflow
+
+nx2    = 32
+x2min  = -64.0
+x2max  = 64.0
+ix2_bc = outflow
+ox2_bc = outflow
+
+nx3    = 32
+x3min  = -64.0
+x3max  = 64.0
+ix3_bc = outflow
+ox3_bc = outflow
+
+<parthenon/meshblock>
+nx1 = 16
+nx2 = 16
+nx3 = 16
+
+<parthenon/static_refinement0>
+x1min = 0.001
+x1max = 64.0
+x2min = -64.0
+x2max = 64.0
+x3min = -64.0
+x3max = 64.0
+level = 1
+
+<refinement>
+type                        = pressure_gradient
+threshold_pressure_gradient = 0.1
+
+# pc / Msun / kyr
+<units>
+code_length_cgs = 3.0856775809623245e+18
+code_mass_cgs   = 1.98841586e+33
+code_time_cgs   = 3.15576e+10
+
+<hydro>
+fluid            = euler
+eos              = adiabatic
+riemann          = hllc
+reconstruction   = plm
+gamma            = 1.6666666666666667
+He_mass_fraction = 0.25
+first_order_flux_correct = true
+Tfloor           = 10.0   # needed with refinement: the SN injection is ~100% kinetic
+
+<stars>
+enabled                   = true
+sf_density_threshold      = 1.0e30  # no star formation
+transport_mode            = none
+seed_stars                = true
+SN_II_enabled             = true
+SN_test_event_age         = 0.0     # one SN in the first step
+SN_injection_radius_cells = 2
+
+<problem/star_formation>
+ic_mode   = uniform
+rho_bg    = 0.0330   # Msun/pc^3, n_H = 1 cm^-3 for X = 0.75
+T_bg      = 100.0    # K
+star_x    = -1.2     # overridden per step by the test
+star_y    = 0.8
+star_z    = -0.6
+star_mass = 1000.0   # Msun, large enough not to clamp the ejecta

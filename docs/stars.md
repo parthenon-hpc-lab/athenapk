@@ -278,8 +278,11 @@ All parameters below go in the `<stars>` block.
   routine, see [user problem generators](user_pgen.md#star-particles).
 - **Regression tests**, currently run serially:
   - `star_formation_sfr_stats`: formation-time statistics against the expected rate;
-  - `sn_feedback_refinement`: mass/momentum/energy budgets of SN events in the
+  - `sn_feedback_refinement`: mass/momentum/energy budgets of one forced SN in the
     interior, at block faces, edges and corners, and across a refinement boundary;
+  - `sn_blast_wave`: one forced SN on uniform (8 blocks vs 1), static and adaptive
+    meshes (exact mass and energy, bounded net momentum), and a 300 kyr blast
+    against the Sedov–Taylor solution;
   - `cluster_star_orbits`: orbits under `transport_mode = gravity`.
 
 ## Known limitations
