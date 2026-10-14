@@ -661,6 +661,29 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
   }
 }
 
+// Persistent scratch for the SN event pass, kept in the stars package Params and
+// grown on demand. Blocks run one at a time (one host thread, default execution
+// space instance), so a single buffer per rank serves every block.
+using SNPayloadView = Kokkos::View<Real **, parthenon::DevMemSpace>;
+using SNFlagView = Kokkos::View<int *, parthenon::DevMemSpace>;
+using SNCounterView = Kokkos::View<int, parthenon::DevMemSpace>;
+
+// Per-block totals of the SN event pass, summed in a single reduction
+struct SNEventSums {
+  int n_events, n_ghost, n_exhausted;
+  Real e_ii, e_ia;
+  KOKKOS_INLINE_FUNCTION SNEventSums()
+      : n_events(0), n_ghost(0), n_exhausted(0), e_ii(0.0), e_ia(0.0) {}
+  KOKKOS_INLINE_FUNCTION SNEventSums &operator+=(const SNEventSums &o) {
+    n_events += o.n_events;
+    n_ghost += o.n_ghost;
+    n_exhausted += o.n_exhausted;
+    e_ii += o.e_ii;
+    e_ia += o.e_ia;
+    return *this;
+  }
+};
+
 // TODO: get rid of EOS? Seems like it's not needed in the end.
 //       the idea behind it was to apply the feedback using the prim, and using
 //       yet to be implemented PrimToCons. In the end went for Cons
@@ -680,5 +703,14 @@ parthenon::Real LocalReduceSNIIPower(parthenon::MeshData<parthenon::Real> *md);
 parthenon::Real LocalReduceSNIaPower(parthenon::MeshData<parthenon::Real> *md);
 
 } // namespace StellarFeedback
+
+namespace Kokkos {
+template <>
+struct reduction_identity<StellarFeedback::SNEventSums> {
+  KOKKOS_FORCEINLINE_FUNCTION static StellarFeedback::SNEventSums sum() {
+    return StellarFeedback::SNEventSums();
+  }
+};
+} // namespace Kokkos
 
 #endif // STELLAR_FEEDBACK_HPP_

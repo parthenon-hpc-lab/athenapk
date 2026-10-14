@@ -443,6 +443,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     stars_pkg->AddField("sn_rho_snapshot",
                         Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy}));
 
+    // Persistent scratch for the SN event pass, grown on demand (see SNPayloadView)
+    const auto mut = parthenon::Params::Mutability::Mutable;
+    stars_pkg->AddParam<>("sn_payload_scratch",
+                          StellarFeedback::SNPayloadView("sn_payload", 0, 0), mut);
+    stars_pkg->AddParam<>("sn_event_flag_scratch",
+                          StellarFeedback::SNFlagView("sn_event_flag", 0), mut);
+    stars_pkg->AddParam<>("sn_ghost_slot_counter",
+                          StellarFeedback::SNCounterView("sn_ghost_slot_counter"), mut);
+
     std::vector<std::string> ghost_swarm_names;
     for (const auto &name : swarm_names) {
       ghost_swarm_names.push_back("ghost_" + name);

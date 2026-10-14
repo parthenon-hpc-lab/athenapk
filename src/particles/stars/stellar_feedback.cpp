@@ -21,6 +21,7 @@
 // This file was made in part with generative AI (Claude Sonnet 5).
 //========================================================================================
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <string>
@@ -233,46 +234,6 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     auto &birth_y = swarm->Get<Real>("birth_y").Get();
     auto &birth_z = swarm->Get<Real>("birth_z").Get();
 
-    // Passive pass: calculating total stellar energy output in this timestep
-    Real block_E_SN_II = 0.0, block_E_SN_Ia = 0.0;
-    if (SN_II_enabled) {
-      Real local_E_SN_II = 0.0;
-      pmb->par_reduce(
-          "StellarFeedback::SNIIEnergy", 0, max_active_index,
-          KOKKOS_LAMBDA(const int n, Real &lenergy) {
-            if (!swarm_d.IsActive(n)) return;
-            int N_SN_II = 0;
-            Real M_ej_unused = 0.0;
-            ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
-                              log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
-                              msun_in_code_units, test_event_age,
-                              utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
-                                                               birth_y(n), birth_z(n)),
-                              N_SN_II, M_ej_unused);
-            lenergy += N_SN_II * E_SN_per_event;
-          },
-          Kokkos::Sum<Real>(local_E_SN_II));
-      block_E_SN_II = local_E_SN_II;
-    }
-    if (SN_Ia_enabled) {
-      Real local_E_SN_Ia = 0.0;
-      pmb->par_reduce(
-          "StellarFeedback::SNIaEnergy", 0, max_active_index,
-          KOKKOS_LAMBDA(const int n, Real &lenergy) {
-            if (!swarm_d.IsActive(n)) return;
-            int N_SN_Ia = 0;
-            Real M_ej_unused = 0.0;
-            ComputeSNIaEvents(t_inj(n), current_time, current_dt, pmass0(n),
-                              msun_in_code_units, gyr_in_code_units,
-                              utils::custom_rng::SeedFromBirth(t_inj(n), birth_x(n),
-                                                               birth_y(n), birth_z(n)),
-                              N_SN_Ia, M_ej_unused);
-            lenergy += N_SN_Ia * E_SN_per_event;
-          },
-          Kokkos::Sum<Real>(local_E_SN_Ia));
-      block_E_SN_Ia = local_E_SN_Ia;
-    }
-
     // Per-star SN event payload: computed once in the first pass, before any
     // deposit, then consumed by both the host deposit and the ghost fill. Stars
     // exhausted by their event are only removed after both, so the ghost fill
@@ -280,17 +241,24 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     // exhausts the star's mass budget.
     const int npart = max_active_index + 1;
     if (npart <= 0) continue;
-    Kokkos::View<Real **, parthenon::DevMemSpace> payload("sn_payload", npart, PL_N);
-    Kokkos::View<int *, parthenon::DevMemSpace> event_flag("sn_event_flag", npart);
+    auto *payload_scratch = stars_pkg->MutableParam<SNPayloadView>("sn_payload_scratch");
+    auto *flag_scratch = stars_pkg->MutableParam<SNFlagView>("sn_event_flag_scratch");
+    if (static_cast<int>(flag_scratch->extent(0)) < npart) {
+      const int capacity = std::max(npart, 2 * static_cast<int>(flag_scratch->extent(0)));
+      Kokkos::realloc(*payload_scratch, capacity, static_cast<int>(PL_N));
+      Kokkos::realloc(*flag_scratch, capacity);
+    }
+    const auto payload = *payload_scratch;
+    const auto event_flag = *flag_scratch;
 
     // First pass: SN events and the full event payload (counts, clamped ejecta,
     // energy, momenta, kernel size, <n_H>, vector-weight factors). Reads the gas
-    // state before any of this step's deposits. Also counts the ghost particles
-    // needed for kernels reaching into neighboring blocks.
-    int total_ghost_count = 0;
+    // state before any of this step's deposits. Also sums the events, exhausted
+    // stars, ghost particles needed and the SN II/Ia energies (history outputs).
+    SNEventSums sums;
     pmb->par_reduce(
         "StellarFeedback::EventPayload", 0, max_active_index,
-        KOKKOS_LAMBDA(const int n, int &lN_ghost) {
+        KOKKOS_LAMBDA(const int n, SNEventSums &lsum) {
           event_flag(n) = 0;
           if (!swarm_d.IsActive(n)) return;
 
@@ -314,6 +282,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             N_SN += N_SN_Ia;
           }
           if (N_SN == 0) return;
+          lsum.n_events += 1;
+          lsum.e_ii += N_SN_II * E_SN_per_event;
+          lsum.e_ia += N_SN_Ia * E_SN_per_event;
 
           // ── Clamp ejecta to remaining particle mass budget ──────────────────
           // If requested ejecta exceeds what's left, rescale mass and momentum
@@ -375,16 +346,19 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             payload(n, PL_FM + a) = f_minus[a];
           }
           event_flag(n) = exhausted ? 2 : 1;
+          if (exhausted) lsum.n_exhausted += 1;
 
           int ox, oy, oz;
           DetectKernelOverlap(coords, ndim, x(n), y(n), z(n), k, j, i, h_smooth, r_search,
                               kb.s, kb.e, jb.s, jb.e, ib.s, ib.e, ox, oy, oz);
           const int n_active = (ox != 0) + (oy != 0) + (oz != 0);
-          lN_ghost += (1 << n_active) - 1; // 0, 1, 3, or 7 neighbor regions
+          lsum.n_ghost += (1 << n_active) - 1; // 0, 1, 3, or 7 neighbor regions
         },
-        Kokkos::Sum<int>(total_ghost_count));
-    block_total_E_SN_II += block_E_SN_II;
-    block_total_E_SN_Ia += block_E_SN_Ia;
+        Kokkos::Sum<SNEventSums>(sums));
+    block_total_E_SN_II += sums.e_ii;
+    block_total_E_SN_Ia += sums.e_ia;
+    if (sums.n_events == 0) continue;
+    const int total_ghost_count = sums.n_ghost;
 
     // Second pass: deposit each event's host share and reduce the star's mass.
     // Exhausted stars are only marked here; they stay active until after the
@@ -457,8 +431,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
       // Counter to let each firing-and-overlapping particle atomically claim a
       // unique slot among the newly allocated ghost indices.
-      Kokkos::View<int, parthenon::DevExecSpace> ghost_slot_counter("ghost_slot_counter");
-      Kokkos::deep_copy(ghost_slot_counter, 0);
+      const auto ghost_slot_counter =
+          *stars_pkg->MutableParam<SNCounterView>("sn_ghost_slot_counter");
+      Kokkos::deep_copy(pmb->exec_space, ghost_slot_counter, 0);
 
       pmb->par_for(
           "StellarFeedback::GhostFillLoop", 0, max_active_index,
@@ -545,17 +520,19 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
             }
           });
 
-      // Final sanity check: the counter should exactly equal total_ghost_count
+#ifndef NDEBUG
+      // Sanity check (debug builds only: it costs a device-to-host copy)
       int final_slot_count = 0;
       Kokkos::deep_copy(final_slot_count, ghost_slot_counter);
       PARTHENON_REQUIRE(final_slot_count == total_ghost_count,
                         "GhostFillLoop: slot counter mismatch, allocation and "
                         "fill passes disagree on ghost particle count.");
+#endif
     } // end for ghost_swarm_name
 
     // Only now that both the host deposit and the ghost fill have consumed their
     // payload, remove the stars whose mass budget the event exhausted.
-    swarm->RemoveMarkedParticles();
+    if (sums.n_exhausted > 0) swarm->RemoveMarkedParticles();
   } // end for swarm_name
 
   // Accumulate this block's SN II/Ia energy into rank-wide totals.
