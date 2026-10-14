@@ -97,118 +97,92 @@ Real NormedChabrierIMF(const Real m_sim, const Real msun_in_code_units) {
 }
 
 /* ===============================================================================
-Stochastic Type II SN event count/ejecta mass over dt, using Portinari+
-(1998) lifetime/ejecta tables and a Chabrier (2003) IMF: dying stars map
-to a mass window [M1,M2], and N_SNII/M_ej are log-spaced quadrature
-integrals of phi(m)/phi(m)*f_rec(m)*m over it (Eq. 22-23). Testing: with
-test_event_age >= 0, one event with the 8-100 Msun mean ejecta at that age.
+Linear interpolation in a table sampled uniformly in x from x0 with step dx,
+clamped to the first/last entry outside the table (and for x = -inf or NaN).
+=============================================================================== */
+KOKKOS_INLINE_FUNCTION Real InterpUniform(const parthenon::ParArray1D<Real> &tab,
+                                          const int n, const Real x0, const Real dx,
+                                          const Real x) {
+  const Real u = (x - x0) / dx;
+  if (!(u > 0.0)) return tab(0);
+  if (u >= n - 1) return tab(n - 1);
+  const int j = static_cast<int>(u);
+  return tab(j) + (u - j) * (tab(j + 1) - tab(j));
+}
+
+/* ===============================================================================
+log10 of the mass of stars whose lifetime is 10^log_tau, by linear interpolation
+in the log-log lifetime table (log_tau decreases with mass), clamped to the table.
+=============================================================================== */
+KOKKOS_INLINE_FUNCTION Real LogMassFromLogLifetime(
+    const parthenon::ParArray1D<Real> &log_mass,
+    const parthenon::ParArray1D<Real> &log_tau, const int n, const Real lt) {
+  if (lt >= log_tau(0)) return log_mass(0);
+  if (!(lt > log_tau(n - 1))) return log_mass(n - 1);
+  int lo = 0, hi = n - 1;
+  while (hi - lo > 1) {
+    const int mid = (lo + hi) / 2;
+    if (log_tau(mid) >= lt) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  const Real f = (lt - log_tau(lo)) / (log_tau(hi) - log_tau(lo));
+  return log_mass(lo) + f * (log_mass(hi) - log_mass(lo));
+}
+
+/* ===============================================================================
+Stochastic Type II SN event count/ejecta mass over [age, age + dt]: the stars dying
+then span [M(age + dt), M(age)] (Portinari+ 1998 lifetimes), clipped to 8-100 Msun;
+tables of the cumulative IMF count (per Msun formed) and ejecta vs log10(m) give
+both integrals. Testing: with test_event_age >= 0, one event with the 8-100 Msun
+mean ejecta at that age.
 =============================================================================== */
 KOKKOS_INLINE_FUNCTION void
 ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
                   const parthenon::ParArray1D<Real> &log_mass_table,
                   const parthenon::ParArray1D<Real> &log_tau_table, const int n_table,
-                  const parthenon::ParArray1D<Real> &log_sn_mass_table,
-                  const parthenon::ParArray1D<Real> &frec_table, const int n_ejecta,
-                  const Real msun_in_code_units, const Real test_event_age,
-                  const std::uint64_t particle_key, int &N_out, Real &M_ejecta_out) {
-
+                  const parthenon::ParArray1D<Real> &cum_count,
+                  const parthenon::ParArray1D<Real> &cum_ejecta, const int n_cum,
+                  const Real log_m_min, const Real dlog_m, const Real msun_in_code_units,
+                  const Real test_event_age, const std::uint64_t particle_key, int &N_out,
+                  Real &M_ejecta_out) {
   N_out = 0;
   M_ejecta_out = 0.0;
+  if (n_cum < 2) return;
 
   const Real age = t - t_inj;
   const Real age_p = age + dt;
-
-  const Real M_min_SNII = 8.0 * msun_in_code_units;
-  const Real M_max_SNII = 100.0 * msun_in_code_units;
   const bool forced = test_event_age >= 0.0;
   if (forced && !(age <= test_event_age && test_event_age < age_p)) return;
 
-  const Real log_age = Kokkos::log10(age);
-  const Real log_age_p = Kokkos::log10(age_p);
-
-  auto mass_from_tau = [&](const Real log_tau_target) -> Real {
-    if (log_tau_target >= log_tau_table(0)) return Kokkos::pow(10.0, log_mass_table(0));
-    if (log_tau_target <= log_tau_table(n_table - 1))
-      return Kokkos::pow(10.0, log_mass_table(n_table - 1));
-    int lo = 0, hi = n_table - 1;
-    while (hi - lo > 1) {
-      int mid = (lo + hi) / 2;
-      if (log_tau_table(mid) >= log_tau_target)
-        lo = mid;
-      else
-        hi = mid;
-    }
-    const Real frac =
-        (log_tau_target - log_tau_table(lo)) / (log_tau_table(hi) - log_tau_table(lo));
-    return Kokkos::pow(10.0, log_mass_table(lo) +
-                                 frac * (log_mass_table(hi) - log_mass_table(lo)));
-  };
-
-  // Linear interpolation of f_rec(m) in the ejecta table (log mass axis)
-  auto frec_from_mass = [&](const Real m) -> Real {
-    const Real log_m = Kokkos::log10(m);
-    if (log_m <= log_sn_mass_table(0)) return frec_table(0);
-    if (log_m >= log_sn_mass_table(n_ejecta - 1)) return frec_table(n_ejecta - 1);
-    int lo = 0, hi = n_ejecta - 1;
-    while (hi - lo > 1) {
-      int mid = (lo + hi) / 2;
-      if (log_sn_mass_table(mid) <= log_m)
-        lo = mid;
-      else
-        hi = mid;
-    }
-    const Real frac =
-        (log_m - log_sn_mass_table(lo)) / (log_sn_mass_table(hi) - log_sn_mass_table(lo));
-    return frec_table(lo) + frac * (frec_table(hi) - frec_table(lo));
-  };
-
-  const Real M_high = forced ? M_max_SNII : mass_from_tau(log_age);
-  const Real M_low = forced ? M_min_SNII : mass_from_tau(log_age_p);
-
-  const Real M1 = Kokkos::max(M_low, M_min_SNII);
-  const Real M2 = Kokkos::min(M_high, M_max_SNII);
-
-  if (M2 <= M1) return;
-
-  constexpr int N_QUAD = 64;
-  const Real log_M1 = Kokkos::log(M1), log_M2 = Kokkos::log(M2);
-  const Real dlogm = (log_M2 - log_M1) / (N_QUAD - 1);
-
-  Real integral_N = 0.0;
-  Real integral_Mej = 0.0;
-
-  for (int i = 0; i < N_QUAD - 1; i++) {
-    const Real m_lo = Kokkos::exp(log_M1 + i * dlogm);
-    const Real m_hi = Kokkos::exp(log_M1 + (i + 1) * dlogm);
-    const Real dm = m_hi - m_lo;
-
-    const Real phi_lo = NormedChabrierIMF(m_lo, msun_in_code_units);
-    const Real phi_hi = NormedChabrierIMF(m_hi, msun_in_code_units);
-
-    // Eq. 22: integral of phi(m) dm  -> N_SN
-    integral_N += 0.5 * (phi_lo + phi_hi) * dm;
-
-    // Eq. 23: integral of phi(m) * f_rec(m) * m dm  -> M_ej,tot (in code units)
-    integral_Mej +=
-        0.5 *
-        (phi_lo * frec_from_mass(m_lo) * m_lo + phi_hi * frec_from_mass(m_hi) * m_hi) *
-        dm;
+  // Progenitor mass window in log10(m), clipped to the 8-100 Msun table range
+  const Real lm_max = log_m_min + (n_cum - 1) * dlog_m;
+  Real lm_hi = lm_max, lm_lo = log_m_min;
+  if (!forced) {
+    lm_hi = Kokkos::clamp(LogMassFromLogLifetime(log_mass_table, log_tau_table, n_table,
+                                                 Kokkos::log10(age)),
+                          log_m_min, lm_max);
+    lm_lo = Kokkos::clamp(LogMassFromLogLifetime(log_mass_table, log_tau_table, n_table,
+                                                 Kokkos::log10(age_p)),
+                          log_m_min, lm_max);
   }
+  if (!(lm_hi > lm_lo)) return;
+  const Real d_count = InterpUniform(cum_count, n_cum, log_m_min, dlog_m, lm_hi) -
+                       InterpUniform(cum_count, n_cum, log_m_min, dlog_m, lm_lo);
+  const Real d_ejecta = InterpUniform(cum_ejecta, n_cum, log_m_min, dlog_m, lm_hi) -
+                        InterpUniform(cum_ejecta, n_cum, log_m_min, dlog_m, lm_lo);
+  if (!(d_count > 0.0)) return;
 
-  const Real N_expected = integral_N * (mass / msun_in_code_units);
-
-  // Compute IMF-weighted mean ejecta mass per SN event, then scale by the
-  // actual discrete event count N to get total ejecta mass (in code units).
+  const Real N_expected = d_count * (mass / msun_in_code_units);
   const uint64_t seed = utils::custom_rng::SeedFromParticle(particle_key, t) ^
                         utils::custom_rng::SN_II_STREAM;
   const int N =
       forced ? 1 : utils::custom_rng::PoissonSampleDeterministic(seed, N_expected);
 
-  if (N > 0) {
-    const Real mean_ejecta_per_event = integral_Mej / integral_N;
-    M_ejecta_out = N * mean_ejecta_per_event;
-  }
-
+  // Mean ejecta per event over the mass window, times the drawn event count
+  if (N > 0) M_ejecta_out = N * (d_ejecta / d_count);
   N_out = N;
 }
 

@@ -138,7 +138,10 @@ star draws its number of SNe and couples their ejecta to the surrounding gas.
   lifetime and remnant-mass tables at solar metallicity and a
   [Chabrier (2003)](https://ui.adsabs.harvard.edu/abs/2003PASP..115..763C) IMF
   normalized over 0.1–100 M☉ (about one SN II per 85 M☉ formed, between roughly
-  3 and 40 Myr). The ejecta are the progenitor mass minus the remnant mass.
+  3 and 40 Myr). The ejecta are the progenitor mass minus the remnant mass. The
+  IMF integrals come from tables of the cumulative progenitor count and ejecta
+  versus mass, built at startup, so each star only interpolates the lifetime
+  table and looks up the two tables at the ends of its mass window.
 - **Type Ia.** The delay-time distribution of
   [Maoz, Mannucci & Brandt (2012)](https://ui.adsabs.harvard.edu/abs/2012MNRAS.426.3282M)
   as in SMUGGLE: $2.6\times10^{-3}$ SNe per M☉ after 40 Myr, with slope $-1.12$,

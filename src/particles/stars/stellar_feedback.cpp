@@ -195,17 +195,16 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   const auto r_cells = stars_pkg->Param<int>("SN_injection_radius_cells");
   const auto test_event_age = stars_pkg->Param<Real>("SN_test_event_age");
 
-  // Portinari+ lifetime table (always present)
+  // SN II tables: log-log lifetimes and cumulative IMF count / ejecta vs log10(m)
   const auto log_mass_d = stars_pkg->Param<parthenon::ParArray1D<Real>>("log_mass_table");
   const auto log_lifetime_d =
       stars_pkg->Param<parthenon::ParArray1D<Real>>("log_lifetime_table");
   const auto n_lifetime = stars_pkg->Param<int>("lifetime_table_size");
-
-  // Portinari+ ejecta table (always present, empty if SN_II disabled)
-  const auto log_sn_mass_d =
-      stars_pkg->Param<parthenon::ParArray1D<Real>>("log_sn_mass_table");
-  const auto frec_d = stars_pkg->Param<parthenon::ParArray1D<Real>>("frec_table");
-  const auto n_ejecta = stars_pkg->Param<int>("ejecta_table_size");
+  const auto sn2_count = stars_pkg->Param<parthenon::ParArray1D<Real>>("sn2_cum_count");
+  const auto sn2_ejecta = stars_pkg->Param<parthenon::ParArray1D<Real>>("sn2_cum_ejecta");
+  const auto sn2_n = stars_pkg->Param<int>("sn2_cum_size");
+  const auto sn2_log_m_min = stars_pkg->Param<Real>("sn2_cum_log_mass_min");
+  const auto sn2_dlog_m = stars_pkg->Param<Real>("sn2_cum_dlog_mass");
 
   // Total energy injected by this block this step, across every swarm population
   // -- see the sn_ii_energy_injected/sn_ia_energy_injected accumulation below.
@@ -270,9 +269,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
           if (SN_II_enabled) {
             ComputeSNIIEvents(t_inj(n), current_time, current_dt, pmass0(n), log_mass_d,
-                              log_lifetime_d, n_lifetime, log_sn_mass_d, frec_d, n_ejecta,
-                              msun_in_code_units, test_event_age, birth_key, N_SN_II,
-                              M_ej_II_tot);
+                              log_lifetime_d, n_lifetime, sn2_count, sn2_ejecta, sn2_n,
+                              sn2_log_m_min, sn2_dlog_m, msun_in_code_units,
+                              test_event_age, birth_key, N_SN_II, M_ej_II_tot);
             N_SN += N_SN_II;
           }
           if (SN_Ia_enabled) {
