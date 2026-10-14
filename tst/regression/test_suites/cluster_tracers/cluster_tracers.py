@@ -73,8 +73,16 @@ class TestCase(utils.test_case.TestCaseAbs):
             )
             success = False
         else:
-            # Compare with a small tolerance (floating-point safety)
-            tol = 1e-12
+            # The Monte Carlo draws are keyed on the tracer (see TracerRoll), so the
+            # tracer paths do not depend on the backend. IDs (integers spanning the
+            # uint64 range, see EncodeOffset/DecodeOffset) and levels must match
+            # exactly. Positions (cell centres: a tracer in another cell is off by at
+            # least half a cell) and injection times (a tracer injected in another
+            # step is off by a full dt) must match to round-off, as the time itself
+            # can differ in its last bits between backends. The gas sampled at the
+            # tracers only needs to match to a relative tolerance.
+            exact_vars = ["swarm.id", "level"]
+            tight_vars = ["swarm.x", "swarm.y", "swarm.z", "injection_time"]
             for var in tracers.variables:
                 if var not in ref_data.keys():
                     print(f"TEST FAIL: Missing swarm var '{var}' in ref data.")
@@ -82,17 +90,18 @@ class TestCase(utils.test_case.TestCaseAbs):
                     continue
 
                 var_data = tracers.Get(var)
-                # IDs are integers spanning the uint64 range (see EncodeOffset/
-                # DecodeOffset): a float tolerance can't tell distinct nearby IDs
-                # apart there, so they need exact, not approximate, comparison.
-                if var == "id":
+                if var in exact_vars:
                     matches = np.array_equal(var_data[order], ref_data[var])
+                elif var in tight_vars:
+                    matches = np.allclose(
+                        var_data[order], ref_data[var], rtol=0.0, atol=1e-12
+                    )
                 else:
                     matches = np.allclose(
-                        var_data[order], ref_data[var], atol=tol, rtol=0.0
+                        var_data[order], ref_data[var], rtol=1e-8, atol=1e-12
                     )
                 if not matches:
-                    diff = var_data[order] - ref_data[var]
+                    diff = var_data[order].astype(float) - ref_data[var].astype(float)
                     print(f"TEST FAIL: swarm var '{var}' differs from reference!")
                     print("Max difference:", np.max(np.abs(diff)))
                     success = False
@@ -100,7 +109,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             # Finally check that there's no unexpected extra data
             for ref_var in ref_data.keys():
                 if ref_var not in tracers.variables:
-                    print(f"TEST FAIL: Got extra swarm var '{var}' missing in ref data")
+                    print(
+                        f"TEST FAIL: Got extra swarm var '{ref_var}' missing in ref data"
+                    )
                     success = False
 
         if success:

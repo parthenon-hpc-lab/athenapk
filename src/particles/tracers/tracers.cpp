@@ -52,10 +52,17 @@ namespace Tracers {
 using namespace parthenon::package::prelude;
 using parthenon::Coordinates_t;
 using ParticlesCriterion = ParticlesUtils::ParticlesCriterion;
+using utils::custom_rng::TracerRoll;
 
 namespace LCInterp = parthenon::interpolation::cent::linear;
 
 namespace {
+// One TracerRoll tag per random decision of the Monte Carlo scheme, so that a
+// tracer's draws within a cycle are independent of each other.
+constexpr uint64_t kRollHop = 1;   // leave the cell or stay
+constexpr uint64_t kRollFace = 2;  // through which face
+constexpr uint64_t kRollChild = 3; // CenterTracers: which child cell
+
 const std::vector<std::string> optional_swarm_fields{
     "injection_time",  "lifetime",       "grad_pressure_x", "grad_pressure_y",
     "grad_pressure_z", "level",          "div_v",           "rot_v",
@@ -175,15 +182,14 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     PARTHENON_REQUIRE(integrator_str == "vl2",
                       "Provided tracer parameters only support vl2 integrator.");
 
-    // AdvectTracers looks up "rng_block_<gid>" every step, but that pool is only
-    // registered once at startup (SeedInitialTracers). Adaptive refinement changes
-    // gids afterward with no re-registration, so the lookup would throw mid-run.
+    // Not validated with adaptive refinement: no test covers it, and after a remesh
+    // the tracers of a newly refined block sit on a corner of their child cells until
+    // CenterTracers runs, i.e. until after their next Monte Carlo step.
     PARTHENON_REQUIRE(refinement != "adaptive",
                       "Monte Carlo tracer advection does not support "
-                      "'parthenon/mesh/refinement = adaptive': mesh blocks created or "
-                      "reassigned after startup have no registered RNG pool and the run "
-                      "will crash once the mesh changes. Use 'refinement = static' (or "
-                      "'none'), or switch 'tracers/advection_method' to 'vinterp'.");
+                      "'parthenon/mesh/refinement = adaptive' yet. Use 'refinement = "
+                      "static' (or 'none'), or switch 'tracers/advection_method' to "
+                      "'vinterp'.");
   }
 
   Metadata m;
@@ -497,17 +503,6 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
     // Set centering boolean to true as particles are cell-centered
     cell_centered_injection = true;
-
-    // Also, create a RNG pool for each meshblock and store into param
-    // Thus, need to loop of all meshblocks. We create a seed using
-    // Knuth numbers (c.f. particles/custom_rng.hpp) to avoid collision
-    for (auto &pmb : pmesh->block_list) {
-      uint64_t seed = std::hash<uint64_t>{}(
-          static_cast<uint64_t>(tm.ncycle) * utils::custom_rng::PHI_64 ^
-          static_cast<uint64_t>(pmb->gid) * utils::custom_rng::SILVER_64);
-      auto rng_pool = Kokkos::Random_XorShift64_Pool<>(seed);
-      tracers_pkg->AddParam<>("rng_block_" + std::to_string(pmb->gid), rng_pool);
-    }
   }
 
   // Checking whether seeding is needed or not
@@ -723,25 +718,25 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   const auto &coords = pmb->coords;
   // For Monte Carlo method (if needed)
   auto Mcell_pack = parthenon::VariablePack<parthenon::Real>{};
-  auto rng_pool = Kokkos::Random_XorShift64_Pool<>();
   if (advection_method == AdvectMethod::MonteCarlo) {
     Mcell_pack = mbd->PackVariables(std::vector<std::string>{"M_cell"});
-    rng_pool = tracers_pkg->Param<Kokkos::Random_XorShift64_Pool<>>(
-        "rng_block_" + std::to_string(pmb->gid));
   }
 
-  // Random pool generator for Monte Carlo method
   auto dt = tm.dt;
+  const auto ncycle = tm.ncycle;
 
   auto ndim = pmb->pmy_mesh->ndim;
 
   // Looping on the N independent swarms
-  for (const auto &swarm_name : swarm_names) {
+  for (std::size_t k_population = 0; k_population < swarm_names.size(); ++k_population) {
+    const std::string &swarm_name = swarm_names[k_population];
     auto &swarm = sd->Get(swarm_name);
+    const auto rng_seed = tracers_pkg->Param<int>(swarm_name + "_rng_seed");
 
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+    auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
 
     auto &vel_x = swarm->Get<Real>("vel_x").Get();
     auto &vel_y = swarm->Get<Real>("vel_y").Get();
@@ -787,9 +782,6 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-              // Get the random number generator
-              auto rng_gen = rng_pool.get_state();
-
               const Real Mi = Mcell_pack(0, k, j, i); // current cell mass
 
               // Face areas are direction-specific (area_x = dy*dz, etc.), not a
@@ -824,11 +816,10 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               // Calculate the first probability
               const Real p_gas = (Mi > 0.0) ? dM_out / Mi : 0.0;
 
-              // Draw a first random number
-              const Real r = rng_gen.drand();
+              // Draw a first random number, keyed on the tracer (c.f. TracerRoll)
+              const Real r = TracerRoll(rng_seed, k_population, id(n), ncycle, kRollHop);
 
               if (r >= p_gas) {
-                rng_pool.free_state(rng_gen);
                 return;
               }
 
@@ -841,7 +832,7 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               const Real p_zp = (ndim == 3) ? dM_zp / denom : 0.0;
 
               // Calculate second probability
-              Real r2 = rng_gen.drand();
+              Real r2 = TracerRoll(rng_seed, k_population, id(n), ncycle, kRollFace);
               int di = 0, dj = 0, dk = 0;
               if ((r2 -= p_xp) < 0.0) {
                 di = +1;
@@ -871,7 +862,6 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               x(n) = coords.Xc<1>(i_new);
               y(n) = coords.Xc<2>(j_new);
               z(n) = coords.Xc<3>(k_new);
-              rng_pool.free_state(rng_gen);
             }
             // The following call is required as it updates the internal block id
             // following the advection. The internal id is used in the subsequent task to
@@ -905,22 +895,24 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   }
   auto block_level = pmb->loc.level();
   auto ndim = pmb->pmy_mesh->ndim;
+  const auto ncycle = tm.ncycle;
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
   // Looping on the N independent swarms
-  for (const auto &swarm_name : swarm_names) {
+  for (std::size_t k_population = 0; k_population < swarm_names.size(); ++k_population) {
+    const std::string &swarm_name = swarm_names[k_population];
     auto &swarm = sd->Get(swarm_name);
+    const auto rng_seed = tracers_pkg->Param<int>(swarm_name + "_rng_seed");
 
     auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
     auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
     auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+    auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
     auto &level = swarm->Get<int>("level").Get();
     auto &coords = pmb->coords;
 
     // Swarm device context
     auto swarm_d = swarm->GetDeviceContext();
-    auto rng_pool = tracers_pkg->Param<Kokkos::Random_XorShift64_Pool<>>(
-        "rng_block_" + std::to_string(pmb->gid));
 
     // update loop.
     const int max_active_index = swarm->GetMaxActiveIndex();
@@ -954,12 +946,10 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
-              auto rng_gen = rng_pool.get_state();
               const int n_children = (ndim == 3) ? 8 : 4;
-              int chosen_cell = rng_gen.urand() % n_children;
-
-              // Free RNG state immediately
-              rng_pool.free_state(rng_gen);
+              const int chosen_cell =
+                  static_cast<int>(n_children * TracerRoll(rng_seed, k_population, id(n),
+                                                           ncycle, kRollChild));
 
               // Decode chosen_cell bits: 0 keeps the floored index, 1 steps back one.
               int di = (chosen_cell & 1) ? 0 : -1;

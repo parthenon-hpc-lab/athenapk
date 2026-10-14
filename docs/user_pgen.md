@@ -312,11 +312,13 @@ Two advection methods are currently implemented (`tracers/advection_method`, see
   not like particles with a velocity. It requires the `vl2` integrator (see
   `tracers.cpp`).
 
-`montecarlo`'s randomness is reproducible across restarts: each RNG pool is
-re-derived deterministically from the current cycle number and block id (see
-`custom_rng.hpp`) rather than a persisted generator state, so as long as the
-cycle count is restored (which Parthenon's restart does), a restarted run
-regenerates the same stochastic sequence rather than silently diverging.
+`montecarlo`'s randomness is reproducible across backends and restarts: each
+draw (stay or hop, through which face, which child cell after entering a finer
+level) is a hash of the population's seed and index, the tracer's ID, the cycle
+number and the kind of draw (`TracerRoll` in `custom_rng.hpp`). No generator
+state is kept, so it does not matter which block, rank or thread handles a
+tracer, and since the IDs and the cycle count are restored on restart, a
+restarted run draws the same numbers as an uninterrupted one.
 
 ---
 
