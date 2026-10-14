@@ -84,6 +84,25 @@ uint64_t SeedFromIndices(int k, int j, int i, int gid, int population, double ti
 KOKKOS_INLINE_FUNCTION
 double random_double(uint64_t seed) { return (hash(seed) >> 11) * (1.0 / (1ULL << 53)); }
 
+// ===================================================================================
+// Counter-based [0,1) draw for one random decision of one tracer. It is a pure
+// function of its arguments: it does not depend on the block holding the tracer, its
+// slot in the swarm, the thread or the backend, and it keeps no state that restart
+// files would need to store. `id` must be unique within the swarm and `tag` distinct
+// for every draw a tracer makes in the same cycle. The swarm index keeps populations
+// apart, as each one numbers its tracers independently and all default to seed 0.
+// ===================================================================================
+
+KOKKOS_INLINE_FUNCTION
+double TracerRoll(uint64_t seed, uint64_t swarm_index, uint64_t id, uint64_t ncycle,
+                  uint64_t tag) {
+  uint64_t h = hash(seed);
+  h = hash(h ^ swarm_index);
+  h = hash(h ^ id);
+  h = hash(h ^ ncycle);
+  return random_double(h ^ tag);
+}
+
 } // namespace utils::custom_rng
 
 #endif // CUSTOM_RNG_HPP
