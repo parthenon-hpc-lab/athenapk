@@ -191,9 +191,11 @@ where $\langle n_H\rangle$ (cm⁻³) is the kernel-averaged hydrogen density.
 
 When a kernel reaches into neighboring blocks, the host block deposits its own
 share and sends each neighbor's share as a temporary `ghost_stars` particle, which
-the neighbor deposits after the swarm communication. At the same refinement level
-the split is exact. Across refinement levels each region's totals are conserved,
-but the distribution is approximate.
+the neighbor deposits after the swarm communication. The host computes each
+event's kernel geometry (⟨n_H⟩, weight factors, region split) once, before any
+deposit, and reuses it for its own share and the ghost particles. At the same
+refinement level the split is exact. Across refinement levels each region's totals
+are conserved, but the distribution is approximate.
 
 The swarm communication only runs when needed: one global flag per cycle records
 whether any star left its block and whether any ghost particle was created, and
