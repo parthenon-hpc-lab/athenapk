@@ -85,6 +85,10 @@ setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/ath
   setup_test_serial("star_formation_sfr_stats" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/star_formation_sfr_stats.in --num_steps 1" "regression")
 
+  # The same setup reduced to 32^3, run through and restarted halfway
+  setup_test_serial("star_formation_restart" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/star_formation_sfr_stats.in --num_steps 2" "regression")
+
   setup_test_serial("cluster_star_orbits" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/star_orbits.in --num_steps 1" "regression")
 
