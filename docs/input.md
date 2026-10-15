@@ -455,10 +455,13 @@ reflects the values as of the last completed step.
 ##### Initial Seeding
 
 ```ini
-initial_seed_method = random_per_block   # alternative: user
+initial_seed_method = random_per_block   # alternatives: user, none (default)
 ```
 
-Two seeding methods are supported:
+Three seeding methods are supported:
+
+- **`none`** (default)
+  - No initial tracers, e.g. when tracers are only injected during the run.
 
 - **`random_per_block`**
   - Seeds particles randomly in each mesh block.
@@ -470,6 +473,11 @@ Two seeding methods are supported:
 - **`user`**
   - Uses the `ProblemSeedInitialTracers` callback to seed particles manually.
   - See [callback documentation](user_pgen.md#initial-tracer-seeding)
+
+Seeding, and the reservation of each block's range of tracer IDs, runs once per
+simulation: a restart keeps the restored tracers and ID counters, whatever the method.
+Enabling tracers when restarting a run that had them disabled seeds them at the
+restart time.
 
 ---
 
