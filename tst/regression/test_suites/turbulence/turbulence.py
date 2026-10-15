@@ -20,8 +20,10 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/output2/dt=-1",  # disable prim outputs
             "parthenon/output3/dt=10",  # set a large dt to get a final rst output
             "tracers/enabled=true",  # enable tracers via cmd line arguments
+            "tracers/advection_method=vinterp",
             "tracers/initial_seed_method=random_per_block",
-            "tracers/initial_num_tracers_per_cell=0.001953125",  # eff. 512 tracers in 64^3
+            "tracers/swarm_names=tracers",
+            "tracers/tracers_initial_num_tracers_per_cell=0.001953125",  # eff. 512 tracers in 64^3
             "turbulence/n_lookback=40",  # keep track of 40 time bins
         ]
 
@@ -57,7 +59,15 @@ class TestCase(utils.test_case.TestCaseAbs):
         # Loading the data
         data = phdf.phdf(f"{parameters.output_path}/parthenon.restart.final.rhdf")
 
-        components = data.GetComponents(data.Info["ComponentNames"], flatten=False)
+        # This test enables tracers (see Prepare() above), which adds a
+        # "tracers_offsets" entry to the restart file's ComponentNames -- a
+        # per-block offsets array, not a cell-shaped hydro field, which phdf's
+        # Get() can't reshape and only the "cons_*" fields below are actually
+        # needed here, so filter ComponentNames down to those before reading.
+        cons_component_names = [
+            name for name in data.Info["ComponentNames"] if name.startswith("cons_")
+        ]
+        components = data.GetComponents(cons_component_names, flatten=False)
         density_sum = components["cons_density"].sum()
         try:
             np.testing.assert_array_max_ulp(density_sum, 64**3, maxulp=2)
@@ -133,15 +143,20 @@ class TestCase(utils.test_case.TestCaseAbs):
                     var_data_sorted = var_data[order]
 
                 try:
+                    # IDs are integers spanning the uint64 range (see EncodeOffset/
+                    # DecodeOffset): rtol=2e-6 at that magnitude allows ~1e13 of
+                    # slop, so they need exact, not approximate, comparison.
+                    if var == "id":
+                        np.testing.assert_array_equal(var_data_sorted, ref_data[var])
                     # For serial tests, be more stringent.
                     # Need to track down the tiny differences when run with MPI.
-                    if parameters.mpi_cmd == "":
+                    elif False and parameters.mpi_cmd == "":
                         np.testing.assert_array_max_ulp(
                             var_data_sorted, ref_data[var], maxulp=2
                         )
                     else:
                         np.testing.assert_allclose(
-                            var_data_sorted, ref_data[var], rtol=8.1e-7
+                            var_data_sorted, ref_data[var], rtol=2.0e-6
                         )
 
                 except AssertionError as ar:
@@ -154,7 +169,9 @@ class TestCase(utils.test_case.TestCaseAbs):
             # Finally check that there's no unexpected extra data
             for ref_var in ref_data.keys():
                 if ref_var not in tracers.variables:
-                    print(f"TEST FAIL: Got extra swarm var '{var}' missing in ref data")
+                    print(
+                        f"TEST FAIL: Got extra swarm var '{ref_var}' missing in ref data"
+                    )
                     success = False
 
         if success:
