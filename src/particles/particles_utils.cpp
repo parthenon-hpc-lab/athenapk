@@ -218,17 +218,21 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       ltime = swarm->Get<Real>("lifetime").Get();
     }
 
-    Kokkos::View<int, parthenon::DevExecSpace> counter("counter");
-    Kokkos::deep_copy(counter, 0);
-
     std::uint64_t block_offset = DecodeOffset(host_off(k_population));
 
-    pmb->par_for(
-        "InjectParticles::Initialize", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int k, const int j, const int i) {
-          const Real x_cell = coords.Xc<1>(i);
-          const Real y_cell = coords.Xc<2>(j);
-          const Real z_cell = coords.Xc<3>(k);
+    // Slots and IDs go to the injected particles in the cell order of a serial loop
+    // (k, then j, then i), by an exclusive scan: an atomic counter would hand them
+    // out in the order threads reach it, so IDs, and the Monte Carlo draws keyed on
+    // them, would change from run to run and between backends.
+    const int ni = ib.e - ib.s + 1;
+    const int nj = jb.e - jb.s + 1;
+    const int nk = kb.e - kb.s + 1;
+    pmb->par_scan(
+        "InjectParticles::Initialize", 0, nk * nj * ni - 1,
+        KOKKOS_LAMBDA(const int n, int &n_before, const bool &final) {
+          const int k = kb.s + n / (nj * ni);
+          const int j = jb.s + (n / ni) % nj;
+          const int i = ib.s + n % ni;
 
           if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
                                 injection_threshold, mbar_over_kb, ndim, jet_radius,
@@ -243,30 +247,33 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
             auto rnd = random_double(seed);
 
             if (rnd < p_local) {
+              // n_before: particles injected in the cells before this one
+              if (final) {
+                const int swarm_idx =
+                    injected_particles_context.GetNewParticleIndex(n_before);
 
-              int counter_idx = Kokkos::atomic_fetch_add(&counter(), 1);
-              int swarm_idx = injected_particles_context.GetNewParticleIndex(counter_idx);
+                x(swarm_idx) = coords.Xc<1>(i);
+                y(swarm_idx) = coords.Xc<2>(j);
+                // Always assign z, even in 2D: the (valid, in-bounds) cell center of
+                // the current k, so this stays well-defined; leaving it untouched
+                // would mean an uninitialized/stale position for
+                // dynamically-injected particles in 2D runs.
+                z(swarm_idx) = coords.Xc<3>(k);
 
-              x(swarm_idx) = x_cell;
-              y(swarm_idx) = y_cell;
-              // Always assign z, even in 2D: z_cell is the (valid, in-bounds) cell
-              // center of the current k, so this stays well-defined; leaving it
-              // untouched would mean an uninitialized/stale position for
-              // dynamically-injected particles in 2D runs.
-              z(swarm_idx) = z_cell;
+                id(swarm_idx) = block_offset + n_before;
+                if (track_injection_time) t_inj(swarm_idx) = current_time;
+                if (removal_enabled) {
+                  ltime(swarm_idx) = lifetime;
+                }
 
-              id(swarm_idx) = block_offset + counter_idx;
-              if (track_injection_time) t_inj(swarm_idx) = current_time;
-              if (removal_enabled) {
-                ltime(swarm_idx) = lifetime;
+                // Cell-centered sample, exact since the particle sits at (i, j, k)'s
+                // center; matches FillTracers' non-interpolated (Monte Carlo) branch.
+                vel_x(swarm_idx) = prim(IV1, k, j, i);
+                vel_y(swarm_idx) = prim(IV2, k, j, i);
+                if (ndim == 3) vel_z(swarm_idx) = prim(IV3, k, j, i);
+                if (trace_level) level(swarm_idx) = block_level;
               }
-
-              // Cell-centered sample, exact since the particle sits at (i, j, k)'s
-              // center; matches FillTracers' non-interpolated (Monte Carlo) branch.
-              vel_x(swarm_idx) = prim(IV1, k, j, i);
-              vel_y(swarm_idx) = prim(IV2, k, j, i);
-              if (ndim == 3) vel_z(swarm_idx) = prim(IV3, k, j, i);
-              if (trace_level) level(swarm_idx) = block_level;
+              n_before += 1;
             }
           }
         });
