@@ -538,6 +538,9 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
   const auto seed_method = pin->GetOrAddString("tracers", "initial_seed_method", "none");
   if (seed_method == "none") {
+    // Nothing to seed, but the ID reservation above must not rerun on a restart:
+    // it would rewind the restored offsets and reuse the IDs injected so far
+    tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
     return;
   } else if (seed_method == "user") {
     ProblemSeedInitialTracers(pmesh, pin, tm);
