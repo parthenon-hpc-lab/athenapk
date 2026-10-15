@@ -522,4 +522,38 @@ TaskStatus RemoveParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
   return TaskStatus::complete;
 }
 
+TaskStatus ResetSwarmComms(parthenon::SwarmContainer *sd,
+                           const std::vector<std::string> &names) {
+  for (const auto &name : names) {
+    sd->Get(name)->ResetCommunication();
+  }
+  return TaskStatus::complete;
+}
+
+TaskStatus SendSwarms(parthenon::SwarmContainer *sd,
+                      const std::vector<std::string> &names) {
+  PARTHENON_INSTRUMENT
+  for (const auto &name : names) {
+    sd->Get(name)->Send(parthenon::BoundaryCommSubset::all);
+  }
+  return TaskStatus::complete;
+}
+
+// Same steps as SwarmContainer::Receive, restricted to the named swarms
+TaskStatus ReceiveSwarms(parthenon::SwarmContainer *sd,
+                         const std::vector<std::string> &names) {
+  PARTHENON_INSTRUMENT
+  int success = 0, total = 0;
+  for (const auto &name : names) {
+    auto &swarm = sd->Get(name);
+    if (swarm->Receive(parthenon::BoundaryCommSubset::all)) {
+      success++;
+      parthenon::ApplySwarmBoundaryConditions(swarm);
+      swarm->RemoveMarkedParticles();
+    }
+    total++;
+  }
+  return (success == total) ? TaskStatus::complete : TaskStatus::incomplete;
+}
+
 } // namespace ParticlesUtils

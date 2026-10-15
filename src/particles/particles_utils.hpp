@@ -186,6 +186,16 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
 TaskStatus RemoveParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                            const std::string &pkg_name);
 
+// Boundary exchange of the named swarms only: SwarmContainer's ResetCommunication,
+// Send and Receive act on every swarm of the block. Every block must exchange the
+// same swarms, or a receiver waits forever for a message that is never sent.
+TaskStatus ResetSwarmComms(parthenon::SwarmContainer *sd,
+                           const std::vector<std::string> &names);
+TaskStatus SendSwarms(parthenon::SwarmContainer *sd,
+                      const std::vector<std::string> &names);
+TaskStatus ReceiveSwarms(parthenon::SwarmContainer *sd,
+                         const std::vector<std::string> &names);
+
 } // namespace ParticlesUtils
 
 #endif // PARTICLES_UTILS_HPP_

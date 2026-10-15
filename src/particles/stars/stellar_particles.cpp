@@ -919,34 +919,21 @@ std::vector<std::string> SwarmsToExchange(StateDescriptor *stars_pkg) {
   return names;
 }
 
+// The flags are only known once reduced, so the swarm list is built at run time
 TaskStatus SendStarSwarms(MeshBlockData<Real> *mbd) {
   PARTHENON_INSTRUMENT
   auto *pmb = mbd->GetParentPointer();
   auto stars_pkg = pmb->packages.Get("stars");
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
-  for (const auto &name : SwarmsToExchange(stars_pkg.get())) {
-    sd->Get(name)->Send(parthenon::BoundaryCommSubset::all);
-  }
-  return TaskStatus::complete;
+  return ParticlesUtils::SendSwarms(sd.get(), SwarmsToExchange(stars_pkg.get()));
 }
 
-// Same steps as SwarmContainer::Receive, restricted to the exchanged swarms
 TaskStatus ReceiveStarSwarms(MeshBlockData<Real> *mbd) {
   PARTHENON_INSTRUMENT
   auto *pmb = mbd->GetParentPointer();
   auto stars_pkg = pmb->packages.Get("stars");
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
-  int success = 0, total = 0;
-  for (const auto &name : SwarmsToExchange(stars_pkg.get())) {
-    auto &swarm = sd->Get(name);
-    if (swarm->Receive(parthenon::BoundaryCommSubset::all)) {
-      success++;
-      parthenon::ApplySwarmBoundaryConditions(swarm);
-      swarm->RemoveMarkedParticles();
-    }
-    total++;
-  }
-  return (success == total) ? TaskStatus::complete : TaskStatus::incomplete;
+  return ParticlesUtils::ReceiveSwarms(sd.get(), SwarmsToExchange(stars_pkg.get()));
 }
 
 } // namespace Stars

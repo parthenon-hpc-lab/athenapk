@@ -200,7 +200,8 @@ are conserved, but the distribution is approximate.
 
 The swarm communication only runs when needed: one global flag per cycle records
 whether any star left its block and whether any ghost particle was created, and
-the `stars` and `ghost_stars` exchanges are skipped on every block otherwise.
+the `stars` and `ghost_stars` exchanges are skipped on every block otherwise. With
+tracers enabled, the tracer exchange only involves the tracer swarms.
 
 After star formation and feedback, the gas ghost cells are exchanged again and the
 next timestep is estimated from the resulting state, so a SN-heated cell limits

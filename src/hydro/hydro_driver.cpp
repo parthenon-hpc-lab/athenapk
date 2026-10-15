@@ -19,6 +19,7 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../particles/particles_utils.hpp"
 #include "../particles/stars/stellar_feedback.hpp"
 #include "../particles/stars/stellar_particles.hpp"
 #include "../particles/tracers/tracers.hpp"
@@ -703,14 +704,18 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // Then move on to tracers
   // First order operator split tracer advection
   if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
-    const std::string swarm_name = "tracers";
+    // Reset and exchange the tracer swarms only: SwarmContainer's ResetCommunication,
+    // Send and Receive would also exchange every other swarm (stars, ghost stars) a
+    // second time this cycle, for nothing (see Stars::SendStarSwarms)
+    const auto &tracer_swarms =
+        tracers_pkg->Param<std::vector<std::string>>("swarm_names");
     TaskRegion &sync_region_tr = tc.AddRegion(1);
     {
       for (auto &pmb : blocks) {
         auto &tl = sync_region_tr[0];
         auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
         auto reset_comms =
-            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+            tl.AddTask(none, ParticlesUtils::ResetSwarmComms, sd.get(), tracer_swarms);
       }
     }
 
@@ -726,10 +731,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(tracer_inject, Tracers::RemoveTracers, mbd0.get(), tm);
       auto tracer_advect =
           tl.AddTask(tracer_removal, Tracers::AdvectTracers, mbd0.get(), tm);
-      auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
-                             BoundaryCommSubset::all);
+      auto send =
+          tl.AddTask(tracer_advect, ParticlesUtils::SendSwarms, sd.get(), tracer_swarms);
       auto receive =
-          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+          tl.AddTask(send, ParticlesUtils::ReceiveSwarms, sd.get(), tracer_swarms);
       auto center = tl.AddTask(receive, Tracers::CenterTracers, mbd0.get(), tm);
     }
     // TODO(pgrete) Fix/cleanup once we got swarm packs.
