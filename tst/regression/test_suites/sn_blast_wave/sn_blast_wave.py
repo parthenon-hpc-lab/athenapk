@@ -15,8 +15,10 @@
 #      the grid around the star)
 #   6. uniform 32^3 to 300 kyr: shock radius, radial momentum and kinetic energy
 #      fraction against the Sedov-Taylor solution
-# Steps 1-5 stop after the injection cycle (step 5 after a few more) and check exact
-# mass/energy conservation and bounds on the known small net-momentum residuals.
+#   7. step 1 with the star moving: the deposit is boosted to the simulation frame
+# Steps 1-5 and 7 stop after the injection cycle (step 5 after a few more) and check
+# exact mass/energy conservation, bounds on the known small net-momentum residuals,
+# and that the radial momentum lies between the unboosted and the terminal momentum.
 
 import glob
 import sys
@@ -31,6 +33,10 @@ sys.dont_write_bytecode = True
 # R = XI0 (E t^2/rho)^(1/5), p_r = C_P E^(4/5) rho^(1/5) t^(3/5), E_kin/E = F_KIN
 XI0, C_P, F_KIN = 1.15167, 1.8815, 0.2828
 
+# <units> block of inputs/sn_blast_wave.in (pc, Msun, kyr) and km/s in pc/kyr
+L, M, T = 3.0856775809623245e18, 1.98841586e33, 3.15576e10
+KMS = 1e5 * T / L
+
 
 class TestCase(utils.test_case.TestCaseAbs):
     def __init__(self):
@@ -42,6 +48,10 @@ class TestCase(utils.test_case.TestCaseAbs):
         coarse_host = (-0.3 * dx, 0.2 * dx, -0.15 * dx)
         fine_host = (0.15 * dx, 0.1 * dx, -0.075 * dx)
         one_block = [f"parthenon/meshblock/nx{d}=32" for d in (1, 2, 3)]
+        self.v_star = (150.0, -100.0, 50.0)  # km/s, step 7
+        moving = [
+            f"problem/star_formation/star_v{d}={v}" for d, v in zip("xyz", self.v_star)
+        ]
         self.steps = [
             ("uniform_8_blocks", coarse_host, ["parthenon/mesh/refinement=none"]),
             (
@@ -61,6 +71,7 @@ class TestCase(utils.test_case.TestCaseAbs):
                 coarse_host,
                 ["parthenon/mesh/refinement=none", "parthenon/time/nlim=100000"],
             ),
+            ("moving_star", coarse_host, ["parthenon/mesh/refinement=none"] + moving),
         ]
 
         # Tolerances. Mass and energy deposits are exact by construction; the
@@ -74,6 +85,14 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.st_reltol = 0.06  # R and p_r against Sedov-Taylor at 32^3, 300 kyr
         self.f_kin_range = (0.22, 0.30)
         self.st_energy_loss_max = 0.02  # first-order flux correction at block faces
+        self.boost_reltol = 1e-10  # step 7 momentum, relative to M_ej |v|
+        # Step 7: the injection is ~100% kinetic, so behind the moving star the boost
+        # drives the internal energy below Tfloor, which adds energy (no Hopkins et
+        # al. 2018 App. E correction yet): 0.083 E_SN at 187 km/s
+        self.moving_energy_gain_max = 0.15
+        # Terminal momentum of one SN at the background n_H, 4.8e5 Msun km/s n_H^-1/7
+        n_h = 0.75 * self.rho0 * M / L**3 / 1.6735575e-24
+        self.p_t = 4.8e5 * KMS * n_h ** (-1.0 / 7.0)
 
     def Prepare(self, parameters, step):
         name, (xs, ys, zs), extra = self.steps[step - 1]
@@ -155,9 +174,8 @@ class TestCase(utils.test_case.TestCaseAbs):
             return False
 
         success = True
-        L, M, T = 3.0856775809623245e18, 1.98841586e33, 3.15576e10  # <units> block
         E_SN = 1e51 / (M * L**2 / T**2)
-        finals = {}
+        finals, budgets = {}, {}
 
         for step, (name, star, _) in enumerate(self.steps, start=1):
             print(f"Step {step} ({name})")
@@ -167,6 +185,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             finals[name] = (d1, s1)
             m_ej = s0["m_star"] - s1["m_star"]
             dE = (s1["energy"] - s0["energy"]) / E_SN
+            budgets[name] = dict(dp=s1["p"] - s0["p"], dE=s1["energy"] - s0["energy"])
 
             success &= self._check(
                 s1["n_stars"] == 1 and m_ej > 0.0,
@@ -199,6 +218,13 @@ class TestCase(utils.test_case.TestCaseAbs):
                     pnet < self.pnet_max[kind],
                     f"|p_net|/p_r = {pnet:.4f} < {self.pnet_max[kind]}",
                 )
+                if kind == "uniform":
+                    p_sn = np.sqrt(2.0 * E_SN * m_ej)
+                    success &= self._check(
+                        p_sn < s1["p_r"] <= self.p_t,
+                        f"p_SN < p_r <= p_t: {p_sn:.1f} < {s1['p_r']:.1f} <= "
+                        f"{self.p_t:.1f} Msun pc/kyr",
+                    )
             elif name == "amr":
                 success &= self._check(
                     s1["n_blocks"] > s0["n_blocks"],
@@ -211,6 +237,25 @@ class TestCase(utils.test_case.TestCaseAbs):
                 success &= self._check(
                     pnet < self.pnet_max["amr"],
                     f"|p_net|/p_r = {pnet:.4f} < {self.pnet_max['amr']}",
+                )
+            elif name == "moving_star":
+                # Step 1's event, boosted to the simulation frame (Hopkins et al.
+                # 2018, eqs. 23-24): dp = dp* + dm v, dE = dE* + dp*.v + dm v^2/2
+                ref, v = budgets["uniform_8_blocks"], np.array(self.v_star) * KMS
+                res = np.linalg.norm(s1["p"] - s0["p"] - ref["dp"] - m_ej * v) / (
+                    m_ej * np.linalg.norm(v)
+                )
+                success &= self._check(
+                    res < self.boost_reltol,
+                    f"momentum = step 1 + M_ej v, to {res:.1e} of M_ej |v|",
+                )
+                gain = (
+                    s1["energy"] - s0["energy"] - ref["dE"] - ref["dp"] @ v
+                ) / E_SN - 0.5 * m_ej * (v @ v) / E_SN
+                success &= self._check(
+                    -self.cons_reltol < gain < self.moving_energy_gain_max,
+                    f"energy = step 1 + p_net.v + M_ej v^2/2, plus {gain:.4f} E_SN "
+                    f"from Tfloor resets (< {self.moving_energy_gain_max})",
                 )
             else:  # sedov_taylor
                 t = d1.Time - 1e-3  # the SN is deposited at the end of the first step

@@ -17,7 +17,12 @@
 #   4. corner    - kernel crosses into 7 same-level neighbors (touches every block that
 #                  shares a corner with the host)
 #   5. coarse_fine - kernel straddles the coarse/fine boundary of the statically refined
-#                  patch, so it spans cells of *different* sizes
+#                  patch, so it spans cells of *different* sizes (fine host)
+#   6. coarse_host - the same boundary from the coarse side: the host is a level-1
+#                  block and the kernel spills into the level-2 patch
+#   7. exhausted_corner - the corner placement with a star lighter than its SN ejecta:
+#                  the event exhausts the star, which must still feed all 7 ghost
+#                  regions before it is removed
 #
 # Steps 1-4 place the star at different corners/faces of the *same* meshblock (block
 # "A", the domain's far corner from the refined patch). Note that the patch's proper-
@@ -103,12 +108,22 @@ class TestCase(utils.test_case.TestCaseAbs):
         # blocks the kernel is expected to spill into (0/1/3/7; not checked directly,
         # just documentation -- DetectKernelOverlap's own count is checked indirectly
         # via the mass/momentum/energy totals).
+        # Step 7: sf_mass_efficiency giving a ~9.5 Msun star, below the ~17 Msun
+        # forced ejecta. The cell then stays above the SF threshold, but nlim = 1
+        # leaves no later cycle to form another star.
+        self.exhausted_mass_efficiency = 5.0e-6
         self.scenarios = [
-            ("interior", (interior_face, interior_face, interior_face)),
-            ("face", (boundary_face, interior_face, interior_face)),
-            ("edge", (boundary_face, boundary_face, interior_face)),
-            ("corner", (boundary_face, boundary_face, boundary_face)),
-            ("coarse_fine", (1.05e-4, 1.4e-4, 1.4e-4)),
+            ("interior", (interior_face, interior_face, interior_face), []),
+            ("face", (boundary_face, interior_face, interior_face), []),
+            ("edge", (boundary_face, boundary_face, interior_face), []),
+            ("corner", (boundary_face, boundary_face, boundary_face), []),
+            ("coarse_fine", (1.05e-4, 1.4e-4, 1.4e-4), []),
+            ("coarse_host", (-1.05e-4, 1.4e-4, 1.4e-4), []),
+            (
+                "exhausted_corner",
+                (boundary_face, boundary_face, boundary_face),
+                [f"stars/sf_mass_efficiency={self.exhausted_mass_efficiency}"],
+            ),
         ]
         self.same_level_scenarios = ["interior", "face", "edge", "corner"]
         self.steps = len(self.scenarios)
@@ -147,7 +162,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         self.cross_placement_reltol = 1e-6
 
     def Prepare(self, parameters, step):
-        name, (xp, yp, zp) = self.scenarios[step - 1]
+        name, (xp, yp, zp), extra = self.scenarios[step - 1]
         parameters.driver_cmd_line_args = [
             f"parthenon/output0/id=cons_step{step}",
             f"parthenon/time/tlim={self.tlim}",
@@ -160,7 +175,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             f"problem/star_formation/z_peak={zp}",
             f"stars/sf_density_threshold={self.sf_density_threshold}",
             f"stars/sf_mass_efficiency={self.sf_mass_efficiency}",
-        ]
+        ] + extra
         print(f"Step {step} ({name}): peak at ({xp:.6g}, {yp:.6g}, {zp:.6g})")
         return parameters
 
@@ -181,9 +196,15 @@ class TestCase(utils.test_case.TestCaseAbs):
         return mass, p_vec, energy, p_abs
 
     @staticmethod
+    def _n_stars(data):
+        # An empty swarm is written without variables: phdf then gives id = None
+        ids = data.GetSwarm("stars").id
+        return 0 if ids is None else len(ids)
+
+    @staticmethod
     def _star_mass(data):
         swarm = data.GetSwarm("stars")
-        if len(swarm.id) == 0:
+        if TestCase._n_stars(data) == 0:
             return 0.0
         masses = swarm.Get("mass")
         return float(np.sum(masses))  # at most one star by construction; sum is safe
@@ -193,7 +214,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         """(x, y, z) of the (at most one, by construction) star in this dump, or
         None if it has already been fully consumed and removed by this point."""
         swarm = data.GetSwarm("stars")
-        if len(swarm.id) == 0:
+        if TestCase._n_stars(data) == 0:
             return None
         return (float(swarm.x[0]), float(swarm.y[0]), float(swarm.z[0]))
 
@@ -409,7 +430,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         success = True
         results = {}
 
-        for step, (name, pos) in enumerate(self.scenarios, start=1):
+        for step, (name, pos, _) in enumerate(self.scenarios, start=1):
             files = sorted(
                 glob.glob(f"{parameters.output_path}/parthenon.cons_step{step}.*.phdf")
             )
@@ -481,6 +502,16 @@ class TestCase(utils.test_case.TestCaseAbs):
                     "or double-counted while crossing meshblock boundaries."
                 )
                 success = False
+
+            if name == "exhausted_corner":
+                n_stars = self._n_stars(last)
+                print(f"  stars left: {n_stars} (the event must exhaust the star)")
+                if n_stars != 0 or star_mass_final != 0.0:
+                    print(
+                        f"TEST FAIL [{name}]: the star was not exhausted and removed "
+                        "-- the scenario no longer tests the exhausted-star path."
+                    )
+                    success = False
 
             results[name] = {
                 "dP": dP,
