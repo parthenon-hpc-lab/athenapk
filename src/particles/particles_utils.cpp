@@ -321,20 +321,24 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
       birth_z = swarm->Get<Real>("birth_z").Get();
     }
 
-    Kokkos::View<int, parthenon::DevExecSpace> counter("counter");
-    Kokkos::deep_copy(counter, 0);
-
     std::uint64_t block_offset = DecodeOffset(host_off(k_population));
 
-    pmb->par_for(
-        "InjectParticles::Initialize", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA(const int k, const int j, const int i) {
-          const Real x_cell = coords.Xc<1>(i);
-          const Real y_cell = coords.Xc<2>(j);
-          const Real z_cell = coords.Xc<3>(k);
+    // Slots and IDs go to the injected particles in the cell order of a serial loop
+    // (k, then j, then i), by an exclusive scan: an atomic counter would hand them
+    // out in the order threads reach it, so IDs, and the Monte Carlo draws keyed on
+    // them, would change from run to run and between backends.
+    const int ni = ib.e - ib.s + 1;
+    const int nj = jb.e - jb.s + 1;
+    const int nk = kb.e - kb.s + 1;
+    pmb->par_scan(
+        "InjectParticles::Initialize", 0, nk * nj * ni - 1,
+        KOKKOS_LAMBDA(const int n, int &n_before, const bool &final) {
+          const int k = kb.s + n / (nj * ni);
+          const int j = jb.s + (n / ni) % nj;
+          const int i = ib.s + n % ni;
 
-          // Must match InjectParticles::FindCells exactly, so both passes draw
-          // the same cells.
+          // Must match InjectParticles::FindCells exactly, so the count and the
+          // slots handed out below agree.
           Real p_local = 0.0;
           if (injection_mode == InjectionMode::FixedRate) {
             if (EvaluateCriterion(injection_criterion, prim, coords, k, j, i,
@@ -364,43 +368,51 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
           const auto rnd = random_double(seed);
           if (rnd >= p_local) return;
 
-          // --- Particle initialization -------------------------------------------
-          const int counter_idx = Kokkos::atomic_fetch_add(&counter(), 1);
-          const int swarm_idx =
-              injected_particles_context.GetNewParticleIndex(counter_idx);
+          // --- Particle initialization, final scan pass only ------------------------
+          // The draw above reads only prim, which no pass modifies (the star mass
+          // transfer writes cons), so every pass draws the same cells.
+          // n_before: particles injected in the cells before this one.
+          if (final) {
+            const int swarm_idx =
+                injected_particles_context.GetNewParticleIndex(n_before);
+            const Real x_cell = coords.Xc<1>(i);
+            const Real y_cell = coords.Xc<2>(j);
+            const Real z_cell = coords.Xc<3>(k);
 
-          x(swarm_idx) = x_cell;
-          y(swarm_idx) = y_cell;
-          // Always assign z, even in 2D: z_cell is the (valid, in-bounds) cell
-          // center of the current k, so this stays well-defined; leaving it
-          // untouched would mean an uninitialized/stale position for
-          // dynamically-injected particles in 2D runs.
-          z(swarm_idx) = z_cell;
+            x(swarm_idx) = x_cell;
+            y(swarm_idx) = y_cell;
+            // Always assign z, even in 2D: z_cell is the (valid, in-bounds) cell
+            // center of the current k, so this stays well-defined; leaving it
+            // untouched would mean an uninitialized/stale position for
+            // dynamically-injected particles in 2D runs.
+            z(swarm_idx) = z_cell;
 
-          id(swarm_idx) = unique_ids ? block_offset + counter_idx : kDummyParticleId;
-          if (track_injection_time) t_inj(swarm_idx) = current_time;
-          if (removal_enabled) {
-            ltime(swarm_idx) = lifetime;
+            id(swarm_idx) = unique_ids ? block_offset + n_before : kDummyParticleId;
+            if (track_injection_time) t_inj(swarm_idx) = current_time;
+            if (removal_enabled) {
+              ltime(swarm_idx) = lifetime;
+            }
+
+            if (particles_type == ParticlesType::Stars) {
+              // Moves part of the cell's gas into the new star, which also inherits
+              // the cell velocity.
+              StarFormation::TransferCellMassToParticle(
+                  cons, prim, coords, k, j, i, mass_efficiency, ndim, swarm_idx, pmass,
+                  vel_x, vel_y, vel_z, eos, nhydro, nscalars, sf_energy_mode);
+              pmass0(swarm_idx) = pmass(swarm_idx);
+              birth_x(swarm_idx) = x_cell;
+              birth_y(swarm_idx) = y_cell;
+              birth_z(swarm_idx) = z_cell;
+            } else {
+              // Cell-centered sample, exact since the particle sits at (i, j, k)'s
+              // center; matches FillTracers' non-interpolated (Monte Carlo) branch.
+              vel_x(swarm_idx) = prim(IV1, k, j, i);
+              vel_y(swarm_idx) = prim(IV2, k, j, i);
+              if (ndim == 3) vel_z(swarm_idx) = prim(IV3, k, j, i);
+            }
+            if (trace_level) level(swarm_idx) = block_level;
           }
-
-          if (particles_type == ParticlesType::Stars) {
-            // Moves part of the cell's gas into the new star, which also inherits
-            // the cell velocity.
-            StarFormation::TransferCellMassToParticle(
-                cons, prim, coords, k, j, i, mass_efficiency, ndim, swarm_idx, pmass,
-                vel_x, vel_y, vel_z, eos, nhydro, nscalars, sf_energy_mode);
-            pmass0(swarm_idx) = pmass(swarm_idx);
-            birth_x(swarm_idx) = x_cell;
-            birth_y(swarm_idx) = y_cell;
-            birth_z(swarm_idx) = z_cell;
-          } else {
-            // Cell-centered sample, exact since the particle sits at (i, j, k)'s
-            // center; matches FillTracers' non-interpolated (Monte Carlo) branch.
-            vel_x(swarm_idx) = prim(IV1, k, j, i);
-            vel_y(swarm_idx) = prim(IV2, k, j, i);
-            if (ndim == 3) vel_z(swarm_idx) = prim(IV3, k, j, i);
-          }
-          if (trace_level) level(swarm_idx) = block_level;
+          n_before += 1;
         });
 
     block_offset += num_injected_particles_in_block;

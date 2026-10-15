@@ -72,7 +72,7 @@ setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/ath
   # injected tracers -- and thus this test's exact-match comparison against
   # ref_data.pkl -- isn't invariant across different rank counts.
   setup_test_serial("cluster_tracers" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hydro_agn_feedback_tracers.in --num_steps 1" "regression")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hydro_agn_feedback_tracers.in --num_steps 2" "regression")
 
   # Serial only for now: the 2-rank variant of setup_test_both crashes at cycle 0 for
   # *any* particle-swarm-enabled setup on this build, not just these two -- confirmed

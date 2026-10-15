@@ -17,10 +17,20 @@ sys.dont_write_bytecode = True
 class TestCase(utils.test_case.TestCaseAbs):
 
     def __init__(self):
-        self.steps = 1
+        self.steps = 2
 
     def Prepare(self, parameters, step):
-
+        # Injection only, so nothing to seed initially. Step 2 restarts from the
+        # t = 0.1 dump of step 1: it must keep the restored per-block ID offsets
+        # (seed method "none" used to reset them, reusing IDs) and reproduce the
+        # uninterrupted run, as the Monte Carlo draws are keyed on the tracer.
+        parameters.driver_cmd_line_args = ["tracers/initial_seed_method=none"]
+        if step == 2:
+            parameters.driver_cmd_line_args += [
+                "parthenon/output0/id=cont",
+                "-r",
+                "parthenon.restart.00001.rhdf",
+            ]
         return parameters
 
     def Analyse(self, parameters):
@@ -36,19 +46,30 @@ class TestCase(utils.test_case.TestCaseAbs):
             print("Couldn't find module to compare Parthenon hdf5 files.")
             return False
 
-        success = True
+        with open(f"{parameters.test_path}/ref_data.pkl", "rb") as infile:
+            ref_data = pickle.load(infile)
 
-        # Loading the data
-        data = phdf.phdf(f"{parameters.output_path}/parthenon.restart.final.rhdf")
-        tracers = data.GetSwarm("tracers")
+        # The uninterrupted run (step 1) and its restart (step 2) must both match
+        success = True
+        for run, dump in (("uninterrupted", "restart"), ("restarted", "cont")):
+            data = phdf.phdf(f"{parameters.output_path}/parthenon.{dump}.final.rhdf")
+            success &= self.CheckTracers(run, data.GetSwarm("tracers"), ref_data)
+
+        if success:
+            print("Successful match for all tracer data.")
+
+        return success
+
+    def CheckTracers(self, run, tracers, ref_data):
+        success = True
         ids = tracers.id
 
-        print("Analysis step. Number of tracers found: ", len(ids))
+        print(f"Analysis of the {run} run. Number of tracers found: ", len(ids))
         print("Now checking success conditions")
 
         # Check that IDs are unique
         if len(ids) != len(np.unique(ids)):
-            print("TEST FAIL: duplicate tracer IDs found")
+            print(f"TEST FAIL ({run}): duplicate tracer IDs found")
             success = False
 
         # Sort by ID so comparison is deterministic
@@ -63,13 +84,10 @@ class TestCase(utils.test_case.TestCaseAbs):
         # with open("ref_data.pkl", "wb") as outfile:
         #    pickle.dump(all_var_data, outfile)
 
-        with open(f"{parameters.test_path}/ref_data.pkl", "rb") as infile:
-            ref_data = pickle.load(infile)
-
         # Check that the shapes match
         if ids.shape != ref_data["swarm.id"].shape:
             print(
-                f"TEST FAIL: shape mismatch: ids {ids.shape}, ref_data {ref_data['swarm.id'].shape}"
+                f"TEST FAIL ({run}): shape mismatch: ids {ids.shape}, ref_data {ref_data['swarm.id'].shape}"
             )
             success = False
         else:
@@ -85,7 +103,7 @@ class TestCase(utils.test_case.TestCaseAbs):
             tight_vars = ["swarm.x", "swarm.y", "swarm.z", "injection_time"]
             for var in tracers.variables:
                 if var not in ref_data.keys():
-                    print(f"TEST FAIL: Missing swarm var '{var}' in ref data.")
+                    print(f"TEST FAIL ({run}): Missing swarm var '{var}' in ref data.")
                     success = False
                     continue
 
@@ -102,7 +120,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                     )
                 if not matches:
                     diff = var_data[order].astype(float) - ref_data[var].astype(float)
-                    print(f"TEST FAIL: swarm var '{var}' differs from reference!")
+                    print(
+                        f"TEST FAIL ({run}): swarm var '{var}' differs from reference!"
+                    )
                     print("Max difference:", np.max(np.abs(diff)))
                     success = False
 
@@ -110,11 +130,8 @@ class TestCase(utils.test_case.TestCaseAbs):
             for ref_var in ref_data.keys():
                 if ref_var not in tracers.variables:
                     print(
-                        f"TEST FAIL: Got extra swarm var '{ref_var}' missing in ref data"
+                        f"TEST FAIL ({run}): Got extra swarm var '{ref_var}' missing in ref data"
                     )
                     success = False
-
-        if success:
-            print("Successful match for all tracer data.")
 
         return success
