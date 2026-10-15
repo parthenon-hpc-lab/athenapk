@@ -97,7 +97,7 @@ setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/ath
   # Single forced SN on uniform, static and adaptive meshes, plus Sedov-Taylor;
   # serial-only for the same reason as above.
   setup_test_serial("sn_blast_wave" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sn_blast_wave.in --num_steps 6" "regression")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sn_blast_wave.in --num_steps 7" "regression")
 
   # Natural SN II/Ia rates of one massive star against the model, then a restart;
   # serial-only for the same reason as above.

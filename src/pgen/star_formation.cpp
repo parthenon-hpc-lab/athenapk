@@ -238,8 +238,9 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
 // ========================================================================================
 //! \fn void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, SimTime &tm)
-//! \brief One star of mass star_mass (Msun) at rest at (star_x, star_y, star_z),
-//!        added to the block containing that point (first population only).
+//! \brief One star of mass star_mass (Msun) at (star_x, star_y, star_z), moving at
+//!        (star_vx, star_vy, star_vz) km/s (at rest by default), added to the block
+//!        containing that point (first population only).
 // ========================================================================================
 void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
   auto stars_pkg = pmesh->packages.Get("stars");
@@ -250,6 +251,9 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
   const Real ys = pin->GetOrAddReal(blk, "star_y", 0.0);
   const Real zs = pin->GetOrAddReal(blk, "star_z", 0.0);
   const Real ms = pin->GetOrAddReal(blk, "star_mass", 100.0) * units.msun();
+  const Real vxs = pin->GetOrAddReal(blk, "star_vx", 0.0) * units.km_s();
+  const Real vys = pin->GetOrAddReal(blk, "star_vy", 0.0) * units.km_s();
+  const Real vzs = pin->GetOrAddReal(blk, "star_vz", 0.0) * units.km_s();
   const bool unique_ids = stars_pkg->Param<bool>(swarm_name + "_unique_ids");
 
   for (auto &pmb : pmesh->block_list) {
@@ -292,7 +296,9 @@ void ProblemSeedInitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTim
           x(n) = birth_x(n) = xs;
           y(n) = birth_y(n) = ys;
           z(n) = birth_z(n) = zs;
-          vx(n) = vy(n) = vz(n) = 0.0;
+          vx(n) = vxs;
+          vy(n) = vys;
+          vz(n) = vzs;
           pmass(n) = pmass0(n) = ms;
           t_inj(n) = t0;
           id(n) = new_id;

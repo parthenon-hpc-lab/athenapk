@@ -268,8 +268,8 @@ All parameters below go in the `<stars>` block.
   either one peak at (`x_peak`, `y_peak`, `z_peak`) with `ic_mode = single_peak`,
   or `n_peaks` random peaks per block with `ic_mode = multi_peak` (`rng_seed`).
   `ic_mode = uniform` sets the background only; with `stars/seed_stars = true` it
-  then places one star of `star_mass` (M$_\odot$) at rest at (`star_x`, `star_y`,
-  `star_z`). Combined with `SN_test_event_age = 0`, this gives a single supernova
+  then places one star of `star_mass` (M$_\odot$) at (`star_x`, `star_y`, `star_z`),
+  moving at (`star_vx`, `star_vy`, `star_vz`) km/s (at rest by default). Combined with `SN_test_event_age = 0`, this gives a single supernova
   blast wave to compare with the Sedov–Taylor solution.
 - **Cluster star seeding** (`stars/seed_stars = true` with `problem_id = cluster`):
   zero-mass stars on circular orbits within `r_max` of the cluster center, for
