@@ -92,7 +92,7 @@ setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/ath
   # SwarmContainer::Send/Receive ghost-particle path (more so, in fact: it's what that
   # path exists for) so it should get the same MPI re-check once the fix lands.
   setup_test_serial("sn_feedback_refinement" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sn_feedback_refinement.in --num_steps 5" "regression")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sn_feedback_refinement.in --num_steps 7" "regression")
 
   # Single forced SN on uniform, static and adaptive meshes, plus Sedov-Taylor;
   # serial-only for the same reason as above.
