@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 // Particles implementation refacored from https://github.com/lanl/phoebus
@@ -26,12 +26,14 @@
 
 #include <cstdint>
 #include <cstring>
+#include <limits>
 
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
 #include "../main.hpp"
 #include "../pgen/cluster/jet_coords.hpp"
+#include "../units.hpp"
 #include "basic_types.hpp"
 
 using namespace parthenon::driver::prelude;
@@ -39,6 +41,11 @@ using namespace parthenon::package::prelude;
 using parthenon::Coordinates_t;
 
 namespace ParticlesUtils {
+
+// Particle ID given to every star when IDs cannot be kept unique (adaptive mesh
+// refinement, see Stars::Initialize). IDs are then labels only.
+inline constexpr std::uint64_t kDummyParticleId =
+    std::numeric_limits<std::uint64_t>::max();
 
 /* ===================================================================================
 The injection routine requires to first loop on the cells to calculate the size of
@@ -48,7 +55,8 @@ return the same random number of cells at both par_for. An attempt of implementi
 such RNG using a cell index based seed is in utils/custom_rng.hpp. Comments welcomed.
 ====================================================================================== */
 
-enum class InjectionMode { FixedRate, PerCell };
+enum class InjectionMode { FixedRate, PerCell, None };
+enum class ParticlesType { Tracers, Stars, None };
 enum class ParticlesCriterion {
   DensityAbove,
   DensityBelow,
@@ -56,7 +64,8 @@ enum class ParticlesCriterion {
   TemperatureBelow,
   Accretion,
   Outflows,
-  Jet
+  Jet,
+  None
 };
 
 /* ===============================================================================
@@ -176,6 +185,16 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                            const std::string &pkg_name, const EOS &eos);
 TaskStatus RemoveParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
                            const std::string &pkg_name);
+
+// Boundary exchange of the named swarms only: SwarmContainer's ResetCommunication,
+// Send and Receive act on every swarm of the block. Every block must exchange the
+// same swarms, or a receiver waits forever for a message that is never sent.
+TaskStatus ResetSwarmComms(parthenon::SwarmContainer *sd,
+                           const std::vector<std::string> &names);
+TaskStatus SendSwarms(parthenon::SwarmContainer *sd,
+                      const std::vector<std::string> &names);
+TaskStatus ReceiveSwarms(parthenon::SwarmContainer *sd,
+                         const std::vector<std::string> &names);
 
 } // namespace ParticlesUtils
 

@@ -22,6 +22,11 @@ add_executable(
         hydro/srcterms/tabular_cooling.cpp
         refinement/gradient.cpp
         refinement/other.cpp
+        particles/stars/stellar_particles.cpp
+        particles/stars/stellar_particles.hpp
+        particles/stars/stellar_feedback.cpp
+        particles/stars/stellar_feedback.hpp
+        particles/stars/star_formation.hpp
         particles/tracers/tracers.cpp
         particles/tracers/tracers.hpp
         particles/particles_utils.cpp

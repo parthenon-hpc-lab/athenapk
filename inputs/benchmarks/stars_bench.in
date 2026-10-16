@@ -1,0 +1,84 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2026, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = Stars profiling benchmark: uniform n_H = 1, T = 1e4 K periodic box (1024 pc,
+          dx = 4 pc) seeded with random stars of random ages, real SN II / Ia rates, no
+          star formation, no star transport. Override stars/enabled and
+          problem/star_formation/n_stars_per_block on the command line.
+
+<job>
+problem_id = star_formation
+
+<parthenon/output1>
+file_type = hst
+dn        = 10
+
+<parthenon/time>
+cfl        = 0.3
+integrator = vl2
+tlim       = 1.0e9  # kyr, effectively unlimited
+nlim       = 200
+
+<parthenon/mesh>
+refinement = none
+nghost     = 4
+
+nx1    = 256
+x1min  = -512.0
+x1max  = 512.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2    = 256
+x2min  = -512.0
+x2max  = 512.0
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3    = 256
+x3min  = -512.0
+x3max  = 512.0
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1 = 64
+nx2 = 64
+nx3 = 64
+
+# pc / Msun / kyr
+<units>
+code_length_cgs = 3.0856775809623245e+18
+code_mass_cgs   = 1.98841586e+33
+code_time_cgs   = 3.15576e+10
+
+<hydro>
+fluid            = euler
+eos              = adiabatic
+riemann          = hllc
+reconstruction   = plm
+gamma            = 1.6666666666666667
+He_mass_fraction = 0.25
+first_order_flux_correct = true
+Tfloor           = 100.0
+
+<stars>
+enabled                   = true
+sf_density_threshold      = 1.0e30  # no star formation
+transport_mode            = none
+seed_stars                = true
+SN_II_enabled             = true
+SN_Ia_enabled             = true
+SN_injection_radius_cells = 2
+
+<problem/star_formation>
+ic_mode            = uniform
+rho_bg             = 0.0330   # Msun/pc^3, n_H = 1 cm^-3 for X = 0.75
+T_bg               = 1.0e4    # K
+seed_mode          = random
+n_stars_per_block  = 1000
+star_mass          = 1000.0   # Msun
+star_age_max       = 40.0     # Myr
+rng_seed           = 42

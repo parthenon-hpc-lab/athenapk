@@ -74,6 +74,40 @@ setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/ath
   setup_test_serial("cluster_tracers" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hydro_agn_feedback_tracers.in --num_steps 2" "regression")
 
+  # Serial-only for now. The 2-rank crashes at cycle 0 an earlier note reported here
+  # for every swarm setup (an MPI send-request assertion in bvals.cpp, a
+  # std::out_of_range in a neighbor/rank map) no longer reproduce: particle_advection
+  # runs with setup_test_both, and every non-restart step of the star tests below ran
+  # on 1 and 2 ranks (Oct 2026, outputs switched to history files, no parallel HDF5
+  # locally) without crashes or hangs, with the same history up to round-off in
+  # near-zero momentum sums. Still to do before setup_test_both: run these tests
+  # through the regression framework with MPI and parallel HDF5.
+  setup_test_serial("star_formation_sfr_stats" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/star_formation_sfr_stats.in --num_steps 1" "regression")
+
+  # The same setup reduced to 32^3, run through and restarted halfway
+  setup_test_serial("star_formation_restart" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/star_formation_sfr_stats.in --num_steps 2" "regression")
+
+  setup_test_serial("cluster_star_orbits" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/star_orbits.in --num_steps 1" "regression")
+
+  # Serial-only for now (see the note above); of the star tests, this one exercises
+  # the ghost-particle exchange the most.
+  setup_test_serial("sn_feedback_refinement" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sn_feedback_refinement.in --num_steps 7" "regression")
+
+  # Single forced SN on uniform, static and adaptive meshes, plus Sedov-Taylor;
+  # serial-only (see the note above). Step 2 uses a single meshblock, so it can't run
+  # on 2 ranks: an MPI variant needs it skipped or changed.
+  setup_test_serial("sn_blast_wave" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sn_blast_wave.in --num_steps 7" "regression")
+
+  # Natural SN II/Ia rates of one massive star against the model, then a restart;
+  # serial-only for the same reason as above.
+  setup_test_serial("sn_rates" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/sn_rates.in --num_steps 2" "regression")
+
   setup_test_both("particle_advection" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/turbulence.in --num_steps 2" "regression")
   

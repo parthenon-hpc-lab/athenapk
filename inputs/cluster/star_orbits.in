@@ -1,0 +1,171 @@
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2026, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = Test of MoveStars (star_transport_mode=gravity): seed test stars on exactly
+          circular orbits (v_circ = sqrt(r*g(r))) in the cluster NFW+BCG+SMBH potential
+          (cluster::ProblemSeedInitialStars) and check that they stay on their initial,
+          circular path under the leapfrog integrator. sf_density_threshold is set to an
+          unreachable value so the only stars present are the ones explicitly seeded here
+          (no stochastic star formation contamination). Physics knobs that the regression
+          test script needs to mirror (n_stars, rng_seed, r_max, tlim, gravity/units
+          parameters) are set from tst/regression/test_suites/cluster_star_orbits; the
+          values below are only used if this input file is run standalone.
+
+<job>
+problem_id = cluster
+
+#########################################################
+#  Output files
+#########################################################
+<parthenon/output0>
+file_type  = rst        # restart data dump (final state, full grid + swarm)
+id         = restart
+hdf5_compression_level = 0
+
+# Dedicated, swarm-only dump (no grid variables) to track each star's position over
+# time -- this is what the analysis script reads.
+<parthenon/output1>
+file_type       = hdf5
+dt              = 0.1   # code_time (Gyr); overridden by the test script
+id              = stars
+swarms          = stars
+stars_variables = v_x, v_y, v_z
+
+# Optional, coarse-cadence full-grid dump for visual sanity checks. Not read by the
+# analysis script.
+<parthenon/output2>
+file_type  = hdf5
+variables  = prim
+dt         = 1.0
+id         = prim
+single_precision_output = true
+
+# A second, much finer-cadence swarm-only dump, used only for the x-y trajectory plot:
+# output1's dt=0.1 cadence is far too coarse to resolve the shorter-period (small-r)
+# orbits, and connecting under-sampled points with straight lines makes even a
+# perfectly circular orbit look like a jagged, aliased starburst. Only used for stars
+# whose period is long enough to be resolved at this cadence (checked in Python).
+<parthenon/output3>
+file_type       = hdf5
+dt              = 0.02  # code_time (Gyr); overridden by the test script
+id              = stars_fine
+swarms          = stars
+stars_variables = v_x, v_y, v_z
+
+#########################################################
+#  Time
+#########################################################
+<parthenon/time>
+cfl        = 0.3
+integrator = vl2
+tlim       = 4.0        # code_time (Gyr); overridden by the test script
+nlim       = -1
+
+#########################################################
+#  Mesh
+#########################################################
+<parthenon/mesh>
+refinement = none
+nghost     = 2          # >= SN_injection_radius_cells+1 below
+
+nx1        = 32
+x1min      =-0.025
+x1max      = 0.025
+ix1_bc     = periodic
+ox1_bc     = periodic
+
+nx2        = 32
+x2min      =-0.025
+x2max      = 0.025
+ix2_bc     = periodic
+ox2_bc     = periodic
+
+nx3        = 32
+x3min      =-0.025
+x3max      = 0.025
+ix3_bc     = periodic
+ox3_bc     = periodic
+
+<parthenon/meshblock>
+nx1        = 16
+nx2        = 16
+nx3        = 16
+
+#########################################################
+#  Hydro
+#########################################################
+<hydro>
+fluid                     = euler
+gamma                     = 1.6666666666666667
+eos                       = adiabatic
+riemann                   = hllc
+reconstruction            = plm
+first_order_flux_correct  = True
+He_mass_fraction          = 0.25
+
+#########################################################
+#  Units: 1000 kpc / 1e14 Msun / 1 Gyr
+#########################################################
+<units>
+code_length_cgs = 3.085677580962325e+24
+code_mass_cgs   = 1.98841586e+47
+code_time_cgs   = 3.15576e+16
+
+#########################################################
+#  Initial conditions & potential (idealized HSE cluster)
+#########################################################
+<problem/cluster>
+hubble_parameter = 0.0715898515654728
+
+<problem/cluster/gravity>
+gravity_srcterm = True
+
+include_nfw_g   = True
+which_bcg_g     = HERNQUIST
+include_smbh_g  = True
+
+# NFW parameters
+c_nfw     = 5.0
+m_nfw_200 = 6.600000000000001
+
+# BCG (Hernquist) parameters
+m_bcg_s   = 0.0024000000000000002
+r_bcg_s   = 0.01
+
+# SMBH parameters
+m_smbh    = 1.1000000000000001e-05
+
+# Smooth gravity at the origin, for numerical reasons
+g_smoothing_radius = 1e-06
+
+<problem/cluster/entropy_profile>
+k_0     = 1.7702675352958605e-120
+k_100   = 9.736471444127232e-120
+r_k     = 0.1
+alpha_k = 1.1
+
+<problem/cluster/hydrostatic_equilibrium>
+r_fix      = 1.8
+rho_fix    = 0.013992470370469507
+r_sampling = 4.0
+max_dr     = 0.001
+
+<problem/cluster/init_perturb>
+sigma_v = 0.0            # keep the gas exactly static (HSE)
+
+#########################################################
+#  Stellar particles: seed test stars on circular orbits
+#########################################################
+<stars>
+enabled                    = true
+transport_mode             = gravity
+seed_stars                 = true
+SN_injection_radius_cells  = 1
+sf_density_threshold       = 1e12  # unreachable: no stochastic star formation
+
+<problem/cluster/seed_stars>
+n_stars  = 256
+rng_seed = 42
+r_max    = 0.02          # code_length (20 kpc)
