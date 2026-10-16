@@ -21,6 +21,7 @@
 // This file was made in part with generative AI (Claude Sonnet 5).
 //========================================================================================
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <string>
@@ -30,10 +31,12 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "bvals/boundary_conditions.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "parthenon_array_generic.hpp"
+#include "parthenon_mpi.hpp"
 #include "utils/error_checking.hpp"
 #include "utils/interpolation.hpp"
 #include <parthenon/package.hpp>
@@ -67,19 +70,27 @@ rather than every timestep, to avoid diverging the stellar population.
 =============================================================================== */
 
 TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
+  PARTHENON_INSTRUMENT
   auto *pmb = mbd->GetParentPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
+  auto stars_pkg = pmb->packages.Get("stars");
+  auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get("stars");
+  const int n_before = swarm->GetNumActive();
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
 
+  TaskStatus status;
   if (fluid == Fluid::euler) {
-    return ParticlesUtils::InjectParticles(mbd, tm, "stars",
-                                           hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+    status = ParticlesUtils::InjectParticles(mbd, tm, "stars",
+                                             hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
   } else if (fluid == Fluid::glmmhd) {
-    return ParticlesUtils::InjectParticles(mbd, tm, "stars",
-                                           hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+    status = ParticlesUtils::InjectParticles(mbd, tm, "stars",
+                                             hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
   } else {
     PARTHENON_FAIL("InjectStars: unsupported fluid type.");
   }
+  // Forming a star moves gas into it: the gas must be exchanged again
+  if (swarm->GetNumActive() > n_before) FlagSwarmComm(stars_pkg.get(), kGasChanged);
+  return status;
 }
 
 /* ===============================================================================
@@ -90,6 +101,59 @@ time, remove them in such case. Practically just a wrapper around RemoveParticle
 TaskStatus RemoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   return ParticlesUtils::RemoveParticles(mbd, tm, "stars");
 }
+
+namespace {
+// Piecewise-linear interpolation of ys(xs) on increasing xs, clamped at the ends
+Real InterpClamped(const std::vector<Real> &xs, const std::vector<Real> &ys,
+                   const Real x) {
+  if (x <= xs.front()) return ys.front();
+  if (x >= xs.back()) return ys.back();
+  const auto it = std::upper_bound(xs.begin(), xs.end(), x);
+  const std::size_t i = it - xs.begin();
+  return ys[i - 1] + (x - xs[i - 1]) / (xs[i] - xs[i - 1]) * (ys[i] - ys[i - 1]);
+}
+
+/* ===============================================================================
+Cumulative number of SN II progenitors per Msun formed (G) and of their ejecta (H,
+code mass per Msun formed) from 8 Msun up to m, on n_tab points uniform in log10(m)
+over 8-100 Msun. Integrated with the device IMF on a fine grid; f_rec interpolates
+linearly in log10(m) as before.
+=============================================================================== */
+void BuildSNIICumulativeTables(const std::vector<Real> &log_m_ej,
+                               const std::vector<Real> &frec, const Real msun,
+                               const int n_tab, std::vector<Real> &G,
+                               std::vector<Real> &H, Real &log_m_min, Real &dlog_m) {
+  log_m_min = std::log10(8.0 * msun);
+  const Real log_m_max = std::log10(100.0 * msun);
+
+  // Trapezoid on a fine grid in log10(m), with dm = ln(10) m dlog10(m)
+  const int n_f = 40001;
+  const Real dlf = (log_m_max - log_m_min) / (n_f - 1);
+  std::vector<Real> lm(n_f), FN(n_f, 0.0), FM(n_f, 0.0);
+  Real fn_prev = 0.0, fm_prev = 0.0;
+  for (int i = 0; i < n_f; ++i) {
+    lm[i] = log_m_min + i * dlf;
+    const Real m = std::pow(10.0, lm[i]);
+    const Real phi_m = StellarFeedback::NormedChabrierIMF(m, msun) * m * std::log(10.0);
+    const Real fn = phi_m;
+    const Real fm = phi_m * InterpClamped(log_m_ej, frec, lm[i]) * m;
+    if (i > 0) {
+      FN[i] = FN[i - 1] + 0.5 * (fn + fn_prev) * dlf;
+      FM[i] = FM[i - 1] + 0.5 * (fm + fm_prev) * dlf;
+    }
+    fn_prev = fn;
+    fm_prev = fm;
+  }
+
+  dlog_m = (log_m_max - log_m_min) / (n_tab - 1);
+  G.assign(n_tab, 0.0);
+  H.assign(n_tab, 0.0);
+  for (int j = 0; j < n_tab; ++j) {
+    G[j] = InterpClamped(lm, FN, log_m_min + j * dlog_m);
+    H[j] = InterpClamped(lm, FM, log_m_min + j * dlog_m);
+  }
+}
+} // namespace
 
 /* ===============================================================================
 Initialize: Create package, read and store all input parameters and particle fields
@@ -223,6 +287,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   stars_pkg->AddParam<Real>("sn_energy_dt", 0.0, parthenon::Params::Mutability::Mutable);
   stars_pkg->AddParam<int>("sn_energy_reset_cycle", -1,
                            parthenon::Params::Mutability::Mutable);
+  // Swarms needing a boundary exchange this cycle (kStarSwarmComm, kGhostSwarmComm)
+  stars_pkg->AddParam<int>("swarm_comm_flags", 0, parthenon::Params::Mutability::Mutable);
 
   // Total energy injection per event
   const auto E_SN_per_event =
@@ -268,93 +334,89 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // for refinement=static). It is now computed per SN event from the host
   // cell's own local dx; see ApplyStellarFeedback/ComputeRegionFractions.
 
-  // Register empty lifetime tables as default (overwritten if SN_II_enabled)
+  // SN II tables used by ComputeSNIIEvents (empty unless SN_II_enabled): the
+  // log-log lifetime table and the cumulative IMF count / ejecta vs log10(m)
+  const auto mut = parthenon::Params::Mutability::Mutable;
   stars_pkg->AddParam("log_mass_table", parthenon::ParArray1D<Real>("log_mass_table", 0),
-                      parthenon::Params::Mutability::Mutable);
+                      mut);
   stars_pkg->AddParam("log_lifetime_table",
-                      parthenon::ParArray1D<Real>("log_lifetime_table", 0),
-                      parthenon::Params::Mutability::Mutable);
-  stars_pkg->AddParam("lifetime_table_size", 0, parthenon::Params::Mutability::Mutable);
-
-  // Register empty ejecta tables as default (overwritten if SN_II_enabled)
-  stars_pkg->AddParam("log_sn_mass_table",
-                      parthenon::ParArray1D<Real>("log_sn_mass_table", 0),
-                      parthenon::Params::Mutability::Mutable);
-  stars_pkg->AddParam("frec_table", parthenon::ParArray1D<Real>("frec_table", 0),
-                      parthenon::Params::Mutability::Mutable);
-  stars_pkg->AddParam("ejecta_table_size", 0, parthenon::Params::Mutability::Mutable);
+                      parthenon::ParArray1D<Real>("log_lifetime_table", 0), mut);
+  stars_pkg->AddParam("lifetime_table_size", 0, mut);
+  stars_pkg->AddParam("sn2_cum_count", parthenon::ParArray1D<Real>("sn2_cum_count", 0),
+                      mut);
+  stars_pkg->AddParam("sn2_cum_ejecta", parthenon::ParArray1D<Real>("sn2_cum_ejecta", 0),
+                      mut);
+  stars_pkg->AddParam("sn2_cum_size", 0, mut);
+  stars_pkg->AddParam("sn2_cum_log_mass_min", Real(0.0), mut);
+  stars_pkg->AddParam("sn2_cum_dlog_mass", Real(1.0), mut);
 
   if (SN_II_enabled) {
-
-    // =================================================================
     // Portinari+ lifetime table at Zsun [mass in Msun, lifetime in Gyr]
-    // =================================================================
     const std::vector<Real> mass_table_msun = {
         0.6, 0.7, 0.8,  0.9,  1.0,  1.1,  1.2,  1.3,  1.4,   1.5,
         1.6, 1.7, 1.8,  1.9,  2.0,  2.5,  3.0,  4.0,  5.0,   6.0,
         7.0, 9.0, 12.0, 15.0, 20.0, 30.0, 40.0, 60.0, 100.0, 120.0};
-
     const std::vector<Real> lifetime_table_gyr = {
         79.2,    44.5,    26.1,    15.9,    10.3,    6.89,   4.73,   3.59,
         2.87,    2.64,    2.18,    1.84,    1.59,    1.38,   1.21,   0.764,
         0.456,   0.203,   0.115,   0.0745,  0.0531,  0.0317, 0.0189, 0.0133,
         0.00915, 0.00613, 0.00512, 0.00412, 0.00339, 0.00323};
 
-    const int n = mass_table_msun.size();
+    // Portinari+ ejecta table at Zsun (Z=0.02), SN II progenitors only:
+    // f_rec = (M - Mr) / M from initial/remnant masses (Table 10; the 8 Msun
+    // remnant is extrapolated, set equal to the 9 Msun value).
+    const std::vector<Real> sn_mass_table_msun = {8.0,  9.0,  12.0, 15.0,  20.0,
+                                                  30.0, 40.0, 60.0, 100.0, 120.0};
+    const std::vector<Real> remnant_mass_table_msun = {1.30, 1.31, 1.44, 1.87, 2.11,
+                                                       7.18, 2.06, 2.09, 2.12, 2.11};
 
-    // Store as log10 for log-log interpolation
-    parthenon::ParArray1D<Real> log_mass_d("log_mass_table", n);
-    parthenon::ParArray1D<Real> log_lifetime_d("log_lifetime_table", n);
-
-    auto log_mass_h = Kokkos::create_mirror_view(log_mass_d);
-    auto log_lifetime_h = Kokkos::create_mirror_view(log_lifetime_d);
-
-    const Real gyr_in_code = units.myr() * 1000.0; // Table is in Gyr
+    const Real gyr_in_code = units.myr() * 1000.0;
     const Real msun_in_code = units.msun();
 
+    // Lifetime table on the device, as log10 of code mass and code time
+    const int n = mass_table_msun.size();
+    parthenon::ParArray1D<Real> log_mass_d("log_mass_table", n);
+    parthenon::ParArray1D<Real> log_lifetime_d("log_lifetime_table", n);
+    auto log_mass_h = Kokkos::create_mirror_view(log_mass_d);
+    auto log_lifetime_h = Kokkos::create_mirror_view(log_lifetime_d);
     for (int i = 0; i < n; i++) {
       log_mass_h(i) = std::log10(mass_table_msun[i] * msun_in_code);
       log_lifetime_h(i) = std::log10(lifetime_table_gyr[i] * gyr_in_code);
     }
-
     Kokkos::deep_copy(log_mass_d, log_mass_h);
     Kokkos::deep_copy(log_lifetime_d, log_lifetime_h);
-
     stars_pkg->UpdateParam("log_mass_table", log_mass_d);
     stars_pkg->UpdateParam("log_lifetime_table", log_lifetime_d);
     stars_pkg->UpdateParam("lifetime_table_size", n);
 
-    // Portinari+ ejecta table at Zsun (Z=0.02), SN II progenitors only.
-    // M/Mr [Msun] are initial/remnant mass; f_rec = (M - Mr) / M is stored
-    // directly (already bounded in [0,1], no log needed).
-    const std::vector<Real> sn_mass_table_msun = {8.0,  9.0,  12.0, 15.0,  20.0,
-                                                  30.0, 40.0, 60.0, 100.0, 120.0};
-
-    // Remnant masses from Portinari+ 1998, Table 10, Z=0.02
-    // 8 Msun: extrapolated (not in table, set equal to 9 Msun value)
-    const std::vector<Real> remnant_mass_table_msun = {1.30, 1.31, 1.44, 1.87, 2.11,
-                                                       7.18, 2.06, 2.09, 2.12, 2.11};
-
-    const int n_ejecta = sn_mass_table_msun.size();
-
-    parthenon::ParArray1D<Real> log_sn_mass_d("log_sn_mass_table", n_ejecta);
-    parthenon::ParArray1D<Real> frec_d("frec_table", n_ejecta);
-
-    auto log_sn_mass_h = Kokkos::create_mirror_view(log_sn_mass_d);
-    auto frec_h = Kokkos::create_mirror_view(frec_d);
-
-    for (int i = 0; i < n_ejecta; i++) {
-      log_sn_mass_h(i) = std::log10(sn_mass_table_msun[i] * msun_in_code);
-      frec_h(i) =
-          (sn_mass_table_msun[i] - remnant_mass_table_msun[i]) / sn_mass_table_msun[i];
+    // Cumulative IMF count / ejecta tables from the ejecta fractions
+    std::vector<Real> log_m_ej, frec;
+    for (std::size_t i = 0; i < sn_mass_table_msun.size(); ++i) {
+      log_m_ej.push_back(std::log10(sn_mass_table_msun[i] * msun_in_code));
+      frec.push_back((sn_mass_table_msun[i] - remnant_mass_table_msun[i]) /
+                     sn_mass_table_msun[i]);
     }
+    const int n_tab = 16384;
+    std::vector<Real> G, H;
+    Real log_m_min, dlog_m;
+    BuildSNIICumulativeTables(log_m_ej, frec, msun_in_code, n_tab, G, H, log_m_min,
+                              dlog_m);
 
-    Kokkos::deep_copy(log_sn_mass_d, log_sn_mass_h);
-    Kokkos::deep_copy(frec_d, frec_h);
-
-    stars_pkg->UpdateParam("log_sn_mass_table", log_sn_mass_d);
-    stars_pkg->UpdateParam("frec_table", frec_d);
-    stars_pkg->UpdateParam("ejecta_table_size", n_ejecta);
+    parthenon::ParArray1D<Real> count_d("sn2_cum_count", n_tab);
+    parthenon::ParArray1D<Real> ejecta_d("sn2_cum_ejecta", n_tab);
+    auto count_h = Kokkos::create_mirror_view(count_d);
+    auto ejecta_h = Kokkos::create_mirror_view(ejecta_d);
+    for (int j = 0; j < n_tab; ++j) {
+      count_h(j) = G[j];
+      ejecta_h(j) = H[j];
+    }
+    Kokkos::deep_copy(count_d, count_h);
+    Kokkos::deep_copy(ejecta_d, ejecta_h);
+    stars_pkg->UpdateParam("sn2_cum_count", count_d);
+    stars_pkg->UpdateParam("sn2_cum_ejecta", ejecta_d);
+    stars_pkg->UpdateParam("sn2_cum_size", n_tab);
+    stars_pkg->UpdateParam("sn2_cum_log_mass_min", log_m_min);
+    stars_pkg->UpdateParam("sn2_cum_dlog_mass", dlog_m);
   }
 
   // Required: gravity, advection (testing only) or none.
@@ -437,6 +499,17 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // (see ApplyStellarFeedback); rewritten every step, so not a restart field.
     stars_pkg->AddField("sn_rho_snapshot",
                         Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy}));
+
+    // Persistent scratch for the SN event pass, grown on demand (see SNPayloadView)
+    stars_pkg->AddParam<>("sn_payload_scratch",
+                          StellarFeedback::SNPayloadView("sn_payload", 0, 0), mut);
+    stars_pkg->AddParam<>("sn_event_flag_scratch",
+                          StellarFeedback::SNFlagView("sn_event_flag", 0), mut);
+    stars_pkg->AddParam<>("sn_ghost_slot_counter",
+                          StellarFeedback::SNCounterView("sn_ghost_slot_counter"), mut);
+    // Per local block: last cycle its density snapshot was taken (see
+    // TakeDensitySnapshot), i.e. the last cycle it got an SN deposit
+    stars_pkg->AddParam<>("sn_snapshot_cycle", std::vector<int>(), mut);
 
     std::vector<std::string> ghost_swarm_names;
     for (const auto &name : swarm_names) {
@@ -639,13 +712,13 @@ void InitialStars(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
 }
 
 /* ===============================================================================
-MoveStars: Kind of similar to AdvectTracers (see tracers.cpp), though we move the
-gas solely out of the local gravitational field using a leapfrog integrator (as in
-the SMUGGLE model). Could potentially be improved to include hydrodynamical drag.
-Also includes tracers-like advection for testing.
+MoveStars: leapfrog in the analytic gravitational field (as in SMUGGLE), or
+tracer-like advection for testing. Counts the stars that left their block and
+flags the stars swarm exchange (kStarSwarmComm) only if any did.
 =============================================================================== */
 
 TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
+  PARTHENON_INSTRUMENT
 
   auto *pmb = mbd->GetParentPointer();
   auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
@@ -681,8 +754,9 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
     auto swarm_d = swarm->GetDeviceContext();
 
-    // update loop.
+    // update loop; n_left counts the stars that moved out of this block
     const int max_active_index = swarm->GetMaxActiveIndex();
+    int n_left = 0;
 
     if (transport_mode == TransportMode::Gravity) {
       // Any pgen registering a gravity::SphericalGravity under "gravity_field"
@@ -696,8 +770,9 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
       const auto gravitational_field =
           hydro_pkg->Param<gravity::SphericalGravity>("gravity_field");
 
-      pmb->par_for(
-          "MoveStars::Gravity", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+      pmb->par_reduce(
+          "MoveStars::Gravity", 0, max_active_index,
+          KOKKOS_LAMBDA(const int n, int &lleft) {
             if (!swarm_d.IsActive(n)) return;
             // Estimate how many sub-steps are needed to resolve the local
             // orbital/dynamical timescale to some safety factor.
@@ -753,12 +828,15 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             }
 
             // === Update neighbor block index ===
-            bool unused_temp = true;
-            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
-          });
+            bool on_block = true;
+            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_block);
+            if (!on_block) lleft += 1;
+          },
+          Kokkos::Sum<int>(n_left));
     } else { // TransportMode::Advection
-      pmb->par_for(
-          "MoveStars::Advection", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+      pmb->par_reduce(
+          "MoveStars::Advection", 0, max_active_index,
+          KOKKOS_LAMBDA(const int n, int &lleft) {
             if (!swarm_d.IsActive(n)) return;
 
             const auto x_star = x(n) + current_dt * vel_x(n);
@@ -791,14 +869,78 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             }
 
             // === Update neighbor block index ===
-            bool unused_temp = true;
-            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
-          });
+            bool on_block = true;
+            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), on_block);
+            if (!on_block) lleft += 1;
+          },
+          Kokkos::Sum<int>(n_left));
     }
+    if (n_left > 0) FlagSwarmComm(stars_pkg.get(), kStarSwarmComm);
 
   } // end swarm_name loop
 
   return TaskStatus::complete;
 } // MoveStars
+
+/* ===============================================================================
+Per-cycle swarm exchange flags. Blocks OR in kStarSwarmComm / kGhostSwarmComm
+on the host (task lists run on one host thread), then one MPI_BOR reduction
+makes every block on every rank skip the same exchanges: a Send/Receive pair
+must happen on all blocks or on none, or the receivers would wait forever.
+=============================================================================== */
+void FlagSwarmComm(StateDescriptor *stars_pkg, const int bits) {
+  stars_pkg->UpdateParam<int>("swarm_comm_flags",
+                              stars_pkg->Param<int>("swarm_comm_flags") | bits);
+}
+
+TaskStatus ResetSwarmCommFlags(StateDescriptor *stars_pkg) {
+  stars_pkg->UpdateParam<int>("swarm_comm_flags", 0);
+  return TaskStatus::complete;
+}
+
+TaskStatus ReduceSwarmCommFlags(StateDescriptor *stars_pkg) {
+#ifdef MPI_PARALLEL
+  int flags = stars_pkg->Param<int>("swarm_comm_flags");
+  PARTHENON_MPI_CHECK(
+      MPI_Allreduce(MPI_IN_PLACE, &flags, 1, MPI_INT, MPI_BOR, MPI_COMM_WORLD));
+  stars_pkg->UpdateParam<int>("swarm_comm_flags", flags);
+#endif
+  return TaskStatus::complete;
+}
+
+// Names of the swarms whose exchange the (reduced) flags require this cycle
+std::vector<std::string> SwarmsToExchange(StateDescriptor *stars_pkg) {
+  const int flags = stars_pkg->Param<int>("swarm_comm_flags");
+  std::vector<std::string> names;
+  if (flags & kStarSwarmComm) {
+    for (const auto &n : stars_pkg->Param<std::vector<std::string>>("swarm_names")) {
+      names.push_back(n);
+    }
+  }
+  if ((flags & kGhostSwarmComm) && stars_pkg->AllParams().hasKey("ghost_swarm_names")) {
+    for (const auto &n :
+         stars_pkg->Param<std::vector<std::string>>("ghost_swarm_names")) {
+      names.push_back(n);
+    }
+  }
+  return names;
+}
+
+// The flags are only known once reduced, so the swarm list is built at run time
+TaskStatus SendStarSwarms(MeshBlockData<Real> *mbd) {
+  PARTHENON_INSTRUMENT
+  auto *pmb = mbd->GetParentPointer();
+  auto stars_pkg = pmb->packages.Get("stars");
+  auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+  return ParticlesUtils::SendSwarms(sd.get(), SwarmsToExchange(stars_pkg.get()));
+}
+
+TaskStatus ReceiveStarSwarms(MeshBlockData<Real> *mbd) {
+  PARTHENON_INSTRUMENT
+  auto *pmb = mbd->GetParentPointer();
+  auto stars_pkg = pmb->packages.Get("stars");
+  auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+  return ParticlesUtils::ReceiveSwarms(sd.get(), SwarmsToExchange(stars_pkg.get()));
+}
 
 } // namespace Stars

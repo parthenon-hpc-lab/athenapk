@@ -19,6 +19,7 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../particles/particles_utils.hpp"
 #include "../particles/stars/stellar_feedback.hpp"
 #include "../particles/stars/stellar_particles.hpp"
 #include "../particles/tracers/tracers.hpp"
@@ -346,6 +347,31 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
 }
 
 // See the advection.hpp declaration for a description of how this function gets called.
+namespace {
+// The gas exchange after the stellar sources is only needed if some block's gas
+// changed this cycle (Stars::kGasChanged, OR-reduced over all ranks before).
+bool StarsChangedGas(MeshData<Real> *md) {
+  const auto stars = md->GetParentPointer()->packages.Get("stars");
+  return (stars->Param<int>("swarm_comm_flags") & Stars::kGasChanged) != 0;
+}
+
+template <TaskStatus (*F)(std::shared_ptr<MeshData<Real>> &)>
+TaskStatus IfStarsChangedGas(std::shared_ptr<MeshData<Real>> &md) {
+  return StarsChangedGas(md.get()) ? F(md) : TaskStatus::complete;
+}
+
+TaskStatus IfStarsChangedGasApplyBCs(std::shared_ptr<MeshData<Real>> &md, bool coarse) {
+  return StarsChangedGas(md.get())
+             ? parthenon::ApplyBoundaryConditionsOnCoarseOrFineMD(md, coarse)
+             : TaskStatus::complete;
+}
+
+TaskStatus IfStarsChangedGasFillDerived(MeshData<Real> *md) {
+  return StarsChangedGas(md) ? parthenon::Update::FillDerived<MeshData<Real>>(md)
+                             : TaskStatus::complete;
+}
+} // namespace
+
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
@@ -619,71 +645,85 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   auto stars_pkg = pmesh->packages.Get("stars");
   if (stage == integrator->nstages && stars_pkg->Param<bool>("enabled")) {
 
-    // Reset swarm communication before async particle tasks
+    // Reset swarm communication and this cycle's exchange flags
     TaskRegion &sync_region_stars = tc.AddRegion(1);
     {
+      auto &tl = sync_region_stars[0];
+      tl.AddTask(none, Stars::ResetSwarmCommFlags, stars_pkg.get());
       for (auto &pmb : blocks) {
-        auto &tl = sync_region_stars[0];
         auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
-        auto reset_comms =
-            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+        tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
       }
     }
 
     TaskRegion &async_region_stars = tc.AddRegion(blocks.size());
     for (int n = 0; n < blocks.size(); n++) {
       auto &tl = async_region_stars[n];
-      auto &pmb = blocks[n];
-      auto &mbd0 = pmb->meshblock_data.Get("base");
-      auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+      auto &mbd0 = blocks[n]->meshblock_data.Get("base");
 
       // 1. Inject new stars, then apply feedback: this fills the interior
       // deposit directly and, for particles whose kernel overlaps a
       // neighboring block, populates the local ghost swarm with pushed
-      // mirror particles (no cross-block motion yet).
+      // mirror particles (flagging the ghost swarm exchange).
       auto star_inject = tl.AddTask(none, Stars::InjectStars, mbd0.get(), tm);
       auto star_feedback =
           tl.AddTask(star_inject, StellarFeedback::StellarFeedback, mbd0.get(), tm);
 
-      // 2. Move the main star particles, before the comm round below.
-      // MoveStars only touches the "stars" swarm, never ghost_stars, so it
-      // can't disturb the ghost mirrors StellarFeedback just pushed; under
-      // TransportMode::Gravity (the default) it has no dependency on them.
-      auto star_move = tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
-
-      // 3. Single send/receive round for both the ghost mirrors and the
-      // main swarm's new positions (Send/Receive act on every registered
-      // swarm at once). A prior two-round version reused a not-yet-complete
-      // send buffer across rounds (MPI_Request_free doesn't wait for the
-      // send to finish) and hung under real multi-rank MPI; one round fixes
-      // it, matching the working Tracers pattern.
-      auto send =
-          tl.AddTask(star_move, &SwarmContainer::Send, sd.get(), BoundaryCommSubset::all);
-      auto receive =
-          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
-
-      // 4. Finish applying feedback from ghost particles that just arrived
-      // from neighboring blocks: recover the true (un-pushed) position
-      // from the stored offset, re-center the kernel, deposit into this
-      // block's interior, then remove the now-consumed ghost particles.
-      auto ghost_feedback =
-          tl.AddTask(receive, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
+      // 2. Move the main star particles (flagging the stars swarm exchange if
+      // any left its block). MoveStars never touches the ghost swarm.
+      tl.AddTask(star_feedback, Stars::MoveStars, mbd0.get(), tm);
     }
 
-    // 5. Star formation/feedback (steps 1/4 above) modify interior `cons` after
-    // this stage's boundary exchange. Exchange ghost cells again, so neighbor
-    // blocks see these changes (consistent face fluxes next step, tracer
-    // interpolation, AMR tagging), then re-sync `prim` with FillDerived before
-    // tracer advection, AMR tagging, the timestep estimate, or output/restart.
+    // 3. One global decision per swarm: exchange it on every block or on none
+    // (a skipped Send with a pending Receive would hang). Most cycles nothing
+    // leaves any block, and the whole exchange is skipped.
+    TaskRegion &stars_comm_flags_region = tc.AddRegion(1);
+    stars_comm_flags_region[0].AddTask(none, Stars::ReduceSwarmCommFlags,
+                                       stars_pkg.get());
+
+    TaskRegion &async_region_stars_comm = tc.AddRegion(blocks.size());
+    for (int n = 0; n < blocks.size(); n++) {
+      auto &tl = async_region_stars_comm[n];
+      auto &mbd0 = blocks[n]->meshblock_data.Get("base");
+
+      // Single send/receive round for the flagged swarms (a two-round version
+      // reused a not-yet-complete send buffer and hung under multi-rank MPI).
+      auto send = tl.AddTask(none, Stars::SendStarSwarms, mbd0.get());
+      auto receive = tl.AddTask(send, Stars::ReceiveStarSwarms, mbd0.get());
+
+      // 4. Apply the feedback carried by the ghost particles that arrived from
+      // neighboring blocks, then remove them.
+      tl.AddTask(receive, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
+    }
+
+    // 5. Star formation/feedback modify interior `cons` after this stage's
+    // boundary exchange: exchange ghost cells again and re-sync `prim` (needed
+    // for the next fluxes, tracers, AMR tagging and the timestep estimate). Every
+    // task is skipped on cycles where no block's gas changed (kGasChanged, already
+    // reduced over all ranks, so all blocks run or skip the same exchange).
     TaskRegion &fill_derived_stars_region = tc.AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = fill_derived_stars_region[i];
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      const auto any = parthenon::BoundaryType::any;
-      auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
-      auto bnd_exchange =
-          parthenon::AddBoundaryExchangeTasks(start_bnd, tl, mu0, pmesh->multilevel);
-      tl.AddTask(bnd_exchange, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+      constexpr auto any = parthenon::BoundaryType::any;
+      auto start =
+          tl.AddTask(none, IfStarsChangedGas<parthenon::StartReceiveBoundBufs<any>>, mu0);
+      tl.AddTask(start, IfStarsChangedGas<parthenon::SendBoundBufs<any>>, mu0);
+      auto recv =
+          tl.AddTask(start, IfStarsChangedGas<parthenon::ReceiveBoundBufs<any>>, mu0);
+      auto bound = tl.AddTask(recv, IfStarsChangedGas<parthenon::SetBounds<any>>, mu0);
+      const bool multilevel = parthenon::IsMeshMultilevel(mu0);
+      if (multilevel) {
+        bound = tl.AddTask(bound, IfStarsChangedGasApplyBCs, mu0, true);
+        bound =
+            tl.AddTask(bound, IfStarsChangedGas<parthenon::ProlongateBounds<any>>, mu0);
+      }
+      bound = tl.AddTask(bound, IfStarsChangedGasApplyBCs, mu0, false);
+      if (multilevel) {
+        bound = tl.AddTask(
+            bound, IfStarsChangedGas<parthenon::ProlongateInternalBounds<any>>, mu0);
+      }
+      tl.AddTask(bound, IfStarsChangedGasFillDerived, mu0.get());
     }
   }
 
@@ -703,14 +743,18 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // Then move on to tracers
   // First order operator split tracer advection
   if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
-    const std::string swarm_name = "tracers";
+    // Reset and exchange the tracer swarms only: SwarmContainer's ResetCommunication,
+    // Send and Receive would also exchange every other swarm (stars, ghost stars) a
+    // second time this cycle, for nothing (see Stars::SendStarSwarms)
+    const auto &tracer_swarms =
+        tracers_pkg->Param<std::vector<std::string>>("swarm_names");
     TaskRegion &sync_region_tr = tc.AddRegion(1);
     {
       for (auto &pmb : blocks) {
         auto &tl = sync_region_tr[0];
         auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
         auto reset_comms =
-            tl.AddTask(none, &SwarmContainer::ResetCommunication, sd.get());
+            tl.AddTask(none, ParticlesUtils::ResetSwarmComms, sd.get(), tracer_swarms);
       }
     }
 
@@ -726,10 +770,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(tracer_inject, Tracers::RemoveTracers, mbd0.get(), tm);
       auto tracer_advect =
           tl.AddTask(tracer_removal, Tracers::AdvectTracers, mbd0.get(), tm);
-      auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
-                             BoundaryCommSubset::all);
+      auto send =
+          tl.AddTask(tracer_advect, ParticlesUtils::SendSwarms, sd.get(), tracer_swarms);
       auto receive =
-          tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+          tl.AddTask(send, ParticlesUtils::ReceiveSwarms, sd.get(), tracer_swarms);
       auto center = tl.AddTask(receive, Tracers::CenterTracers, mbd0.get(), tm);
     }
     // TODO(pgrete) Fix/cleanup once we got swarm packs.

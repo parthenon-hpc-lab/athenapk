@@ -138,7 +138,10 @@ star draws its number of SNe and couples their ejecta to the surrounding gas.
   lifetime and remnant-mass tables at solar metallicity and a
   [Chabrier (2003)](https://ui.adsabs.harvard.edu/abs/2003PASP..115..763C) IMF
   normalized over 0.1–100 M☉ (about one SN II per 85 M☉ formed, between roughly
-  3 and 40 Myr). The ejecta are the progenitor mass minus the remnant mass.
+  3 and 40 Myr). The ejecta are the progenitor mass minus the remnant mass. The
+  IMF integrals come from tables of the cumulative progenitor count and ejecta
+  versus mass, built at startup, so each star only interpolates the lifetime
+  table and looks up the two tables at the ends of its mass window.
 - **Type Ia.** The delay-time distribution of
   [Maoz, Mannucci & Brandt (2012)](https://ui.adsabs.harvard.edu/abs/2012MNRAS.426.3282M)
   as in SMUGGLE: $2.6\times10^{-3}$ SNe per M☉ after 40 Myr, with slope $-1.12$,
@@ -179,8 +182,9 @@ where $\langle n_H\rangle$ (cm⁻³) is the kernel-averaged hydrogen density.
   variables.
 - **Gas state.** $m_b$ and $\langle n_H\rangle$ come from a density snapshot taken
   before the step's deposits, so overlapping events don't depend on their order.
-- **Energy floor.** After all deposits, the gas internal energy is floored at the
-  hydro `pfloor`/`Tfloor` (or the smallest positive number if neither is set). The
+- **Energy floor.** After all deposits, the gas internal energy of every block that
+  received one is floored at the hydro `pfloor`/`Tfloor` (or the smallest positive
+  number if neither is set). The
   floor can be needed where gas moves fast relative to the star. Set a floor when
   using SN feedback.
 
@@ -188,9 +192,16 @@ where $\langle n_H\rangle$ (cm⁻³) is the kernel-averaged hydrogen density.
 
 When a kernel reaches into neighboring blocks, the host block deposits its own
 share and sends each neighbor's share as a temporary `ghost_stars` particle, which
-the neighbor deposits after the swarm communication. At the same refinement level
-the split is exact. Across refinement levels each region's totals are conserved,
-but the distribution is approximate.
+the neighbor deposits after the swarm communication. The host computes each
+event's kernel geometry (⟨n_H⟩, weight factors, region split) once, before any
+deposit, and reuses it for its own share and the ghost particles. At the same
+refinement level the split is exact. Across refinement levels each region's totals
+are conserved, but the distribution is approximate.
+
+The swarm communication only runs when needed: one global flag per cycle records
+whether any star left its block and whether any ghost particle was created, and
+the `stars` and `ghost_stars` exchanges are skipped on every block otherwise. With
+tracers enabled, the tracer exchange only involves the tracer swarms.
 
 After star formation and feedback, the gas ghost cells are exchanged again and the
 next timestep is estimated from the resulting state, so a SN-heated cell limits
@@ -269,8 +280,9 @@ All parameters below go in the `<stars>` block.
   or `n_peaks` random peaks per block with `ic_mode = multi_peak` (`rng_seed`).
   `ic_mode = uniform` sets the background only; with `stars/seed_stars = true` it
   then places one star of `star_mass` (M$_\odot$) at (`star_x`, `star_y`, `star_z`),
-  moving at (`star_vx`, `star_vy`, `star_vz`) km/s (at rest by default). Combined with `SN_test_event_age = 0`, this gives a single supernova
-  blast wave to compare with the Sedov–Taylor solution.
+  moving at (`star_vx`, `star_vy`, `star_vz`) km/s (at rest by default). Combined
+  with `SN_test_event_age = 0`, this gives a single supernova blast wave to compare
+  with the Sedov–Taylor solution.
 - **Cluster star seeding** (`stars/seed_stars = true` with `problem_id = cluster`):
   zero-mass stars on circular orbits within `r_max` of the cluster center, for
   testing `transport_mode = gravity`. Parameters `n_stars` (per MPI rank), `r_max`

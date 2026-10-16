@@ -97,118 +97,92 @@ Real NormedChabrierIMF(const Real m_sim, const Real msun_in_code_units) {
 }
 
 /* ===============================================================================
-Stochastic Type II SN event count/ejecta mass over dt, using Portinari+
-(1998) lifetime/ejecta tables and a Chabrier (2003) IMF: dying stars map
-to a mass window [M1,M2], and N_SNII/M_ej are log-spaced quadrature
-integrals of phi(m)/phi(m)*f_rec(m)*m over it (Eq. 22-23). Testing: with
-test_event_age >= 0, one event with the 8-100 Msun mean ejecta at that age.
+Linear interpolation in a table sampled uniformly in x from x0 with step dx,
+clamped to the first/last entry outside the table (and for x = -inf or NaN).
+=============================================================================== */
+KOKKOS_INLINE_FUNCTION Real InterpUniform(const parthenon::ParArray1D<Real> &tab,
+                                          const int n, const Real x0, const Real dx,
+                                          const Real x) {
+  const Real u = (x - x0) / dx;
+  if (!(u > 0.0)) return tab(0);
+  if (u >= n - 1) return tab(n - 1);
+  const int j = static_cast<int>(u);
+  return tab(j) + (u - j) * (tab(j + 1) - tab(j));
+}
+
+/* ===============================================================================
+log10 of the mass of stars whose lifetime is 10^log_tau, by linear interpolation
+in the log-log lifetime table (log_tau decreases with mass), clamped to the table.
+=============================================================================== */
+KOKKOS_INLINE_FUNCTION Real LogMassFromLogLifetime(
+    const parthenon::ParArray1D<Real> &log_mass,
+    const parthenon::ParArray1D<Real> &log_tau, const int n, const Real lt) {
+  if (lt >= log_tau(0)) return log_mass(0);
+  if (!(lt > log_tau(n - 1))) return log_mass(n - 1);
+  int lo = 0, hi = n - 1;
+  while (hi - lo > 1) {
+    const int mid = (lo + hi) / 2;
+    if (log_tau(mid) >= lt) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  const Real f = (lt - log_tau(lo)) / (log_tau(hi) - log_tau(lo));
+  return log_mass(lo) + f * (log_mass(hi) - log_mass(lo));
+}
+
+/* ===============================================================================
+Stochastic Type II SN event count/ejecta mass over [age, age + dt]: the stars dying
+then span [M(age + dt), M(age)] (Portinari+ 1998 lifetimes), clipped to 8-100 Msun;
+tables of the cumulative IMF count (per Msun formed) and ejecta vs log10(m) give
+both integrals. Testing: with test_event_age >= 0, one event with the 8-100 Msun
+mean ejecta at that age.
 =============================================================================== */
 KOKKOS_INLINE_FUNCTION void
 ComputeSNIIEvents(const Real t_inj, const Real t, const Real dt, const Real mass,
                   const parthenon::ParArray1D<Real> &log_mass_table,
                   const parthenon::ParArray1D<Real> &log_tau_table, const int n_table,
-                  const parthenon::ParArray1D<Real> &log_sn_mass_table,
-                  const parthenon::ParArray1D<Real> &frec_table, const int n_ejecta,
-                  const Real msun_in_code_units, const Real test_event_age,
-                  const std::uint64_t particle_key, int &N_out, Real &M_ejecta_out) {
-
+                  const parthenon::ParArray1D<Real> &cum_count,
+                  const parthenon::ParArray1D<Real> &cum_ejecta, const int n_cum,
+                  const Real log_m_min, const Real dlog_m, const Real msun_in_code_units,
+                  const Real test_event_age, const std::uint64_t particle_key, int &N_out,
+                  Real &M_ejecta_out) {
   N_out = 0;
   M_ejecta_out = 0.0;
+  if (n_cum < 2) return;
 
   const Real age = t - t_inj;
   const Real age_p = age + dt;
-
-  const Real M_min_SNII = 8.0 * msun_in_code_units;
-  const Real M_max_SNII = 100.0 * msun_in_code_units;
   const bool forced = test_event_age >= 0.0;
   if (forced && !(age <= test_event_age && test_event_age < age_p)) return;
 
-  const Real log_age = Kokkos::log10(age);
-  const Real log_age_p = Kokkos::log10(age_p);
-
-  auto mass_from_tau = [&](const Real log_tau_target) -> Real {
-    if (log_tau_target >= log_tau_table(0)) return Kokkos::pow(10.0, log_mass_table(0));
-    if (log_tau_target <= log_tau_table(n_table - 1))
-      return Kokkos::pow(10.0, log_mass_table(n_table - 1));
-    int lo = 0, hi = n_table - 1;
-    while (hi - lo > 1) {
-      int mid = (lo + hi) / 2;
-      if (log_tau_table(mid) >= log_tau_target)
-        lo = mid;
-      else
-        hi = mid;
-    }
-    const Real frac =
-        (log_tau_target - log_tau_table(lo)) / (log_tau_table(hi) - log_tau_table(lo));
-    return Kokkos::pow(10.0, log_mass_table(lo) +
-                                 frac * (log_mass_table(hi) - log_mass_table(lo)));
-  };
-
-  // Linear interpolation of f_rec(m) in the ejecta table (log mass axis)
-  auto frec_from_mass = [&](const Real m) -> Real {
-    const Real log_m = Kokkos::log10(m);
-    if (log_m <= log_sn_mass_table(0)) return frec_table(0);
-    if (log_m >= log_sn_mass_table(n_ejecta - 1)) return frec_table(n_ejecta - 1);
-    int lo = 0, hi = n_ejecta - 1;
-    while (hi - lo > 1) {
-      int mid = (lo + hi) / 2;
-      if (log_sn_mass_table(mid) <= log_m)
-        lo = mid;
-      else
-        hi = mid;
-    }
-    const Real frac =
-        (log_m - log_sn_mass_table(lo)) / (log_sn_mass_table(hi) - log_sn_mass_table(lo));
-    return frec_table(lo) + frac * (frec_table(hi) - frec_table(lo));
-  };
-
-  const Real M_high = forced ? M_max_SNII : mass_from_tau(log_age);
-  const Real M_low = forced ? M_min_SNII : mass_from_tau(log_age_p);
-
-  const Real M1 = Kokkos::max(M_low, M_min_SNII);
-  const Real M2 = Kokkos::min(M_high, M_max_SNII);
-
-  if (M2 <= M1) return;
-
-  constexpr int N_QUAD = 64;
-  const Real log_M1 = Kokkos::log(M1), log_M2 = Kokkos::log(M2);
-  const Real dlogm = (log_M2 - log_M1) / (N_QUAD - 1);
-
-  Real integral_N = 0.0;
-  Real integral_Mej = 0.0;
-
-  for (int i = 0; i < N_QUAD - 1; i++) {
-    const Real m_lo = Kokkos::exp(log_M1 + i * dlogm);
-    const Real m_hi = Kokkos::exp(log_M1 + (i + 1) * dlogm);
-    const Real dm = m_hi - m_lo;
-
-    const Real phi_lo = NormedChabrierIMF(m_lo, msun_in_code_units);
-    const Real phi_hi = NormedChabrierIMF(m_hi, msun_in_code_units);
-
-    // Eq. 22: integral of phi(m) dm  -> N_SN
-    integral_N += 0.5 * (phi_lo + phi_hi) * dm;
-
-    // Eq. 23: integral of phi(m) * f_rec(m) * m dm  -> M_ej,tot (in code units)
-    integral_Mej +=
-        0.5 *
-        (phi_lo * frec_from_mass(m_lo) * m_lo + phi_hi * frec_from_mass(m_hi) * m_hi) *
-        dm;
+  // Progenitor mass window in log10(m), clipped to the 8-100 Msun table range
+  const Real lm_max = log_m_min + (n_cum - 1) * dlog_m;
+  Real lm_hi = lm_max, lm_lo = log_m_min;
+  if (!forced) {
+    lm_hi = Kokkos::clamp(LogMassFromLogLifetime(log_mass_table, log_tau_table, n_table,
+                                                 Kokkos::log10(age)),
+                          log_m_min, lm_max);
+    lm_lo = Kokkos::clamp(LogMassFromLogLifetime(log_mass_table, log_tau_table, n_table,
+                                                 Kokkos::log10(age_p)),
+                          log_m_min, lm_max);
   }
+  if (!(lm_hi > lm_lo)) return;
+  const Real d_count = InterpUniform(cum_count, n_cum, log_m_min, dlog_m, lm_hi) -
+                       InterpUniform(cum_count, n_cum, log_m_min, dlog_m, lm_lo);
+  const Real d_ejecta = InterpUniform(cum_ejecta, n_cum, log_m_min, dlog_m, lm_hi) -
+                        InterpUniform(cum_ejecta, n_cum, log_m_min, dlog_m, lm_lo);
+  if (!(d_count > 0.0)) return;
 
-  const Real N_expected = integral_N * (mass / msun_in_code_units);
-
-  // Compute IMF-weighted mean ejecta mass per SN event, then scale by the
-  // actual discrete event count N to get total ejecta mass (in code units).
+  const Real N_expected = d_count * (mass / msun_in_code_units);
   const uint64_t seed = utils::custom_rng::SeedFromParticle(particle_key, t) ^
                         utils::custom_rng::SN_II_STREAM;
   const int N =
       forced ? 1 : utils::custom_rng::PoissonSampleDeterministic(seed, N_expected);
 
-  if (N > 0) {
-    const Real mean_ejecta_per_event = integral_Mej / integral_N;
-    M_ejecta_out = N * mean_ejecta_per_event;
-  }
-
+  // Mean ejecta per event over the mass window, times the drawn event count
+  if (N > 0) M_ejecta_out = N * (d_ejecta / d_count);
   N_out = N;
 }
 
@@ -283,126 +257,32 @@ Real ComputeHostSmoothingLength(const parthenon::Coordinates_t &coords, const in
 }
 
 /* ===============================================================================
-Kernel-weighted average hydrogen number density within a star's SN injection
-sphere, used to rescale the terminal momentum. Host-only, read from the step's
-density snapshot rho_snap (component 0, ghost cells included); since it feeds a
-mild n_H^-1/7 rescaling, it skips ComputeRegionFractions' treatment.
+One walk over an event's kernel at the host's resolution: the kernel-weighted
+<n_H> from the density snapshot, the FIRE-2 vector-weight factors f_{+,-}
+(Hopkins et al. 2018, eqs. 9-10) and the host-interior boundaries the kernel
+reaches past (ox, oy, oz in {-1, 0, 1}). Geometry only, apart from <n_H>.
 =============================================================================== */
-
 template <typename View4D>
-KOKKOS_INLINE_FUNCTION Real ComputeKernelAvgNH(
+KOKKOS_INLINE_FUNCTION void KernelGeometryPass(
     View4D &rho_snap, const parthenon::Coordinates_t &coords, const int ndim,
     const parthenon::Real x_star, const parthenon::Real y_star,
     const parthenon::Real z_star, const int k_host, const int j_host, const int i_host,
-    const parthenon::Real h_smooth, const parthenon::Real code_density_cgs,
-    const parthenon::Real mh_cgs, const parthenon::Real X_H) {
-  using parthenon::Real;
-  const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i_host));
-  const Real r_max = 2.0 * h_smooth;
-
-  Real weight_sum = 0.0;
-  Real nH_vol_sum = 0.0;
-
-  for (int dk = -r_search; dk <= r_search; dk++) {
-    for (int dj = -r_search; dj <= r_search; dj++) {
-      for (int di = -r_search; di <= r_search; di++) {
-        const int kk = k_host + (ndim == 3 ? dk : 0);
-        const int jj = j_host + dj;
-        const int ii = i_host + di;
-
-        const Real dx = coords.Xc<1>(ii) - x_star;
-        const Real dy = coords.Xc<2>(jj) - y_star;
-        const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
-        const Real r2 = dx * dx + dy * dy + dz * dz;
-        if (r2 > r_max * r_max) continue;
-
-        const Real r = Kokkos::sqrt(r2);
-        const Real w_kernel = CubicSplineKernel(r, h_smooth);
-        if (w_kernel <= 0.0) continue;
-
-        const Real vol = coords.CellVolume(kk, jj, ii);
-        const Real weight = w_kernel * vol;
-        weight_sum += weight;
-
-        const Real rho_cgs = rho_snap(0, kk, jj, ii) * code_density_cgs;
-        const Real nH_cell = X_H * rho_cgs / mh_cgs;
-        nH_vol_sum += nH_cell * weight;
-      }
-    }
-  }
-
-  return (weight_sum > 0.0) ? (nH_vol_sum / weight_sum) : 0.0;
-}
-
-/* ===============================================================================
-Which axis directions a star's SN kernel reaches outside the host
-block's interior, using the same per-cell criterion ApplyKineticSNe and
-ComputeRegionFractions use. Called identically by both ghost-particle
-passes so their counts never desync; a cheaper box test would overshoot.
-=============================================================================== */
-KOKKOS_INLINE_FUNCTION
-void DetectKernelOverlap(const parthenon::Coordinates_t &coords, const int ndim,
-                         const parthenon::Real x_star, const parthenon::Real y_star,
-                         const parthenon::Real z_star, const int k_host, const int j_host,
-                         const int i_host, const parthenon::Real h_smooth,
-                         const int r_search, const int kb_s, const int kb_e,
-                         const int jb_s, const int jb_e, const int ib_s, const int ib_e,
-                         int &ox, int &oy, int &oz) {
-  using parthenon::Real;
-  const Real r_max = 2.0 * h_smooth;
-
-  bool i_lo = false, i_hi = false;
-  bool j_lo = false, j_hi = false;
-  bool k_lo = false, k_hi = false;
-
-  for (int dk = -r_search; dk <= r_search; dk++) {
-    for (int dj = -r_search; dj <= r_search; dj++) {
-      for (int di = -r_search; di <= r_search; di++) {
-        const int kk = k_host + (ndim == 3 ? dk : 0);
-        const int jj = j_host + dj;
-        const int ii = i_host + di;
-
-        const Real dx = coords.Xc<1>(ii) - x_star;
-        const Real dy = coords.Xc<2>(jj) - y_star;
-        const Real dz = (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0;
-        const Real r2 = dx * dx + dy * dy + dz * dz;
-        if (r2 > r_max * r_max) continue;
-
-        const Real w_kernel = CubicSplineKernel(Kokkos::sqrt(r2), h_smooth);
-        if (w_kernel <= 0.0) continue;
-
-        if (ii < ib_s) i_lo = true;
-        if (ii > ib_e) i_hi = true;
-        if (jj < jb_s) j_lo = true;
-        if (jj > jb_e) j_hi = true;
-        if (kk < kb_s) k_lo = true;
-        if (kk > kb_e) k_hi = true;
-      }
-    }
-  }
-
-  ox = i_lo ? -1 : (i_hi ? 1 : 0);
-  oy = j_lo ? -1 : (j_hi ? 1 : 0);
-  oz = k_lo ? -1 : (k_hi ? 1 : 0);
-}
-
-/* ===============================================================================
-FIRE-2 vector-weight correction factors f_{+,-} per axis (Hopkins et al. 2018,
-MNRAS 477, 1578, eqs. 9-10), summed over the full kernel at the host's
-resolution. They only depend on geometry, so the host computes them once per
-event and ships them to every block the kernel overlaps. With them the vector
-weights cancel exactly (sum_b wbar_b = 0), even for an off-centre star.
-=============================================================================== */
-KOKKOS_INLINE_FUNCTION void ComputeVectorWeightFactors(
-    const parthenon::Coordinates_t &coords, const int ndim, const parthenon::Real x_star,
-    const parthenon::Real y_star, const parthenon::Real z_star, const int k_host,
-    const int j_host, const int i_host, const parthenon::Real h_smooth,
-    const int r_search, parthenon::Real f_plus[3], parthenon::Real f_minus[3]) {
+    const parthenon::Real h_smooth, const int r_search, const int kb_s, const int kb_e,
+    const int jb_s, const int jb_e, const int ib_s, const int ib_e,
+    const parthenon::Real code_density_cgs, const parthenon::Real mh_cgs,
+    const parthenon::Real X_H, parthenon::Real &nH_avg, parthenon::Real f_plus[3],
+    parthenon::Real f_minus[3], int &ox, int &oy, int &oz) {
   using parthenon::Real;
   const Real r_max = 2.0 * h_smooth;
   const int rk = (ndim == 3) ? r_search : 0;
+
+  Real weight_sum = 0.0;
+  Real nH_vol_sum = 0.0;
   Real s_plus[3] = {0.0, 0.0, 0.0};
   Real s_minus[3] = {0.0, 0.0, 0.0};
+  bool i_lo = false, i_hi = false;
+  bool j_lo = false, j_hi = false;
+  bool k_lo = false, k_hi = false;
 
   for (int dk = -rk; dk <= rk; dk++) {
     for (int dj = -r_search; dj <= r_search; dj++) {
@@ -413,10 +293,27 @@ KOKKOS_INLINE_FUNCTION void ComputeVectorWeightFactors(
         const Real d[3] = {coords.Xc<1>(ii) - x_star, coords.Xc<2>(jj) - y_star,
                            (ndim == 3) ? (coords.Xc<3>(kk) - z_star) : 0.0};
         const Real r2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-        if (r2 <= 0.0 || r2 > r_max * r_max) continue;
+        if (r2 > r_max * r_max) continue;
         const Real r = Kokkos::sqrt(r2);
-        const Real w = CubicSplineKernel(r, h_smooth) * coords.CellVolume(kk, jj, ii);
-        if (w <= 0.0) continue;
+        const Real w_kernel = CubicSplineKernel(r, h_smooth);
+        if (w_kernel <= 0.0) continue;
+        const Real w = w_kernel * coords.CellVolume(kk, jj, ii);
+
+        // <n_H> feeds a mild n_H^-1/7 rescaling: host-only, ghost cells included
+        const Real rho_cgs = rho_snap(0, kk, jj, ii) * code_density_cgs;
+        const Real nH_cell = X_H * rho_cgs / mh_cgs;
+        weight_sum += w;
+        nH_vol_sum += nH_cell * w;
+
+        if (ii < ib_s) i_lo = true;
+        if (ii > ib_e) i_hi = true;
+        if (jj < jb_s) j_lo = true;
+        if (jj > jb_e) j_hi = true;
+        if (kk < kb_s) k_lo = true;
+        if (kk > kb_e) k_hi = true;
+
+        // The cell holding the star at its centre has no direction
+        if (r2 <= 0.0) continue;
         for (int a = 0; a < 3; ++a) {
           const Real xhat = d[a] / r;
           if (xhat > 0.0) {
@@ -429,6 +326,9 @@ KOKKOS_INLINE_FUNCTION void ComputeVectorWeightFactors(
     }
   }
 
+  nH_avg = (weight_sum > 0.0) ? (nH_vol_sum / weight_sum) : 0.0;
+
+  // With these factors the vector weights cancel exactly (sum_b wbar_b = 0)
   for (int a = 0; a < 3; ++a) {
     f_plus[a] = 1.0;
     f_minus[a] = 1.0;
@@ -438,6 +338,10 @@ KOKKOS_INLINE_FUNCTION void ComputeVectorWeightFactors(
       f_minus[a] = Kokkos::sqrt(0.5 * (1.0 + 1.0 / (q * q)));
     }
   }
+
+  ox = i_lo ? -1 : (i_hi ? 1 : 0);
+  oy = j_lo ? -1 : (j_hi ? 1 : 0);
+  oz = k_lo ? -1 : (k_hi ? 1 : 0);
 }
 
 /* ===============================================================================
@@ -479,11 +383,11 @@ KernelCellWeights(const parthenon::Coordinates_t &coords, const int ndim,
 }
 
 /* ===============================================================================
-Splits a kernel's weight (the scalar weights sigma, which also normalise the
-momentum, see ApplyKineticSNe) between the host's own region and each
-overlapping neighbor found by DetectKernelOverlap (fraction[0] is the host's
-share). Walks the same cells ApplyKineticSNe uses, so same-level splits are
-exact; fraction[] still sums to 1 regardless.
+Splits a kernel's scalar weights sigma between the host's own region and each
+overlapping neighbor found by KernelGeometryPass (fraction[0] is the host's
+share; fraction[] sums to 1). Walks the cells ApplyKineticSNe uses, in the same
+order, so same-level splits are exact and sigma_host (the unnormalised host
+share) is exactly the host deposit's normalisation.
 =============================================================================== */
 KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
     const parthenon::Coordinates_t &coords, const int ndim, const parthenon::Real x_star,
@@ -492,16 +396,16 @@ KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
     const int r_search, const int kb_s, const int kb_e, const int jb_s, const int jb_e,
     const int ib_s, const int ib_e, const int active_axis[3], const int axis_offset[3],
     const int n_active, const parthenon::Real f_plus[3], const parthenon::Real f_minus[3],
-    parthenon::Real fraction[8]) {
+    parthenon::Real fraction[8], parthenon::Real &sigma_host) {
   using parthenon::Real;
 
-  const int n_neighbors = (1 << n_active) - 1; // 1, 3, or 7
+  const int n_neighbors = (1 << n_active) - 1; // 0, 1, 3, or 7
 
   for (int m = 0; m <= n_neighbors; ++m)
     fraction[m] = 0.0;
 
   // Physical coordinate (via Xf, not a cell index) of the host's own
-  // interior boundary face that DetectKernelOverlap found kernel weight
+  // interior boundary face that KernelGeometryPass found kernel weight
   // beyond, so cells on either side compare correctly regardless of
   // index-space offsets.
   Real boundary[3] = {0.0, 0.0, 0.0};
@@ -551,43 +455,33 @@ KOKKOS_INLINE_FUNCTION void ComputeRegionFractions(
     }
   }
 
+  sigma_host = fraction[0];
   if (total > 0.0) {
     for (int m = 0; m <= n_neighbors; ++m)
       fraction[m] /= total;
   } else {
-    // Degenerate fallback -- shouldn't trigger, since DetectKernelOverlap
-    // already found kernel-weighted cells past the boundary. Keep everything
-    // on the host rather than silently discarding mass/energy/momentum.
+    // Degenerate fallback -- shouldn't trigger, since KernelGeometryPass
+    // already found kernel-weighted cells. Keep everything on the host rather
+    // than silently discarding mass/energy/momentum.
     fraction[0] = 1.0;
   }
 }
 
 /* ===============================================================================
-Deposits one SN event's region share into this block's interior cells
-(FIRE-2/SMUGGLE, Hopkins et al. 2018): in the star frame, mass s_b*M_ej, energy
-s_b*E_SN and momentum wbar_b*p_SN*min(sqrt(1 + m_b/dm_b), p_t/p_SN), with
-s_b = |wbar_b|; then boosted to the simulation frame (eqs. 23-24). m_b is read
-from the density snapshot rho_snap, so overlapping events are order-independent.
+Sum of the scalar weights sigma over this block's interior cells: the
+normalisation of ApplyKineticSNe for a ghost payload, whose kernel this block
+evaluates at its own resolution.
 =============================================================================== */
-
-template <typename View4D>
-KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
-    View4D &cons, View4D &rho_snap, const parthenon::Coordinates_t &coords,
-    const int ndim, const parthenon::Real x_star, const parthenon::Real y_star,
-    const parthenon::Real z_star, const int k_host, const int j_host, const int i_host,
-    const parthenon::Real vel_x_star, const parthenon::Real vel_y_star,
-    const parthenon::Real vel_z_star, const parthenon::Real M_ej_tot,
-    const parthenon::Real E_SN_tot, const parthenon::Real p_SN_tot,
-    const parthenon::Real p_terminal_nH_scaled, const parthenon::Real h_smooth,
+KOKKOS_INLINE_FUNCTION parthenon::Real InteriorSigmaSum(
+    const parthenon::Coordinates_t &coords, const int ndim, const parthenon::Real x_star,
+    const parthenon::Real y_star, const parthenon::Real z_star, const int k_host,
+    const int j_host, const int i_host, const parthenon::Real h_smooth,
     const parthenon::Real f_plus[3], const parthenon::Real f_minus[3], const int kb_s,
     const int kb_e, const int jb_s, const int jb_e, const int ib_s, const int ib_e) {
-
   using parthenon::Real;
-
   const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i_host));
   const int rk = (ndim == 3) ? r_search : 0;
 
-  // --- Pass 1: normalisation over this block's own interior cells ---
   Real sigma_sum = 0.0;
   for (int dk = -rk; dk <= rk; dk++) {
     for (int dj = -r_search; dj <= r_search; dj++) {
@@ -607,12 +501,39 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
       }
     }
   }
+  return sigma_sum;
+}
+
+/* ===============================================================================
+Deposits one SN event's region share into this block's interior cells
+(FIRE-2/SMUGGLE, Hopkins et al. 2018): in the star frame, mass s_b*M_ej, energy
+s_b*E_SN and momentum wbar_b*p_SN*min(sqrt(1 + m_b/dm_b), p_t/p_SN), s_b =
+sigma_b/sigma_sum (interior total), then boosted to the simulation frame (eqs.
+23-24). m_b comes from the density snapshot: events are order-independent.
+=============================================================================== */
+
+template <typename View4D>
+KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
+    View4D &cons, View4D &rho_snap, const parthenon::Coordinates_t &coords,
+    const int ndim, const parthenon::Real x_star, const parthenon::Real y_star,
+    const parthenon::Real z_star, const int k_host, const int j_host, const int i_host,
+    const parthenon::Real vel_x_star, const parthenon::Real vel_y_star,
+    const parthenon::Real vel_z_star, const parthenon::Real M_ej_tot,
+    const parthenon::Real E_SN_tot, const parthenon::Real p_SN_tot,
+    const parthenon::Real p_terminal_nH_scaled, const parthenon::Real h_smooth,
+    const parthenon::Real f_plus[3], const parthenon::Real f_minus[3],
+    const parthenon::Real sigma_sum, const int kb_s, const int kb_e, const int jb_s,
+    const int jb_e, const int ib_s, const int ib_e) {
+
+  using parthenon::Real;
 
   if (sigma_sum <= 0.0) return;
+  const int r_search = KernelSearchRadius(h_smooth, coords.Dxc<1>(i_host));
+  const int rk = (ndim == 3) ? r_search : 0;
   const Real v2_star =
       vel_x_star * vel_x_star + vel_y_star * vel_y_star + vel_z_star * vel_z_star;
 
-  // --- Pass 2: deposit mass, momentum and energy, same cell set as above ---
+  // Deposit mass, momentum and energy over the cells sigma_sum was summed over
   for (int dk = -rk; dk <= rk; dk++) {
     for (int dj = -r_search; dj <= r_search; dj++) {
       for (int di = -r_search; di <= r_search; di++) {
@@ -661,6 +582,29 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
   }
 }
 
+// Persistent scratch for the SN event pass, kept in the stars package Params and
+// grown on demand. Blocks run one at a time (one host thread, default execution
+// space instance), so a single buffer per rank serves every block.
+using SNPayloadView = Kokkos::View<Real **, parthenon::DevMemSpace>;
+using SNFlagView = Kokkos::View<int *, parthenon::DevMemSpace>;
+using SNCounterView = Kokkos::View<int, parthenon::DevMemSpace>;
+
+// Per-block totals of the SN event pass, summed in a single reduction
+struct SNEventSums {
+  int n_events, n_ghost, n_exhausted;
+  Real e_ii, e_ia;
+  KOKKOS_INLINE_FUNCTION SNEventSums()
+      : n_events(0), n_ghost(0), n_exhausted(0), e_ii(0.0), e_ia(0.0) {}
+  KOKKOS_INLINE_FUNCTION SNEventSums &operator+=(const SNEventSums &o) {
+    n_events += o.n_events;
+    n_ghost += o.n_ghost;
+    n_exhausted += o.n_exhausted;
+    e_ii += o.e_ii;
+    e_ia += o.e_ia;
+    return *this;
+  }
+};
+
 // TODO: get rid of EOS? Seems like it's not needed in the end.
 //       the idea behind it was to apply the feedback using the prim, and using
 //       yet to be implemented PrimToCons. In the end went for Cons
@@ -680,5 +624,14 @@ parthenon::Real LocalReduceSNIIPower(parthenon::MeshData<parthenon::Real> *md);
 parthenon::Real LocalReduceSNIaPower(parthenon::MeshData<parthenon::Real> *md);
 
 } // namespace StellarFeedback
+
+namespace Kokkos {
+template <>
+struct reduction_identity<StellarFeedback::SNEventSums> {
+  KOKKOS_FORCEINLINE_FUNCTION static StellarFeedback::SNEventSums sum() {
+    return StellarFeedback::SNEventSums();
+  }
+};
+} // namespace Kokkos
 
 #endif // STELLAR_FEEDBACK_HPP_
