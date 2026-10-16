@@ -375,6 +375,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     block_total_E_SN_II += sums.e_ii;
     block_total_E_SN_Ia += sums.e_ia;
     if (sums.n_events == 0) continue;
+    Stars::FlagSwarmComm(stars_pkg.get(), Stars::kGasChanged);
     const int total_ghost_count = sums.n_ghost;
     if (!snapshot_taken) {
       TakeDensitySnapshot(pmb, mbd, stars_pkg.get(), tm.ncycle, IndexDomain::entire);

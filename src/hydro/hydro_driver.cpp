@@ -347,6 +347,31 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
 }
 
 // See the advection.hpp declaration for a description of how this function gets called.
+namespace {
+// The gas exchange after the stellar sources is only needed if some block's gas
+// changed this cycle (Stars::kGasChanged, OR-reduced over all ranks before).
+bool StarsChangedGas(MeshData<Real> *md) {
+  const auto stars = md->GetParentPointer()->packages.Get("stars");
+  return (stars->Param<int>("swarm_comm_flags") & Stars::kGasChanged) != 0;
+}
+
+template <TaskStatus (*F)(std::shared_ptr<MeshData<Real>> &)>
+TaskStatus IfStarsChangedGas(std::shared_ptr<MeshData<Real>> &md) {
+  return StarsChangedGas(md.get()) ? F(md) : TaskStatus::complete;
+}
+
+TaskStatus IfStarsChangedGasApplyBCs(std::shared_ptr<MeshData<Real>> &md, bool coarse) {
+  return StarsChangedGas(md.get())
+             ? parthenon::ApplyBoundaryConditionsOnCoarseOrFineMD(md, coarse)
+             : TaskStatus::complete;
+}
+
+TaskStatus IfStarsChangedGasFillDerived(MeshData<Real> *md) {
+  return StarsChangedGas(md) ? parthenon::Update::FillDerived<MeshData<Real>>(md)
+                             : TaskStatus::complete;
+}
+} // namespace
+
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
@@ -671,20 +696,34 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       tl.AddTask(receive, StellarFeedback::ApplyGhostFeedback, mbd0.get(), tm);
     }
 
-    // 5. Star formation/feedback (steps 1/4 above) modify interior `cons` after
-    // this stage's boundary exchange. Exchange ghost cells again, so neighbor
-    // blocks see these changes (consistent face fluxes next step, tracer
-    // interpolation, AMR tagging), then re-sync `prim` with FillDerived before
-    // tracer advection, AMR tagging, the timestep estimate, or output/restart.
+    // 5. Star formation/feedback modify interior `cons` after this stage's
+    // boundary exchange: exchange ghost cells again and re-sync `prim` (needed
+    // for the next fluxes, tracers, AMR tagging and the timestep estimate). Every
+    // task is skipped on cycles where no block's gas changed (kGasChanged, already
+    // reduced over all ranks, so all blocks run or skip the same exchange).
     TaskRegion &fill_derived_stars_region = tc.AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = fill_derived_stars_region[i];
       auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-      const auto any = parthenon::BoundaryType::any;
-      auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
-      auto bnd_exchange =
-          parthenon::AddBoundaryExchangeTasks(start_bnd, tl, mu0, pmesh->multilevel);
-      tl.AddTask(bnd_exchange, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+      constexpr auto any = parthenon::BoundaryType::any;
+      auto start =
+          tl.AddTask(none, IfStarsChangedGas<parthenon::StartReceiveBoundBufs<any>>, mu0);
+      tl.AddTask(start, IfStarsChangedGas<parthenon::SendBoundBufs<any>>, mu0);
+      auto recv =
+          tl.AddTask(start, IfStarsChangedGas<parthenon::ReceiveBoundBufs<any>>, mu0);
+      auto bound = tl.AddTask(recv, IfStarsChangedGas<parthenon::SetBounds<any>>, mu0);
+      const bool multilevel = parthenon::IsMeshMultilevel(mu0);
+      if (multilevel) {
+        bound = tl.AddTask(bound, IfStarsChangedGasApplyBCs, mu0, true);
+        bound =
+            tl.AddTask(bound, IfStarsChangedGas<parthenon::ProlongateBounds<any>>, mu0);
+      }
+      bound = tl.AddTask(bound, IfStarsChangedGasApplyBCs, mu0, false);
+      if (multilevel) {
+        bound = tl.AddTask(
+            bound, IfStarsChangedGas<parthenon::ProlongateInternalBounds<any>>, mu0);
+      }
+      tl.AddTask(bound, IfStarsChangedGasFillDerived, mu0.get());
     }
   }
 

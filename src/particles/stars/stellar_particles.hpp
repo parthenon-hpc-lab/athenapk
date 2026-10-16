@@ -58,10 +58,12 @@ TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 
-// Bits of the per-cycle "swarm_comm_flags": which swarms need a boundary
-// exchange this cycle (a star left its block / ghost particles were created).
+// Bits of the per-cycle "swarm_comm_flags": which exchanges are needed this
+// cycle (a star left its block / ghost particles were created / a star formed or
+// an SN deposited, so the gas must be exchanged again after the stars).
 constexpr int kStarSwarmComm = 1;
 constexpr int kGhostSwarmComm = 2;
+constexpr int kGasChanged = 4;
 void FlagSwarmComm(StateDescriptor *stars_pkg, const int bits);
 TaskStatus ResetSwarmCommFlags(StateDescriptor *stars_pkg);
 TaskStatus ReduceSwarmCommFlags(StateDescriptor *stars_pkg);

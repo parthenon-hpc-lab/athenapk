@@ -73,17 +73,24 @@ TaskStatus InjectStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   PARTHENON_INSTRUMENT
   auto *pmb = mbd->GetParentPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
+  auto stars_pkg = pmb->packages.Get("stars");
+  auto &swarm = pmb->meshblock_data.Get()->GetSwarmData()->Get("stars");
+  const int n_before = swarm->GetNumActive();
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
 
+  TaskStatus status;
   if (fluid == Fluid::euler) {
-    return ParticlesUtils::InjectParticles(mbd, tm, "stars",
-                                           hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
+    status = ParticlesUtils::InjectParticles(mbd, tm, "stars",
+                                             hydro_pkg->Param<AdiabaticHydroEOS>("eos"));
   } else if (fluid == Fluid::glmmhd) {
-    return ParticlesUtils::InjectParticles(mbd, tm, "stars",
-                                           hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
+    status = ParticlesUtils::InjectParticles(mbd, tm, "stars",
+                                             hydro_pkg->Param<AdiabaticGLMMHDEOS>("eos"));
   } else {
     PARTHENON_FAIL("InjectStars: unsupported fluid type.");
   }
+  // Forming a star moves gas into it: the gas must be exchanged again
+  if (swarm->GetNumActive() > n_before) FlagSwarmComm(stars_pkg.get(), kGasChanged);
+  return status;
 }
 
 /* ===============================================================================
