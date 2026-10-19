@@ -60,8 +60,7 @@ The package checks these at startup and stops with a message if one is missing.
 | `stars/transport_mode` set | always | no default: `advection` is for testing only |
 | `parthenon/mesh/nghost` ≥ `SN_injection_radius_cells` + 1 | SN feedback | the SN kernel reads ghost cells |
 | double-precision build | always | particle-ID offsets are stored bit-exactly in a `Real` field |
-
-Only 2D and 3D meshes are supported (not checked).
+| a 2D or 3D mesh | always | 1D is not implemented (e.g. the virial criteria take y derivatives) |
 
 ## Star formation
 
@@ -81,8 +80,9 @@ $$P = \min\left(1, \frac{1 - e^{-\dot M_\star \Delta t / M}}{\epsilon_m}\right),
 
 the partial-conversion form of the SMUGGLE probability
 ([Springel & Hernquist 2003](https://ui.adsabs.harvard.edu/abs/2003MNRAS.339..289S)).
-The expected mass formed per step is then $\dot M_\star \Delta t$, matching the
-`star_formation_rate` history output. A cell forms at most one star per step. The
+The expected mass formed per step is then $M\left(1 - e^{-\dot M_\star \Delta t / M}\right)$
+(before the clipping to 1), which is $\dot M_\star \Delta t$, the
+`star_formation_rate` history output, only for $\dot M_\star \Delta t \ll M$. A cell forms at most one star per step. The
 draws use a deterministic hash keyed on cell, block, time and population, so a
 run is reproducible.
 
@@ -93,7 +93,7 @@ position. The gas keeps its velocity and its passive-scalar concentrations.
 
 | `sf_energy_mode` | Gas energy after formation |
 |---|---|
-| `isobaric` (default) | removes only the kinetic energy of the converted mass; pressure is unchanged, so the remaining gas is hotter |
+| `isobaric` (default) | removes only the kinetic energy of the converted mass; pressure is unchanged, so the remaining gas is hotter. Not physical and not energy conserving, but it launches no pressure wave from star-forming cells, so it is the mode used by the star formation regression tests (e.g. the sampled SFR against the analytical one) |
 | `isothermal` | removes the converted fraction of kinetic and internal energy; temperature is unchanged |
 
 The magnetic field is never modified.
@@ -105,14 +105,15 @@ gravitational-collapse criteria:
 
 | `sf_virial_criterion` | Cell forms stars if |
 |---|---|
+| `cenostriker` | $\nabla\cdot\mathbf v < 0$, $T <$ `sf_temperature_threshold` and $M > M_J$ ([Cen & Ostriker 1992](https://ui.adsabs.harvard.edu/abs/1992ApJ...399L.113C)) |
 | `hopkins` (default) | $\alpha = \dfrac{\lVert\nabla \mathbf v\rVert^2 + (c_s/\Delta x)^2}{8 \pi G \rho} \le \alpha_\mathrm{crit}$ ([Hopkins et al. 2013](https://ui.adsabs.harvard.edu/abs/2013MNRAS.432.2647H)) |
 | `hopkinsalfven` | as `hopkins`, with $c_s^2 \to c_s^2 + v_A^2$, $v_A^2 = B^2/\rho$ |
-| `cenostriker` | $\nabla\cdot\mathbf v < 0$, $T <$ `sf_temperature_threshold` and $M > M_J$ ([Cen & Ostriker 1992](https://ui.adsabs.harvard.edu/abs/1992ApJ...399L.113C)) |
 
 Here $\lVert\nabla \mathbf v\rVert$ is the Frobenius norm of the velocity-gradient
 tensor (central differences), $c_s$ the adiabatic sound speed, $\Delta x$ the
 geometric-mean cell size, $\alpha_\mathrm{crit}$ = `sf_alpha_crit`, and
-$M_J = \pi^{5/2} c_s^3 / (6\, G^{3/2} \rho^{1/2})$ the Jeans mass.
+$M_J = \pi^{5/2} c_{s,\mathrm{iso}}^3 / (6\, G^{3/2} \rho^{1/2})$ the Jeans mass,
+with the isothermal sound speed $c_{s,\mathrm{iso}}^2 = P/\rho$.
 
 ## Star transport
 

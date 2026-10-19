@@ -73,8 +73,12 @@ enum SNPayloadIndex {
 };
 
 /* ===============================================================================
-The active axes (those whose interior boundary the kernel reaches past) of an
-event's stored overlap offsets, in the list form ComputeRegionFractions uses.
+ActiveAxes: an SN kernel near a block face spills into the neighbour blocks.
+axis_offset[a] (-1, 0 or +1, stored in the event payload) says whether the
+kernel crosses the lower face, no face, or the upper face along axis a. This
+returns how many axes are crossed and lists them (0 = x, 1 = y, 2 = z) at the
+front of active_axis, padded with -1, which is the form ComputeRegionFractions
+uses to split the kernel into its host and neighbour regions.
 =============================================================================== */
 KOKKOS_INLINE_FUNCTION int ActiveAxes(const int axis_offset[3], int active_axis[3]) {
   int n_active = 0;
@@ -96,6 +100,8 @@ the snapshot and the energy floor. Returns false if already taken this cycle.
 bool TakeDensitySnapshot(MeshBlock *pmb, MeshBlockData<Real> *mbd,
                          StateDescriptor *stars_pkg, const int ncycle,
                          const IndexDomain domain) {
+  // stamp[lid] is the last cycle at which block lid took its snapshot: if it is
+  // already this cycle, the snapshot holds the pre-deposit density, so keep it
   auto *stamp = &stars_pkg->MutableParam<SNScratch>("sn_scratch")->snapshot_cycle;
   if (static_cast<int>(stamp->size()) <= pmb->lid) stamp->resize(pmb->lid + 1, -1);
   if ((*stamp)[pmb->lid] == ncycle) return false;
@@ -195,7 +201,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
 
   // Feedback physics parameters
   const auto E_SN_per_event = stars_pkg->Param<Real>("E_SN_per_event");
-  const auto p_t = 4.8e5 * units.msun() * units.km_s(); // terminal momentum per SN
+  // Terminal momentum per SN, 4.8e5 Msun km/s (Hopkins et al. 2018, FIRE-2; also
+  // used by SMUGGLE, Marinacci et al. 2019)
+  const auto p_t = 4.8e5 * units.msun() * units.km_s();
   // Kernel radius, in cells, anchored to whichever block hosts the star at
   // the moment of the event -- see ComputeHostSmoothingLength.
   const auto r_cells = stars_pkg->Param<int>("SN_injection_radius_cells");
@@ -341,10 +349,11 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
                                  active_axis, axis_offset, n_active, f_plus, f_minus,
                                  fraction, sigma_host);
 
-          // Terminal momentum depends on N_SN, not the ejecta mass budget, and
-          // is rescaled by the ambient density <n_H> around the star (host's own
-          // ghost-inclusive view). It is an extensive event total like p_SN, so
-          // it is split by region fraction later.
+          // Terminal momentum p_t N_SN^(13/14) <n_H>^(-1/7), with <n_H> the
+          // ambient density around the star (host's own ghost-inclusive view).
+          // Solar metallicity is assumed: the f(Z)^(3/2) factor of Hopkins et al.
+          // (2018), f(Z) = min((Z/Zsun)^(-0.14), 2), is set to 1. It is an extensive event total
+          // like p_SN, so it is split by region fraction later.
           const Real p_terminal_Nsn =
               Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
           const Real p_terminal_nH_scaled =
