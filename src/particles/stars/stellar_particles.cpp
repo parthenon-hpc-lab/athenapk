@@ -170,6 +170,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   if (!enabled) return stars_pkg;
 
+  // 1D is not implemented: e.g. the virial criteria take y derivatives
+  const int ndim = 1 + (pin->GetInteger("parthenon/mesh", "nx2") > 1) +
+                   (pin->GetInteger("parthenon/mesh", "nx3") > 1);
+  PARTHENON_REQUIRE_THROWS(ndim >= 2, "Stars require a 2D or 3D mesh.");
+
   // Whether the one-time setup in InitialStars (ID offsets, optional seeding)
   // has run. Written to restart files, so a restarted run doesn't redo it.
   stars_pkg->AddParam<>("initial_seed_done", false,
@@ -849,9 +854,8 @@ TaskStatus MoveStars(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
             // Then update the velocity for the next time step using new position
             vel_x(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV1);
             vel_y(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV2);
-            if (ndim == 3) {
-              vel_z(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV3);
-            }
+            // Also in 2D (2.5D): v_z enters the SN momentum, while z stays fixed
+            vel_z(n) = LCInterp::Do(0, x(n), y(n), z(n), prim_pack, IV3);
 
             // === Update neighbor block index ===
             bool on_block = true;

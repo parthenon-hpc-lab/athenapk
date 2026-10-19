@@ -37,16 +37,20 @@ using parthenon::Coordinates_t;
 namespace StarFormation {
 
 // Which conserved-energy convention TransferCellMassToParticle uses when a
-// cell's mass is depleted into a star. Isobaric is the default (matches
-// the regression test suite); Isothermal is a 1:1 port of RAMSES's
-// star_formation.f90 sink treatment.
+// cell's mass is depleted into a star. Isobaric (default) removes only the
+// kinetic energy of the formed mass, so the cell keeps its pressure: this is
+// not physical and does not conserve energy, but it launches no pressure wave
+// from star-forming cells, which makes it the best suited mode for the star
+// formation regression tests (e.g. checking the Poisson sampler against the
+// analytical SFR). Isothermal is a 1:1 port of RAMSES's star_formation.f90
+// sink treatment (the formed mass takes its thermal energy along).
 enum class SFEnergyMode { Isobaric, Isothermal };
 
 // Which gravitational-collapse gate CheckVirialCollapse applies to a cell
-// that already passed the stochastic star-formation draw. Hopkins (default)
-// and HopkinsAlfven are alpha_crit-gated virial parameters; CenOstriker is
-// a cheaper Cen & Ostriker (1992) alternative (div(v) < 0, cold, Jeans).
-enum class SFVirialCriterion { Hopkins, CenOstriker, HopkinsAlfven };
+// that already passed the stochastic star-formation draw. CenOstriker is a
+// cheaper Cen & Ostriker (1992) gate (div(v) < 0, cold, Jeans unstable);
+// Hopkins (default) and HopkinsAlfven are alpha_crit-gated virial parameters.
+enum class SFVirialCriterion { CenOstriker, Hopkins, HopkinsAlfven };
 
 /* ===============================================================================
 EvaluateStarFormation: calculates cell-by-cell star formation rate based on the
@@ -79,7 +83,8 @@ EvaluateStarFormationProbability: per-step star formation probability. A star
 takes only mass_efficiency of the cell, so the whole-cell SMUGGLE probability is
 scaled by 1/mass_efficiency (Springel & Hernquist 2003):
 P = min(1, (1 - exp(-SFR*dt/M_gas)) / mass_efficiency), i.e. a mean formed mass
-of SFR*dt. Density-gated only; the caller applies the virial check.
+of M_gas*(1 - exp(-SFR*dt/M_gas)) before the clipping, which is SFR*dt for
+SFR*dt << M_gas. Density-gated only; the caller applies the virial check.
 =============================================================================== */
 
 template <typename View4D>
@@ -87,6 +92,9 @@ KOKKOS_INLINE_FUNCTION Real EvaluateStarFormationProbability(
     View4D prim, const Coordinates_t &coords, const int k, const int j, const int i,
     const Real threshold, const Real epsilon, const Real gravitational_constant,
     const int ndim, const Real dt, const Real mass_efficiency) {
+
+  // Most cells are below the threshold: skip the cell geometry for them
+  if (prim(IDN, k, j, i) <= threshold) return 0.0;
 
   const Real dx = coords.Dxc<1>(k, j, i);
   const Real dy = coords.Dxc<2>(k, j, i);
@@ -136,11 +144,12 @@ CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const
     const Real press = prim(IPR, k, j, i);
     const Real temperature = mbar_over_kb * press / rho;
 
-    // Jeans mass M_J = (pi^(5/2)/6) * c_s^3 / (G^(3/2) * sqrt(rho)); the
-    // cell's own gas mass must exceed it. Cell volume uses the same
-    // dz = 1 (2D) convention as EvaluateStarFormation's M_gas above, i.e.
-    // not the dz = dx stand-in used by the Hopkins branch below.
-    const Real cs2 = gamma * press / rho;
+    // Jeans mass M_J = (pi^(5/2)/6) * c_s^3 / (G^(3/2) * sqrt(rho)), with the
+    // isothermal sound speed c_s^2 = P/rho; the cell's own gas mass must
+    // exceed it. Cell volume uses the same dz = 1 (2D) convention as
+    // EvaluateStarFormation's M_gas above, i.e. not the dz = dx stand-in used
+    // by the Hopkins branch below.
+    const Real cs2 = press / rho;
     const Real cs = Kokkos::sqrt(cs2);
     const Real jeans_mass =
         (Kokkos::pow(M_PI, 2.5) / 6.0) * cs * cs * cs /
@@ -191,6 +200,8 @@ CheckVirialCollapse(View4D prim, const Coordinates_t &coords, const int k, const
   // is 0 with no B field, recovering plain Hopkins exactly).
   Real vA2 = 0.0;
   if (criterion == SFVirialCriterion::HopkinsAlfven) {
+    // IB1 = NHYDRO = 5 is a compile-time index: nhydro is 5 for Euler and 9
+    // for GLM-MHD (B and psi), so only MHD has B stored at IB1..IB3.
     const bool has_bfield = (IB1 < nhydro);
     if (has_bfield) {
       const Real Bx = prim(IB1, k, j, i);
