@@ -334,21 +334,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // for refinement=static). It is now computed per SN event from the host
   // cell's own local dx; see ApplyStellarFeedback/ComputeRegionFractions.
 
-  // SN II tables used by ComputeSNIIEvents (empty unless SN_II_enabled): the
-  // log-log lifetime table and the cumulative IMF count / ejecta vs log10(m)
+  // SN II tables used by ComputeSNIIEvents (empty unless SN_II_enabled), see
+  // StellarFeedback::SNIITables
   const auto mut = parthenon::Params::Mutability::Mutable;
-  stars_pkg->AddParam("log_mass_table", parthenon::ParArray1D<Real>("log_mass_table", 0),
-                      mut);
-  stars_pkg->AddParam("log_lifetime_table",
-                      parthenon::ParArray1D<Real>("log_lifetime_table", 0), mut);
-  stars_pkg->AddParam("lifetime_table_size", 0, mut);
-  stars_pkg->AddParam("sn2_cum_count", parthenon::ParArray1D<Real>("sn2_cum_count", 0),
-                      mut);
-  stars_pkg->AddParam("sn2_cum_ejecta", parthenon::ParArray1D<Real>("sn2_cum_ejecta", 0),
-                      mut);
-  stars_pkg->AddParam("sn2_cum_size", 0, mut);
-  stars_pkg->AddParam("sn2_cum_log_mass_min", Real(0.0), mut);
-  stars_pkg->AddParam("sn2_cum_dlog_mass", Real(1.0), mut);
+  StellarFeedback::SNIITables sn2_tables;
 
   if (SN_II_enabled) {
     // Portinari+ lifetime table at Zsun [mass in Msun, lifetime in Gyr]
@@ -385,9 +374,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     Kokkos::deep_copy(log_mass_d, log_mass_h);
     Kokkos::deep_copy(log_lifetime_d, log_lifetime_h);
-    stars_pkg->UpdateParam("log_mass_table", log_mass_d);
-    stars_pkg->UpdateParam("log_lifetime_table", log_lifetime_d);
-    stars_pkg->UpdateParam("lifetime_table_size", n);
+    sn2_tables.log_mass = log_mass_d;
+    sn2_tables.log_lifetime = log_lifetime_d;
+    sn2_tables.lifetime_size = n;
 
     // Cumulative IMF count / ejecta tables from the ejecta fractions
     std::vector<Real> log_m_ej, frec;
@@ -412,12 +401,13 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     }
     Kokkos::deep_copy(count_d, count_h);
     Kokkos::deep_copy(ejecta_d, ejecta_h);
-    stars_pkg->UpdateParam("sn2_cum_count", count_d);
-    stars_pkg->UpdateParam("sn2_cum_ejecta", ejecta_d);
-    stars_pkg->UpdateParam("sn2_cum_size", n_tab);
-    stars_pkg->UpdateParam("sn2_cum_log_mass_min", log_m_min);
-    stars_pkg->UpdateParam("sn2_cum_dlog_mass", dlog_m);
+    sn2_tables.cum_count = count_d;
+    sn2_tables.cum_ejecta = ejecta_d;
+    sn2_tables.cum_size = n_tab;
+    sn2_tables.cum_log_mass_min = log_m_min;
+    sn2_tables.cum_dlog_mass = dlog_m;
   }
+  stars_pkg->AddParam("sn2_tables", sn2_tables, mut);
 
   // Required: gravity, advection (testing only) or none.
   PARTHENON_REQUIRE(pin->DoesParameterExist("stars", "transport_mode"),
@@ -501,15 +491,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                         Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy}));
 
     // Persistent scratch for the SN event pass, grown on demand (see SNPayloadView)
-    stars_pkg->AddParam<>("sn_payload_scratch",
-                          StellarFeedback::SNPayloadView("sn_payload", 0, 0), mut);
-    stars_pkg->AddParam<>("sn_event_flag_scratch",
-                          StellarFeedback::SNFlagView("sn_event_flag", 0), mut);
-    stars_pkg->AddParam<>("sn_ghost_slot_counter",
-                          StellarFeedback::SNCounterView("sn_ghost_slot_counter"), mut);
-    // Per local block: last cycle its density snapshot was taken (see
-    // TakeDensitySnapshot), i.e. the last cycle it got an SN deposit
-    stars_pkg->AddParam<>("sn_snapshot_cycle", std::vector<int>(), mut);
+    StellarFeedback::SNScratch sn_scratch;
+    sn_scratch.payload = StellarFeedback::SNPayloadView("sn_payload", 0, 0);
+    sn_scratch.event_flag = StellarFeedback::SNFlagView("sn_event_flag", 0);
+    stars_pkg->AddParam<>("sn_scratch", sn_scratch, mut);
 
     std::vector<std::string> ghost_swarm_names;
     for (const auto &name : swarm_names) {
