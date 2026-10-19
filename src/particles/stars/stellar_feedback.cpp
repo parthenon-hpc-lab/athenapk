@@ -96,7 +96,7 @@ the snapshot and the energy floor. Returns false if already taken this cycle.
 bool TakeDensitySnapshot(MeshBlock *pmb, MeshBlockData<Real> *mbd,
                          StateDescriptor *stars_pkg, const int ncycle,
                          const IndexDomain domain) {
-  auto *stamp = stars_pkg->MutableParam<std::vector<int>>("sn_snapshot_cycle");
+  auto *stamp = &stars_pkg->MutableParam<SNScratch>("sn_scratch")->snapshot_cycle;
   if (static_cast<int>(stamp->size()) <= pmb->lid) stamp->resize(pmb->lid + 1, -1);
   if ((*stamp)[pmb->lid] == ncycle) return false;
   (*stamp)[pmb->lid] = ncycle;
@@ -116,7 +116,7 @@ bool TakeDensitySnapshot(MeshBlock *pmb, MeshBlockData<Real> *mbd,
 
 // Whether this block got any SN deposit this cycle (see TakeDensitySnapshot)
 bool HasDensitySnapshot(MeshBlock *pmb, StateDescriptor *stars_pkg, const int ncycle) {
-  const auto &stamp = stars_pkg->Param<std::vector<int>>("sn_snapshot_cycle");
+  const auto &stamp = stars_pkg->Param<SNScratch>("sn_scratch").snapshot_cycle;
   return pmb->lid < static_cast<int>(stamp.size()) && stamp[pmb->lid] == ncycle;
 }
 
@@ -202,15 +202,15 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
   const auto test_event_age = stars_pkg->Param<Real>("SN_test_event_age");
 
   // SN II tables: log-log lifetimes and cumulative IMF count / ejecta vs log10(m)
-  const auto log_mass_d = stars_pkg->Param<parthenon::ParArray1D<Real>>("log_mass_table");
-  const auto log_lifetime_d =
-      stars_pkg->Param<parthenon::ParArray1D<Real>>("log_lifetime_table");
-  const auto n_lifetime = stars_pkg->Param<int>("lifetime_table_size");
-  const auto sn2_count = stars_pkg->Param<parthenon::ParArray1D<Real>>("sn2_cum_count");
-  const auto sn2_ejecta = stars_pkg->Param<parthenon::ParArray1D<Real>>("sn2_cum_ejecta");
-  const auto sn2_n = stars_pkg->Param<int>("sn2_cum_size");
-  const auto sn2_log_m_min = stars_pkg->Param<Real>("sn2_cum_log_mass_min");
-  const auto sn2_dlog_m = stars_pkg->Param<Real>("sn2_cum_dlog_mass");
+  const auto &sn2_tables = stars_pkg->Param<SNIITables>("sn2_tables");
+  const auto log_mass_d = sn2_tables.log_mass;
+  const auto log_lifetime_d = sn2_tables.log_lifetime;
+  const auto n_lifetime = sn2_tables.lifetime_size;
+  const auto sn2_count = sn2_tables.cum_count;
+  const auto sn2_ejecta = sn2_tables.cum_ejecta;
+  const auto sn2_n = sn2_tables.cum_size;
+  const auto sn2_log_m_min = sn2_tables.cum_log_mass_min;
+  const auto sn2_dlog_m = sn2_tables.cum_dlog_mass;
 
   // Total energy injected by this block this step, across every swarm population
   // -- see the sn_ii_energy_injected/sn_ia_energy_injected accumulation below.
@@ -246,8 +246,9 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
     // exhausts the star's mass budget.
     const int npart = max_active_index + 1;
     if (npart <= 0) continue;
-    auto *payload_scratch = stars_pkg->MutableParam<SNPayloadView>("sn_payload_scratch");
-    auto *flag_scratch = stars_pkg->MutableParam<SNFlagView>("sn_event_flag_scratch");
+    auto *scratch = stars_pkg->MutableParam<SNScratch>("sn_scratch");
+    auto *payload_scratch = &scratch->payload;
+    auto *flag_scratch = &scratch->event_flag;
     if (static_cast<int>(flag_scratch->extent(0)) < npart) {
       const int capacity = std::max(npart, 2 * static_cast<int>(flag_scratch->extent(0)));
       Kokkos::realloc(*payload_scratch, capacity, static_cast<int>(PL_N));
@@ -449,7 +450,7 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
       // Counter to let each firing-and-overlapping particle atomically claim a
       // unique slot among the newly allocated ghost indices.
       const auto ghost_slot_counter =
-          *stars_pkg->MutableParam<SNCounterView>("sn_ghost_slot_counter");
+          stars_pkg->MutableParam<SNScratch>("sn_scratch")->ghost_slot_counter;
       Kokkos::deep_copy(pmb->exec_space, ghost_slot_counter, 0);
 
       pmb->par_for(

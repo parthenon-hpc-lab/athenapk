@@ -25,6 +25,7 @@
 #define STELLAR_FEEDBACK_HPP_
 
 #include <limits>
+#include <vector>
 
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
@@ -588,6 +589,29 @@ KOKKOS_INLINE_FUNCTION void ApplyKineticSNe(
 using SNPayloadView = Kokkos::View<Real **, parthenon::DevMemSpace>;
 using SNFlagView = Kokkos::View<int *, parthenon::DevMemSpace>;
 using SNCounterView = Kokkos::View<int, parthenon::DevMemSpace>;
+
+// The SN tables and scratch are kept in the stars Params wrapped in these structs:
+// Parthenon writes every Param of a plain array/View type as an HDF5 attribute
+// in each output, and the 16384-entry SN II tables exceed the 64 KB attribute
+// limit of HDF5 < 1.14 (and none of this needs to be in the outputs anyway).
+struct SNScratch {
+  SNPayloadView payload;
+  SNFlagView event_flag;
+  SNCounterView ghost_slot_counter{"sn_ghost_slot_counter"};
+  // Per local block: last cycle its density snapshot was taken (see
+  // TakeDensitySnapshot), i.e. the last cycle it got an SN deposit
+  std::vector<int> snapshot_cycle;
+};
+
+// SN II tables used by ComputeSNIIEvents (empty unless SN_II_enabled): the log-log
+// lifetime table and the cumulative IMF count / ejecta vs log10(m)
+struct SNIITables {
+  parthenon::ParArray1D<Real> log_mass, log_lifetime;
+  int lifetime_size = 0;
+  parthenon::ParArray1D<Real> cum_count, cum_ejecta;
+  int cum_size = 0;
+  Real cum_log_mass_min = 0.0, cum_dlog_mass = 1.0;
+};
 
 // Per-block totals of the SN event pass, summed in a single reduction
 struct SNEventSums {
