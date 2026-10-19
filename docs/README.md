@@ -15,6 +15,7 @@ The documentation currently includes
 - [How to add a custom/user problem generator](user_pgen.md)
 - [Units](units.md)
 - [Standard problem generators](standard_pgen.md)
+- [Star particles: star formation and supernova feedback](stars.md)
 - Detailed descriptions of more complex problem generators
   - [Galaxy Cluster and Cluster-like Problem Setup](cluster.md)
   - [Driven turbulence](turbulence.md)

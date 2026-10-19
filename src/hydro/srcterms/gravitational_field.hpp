@@ -20,7 +20,7 @@
 // AthenaPK headers
 #include "../../main.hpp"
 
-namespace cluster {
+namespace gravity {
 
 template <typename GravitationalField>
 void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md,
@@ -63,6 +63,6 @@ void GravitationalFieldSrcTerm(parthenon::MeshData<parthenon::Real> *md,
       });
 }
 
-} // namespace cluster
+} // namespace gravity
 
 #endif // HYDRO_SRCTERMS_GRAVITATIONAL_FIELD_HPP_
