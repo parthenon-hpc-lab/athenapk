@@ -184,6 +184,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   const auto integrator_str = pin->GetString("parthenon/time", "integrator");
 
+  // Where FillTracers evaluates derivative diagnostics (see TracerDerivatives)
+  const auto derivatives_at = pin->GetOrAddString(
+      "tracers", "derivatives_at", "cell", std::vector<std::string>{"cell", "particle"},
+      "derivative diagnostics at the host-cell center or interpolated to the tracer");
+  tracers_pkg->AddParam<>("derivatives_at_particle", derivatives_at == "particle");
+
   // Setting up useful fields (cell mass for Monte Carlo, IDs offsets),
   // also checking the integrator choice in case of Monte Carlo advection
   PARTHENON_REQUIRE_THROWS(pin->DoesParameterExist("tracers", "swarm_names"),
@@ -1232,6 +1238,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   const auto advection_method = tracers_pkg->Param<AdvectMethod>("advection_method");
   const bool interpolate =
       advection_method == AdvectMethod::VInterp || advection_method == AdvectMethod::Ito;
+  const bool derivatives_at_particle =
+      tracers_pkg->Param<bool>("derivatives_at_particle");
 
   // Get hydro/mhd fluid vars over all blocks
   auto nhydro = hydro_pkg->Param<int>("nhydro");
@@ -1276,6 +1284,9 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
       const bool trace_div_v = swarm->Contains<Real>("div_v");
       const bool trace_rot_v = swarm->Contains<Real>("rot_v");
+      const bool trace_grad_pressure =
+          trace_grad_pressure_x || trace_grad_pressure_y || trace_grad_pressure_z;
+      const bool trace_velocity_derivatives = trace_div_v || trace_rot_v;
       auto div_v = vel_x.Get();
       auto rot_v = vel_x.Get();
       if (trace_div_v) div_v = swarm->Get<Real>("div_v").Get();
@@ -1366,25 +1377,6 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                 pressure(n) = prim_pack(b, IPR, k, j, i);
               }
 
-              // Keep derivative diagnostics at the host-cell center for both methods
-              // to avoid interpolating quantities that already require a stencil.
-              if (trace_grad_pressure_x) {
-                grad_pressure_x(n) =
-                    (prim_pack(b, IPR, k, j, i + 1) - prim_pack(b, IPR, k, j, i - 1)) /
-                    (2.0 * dx);
-              }
-              if (trace_grad_pressure_y) {
-                grad_pressure_y(n) =
-                    (prim_pack(b, IPR, k, j + 1, i) - prim_pack(b, IPR, k, j - 1, i)) /
-                    (2.0 * dy);
-              }
-              if (trace_grad_pressure_z) {
-                grad_pressure_z(n) = (ndim == 3) ? (prim_pack(b, IPR, k + 1, j, i) -
-                                                    prim_pack(b, IPR, k - 1, j, i)) /
-                                                       (2.0 * dz)
-                                                 : 0.0;
-              }
-
               // Add passive scalar fraction if it exists
               if (trace_scalar_fraction) {
                 scalar_fraction(n) =
@@ -1393,171 +1385,53 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
               }
 
               if (mhd) {
-                // Use cell-centered B in derivative diagnostics (including tension),
-                // even when the stored primitive B is interpolated to the particle.
-                const Real Bx = prim_pack(b, IB1, k, j, i);
-                const Real By = prim_pack(b, IB2, k, j, i);
-                // A 2D mesh only forbids z-derivatives, not an out-of-plane Bz.
-                const Real Bz = prim_pack(b, IB3, k, j, i);
-
                 if (interpolate) {
                   B_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB1);
                   B_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB2);
                   B_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB3);
                 } else {
-                  B_x(n) = Bx;
-                  B_y(n) = By;
-                  B_z(n) = Bz;
-                }
-
-                if (trace_magnetic_diagnostics) {
-                  // Calculate gradients of magnetic field components
-                  const Real dBx_dx =
-                      (prim_pack(b, IB1, k, j, i + 1) - prim_pack(b, IB1, k, j, i - 1)) /
-                      (2.0 * dx);
-                  const Real dBx_dy =
-                      (prim_pack(b, IB1, k, j + 1, i) - prim_pack(b, IB1, k, j - 1, i)) /
-                      (2.0 * dy);
-                  const Real dBx_dz = (ndim == 3) ? (prim_pack(b, IB1, k + 1, j, i) -
-                                                     prim_pack(b, IB1, k - 1, j, i)) /
-                                                        (2.0 * dz)
-                                                  : 0.0;
-
-                  const Real dBy_dx =
-                      (prim_pack(b, IB2, k, j, i + 1) - prim_pack(b, IB2, k, j, i - 1)) /
-                      (2.0 * dx);
-                  const Real dBy_dy =
-                      (prim_pack(b, IB2, k, j + 1, i) - prim_pack(b, IB2, k, j - 1, i)) /
-                      (2.0 * dy);
-                  const Real dBy_dz = (ndim == 3) ? (prim_pack(b, IB2, k + 1, j, i) -
-                                                     prim_pack(b, IB2, k - 1, j, i)) /
-                                                        (2.0 * dz)
-                                                  : 0.0;
-
-                  // dBz_dx/dBz_dy are in-plane derivatives of Bz -- valid in 2D too,
-                  // unlike dBx_dz/dBy_dz/dBz_dz just above, which are real z-derivatives.
-                  const Real dBz_dx =
-                      (prim_pack(b, IB3, k, j, i + 1) - prim_pack(b, IB3, k, j, i - 1)) /
-                      (2.0 * dx);
-                  const Real dBz_dy =
-                      (prim_pack(b, IB3, k, j + 1, i) - prim_pack(b, IB3, k, j - 1, i)) /
-                      (2.0 * dy);
-                  const Real dBz_dz = (ndim == 3) ? (prim_pack(b, IB3, k + 1, j, i) -
-                                                     prim_pack(b, IB3, k - 1, j, i)) /
-                                                        (2.0 * dz)
-                                                  : 0.0;
-
-                  // Calculate curl(B) components
-                  const Real rotBx = dBz_dy - dBy_dz;
-                  const Real rotBy = dBx_dz - dBz_dx;
-                  const Real rotBz = dBy_dx - dBx_dy;
-
-                  if (trace_rot_B_x) rot_B_x(n) = rotBx;
-                  if (trace_rot_B_y) rot_B_y(n) = rotBy;
-                  if (trace_rot_B_z) rot_B_z(n) = rotBz;
-
-                  // Gradient of the squared magnetic-field magnitude. Bz contributes
-                  // to these in-plane derivatives in 2D too -- only dB2_dz (below)
-                  // is a real z-derivative and needs to stay zero there.
-                  const Real dB2_dx =
-                      ((prim_pack(b, IB1, k, j, i + 1) * prim_pack(b, IB1, k, j, i + 1) +
-                        prim_pack(b, IB2, k, j, i + 1) * prim_pack(b, IB2, k, j, i + 1) +
-                        prim_pack(b, IB3, k, j, i + 1) * prim_pack(b, IB3, k, j, i + 1)) -
-                       (prim_pack(b, IB1, k, j, i - 1) * prim_pack(b, IB1, k, j, i - 1) +
-                        prim_pack(b, IB2, k, j, i - 1) * prim_pack(b, IB2, k, j, i - 1) +
-                        prim_pack(b, IB3, k, j, i - 1) *
-                            prim_pack(b, IB3, k, j, i - 1))) /
-                      (2.0 * dx);
-
-                  const Real dB2_dy =
-                      ((prim_pack(b, IB1, k, j + 1, i) * prim_pack(b, IB1, k, j + 1, i) +
-                        prim_pack(b, IB2, k, j + 1, i) * prim_pack(b, IB2, k, j + 1, i) +
-                        prim_pack(b, IB3, k, j + 1, i) * prim_pack(b, IB3, k, j + 1, i)) -
-                       (prim_pack(b, IB1, k, j - 1, i) * prim_pack(b, IB1, k, j - 1, i) +
-                        prim_pack(b, IB2, k, j - 1, i) * prim_pack(b, IB2, k, j - 1, i) +
-                        prim_pack(b, IB3, k, j - 1, i) *
-                            prim_pack(b, IB3, k, j - 1, i))) /
-                      (2.0 * dy);
-
-                  const Real dB2_dz = (ndim == 3)
-                                          ? ((prim_pack(b, IB1, k + 1, j, i) *
-                                                  prim_pack(b, IB1, k + 1, j, i) +
-                                              prim_pack(b, IB2, k + 1, j, i) *
-                                                  prim_pack(b, IB2, k + 1, j, i) +
-                                              prim_pack(b, IB3, k + 1, j, i) *
-                                                  prim_pack(b, IB3, k + 1, j, i)) -
-                                             (prim_pack(b, IB1, k - 1, j, i) *
-                                                  prim_pack(b, IB1, k - 1, j, i) +
-                                              prim_pack(b, IB2, k - 1, j, i) *
-                                                  prim_pack(b, IB2, k - 1, j, i) +
-                                              prim_pack(b, IB3, k - 1, j, i) *
-                                                  prim_pack(b, IB3, k - 1, j, i))) /
-                                                (2.0 * dz)
-                                          : 0.0;
-
-                  if (trace_grad_B2_x) grad_B2_x(n) = dB2_dx;
-                  if (trace_grad_B2_y) grad_B2_y(n) = dB2_dy;
-                  if (trace_grad_B2_z) grad_B2_z(n) = dB2_dz;
-
-                  // --- Magnetic tension: (B · ∇)B ---
-                  const Real tens_x = Bx * dBx_dx + By * dBx_dy + Bz * dBx_dz;
-                  const Real tens_y = Bx * dBy_dx + By * dBy_dy + Bz * dBy_dz;
-                  const Real tens_z = Bx * dBz_dx + By * dBz_dy + Bz * dBz_dz;
-
-                  if (trace_tens_B_x) tens_B_x(n) = tens_x;
-                  if (trace_tens_B_y) tens_B_y(n) = tens_y;
-                  if (trace_tens_B_z) tens_B_z(n) = tens_z;
+                  // A 2D mesh only forbids z-derivatives, not an out-of-plane Bz.
+                  B_x(n) = prim_pack(b, IB1, k, j, i);
+                  B_y(n) = prim_pack(b, IB2, k, j, i);
+                  B_z(n) = prim_pack(b, IB3, k, j, i);
                 }
               }
 
-              if (trace_div_v || trace_rot_v) {
-                // Central differences using neighbors
-                const Real dvx_dx =
-                    (prim_pack(b, IV1, k, j, i + 1) - prim_pack(b, IV1, k, j, i - 1)) /
-                    (2.0 * dx);
-                const Real dvy_dy =
-                    (prim_pack(b, IV2, k, j + 1, i) - prim_pack(b, IV2, k, j - 1, i)) /
-                    (2.0 * dy);
-                Real dvz_dz = 0.0;
-                if (ndim == 3) {
-                  dvz_dz =
-                      (prim_pack(b, IV3, k + 1, j, i) - prim_pack(b, IV3, k - 1, j, i)) /
-                      (2.0 * dz);
+              // Derivative diagnostics (see TracerDerivatives): at the host-cell center
+              // by default, or interpolated to the tracer (tracers/derivatives_at)
+              const bool magnetic = mhd && trace_magnetic_diagnostics;
+              if (trace_grad_pressure || trace_velocity_derivatives || magnetic) {
+                TracerDerivatives der;
+                const Real cell_dx[3] = {dx, dy, dz};
+                if (derivatives_at_particle) {
+                  ParticleDerivatives(prim_pack, b, x(n), y(n), z(n), cell_dx, ndim,
+                                      trace_grad_pressure, trace_velocity_derivatives,
+                                      magnetic, der);
+                } else {
+                  AddCellDerivatives(prim_pack, b, k, j, i, cell_dx, ndim,
+                                     trace_grad_pressure, trace_velocity_derivatives,
+                                     magnetic, 1.0, der);
                 }
-
-                const Real dvx_dy =
-                    (prim_pack(b, IV1, k, j + 1, i) - prim_pack(b, IV1, k, j - 1, i)) /
-                    (2.0 * dy);
-                const Real dvx_dz = (ndim == 3) ? (prim_pack(b, IV1, k + 1, j, i) -
-                                                   prim_pack(b, IV1, k - 1, j, i)) /
-                                                      (2.0 * dz)
-                                                : 0.0;
-                const Real dvy_dx =
-                    (prim_pack(b, IV2, k, j, i + 1) - prim_pack(b, IV2, k, j, i - 1)) /
-                    (2.0 * dx);
-                const Real dvy_dz = (ndim == 3) ? (prim_pack(b, IV2, k + 1, j, i) -
-                                                   prim_pack(b, IV2, k - 1, j, i)) /
-                                                      (2.0 * dz)
-                                                : 0.0;
-                // dvz_dx/dvz_dy are in-plane derivatives of vz -- valid in 2D too,
-                // unlike dvx_dz/dvy_dz/dvz_dz above, which are real z-derivatives.
-                const Real dvz_dx =
-                    (prim_pack(b, IV3, k, j, i + 1) - prim_pack(b, IV3, k, j, i - 1)) /
-                    (2.0 * dx);
-                const Real dvz_dy =
-                    (prim_pack(b, IV3, k, j + 1, i) - prim_pack(b, IV3, k, j - 1, i)) /
-                    (2.0 * dy);
-
-                // Vorticity and compression: dvx_dz/dvy_dz/dvz_dz are already zero in
-                // 2D, so this reduces to the right in-plane-only result there too.
-                const Real omega_x = dvz_dy - dvy_dz;
-                const Real omega_y = dvx_dz - dvz_dx;
-                const Real omega_z = dvy_dx - dvx_dy;
+                if (trace_grad_pressure_x) grad_pressure_x(n) = der.grad_p[0];
+                if (trace_grad_pressure_y) grad_pressure_y(n) = der.grad_p[1];
+                if (trace_grad_pressure_z) grad_pressure_z(n) = der.grad_p[2];
+                if (trace_div_v) div_v(n) = der.div_v;
                 if (trace_rot_v) {
-                  rot_v(n) = std::sqrt(omega_x * omega_x + omega_y * omega_y +
-                                       omega_z * omega_z);
+                  rot_v(n) = std::sqrt(der.omega[0] * der.omega[0] +
+                                       der.omega[1] * der.omega[1] +
+                                       der.omega[2] * der.omega[2]);
                 }
-                if (trace_div_v) div_v(n) = dvx_dx + dvy_dy + dvz_dz;
+                if (magnetic) {
+                  if (trace_rot_B_x) rot_B_x(n) = der.rot_B[0];
+                  if (trace_rot_B_y) rot_B_y(n) = der.rot_B[1];
+                  if (trace_rot_B_z) rot_B_z(n) = der.rot_B[2];
+                  if (trace_grad_B2_x) grad_B2_x(n) = der.grad_B2[0];
+                  if (trace_grad_B2_y) grad_B2_y(n) = der.grad_B2[1];
+                  if (trace_grad_B2_z) grad_B2_z(n) = der.grad_B2[2];
+                  if (trace_tens_B_x) tens_B_x(n) = der.tens_B[0];
+                  if (trace_tens_B_y) tens_B_y(n) = der.tens_B[1];
+                  if (trace_tens_B_z) tens_B_z(n) = der.tens_B[2];
+                }
               }
             }
           });

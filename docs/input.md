@@ -382,12 +382,23 @@ position. For `vinterp`, the stored velocity is also used in the next tracer
 integration step.
 With `montecarlo`, these quantities are sampled at the host-cell center.
 
-For all methods, derivative diagnostics (pressure gradients, divergence,
-vorticity, magnetic curl, magnetic tension, and the gradient of magnetic-field
-strength squared) are evaluated at the host-cell center without interpolation.
-This avoids the larger stencil needed to interpolate those diagnostics, but their
-values can jump when a tracer crosses a cell boundary. In particular, magnetic
-tension uses the host-cell magnetic field and its cell-centered derivatives.
+Derivative diagnostics (pressure gradients, divergence, vorticity, magnetic curl,
+magnetic tension, and the gradient of magnetic-field strength squared) are central
+differences at cell centers, sampled according to
+
+```ini
+derivatives_at = cell   # options: cell (default), particle
+```
+
+With `cell`, they are taken at the host-cell center for all methods, so their values
+can jump when a tracer crosses a cell boundary; magnetic tension then uses the
+host-cell magnetic field and its cell-centered derivatives. With `particle`, each
+diagnostic is computed at the cell centers around the tracer and linearly
+interpolated to its position, with the same weights as the primitive variables (the
+vorticity is interpolated as a vector before taking its magnitude). This needs no
+extra communication: it uses the second ghost layer, which every reconstruction
+already requires. For `montecarlo`, whose tracers sit at cell centers, both options
+give the same values.
 
 ---
 
