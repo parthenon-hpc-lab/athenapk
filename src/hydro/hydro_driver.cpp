@@ -348,7 +348,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
   auto tracers_pkg = pmesh->packages.Get("tracers");
-  const bool fill_tracer_mcell =
+  // Tracers moved by the mass fluxes need the cell mass M^n and the step's mass fluxes
+  const bool flux_based_tracers =
       tracers_pkg->Param<bool>("enabled") &&
       tracers_pkg->Param<Tracers::AdvectMethod>("advection_method") ==
           Tracers::AdvectMethod::MonteCarlo;
@@ -518,7 +519,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
 
     // Fill tracers' mass reference once, before this step's first conservative
     // update, not on every stage (see FillTracerMCell).
-    if (stage == 1 && fill_tracer_mcell) {
+    if (stage == 1 && flux_based_tracers) {
       tl.AddTask(none, FillTracerMCell, mu0.get());
     }
 
@@ -540,6 +541,13 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto recv_flx = tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, mu0);
     auto set_flx = tl.AddTask(recv_flx | first_order_flux_correct,
                               parthenon::SetFluxCorrections, mu0);
+
+    // Combine this stage's final mass fluxes like the update below, before anything
+    // (e.g. a final RKL2 step) overwrites the flux arrays.
+    if (flux_based_tracers) {
+      tl.AddTask(set_flx, Tracers::AccumulateMassFluxes, mu0.get(),
+                 integrator->gam0[stage - 1], integrator->beta[stage - 1]);
+    }
 
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(

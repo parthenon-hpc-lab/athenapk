@@ -349,7 +349,9 @@ Specify the method for advecting tracers:
 advection_method = vinterp   # options: vinterp (default), montecarlo
 ```
 
-`montecarlo` requires the `vl2` integrator (see `tracers.cpp`).
+`montecarlo` works with the `rk1`, `rk2`, `rk3` and `vl2` integrators: tracers move by
+the mass each face exchanged over the whole step, i.e. the stage fluxes combined as in
+the conserved update (see `AccumulateMassFluxes` in `tracers.cpp`).
 
 With `vinterp`, density, pressure, velocity, magnetic field, and the optional
 passive-scalar fraction are linearly interpolated to each tracer's position.

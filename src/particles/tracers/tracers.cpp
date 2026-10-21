@@ -175,12 +175,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       refinement != "none" || pin->GetOrAddBoolean("parthenon/mesh", "multigrid", false,
                                                    "enable a multigrid mesh");
 
-  // AdvectTracers pairs the last stage's fluxes (scaled by the full dt) with the
-  // M_cell mass reference filled once at stage 1 (see FillTracerMCell in
-  // hydro.cpp) -- only vl2's 2-stage structure makes that combination correct.
+  // AdvectTracers moves tracers by the mass each face exchanged over the step, i.e. the
+  // stage fluxes combined as in the conserved update (see AccumulateMassFluxes), relative
+  // to the M_cell mass reference filled once at stage 1 (see FillTracerMCell in
+  // hydro.cpp). That combination assumes the second register holds U^n all step.
   if (advection_method == AdvectMethod::MonteCarlo) {
-    PARTHENON_REQUIRE(integrator_str == "vl2",
-                      "Provided tracer parameters only support vl2 integrator.");
+    PARTHENON_REQUIRE(integrator_str == "rk1" || integrator_str == "rk2" ||
+                          integrator_str == "rk3" || integrator_str == "vl2",
+                      "Monte Carlo tracer advection supports the rk1, rk2, rk3 and vl2 "
+                      "integrators.");
 
     // Not validated with adaptive refinement: no test covers it, and after a remesh
     // the tracers of a newly refined block sit on a corner of their child cells until
@@ -199,6 +202,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
                  std::vector<int>({1}));
     tracers_pkg->AddField("M_cell", m); // cell mass
+    // ... and the step's mass flux through each cell's lower x1, x2 and x3 faces (the
+    // last cells' upper faces are stored in the first ghost layer)
+    m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+                 std::vector<int>({3}));
+    tracers_pkg->AddField("step_mass_flux", m);
   }
   // Offsets for the tracer's ids
   const int tracers_n_populations = static_cast<int>(swarm_names.size());
@@ -700,6 +708,38 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 }
 
 /* ===============================================================================
+AccumulateMassFluxes: runs after each stage's flux correction and combines the stage
+mass fluxes with the same recursion as the conserved update, u0 = gam0 u0 + gam1 u1 +
+beta dt L, so after the last stage it holds the step's effective mass flux (e.g. F2
+for vl2, (F1 + F2)/2 for rk2). gam0 = 0 at every integrator's first stage, so the
+previous step's values are overwritten rather than scaled.
+=============================================================================== */
+TaskStatus AccumulateMassFluxes(MeshData<Real> *md, const Real gam0, const Real beta) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  const auto &cons_pack = md->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
+  auto Mflux_pack = md->PackVariables(std::vector<std::string>{"step_mass_flux"});
+  const int ndim = pmb->pmy_mesh->ndim;
+
+  // One loop per direction over its faces, i.e. one more along that direction
+  for (int d = 0; d < ndim; ++d) {
+    const int di = (d == 0), dj = (d == 1), dk = (d == 2);
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "AccumulateMassFluxes", parthenon::DevExecSpace(), 0,
+        cons_pack.GetDim(5) - 1, kb.s, kb.e + dk, jb.s, jb.e + dj, ib.s, ib.e + di,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const Real flux = cons_pack(b).flux(X1DIR + d, IDN, k, j, i);
+          Real &acc = Mflux_pack(b, d, k, j, i);
+          acc = (gam0 == 0.0) ? beta * flux : gam0 * acc + beta * flux;
+        });
+  }
+  return TaskStatus::complete;
+}
+
+/* ===============================================================================
 AdvectTracers: moves the tracers in each population for the current timestep.
 Two methods are implemented: velocity field interpolation, or a Monte Carlo
 scheme based on the mass fluxes exchanged between cells.
@@ -716,13 +756,14 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
   // Get meshblock data
-  const auto &cons_pack = mbd->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
   const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
   const auto &coords = pmb->coords;
   // For Monte Carlo method (if needed)
   auto Mcell_pack = parthenon::VariablePack<parthenon::Real>{};
+  auto Mflux_pack = parthenon::VariablePack<parthenon::Real>{};
   if (advection_method == AdvectMethod::MonteCarlo) {
     Mcell_pack = mbd->PackVariables(std::vector<std::string>{"M_cell"});
+    Mflux_pack = mbd->PackVariables(std::vector<std::string>{"step_mass_flux"});
   }
 
   auto dt = tm.dt;
@@ -797,20 +838,18 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               const Real area_y = dx * dz;
               const Real area_z = dx * dy;
 
-              const Real dM_xp =
-                  fmax(cons_pack.flux(IV1, IDN, k, j, i + 1) * area_x * dt, 0.0);
-              const Real dM_xm =
-                  fmax(-cons_pack.flux(IV1, IDN, k, j, i) * area_x * dt, 0.0);
-              const Real dM_yp =
-                  fmax(cons_pack.flux(IV2, IDN, k, j + 1, i) * area_y * dt, 0.0);
-              const Real dM_ym =
-                  fmax(-cons_pack.flux(IV2, IDN, k, j, i) * area_y * dt, 0.0);
+              // The step's mass fluxes (see AccumulateMassFluxes): the flux arrays
+              // only hold the last stage, and a final RKL2 step resets them.
+              const Real dM_xp = fmax(Mflux_pack(0, k, j, i + 1) * area_x * dt, 0.0);
+              const Real dM_xm = fmax(-Mflux_pack(0, k, j, i) * area_x * dt, 0.0);
+              const Real dM_yp = fmax(Mflux_pack(1, k, j + 1, i) * area_y * dt, 0.0);
+              const Real dM_ym = fmax(-Mflux_pack(1, k, j, i) * area_y * dt, 0.0);
               // z-direction fluxes only exist in 3D; in 2D there is no k+/-1
               // neighbor to draw a face flux from.
               Real dM_zp = 0.0, dM_zm = 0.0;
               if (ndim == 3) {
-                dM_zp = fmax(cons_pack.flux(IV3, IDN, k + 1, j, i) * area_z * dt, 0.0);
-                dM_zm = fmax(-cons_pack.flux(IV3, IDN, k, j, i) * area_z * dt, 0.0);
+                dM_zp = fmax(Mflux_pack(2, k + 1, j, i) * area_z * dt, 0.0);
+                dM_zm = fmax(-Mflux_pack(2, k, j, i) * area_z * dt, 0.0);
               }
 
               // Total outgoing flux (Delta M)

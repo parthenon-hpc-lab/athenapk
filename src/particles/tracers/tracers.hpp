@@ -48,6 +48,7 @@ enum class AdvectMethod { MonteCarlo, VInterp, None };
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus AccumulateMassFluxes(MeshData<Real> *md, const Real gam0, const Real beta);
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
