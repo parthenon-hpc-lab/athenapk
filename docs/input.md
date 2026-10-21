@@ -360,7 +360,9 @@ advection_method = vinterp   # options: vinterp (default), montecarlo, ito
   Each step, a tracer moves by the mean displacement of a Monte Carlo jump plus a
   uniform random kick with the variance of that jump, both linearly interpolated
   to its position. Trajectories are continuous and the gas distribution is followed
-  about as well as with `montecarlo`.
+  about as well as with `montecarlo`. With `ito_order = 3` (default 2), the kick also
+  matches the jump's skewness (the paper's Itô-3, piecewise skew uniform kick); this
+  adds `ndim` moment fields to the exchange.
 
 `montecarlo` and `ito` work with the `rk1`, `rk2`, `rk3` and `vl2` integrators: they
 use the mass each face exchanged over the whole step, i.e. the stage fluxes combined as

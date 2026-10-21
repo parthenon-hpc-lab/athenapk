@@ -65,8 +65,27 @@ constexpr uint64_t kRollFace = 2;  // through which face
 constexpr uint64_t kRollChild = 3; // CenterTracers: which child cell
 constexpr uint64_t kRollIto = 4;   // Ito kick along x1; x2 and x3 use 5 and 6
 
-// Per-step mean displacement (components 0..ndim-1) and its variance (ndim..2ndim-1)
+// Per-step mean displacement (components 0..ndim-1), its variance (ndim..2ndim-1) and,
+// for Ito-3, its third central moment (2ndim..3ndim-1)
 const std::string ito_moments = "ito_moments";
+
+// Zero-mean, unit-variance piecewise skew uniform draw with skewness gamma from a
+// uniform r in [0,1) (Moseley et al. 2026, Eqs. 38-39): uniform on [-a_m, 0] and
+// [0, a_p]. Built for gamma >= 0, where the short left piece's probability is well
+// conditioned, and mirrored for gamma < 0.
+KOKKOS_INLINE_FUNCTION Real PiecewiseSkewUniform(const Real gamma, const Real r) {
+  const Real g = fabs(gamma);
+  const Real u = (gamma < 0.0) ? 1.0 - r : r;
+  const Real s = std::sqrt(27.0 + 4.0 * g * g);
+  const Real a_m = (s - 2.0 * g) / 3.0;
+  const Real a_p = (s + 2.0 * g) / 3.0;
+  const Real b_m =
+      (0.5 * (27.0 + 8.0 * g * g) / (27.0 + 4.0 * g * g) * s + 2.0 * g) / 9.0;
+  const Real p_m = fmin(a_m * b_m, 1.0);
+  const Real x = (u < p_m) ? -a_m * (1.0 - u / p_m)
+                           : ((p_m < 1.0) ? a_p * (u - p_m) / (1.0 - p_m) : 0.0);
+  return (gamma < 0.0) ? -x : x;
+}
 
 const std::vector<std::string> optional_swarm_fields{
     "injection_time",  "lifetime",       "grad_pressure_x", "grad_pressure_y",
@@ -224,9 +243,15 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     const int nx2 = pin->GetInteger("parthenon/mesh", "nx2");
     const int nx3 = pin->GetInteger("parthenon/mesh", "nx3");
     const int ndim = (nx3 > 1) ? 3 : ((nx2 > 1) ? 2 : 1);
+    // Number of matched moments: 2 (mean, variance; uniform kick) or 3 (also the
+    // third central moment; piecewise skew uniform kick), i.e. Ito-2 or Ito-3
+    const int ito_order = pin->GetOrAddInteger("tracers", "ito_order", 2);
+    PARTHENON_REQUIRE_THROWS(ito_order == 2 || ito_order == 3,
+                             "tracers/ito_order must be 2 or 3.");
+    tracers_pkg->AddParam<>("ito_order", ito_order);
     m = Metadata(
         {Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::FillGhost},
-        std::vector<int>({2 * ndim}));
+        std::vector<int>({ito_order * ndim}));
     tracers_pkg->AddField(ito_moments, m);
   }
   // Offsets for the tracer's ids
@@ -763,7 +788,8 @@ TaskStatus AccumulateMassFluxes(MeshData<Real> *md, const Real gam0, const Real 
 /* ===============================================================================
 ComputeItoMoments: per cell and axis, mean and variance of the displacement a Monte
 Carlo hop would make this step, from the outflow fractions p+ and p- through the two
-faces: mean = (p+ - p-) dx and variance = (p+ + p- - (p+ - p-)^2) dx^2. Uses the
+faces: mean = (p+ - p-) dx and variance = (p+ + p- - (p+ - p-)^2) dx^2, plus for
+Ito-3 the third central moment C- (1 - 3 C+ + 2 C-^2) dx^3 (C+- = p+ +- p-). Uses the
 step's mass fluxes (see AccumulateMassFluxes), i.e. those that updated the gas.
 =============================================================================== */
 TaskStatus ComputeItoMoments(MeshData<Real> *md, parthenon::SimTime &tm) {
@@ -777,6 +803,7 @@ TaskStatus ComputeItoMoments(MeshData<Real> *md, parthenon::SimTime &tm) {
   auto moments_pack = md->PackVariables(std::vector<std::string>{ito_moments});
   const int ndim = pmb->pmy_mesh->ndim;
   const Real dt = tm.dt;
+  const bool third = pmb->packages.Get("tracers")->Param<int>("ito_order") == 3;
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ComputeItoMoments", parthenon::DevExecSpace(), 0,
@@ -799,6 +826,10 @@ TaskStatus ComputeItoMoments(MeshData<Real> *md, parthenon::SimTime &tm) {
           moments_pack(b, d, k, j, i) = mu * dx[d];
           moments_pack(b, ndim + d, k, j, i) =
               fmax(p_p + p_m - mu * mu, 0.0) * dx[d] * dx[d];
+          if (third) {
+            moments_pack(b, 2 * ndim + d, k, j, i) =
+                mu * (1.0 - 3.0 * (p_p + p_m) + 2.0 * mu * mu) * dx[d] * dx[d] * dx[d];
+          }
         }
       });
   return TaskStatus::complete;
@@ -886,7 +917,9 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   }
   // For Ito method (if needed), with ghosts from this step's exchange
   auto ito_pack = parthenon::VariablePack<parthenon::Real>{};
+  bool ito_third = false;
   if (advection_method == AdvectMethod::Ito) {
+    ito_third = tracers_pkg->Param<int>("ito_order") == 3;
     ito_pack = mbd->PackVariables(std::vector<std::string>{ito_moments});
   }
 
@@ -1037,7 +1070,20 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                 const Real var = LCInterp::Do(0, x(n), y(n), z(n), ito_pack, ndim + d);
                 const Real r = TracerRoll(rng_seed, k_population, id(n), ncycle,
                                           kRollIto + static_cast<uint64_t>(d));
-                step[d] = mean + std::sqrt(3.0 * fmax(var, 0.0)) * (2.0 * r - 1.0);
+                if (!ito_third) {
+                  step[d] = mean + std::sqrt(3.0 * fmax(var, 0.0)) * (2.0 * r - 1.0);
+                } else if (var > 0.0) {
+                  // Ito-3: skewness from the interpolated moments (interpolating
+                  // gamma itself would mix the ~C^-1/2 values of near-static cells)
+                  const Real m3 =
+                      LCInterp::Do(0, x(n), y(n), z(n), ito_pack, 2 * ndim + d);
+                  const Real sigma = std::sqrt(var);
+                  const Real gamma = m3 / (var * sigma);
+                  step[d] = mean + sigma * PiecewiseSkewUniform(
+                                               std::isfinite(gamma) ? gamma : 0.0, r);
+                } else {
+                  step[d] = mean;
+                }
               }
               x(n) += step[0];
               y(n) += step[1];
