@@ -15,8 +15,9 @@ sys.dont_write_bytecode = True
 
 
 class TestCase(utils.test_case.TestCaseAbs):
-    # Overridden by variants of this test (e.g. cluster_tracers_rkl2)
+    # Overridden by variants of this test (cluster_tracers_rkl2, cluster_ito_tracers)
     extra_args = []
+    position_atol = 1e-12
 
     def __init__(self):
         self.steps = 2
@@ -115,8 +116,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                 if var in exact_vars:
                     matches = np.array_equal(var_data[order], ref_data[var])
                 elif var in tight_vars:
+                    atol = self.position_atol if var.startswith("swarm.") else 1e-12
                     matches = np.allclose(
-                        var_data[order], ref_data[var], rtol=0.0, atol=1e-12
+                        var_data[order], ref_data[var], rtol=0.0, atol=atol
                     )
                 else:
                     matches = np.allclose(

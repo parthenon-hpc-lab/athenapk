@@ -33,6 +33,7 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "bvals/boundary_conditions.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
@@ -57,11 +58,15 @@ using utils::custom_rng::TracerRoll;
 namespace LCInterp = parthenon::interpolation::cent::linear;
 
 namespace {
-// One TracerRoll tag per random decision of the Monte Carlo scheme, so that a
-// tracer's draws within a cycle are independent of each other.
+// One TracerRoll tag per random decision of the Monte Carlo and Ito schemes, so that
+// a tracer's draws within a cycle are independent of each other.
 constexpr uint64_t kRollHop = 1;   // leave the cell or stay
 constexpr uint64_t kRollFace = 2;  // through which face
 constexpr uint64_t kRollChild = 3; // CenterTracers: which child cell
+constexpr uint64_t kRollIto = 4;   // Ito kick along x1; x2 and x3 use 5 and 6
+
+// Per-step mean displacement (components 0..ndim-1) and its variance (ndim..2ndim-1)
+const std::string ito_moments = "ito_moments";
 
 const std::vector<std::string> optional_swarm_fields{
     "injection_time",  "lifetime",       "grad_pressure_x", "grad_pressure_y",
@@ -145,6 +150,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       advection_method = AdvectMethod::VInterp;
     } else if (advection_method_str == "montecarlo") {
       advection_method = AdvectMethod::MonteCarlo;
+    } else if (advection_method_str == "ito") {
+      advection_method = AdvectMethod::Ito;
     } else {
       PARTHENON_FAIL("Invalid advection_method: " + advection_method_str);
     }
@@ -175,16 +182,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       refinement != "none" || pin->GetOrAddBoolean("parthenon/mesh", "multigrid", false,
                                                    "enable a multigrid mesh");
 
-  // AdvectTracers moves tracers by the mass each face exchanged over the step, i.e. the
-  // stage fluxes combined as in the conserved update (see AccumulateMassFluxes), relative
-  // to the M_cell mass reference filled once at stage 1 (see FillTracerMCell in
-  // hydro.cpp). That combination assumes the second register holds U^n all step.
-  if (advection_method == AdvectMethod::MonteCarlo) {
+  // Both flux-based methods move tracers by the mass each face exchanged over the step,
+  // i.e. the stage fluxes combined as in the conserved update (see AccumulateMassFluxes),
+  // relative to the M_cell mass reference filled once at stage 1 (see FillTracerMCell
+  // in hydro.cpp). That combination assumes the second register holds U^n all step.
+  const bool flux_based = advection_method == AdvectMethod::MonteCarlo ||
+                          advection_method == AdvectMethod::Ito;
+  if (flux_based) {
     PARTHENON_REQUIRE(integrator_str == "rk1" || integrator_str == "rk2" ||
                           integrator_str == "rk3" || integrator_str == "vl2",
-                      "Monte Carlo tracer advection supports the rk1, rk2, rk3 and vl2 "
-                      "integrators.");
-
+                      "Monte Carlo and Ito tracer advection support the rk1, rk2, rk3 "
+                      "and vl2 integrators.");
+  }
+  if (advection_method == AdvectMethod::MonteCarlo) {
     // Not validated with adaptive refinement: no test covers it, and after a remesh
     // the tracers of a newly refined block sit on a corner of their child cells until
     // CenterTracers runs, i.e. until after their next Monte Carlo step.
@@ -196,9 +206,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
 
   Metadata m;
-  if (advection_method == AdvectMethod::MonteCarlo) {
-    // For Monte Carlo, need to save a copy of the mass of each cell before its
-    // value is updated by the fluxes (c.f. hydro.cpp)
+  if (flux_based) {
+    // Need to save a copy of the mass of each cell before its value is updated by
+    // the fluxes (c.f. hydro.cpp)
     m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
                  std::vector<int>({1}));
     tracers_pkg->AddField("M_cell", m); // cell mass
@@ -207,6 +217,17 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
                  std::vector<int>({3}));
     tracers_pkg->AddField("step_mass_flux", m);
+  }
+  if (advection_method == AdvectMethod::Ito) {
+    // The CIC stencil reaches one cell past the block, so the moments need ghosts.
+    // They get their own exchange, outside hydro's (c.f. HydroExchangeData).
+    const int nx2 = pin->GetInteger("parthenon/mesh", "nx2");
+    const int nx3 = pin->GetInteger("parthenon/mesh", "nx3");
+    const int ndim = (nx3 > 1) ? 3 : ((nx2 > 1) ? 2 : 1);
+    m = Metadata(
+        {Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::FillGhost},
+        std::vector<int>({2 * ndim}));
+    tracers_pkg->AddField(ito_moments, m);
   }
   // Offsets for the tracer's ids
   const int tracers_n_populations = static_cast<int>(swarm_names.size());
@@ -740,9 +761,107 @@ TaskStatus AccumulateMassFluxes(MeshData<Real> *md, const Real gam0, const Real 
 }
 
 /* ===============================================================================
+ComputeItoMoments: per cell and axis, mean and variance of the displacement a Monte
+Carlo hop would make this step, from the outflow fractions p+ and p- through the two
+faces: mean = (p+ - p-) dx and variance = (p+ + p- - (p+ - p-)^2) dx^2. Uses the
+step's mass fluxes (see AccumulateMassFluxes), i.e. those that updated the gas.
+=============================================================================== */
+TaskStatus ComputeItoMoments(MeshData<Real> *md, parthenon::SimTime &tm) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  const auto &Mflux_pack = md->PackVariables(std::vector<std::string>{"step_mass_flux"});
+  const auto &Mcell_pack = md->PackVariables(std::vector<std::string>{"M_cell"});
+  auto moments_pack = md->PackVariables(std::vector<std::string>{ito_moments});
+  const int ndim = pmb->pmy_mesh->ndim;
+  const Real dt = tm.dt;
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "ComputeItoMoments", parthenon::DevExecSpace(), 0,
+      Mflux_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const auto &coords = Mflux_pack.GetCoords(b);
+        const Real Mi = Mcell_pack(b, 0, k, j, i);
+        const Real dx[3] = {coords.Dxc<1>(k, j, i), coords.Dxc<2>(k, j, i),
+                            coords.Dxc<3>(k, j, i)};
+        for (int d = 0; d < ndim; ++d) {
+          // Same face areas and outflow masses as the Monte Carlo hop
+          const Real area = dx[(d + 1) % 3] * dx[(d + 2) % 3];
+          const int di = (d == 0), dj = (d == 1), dk = (d == 2);
+          const Real dM_p =
+              fmax(Mflux_pack(b, d, k + dk, j + dj, i + di) * area * dt, 0.0);
+          const Real dM_m = fmax(-Mflux_pack(b, d, k, j, i) * area * dt, 0.0);
+          const Real p_p = (Mi > 0.0) ? dM_p / Mi : 0.0;
+          const Real p_m = (Mi > 0.0) ? dM_m / Mi : 0.0;
+          const Real mu = p_p - p_m;
+          moments_pack(b, d, k, j, i) = mu * dx[d];
+          moments_pack(b, ndim + d, k, j, i) =
+              fmax(p_p + p_m - mu * mu, 0.0) * dx[d] * dx[d];
+        }
+      });
+  return TaskStatus::complete;
+}
+
+/* ===============================================================================
+ApplyItoBoundaryConditions: zero-gradient ghosts for the Ito moments at every
+physical boundary, whatever the hydro boundary condition: problem-specific boundary
+functions only handle hydro fields, and a constant extrapolation keeps the CIC
+weights on the last interior cell.
+=============================================================================== */
+TaskStatus ApplyItoBoundaryConditions(std::shared_ptr<MeshData<Real>> &md, bool coarse) {
+  namespace bf = parthenon::BoundaryFunction;
+  using parthenon::BoundaryFlag;
+  using BndFun_t = void (*)(std::shared_ptr<MeshBlockData<Real>> &, bool);
+  const BndFun_t outflow[] = {bf::OutflowInnerX1, bf::OutflowOuterX1, bf::OutflowInnerX2,
+                              bf::OutflowOuterX2, bf::OutflowInnerX3, bf::OutflowOuterX3};
+  for (int b = 0; b < md->NumBlocks(); ++b) {
+    auto &rc = md->GetBlockData(b);
+    auto *pmb = rc->GetBlockPointer();
+    // Coarse buffers only need it next to a coarser neighbor (c.f. Parthenon's BCs)
+    if (coarse && !pmb->HasCoarserNeighbors()) continue;
+    for (int face = 0; face < 2 * pmb->pmy_mesh->ndim; ++face) {
+      const auto flag = pmb->boundary_flag[face];
+      if (flag != BoundaryFlag::block && flag != BoundaryFlag::undef &&
+          flag != BoundaryFlag::periodic) {
+        outflow[face](rc, coarse);
+      }
+    }
+  }
+  return TaskStatus::complete;
+}
+
+/* ===============================================================================
+HydroExchangeData / ItoExchangeData: with Ito tracers, their moments are exchanged
+once per step through their own container rather than riding along every exchange
+of "base" (each stage and each RKL2 substep), so hydro's exchanges use a shallow copy
+of "base" without them. Without Ito tracers, "base" itself is returned unchanged.
+=============================================================================== */
+std::shared_ptr<MeshData<Real>> &HydroExchangeData(std::shared_ptr<MeshData<Real>> &md) {
+  auto *pmesh = md->GetParentPointer();
+  const auto advection_method =
+      pmesh->packages.Get("tracers")->Param<AdvectMethod>("advection_method");
+  if (advection_method != AdvectMethod::Ito || md->NumBlocks() == 0) return md;
+
+  std::vector<std::string> names;
+  for (const auto &var : md->GetBlockData(0)->GetVariableVector()) {
+    if (var->label() != ito_moments) names.push_back(var->label());
+  }
+  return pmesh->mesh_data.AddShallow("tracers_hydro_exchange", md, names);
+}
+
+std::shared_ptr<MeshData<Real>> &ItoExchangeData(std::shared_ptr<MeshData<Real>> &md) {
+  return md->GetParentPointer()->mesh_data.AddShallow(
+      "tracers_ito_exchange", md, std::vector<std::string>{ito_moments});
+}
+
+/* ===============================================================================
 AdvectTracers: moves the tracers in each population for the current timestep.
-Two methods are implemented: velocity field interpolation, or a Monte Carlo
-scheme based on the mass fluxes exchanged between cells.
+Three methods are implemented: velocity field interpolation, a Monte Carlo
+scheme based on the mass fluxes exchanged between cells, or the CIC Ito-2 scheme
+(Moseley et al. 2026), a continuous random walk matching that Monte Carlo
+scheme's mean displacement and variance (c.f. ComputeItoMoments).
 =============================================================================== */
 
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
@@ -764,6 +883,11 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   if (advection_method == AdvectMethod::MonteCarlo) {
     Mcell_pack = mbd->PackVariables(std::vector<std::string>{"M_cell"});
     Mflux_pack = mbd->PackVariables(std::vector<std::string>{"step_mass_flux"});
+  }
+  // For Ito method (if needed), with ghosts from this step's exchange
+  auto ito_pack = parthenon::VariablePack<parthenon::Real>{};
+  if (advection_method == AdvectMethod::Ito) {
+    ito_pack = mbd->PackVariables(std::vector<std::string>{ito_moments});
   }
 
   auto dt = tm.dt;
@@ -904,6 +1028,20 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               x(n) = coords.Xc<1>(i_new);
               y(n) = coords.Xc<2>(j_new);
               z(n) = coords.Xc<3>(k_new);
+            } else if (advection_method == AdvectMethod::Ito) {
+              // Euler-Maruyama step: all moments are taken at the start position,
+              // and the kick is uniform with the interpolated variance (as in RAMSES).
+              Real step[3] = {0.0, 0.0, 0.0};
+              for (int d = 0; d < ndim; ++d) {
+                const Real mean = LCInterp::Do(0, x(n), y(n), z(n), ito_pack, d);
+                const Real var = LCInterp::Do(0, x(n), y(n), z(n), ito_pack, ndim + d);
+                const Real r = TracerRoll(rng_seed, k_population, id(n), ncycle,
+                                          kRollIto + static_cast<uint64_t>(d));
+                step[d] = mean + std::sqrt(3.0 * fmax(var, 0.0)) * (2.0 * r - 1.0);
+              }
+              x(n) += step[0];
+              y(n) += step[1];
+              z(n) += step[2];
             }
             // The following call is required as it updates the internal block id
             // following the advection. The internal id is used in the subsequent task to
@@ -1034,9 +1172,9 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 } // CenterTracers
 
 /* ===============================================================================
-FillTracers: sample primitive quantities at tracer positions for vinterp and at
-host-cell centers for Monte Carlo. Derivative diagnostics use host-cell stencils
-for both methods.
+FillTracers: sample primitive quantities at tracer positions for vinterp and Ito
+(continuous positions) and at host-cell centers for Monte Carlo. Derivative
+diagnostics use host-cell stencils for all methods.
 =============================================================================== */
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
@@ -1045,8 +1183,9 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
-  const bool vinterp =
-      tracers_pkg->Param<AdvectMethod>("advection_method") == AdvectMethod::VInterp;
+  const auto advection_method = tracers_pkg->Param<AdvectMethod>("advection_method");
+  const bool interpolate =
+      advection_method == AdvectMethod::VInterp || advection_method == AdvectMethod::Ito;
 
   // Get hydro/mhd fluid vars over all blocks
   auto nhydro = hydro_pkg->Param<int>("nhydro");
@@ -1164,7 +1303,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
               // VInterp's next Heun step uses these stored velocities, so they must
               // be sampled at the particle position, just like its predictor velocity.
-              if (vinterp) {
+              // Ito tracers have continuous positions too, so they are sampled alike.
+              if (interpolate) {
                 rho(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IDN);
                 vel_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV1);
                 vel_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV2);
@@ -1202,8 +1342,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
               // Add passive scalar fraction if it exists
               if (trace_scalar_fraction) {
                 scalar_fraction(n) =
-                    vinterp ? LCInterp::Do(b, x(n), y(n), z(n), prim_pack, nhydro)
-                            : prim_pack(b, nhydro, k, j, i);
+                    interpolate ? LCInterp::Do(b, x(n), y(n), z(n), prim_pack, nhydro)
+                                : prim_pack(b, nhydro, k, j, i);
               }
 
               if (mhd) {
@@ -1214,7 +1354,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                 // A 2D mesh only forbids z-derivatives, not an out-of-plane Bz.
                 const Real Bz = prim_pack(b, IB3, k, j, i);
 
-                if (vinterp) {
+                if (interpolate) {
                   B_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB1);
                   B_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB2);
                   B_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB3);

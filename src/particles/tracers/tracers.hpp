@@ -44,11 +44,16 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 
 extern InitPackageDataFun_t ProblemInitTracerData;
 
-enum class AdvectMethod { MonteCarlo, VInterp, None };
+// Ito is appended (not inserted) so the existing enumerators keep their values.
+enum class AdvectMethod { MonteCarlo, VInterp, None, Ito };
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus RemoveTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus AccumulateMassFluxes(MeshData<Real> *md, const Real gam0, const Real beta);
+TaskStatus ComputeItoMoments(MeshData<Real> *md, parthenon::SimTime &tm);
+TaskStatus ApplyItoBoundaryConditions(std::shared_ptr<MeshData<Real>> &md, bool coarse);
+std::shared_ptr<MeshData<Real>> &HydroExchangeData(std::shared_ptr<MeshData<Real>> &md);
+std::shared_ptr<MeshData<Real>> &ItoExchangeData(std::shared_ptr<MeshData<Real>> &md);
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
