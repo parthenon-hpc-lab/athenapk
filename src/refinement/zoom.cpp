@@ -35,21 +35,42 @@ using parthenon::StateDescriptor;
 using RefinementFun_t = std::function<AmrTag(MeshBlockData<Real> *)>;
 
 struct ZoomParams {
-  Real x1min, x1max, x2min, x2max, x3min, x3max; // paint box
   Real temperature_threshold, tracer_threshold, mbar_over_kb;
   int iscalar;           // component of cons/prim holding the cloud tracer
   int max_level_outside; // relative level cap away from the cloud
 };
 
-// Paint box and temperature threshold, in the order stored in "painted_with".
-std::vector<Real> PaintSettings(const ZoomParams &zp) {
-  return {zp.x1min,
-          zp.x1max,
-          zp.x2min,
-          zp.x2max,
-          zp.x3min,
-          zp.x3max,
-          zp.temperature_threshold};
+struct PaintBox {
+  Real x1min, x1max, x2min, x2max, x3min, x3max;
+};
+
+// <amr_zoom/includeN> or <amr_zoom/excludeN> boxes; omitted bounds default to the mesh.
+std::vector<PaintBox> ReadPaintBoxes(ParameterInput *pin, const std::string &kind) {
+  std::vector<PaintBox> boxes;
+  for (const auto &block : pin->GetBlockNamesWithPrefix("amr_zoom/" + kind)) {
+    PaintBox b;
+    b.x1min = pin->GetOrAddReal(block, "x1min", pin->GetReal("parthenon/mesh", "x1min"));
+    b.x1max = pin->GetOrAddReal(block, "x1max", pin->GetReal("parthenon/mesh", "x1max"));
+    b.x2min = pin->GetOrAddReal(block, "x2min", pin->GetReal("parthenon/mesh", "x2min"));
+    b.x2max = pin->GetOrAddReal(block, "x2max", pin->GetReal("parthenon/mesh", "x2max"));
+    b.x3min = pin->GetOrAddReal(block, "x3min", pin->GetReal("parthenon/mesh", "x3min"));
+    b.x3max = pin->GetOrAddReal(block, "x3max", pin->GetReal("parthenon/mesh", "x3max"));
+    boxes.push_back(b);
+  }
+  return boxes;
+}
+
+// Temperature threshold and all boxes, as stored in "painted_with".
+std::vector<Real> PaintSettings(const ZoomParams &zp, const std::vector<PaintBox> &inc,
+                                const std::vector<PaintBox> &exc) {
+  std::vector<Real> s = {zp.temperature_threshold};
+  for (const auto *boxes : {&inc, &exc}) {
+    s.push_back(boxes->size());
+    for (const auto &b : *boxes) {
+      s.insert(s.end(), {b.x1min, b.x1max, b.x2min, b.x2max, b.x3min, b.x3max});
+    }
+  }
+  return s;
 }
 
 // True if any interior cell of the block is cloud: tracer above threshold and cold.
@@ -109,13 +130,17 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin, Packages_t &pac
       pin->GetBlockNamesWithPrefix("parthenon/refinement").empty(),
       "AMRZoom cannot cap <parthenon/refinementN> criteria, use <refinement> instead");
 
+  PARTHENON_REQUIRE_THROWS(!pin->DoesParameterExist("amr_zoom", "x1min"),
+                           "The paint box moved to <amr_zoom/include0> (and optional "
+                           "<amr_zoom/excludeN>) blocks");
+  const auto include_boxes = ReadPaintBoxes(pin, "include");
+  const auto exclude_boxes = ReadPaintBoxes(pin, "exclude");
+  PARTHENON_REQUIRE_THROWS(!include_boxes.empty(),
+                           "AMRZoom needs at least one <amr_zoom/includeN> paint box");
+  pkg->AddParam<>("include_boxes", include_boxes);
+  pkg->AddParam<>("exclude_boxes", exclude_boxes);
+
   ZoomParams zp;
-  zp.x1min = pin->GetReal("amr_zoom", "x1min");
-  zp.x1max = pin->GetReal("amr_zoom", "x1max");
-  zp.x2min = pin->GetReal("amr_zoom", "x2min");
-  zp.x2max = pin->GetReal("amr_zoom", "x2max");
-  zp.x3min = pin->GetReal("amr_zoom", "x3min");
-  zp.x3max = pin->GetReal("amr_zoom", "x3max");
   zp.temperature_threshold = pin->GetReal("amr_zoom", "temperature_threshold");
   zp.tracer_threshold = pin->GetOrAddReal("amr_zoom", "tracer_threshold", 0.5);
   zp.mbar_over_kb = hydro_pkg->Param<Real>("mbar_over_kb");
@@ -129,7 +154,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin, Packages_t &pac
   // Settings of the last painting, saved in restart files. A parent run without
   // AMRZoom leaves the NaN default, so the first restart with AMRZoom paints.
   pkg->AddParam<>("painted_with",
-                  std::vector<Real>(7, std::numeric_limits<Real>::quiet_NaN()),
+                  std::vector<Real>(1, std::numeric_limits<Real>::quiet_NaN()),
                   Params::Mutability::Restart);
 
   std::vector<RefinementFun_t> capped;
@@ -180,8 +205,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin, Packages_t &pac
 }
 
 /* ===============================================================================
-PaintCloud: sets the cloud tracer to 1 in cells inside the paint box with
-T < temperature_threshold and to 0 elsewhere, then refreshes ghosts and prim.
+PaintCloud: sets the cloud tracer to 1 in cells with T < temperature_threshold that
+lie in any include box and in no exclude box, 0 elsewhere, then refreshes ghosts.
 Runs only if the paint settings differ from those saved in the restart file, so a
 cloud is painted once and later restarts keep advecting its tracer.
 =============================================================================== */
@@ -189,8 +214,23 @@ void PaintCloud(Mesh *pmesh) {
   auto zoom_pkg = pmesh->packages.Get("AMRZoom");
   if (!zoom_pkg->Param<bool>("enabled")) return;
   const auto zp = zoom_pkg->Param<ZoomParams>("params");
-  const auto settings = PaintSettings(zp);
+  const auto &inc = zoom_pkg->Param<std::vector<PaintBox>>("include_boxes");
+  const auto &exc = zoom_pkg->Param<std::vector<PaintBox>>("exclude_boxes");
+  const auto settings = PaintSettings(zp, inc, exc);
   if (zoom_pkg->Param<std::vector<Real>>("painted_with") == settings) return;
+
+  // includes first, then excludes, 6 bounds each
+  const int ninc = inc.size(), nbox = inc.size() + exc.size();
+  parthenon::ParArray1D<Real> boxes("AMRZoom paint boxes", 6 * nbox);
+  auto boxes_h = boxes.GetHostMirror();
+  for (int n = 0; n < nbox; n++) {
+    const auto &b = n < ninc ? inc[n] : exc[n - ninc];
+    const Real bounds[6] = {b.x1min, b.x1max, b.x2min, b.x2max, b.x3min, b.x3max};
+    for (int d = 0; d < 6; d++) {
+      boxes_h(6 * n + d) = bounds[d];
+    }
+  }
+  boxes.DeepCopy(boxes_h);
 
   const auto iscalar = zp.iscalar;
   const auto temperature_threshold = zp.temperature_threshold;
@@ -213,9 +253,18 @@ void PaintCloud(Mesh *pmesh) {
           const Real y = coords.Xc<2>(j);
           const Real z = coords.Xc<3>(k);
           const Real temp = mbar_over_kb * w(IPR, k, j, i) / w(IDN, k, j, i);
-          const bool cloud = x >= zp.x1min && x <= zp.x1max && y >= zp.x2min &&
-                             y <= zp.x2max && z >= zp.x3min && z <= zp.x3max &&
-                             temp < temperature_threshold;
+          bool included = false, excluded = false;
+          for (int n = 0; n < nbox; n++) {
+            const bool in = x >= boxes(6 * n) && x <= boxes(6 * n + 1) &&
+                            y >= boxes(6 * n + 2) && y <= boxes(6 * n + 3) &&
+                            z >= boxes(6 * n + 4) && z <= boxes(6 * n + 5);
+            if (n < ninc) {
+              included = included || in;
+            } else {
+              excluded = excluded || in;
+            }
+          }
+          const bool cloud = included && !excluded && temp < temperature_threshold;
           u(iscalar, k, j, i) = cloud ? u(IDN, k, j, i) : 0.0;
           if (cloud) lmass += u(IDN, k, j, i) * coords.CellVolume(k, j, i);
         },
@@ -247,10 +296,14 @@ void PaintCloud(Mesh *pmesh) {
                            "AMRZoom: boundary exchange after painting failed");
 
   if (parthenon::Globals::my_rank == 0) {
-    std::cout << "# AMRZoom: painted cloud tracer over x1 [" << zp.x1min << ", "
-              << zp.x1max << "], x2 [" << zp.x2min << ", " << zp.x2max << "], x3 ["
-              << zp.x3min << ", " << zp.x3max << "], T < " << temperature_threshold
-              << " K: mass " << painted_mass << " (code units)" << std::endl;
+    std::cout << "# AMRZoom: painted cloud tracer (T < " << temperature_threshold
+              << " K), mass " << painted_mass << " (code units), over" << std::endl;
+    for (int n = 0; n < nbox; n++) {
+      const auto &b = n < ninc ? inc[n] : exc[n - ninc];
+      std::cout << "#   " << (n < ninc ? "include" : "exclude") << " x1 [" << b.x1min
+                << ", " << b.x1max << "], x2 [" << b.x2min << ", " << b.x2max << "], x3 ["
+                << b.x3min << ", " << b.x3max << "]" << std::endl;
+    }
   }
 }
 
