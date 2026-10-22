@@ -409,6 +409,45 @@ Following "restrictions" apply to the current tracer implementation:
 
 Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
 
+### Cloud zoom (AMRZoom)
+
+Concentrates resolution on one cold cloud and follows it through time.
+On the first (re)start with `amr_zoom/enabled = true`, all cells inside the paint
+box with `T < temperature_threshold` get passive scalar `scalar_index` set to 1,
+all other cells to 0.
+From then on, blocks containing any cell with that scalar above `tracer_threshold`
+and `T < temperature_threshold` refine up to `parthenon/mesh/numlevel`.
+Every other refinement criterion (e.g., `refinement/type = maxdensity`) is capped
+at relative level `max_level_outside` away from the cloud, while AMRFloor regions
+(`<parthenon/static_refinementN>` with `floor = true`) keep their floor level.
+
+```
+<amr_zoom>
+enabled = true
+scalar_index = 1             # requires hydro/nscalars > scalar_index; 0 is the AGN tracer in cluster runs
+x1min = -0.001               # paint box (code units)
+x1max =  0.001
+x2min = -0.001
+x2max =  0.001
+x3min = -0.001
+x3max =  0.001
+temperature_threshold = 2e4  # in K, used for painting and refinement (requires <units>)
+tracer_threshold = 0.5       # minimum scalar concentration counted as cloud
+max_level_outside = 7        # relative level cap away from the cloud
+```
+
+The paint settings are stored in restart files, so the cloud is only repainted
+when the paint box or `temperature_threshold` change.
+`<parthenon/refinementN>` criteria cannot be capped and are rejected.
+
+Restarting a run with a larger `hydro/nscalars` requires adding the new
+components to the restart file first:
+
+```bash
+python scripts/add_scalar_to_restart.py parent.rhdf padded.rhdf
+athenaPK -r padded.rhdf -i zoom.in   # zoom.in sets hydro/nscalars and <amr_zoom>
+```
+
 ## Boundary conditions
 
 In addition to enrolling custom boundary conditions, three general options are currently supported by default:

@@ -17,6 +17,7 @@
 #include "main.hpp"
 
 #include "pgen/pgen.hpp"
+#include "refinement/zoom.hpp"
 #include "tracers/tracers.hpp"
 // Initialize defaults for package specific callback functions
 namespace Hydro {
@@ -143,6 +144,7 @@ int main(int argc, char *argv[]) {
                                             ReflectBC<X3DIR, BCSide::Outer>);
 
   pman.ParthenonInitPackagesAndMesh();
+  refinement::zoom::PaintCloud(pman.pmesh.get());
 
   // Startup the corresponding driver for the integrator
   if (parthenon::Globals::my_rank == 0) {

@@ -24,6 +24,8 @@ add_executable(
         refinement/floor.hpp
         refinement/gradient.cpp
         refinement/other.cpp
+        refinement/zoom.cpp
+        refinement/zoom.hpp
         tracers/tracers.cpp
         tracers/tracers.hpp
         utils/few_modes_ft.cpp

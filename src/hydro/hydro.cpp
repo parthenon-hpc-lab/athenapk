@@ -26,6 +26,7 @@
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/floor.hpp"
 #include "../refinement/refinement.hpp"
+#include "../refinement/zoom.hpp"
 #include "../tracers/tracers.hpp"
 #include "../units.hpp"
 #include "defs.hpp"
@@ -58,6 +59,8 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   packages.Add(Hydro::Initialize(pin.get()));
   packages.Add(Tracers::Initialize(pin.get()));
   packages.Add(refinement::floor::Initialize(pin.get()));
+  // Last: takes over the refinement criteria of the packages above.
+  packages.Add(refinement::zoom::Initialize(pin.get(), packages));
   return packages;
 }
 
