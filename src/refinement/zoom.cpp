@@ -159,7 +159,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin, Packages_t &pac
       tag = std::max(tag, fn(rc));
     }
     const int level = pmb->loc.level();
-    const int cap = zp.max_level_outside + pmb->pmy_mesh->GetLegacyTreeRootLevel();
+    // pmb->loc is a forest location: physical level = loc.level() - GetRootLevel()
+    const int cap = zp.max_level_outside + pmb->pmy_mesh->GetRootLevel();
     if (level > cap) {
       tag = AmrTag::derefine;
     } else if (level == cap) {
