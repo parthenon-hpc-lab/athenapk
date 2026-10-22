@@ -43,8 +43,13 @@ struct ZoomParams {
 
 // Paint box and temperature threshold, in the order stored in "painted_with".
 std::vector<Real> PaintSettings(const ZoomParams &zp) {
-  return {zp.x1min, zp.x1max, zp.x2min, zp.x2max,
-          zp.x3min, zp.x3max, zp.temperature_threshold};
+  return {zp.x1min,
+          zp.x1max,
+          zp.x2min,
+          zp.x2max,
+          zp.x3min,
+          zp.x3max,
+          zp.temperature_threshold};
 }
 
 // True if any interior cell of the block is cloud: tracer above threshold and cold.
@@ -142,7 +147,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin, Packages_t &pac
   }
 
   if (parthenon::Globals::my_rank == 0) {
-    std::cout << "# AMRZoom: cloud tracer in scalar " << scalar_index << ", refining where"
+    std::cout << "# AMRZoom: cloud tracer in scalar " << scalar_index
+              << ", refining where"
               << " scalar > " << zp.tracer_threshold << " and T < "
               << zp.temperature_threshold << " K up to numlevel; " << capped.size()
               << " other criteria capped at relative level " << zp.max_level_outside
@@ -217,8 +223,8 @@ void PaintCloud(Mesh *pmesh) {
     painted_mass += block_mass;
   }
 #ifdef MPI_PARALLEL
-  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &painted_mass, 1,
-                                    MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
+  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &painted_mass, 1, MPI_PARTHENON_REAL,
+                                    MPI_SUM, MPI_COMM_WORLD));
 #endif
   zoom_pkg->UpdateParam("painted_with", settings);
 
