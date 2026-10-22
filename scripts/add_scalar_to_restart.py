@@ -31,14 +31,15 @@ BLOCKS_PER_CHUNK = 64
 
 def padded_component_names(info, nadd):
     """Return Info/NumComponents and Info/ComponentNames with nadd scalars added."""
+    # These are scalar attributes, not lists, when the file holds a single variable
     var_names = [
         n.decode() if isinstance(n, bytes) else str(n)
-        for n in info.attrs["OutputDatasetNames"]
+        for n in np.atleast_1d(info.attrs["OutputDatasetNames"])
     ]
-    num_components = np.array(info.attrs["NumComponents"])
+    num_components = np.atleast_1d(info.attrs["NumComponents"])
     comp_names = [
         n.decode() if isinstance(n, bytes) else str(n)
-        for n in info.attrs["ComponentNames"]
+        for n in np.atleast_1d(info.attrs["ComponentNames"])
     ]
 
     new_names = []
@@ -53,7 +54,10 @@ def padded_component_names(info, nadd):
             labels += [f"{prefix}{nscalars + i}" for i in range(nadd)]
         new_names += labels
     new_num = np.array(
-        [n + (nadd if v in SCALAR_LABELS else 0) for v, n in zip(var_names, num_components)],
+        [
+            n + (nadd if v in SCALAR_LABELS else 0)
+            for v, n in zip(var_names, num_components)
+        ],
         dtype=num_components.dtype,
     )
     return new_num, new_names
@@ -129,17 +133,22 @@ def main():
     if args.restart_in == args.restart_out:
         sys.exit("restart_out must differ from restart_in")
 
-    with h5py.File(args.restart_in, "r") as src, h5py.File(args.restart_out, "w-") as dst:
+    with h5py.File(args.restart_in, "r") as src, h5py.File(
+        args.restart_out, "w-"
+    ) as dst:
         if "cons" not in src:
             sys.exit(f"No 'cons' dataset in {args.restart_in}")
         copy_group(src, dst, args.nadd)
 
         info = dst["Info"]
         new_num, new_names = padded_component_names(info, args.nadd)
-        info.attrs.modify("NumComponents", new_num)
+        num_shape = info.attrs.get_id("NumComponents").shape
+        info.attrs.modify("NumComponents", new_num.reshape(num_shape))
         write_names_attr(info, "ComponentNames", new_names)
 
-    print(f"Wrote {args.restart_out}: restart it with hydro/nscalars increased by {args.nadd}")
+    print(
+        f"Wrote {args.restart_out}: restart it with hydro/nscalars increased by {args.nadd}"
+    )
 
 
 if __name__ == "__main__":
