@@ -823,6 +823,15 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
             tl.AddTask(fill, Tracers::ProblemFillTracers, mu0.get(), tm, integrator->dt);
       }
     }
+
+    // After the fill, so absorbed tracers keep this cycle's samples
+    if (tracers_pkg->Param<bool>("absorb_into_stars")) {
+      TaskRegion &absorb_region = tc.AddRegion(blocks.size());
+      for (int n = 0; n < blocks.size(); n++) {
+        absorb_region[n].AddTask(none, Tracers::AbsorbTracers,
+                                 blocks[n]->meshblock_data.Get("base").get(), tm);
+      }
+    }
   }
 
   if (stage == integrator->nstages && pmesh->adaptive) {

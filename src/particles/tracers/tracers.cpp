@@ -60,10 +60,11 @@ namespace LCInterp = parthenon::interpolation::cent::linear;
 namespace {
 // One TracerRoll tag per random decision of the Monte Carlo and Ito schemes, so that
 // a tracer's draws within a cycle are independent of each other.
-constexpr uint64_t kRollHop = 1;   // leave the cell or stay
-constexpr uint64_t kRollFace = 2;  // through which face
-constexpr uint64_t kRollChild = 3; // CenterTracers: which child cell
-constexpr uint64_t kRollIto = 4;   // Ito kick along x1; x2 and x3 use 5 and 6
+constexpr uint64_t kRollHop = 1;    // leave the cell or stay
+constexpr uint64_t kRollFace = 2;   // through which face
+constexpr uint64_t kRollChild = 3;  // CenterTracers: which child cell
+constexpr uint64_t kRollIto = 4;    // Ito kick along x1; x2 and x3 use 5 and 6
+constexpr uint64_t kRollAbsorb = 7; // AbsorbTracers: join the star formed in the cell
 
 // Per-step mean displacement (components 0..ndim-1), its variance (ndim..2ndim-1) and,
 // for Ito-3, its third central moment (2ndim..3ndim-1)
@@ -260,6 +261,22 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         std::vector<int>({ito_order * ndim}));
     tracers_pkg->AddField(ito_moments, m);
   }
+
+  // Optionally, a tracer in a cell forming a star joins it with the probability the
+  // star takes of the cell's gas (stars/sf_mass_efficiency), see AbsorbTracers
+  const bool absorb = pin->GetOrAddBoolean("tracers", "absorb_into_stars", false);
+  tracers_pkg->AddParam<>("absorb_into_stars", absorb);
+  if (absorb) {
+    PARTHENON_REQUIRE_THROWS(pin->DoesParameterExist("stars", "enabled") &&
+                                 pin->GetBoolean("stars", "enabled"),
+                             "tracers/absorb_into_stars requires stars/enabled=true.");
+    // False when restarting a run without absorption (see MarkTracersUnabsorbed)
+    tracers_pkg->AddParam<>("absorption_initialized", false, Params::Mutability::Restart);
+    m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+                 std::vector<int>({4}));
+    tracers_pkg->AddField(ParticlesUtils::kStarFormationEvents, m);
+  }
+
   // Offsets for the tracer's ids
   const int tracers_n_populations = static_cast<int>(swarm_names.size());
   PARTHENON_REQUIRE(tracers_n_populations > 0,
@@ -475,10 +492,21 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // =====================================================================
     Metadata swarm_metadata({Metadata::Provides, Metadata::None, Metadata::Restart});
     tracers_pkg->AddSwarm(swarm_name, swarm_metadata);
-    Metadata real_swarmvalue_metadata({Metadata::Real});
+    // Absorbed tracers keep the values sampled when they were absorbed, so these must
+    // survive restarts then (otherwise FillTracers refills them every cycle)
+    Metadata real_swarmvalue_metadata =
+        absorb ? Metadata({Metadata::Real, Metadata::Restart})
+               : Metadata({Metadata::Real});
 
     // Keep a canonical registration order so input-list ordering cannot alter the
     // swarm pool layout.
+    if (absorb) {
+      // Absorption time (-1 if not absorbed) and the absorbing star's ID
+      tracers_pkg->AddSwarmValue("absorption_time", swarm_name,
+                                 Metadata({Metadata::Real, Metadata::Restart}));
+      tracers_pkg->AddSwarmValue("star_id", swarm_name,
+                                 Metadata({Metadata::UInt64, Metadata::Restart}));
+    }
     if (ContainsField(fields, "injection_time")) {
       tracers_pkg->AddSwarmValue("injection_time", swarm_name,
                                  Metadata({Metadata::Real, Metadata::Restart}));
@@ -499,7 +527,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     tracers_pkg->AddSwarmValue("vel_z", swarm_name, real_swarmvalue_metadata);
 
     if (ContainsField(fields, "level")) {
-      tracers_pkg->AddSwarmValue("level", swarm_name, Metadata({Metadata::Integer}));
+      tracers_pkg->AddSwarmValue("level", swarm_name,
+                                 absorb ? Metadata({Metadata::Integer, Metadata::Restart})
+                                        : Metadata({Metadata::Integer}));
     }
     for (const auto *field : {"div_v", "rot_v"}) {
       if (ContainsField(fields, field))
@@ -535,6 +565,30 @@ SeedInitialTracers: setting up the initial distribution of tracers in each pop. 
 tracers can now be dynamically injected, it might worth lifting the non zero tracer
 condition.
 =============================================================================== */
+
+namespace {
+// Marks every tracer as not absorbed into a star, once: after the initial seeding, or
+// on restarting a run that didn't absorb tracers (its dumps lack absorption_time)
+void MarkTracersUnabsorbed(Mesh *pmesh) {
+  auto tracers_pkg = pmesh->packages.Get("tracers");
+  if (!tracers_pkg->Param<bool>("absorb_into_stars") ||
+      tracers_pkg->Param<bool>("absorption_initialized")) {
+    return;
+  }
+  for (auto &pmb : pmesh->block_list) {
+    auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+    for (const auto &swarm_name :
+         tracers_pkg->Param<std::vector<std::string>>("swarm_names")) {
+      auto &swarm = sd->Get(swarm_name);
+      auto &t_abs = swarm->Get<Real>("absorption_time").Get();
+      pmb->par_for(
+          "MarkTracersUnabsorbed", 0, swarm->GetMaxActiveIndex(),
+          KOKKOS_LAMBDA(const int n) { t_abs(n) = -1.0; });
+    }
+  }
+  tracers_pkg->UpdateParam<bool>("absorption_initialized", true);
+}
+} // namespace
 
 void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm) {
 
@@ -576,7 +630,10 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
     }
   }
 
-  if (initial_seed_done) return;
+  if (initial_seed_done) {
+    MarkTracersUnabsorbed(pmesh);
+    return;
+  }
 
   // Reserve each block's private ID slice up front, regardless of
   // initial_seed_method -- otherwise a block whose seeding skips this (seed_method
@@ -601,6 +658,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
     // Nothing to seed, but the ID reservation above must not rerun on a restart:
     // it would rewind the restored offsets and reuse the IDs injected so far
     tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
+    MarkTracersUnabsorbed(pmesh);
     return;
   } else if (seed_method == "user") {
     ProblemSeedInitialTracers(pmesh, pin, tm);
@@ -745,6 +803,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   }
 
   // Now that the tracers are seeded, fill their initial values
+  MarkTracersUnabsorbed(pmesh);
   const int num_partitions = pmesh->DefaultNumPartitions();
   // TODO(pgrete) Fix/cleanup once we got swarm packs.
   // We need just a single region with a single task in order to be able to use plain
@@ -948,6 +1007,10 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     auto &vel_x = swarm->Get<Real>("vel_x").Get();
     auto &vel_y = swarm->Get<Real>("vel_y").Get();
     auto &vel_z = swarm->Get<Real>("vel_z").Get();
+    // Tracers absorbed into a star stay where they were absorbed
+    const bool absorb = swarm->Contains<Real>("absorption_time");
+    auto t_abs = x.Get();
+    if (absorb) t_abs = swarm->Get<Real>("absorption_time").Get();
 
     auto swarm_d = swarm->GetDeviceContext();
 
@@ -956,6 +1019,7 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     pmb->par_for(
         "AdvectTracers::PartLoop", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
           if (swarm_d.IsActive(n)) {
+            if (absorb && t_abs(n) >= 0.0) return;
 
             // RK2/Heun's method (as the default in Flash)
             // https://flash.rochester.edu/site/flashcode/user_support/flash4_ug_4p62/node130.html#SECTION06813000000000000000
@@ -1142,6 +1206,9 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
     auto &level = swarm->Get<int>("level").Get();
     auto &coords = pmb->coords;
+    const bool absorb = swarm->Contains<Real>("absorption_time");
+    auto t_abs = x.Get();
+    if (absorb) t_abs = swarm->Get<Real>("absorption_time").Get();
 
     // Swarm device context
     auto swarm_d = swarm->GetDeviceContext();
@@ -1151,6 +1218,7 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
     pmb->par_for(
         "CenterTracers::PartLoop", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
           if (swarm_d.IsActive(n)) {
+            if (absorb && t_abs(n) >= 0.0) return;
 
             // Recentering only if level has changed
             const int particle_level = level(n);
@@ -1222,6 +1290,54 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
   return TaskStatus::complete;
 } // CenterTracers
+
+/* ===============================================================================
+AbsorbTracers: a tracer in a cell that formed a star this cycle joins it with the
+fraction of the cell's gas the star took, so absorbed tracers sample the star's mass
+like the others sample the gas. It records the time (the star's injection time) and
+the star's ID, and is no longer moved or filled.
+=============================================================================== */
+TaskStatus AbsorbTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
+  auto *pmb = mbd->GetParentPointer();
+  auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+  auto tracers_pkg = pmb->packages.Get("tracers");
+  auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
+  auto events =
+      mbd->PackVariables(std::vector<std::string>{ParticlesUtils::kStarFormationEvents});
+  const Real time = tm.time;
+  const auto ncycle = tm.ncycle;
+
+  for (std::size_t k_population = 0; k_population < swarm_names.size(); ++k_population) {
+    auto &swarm = sd->Get(swarm_names[k_population]);
+    const auto rng_seed =
+        tracers_pkg->Param<int>(swarm_names[k_population] + "_rng_seed");
+    auto &x = swarm->Get<Real>(swarm_position::x::name()).Get();
+    auto &y = swarm->Get<Real>(swarm_position::y::name()).Get();
+    auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
+    auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
+    auto &t_abs = swarm->Get<Real>("absorption_time").Get();
+    auto &star_id = swarm->Get<std::uint64_t>("star_id").Get();
+    auto swarm_d = swarm->GetDeviceContext();
+
+    pmb->par_for(
+        "AbsorbTracers::PartLoop", 0, swarm->GetMaxActiveIndex(),
+        KOKKOS_LAMBDA(const int n) {
+          if (!swarm_d.IsActive(n) || t_abs(n) >= 0.0) return;
+          int k, j, i;
+          swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+          // Only cells that formed a star this cycle hold an event of this time
+          if (events(3, k, j, i) != time ||
+              TracerRoll(rng_seed, k_population, id(n), ncycle, kRollAbsorb) >=
+                  events(0, k, j, i)) {
+            return;
+          }
+          t_abs(n) = time;
+          star_id(n) = (static_cast<std::uint64_t>(events(1, k, j, i)) << 32) |
+                       static_cast<std::uint64_t>(events(2, k, j, i));
+        });
+  }
+  return TaskStatus::complete;
+} // AbsorbTracers
 
 /* ===============================================================================
 FillTracers: sample primitive quantities at tracer positions for vinterp and Ito
@@ -1339,6 +1455,10 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
       auto &rho = swarm->Get<Real>("rho").Get();
       auto &pressure = swarm->Get<Real>("pressure").Get();
+      // Absorbed tracers keep the values sampled in the cycle they were absorbed
+      const bool absorb = swarm->Contains<Real>("absorption_time");
+      auto t_abs = vel_x.Get();
+      if (absorb) t_abs = swarm->Get<Real>("absorption_time").Get();
 
       auto swarm_d = swarm->GetDeviceContext();
 
@@ -1347,6 +1467,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
       pmb->par_for(
           "FillTracers::PartLoop", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
             if (swarm_d.IsActive(n)) {
+              if (absorb && t_abs(n) >= 0.0) return;
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 

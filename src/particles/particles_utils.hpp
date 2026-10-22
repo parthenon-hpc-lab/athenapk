@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <string>
 
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
@@ -46,6 +47,11 @@ namespace ParticlesUtils {
 // refinement, see Stars::Initialize). IDs are then labels only.
 inline constexpr std::uint64_t kDummyParticleId =
     std::numeric_limits<std::uint64_t>::max();
+
+// Per-cell record of the last star formed, for tracers/absorb_into_stars: the
+// fraction of the cell's gas it took, its ID as two exact 32-bit halves (high,
+// low) and its injection time
+inline const std::string kStarFormationEvents = "star_formation_events";
 
 /* ===================================================================================
 The injection routine requires to first loop on the cells to calculate the size of

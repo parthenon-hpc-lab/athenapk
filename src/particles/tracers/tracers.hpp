@@ -162,6 +162,7 @@ std::shared_ptr<MeshData<Real>> &HydroExchangeData(std::shared_ptr<MeshData<Real
 std::shared_ptr<MeshData<Real>> &ItoExchangeData(std::shared_ptr<MeshData<Real>> &md);
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
+TaskStatus AbsorbTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm);
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm);
 using FillTracersFun_t = std::function<TaskStatus(
     MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)>;

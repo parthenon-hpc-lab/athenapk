@@ -314,13 +314,25 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
     auto birth_x = x.Get();
     auto birth_y = x.Get();
     auto birth_z = x.Get();
+    // Star formation events, for tracers absorbed into stars (see AbsorbTracers)
+    const bool record_events =
+        particles_type == ParticlesType::Stars && mbd->HasVariable(kStarFormationEvents);
+    auto events = parthenon::VariablePack<Real>{};
     if (particles_type == ParticlesType::Stars) {
       pmass = swarm->Get<Real>("mass").Get();
       pmass0 = swarm->Get<Real>("birth_mass").Get();
       birth_x = swarm->Get<Real>("birth_x").Get();
       birth_y = swarm->Get<Real>("birth_y").Get();
       birth_z = swarm->Get<Real>("birth_z").Get();
+      if (record_events) {
+        events = mbd->PackVariables(std::vector<std::string>{kStarFormationEvents});
+      }
     }
+    // Tracers start unabsorbed (a reused swarm slot keeps its last value otherwise)
+    const bool track_absorption = particles_type == ParticlesType::Tracers &&
+                                  swarm->Contains<Real>("absorption_time");
+    auto t_abs = x.Get();
+    if (track_absorption) t_abs = swarm->Get<Real>("absorption_time").Get();
 
     std::uint64_t block_offset = DecodeOffset(host_off(k_population));
 
@@ -404,7 +416,16 @@ TaskStatus InjectParticles(MeshBlockData<Real> *mbd, parthenon::SimTime &tm,
               birth_x(swarm_idx) = x_cell;
               birth_y(swarm_idx) = y_cell;
               birth_z(swarm_idx) = z_cell;
+              // At most one star per cell and cycle, so no other thread writes here
+              if (record_events) {
+                const std::uint64_t star_id = id(swarm_idx);
+                events(0, k, j, i) = mass_efficiency;
+                events(1, k, j, i) = static_cast<Real>(star_id >> 32);
+                events(2, k, j, i) = static_cast<Real>(star_id & 0xffffffffULL);
+                events(3, k, j, i) = current_time;
+              }
             } else {
+              if (track_absorption) t_abs(swarm_idx) = -1.0;
               // Cell-centered sample, exact since the particle sits at (i, j, k)'s
               // center; matches FillTracers' non-interpolated (Monte Carlo) branch.
               vel_x(swarm_idx) = prim(IV1, k, j, i);

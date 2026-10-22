@@ -402,6 +402,32 @@ give the same values.
 
 ---
 
+##### Absorption into Stars
+
+With star formation enabled (`<stars>`), tracers can follow the gas into stars:
+
+```ini
+absorb_into_stars = false   # default
+```
+
+When a cell forms a star, each tracer in it joins the star with probability
+`stars/sf_mass_efficiency`, the fraction of the cell's gas the star takes, so that
+absorbed tracers sample the stellar mass as the others sample the gas (statistically,
+and only as well as the tracers follow the gas mass: well for `montecarlo` and `ito`,
+not for `vinterp`). Each tracer gets two more
+fields: `absorption_time`, the star's injection time (`-1` while not absorbed), and
+`star_id`, the star's ID (the dummy ID `2^64 - 1` when stars have no unique IDs; the
+star's `birth_x`, `birth_y`, `birth_z` and `injection_time` then identify it).
+Absorbed tracers stay in the swarm but no longer move, and keep the values sampled in
+the cycle they were absorbed (i.e. in the cell's remaining gas, right after the star
+formed), so a tracer's history before `absorption_time` can be compared between
+absorbed and unabsorbed tracers. These sampled values then go to restart files too.
+Lifetime removal (`SWARM_NAME_removal_enabled`) still applies to absorbed tracers.
+The draws are keyed on the tracer, like the Monte Carlo ones. A run without absorption
+can be restarted with it: its tracers start unabsorbed.
+
+---
+
 ##### Swarm Populations
 
 Multiple tracer populations (swarms) can be defined and configured independently:
