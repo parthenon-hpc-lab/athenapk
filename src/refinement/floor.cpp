@@ -91,9 +91,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       return bmin < rmax && bmax > rmin;
     };
 
-    // Same frame as Mesh::DoStaticRefinement ("lrlev = ref_lev +
-    // GetLegacyTreeRootLevel()"), which pmb->loc.level() is compared against below.
-    const int root_level = pmb->pmy_mesh->GetLegacyTreeRootLevel();
+    // pmb->loc is a forest location, whose physical level is loc.level() - root_level
+    // (not GetLegacyTreeRootLevel(), which adds forest_level, e.g. 3 for 8x8 roots).
+    const int root_level = pmb->pmy_mesh->GetRootLevel();
 
     int required_level = -1; // no overlapping floor region found (yet)
     for (const auto &region : regions) {
