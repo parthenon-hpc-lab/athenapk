@@ -346,22 +346,59 @@ enabled = true
 Specify the method for advecting tracers:
 
 ```ini
-advection_method = vinterp   # options: vinterp (default), montecarlo
+advection_method = vinterp   # options: vinterp (default), montecarlo, ito
 ```
 
-`montecarlo` requires the `vl2` integrator (see `tracers.cpp`).
+- `vinterp`: tracers move with the gas velocity interpolated to their position
+  (Heun's method). Trajectories are continuous, but the tracer distribution can
+  decorrelate from the gas distribution (e.g. Genel et al. 2013).
+- `montecarlo`: tracers jump between neighboring cells with probabilities set by the
+  mass fluxes ([Cadiou et al. 2019](https://arxiv.org/abs/1810.11401)). The tracer
+  distribution follows the gas statistically, but trajectories are discontinuous.
+- `ito`: the CIC Itô-2 tracers of
+  [Moseley et al. 2026](https://arxiv.org/abs/2604.23041), ported from RAMSES.
+  Each step, a tracer moves by the mean displacement of a Monte Carlo jump plus a
+  uniform random kick with the variance of that jump, both linearly interpolated
+  to its position. Trajectories are continuous and the gas distribution is followed
+  about as well as with `montecarlo`. With `ito_order = 3` (default 2), the kick also
+  matches the jump's skewness (the paper's Itô-3, piecewise skew uniform kick); this
+  adds `ndim` moment fields to the exchange.
 
-With `vinterp`, density, pressure, velocity, magnetic field, and the optional
-passive-scalar fraction are linearly interpolated to each tracer's position.
-The stored velocity is also used in the next tracer integration step.
+`montecarlo` and `ito` work with the `rk1`, `rk2`, `rk3` and `vl2` integrators: they
+use the mass each face exchanged over the whole step, i.e. the stage fluxes combined as
+in the conserved update (see `AccumulateMassFluxes` in `tracers.cpp`).
+`montecarlo` does not support adaptive mesh refinement yet; `ito` runs with it but
+has not been tested with it.
+
+`ito` adds one ghost-cell exchange per step for its `2 * ndim` moment fields,
+separate from the hydro exchanges. At physical boundaries these fields are always
+extrapolated with zero gradient, whatever the hydro boundary condition.
+Like the Monte Carlo draws, the random kicks are keyed on the tracer, so they do not
+depend on the domain decomposition.
+
+With `vinterp` and `ito`, density, pressure, velocity, magnetic field, and the
+optional passive-scalar fraction are linearly interpolated to each tracer's
+position. For `vinterp`, the stored velocity is also used in the next tracer
+integration step.
 With `montecarlo`, these quantities are sampled at the host-cell center.
 
-For both methods, derivative diagnostics (pressure gradients, divergence,
-vorticity, magnetic curl, magnetic tension, and the gradient of magnetic-field
-strength squared) are evaluated at the host-cell center without interpolation.
-This avoids the larger stencil needed to interpolate those diagnostics, but their
-values can jump when a tracer crosses a cell boundary. In particular, magnetic
-tension uses the host-cell magnetic field and its cell-centered derivatives.
+Derivative diagnostics (pressure gradients, divergence, vorticity, magnetic curl,
+magnetic tension, and the gradient of magnetic-field strength squared) are central
+differences at cell centers, sampled according to
+
+```ini
+derivatives_at = cell   # options: cell (default), particle
+```
+
+With `cell`, they are taken at the host-cell center for all methods, so their values
+can jump when a tracer crosses a cell boundary; magnetic tension then uses the
+host-cell magnetic field and its cell-centered derivatives. With `particle`, each
+diagnostic is computed at the cell centers around the tracer and linearly
+interpolated to its position, with the same weights as the primitive variables (the
+vorticity is interpolated as a vector before taking its magnitude). This needs no
+extra communication: it uses the second ghost layer, which every reconstruction
+already requires. For `montecarlo`, whose tracers sit at cell centers, both options
+give the same values.
 
 ---
 

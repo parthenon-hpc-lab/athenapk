@@ -74,6 +74,18 @@ setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/ath
   setup_test_serial("cluster_tracers" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hydro_agn_feedback_tracers.in --num_steps 2" "regression")
 
+  # Same run with RKL2 conduction (serial for the same injection reason)
+  setup_test_serial("cluster_tracers_rkl2" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hydro_agn_feedback_tracers.in --num_steps 2" "regression")
+
+  # Exact check without reference data, so also run decomposed over MPI ranks
+  setup_test_both("tracer_mass_fluxes" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/kh-shear-lecoanet_2d.in --num_steps 2" "regression")
+
+  # Same run as cluster_tracers with Ito tracers (serial for the same injection reason)
+  setup_test_serial("cluster_ito_tracers" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hydro_agn_feedback_tracers.in --num_steps 2" "regression")
+
   # Serial-only for now. The 2-rank crashes at cycle 0 an earlier note reported here
   # for every swarm setup (an MPI send-request assertion in bvals.cpp, a
   # std::out_of_range in a neighbor/rank map) no longer reproduce: particle_advection

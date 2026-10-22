@@ -15,6 +15,9 @@ sys.dont_write_bytecode = True
 
 
 class TestCase(utils.test_case.TestCaseAbs):
+    # Overridden by variants of this test (cluster_tracers_rkl2, cluster_ito_tracers)
+    extra_args = []
+    position_atol = 1e-12
 
     def __init__(self):
         self.steps = 2
@@ -24,7 +27,9 @@ class TestCase(utils.test_case.TestCaseAbs):
         # t = 0.1 dump of step 1: it must keep the restored per-block ID offsets
         # (seed method "none" used to reset them, reusing IDs) and reproduce the
         # uninterrupted run, as the Monte Carlo draws are keyed on the tracer.
-        parameters.driver_cmd_line_args = ["tracers/initial_seed_method=none"]
+        parameters.driver_cmd_line_args = [
+            "tracers/initial_seed_method=none"
+        ] + self.extra_args
         if step == 2:
             parameters.driver_cmd_line_args += [
                 "parthenon/output0/id=cont",
@@ -111,8 +116,9 @@ class TestCase(utils.test_case.TestCaseAbs):
                 if var in exact_vars:
                     matches = np.array_equal(var_data[order], ref_data[var])
                 elif var in tight_vars:
+                    atol = self.position_atol if var.startswith("swarm.") else 1e-12
                     matches = np.allclose(
-                        var_data[order], ref_data[var], rtol=0.0, atol=1e-12
+                        var_data[order], ref_data[var], rtol=0.0, atol=atol
                     )
                 else:
                     matches = np.allclose(

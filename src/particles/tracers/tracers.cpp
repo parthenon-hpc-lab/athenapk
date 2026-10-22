@@ -33,6 +33,7 @@
 
 // Parthenon headers
 #include "basic_types.hpp"
+#include "bvals/boundary_conditions.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
 #include "parthenon_array_generic.hpp"
@@ -57,11 +58,34 @@ using utils::custom_rng::TracerRoll;
 namespace LCInterp = parthenon::interpolation::cent::linear;
 
 namespace {
-// One TracerRoll tag per random decision of the Monte Carlo scheme, so that a
-// tracer's draws within a cycle are independent of each other.
+// One TracerRoll tag per random decision of the Monte Carlo and Ito schemes, so that
+// a tracer's draws within a cycle are independent of each other.
 constexpr uint64_t kRollHop = 1;   // leave the cell or stay
 constexpr uint64_t kRollFace = 2;  // through which face
 constexpr uint64_t kRollChild = 3; // CenterTracers: which child cell
+constexpr uint64_t kRollIto = 4;   // Ito kick along x1; x2 and x3 use 5 and 6
+
+// Per-step mean displacement (components 0..ndim-1), its variance (ndim..2ndim-1) and,
+// for Ito-3, its third central moment (2ndim..3ndim-1)
+const std::string ito_moments = "ito_moments";
+
+// Zero-mean, unit-variance piecewise skew uniform draw with skewness gamma from a
+// uniform r in [0,1) (Moseley et al. 2026, Eqs. 38-39): uniform on [-a_m, 0] and
+// [0, a_p]. Built for gamma >= 0, where the short left piece's probability is well
+// conditioned, and mirrored for gamma < 0.
+KOKKOS_INLINE_FUNCTION Real PiecewiseSkewUniform(const Real gamma, const Real r) {
+  const Real g = fabs(gamma);
+  const Real u = (gamma < 0.0) ? 1.0 - r : r;
+  const Real s = std::sqrt(27.0 + 4.0 * g * g);
+  const Real a_m = (s - 2.0 * g) / 3.0;
+  const Real a_p = (s + 2.0 * g) / 3.0;
+  const Real b_m =
+      (0.5 * (27.0 + 8.0 * g * g) / (27.0 + 4.0 * g * g) * s + 2.0 * g) / 9.0;
+  const Real p_m = fmin(a_m * b_m, 1.0);
+  const Real x = (u < p_m) ? -a_m * (1.0 - u / p_m)
+                           : ((p_m < 1.0) ? a_p * (u - p_m) / (1.0 - p_m) : 0.0);
+  return (gamma < 0.0) ? -x : x;
+}
 
 const std::vector<std::string> optional_swarm_fields{
     "injection_time",  "lifetime",       "grad_pressure_x", "grad_pressure_y",
@@ -145,6 +169,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       advection_method = AdvectMethod::VInterp;
     } else if (advection_method_str == "montecarlo") {
       advection_method = AdvectMethod::MonteCarlo;
+    } else if (advection_method_str == "ito") {
+      advection_method = AdvectMethod::Ito;
     } else {
       PARTHENON_FAIL("Invalid advection_method: " + advection_method_str);
     }
@@ -157,6 +183,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   if (!enabled) return tracers_pkg;
 
   const auto integrator_str = pin->GetString("parthenon/time", "integrator");
+
+  // Where FillTracers evaluates derivative diagnostics (see TracerDerivatives)
+  const auto derivatives_at = pin->GetOrAddString(
+      "tracers", "derivatives_at", "cell", std::vector<std::string>{"cell", "particle"},
+      "derivative diagnostics at the host-cell center or interpolated to the tracer");
+  tracers_pkg->AddParam<>("derivatives_at_particle", derivatives_at == "particle");
 
   // Setting up useful fields (cell mass for Monte Carlo, IDs offsets),
   // also checking the integrator choice in case of Monte Carlo advection
@@ -175,13 +207,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       refinement != "none" || pin->GetOrAddBoolean("parthenon/mesh", "multigrid", false,
                                                    "enable a multigrid mesh");
 
-  // AdvectTracers pairs the last stage's fluxes (scaled by the full dt) with the
-  // M_cell mass reference filled once at stage 1 (see FillTracerMCell in
-  // hydro.cpp) -- only vl2's 2-stage structure makes that combination correct.
+  // Both flux-based methods move tracers by the mass each face exchanged over the step,
+  // i.e. the stage fluxes combined as in the conserved update (see AccumulateMassFluxes),
+  // relative to the M_cell mass reference filled once at stage 1 (see FillTracerMCell
+  // in hydro.cpp). That combination assumes the second register holds U^n all step.
+  const bool flux_based = advection_method == AdvectMethod::MonteCarlo ||
+                          advection_method == AdvectMethod::Ito;
+  if (flux_based) {
+    PARTHENON_REQUIRE(integrator_str == "rk1" || integrator_str == "rk2" ||
+                          integrator_str == "rk3" || integrator_str == "vl2",
+                      "Monte Carlo and Ito tracer advection support the rk1, rk2, rk3 "
+                      "and vl2 integrators.");
+  }
   if (advection_method == AdvectMethod::MonteCarlo) {
-    PARTHENON_REQUIRE(integrator_str == "vl2",
-                      "Provided tracer parameters only support vl2 integrator.");
-
     // Not validated with adaptive refinement: no test covers it, and after a remesh
     // the tracers of a newly refined block sit on a corner of their child cells until
     // CenterTracers runs, i.e. until after their next Monte Carlo step.
@@ -193,12 +231,34 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
 
   Metadata m;
-  if (advection_method == AdvectMethod::MonteCarlo) {
-    // For Monte Carlo, need to save a copy of the mass of each cell before its
-    // value is updated by the fluxes (c.f. hydro.cpp)
+  if (flux_based) {
+    // Need to save a copy of the mass of each cell before its value is updated by
+    // the fluxes (c.f. hydro.cpp)
     m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
                  std::vector<int>({1}));
     tracers_pkg->AddField("M_cell", m); // cell mass
+    // ... and the step's mass flux through each cell's lower x1, x2 and x3 faces (the
+    // last cells' upper faces are stored in the first ghost layer)
+    m = Metadata({Metadata::Cell, Metadata::Derived, Metadata::OneCopy},
+                 std::vector<int>({3}));
+    tracers_pkg->AddField("step_mass_flux", m);
+  }
+  if (advection_method == AdvectMethod::Ito) {
+    // The CIC stencil reaches one cell past the block, so the moments need ghosts.
+    // They get their own exchange, outside hydro's (c.f. HydroExchangeData).
+    const int nx2 = pin->GetInteger("parthenon/mesh", "nx2");
+    const int nx3 = pin->GetInteger("parthenon/mesh", "nx3");
+    const int ndim = (nx3 > 1) ? 3 : ((nx2 > 1) ? 2 : 1);
+    // Number of matched moments: 2 (mean, variance; uniform kick) or 3 (also the
+    // third central moment; piecewise skew uniform kick), i.e. Ito-2 or Ito-3
+    const int ito_order = pin->GetOrAddInteger("tracers", "ito_order", 2);
+    PARTHENON_REQUIRE_THROWS(ito_order == 2 || ito_order == 3,
+                             "tracers/ito_order must be 2 or 3.");
+    tracers_pkg->AddParam<>("ito_order", ito_order);
+    m = Metadata(
+        {Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::FillGhost},
+        std::vector<int>({ito_order * ndim}));
+    tracers_pkg->AddField(ito_moments, m);
   }
   // Offsets for the tracer's ids
   const int tracers_n_populations = static_cast<int>(swarm_names.size());
@@ -700,9 +760,145 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 }
 
 /* ===============================================================================
+AccumulateMassFluxes: runs after each stage's flux correction and combines the stage
+mass fluxes with the same recursion as the conserved update, u0 = gam0 u0 + gam1 u1 +
+beta dt L, so after the last stage it holds the step's effective mass flux (e.g. F2
+for vl2, (F1 + F2)/2 for rk2). gam0 = 0 at every integrator's first stage, so the
+previous step's values are overwritten rather than scaled.
+=============================================================================== */
+TaskStatus AccumulateMassFluxes(MeshData<Real> *md, const Real gam0, const Real beta) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  const auto &cons_pack = md->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
+  auto Mflux_pack = md->PackVariables(std::vector<std::string>{"step_mass_flux"});
+  const int ndim = pmb->pmy_mesh->ndim;
+
+  // One loop per direction over its faces, i.e. one more along that direction
+  for (int d = 0; d < ndim; ++d) {
+    const int di = (d == 0), dj = (d == 1), dk = (d == 2);
+    parthenon::par_for(
+        DEFAULT_LOOP_PATTERN, "AccumulateMassFluxes", parthenon::DevExecSpace(), 0,
+        cons_pack.GetDim(5) - 1, kb.s, kb.e + dk, jb.s, jb.e + dj, ib.s, ib.e + di,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const Real flux = cons_pack(b).flux(X1DIR + d, IDN, k, j, i);
+          Real &acc = Mflux_pack(b, d, k, j, i);
+          acc = (gam0 == 0.0) ? beta * flux : gam0 * acc + beta * flux;
+        });
+  }
+  return TaskStatus::complete;
+}
+
+/* ===============================================================================
+ComputeItoMoments: per cell and axis, mean and variance of the displacement a Monte
+Carlo hop would make this step, from the outflow fractions p+ and p- through the two
+faces: mean = (p+ - p-) dx and variance = (p+ + p- - (p+ - p-)^2) dx^2, plus for
+Ito-3 the third central moment C- (1 - 3 C+ + 2 C-^2) dx^3 (C+- = p+ +- p-). Uses the
+step's mass fluxes (see AccumulateMassFluxes), i.e. those that updated the gas.
+=============================================================================== */
+TaskStatus ComputeItoMoments(MeshData<Real> *md, parthenon::SimTime &tm) {
+  auto pmb = md->GetBlockData(0)->GetBlockPointer();
+  IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
+  IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
+  IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
+
+  const auto &Mflux_pack = md->PackVariables(std::vector<std::string>{"step_mass_flux"});
+  const auto &Mcell_pack = md->PackVariables(std::vector<std::string>{"M_cell"});
+  auto moments_pack = md->PackVariables(std::vector<std::string>{ito_moments});
+  const int ndim = pmb->pmy_mesh->ndim;
+  const Real dt = tm.dt;
+  const bool third = pmb->packages.Get("tracers")->Param<int>("ito_order") == 3;
+
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "ComputeItoMoments", parthenon::DevExecSpace(), 0,
+      Mflux_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const auto &coords = Mflux_pack.GetCoords(b);
+        const Real Mi = Mcell_pack(b, 0, k, j, i);
+        const Real dx[3] = {coords.Dxc<1>(k, j, i), coords.Dxc<2>(k, j, i),
+                            coords.Dxc<3>(k, j, i)};
+        for (int d = 0; d < ndim; ++d) {
+          // Same face areas and outflow masses as the Monte Carlo hop
+          const Real area = dx[(d + 1) % 3] * dx[(d + 2) % 3];
+          const int di = (d == 0), dj = (d == 1), dk = (d == 2);
+          const Real dM_p =
+              fmax(Mflux_pack(b, d, k + dk, j + dj, i + di) * area * dt, 0.0);
+          const Real dM_m = fmax(-Mflux_pack(b, d, k, j, i) * area * dt, 0.0);
+          const Real p_p = (Mi > 0.0) ? dM_p / Mi : 0.0;
+          const Real p_m = (Mi > 0.0) ? dM_m / Mi : 0.0;
+          const Real mu = p_p - p_m;
+          moments_pack(b, d, k, j, i) = mu * dx[d];
+          moments_pack(b, ndim + d, k, j, i) =
+              fmax(p_p + p_m - mu * mu, 0.0) * dx[d] * dx[d];
+          if (third) {
+            moments_pack(b, 2 * ndim + d, k, j, i) =
+                mu * (1.0 - 3.0 * (p_p + p_m) + 2.0 * mu * mu) * dx[d] * dx[d] * dx[d];
+          }
+        }
+      });
+  return TaskStatus::complete;
+}
+
+/* ===============================================================================
+ApplyItoBoundaryConditions: zero-gradient ghosts for the Ito moments at every
+physical boundary, whatever the hydro boundary condition: problem-specific boundary
+functions only handle hydro fields, and a constant extrapolation keeps the CIC
+weights on the last interior cell.
+=============================================================================== */
+TaskStatus ApplyItoBoundaryConditions(std::shared_ptr<MeshData<Real>> &md, bool coarse) {
+  namespace bf = parthenon::BoundaryFunction;
+  using parthenon::BoundaryFlag;
+  using BndFun_t = void (*)(std::shared_ptr<MeshBlockData<Real>> &, bool);
+  const BndFun_t outflow[] = {bf::OutflowInnerX1, bf::OutflowOuterX1, bf::OutflowInnerX2,
+                              bf::OutflowOuterX2, bf::OutflowInnerX3, bf::OutflowOuterX3};
+  for (int b = 0; b < md->NumBlocks(); ++b) {
+    auto &rc = md->GetBlockData(b);
+    auto *pmb = rc->GetBlockPointer();
+    // Coarse buffers only need it next to a coarser neighbor (c.f. Parthenon's BCs)
+    if (coarse && !pmb->HasCoarserNeighbors()) continue;
+    for (int face = 0; face < 2 * pmb->pmy_mesh->ndim; ++face) {
+      const auto flag = pmb->boundary_flag[face];
+      if (flag != BoundaryFlag::block && flag != BoundaryFlag::undef &&
+          flag != BoundaryFlag::periodic) {
+        outflow[face](rc, coarse);
+      }
+    }
+  }
+  return TaskStatus::complete;
+}
+
+/* ===============================================================================
+HydroExchangeData / ItoExchangeData: with Ito tracers, their moments are exchanged
+once per step through their own container rather than riding along every exchange
+of "base" (each stage and each RKL2 substep), so hydro's exchanges use a shallow copy
+of "base" without them. Without Ito tracers, "base" itself is returned unchanged.
+=============================================================================== */
+std::shared_ptr<MeshData<Real>> &HydroExchangeData(std::shared_ptr<MeshData<Real>> &md) {
+  auto *pmesh = md->GetParentPointer();
+  const auto advection_method =
+      pmesh->packages.Get("tracers")->Param<AdvectMethod>("advection_method");
+  if (advection_method != AdvectMethod::Ito || md->NumBlocks() == 0) return md;
+
+  std::vector<std::string> names;
+  for (const auto &var : md->GetBlockData(0)->GetVariableVector()) {
+    if (var->label() != ito_moments) names.push_back(var->label());
+  }
+  return pmesh->mesh_data.AddShallow("tracers_hydro_exchange", md, names);
+}
+
+std::shared_ptr<MeshData<Real>> &ItoExchangeData(std::shared_ptr<MeshData<Real>> &md) {
+  return md->GetParentPointer()->mesh_data.AddShallow(
+      "tracers_ito_exchange", md, std::vector<std::string>{ito_moments});
+}
+
+/* ===============================================================================
 AdvectTracers: moves the tracers in each population for the current timestep.
-Two methods are implemented: velocity field interpolation, or a Monte Carlo
-scheme based on the mass fluxes exchanged between cells.
+Three methods are implemented: velocity field interpolation, a Monte Carlo
+scheme based on the mass fluxes exchanged between cells, or the CIC Ito-2 scheme
+(Moseley et al. 2026), a continuous random walk matching that Monte Carlo
+scheme's mean displacement and variance (c.f. ComputeItoMoments).
 =============================================================================== */
 
 TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
@@ -716,13 +912,21 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
   // Get meshblock data
-  const auto &cons_pack = mbd->PackVariablesAndFluxes(std::vector<std::string>{"cons"});
   const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
   const auto &coords = pmb->coords;
   // For Monte Carlo method (if needed)
   auto Mcell_pack = parthenon::VariablePack<parthenon::Real>{};
+  auto Mflux_pack = parthenon::VariablePack<parthenon::Real>{};
   if (advection_method == AdvectMethod::MonteCarlo) {
     Mcell_pack = mbd->PackVariables(std::vector<std::string>{"M_cell"});
+    Mflux_pack = mbd->PackVariables(std::vector<std::string>{"step_mass_flux"});
+  }
+  // For Ito method (if needed), with ghosts from this step's exchange
+  auto ito_pack = parthenon::VariablePack<parthenon::Real>{};
+  bool ito_third = false;
+  if (advection_method == AdvectMethod::Ito) {
+    ito_third = tracers_pkg->Param<int>("ito_order") == 3;
+    ito_pack = mbd->PackVariables(std::vector<std::string>{ito_moments});
   }
 
   auto dt = tm.dt;
@@ -797,20 +1001,18 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               const Real area_y = dx * dz;
               const Real area_z = dx * dy;
 
-              const Real dM_xp =
-                  fmax(cons_pack.flux(IV1, IDN, k, j, i + 1) * area_x * dt, 0.0);
-              const Real dM_xm =
-                  fmax(-cons_pack.flux(IV1, IDN, k, j, i) * area_x * dt, 0.0);
-              const Real dM_yp =
-                  fmax(cons_pack.flux(IV2, IDN, k, j + 1, i) * area_y * dt, 0.0);
-              const Real dM_ym =
-                  fmax(-cons_pack.flux(IV2, IDN, k, j, i) * area_y * dt, 0.0);
+              // The step's mass fluxes (see AccumulateMassFluxes): the flux arrays
+              // only hold the last stage, and a final RKL2 step resets them.
+              const Real dM_xp = fmax(Mflux_pack(0, k, j, i + 1) * area_x * dt, 0.0);
+              const Real dM_xm = fmax(-Mflux_pack(0, k, j, i) * area_x * dt, 0.0);
+              const Real dM_yp = fmax(Mflux_pack(1, k, j + 1, i) * area_y * dt, 0.0);
+              const Real dM_ym = fmax(-Mflux_pack(1, k, j, i) * area_y * dt, 0.0);
               // z-direction fluxes only exist in 3D; in 2D there is no k+/-1
               // neighbor to draw a face flux from.
               Real dM_zp = 0.0, dM_zm = 0.0;
               if (ndim == 3) {
-                dM_zp = fmax(cons_pack.flux(IV3, IDN, k + 1, j, i) * area_z * dt, 0.0);
-                dM_zm = fmax(-cons_pack.flux(IV3, IDN, k, j, i) * area_z * dt, 0.0);
+                dM_zp = fmax(Mflux_pack(2, k + 1, j, i) * area_z * dt, 0.0);
+                dM_zm = fmax(-Mflux_pack(2, k, j, i) * area_z * dt, 0.0);
               }
 
               // Total outgoing flux (Delta M)
@@ -865,6 +1067,33 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               x(n) = coords.Xc<1>(i_new);
               y(n) = coords.Xc<2>(j_new);
               z(n) = coords.Xc<3>(k_new);
+            } else if (advection_method == AdvectMethod::Ito) {
+              // Euler-Maruyama step: all moments are taken at the start position,
+              // and the kick is uniform with the interpolated variance (as in RAMSES).
+              Real step[3] = {0.0, 0.0, 0.0};
+              for (int d = 0; d < ndim; ++d) {
+                const Real mean = LCInterp::Do(0, x(n), y(n), z(n), ito_pack, d);
+                const Real var = LCInterp::Do(0, x(n), y(n), z(n), ito_pack, ndim + d);
+                const Real r = TracerRoll(rng_seed, k_population, id(n), ncycle,
+                                          kRollIto + static_cast<uint64_t>(d));
+                if (!ito_third) {
+                  step[d] = mean + std::sqrt(3.0 * fmax(var, 0.0)) * (2.0 * r - 1.0);
+                } else if (var > 0.0) {
+                  // Ito-3: skewness from the interpolated moments (interpolating
+                  // gamma itself would mix the ~C^-1/2 values of near-static cells)
+                  const Real m3 =
+                      LCInterp::Do(0, x(n), y(n), z(n), ito_pack, 2 * ndim + d);
+                  const Real sigma = std::sqrt(var);
+                  const Real gamma = m3 / (var * sigma);
+                  step[d] = mean + sigma * PiecewiseSkewUniform(
+                                               std::isfinite(gamma) ? gamma : 0.0, r);
+                } else {
+                  step[d] = mean;
+                }
+              }
+              x(n) += step[0];
+              y(n) += step[1];
+              z(n) += step[2];
             }
             // The following call is required as it updates the internal block id
             // following the advection. The internal id is used in the subsequent task to
@@ -995,9 +1224,9 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 } // CenterTracers
 
 /* ===============================================================================
-FillTracers: sample primitive quantities at tracer positions for vinterp and at
-host-cell centers for Monte Carlo. Derivative diagnostics use host-cell stencils
-for both methods.
+FillTracers: sample primitive quantities at tracer positions for vinterp and Ito
+(continuous positions) and at host-cell centers for Monte Carlo. Derivative
+diagnostics use host-cell stencils for all methods.
 =============================================================================== */
 TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
@@ -1006,8 +1235,11 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
-  const bool vinterp =
-      tracers_pkg->Param<AdvectMethod>("advection_method") == AdvectMethod::VInterp;
+  const auto advection_method = tracers_pkg->Param<AdvectMethod>("advection_method");
+  const bool interpolate =
+      advection_method == AdvectMethod::VInterp || advection_method == AdvectMethod::Ito;
+  const bool derivatives_at_particle =
+      tracers_pkg->Param<bool>("derivatives_at_particle");
 
   // Get hydro/mhd fluid vars over all blocks
   auto nhydro = hydro_pkg->Param<int>("nhydro");
@@ -1052,6 +1284,9 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
       const bool trace_div_v = swarm->Contains<Real>("div_v");
       const bool trace_rot_v = swarm->Contains<Real>("rot_v");
+      const bool trace_grad_pressure =
+          trace_grad_pressure_x || trace_grad_pressure_y || trace_grad_pressure_z;
+      const bool trace_velocity_derivatives = trace_div_v || trace_rot_v;
       auto div_v = vel_x.Get();
       auto rot_v = vel_x.Get();
       if (trace_div_v) div_v = swarm->Get<Real>("div_v").Get();
@@ -1125,7 +1360,8 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
 
               // VInterp's next Heun step uses these stored velocities, so they must
               // be sampled at the particle position, just like its predictor velocity.
-              if (vinterp) {
+              // Ito tracers have continuous positions too, so they are sampled alike.
+              if (interpolate) {
                 rho(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IDN);
                 vel_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV1);
                 vel_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV2);
@@ -1141,198 +1377,61 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                 pressure(n) = prim_pack(b, IPR, k, j, i);
               }
 
-              // Keep derivative diagnostics at the host-cell center for both methods
-              // to avoid interpolating quantities that already require a stencil.
-              if (trace_grad_pressure_x) {
-                grad_pressure_x(n) =
-                    (prim_pack(b, IPR, k, j, i + 1) - prim_pack(b, IPR, k, j, i - 1)) /
-                    (2.0 * dx);
-              }
-              if (trace_grad_pressure_y) {
-                grad_pressure_y(n) =
-                    (prim_pack(b, IPR, k, j + 1, i) - prim_pack(b, IPR, k, j - 1, i)) /
-                    (2.0 * dy);
-              }
-              if (trace_grad_pressure_z) {
-                grad_pressure_z(n) = (ndim == 3) ? (prim_pack(b, IPR, k + 1, j, i) -
-                                                    prim_pack(b, IPR, k - 1, j, i)) /
-                                                       (2.0 * dz)
-                                                 : 0.0;
-              }
-
               // Add passive scalar fraction if it exists
               if (trace_scalar_fraction) {
                 scalar_fraction(n) =
-                    vinterp ? LCInterp::Do(b, x(n), y(n), z(n), prim_pack, nhydro)
-                            : prim_pack(b, nhydro, k, j, i);
+                    interpolate ? LCInterp::Do(b, x(n), y(n), z(n), prim_pack, nhydro)
+                                : prim_pack(b, nhydro, k, j, i);
               }
 
               if (mhd) {
-                // Use cell-centered B in derivative diagnostics (including tension),
-                // even when the stored primitive B is interpolated to the particle.
-                const Real Bx = prim_pack(b, IB1, k, j, i);
-                const Real By = prim_pack(b, IB2, k, j, i);
-                // A 2D mesh only forbids z-derivatives, not an out-of-plane Bz.
-                const Real Bz = prim_pack(b, IB3, k, j, i);
-
-                if (vinterp) {
+                if (interpolate) {
                   B_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB1);
                   B_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB2);
                   B_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB3);
                 } else {
-                  B_x(n) = Bx;
-                  B_y(n) = By;
-                  B_z(n) = Bz;
-                }
-
-                if (trace_magnetic_diagnostics) {
-                  // Calculate gradients of magnetic field components
-                  const Real dBx_dx =
-                      (prim_pack(b, IB1, k, j, i + 1) - prim_pack(b, IB1, k, j, i - 1)) /
-                      (2.0 * dx);
-                  const Real dBx_dy =
-                      (prim_pack(b, IB1, k, j + 1, i) - prim_pack(b, IB1, k, j - 1, i)) /
-                      (2.0 * dy);
-                  const Real dBx_dz = (ndim == 3) ? (prim_pack(b, IB1, k + 1, j, i) -
-                                                     prim_pack(b, IB1, k - 1, j, i)) /
-                                                        (2.0 * dz)
-                                                  : 0.0;
-
-                  const Real dBy_dx =
-                      (prim_pack(b, IB2, k, j, i + 1) - prim_pack(b, IB2, k, j, i - 1)) /
-                      (2.0 * dx);
-                  const Real dBy_dy =
-                      (prim_pack(b, IB2, k, j + 1, i) - prim_pack(b, IB2, k, j - 1, i)) /
-                      (2.0 * dy);
-                  const Real dBy_dz = (ndim == 3) ? (prim_pack(b, IB2, k + 1, j, i) -
-                                                     prim_pack(b, IB2, k - 1, j, i)) /
-                                                        (2.0 * dz)
-                                                  : 0.0;
-
-                  // dBz_dx/dBz_dy are in-plane derivatives of Bz -- valid in 2D too,
-                  // unlike dBx_dz/dBy_dz/dBz_dz just above, which are real z-derivatives.
-                  const Real dBz_dx =
-                      (prim_pack(b, IB3, k, j, i + 1) - prim_pack(b, IB3, k, j, i - 1)) /
-                      (2.0 * dx);
-                  const Real dBz_dy =
-                      (prim_pack(b, IB3, k, j + 1, i) - prim_pack(b, IB3, k, j - 1, i)) /
-                      (2.0 * dy);
-                  const Real dBz_dz = (ndim == 3) ? (prim_pack(b, IB3, k + 1, j, i) -
-                                                     prim_pack(b, IB3, k - 1, j, i)) /
-                                                        (2.0 * dz)
-                                                  : 0.0;
-
-                  // Calculate curl(B) components
-                  const Real rotBx = dBz_dy - dBy_dz;
-                  const Real rotBy = dBx_dz - dBz_dx;
-                  const Real rotBz = dBy_dx - dBx_dy;
-
-                  if (trace_rot_B_x) rot_B_x(n) = rotBx;
-                  if (trace_rot_B_y) rot_B_y(n) = rotBy;
-                  if (trace_rot_B_z) rot_B_z(n) = rotBz;
-
-                  // Gradient of the squared magnetic-field magnitude. Bz contributes
-                  // to these in-plane derivatives in 2D too -- only dB2_dz (below)
-                  // is a real z-derivative and needs to stay zero there.
-                  const Real dB2_dx =
-                      ((prim_pack(b, IB1, k, j, i + 1) * prim_pack(b, IB1, k, j, i + 1) +
-                        prim_pack(b, IB2, k, j, i + 1) * prim_pack(b, IB2, k, j, i + 1) +
-                        prim_pack(b, IB3, k, j, i + 1) * prim_pack(b, IB3, k, j, i + 1)) -
-                       (prim_pack(b, IB1, k, j, i - 1) * prim_pack(b, IB1, k, j, i - 1) +
-                        prim_pack(b, IB2, k, j, i - 1) * prim_pack(b, IB2, k, j, i - 1) +
-                        prim_pack(b, IB3, k, j, i - 1) *
-                            prim_pack(b, IB3, k, j, i - 1))) /
-                      (2.0 * dx);
-
-                  const Real dB2_dy =
-                      ((prim_pack(b, IB1, k, j + 1, i) * prim_pack(b, IB1, k, j + 1, i) +
-                        prim_pack(b, IB2, k, j + 1, i) * prim_pack(b, IB2, k, j + 1, i) +
-                        prim_pack(b, IB3, k, j + 1, i) * prim_pack(b, IB3, k, j + 1, i)) -
-                       (prim_pack(b, IB1, k, j - 1, i) * prim_pack(b, IB1, k, j - 1, i) +
-                        prim_pack(b, IB2, k, j - 1, i) * prim_pack(b, IB2, k, j - 1, i) +
-                        prim_pack(b, IB3, k, j - 1, i) *
-                            prim_pack(b, IB3, k, j - 1, i))) /
-                      (2.0 * dy);
-
-                  const Real dB2_dz = (ndim == 3)
-                                          ? ((prim_pack(b, IB1, k + 1, j, i) *
-                                                  prim_pack(b, IB1, k + 1, j, i) +
-                                              prim_pack(b, IB2, k + 1, j, i) *
-                                                  prim_pack(b, IB2, k + 1, j, i) +
-                                              prim_pack(b, IB3, k + 1, j, i) *
-                                                  prim_pack(b, IB3, k + 1, j, i)) -
-                                             (prim_pack(b, IB1, k - 1, j, i) *
-                                                  prim_pack(b, IB1, k - 1, j, i) +
-                                              prim_pack(b, IB2, k - 1, j, i) *
-                                                  prim_pack(b, IB2, k - 1, j, i) +
-                                              prim_pack(b, IB3, k - 1, j, i) *
-                                                  prim_pack(b, IB3, k - 1, j, i))) /
-                                                (2.0 * dz)
-                                          : 0.0;
-
-                  if (trace_grad_B2_x) grad_B2_x(n) = dB2_dx;
-                  if (trace_grad_B2_y) grad_B2_y(n) = dB2_dy;
-                  if (trace_grad_B2_z) grad_B2_z(n) = dB2_dz;
-
-                  // --- Magnetic tension: (B · ∇)B ---
-                  const Real tens_x = Bx * dBx_dx + By * dBx_dy + Bz * dBx_dz;
-                  const Real tens_y = Bx * dBy_dx + By * dBy_dy + Bz * dBy_dz;
-                  const Real tens_z = Bx * dBz_dx + By * dBz_dy + Bz * dBz_dz;
-
-                  if (trace_tens_B_x) tens_B_x(n) = tens_x;
-                  if (trace_tens_B_y) tens_B_y(n) = tens_y;
-                  if (trace_tens_B_z) tens_B_z(n) = tens_z;
+                  // A 2D mesh only forbids z-derivatives, not an out-of-plane Bz.
+                  B_x(n) = prim_pack(b, IB1, k, j, i);
+                  B_y(n) = prim_pack(b, IB2, k, j, i);
+                  B_z(n) = prim_pack(b, IB3, k, j, i);
                 }
               }
 
-              if (trace_div_v || trace_rot_v) {
-                // Central differences using neighbors
-                const Real dvx_dx =
-                    (prim_pack(b, IV1, k, j, i + 1) - prim_pack(b, IV1, k, j, i - 1)) /
-                    (2.0 * dx);
-                const Real dvy_dy =
-                    (prim_pack(b, IV2, k, j + 1, i) - prim_pack(b, IV2, k, j - 1, i)) /
-                    (2.0 * dy);
-                Real dvz_dz = 0.0;
-                if (ndim == 3) {
-                  dvz_dz =
-                      (prim_pack(b, IV3, k + 1, j, i) - prim_pack(b, IV3, k - 1, j, i)) /
-                      (2.0 * dz);
+              // Derivative diagnostics (see TracerDerivatives): at the host-cell center
+              // by default, or interpolated to the tracer (tracers/derivatives_at)
+              const bool magnetic = mhd && trace_magnetic_diagnostics;
+              if (trace_grad_pressure || trace_velocity_derivatives || magnetic) {
+                TracerDerivatives der;
+                const Real cell_dx[3] = {dx, dy, dz};
+                if (derivatives_at_particle) {
+                  ParticleDerivatives(prim_pack, b, x(n), y(n), z(n), cell_dx, ndim,
+                                      trace_grad_pressure, trace_velocity_derivatives,
+                                      magnetic, der);
+                } else {
+                  AddCellDerivatives(prim_pack, b, k, j, i, cell_dx, ndim,
+                                     trace_grad_pressure, trace_velocity_derivatives,
+                                     magnetic, 1.0, der);
                 }
-
-                const Real dvx_dy =
-                    (prim_pack(b, IV1, k, j + 1, i) - prim_pack(b, IV1, k, j - 1, i)) /
-                    (2.0 * dy);
-                const Real dvx_dz = (ndim == 3) ? (prim_pack(b, IV1, k + 1, j, i) -
-                                                   prim_pack(b, IV1, k - 1, j, i)) /
-                                                      (2.0 * dz)
-                                                : 0.0;
-                const Real dvy_dx =
-                    (prim_pack(b, IV2, k, j, i + 1) - prim_pack(b, IV2, k, j, i - 1)) /
-                    (2.0 * dx);
-                const Real dvy_dz = (ndim == 3) ? (prim_pack(b, IV2, k + 1, j, i) -
-                                                   prim_pack(b, IV2, k - 1, j, i)) /
-                                                      (2.0 * dz)
-                                                : 0.0;
-                // dvz_dx/dvz_dy are in-plane derivatives of vz -- valid in 2D too,
-                // unlike dvx_dz/dvy_dz/dvz_dz above, which are real z-derivatives.
-                const Real dvz_dx =
-                    (prim_pack(b, IV3, k, j, i + 1) - prim_pack(b, IV3, k, j, i - 1)) /
-                    (2.0 * dx);
-                const Real dvz_dy =
-                    (prim_pack(b, IV3, k, j + 1, i) - prim_pack(b, IV3, k, j - 1, i)) /
-                    (2.0 * dy);
-
-                // Vorticity and compression: dvx_dz/dvy_dz/dvz_dz are already zero in
-                // 2D, so this reduces to the right in-plane-only result there too.
-                const Real omega_x = dvz_dy - dvy_dz;
-                const Real omega_y = dvx_dz - dvz_dx;
-                const Real omega_z = dvy_dx - dvx_dy;
+                if (trace_grad_pressure_x) grad_pressure_x(n) = der.grad_p[0];
+                if (trace_grad_pressure_y) grad_pressure_y(n) = der.grad_p[1];
+                if (trace_grad_pressure_z) grad_pressure_z(n) = der.grad_p[2];
+                if (trace_div_v) div_v(n) = der.div_v;
                 if (trace_rot_v) {
-                  rot_v(n) = std::sqrt(omega_x * omega_x + omega_y * omega_y +
-                                       omega_z * omega_z);
+                  rot_v(n) = std::sqrt(der.omega[0] * der.omega[0] +
+                                       der.omega[1] * der.omega[1] +
+                                       der.omega[2] * der.omega[2]);
                 }
-                if (trace_div_v) div_v(n) = dvx_dx + dvy_dy + dvz_dz;
+                if (magnetic) {
+                  if (trace_rot_B_x) rot_B_x(n) = der.rot_B[0];
+                  if (trace_rot_B_y) rot_B_y(n) = der.rot_B[1];
+                  if (trace_rot_B_z) rot_B_z(n) = der.rot_B[2];
+                  if (trace_grad_B2_x) grad_B2_x(n) = der.grad_B2[0];
+                  if (trace_grad_B2_y) grad_B2_y(n) = der.grad_B2[1];
+                  if (trace_grad_B2_z) grad_B2_z(n) = der.grad_B2[2];
+                  if (trace_tens_B_x) tens_B_x(n) = der.tens_B[0];
+                  if (trace_tens_B_y) tens_B_y(n) = der.tens_B[1];
+                  if (trace_tens_B_z) tens_B_z(n) = der.tens_B[2];
+                }
               }
             }
           });
