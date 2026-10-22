@@ -6,9 +6,11 @@ problem   = Driven supersonic turbulence in a thermally bistable, radiatively co
             (n_H 2 cm^-3, T 1450 K, P/k 3e3 K cm^-3), and splits into a warm phase
             (n_H ~ 0.5 cm^-3) and a cold one (n_H ~ 30-100 cm^-3); see Colman, Hennebelle,
             Brucy et al. 2025 (arXiv:2503.03305). Code units: pc, Msun, Myr, so that
-            1 km/s is 1.0227 pc/Myr. 64^3 cells (2 pc) run on a laptop; for higher
-            resolutions scale parthenon/mesh/nx* and, on GPUs, meshblock/nx* (64^3 or
-            128^3 cells per block).
+            1 km/s is 1.0227 pc/Myr. 6 pc cells, the resolution of ICM runs: a star
+            formed at n_H 100 cm^-3 takes half of a ~700 Msun cell, enough for its SNe
+            to sample the IMF. 64^3 cells run on a laptop; for larger boxes at the same
+            resolution scale parthenon/mesh/x*max with nx* and, on GPUs, meshblock/nx*
+            (64^3 or 128^3 cells per block).
 reference = docs/input.md (cooling, tracers) and docs/stars.md
 
 <job>
@@ -21,7 +23,7 @@ dt         = 0.5
 <parthenon/output2>
 file_type  = hdf5
 variables  = prim
-dt         = 1.0
+dt         = 2.0
 id         = prim
 single_precision_output = true
 swarms     = tracers, stars
@@ -30,13 +32,13 @@ stars_variables   = id, x, y, z, mass, birth_mass, injection_time
 
 <parthenon/output3>
 file_type  = rst
-dt         = 5.0
+dt         = 10.0
 id         = restart
 
 <parthenon/time>
 cfl        = 0.3
 nlim       = -1
-tlim       = 30.0       # Myr, ~5 turnover times of the driving scale
+tlim       = 60.0       # Myr, ~3 turnover times of the driving scale
 integrator = vl2        # Ito tracers need rk1, rk2, rk3 or vl2
 ncycle_out_mesh = -500
 
@@ -45,17 +47,17 @@ nghost     = 4          # >= stars/SN_injection_radius_cells + 1
 refinement = none
 nx1        = 64
 x1min      = 0.0
-x1max      = 128.0      # pc
+x1max      = 384.0      # pc, 6 pc cells
 ix1_bc     = periodic
 ox1_bc     = periodic
 nx2        = 64
 x2min      = 0.0
-x2max      = 128.0
+x2max      = 384.0
 ix2_bc     = periodic
 ox2_bc     = periodic
 nx3        = 64
 x3min      = 0.0
-x3max      = 128.0
+x3max      = 384.0
 ix3_bc     = periodic
 ox3_bc     = periodic
 packs_per_rank = 1      # required by tracers
@@ -95,17 +97,18 @@ d_e_tol          = 1e-8
 <problem/turbulence>
 rho0        = 0.0659    # Msun/pc^3, n_H = 2 cm^-3
 p0          = 0.649     # Msun/(pc Myr^2), T = 1450 K at mu = 1.27
-kpeak       = 2.0       # driving at half the box size, 64 pc
-corr_time   = 5.0       # Myr, about the turnover time at 10 km/s
+kpeak       = 2.0       # driving at half the box size, 192 pc
+corr_time   = 15.0      # Myr, about the turnover time at 10 km/s
 rseed       = 20190729
 sol_weight  = 0.75      # solenoidal fraction of the driving, as Colman et al. 2025
-accel_rms   = 2.0       # pc/Myr^2, ~10 km/s velocity dispersion
+accel_rms   = 0.7       # pc/Myr^2, ~10 km/s velocity dispersion
 num_modes   = 30
 
 <stars>
 enabled                     = true
 transport_mode              = none    # no gravity in a periodic box: stars stay put
-sf_density_threshold        = 3.295   # Msun/pc^3, n_H = 100 cm^-3
+                                      # (use 'gravity' with an ICM potential)
+sf_density_threshold        = 3.295   # Msun/pc^3, n_H = 100 cm^-3: stars >~ 350 Msun
 sf_efficiency               = 0.1     # per free-fall time (high, to exercise SNe early)
 sf_mass_efficiency          = 0.5
 sf_virial_criterion_enabled = false   # no self-gravity
