@@ -352,8 +352,8 @@ TaskStatus ApplyStellarFeedback(MeshBlockData<Real> *mbd, parthenon::SimTime &tm
           // Terminal momentum p_t N_SN^(13/14) <n_H>^(-1/7), with <n_H> the
           // ambient density around the star (host's own ghost-inclusive view).
           // Solar metallicity is assumed: the f(Z)^(3/2) factor of Hopkins et al.
-          // (2018), f(Z) = min((Z/Zsun)^(-0.14), 2), is set to 1. It is an extensive event total
-          // like p_SN, so it is split by region fraction later.
+          // (2018), f(Z) = min((Z/Zsun)^(-0.14), 2), is set to 1. It is an extensive
+          // event total like p_SN, so it is split by region fraction later.
           const Real p_terminal_Nsn =
               Kokkos::pow(static_cast<Real>(N_SN), 13.0 / 14.0) * p_t;
           const Real p_terminal_nH_scaled =
