@@ -34,22 +34,10 @@ struct FloorRegion {
 };
 
 /* ===============================================================================
-Initialize: builds the AMRFloor package, which enforces a persistent minimum AMR
-level over any <parthenon/static_refinementN> region opted in via floor = true.
-Static refinement only *seeds* the mesh once (Mesh::DoStaticRefinement); nothing
-in Parthenon otherwise stops AMR from later de-refining such a region. This
-package re-parses the same input blocks independently, and, only for the ones
-marked floor = true, registers a CheckRefinementBlock that requests AmrTag::refine
-whenever a block overlapping the region sits below its target level -- and
-AmrTag::same otherwise, NEVER AmrTag::derefine, so de-refinement decisions stay
-entirely with the physics criteria. Since Parthenon composes every package's
-opinion with std::max (Refinement::CheckAllRefinement), this floor cannot be
-overridden by another package wanting to derefine, and doesn't interfere with
-another package wanting to refine further above it.
-
-If no block sets floor = true, CheckRefinementBlock is left unset entirely (not
-assigned to an always-AmrTag::same lambda): zero cost, zero behavior change for
-input decks that don't use the new key.
+Initialize: AMRFloor package, a persistent minimum level over every
+<parthenon/static_refinementN> region with floor = true. Tags are combined with
+std::max starting from derefine, so this returns refine below the floor, same at
+it, and derefine (the neutral value) elsewhere. Unset if no region opts in.
 =============================================================================== */
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   auto pkg = std::make_shared<StateDescriptor>("AMRFloor");
@@ -103,12 +91,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       return bmin < rmax && bmax > rmin;
     };
 
-    // GetLegacyTreeRootLevel(), not root_level -- Mesh::DoStaticRefinement computes
-    // "lrlev = ref_lev + GetLegacyTreeRootLevel()" before seeding blocks into the
-    // forest, and pmb->loc.level() (compared below) lives in that same absolute
-    // frame (MeshRefinement::SetRefinement compares it directly against
-    // root_level/max_level). For AthenaPK's HyperRectangular mesh these likely
-    // coincide, but use the call that stays correct regardless.
+    // Same frame as Mesh::DoStaticRefinement ("lrlev = ref_lev +
+    // GetLegacyTreeRootLevel()"), which pmb->loc.level() is compared against below.
     const int root_level = pmb->pmy_mesh->GetLegacyTreeRootLevel();
 
     int required_level = -1; // no overlapping floor region found (yet)
@@ -122,8 +106,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       required_level = std::max(required_level, region.ref_lev + root_level);
     }
 
-    if (required_level >= 0 && pmb->loc.level() < required_level) return AmrTag::refine;
-    return AmrTag::same; // never derefine from here -- that stays with the physics
+    // derefine is the neutral element of the std::max over packages: returning same
+    // outside the floor would veto derefinement everywhere else in the mesh.
+    const int level = pmb->loc.level();
+    if (required_level < 0 || level > required_level) return AmrTag::derefine;
+    return level < required_level ? AmrTag::refine : AmrTag::same;
   };
 
   return pkg;
