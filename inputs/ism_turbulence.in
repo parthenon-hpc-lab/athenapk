@@ -1,0 +1,217 @@
+<comment>
+problem   = Driven supersonic turbulence in a thermally bistable, radiatively cooling
+            solar metallicity ISM, with star formation, SN II feedback and Ito tracers
+            absorbed into the stars. The gas starts on the thermally unstable branch,
+            in the middle of the two-phase pressure range of the cooling and heating
+            (n_H 2 cm^-3, T 1450 K, P/k 3e3 K cm^-3), and splits into a warm phase
+            (n_H ~ 0.5 cm^-3) and a cold one (n_H ~ 30-100 cm^-3); see Colman, Hennebelle,
+            Brucy et al. 2025 (arXiv:2503.03305). Code units: pc, Msun, Myr, so that
+            1 km/s is 1.0227 pc/Myr. 64^3 cells (2 pc) run on a laptop; for higher
+            resolutions scale parthenon/mesh/nx* and, on GPUs, meshblock/nx* (64^3 or
+            128^3 cells per block).
+reference = docs/input.md (cooling, tracers) and docs/stars.md
+
+<job>
+problem_id = turbulence
+
+<parthenon/output1>
+file_type  = hst
+dt         = 0.5
+
+<parthenon/output2>
+file_type  = hdf5
+variables  = prim
+dt         = 1.0
+id         = prim
+single_precision_output = true
+swarms     = tracers, stars
+tracers_variables = id, x, y, z, rho, pressure, absorption_time, star_id
+stars_variables   = id, x, y, z, mass, birth_mass, injection_time
+
+<parthenon/output3>
+file_type  = rst
+dt         = 5.0
+id         = restart
+
+<parthenon/time>
+cfl        = 0.3
+nlim       = -1
+tlim       = 30.0       # Myr, ~5 turnover times of the driving scale
+integrator = vl2        # Ito tracers need rk1, rk2, rk3 or vl2
+ncycle_out_mesh = -500
+
+<parthenon/mesh>
+nghost     = 4          # >= stars/SN_injection_radius_cells + 1
+refinement = none
+nx1        = 64
+x1min      = 0.0
+x1max      = 128.0      # pc
+ix1_bc     = periodic
+ox1_bc     = periodic
+nx2        = 64
+x2min      = 0.0
+x2max      = 128.0
+ix2_bc     = periodic
+ox2_bc     = periodic
+nx3        = 64
+x3min      = 0.0
+x3max      = 128.0
+ix3_bc     = periodic
+ox3_bc     = periodic
+packs_per_rank = 1      # required by tracers
+
+<parthenon/meshblock>
+nx1        = 32         # 8 blocks, one per core on a laptop
+nx2        = 32
+nx3        = 32
+
+<units>
+code_length_cgs = 3.0856775809623245e+18  # 1 pc
+code_mass_cgs   = 1.98841586e+33          # 1 Msun
+code_time_cgs   = 3.15576e+13             # 1 Myr
+
+<hydro>
+fluid            = euler
+eos              = adiabatic
+riemann          = hllc
+reconstruction   = plm
+gamma            = 1.6666666666666667
+He_mass_fraction = 0.25    # n_H = 0.75 rho / m_H in the cooling and heating rates
+mean_molecular_weight = 1.27  # neutral atomic gas (default: fully ionized, 0.59)
+Tfloor           = 10.0    # K, bottom of the cooling table
+first_order_flux_correct = true
+
+<cooling>
+enable_cooling   = tabular
+table_filename   = schure_ki02.cooling_1.0Z  # in inputs/cooling_tables
+lambda_units_cgs = 1       # erg cm^3/s, n_H^2 Lambda convention
+heating_rate     = 2e-26   # erg/s per H, photoelectric (Koyama & Inutsuka 2002)
+integrator       = rk45
+max_iter         = 100
+cfl              = 0.1
+d_log_temp_tol   = 1e-8
+d_e_tol          = 1e-8
+
+<problem/turbulence>
+rho0        = 0.0659    # Msun/pc^3, n_H = 2 cm^-3
+p0          = 0.649     # Msun/(pc Myr^2), T = 1450 K at mu = 1.27
+kpeak       = 2.0       # driving at half the box size, 64 pc
+corr_time   = 5.0       # Myr, about the turnover time at 10 km/s
+rseed       = 20190729
+sol_weight  = 0.75      # solenoidal fraction of the driving, as Colman et al. 2025
+accel_rms   = 2.0       # pc/Myr^2, ~10 km/s velocity dispersion
+num_modes   = 30
+
+<stars>
+enabled                     = true
+transport_mode              = none    # no gravity in a periodic box: stars stay put
+sf_density_threshold        = 3.295   # Msun/pc^3, n_H = 100 cm^-3
+sf_efficiency               = 0.1     # per free-fall time (high, to exercise SNe early)
+sf_mass_efficiency          = 0.5
+sf_virial_criterion_enabled = false   # no self-gravity
+SN_II_enabled               = true
+SN_Ia_enabled               = false
+SN_injection_radius_cells   = 3
+
+<tracers>
+enabled                = true
+advection_method       = ito
+ito_order              = 2
+initial_seed_method    = random_per_block
+swarm_names            = tracers
+tracers_initial_num_tracers_per_cell = 1.0
+initial_rng_seed       = 42
+absorb_into_stars      = true
+
+<modes>
+k_1_0 = +0
+k_1_1 = -1
+k_1_2 = +2
+k_2_0 = +1
+k_2_1 = +0
+k_2_2 = +0
+k_3_0 = +2
+k_3_1 = -1
+k_3_2 = +0
+k_4_0 = +2
+k_4_1 = +1
+k_4_2 = -1
+k_5_0 = +0
+k_5_1 = -1
+k_5_2 = +1
+k_6_0 = +1
+k_6_1 = -1
+k_6_2 = -1
+k_7_0 = +1
+k_7_1 = +1
+k_7_2 = +1
+k_8_0 = +2
+k_8_1 = -1
+k_8_2 = -1
+k_9_0 = +1
+k_9_1 = +2
+k_9_2 = -1
+k_10_0 = +2
+k_10_1 = +1
+k_10_2 = +1
+k_11_0 = +0
+k_11_1 = -2
+k_11_2 = -1
+k_12_0 = +1
+k_12_1 = +0
+k_12_2 = -1
+k_13_0 = +0
+k_13_1 = -2
+k_13_2 = +1
+k_14_0 = +0
+k_14_1 = -1
+k_14_2 = -2
+k_15_0 = +0
+k_15_1 = +0
+k_15_2 = -1
+k_16_0 = +2
+k_16_1 = -1
+k_16_2 = +1
+k_17_0 = +2
+k_17_1 = +0
+k_17_2 = -1
+k_18_0 = +1
+k_18_1 = +2
+k_18_2 = +0
+k_19_0 = +1
+k_19_1 = +0
+k_19_2 = +1
+k_20_0 = +1
+k_20_1 = -1
+k_20_2 = +0
+k_21_0 = +1
+k_21_1 = -2
+k_21_2 = -1
+k_22_0 = +2
+k_22_1 = +0
+k_22_2 = +0
+k_23_0 = +1
+k_23_1 = -2
+k_23_2 = +1
+k_24_0 = +0
+k_24_1 = +0
+k_24_2 = -2
+k_25_0 = +1
+k_25_1 = -2
+k_25_2 = +0
+k_26_0 = +1
+k_26_1 = +1
+k_26_2 = -2
+k_27_0 = +0
+k_27_1 = -1
+k_27_2 = +0
+k_28_0 = +1
+k_28_1 = -1
+k_28_2 = +2
+k_29_0 = +1
+k_29_1 = +0
+k_29_2 = -2
+k_30_0 = +1
+k_30_1 = -1
+k_30_2 = +1
+

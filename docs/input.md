@@ -67,6 +67,10 @@ To control the floors, following parameters can be set in the `<hydro>` block:
 *Note* the pressure floor will take precedence over the temperature floor in the
 conserved to primitive conversion if both are defined.
 
+Temperatures use the mean molecular weight of fully ionized gas with the helium mass
+fraction `He_mass_fraction`, unless `<hydro/mean_molecular_weight>` sets it (e.g. 1.27
+for neutral atomic gas).
+
 #### Units
 
 See(here)[units.md].
@@ -319,6 +323,21 @@ d_log_temp_tol = 1e-8              # Tolerance in cooling table between subseque
 - Cooling is turned off once the temperature reaches the lower end of the cooling table. Within the cooling function, gas does not cool past the cooling table.
 - If the global temperature floor `<hydro/Tfloor>` is higher than the lower end of the cooling table, then the global temperature floor takes precedence.
 - The pressure floor if present is not considered in the cooling function, only the temperature floor `<hydro/Tfloor>`
+
+A uniform heating rate per hydrogen nucleus, e.g. photoelectric heating, can be added
+with the `rk12` and `rk45` integrators (it is off by default):
+
+```
+heating_rate = 2e-26   # erg/s, so that the volumetric source is n_H^2 Lambda(T) - n_H heating_rate
+```
+
+Heating also acts below the cooling table and at the temperature floor.
+`inputs/cooling_tables/schure_ki02.cooling_1.0Z` extends the solar metallicity Schure
+table down to 10 K with the Koyama & Inutsuka (2002) fit that goes with
+`heating_rate = 2e-26`, giving a thermally bistable neutral ISM for
+1.7e3 < P/k < 5.2e3 K cm^-3 (see `scripts/generate_schure_ki02_cooling_table.py` and
+`inputs/ism_turbulence.in`). For neutral gas, also set `<hydro/mean_molecular_weight>`
+(e.g. 1.27): temperatures otherwise assume fully ionized gas.
 
 Finally, a more comprehensive descriptions of various conventions used for cooling
 functions (and the chosen implementation in AthenaPK) can be found in [Cooling Notes](cooling_notes.md)

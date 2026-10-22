@@ -109,20 +109,24 @@ class CoolingTableObj {
   // (Hydrogen mass fraction / hydrogen atomic mass)^2
   parthenon::Real x_H_over_m_h2_;
 
+  // Specific heating rate, i.e. heating per hydrogen nucleus * n_H / rho
+  parthenon::Real heating_;
+
  public:
   CoolingTableObj()
       : log_lambdas_(), log_temp_start_(NAN), log_temp_final_(NAN), d_log_temp_(NAN),
-        n_temp_(0), mbar_gm1_over_k_B_(NAN), x_H_over_m_h2_(NAN) {}
+        n_temp_(0), mbar_gm1_over_k_B_(NAN), x_H_over_m_h2_(NAN), heating_(0.0) {}
   CoolingTableObj(const parthenon::ParArray1D<parthenon::Real> log_lambdas,
                   const parthenon::Real log_temp_start,
                   const parthenon::Real log_temp_final, const parthenon::Real d_log_temp,
                   const unsigned int n_temp, const parthenon::Real mbar_over_kb,
                   const parthenon::Real adiabatic_index, const parthenon::Real x_H,
-                  const Units units)
+                  const Units units, const parthenon::Real heating_per_H = 0.0)
       : log_lambdas_(log_lambdas), log_temp_start_(log_temp_start),
         log_temp_final_(log_temp_final), d_log_temp_(d_log_temp), n_temp_(n_temp),
         mbar_gm1_over_k_B_(mbar_over_kb * (adiabatic_index - 1)),
-        x_H_over_m_h2_(SQR(x_H / units.mh())) {}
+        x_H_over_m_h2_(SQR(x_H / units.mh())),
+        heating_(heating_per_H * x_H / units.mh()) {}
 
   // Interpolate a cooling rate from the table
   // from internal energy density and density
@@ -139,7 +143,7 @@ class CoolingTableObj {
     const Real log_temp = log10(temp);
     Real log_lambda;
     if (log_temp < log_temp_start_) {
-      return 0;
+      return heating_; // no cooling below the table
     } else if (log_temp > log_temp_final_) {
       // Above table
       // Return de/dt
@@ -168,7 +172,7 @@ class CoolingTableObj {
     }
     // Return de/dt
     const Real lambda = pow(10., log_lambda);
-    const Real de_dt = -lambda * x_H_over_m_h2_ * rho;
+    const Real de_dt = -lambda * x_H_over_m_h2_ * rho + heating_;
     return de_dt;
   }
 
@@ -218,6 +222,9 @@ class TabularCooling {
 
   // Tolerances
   parthenon::Real d_log_temp_tol_, d_e_tol_;
+
+  // Uniform heating rate per hydrogen nucleus (code units), e.g. photoelectric
+  parthenon::Real heating_per_H_;
 
   // Used for roundoff as subcycle approaches end of timestep
   static constexpr parthenon::Real KEpsilon_ = 1e-12;

@@ -66,6 +66,14 @@ TabularCooling::TabularCooling(ParameterInput *pin,
   d_e_tol_ = pin->GetOrAddReal("cooling", "d_e_tol", 1e-8);
   // negative means disabled
   T_floor_ = pin->GetOrAddReal("hydro", "Tfloor", -1.0);
+  // Uniform heating per hydrogen nucleus in erg/s (e.g. ~2e-26 photoelectric heating
+  // for a two-phase ISM), off by default
+  heating_per_H_ =
+      pin->GetOrAddReal("cooling", "heating_rate", 0.0) * units.erg() / units.s();
+  PARTHENON_REQUIRE_THROWS(heating_per_H_ >= 0.0, "cooling/heating_rate must be >= 0.");
+  PARTHENON_REQUIRE_THROWS(heating_per_H_ == 0.0 ||
+                               integrator_ != CoolIntegrator::townsend,
+                           "cooling/heating_rate requires the rk12 or rk45 integrator.");
 
   std::stringstream msg;
 
@@ -270,9 +278,9 @@ TabularCooling::TabularCooling(ParameterInput *pin,
   const auto adiabatic_index = hydro_pkg->Param<Real>("AdiabaticIndex");
   const auto He_mass_fraction = hydro_pkg->Param<Real>("He_mass_fraction");
 
-  cooling_table_obj_ = CoolingTableObj(log_lambdas_, log_temp_start_, log_temp_final_,
-                                       d_log_temp_, n_temp_, mbar_over_kb,
-                                       adiabatic_index, 1.0 - He_mass_fraction, units);
+  cooling_table_obj_ = CoolingTableObj(
+      log_lambdas_, log_temp_start_, log_temp_final_, d_log_temp_, n_temp_, mbar_over_kb,
+      adiabatic_index, 1.0 - He_mass_fraction, units, heating_per_H_);
 }
 
 void TabularCooling::SrcTerm(MeshData<Real> *md, const Real dt) const {
@@ -356,9 +364,10 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         Real sub_dt = dt;
 
         // Check if cooling is actually happening, e.g., when T below T_cool_min or if
-        // temperature is already below floor.
+        // temperature is already below floor (and not heated).
         const Real dedt_initial = DeDt_wrapper(0.0, internal_e_initial, dedt_valid);
-        if (dedt_initial == 0.0 || internal_e_initial <= internal_e_floor) {
+        if (dedt_initial == 0.0 ||
+            (internal_e_initial <= internal_e_floor && dedt_initial < 0.0)) {
           return;
         }
 
@@ -653,9 +662,10 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
         // Compute cooling time
         // If de_dt is zero (temperature is smaller than lower end of cooling table) or
         // current temp is below floor, use infinite cooling time
-        const Real cooling_time = ((de_dt == 0) || (internal_e < internal_e_floor))
-                                      ? std::numeric_limits<Real>::infinity()
-                                      : fabs(internal_e / de_dt);
+        const Real cooling_time =
+            ((de_dt == 0) || (internal_e < internal_e_floor && de_dt < 0.0))
+                ? std::numeric_limits<Real>::infinity()
+                : fabs(internal_e / de_dt);
 
         thread_min_cooling_time = std::min(cooling_time, thread_min_cooling_time);
       },

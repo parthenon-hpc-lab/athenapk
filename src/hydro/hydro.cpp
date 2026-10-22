@@ -505,7 +505,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
         pkg->AllParams().hasKey("units")) {
       auto units = pkg->Param<Units>("units");
       const auto He_mass_fraction = pin->GetReal("hydro", "He_mass_fraction");
-      const auto mu = 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
+      // Fully ionized gas unless set, e.g. to ~1.27 for a neutral atomic ISM
+      const auto mu = pin->DoesParameterExist("hydro", "mean_molecular_weight")
+                          ? pin->GetReal("hydro", "mean_molecular_weight")
+                          : 1 / (He_mass_fraction * 3. / 4. + (1 - He_mass_fraction) * 2);
       const auto mu_e = 1 / (He_mass_fraction * 2. / 4. + (1 - He_mass_fraction));
       pkg->AddParam<>("mu", mu);
       pkg->AddParam<>("mu_e", mu_e);
