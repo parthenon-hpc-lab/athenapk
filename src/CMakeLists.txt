@@ -22,6 +22,7 @@ add_executable(
         hydro/srcterms/tabular_cooling.cpp
         refinement/gradient.cpp
         refinement/other.cpp
+        refinement/jeans.cpp
         particles/stars/stellar_particles.cpp
         particles/stars/stellar_particles.hpp
         particles/stars/stellar_feedback.cpp
@@ -33,6 +34,10 @@ add_executable(
         particles/particles_utils.hpp
         utils/few_modes_ft.cpp
         utils/few_modes_ft.hpp
+        self_gravity/self_gravity.cpp
+        self_gravity/self_gravity.hpp
+        self_gravity/self_gravity_driver.cpp
+        self_gravity/poisson_equation.hpp
 )
 
 add_subdirectory(pgen)

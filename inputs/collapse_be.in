@@ -1,0 +1,99 @@
+<comment>
+problem = Bonnor-Ebert sphere collapse, hydro, zero-Dirichlet gravity BCs
+
+# Everything below is in code units, in the normalization of Tomida (2011):
+#   4*pi*G = 1, isothermal sound speed c_s = 1, and central density of the *critical*
+#   Bonnor-Ebert sphere = 1, which fixes the sphere radius at 6.45 and its mass at
+#   197.561. The values below correspond to a 6 Msun cloud at 10 K with a barotropic
+#   stiffening density of 1e-13 g/cm^3, i.e. a density unit of 5.467e-19 g/cm^3, a
+#   length unit of 2.806e16 cm and a time unit of 1.477e12 s.
+
+<job>
+problem_id = collapse_be
+
+<problem/collapse_be>
+f        = 5.0      # central density (= enhancement over the critical BE sphere)
+rhocrit  = 1.829e5  # barotropic stiffening density
+amp      = 0.0      # m=2 azimuthal density perturbation amplitude
+omegatff = 0.02     # solid-body rotation, in units of 1/t_ff
+
+<parthenon/mesh>
+refinement = adaptive
+numlevel   = 6
+multigrid  = true
+
+# Large box: ~4x sphere radius in each direction (rc ~ 6.45).
+nx1    = 64
+x1min  = -26.0
+x1max  =  26.0
+ix1_bc = outflow
+ox1_bc = outflow
+
+nx2    = 64
+x2min  = -26.0
+x2max  =  26.0
+ix2_bc = outflow
+ox2_bc = outflow
+
+nx3    = 64
+x3min  = -26.0
+x3max  =  26.0
+ix3_bc = outflow
+ox3_bc = outflow
+
+<parthenon/meshblock>
+nx1 = 16
+nx2 = 16
+nx3 = 16
+
+<parthenon/time>
+integrator = vl2
+cfl        = 0.3
+tlim       = 1.5
+nlim       = -1
+
+<hydro>
+fluid          = euler
+eos            = adiabatic
+gamma          = 1.4
+riemann        = hllc
+reconstruction = plm
+
+<refinement>
+# Jeans-length refinement (Truelove 1997): keep the local Jeans length
+# resolved by at least `njeans` cells as the sphere collapses.
+type   = jeans
+njeans = 8
+# Alternatively, refine on peak density:
+#   type = maxdensity
+#   maxdensity_refine_above = 10.0
+#   maxdensity_deref_below  = 5.0
+
+<self_gravity>
+solver         = multigrid
+four_pi_G      = 1.0
+# Zero-Dirichlet on all gravity faces (outflow hydro BCs, isolated gravity).
+use_swindle    = false
+ix1_bc         = zero
+ox1_bc         = zero
+ix2_bc         = zero
+ox2_bc         = zero
+ix3_bc         = zero
+ox3_bc         = zero
+
+<self_gravity/multigrid_solver_params>
+max_iterations               = 200
+residual_tolerance           = 1.0e-10
+absolute_residual_tolerance  = 1.0e-10
+relative_residual            = true
+relative_residual_tolerance  = 1.0e-6
+preconditioner               = Multigrid
+
+<parthenon/output0>
+file_type = hdf5
+dt        = 0.02
+variables = prim, grav.phi, grav.rhs
+
+<parthenon/output1>
+file_type = hst
+dt        = 0.001

@@ -22,6 +22,7 @@
 #include "particles/stars/stellar_particles.hpp"
 #include "particles/tracers/tracers.hpp"
 #include "pgen/pgen.hpp"
+#include "self_gravity/self_gravity.hpp"
 // Initialize defaults for package specific callback functions
 namespace Hydro {
 InitPackageDataFun_t ProblemInitPackageData = nullptr;
@@ -41,6 +42,10 @@ FillTracersFun_t ProblemFillTracers = nullptr;
 namespace Stars {
 SeedInitialFun_t ProblemSeedInitialStars = nullptr;
 } // namespace Stars
+
+namespace SelfGravity {
+PoissonSourceMaskFun_t ProblemPoissonSourceMask = nullptr;
+} // namespace SelfGravity
 
 int main(int argc, char *argv[]) {
   using parthenon::ParthenonManager;
@@ -74,6 +79,14 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = linear_wave_mhd::ProblemGenerator;
     pman.app_input->UserWorkAfterLoop = linear_wave_mhd::UserWorkAfterLoop;
     Hydro::ProblemInitPackageData = linear_wave_mhd::ProblemInitPackageData;
+  } else if (problem == "jeans") {
+    pman.app_input->MeshProblemGenerator = jeans::ProblemGenerator;
+  } else if (problem == "collapse_be") {
+    pman.app_input->InitUserMeshData = collapse_be::InitUserMeshData;
+    pman.app_input->ProblemGenerator = collapse_be::ProblemGenerator;
+    Hydro::ProblemInitPackageData = collapse_be::ProblemInitPackageData;
+    Hydro::ProblemSourceUnsplit = collapse_be::ApplyBarotropicCooling;
+    SelfGravity::ProblemPoissonSourceMask = collapse_be::MaskPoissonSource;
   } else if (problem == "cpaw") {
     pman.app_input->InitUserMeshData = cpaw::InitUserMeshData;
     pman.app_input->ProblemGenerator = cpaw::ProblemGenerator;

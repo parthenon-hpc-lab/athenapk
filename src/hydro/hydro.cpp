@@ -27,6 +27,7 @@
 #include "../recon/weno3_simple.hpp"
 #include "../recon/wenoz_simple.hpp"
 #include "../refinement/refinement.hpp"
+#include "../self_gravity/self_gravity.hpp"
 #include "../units.hpp"
 #include "defs.hpp"
 #include "diffusion/diffusion.hpp"
@@ -59,6 +60,7 @@ parthenon::Packages_t ProcessPackages(std::unique_ptr<ParameterInput> &pin) {
   packages.Add(Hydro::Initialize(pin.get()));
   packages.Add(Tracers::Initialize(pin.get()));
   packages.Add(Stars::Initialize(pin.get()));
+  packages.Add(SelfGravity::Initialize(pin.get()));
   return packages;
 }
 
@@ -827,6 +829,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                       "refinement/maxdensity_refine_above");
     pkg->AddParam<Real>("refinement/maxdensity_deref_below", deref_below);
     pkg->AddParam<Real>("refinement/maxdensity_refine_above", refine_above);
+  } else if (refine_str == "jeans") {
+    pkg->CheckRefinementBlock = refinement::jeans::Jeans;
+    const auto njeans = pin->GetOrAddReal("refinement", "njeans", 0.0);
+    PARTHENON_REQUIRE(njeans > 0.,
+                      "Make sure to set refinement/njeans > 0 (typically 8-16).");
+    pkg->AddParam<Real>("refinement/njeans", njeans);
   } else if (refine_str == "user") {
     pkg->CheckRefinementBlock = Hydro::ProblemCheckRefinementBlock;
   }

@@ -14,9 +14,11 @@ target_sources(athenaPK PRIVATE
     cluster/magnetic_tower.cpp
     cluster/snia_feedback.cpp
     cluster/stellar_feedback.cpp
+    collapse_be.cpp
     cpaw.cpp
     diffusion.cpp
     field_loop.cpp
+    jeans.cpp
     kh.cpp
     linear_wave.cpp
     linear_wave_mhd.cpp

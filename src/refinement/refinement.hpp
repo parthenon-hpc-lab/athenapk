@@ -21,6 +21,9 @@ AmrTag VelocityGradient(MeshBlockData<Real> *rc);
 namespace other {
 parthenon::AmrTag MaxDensity(MeshBlockData<Real> *rc);
 } // namespace other
+namespace jeans {
+parthenon::AmrTag Jeans(MeshBlockData<Real> *rc);
+} // namespace jeans
 
 } // namespace refinement
 
