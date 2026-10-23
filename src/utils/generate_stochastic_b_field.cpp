@@ -59,6 +59,10 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
   // field on an N-point FFT grid (higher modes alias).
   const Real kmax_phys = 0.5 * N * (2.0 * M_PI / L);
 
+  // Multiply seed by rank to ensure different random numbers on each rank, but reproducible
+  // across runs with the same number of ranks.
+  rseed *= parthenon::Globals::my_rank + 1;
+
   // Random number generators for phase and amplitude
   std::mt19937 rng(rseed);
   std::uniform_real_distribution<double> dist_phase(0.0, 2.0 * M_PI);
