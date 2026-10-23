@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Compare the last row of the *.hst files of two runs: max relative difference per column."""
+
 import glob
 import sys
 

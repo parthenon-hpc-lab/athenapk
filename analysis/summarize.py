@@ -4,6 +4,7 @@
 Usage: summarize.py [--warmup 20] [--plot] RUN_DIR [RUN_DIR ...]
 A run dir holds athenapk.log (Parthenon stdout) and kernel_times.txt (kp_reader output).
 """
+
 import argparse
 import os
 import re
@@ -39,7 +40,11 @@ def parse_kernels(path):
                 cur = None
             elif cur and s.startswith("- "):
                 name = s[2:].strip()
-            elif cur and name and re.search(r"\((ParFor|ParRed|ParScan|Region|REGION)\)", s):
+            elif (
+                cur
+                and name
+                and re.search(r"\((ParFor|ParRed|ParScan|Region|REGION)\)", s)
+            ):
                 nums = s.split()[-5:]
                 t0, c0 = sections[cur].get(name, (0.0, 0))
                 sections[cur][name] = (t0 + float(nums[0]), c0 + int(nums[1]))
@@ -70,9 +75,14 @@ def summarize(run, warmup, ntop):
         allt = sum(tot.values()) or 1.0
         res["share"] = {k: 100 * v / allt for k, v in tot.items()}
         res["top"] = sorted(kernels.items(), key=lambda kv: -kv[1][0])[:ntop]
-        res["regions"] = {n: v for n, v in regions.items() if n.split("::")[0] in
-                          ("Stars", "StellarFeedback", "ParticlesUtils") or "Stars" in n
-                          or "StellarFeedback" in n or "InjectParticles" in n}
+        res["regions"] = {
+            n: v
+            for n, v in regions.items()
+            if n.split("::")[0] in ("Stars", "StellarFeedback", "ParticlesUtils")
+            or "Stars" in n
+            or "StellarFeedback" in n
+            or "InjectParticles" in n
+        }
     return res
 
 
@@ -82,8 +92,10 @@ def show(r, ntop):
     print(f"== {r['run']}\n   step time {step}   zone-cycles/s {zcs}")
     if "share" in r:
         sh = r["share"]
-        print(f"   kernel time share: stars {sh['stars']:.2f}%  swarm comm {sh['swarm']:.2f}%"
-              f"  hydro {sh['hydro']:.2f}%")
+        print(
+            f"   kernel time share: stars {sh['stars']:.2f}%  swarm comm {sh['swarm']:.2f}%"
+            f"  hydro {sh['hydro']:.2f}%"
+        )
         print(f"   top {ntop} kernels (total s summed over ranks, calls, us/call):")
         for n, (t, c) in r["top"]:
             print(f"     {t:10.3f} {c:9d} {1e6 * t / max(c, 1):10.1f}  {n[:90]}")
@@ -93,6 +105,7 @@ def show(r, ntop):
 
 def plot(results):
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 

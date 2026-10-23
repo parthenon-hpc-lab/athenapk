@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Mean/std of the step time over repeats: repeat_stats.py ROOT  (ROOT/rep*/<label>/athenapk.log)."""
+
 import glob
 import os
 import statistics as st
@@ -18,4 +19,6 @@ for d in sorted(glob.glob(f"{root}/rep*/*")):
 print(f"{'case':16s} {'n':>2s} {'mean ms':>9s} {'std ms':>8s}  values")
 for k, v in runs.items():
     sd = st.stdev(v) if len(v) > 1 else 0.0
-    print(f"{k:16s} {len(v):2d} {st.mean(v):9.2f} {sd:8.2f}  {' '.join(f'{x:.2f}' for x in v)}")
+    print(
+        f"{k:16s} {len(v):2d} {st.mean(v):9.2f} {sd:8.2f}  {' '.join(f'{x:.2f}' for x in v)}"
+    )
