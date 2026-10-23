@@ -1,0 +1,68 @@
+diff --git a/src/solvers/bicgstab_solver.hpp b/src/solvers/bicgstab_solver.hpp
+index 38577b7dd..38fdd2577 100644
+--- a/src/solvers/bicgstab_solver.hpp
++++ b/src/solvers/bicgstab_solver.hpp
+@@ -153,6 +153,12 @@ class BiCGSTABSolver : public SolverBase, BiCGSTABSolverCounter {
+     }
+   }
+ 
++  // a / b, or 0 if b == 0. An exactly zero residual (e.g. a zero right-hand side and a
++  // zero initial guess) makes the scalars of the first iteration 0 / 0. Taking them as 0
++  // leaves x unchanged and lets the residual check end the solve, instead of returning
++  // NaN after max_iters iterations.
++  static Real SafeDiv(const Real a, const Real b) { return b == 0.0 ? 0.0 : a / b; }
++
+   TaskID AddTasks(TaskList &tl, TaskID dependence, const int partition, Mesh *pmesh) {
+     using namespace utils;
+     TaskID none;
+@@ -278,7 +284,7 @@ class BiCGSTABSolver : public SolverBase, BiCGSTABSolverCounter {
+         get_rhat0v, "h <- x + alpha u",
+         [](BiCGSTABSolver *solver, std::shared_ptr<MeshData<Real>> &md_x,
+            std::shared_ptr<MeshData<Real>> &md_u, std::shared_ptr<MeshData<Real>> &md_h) {
+-          Real alpha = solver->rhat0r_old / solver->rhat0v.val;
++          Real alpha = SafeDiv(solver->rhat0r_old, solver->rhat0v.val);
+           return AddFieldsAndStore<FieldTL>(md_x, md_u, md_h, 1.0, alpha);
+         },
+         this, md_x, md_u, md_h);
+@@ -288,7 +294,7 @@ class BiCGSTABSolver : public SolverBase, BiCGSTABSolverCounter {
+         get_rhat0v, "s <- r - alpha v",
+         [](BiCGSTABSolver *solver, std::shared_ptr<MeshData<Real>> &md_r,
+            std::shared_ptr<MeshData<Real>> &md_v, std::shared_ptr<MeshData<Real>> &md_s) {
+-          Real alpha = solver->rhat0r_old / solver->rhat0v.val;
++          Real alpha = SafeDiv(solver->rhat0r_old, solver->rhat0v.val);
+           return AddFieldsAndStore<FieldTL>(md_r, md_v, md_s, 1.0, -alpha);
+         },
+         this, md_r, md_v, md_s);
+@@ -346,7 +352,7 @@ class BiCGSTABSolver : public SolverBase, BiCGSTABSolverCounter {
+         get_tt_ts, "x <- h + omega u",
+         [](BiCGSTABSolver *solver, std::shared_ptr<MeshData<Real>> &md_h,
+            std::shared_ptr<MeshData<Real>> &md_u, std::shared_ptr<MeshData<Real>> &md_x) {
+-          Real omega = solver->tt_ts.val[1] / solver->tt_ts.val[0];
++          Real omega = SafeDiv(solver->tt_ts.val[1], solver->tt_ts.val[0]);
+           return AddFieldsAndStore<FieldTL>(md_h, md_u, md_x, 1.0, omega);
+         },
+         this, md_h, md_u, md_x);
+@@ -356,7 +362,7 @@ class BiCGSTABSolver : public SolverBase, BiCGSTABSolverCounter {
+         get_tt_ts, "r <- s - omega t",
+         [](BiCGSTABSolver *solver, std::shared_ptr<MeshData<Real>> &md_s,
+            std::shared_ptr<MeshData<Real>> &md_t, std::shared_ptr<MeshData<Real>> &md_r) {
+-          Real omega = solver->tt_ts.val[1] / solver->tt_ts.val[0];
++          Real omega = SafeDiv(solver->tt_ts.val[1], solver->tt_ts.val[0]);
+           return AddFieldsAndStore<FieldTL>(md_s, md_t, md_r, 1.0, -omega);
+         },
+         this, md_s, md_t, md_r);
+@@ -384,9 +390,11 @@ class BiCGSTABSolver : public SolverBase, BiCGSTABSolverCounter {
+         get_res2_rhat0r, "p <- r + beta * (p - omega * v)",
+         [](BiCGSTABSolver *solver, std::shared_ptr<MeshData<Real>> &md_p,
+            std::shared_ptr<MeshData<Real>> &md_v, std::shared_ptr<MeshData<Real>> &md_r) {
+-          Real alpha = solver->rhat0r_old / solver->rhat0v.val;
+-          Real omega = solver->tt_ts.val[1] / solver->tt_ts.val[0];
+-          Real beta = solver->res_rhat0r.val[1] / solver->rhat0r_old * alpha / omega;
++          Real alpha = SafeDiv(solver->rhat0r_old, solver->rhat0v.val);
++          Real omega = SafeDiv(solver->tt_ts.val[1], solver->tt_ts.val[0]);
++          Real beta = (solver->rhat0r_old == 0.0 || omega == 0.0)
++                          ? 0.0
++                          : solver->res_rhat0r.val[1] / solver->rhat0r_old * alpha / omega;
+           AddFieldsAndStore<FieldTL>(md_p, md_v, md_p, 1.0, -omega);
+           return AddFieldsAndStore<FieldTL>(md_r, md_p, md_p, 1.0, beta);
+           return TaskStatus::complete;

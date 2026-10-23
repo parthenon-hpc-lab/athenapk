@@ -1,0 +1,178 @@
+<comment>
+problem   = Self-gravity GPU scaling test: driven turbulence with two levels of static refinement
+# Used by jobs/sg_scaling.sbatch. The run without self-gravity is this deck with
+# self_gravity/solver=none parthenon/mesh/multigrid=false on the command line.
+# The root grid size (nx1/nx2/nx3) is set on the command line by the job script.
+reference = https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/turbulence.md
+
+<job>
+problem_id = turbulence
+
+<parthenon/output1>
+file_type  = hst        # History data dump
+dt         = 0.05       # time increment between outputs
+
+<parthenon/output2>
+file_type  = hdf5       # Binary data dump
+variables   = prim,acc,grav.phi # variables to be output
+dt         = -1         # off for timing runs
+id         = prim
+single_precision_output = true
+
+<parthenon/output3>
+file_type  = rst        # Binary data dump
+dt         = -1         # off for timing runs
+id         = restart
+
+<parthenon/time>
+cfl = 0.3               # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = 200        # cycle limit (timing runs)
+tlim       = 3.0        # time limit
+integrator  = vl2       # time integration algorithm
+ncycle_out_mesh = -500  # print mesh structure every 500 cyles and on refinement
+
+<parthenon/mesh>
+refinement = static
+nghost     = 2
+nx1        = 64         # Number of zones in X1-direction
+x1min      = 0.0        # minimum value of X1
+x1max      = 1.0        # maximum value of X1
+ix1_bc     = periodic   # inner-X1 boundary flag
+ox1_bc     = periodic   # outer-X1 boundary flag
+
+nx2        = 64         # Number of zones in X2-direction
+x2min      = 0.0        # minimum value of X2
+x2max      = 1.0        # maximum value of X2
+ix2_bc     = periodic   # inner-X2 boundary flag
+ox2_bc     = periodic   # outer-X2 boundary flag
+
+nx3        = 64         # Number of zones in X3-direction
+x3min      = 0.0        # minimum value of X3
+x3max      = 1.0        # maximum value of X3
+ix3_bc     = periodic   # inner-X3 boundary flag
+ox3_bc     = periodic   # outer-X3 boundary flag
+
+packs_per_rank = 1      # pack all blocks in a single pack (currently required)
+multigrid  = true       # required by self-gravity
+
+<parthenon/meshblock>
+nx1        = 64         # larger blocks for GPUs
+nx2        = 64
+nx3        = 64
+
+# Two nested levels of static refinement in the box centre. Each level holds about as many
+# cells as the root grid, so the mesh has roughly 2.8 x nx1^3 cells in total.
+<parthenon/static_refinement0>
+x1min = 0.25
+x1max = 0.75
+x2min = 0.25
+x2max = 0.75
+x3min = 0.25
+x3max = 0.75
+level = 1
+
+<parthenon/static_refinement1>
+x1min = 0.375
+x1max = 0.625
+x2min = 0.375
+x2max = 0.625
+x3min = 0.375
+x3max = 0.625
+level = 2
+
+<self_gravity>
+solver     = multigrid
+# Isothermal cs = 1, rho0 = 1: lambda_J = 2 pi cs / sqrt(4 pi G rho0) = 2 box lengths, so
+# the box is Jeans stable but gravity reduces omega^2 of the k = 2 pi mode by 25%.
+four_pi_G  = 9.8696
+use_swindle = true      # required for a fully periodic box
+
+<self_gravity/multigrid_solver_params>
+max_iterations               = 100
+residual_tolerance           = 1.0e-6
+absolute_residual_tolerance  = 1.0e-6
+relative_residual            = true
+relative_residual_tolerance  = 1.0e-4
+preconditioner               = Multigrid
+block_interior_prolongation  = MetadataDefault
+
+<hydro>
+fluid = glmmhd
+eos = adiabatic
+riemann = hlle
+reconstruction = plm
+gamma           = 1.0001         # gamma = C_p/C_v
+
+<problem/turbulence>
+rho0         = 1.0      # initial mean density
+p0           = 1.0      # initial mean pressure
+b0           = 0.01     # initial magnetic field (x-direction)
+b_config     = 0        # 0 - net flux; 1 - no net flux uniform B; 2 - non net flux sin B; 4 - field loop
+kpeak        = 2.0      # characteristic wavenumber
+corr_time    = 1.0      # autocorrelation time of the OU forcing process
+rseed        = 20190729 # random seed of the OU forcing process
+sol_weight   = 1.0      # solenoidal weight of the acceleration field
+accel_rms    = 0.5      # root mean square value of the acceleration field
+num_modes    = 20       # number of wavemodes
+
+<modes>
+k_1_0	= +2
+k_1_1	= -1
+k_1_2	= +0
+k_2_0	= +1
+k_2_1	= +0
+k_2_2	= +2
+k_3_0	= +1
+k_3_1	= +1
+k_3_2	= -1
+k_4_0	= +2
+k_4_1	= +0
+k_4_2	= +1
+k_5_0	= +0
+k_5_1	= +0
+k_5_2	= -1
+k_6_0	= +1
+k_6_1	= -1
+k_6_2	= -2
+k_7_0	= +1
+k_7_1	= +2
+k_7_2	= -1
+k_8_0	= +1
+k_8_1	= +0
+k_8_2	= -1
+k_9_0	= +0
+k_9_1	= +2
+k_9_2	= +1
+k_10_0	= +0
+k_10_1	= -1
+k_10_2	= +2
+k_11_0	= +0
+k_11_1	= +0
+k_11_2	= +2
+k_12_0	= +0
+k_12_1	= +2
+k_12_2	= -1
+k_13_0	= +2
+k_13_1	= +1
+k_13_2	= +1
+k_14_0	= +1
+k_14_1	= -1
+k_14_2	= +0
+k_15_0	= +1
+k_15_1	= +1
+k_15_2	= +2
+k_16_0	= +1
+k_16_1	= +0
+k_16_2	= +1
+k_17_0	= +0
+k_17_1	= -1
+k_17_2	= +1
+k_18_0	= +0
+k_18_1	= +1
+k_18_2	= +0
+k_19_0	= +1
+k_19_1	= -1
+k_19_2	= +1
+k_20_0	= +2
+k_20_1	= +1
+k_20_2	= -1
