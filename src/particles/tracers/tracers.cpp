@@ -424,8 +424,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
                                "Field '" + field + "' in tracers/" + swarm_name +
                                    "_fields requires hydro/fluid=glmmhd.");
     }
-    PARTHENON_REQUIRE_THROWS(!ContainsField(fields, "scalar_fraction") || nscalars == 1,
-                             "Field 'scalar_fraction' requires hydro/nscalars=1.");
+    PARTHENON_REQUIRE_THROWS(!ContainsField(fields, "scalar_fraction") || nscalars >= 1,
+                             "Field 'scalar_fraction' requires hydro/nscalars>=1.");
     tracers_pkg->AddParam<>(swarm_name + "_fields", fields);
 
     // =====================================================================

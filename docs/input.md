@@ -517,7 +517,7 @@ The available fields are:
 | `rot_B_x`, `rot_B_y`, `rot_B_z` | Components of $`\nabla\!\times\!\boldsymbol{B}`$, calculated with centered differences. These fields require `hydro/fluid=glmmhd`. |
 | `tens_B_x`, `tens_B_y`, `tens_B_z` | Components of the magnetic-tension term $`(\boldsymbol{B}\!\cdot\!\nabla)\boldsymbol{B}`$. These fields require `hydro/fluid=glmmhd`. |
 | `grad_B2_x`, `grad_B2_y`, `grad_B2_z` | Components of $`\nabla(B^2)`$, calculated with centered differences. These fields require `hydro/fluid=glmmhd`. |
-| `scalar_fraction` | The first passive scalar's primitive value (mass fraction). This field requires `hydro/nscalars=1`. |
+| `scalar_fraction` | The first passive scalar's primitive value (mass fraction). This field requires `hydro/nscalars>=1`; further scalars are not traced. |
 
 `level` is added automatically when Monte Carlo advection is used on a multilevel
 mesh, including meshes with static or adaptive refinement. That combination needs
@@ -527,7 +527,7 @@ These automatically added fields become part of that swarm's effective field
 registry.
 
 Unknown or duplicate field names, fields incompatible with the selected fluid,
-and `scalar_fraction` without exactly one passive scalar cause an error during
+and `scalar_fraction` without any passive scalar cause an error during
 startup. Optional fluid-derived fields are updated by the hydro driver every
 full timestep (not just before writing an output), so an output simply
 reflects the values as of the last completed step.
@@ -625,7 +625,7 @@ resulting in the following image:
 ![image](img/tracer_example.png)
 
 Following restrictions apply to the current tracer implementation:
-- The `scalar_fraction` field supports exactly one passive scalar.
+- The `scalar_fraction` field only traces the first passive scalar.
 - Only `parthenon/mesh/packs_per_rank=1` (the default) is currently supported.
 - Tracers require a double-precision build (no `PARTHENON_SINGLE_PRECISION`); see
   the `EncodeOffset`/`DecodeOffset` comment in `particles_utils.hpp` for why.
