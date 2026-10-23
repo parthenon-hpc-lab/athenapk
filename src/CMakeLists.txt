@@ -20,6 +20,8 @@ add_executable(
         hydro/srcterms/gravitational_field.hpp
         hydro/srcterms/tabular_cooling.hpp
         hydro/srcterms/tabular_cooling.cpp
+        refinement/floor.cpp
+        refinement/floor.hpp
         refinement/gradient.cpp
         refinement/other.cpp
         particles/stars/stellar_particles.cpp
@@ -31,6 +33,8 @@ add_executable(
         particles/tracers/tracers.hpp
         particles/particles_utils.cpp
         particles/particles_utils.hpp
+        refinement/zoom.cpp
+        refinement/zoom.hpp
         utils/few_modes_ft.cpp
         utils/few_modes_ft.hpp
 )

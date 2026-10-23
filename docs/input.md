@@ -638,6 +638,57 @@ Star particles (star formation and supernova feedback) are configured via the
 `<stars>` block. See [Star particles](stars.md) for the model, requirements and
 the full parameter reference.
 
+### Cloud zoom (AMRZoom)
+
+Concentrates resolution on one cold cloud and follows it through time.
+On the first (re)start with `amr_zoom/enabled = true`, all cells with
+`T < temperature_threshold` that lie in at least one `<amr_zoom/includeN>` box and
+in no `<amr_zoom/excludeN>` box get passive scalar `scalar_index` set to 1, all
+other cells to 0.
+Any number of include and exclude boxes can be given (at least one include), e.g.,
+one box around the cloud and exclude boxes cutting it off from neighbouring cold
+structures. Bounds left out of a box default to the mesh extent.
+From then on, blocks containing any cell with that scalar above `tracer_threshold`
+and `T < temperature_threshold` refine up to `parthenon/mesh/numlevel`.
+Every other refinement criterion (e.g., `refinement/type = maxdensity`) is capped
+at relative level `max_level_outside` away from the cloud, while AMRFloor regions
+(`<parthenon/static_refinementN>` with `floor = true`) keep their floor level.
+
+```
+<amr_zoom>
+enabled = true
+scalar_index = 1             # requires hydro/nscalars > scalar_index; 0 is the AGN tracer in cluster runs
+temperature_threshold = 2e4  # in K, used for painting and refinement (requires <units>)
+tracer_threshold = 0.5       # minimum scalar concentration counted as cloud
+max_level_outside = 7        # relative level cap away from the cloud
+
+<amr_zoom/include0>          # region to paint (code units)
+x1min = -0.002
+x1max =  0.002
+x2min = -0.002
+x2max =  0.002
+x3min = -0.002
+x3max =  0.002
+
+<amr_zoom/exclude0>          # cut out a neighbouring structure
+x1min =  0.001
+x1max =  0.002
+x2min = -0.002
+x2max =  0.0                 # x3 bounds omitted: whole mesh extent
+```
+
+The paint settings are stored in restart files, so the cloud is only repainted
+when the boxes or `temperature_threshold` change.
+`<parthenon/refinementN>` criteria cannot be capped and are rejected.
+
+Restarting a run with a larger `hydro/nscalars` requires adding the new
+components to the restart file first:
+
+```bash
+python scripts/add_scalar_to_restart.py parent.rhdf padded.rhdf
+athenaPK -r padded.rhdf -i zoom.in   # zoom.in sets hydro/nscalars and <amr_zoom>
+```
+
 ## Boundary conditions
 
 In addition to enrolling custom boundary conditions, three general options are currently supported by default:
