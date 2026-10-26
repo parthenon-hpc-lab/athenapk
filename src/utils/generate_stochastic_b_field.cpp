@@ -8,6 +8,7 @@
 //  caller-specified power spectrum via Parthenon's FFTManager.
 
 #include <cmath>
+#include <ostream>
 #include <random>
 
 // Parthenon headers

@@ -84,4 +84,8 @@ add_subdirectory(src)
 if (AthenaPK_ENABLE_TESTING)
   include(CTest)
   add_subdirectory(tst/regression)
+  # Unit tests currently only cover FFT-based utilities
+  if (PARTHENON_ENABLE_FFT)
+    add_subdirectory(tst/unit)
+  endif()
 endif()
