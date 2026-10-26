@@ -90,16 +90,12 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto By = B[1];
   auto Bz = B[2];
 
-  // Scatter B-field to mesh
-  auto UniformGridHelper = pmesh->GetUniformGridHelper();
-  UniformGridHelper->ScatterField(Bx, "cons", IB1);
-  UniformGridHelper->ScatterField(By, "cons", IB2);
-  UniformGridHelper->ScatterField(Bz, "cons", IB3);
-
   // Set hydro variables on device
   auto &md_new = pmesh->mesh_data.Get();
   auto cons_pack = md_new->PackVariables(std::vector<std::string>{"cons"});
-  auto helper = UniformGridHelper->GetKernelHelper();
+
+  auto UniformGridHelper = pmesh->GetUniformGridHelper();
+  auto helper = UniformGridHelper->GetKernelHelper(); // For computing flattened index inside Kernel
 
   IndexRange ib = md_new->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md_new->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);

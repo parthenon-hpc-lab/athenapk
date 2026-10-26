@@ -70,6 +70,7 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
 
   auto fftManager = pmesh->GetFFTManager();
   auto outbox = fftManager->fourier_space_box();
+  auto fourier_kernel_helper = fftManager->GetKernelHelper(); // for computing the flattened index inside the Kernel
 
   parthenon::ParArray1D<Kokkos::complex<double>> Bx_hat("Bx_hat",
                                                          fftManager->size_fourier_space_box());
@@ -168,14 +169,7 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
         cplx By_k = B1 * ep[1] + B2 * em[1];
         cplx Bz_k = B1 * ep[2] + B2 * em[2];
 
-        // find local index and write to host array
-        std::int64_t z_local = z - outbox.low[2];
-        std::int64_t y_local = y - outbox.low[1];
-        std::int64_t x_local = x - outbox.low[0];
-
-        std::int64_t local_plane = outbox.size[0] * outbox.size[1];
-        std::int64_t local_stride = outbox.size[0];
-        std::int64_t idx = z_local * local_plane + y_local * local_stride + x_local;
+        const auto idx = fourier_kernel_helper.FourierFlatIndex(z,y,x);
 
         Bx_hat_h[idx] = Bx_k;
         By_hat_h[idx] = By_k;

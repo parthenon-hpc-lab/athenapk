@@ -6,7 +6,7 @@
 problem = Hydro setup with constant density and pressure
 
 <job>
-problem_id = stochastic_B_field
+problem_id = decaying_turbulence
 
 <parthenon/output1>
 file_type  = hst        # History data dump
@@ -24,55 +24,64 @@ file_type  = rst        # Binary data dump
 dt         = 1.0        # time increment between outputs
 id         = restart
 
-<problem/stochastic_B_field>
-rho0 = 1.0
-p0   = 1.0
-vx   = 0.0
-vy   = 0.0
-vz   = 0.0
-kmax = 512.0	# Largest allowed mode in units of 2*pi/L_x where L_x is the box size as defined under <mesh>
-		# This should be <= min(nx1, nx2, nx3)
-B_rms = 0.3
+<parthenon/output4> 	# Optional output: Kinetic energy power spectrum 
+file_type = spectrum
+variable = prim
+components = 1, 2, 3
+output_label = spc_v
+dt = 1.0
 
-# Double Power-law power  Spectrum params:
-kI = 80.0	# Power Spectrum peak in units of 2*pi/L 
+<parthenon/output5>		# Optional output: Magnetic energy power spectrum 
+file_type = spectrum
+variable = cons
+components = 5, 6, 7
+output_label = spc_B
+dt = 1.0
+
+<problem/decaying_turbulence>
+rho0 = 1.0 # initial (uniform) density 
+p0   = 1.0 # initial (uniform) pressure 
+B_rms = 0.3 # Magnetic field initial rms 
+
+# Parameters for initial double power law magnetic field power spectrum:
+kI = 10.0	# Power Spectrum peak in units of 2*pi/L 
 n1 = 4.0	# power law index such that P ~ k^(n1) for k << kI
 n2 = 1.6666666666666667	# Power law index such that P ~ k^(-n2) for k >> KI
 alpha = 10.0	# Controls the sharpness of the transition between the two power laws
 
-helicity = 0.0 # Helicity fraction (between -1 and 1)
+helicity = 0.0 # Total initial helicity fraction of magnetic field (between -1 and 1)
 
-<refinement>
-type                     = maxdensity
-maxdensity_deref_below   = 1.00005
-maxdensity_refine_above  = 1.0001
+#<refinement>
+#type                     = maxdensity
+#maxdensity_deref_below   = 1.00005
+#maxdensity_refine_above  = 1.0001
 
 <parthenon/mesh>
 refinement = none
 nghost = 2
 
-nx1 = 1024
+nx1 = 32
 x1min = -3.141593
 x1max = 3.141593
 ix1_bc = periodic
 ox1_bc = periodic
 
-nx2 = 1024
+nx2 = 32
 x2min = -3.141593
 x2max = 3.141593
 ix2_bc = periodic
 ox2_bc = periodic
 
-nx3 = 1024
+nx3 = 32
 x3min = -3.141593
 x3max = 3.141593
 ix3_bc = periodic
 ox3_bc = periodic
 
 <parthenon/meshblock>
-nx1=128
-nx2=128
-nx3=128
+nx1=32
+nx2=32
+nx3=32
 
 <parthenon/time>
 integrator = vl2
@@ -93,15 +102,15 @@ scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
 # pressure_floor = 1e-6 # these should not be necessary.
 # e_floor = 1e-6
 
-<diffusion>
-integrator = unsplit 
-conduction = none
-conduction_coeff = fixed
-thermal_diff_coeff_code = 0.0
-viscosity = isotropic            # none (disabled), isotropic, or anisotropic
-viscosity_coeff = fixed
-mom_diff_coeff_code = 0.00005
-resistivity = ohmic          # none (disabled) or ohmic
-resistivity_coeff = fixed
-ohm_diff_coeff_code = 0.00005
-rkl2_max_dt_ratio = 100.0
+#<diffusion>
+#integrator = unsplit 
+#conduction = none
+#conduction_coeff = fixed
+#thermal_diff_coeff_code = 0.0
+#viscosity = isotropic            # none (disabled), isotropic, or anisotropic
+#viscosity_coeff = fixed
+#mom_diff_coeff_code = 0.00005
+#resistivity = ohmic          # none (disabled) or ohmic
+#resistivity_coeff = fixed
+#ohm_diff_coeff_code = 0.00005
+#rkl2_max_dt_ratio = 100.0
