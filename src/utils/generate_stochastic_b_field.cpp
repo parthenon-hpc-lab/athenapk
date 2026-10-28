@@ -8,6 +8,7 @@
 //  caller-specified power spectrum via Parthenon's FFTManager.
 
 #include <cmath>
+#include <cstdint>
 #include <ostream>
 #include <random>
 
@@ -30,16 +31,18 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
   // Sampling is done in the helical basis, i.e.
 
   // B(k) = B_+(k) e_+(k) + B_-(k) e_-(k).
-  // with k x e_+ = i k e_+, k x e_- = -i k e_-, and e_+ . e_- = 0.
+  // with i k x e_+ = |k| e_+, i k x e_- = -|k| e_-, and e_+ . e_- = 0.
 
   // This way, the field is automatically divergence-free and the helicity can be tuned
   // by adjusting the relative amplitudes of B_+ and B_-.
   // For each k, amplitudes are drawn from a Gaussian distribution with variance
   // determined by the desired power spectrum P.
 
-  if (helicity < -1.0 || helicity > 1.0) {
-    PARTHENON_FAIL("generate_stochastic_b_field: helicity must be between -1 and 1.");
-  }
+  PARTHENON_REQUIRE_THROWS(std::isfinite(b_rms) && b_rms >= 0.0,
+                           "generate_stochastic_b_field: b_rms must be finite and >= 0.");
+
+  PARTHENON_REQUIRE_THROWS(helicity >= -1.0 && helicity <= 1.0,
+                           "generate_stochastic_b_field: helicity must be between -1 and 1.");
 
   auto mesh_size = pmesh->mesh_size;
   const auto Nx = mesh_size.nx(parthenon::X1DIR);
@@ -56,23 +59,11 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
                            "generate_stochastic_b_field: box must be cubic (Lx == Ly == Lz).");
   const Real L = Lx;
 
-  // Nyquist limit -- the only mode cutoff that's ever meaningful for a real-valued
-  // field on an N-point FFT grid (higher modes alias).
-  const Real kmax_phys = 0.5 * N * (2.0 * M_PI / L);
-
-  // Multiply seed by rank to ensure different random numbers on each rank, but reproducible
-  // across runs with the same number of ranks.
-  rseed *= parthenon::Globals::my_rank + 1;
-
-  // Random number generators for phase and amplitude
-  std::mt19937 rng(rseed);
-  std::uniform_real_distribution<double> dist_phase(0.0, 2.0 * M_PI);
-  std::normal_distribution<double> dist_gauss(0.0, 1.0);
-
   auto fftManager = pmesh->GetFFTManager();
   auto outbox = fftManager->fourier_space_box();
   auto fourier_kernel_helper = fftManager->GetKernelHelper(); // for computing the flattened index inside the Kernel
 
+  // Allocate arrays for fourier-space and real-space fields on device: 
   parthenon::ParArray1D<Kokkos::complex<double>> Bx_hat("Bx_hat",
                                                          fftManager->size_fourier_space_box());
   parthenon::ParArray1D<Kokkos::complex<double>> By_hat("By_hat",
@@ -88,93 +79,124 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
   auto By_hat_h = By_hat.GetHostMirror();
   auto Bz_hat_h = Bz_hat.GetHostMirror();
 
+  // Samples B(k) for the integer wavenumber (kx, ky, kz) into b.
+  // Returns false (leaving b untouched) for k = 0 and for modes beyond the Nyquist cutoff.
+  auto sample_mode = [&](const int kx, const int ky, const int kz, cplx (&b)[3]) -> bool {
+    const double kz_phys = 2.0 * M_PI * kz / L;
+    const double ky_phys = 2.0 * M_PI * ky / L;
+    const double kx_phys = 2.0 * M_PI * kx / L;
+
+    const double kmag =
+        std::sqrt(kx_phys * kx_phys + ky_phys * ky_phys + kz_phys * kz_phys);
+
+    // Skip DC and apply Nyquist cutoff |k| < N/2 (compared exactly in integers).
+    // Excluding |k| = N/2 also removes all modes with a component at the Nyquist frequency,
+    // which would have to be real (k = -k on the grid) and thus cannot be helical.
+    const std::int64_t k2 = kx * kx + ky * ky + kz * kz;
+    if (k2 == 0 || 4 * k2 >= N * N) return false;
+
+    // Every mode gets its own random number generator, seeded from the global seed and
+    // the mode's wavenumber. This makes the field independent of the domain
+    // decomposition and lets each rank evaluate the conjugate partner of a mode (see
+    // below) without communication.
+    std::seed_seq seq{rseed, static_cast<std::uint32_t>(kx), static_cast<std::uint32_t>(ky),
+                      static_cast<std::uint32_t>(kz)};
+    std::mt19937 rng(seq);
+    std::uniform_real_distribution<double> dist_phase(0.0, 2.0 * M_PI);
+    std::normal_distribution<double> dist_gauss(0.0, 1.0);
+
+    // For a gaussian, sigma_B^2 ~ |B(k)|^2
+    // We want E_k ~ |B(k)|^2 k^2. Thus, |B(k)|^2 ~ E_k / k^2.
+    double sigma_B = std::sqrt(P(kmag) / (kmag * kmag));
+
+    // --- two independent Gaussian components in plane perpendicular to k ---
+    // First, find two perpendicular unit vectors
+    double ex1[3], ex2[3];
+
+    // arbitrary perpendicular vector
+    if (kx_phys != 0 || ky_phys != 0) {
+      double norm = std::sqrt(kx_phys * kx_phys + ky_phys * ky_phys);
+      ex1[0] = -ky_phys / norm;
+      ex1[1] = kx_phys / norm;
+      ex1[2] = 0.0;
+    } else {
+      ex1[0] = 1.0;
+      ex1[1] = 0.0;
+      ex1[2] = 0.0;
+    }
+    // second perpendicular vector = k x ex1 / |k|
+    double kvec[3] = {kx_phys, ky_phys, kz_phys};
+    double k_norm = kmag;
+    ex2[0] = (kvec[1] * ex1[2] - kvec[2] * ex1[1]) / k_norm;
+    ex2[1] = (kvec[2] * ex1[0] - kvec[0] * ex1[2]) / k_norm;
+    ex2[2] = (kvec[0] * ex1[1] - kvec[1] * ex1[0]) / k_norm;
+
+    // --- Rotate basis vectors by random angle ---
+    double phi = dist_phase(rng);
+    double cphi = std::cos(phi);
+    double sphi = std::sin(phi);
+    double ex1r[3], ex2r[3];
+    for (int q = 0; q < 3; ++q) {
+      ex1r[q] = cphi * ex1[q] + sphi * ex2[q];
+      ex2r[q] = -sphi * ex1[q] + cphi * ex2[q];
+    }
+
+    // --- Change to helical basis ---
+    // e_+, e_- complex helical basis vectors:
+    // e_+ = 1/(sqrt(2)) * (e_1 + i * e_2)
+    // e_- = 1/(sqrt(2)) * (e_1 - i * e_2)
+    cplx I(0.0, 1.0);
+    double sq2i = 1.0 / std::sqrt(2.0);
+    cplx ep[3], em[3];
+    for (int q = 0; q < 3; ++q) {
+      ep[q] = sq2i * (ex1r[q] + I * ex2r[q]);
+      em[q] = sq2i * (ex1r[q] - I * ex2r[q]);
+    }
+
+    // --- Compute the two independent Gaussian components in the helical basis ---
+    double sigma_plus = sigma_B * std::sqrt((1.0 + helicity) / 2.0);
+    double sigma_minus = sigma_B * std::sqrt((1.0 - helicity) / 2.0);
+
+    cplx B1(sigma_plus * dist_gauss(rng), sigma_plus * dist_gauss(rng));
+    cplx B2(sigma_minus * dist_gauss(rng), sigma_minus * dist_gauss(rng));
+
+    // --- construct vector field in Fourier space (carthesian basis) ---
+    for (int q = 0; q < 3; ++q) {
+      b[q] = B1 * ep[q] + B2 * em[q];
+    }
+    return true;
+  };
+
   // -----------------------------
   // Fill input (local chunk of Fourier-space array)
   // -----------------------------
   for (int z = outbox.low[2]; z <= outbox.high[2]; z++) {
-    int kz = (z <= N / 2) ? z : z - N;
-    double kz_phys = 2.0 * M_PI * kz / L;
     for (int y = outbox.low[1]; y <= outbox.high[1]; y++) {
-      int ky = (y <= N / 2) ? y : y - N; // Before j \in {0, N_y}, now k \in {-N_y/2, N_y/2}
-      double ky_phys = 2.0 * M_PI * ky / L;
       for (int x = outbox.low[0]; x <= outbox.high[0]; x++) {
-        int kx = x;
-        double kx_phys = 2.0 * M_PI * kx / L;
+        // integer wavenumbers, kx in [0, N/2] and ky, kz in (-N/2, N/2]
+        const auto [kz, ky, kx] = fourier_kernel_helper.Wavevector(z, y, x);
+        cplx b[3] = {0.0, 0.0, 0.0};
 
-        double kmag = std::sqrt(kx_phys * kx_phys + ky_phys * ky_phys + kz_phys * kz_phys);
-
-        // apply Nyquist cutoff
-        if (kmag > kmax_phys) continue;
-
-        // --- skip DC ---
-        if (z == 0 && y == 0 && x == 0) continue;
-
-        // --- compute stddev for Gaussian vector potential ---
-        // For a gaussian, sigma_B^2 ~ |B(k)|^2
-        // We want E_k ~ |B(k)|^2 k^2. Thus, |B(k)|^2 ~ E_k / k^2.
-        double sigma_B = std::sqrt(P(kmag) / (kmag * kmag));
-
-        // --- two independent Gaussian components in plane perpendicular to k ---
-        // First, find two perpendicular unit vectors
-        double ex1[3], ex2[3];
-
-        // arbitrary perpendicular vector
-        if (kx_phys != 0 || ky_phys != 0) {
-          double norm = std::sqrt(kx_phys * kx_phys + ky_phys * ky_phys);
-          ex1[0] = -ky_phys / norm;
-          ex1[1] = kx_phys / norm;
-          ex1[2] = 0.0;
+        // On the kx = 0 plane, both k = (0, ky, kz) and its partner -k = (0, -ky, -kz) are
+        // stored and have to satisfy B(-k) = conj(B(k)) for the transformed field to be
+        // real. The c2r transform does not enforce this, so sample the one with kz > 0
+        // (or kz = 0 and ky > 0) and conjugate it for the other. (The kx = N/2 plane would
+        // need the same treatment but lies entirely beyond the Nyquist cutoff.)
+        if (kx == 0 && (kz < 0 || (kz == 0 && ky < 0))) {
+          if (sample_mode(kx, -ky, -kz, b)) {
+            for (int q = 0; q < 3; ++q) {
+              b[q] = Kokkos::conj(b[q]);
+            }
+          }
         } else {
-          ex1[0] = 1.0;
-          ex1[1] = 0.0;
-          ex1[2] = 0.0;
-        }
-        // second perpendicular vector = k x ex1 / |k|
-        double kvec[3] = {kx_phys, ky_phys, kz_phys};
-        double k_norm = kmag;
-        ex2[0] = (kvec[1] * ex1[2] - kvec[2] * ex1[1]) / k_norm;
-        ex2[1] = (kvec[2] * ex1[0] - kvec[0] * ex1[2]) / k_norm;
-        ex2[2] = (kvec[0] * ex1[1] - kvec[1] * ex1[0]) / k_norm;
-
-        // --- Rotate basis vectors by random angle ---
-        double phi = dist_phase(rng);
-        double cphi = std::cos(phi);
-        double sphi = std::sin(phi);
-        double ex1r[3], ex2r[3];
-        for (int q = 0; q < 3; ++q) {
-          ex1r[q] = cphi * ex1[q] + sphi * ex2[q];
-          ex2r[q] = -sphi * ex1[q] + cphi * ex2[q];
+          sample_mode(kx, ky, kz, b);
         }
 
-        // --- Change to helical basis ---
-        // e_+, e_- complex helical basis vectors:
-        // e_+ = 1/(sqrt(2)) * (e_1 + i * e_2)
-        // e_- = 1/(sqrt(2)) * (e_1 - i * e_2)
-        cplx I(0.0, 1.0);
-        double sq2i = 1.0 / std::sqrt(2.0);
-        cplx ep[3], em[3];
-        for (int q = 0; q < 3; ++q) {
-          ep[q] = sq2i * (ex1r[q] + I * ex2r[q]);
-          em[q] = sq2i * (ex1r[q] - I * ex2r[q]);
-        }
+        const auto idx = fourier_kernel_helper.FourierFlatIndex(z, y, x);
 
-        // --- Compute the two independent Gaussian components in the helical basis ---
-        double sigma_plus = sigma_B * std::sqrt((1.0 + helicity) / 2.0);
-        double sigma_minus = sigma_B * std::sqrt((1.0 - helicity) / 2.0);
-
-        cplx B1(sigma_plus * dist_gauss(rng), sigma_plus * dist_gauss(rng));
-        cplx B2(sigma_minus * dist_gauss(rng), sigma_minus * dist_gauss(rng));
-
-        // --- construct vector field in Fourier space (carthesian basis) ---
-        cplx Bx_k = B1 * ep[0] + B2 * em[0];
-        cplx By_k = B1 * ep[1] + B2 * em[1];
-        cplx Bz_k = B1 * ep[2] + B2 * em[2];
-
-        const auto idx = fourier_kernel_helper.FourierFlatIndex(z,y,x);
-
-        Bx_hat_h[idx] = Bx_k;
-        By_hat_h[idx] = By_k;
-        Bz_hat_h[idx] = Bz_k;
+        Bx_hat_h[idx] = b[0];
+        By_hat_h[idx] = b[1];
+        Bz_hat_h[idx] = b[2];
       }
     }
   }
@@ -207,6 +229,16 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
   const std::int64_t denom_i = N * N * N;
   double current_B_rms = std::sqrt(global_B2_sum / denom_i);
   double norm_factor = b_rms / current_B_rms;
+  // A single NaN/inf (e.g. from P(k) < 0 or P(k) = inf) propagates into the global sum.
+  // The checks happen after the Allreduce, so all ranks throw consistently.
+  PARTHENON_REQUIRE_THROWS(std::isfinite(current_B_rms) && current_B_rms > 0.0,
+                           "generate_stochastic_b_field: Found non-finite or negative values in the generated stochastic field. Please make sure that your desired power spectrum is positive and finite everywhere.");
+  // With valid b_rms and current_B_rms, this only fails if the division overflows because
+  // current_B_rms is tiny (P(k) extremely small).
+  PARTHENON_REQUIRE_THROWS(std::isfinite(norm_factor),
+                           "generate_stochastic_b_field: Normalization factor b_rms / "
+                           "current_B_rms overflowed. Check that P(k) is not so small that "
+                           "the generated field underflows. /");
 
   Kokkos::parallel_for(
       "NormalizeB", Kokkos::RangePolicy<std::int64_t>(0, local_num_cells),

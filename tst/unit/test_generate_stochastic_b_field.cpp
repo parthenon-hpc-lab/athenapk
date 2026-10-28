@@ -12,6 +12,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <vector>
@@ -45,7 +46,8 @@ constexpr int kN = 32;  // cells per dimension
 constexpr int kNB = 16; // cells per meshblock and dimension -> 8 blocks
 constexpr Real kL = 1.0;
 constexpr Real kBrms = 0.3;
-// Nyquist cutoff of the generator; modes beyond it are zero and excluded from statistics
+// Nyquist cutoff of the generator; modes at or beyond it are zero and excluded from
+// statistics
 const Real kKmax = 0.5 * kN * 2.0 * M_PI / kL;
 
 // Smooth double power law peaking around kI (same shape as the decaying_turbulence pgen)
@@ -202,9 +204,9 @@ TEST_CASE("GenerateStochasticBField deterministic properties", "[StochasticBFiel
         const cplx kdotb = kp[0] * fd.b_hat[0][idx] + kp[1] * fd.b_hat[1][idx] +
                            kp[2] * fd.b_hat[2][idx];
         div_power += w * Abs2(kdotb) / (kmag * kmag);
-        if (kmag > kKmax * (1.0 + 1e-12)) beyond_nyquist += w * p;
+        if (kmag > kKmax * (1.0 - 1e-12)) beyond_nyquist += w * p; // |k| >= k_Ny
         // Nyquist modes are forced real by the r2c transform and thus cannot be helical
-        if (std::abs(helicity) == 1.0 && !is_nyquist && p > 1e-20 * kBrms * kBrms) {
+        if (std::abs(helicity) == 1.0 && !is_nyquist && p > 1e-20 * kBrms * kBrms) { // In the fully helical case, every mode should be maximally helical. This is checked here.
           const Real h = kmag * ModeHelicity(fd, kp, kmag, idx) / p;
           max_helicity_dev = std::max(max_helicity_dev, std::abs(h - helicity));
         }
@@ -226,9 +228,10 @@ TEST_CASE("GenerateStochasticBField deterministic properties", "[StochasticBFiel
 }
 
 TEST_CASE("GenerateStochasticBField is reproducible", "[StochasticBField][MPI]") {
+  // Same-seed realizations should be the same, different-seed realizations should differ. 
   auto tm = MakeMesh(kN, kN, kN);
   Mesh *pmesh = tm->mesh.get();
-  const auto a = Generate(pmesh, 0.5, 7);
+  const auto a = Generate(pmesh, /*helicity=*/0.5, /*seed=*/7);
   const auto b = Generate(pmesh, 0.5, 7);
   const auto c = Generate(pmesh, 0.5, 8);
   int local_same = 1, local_differs = 0;
@@ -276,7 +279,7 @@ TEST_CASE("GenerateStochasticBField statistics", "[StochasticBField][MPI]") {
     }
     const Real norm = obs_tot / exp_tot;
     for (int b = 1; b < nbins; b++) {
-      if (nind[b] < 10) continue;
+      if (nind[b] < 10) continue; // too few modes in bin to say anything about statistics
       // For helicity = +-1 each amplitude is one complex Gaussian -> |B|^2 is exponential
       // with std = mean, so the shell average scatters by 1/sqrt(nind)
       INFO("shell " << b << " with " << nind[b] << " independent modes");
@@ -343,8 +346,9 @@ TEST_CASE("GenerateStochasticBField statistics", "[StochasticBField][MPI]") {
 
   SECTION("kx = 0 plane carries the same power as the rest of the spectrum") {
     // The kx = 0 plane of the r2c layout must be Hermitian (B(-k) = conj(B(k))). If the
-    // generator fills +k and -k independently, the c2r transform effectively averages
-    // them and the plane ends up with only half the expected power.
+    // generator filled +k and -k independently, the c2r transform (at least heFFTe's
+    // stock backend) would effectively average them and the plane would end up with
+    // only half the expected power.
     const auto fd = Generate(pmesh, 1.0, 42);
     std::vector<Real> s(4, 0.0); // obs/exp for kx = 0 and kx > 0, mode counts
     ForEachMode(pmesh, [&](const auto &, Real kmag, Real, std::int64_t idx,
@@ -365,4 +369,34 @@ TEST_CASE("GenerateStochasticBField statistics", "[StochasticBField][MPI]") {
 TEST_CASE("GenerateStochasticBField rejects non-cubic meshes", "[StochasticBField][MPI]") {
   auto tm = MakeMesh(kN, kN, 2 * kN);
   REQUIRE_THROWS(GenerateStochasticBField(tm->mesh.get(), PowerSpectrum, kBrms, 0.0));
+}
+
+TEST_CASE("GenerateStochasticBField rejects invalid arguments", "[StochasticBField][MPI]") {
+  auto tm = MakeMesh(kN, kN, kN);
+  Mesh *pmesh = tm->mesh.get();
+  const Real nan = std::numeric_limits<Real>::quiet_NaN();
+  for (const Real helicity : {-1.5, 1.5, nan}) {
+    REQUIRE_THROWS(GenerateStochasticBField(pmesh, PowerSpectrum, kBrms, helicity));
+  }
+  for (const Real b_rms : {-1.0, nan, std::numeric_limits<Real>::infinity()}) {
+    REQUIRE_THROWS(GenerateStochasticBField(pmesh, PowerSpectrum, b_rms, 0.0));
+  }
+}
+
+TEST_CASE("GenerateStochasticBField rejects unusable spectra", "[StochasticBField][MPI]") {
+  auto tm = MakeMesh(kN, kN, kN);
+  Mesh *pmesh = tm->mesh.get();
+  SECTION("zero everywhere") {
+    REQUIRE_THROWS(
+        GenerateStochasticBField(pmesh, [](Real) -> Real { return 0.0; }, kBrms, 0.0));
+  }
+  SECTION("negative (NaN amplitudes)") {
+    REQUIRE_THROWS(
+        GenerateStochasticBField(pmesh, [](Real) -> Real { return -1.0; }, kBrms, 0.0));
+  }
+  SECTION("infinite") {
+    REQUIRE_THROWS(GenerateStochasticBField(
+        pmesh, [](Real) -> Real { return std::numeric_limits<Real>::infinity(); }, kBrms,
+        0.0));
+  }
 }

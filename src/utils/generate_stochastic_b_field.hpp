@@ -31,9 +31,11 @@ using parthenon::Real;
 // field) sampled in the helical Fourier basis (B = B+ e+ + B- e-), with per-mode
 // variance set by P(|k|) (physical k) and helicity balance controlled by `helicity`
 // (-1..1), RMS-normalized to `b_rms`, via pmesh->GetFFTManager(). Requires a cubic mesh
-// (checked via PARTHENON_REQUIRE_THROWS). Modes with |k| beyond the Nyquist limit
+// (checked via PARTHENON_REQUIRE_THROWS). Modes with |k| at or beyond the Nyquist limit
 // (0.5*N, derived internally from pmesh->mesh_size) and the k=0 (DC) mode are always
-// skipped, without consuming any RNG draws for the skipped modes. Returned arrays are
+// zero. Random numbers are drawn per mode from `rseed` and the mode's wavenumber, so the
+// field does not depend on the number of ranks, and Hermitian symmetry is enforced on the
+// kx = 0 plane of the r2c layout. Returned arrays are
 // index-compatible with UniformGridHelper::ScatterField (same local_mesh_box layout as
 // FFTManager::real_space_box()).
 std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,

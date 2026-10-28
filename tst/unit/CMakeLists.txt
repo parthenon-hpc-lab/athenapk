@@ -14,10 +14,8 @@ if (NOT TARGET Catch2::Catch2)
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/external/parthenon)
     endif()
     add_subdirectory(${PARTHENON_CATCH2_DIR} Catch2)
-    list(APPEND CMAKE_MODULE_PATH "${PARTHENON_CATCH2_DIR}/contrib")
   endif()
 endif()
-include(Catch)
 
 add_executable(athenapk_unit_tests
   ${PROJECT_SOURCE_DIR}/external/parthenon/tst/catch2_define.cpp
@@ -29,7 +27,10 @@ target_link_libraries(athenapk_unit_tests PRIVATE parthenon Catch2::Catch2 MPI::
 # Lets catch2_define.cpp initialize MPI for tests tagged [MPI]
 target_compile_definitions(athenapk_unit_tests PRIVATE CATCH2_MPI_PARALLEL)
 
-catch_discover_tests(athenapk_unit_tests PROPERTIES LABELS "unit")
+# Register the whole binary as one test instead of using catch_discover_tests, which runs
+# the binary at build time and thus fails for GPU builds on nodes without a usable GPU.
+add_test(NAME athenapk_unit_tests COMMAND athenapk_unit_tests)
+set_tests_properties(athenapk_unit_tests PROPERTIES LABELS "unit")
 
 add_test(NAME athenapk_unit_tests_mpi
   COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${NUM_MPI_PROC_TESTING}
