@@ -19,9 +19,9 @@
 #include <parthenon/parthenon.hpp>
 // AthenaPK headers
 #include "../eos/adiabatic_hydro.hpp"
+#include "../particles/tracers/tracers.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
-#include "../tracers/tracers.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
@@ -226,8 +226,9 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = region_calc_fluxes_step_init[i];
     auto &base = pmesh->mesh_data.GetOrAdd("base", i);
+    auto &base_bnd = Tracers::HydroExchangeData(base);
     const auto any = parthenon::BoundaryType::any;
-    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, base);
+    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, base_bnd);
     auto start_flxcor_recv =
         tl.AddTask(none, parthenon::StartReceiveFluxCorrections, base);
 
@@ -267,7 +268,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     // best impl. Go with default call (split local/nonlocal) for now.
     // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
     auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
-        rkl2_step_first | start_bnd, tl, base, pmesh->multilevel);
+        rkl2_step_first | start_bnd, tl, base_bnd, pmesh->multilevel);
 
     tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
                base.get());
@@ -294,12 +295,13 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
     for (int i = 0; i < num_partitions; i++) {
       auto &tl = region_calc_fluxes_step_other[i];
       auto &base = pmesh->mesh_data.GetOrAdd("base", i);
+      auto &base_bnd = Tracers::HydroExchangeData(base);
 
       // Only need boundaries for base as it's the only "active" container exchanging
       // data/fluxes with neighbors. All other containers are passive (i.e., data is only
       // used but not exchanged).
       const auto any = parthenon::BoundaryType::any;
-      auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, base);
+      auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, base_bnd);
       auto start_flxcor_recv =
           tl.AddTask(none, parthenon::StartReceiveFluxCorrections, base);
 
@@ -332,7 +334,7 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
       // best impl. Go with default call (split local/nonlocal) for now.
       // TODO(pgrete) optimize (in parthenon) to only send subset of updated vars
       auto bounds_exchange = parthenon::AddBoundaryExchangeTasks(
-          rkl2_step_other | start_bnd, tl, base, pmesh->multilevel);
+          rkl2_step_other | start_bnd, tl, base_bnd, pmesh->multilevel);
 
       tl.AddTask(bounds_exchange, parthenon::Update::FillDerived<MeshData<Real>>,
                  base.get());
@@ -347,6 +349,15 @@ void AddSTSTasks(TaskCollection *ptask_coll, Mesh *pmesh, BlockList_t &blocks,
 TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   TaskCollection tc;
   auto hydro_pkg = blocks[0]->packages.Get("Hydro");
+  auto tracers_pkg = pmesh->packages.Get("tracers");
+  const auto tracer_method =
+      tracers_pkg->Param<Tracers::AdvectMethod>("advection_method");
+  const bool ito_tracers =
+      tracers_pkg->Param<bool>("enabled") && tracer_method == Tracers::AdvectMethod::Ito;
+  // Tracers moved by the mass fluxes need the cell mass M^n and the step's mass fluxes
+  const bool flux_based_tracers =
+      tracers_pkg->Param<bool>("enabled") &&
+      (tracer_method == Tracers::AdvectMethod::MonteCarlo || ito_tracers);
 
   TaskID none(0);
   // Number of task lists that can be executed indepenently and thus *may*
@@ -501,15 +512,23 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
+    // "base" itself unless Ito tracers exchange their moments separately (see below)
+    auto &mu0_bnd = Tracers::HydroExchangeData(mu0);
 
     const auto any = parthenon::BoundaryType::any;
-    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
+    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0_bnd);
     auto start_flxcor_recv =
         tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
 
     const auto flux_str = (stage == 1) ? "flux_first_stage" : "flux_other_stage";
     FluxFun_t *calc_flux_fun = hydro_pkg->Param<FluxFun_t *>(flux_str);
     auto calc_flux = tl.AddTask(none, calc_flux_fun, mu0);
+
+    // Fill tracers' mass reference once, before this step's first conservative
+    // update, not on every stage (see FillTracerMCell).
+    if (stage == 1 && flux_based_tracers) {
+      tl.AddTask(none, FillTracerMCell, mu0.get());
+    }
 
     // TODO(pgrete) figure out what to do about the sources from the first stage
     // that are potentially disregarded when the (m)hd fluxes are corrected in the second
@@ -529,6 +548,26 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     auto recv_flx = tl.AddTask(start_flxcor_recv, parthenon::ReceiveFluxCorrections, mu0);
     auto set_flx = tl.AddTask(recv_flx | first_order_flux_correct,
                               parthenon::SetFluxCorrections, mu0);
+
+    // Combine this stage's final mass fluxes like the update below, before anything
+    // (e.g. a final RKL2 step) overwrites the flux arrays.
+    TaskID mass_fluxes = set_flx;
+    if (flux_based_tracers) {
+      mass_fluxes = tl.AddTask(set_flx, Tracers::AccumulateMassFluxes, mu0.get(),
+                               integrator->gam0[stage - 1], integrator->beta[stage - 1]);
+    }
+
+    // Ito tracers interpolate moments built from the step's mass fluxes, ghosts
+    // included, so they get one exchange of their own, alongside hydro's.
+    if (stage == integrator->nstages && ito_tracers) {
+      auto &mu0_ito = Tracers::ItoExchangeData(mu0);
+      auto start_ito = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0_ito);
+      auto ito_moments =
+          tl.AddTask(mass_fluxes, Tracers::ComputeItoMoments, mu0.get(), tm);
+      parthenon::AddBoundaryExchangeTasks(ito_moments | start_ito, tl, mu0_ito,
+                                          pmesh->multilevel,
+                                          Tracers::ApplyItoBoundaryConditions);
+    }
 
     // compute the divergence of fluxes of conserved variables
     auto update = tl.AddTask(
@@ -564,7 +603,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // TODO(someone) experiment with split (local/nonlocal) comms with respect to
     // performance for various tests (static, amr, block sizes) and then decide on the
     // best impl. Go with default call (split local/nonlocal) for now.
-    parthenon::AddBoundaryExchangeTasks(source_split_first_order | start_bnd, tl, mu0,
+    parthenon::AddBoundaryExchangeTasks(source_split_first_order | start_bnd, tl, mu0_bnd,
                                         pmesh->multilevel);
   }
 
@@ -612,7 +651,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  auto tracers_pkg = pmesh->packages.Get("tracers");
   // First order operator split tracer advection
   if (stage == integrator->nstages && tracers_pkg->Param<bool>("enabled")) {
     const std::string swarm_name = "tracers";
@@ -632,14 +670,17 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &pmb = blocks[n];
       auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
       auto &mbd0 = pmb->meshblock_data.Get("base");
-      auto tracer_advect =
-          tl.AddTask(none, Tracers::AdvectTracers, mbd0.get(), integrator->dt);
 
+      auto tracer_inject = tl.AddTask(none, Tracers::InjectTracers, mbd0.get(), tm);
+      auto tracer_removal =
+          tl.AddTask(tracer_inject, Tracers::RemoveTracers, mbd0.get(), tm);
+      auto tracer_advect =
+          tl.AddTask(tracer_removal, Tracers::AdvectTracers, mbd0.get(), tm);
       auto send = tl.AddTask(tracer_advect, &SwarmContainer::Send, sd.get(),
                              BoundaryCommSubset::all);
-
       auto receive =
           tl.AddTask(send, &SwarmContainer::Receive, sd.get(), BoundaryCommSubset::all);
+      auto center = tl.AddTask(receive, Tracers::CenterTracers, mbd0.get(), tm);
     }
     // TODO(pgrete) Fix/cleanup once we got swarm packs.
     // We need just a single region with a single task in order to be able to use plain
