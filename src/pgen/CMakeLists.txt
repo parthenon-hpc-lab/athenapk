@@ -27,3 +27,7 @@ target_sources(athenaPK PRIVATE
     shattering.cpp
     turbulence.cpp
     )
+
+if(PARTHENON_ENABLE_FFT)
+    target_sources(athenaPK PRIVATE decaying_turbulence.cpp)
+endif()
