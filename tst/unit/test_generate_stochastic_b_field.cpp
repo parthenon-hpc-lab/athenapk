@@ -140,8 +140,8 @@ void ForEachMode(Mesh *pmesh, F &&f) {
         const std::array<Real, 3> kp{2.0 * M_PI * kv[2] / kL, 2.0 * M_PI * kv[1] / kL,
                                      2.0 * M_PI * kv[0] / kL};
         const Real kmag = std::sqrt(kp[0] * kp[0] + kp[1] * kp[1] + kp[2] * kp[2]);
-        const bool is_nyquist = std::abs(kv[0]) == kN / 2 || std::abs(kv[1]) == kN / 2 ||
-                                kv[2] == kN / 2;
+        const bool is_nyquist =
+            std::abs(kv[0]) == kN / 2 || std::abs(kv[1]) == kN / 2 || kv[2] == kN / 2;
         const Real w = (kv[2] == 0 || kv[2] == kN / 2) ? 1.0 : 2.0;
         f(kp, kmag, w, helper.FourierFlatIndex(k, j, i), is_nyquist, kv[2] == 0);
       }
@@ -172,7 +172,8 @@ Real ExpectedModePower(const Real kmag) { return PowerSpectrum(kmag) / (kmag * k
 
 } // namespace
 
-TEST_CASE("GenerateStochasticBField deterministic properties", "[StochasticBField][MPI]") {
+TEST_CASE("GenerateStochasticBField deterministic properties",
+          "[StochasticBField][MPI]") {
   auto tm = MakeMesh(kN, kN, kN);
   Mesh *pmesh = tm->mesh.get();
 
@@ -206,7 +207,9 @@ TEST_CASE("GenerateStochasticBField deterministic properties", "[StochasticBFiel
         div_power += w * Abs2(kdotb) / (kmag * kmag);
         if (kmag > kKmax * (1.0 - 1e-12)) beyond_nyquist += w * p; // |k| >= k_Ny
         // Nyquist modes are forced real by the r2c transform and thus cannot be helical
-        if (std::abs(helicity) == 1.0 && !is_nyquist && p > 1e-20 * kBrms * kBrms) { // In the fully helical case, every mode should be maximally helical. This is checked here.
+        if (std::abs(helicity) == 1.0 && !is_nyquist &&
+            p > 1e-20 * kBrms * kBrms) { // In the fully helical case, every mode should
+                                         // be maximally helical. This is checked here.
           const Real h = kmag * ModeHelicity(fd, kp, kmag, idx) / p;
           max_helicity_dev = std::max(max_helicity_dev, std::abs(h - helicity));
         }
@@ -228,7 +231,7 @@ TEST_CASE("GenerateStochasticBField deterministic properties", "[StochasticBFiel
 }
 
 TEST_CASE("GenerateStochasticBField is reproducible", "[StochasticBField][MPI]") {
-  // Same-seed realizations should be the same, different-seed realizations should differ. 
+  // Same-seed realizations should be the same, different-seed realizations should differ.
   auto tm = MakeMesh(kN, kN, kN);
   Mesh *pmesh = tm->mesh.get();
   const auto a = Generate(pmesh, /*helicity=*/0.5, /*seed=*/7);
@@ -283,7 +286,8 @@ TEST_CASE("GenerateStochasticBField statistics", "[StochasticBField][MPI]") {
       // For helicity = +-1 each amplitude is one complex Gaussian -> |B|^2 is exponential
       // with std = mean, so the shell average scatters by 1/sqrt(nind)
       INFO("shell " << b << " with " << nind[b] << " independent modes");
-      CHECK(obs[b] / (norm * expct[b]) == Approx(1.0).margin(nsigma / std::sqrt(nind[b])));
+      CHECK(obs[b] / (norm * expct[b]) ==
+            Approx(1.0).margin(nsigma / std::sqrt(nind[b])));
     }
   }
 
@@ -307,15 +311,15 @@ TEST_CASE("GenerateStochasticBField statistics", "[StochasticBField][MPI]") {
       GlobalSum(s);
       const Real frac = s[0] / s[1];
       // Delta-method standard error of the ratio estimator sum(kh) / sum(p)
-      const Real sigma =
-          std::sqrt(s[2] - 2.0 * frac * s[4] + frac * frac * s[3]) / s[1];
+      const Real sigma = std::sqrt(s[2] - 2.0 * frac * s[4] + frac * frac * s[3]) / s[1];
       INFO("helicity = " << helicity << ", measured = " << frac << " +- " << sigma);
       CHECK(frac == Approx(helicity).margin(nsigma * sigma));
     }
   }
 
   SECTION("Fourier amplitudes are complex Gaussian") {
-    // For helicity = 1, x = |B_hat|^2 / <|B_hat|^2> is Exp(1): <x> = 1, <x^2> = 2, <x^3> = 6.
+    // For helicity = 1, x = |B_hat|^2 / <|B_hat|^2> is Exp(1): <x> = 1, <x^2> = 2, <x^3>
+    // = 6.
     const auto fd = Generate(pmesh, 1.0, 42);
     // First pass: normalization from the expected spectrum shape
     Real obs = 0.0, expct = 0.0;
@@ -366,12 +370,14 @@ TEST_CASE("GenerateStochasticBField statistics", "[StochasticBField][MPI]") {
   }
 }
 
-TEST_CASE("GenerateStochasticBField rejects non-cubic meshes", "[StochasticBField][MPI]") {
+TEST_CASE("GenerateStochasticBField rejects non-cubic meshes",
+          "[StochasticBField][MPI]") {
   auto tm = MakeMesh(kN, kN, 2 * kN);
   REQUIRE_THROWS(GenerateStochasticBField(tm->mesh.get(), PowerSpectrum, kBrms, 0.0));
 }
 
-TEST_CASE("GenerateStochasticBField rejects invalid arguments", "[StochasticBField][MPI]") {
+TEST_CASE("GenerateStochasticBField rejects invalid arguments",
+          "[StochasticBField][MPI]") {
   auto tm = MakeMesh(kN, kN, kN);
   Mesh *pmesh = tm->mesh.get();
   const Real nan = std::numeric_limits<Real>::quiet_NaN();
@@ -383,7 +389,8 @@ TEST_CASE("GenerateStochasticBField rejects invalid arguments", "[StochasticBFie
   }
 }
 
-TEST_CASE("GenerateStochasticBField rejects unusable spectra", "[StochasticBField][MPI]") {
+TEST_CASE("GenerateStochasticBField rejects unusable spectra",
+          "[StochasticBField][MPI]") {
   auto tm = MakeMesh(kN, kN, kN);
   Mesh *pmesh = tm->mesh.get();
   SECTION("zero everywhere") {

@@ -23,10 +23,9 @@ namespace utils::generate_stochastic_b_field {
 
 using cplx = Kokkos::complex<double>;
 
-std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
-                                                          const std::function<Real(Real)> &P,
-                                                          Real b_rms, Real helicity,
-                                                          uint32_t rseed) {
+std::array<ParArray1D<Real>, 3>
+GenerateStochasticBField(Mesh *pmesh, const std::function<Real(Real)> &P, Real b_rms,
+                         Real helicity, uint32_t rseed) {
   // sample stochastic vector field in Fourier space.
   // Sampling is done in the helical basis, i.e.
 
@@ -41,35 +40,40 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
   PARTHENON_REQUIRE_THROWS(std::isfinite(b_rms) && b_rms >= 0.0,
                            "generate_stochastic_b_field: b_rms must be finite and >= 0.");
 
-  PARTHENON_REQUIRE_THROWS(helicity >= -1.0 && helicity <= 1.0,
-                           "generate_stochastic_b_field: helicity must be between -1 and 1.");
+  PARTHENON_REQUIRE_THROWS(
+      helicity >= -1.0 && helicity <= 1.0,
+      "generate_stochastic_b_field: helicity must be between -1 and 1.");
 
   auto mesh_size = pmesh->mesh_size;
   const auto Nx = mesh_size.nx(parthenon::X1DIR);
   const auto Ny = mesh_size.nx(parthenon::X2DIR);
   const auto Nz = mesh_size.nx(parthenon::X3DIR);
-  PARTHENON_REQUIRE_THROWS(Nx == Ny && Ny == Nz,
-                           "generate_stochastic_b_field: mesh must be cubic (Nx == Ny == Nz).");
+  PARTHENON_REQUIRE_THROWS(
+      Nx == Ny && Ny == Nz,
+      "generate_stochastic_b_field: mesh must be cubic (Nx == Ny == Nz).");
   const std::int64_t N = Nx;
 
   const Real Lx = mesh_size.xmax(parthenon::X1DIR) - mesh_size.xmin(parthenon::X1DIR);
   const Real Ly = mesh_size.xmax(parthenon::X2DIR) - mesh_size.xmin(parthenon::X2DIR);
   const Real Lz = mesh_size.xmax(parthenon::X3DIR) - mesh_size.xmin(parthenon::X3DIR);
-  PARTHENON_REQUIRE_THROWS(std::abs(Lx - Ly) < 1e-10 && std::abs(Ly - Lz) < 1e-10,
-                           "generate_stochastic_b_field: box must be cubic (Lx == Ly == Lz).");
+  PARTHENON_REQUIRE_THROWS(
+      std::abs(Lx - Ly) < 1e-10 && std::abs(Ly - Lz) < 1e-10,
+      "generate_stochastic_b_field: box must be cubic (Lx == Ly == Lz).");
   const Real L = Lx;
 
   auto fftManager = pmesh->GetFFTManager();
   auto outbox = fftManager->fourier_space_box();
-  auto fourier_kernel_helper = fftManager->GetKernelHelper(); // for computing the flattened index inside the Kernel
+  auto fourier_kernel_helper =
+      fftManager
+          ->GetKernelHelper(); // for computing the flattened index inside the Kernel
 
-  // Allocate arrays for fourier-space and real-space fields on device: 
-  parthenon::ParArray1D<Kokkos::complex<double>> Bx_hat("Bx_hat",
-                                                         fftManager->size_fourier_space_box());
-  parthenon::ParArray1D<Kokkos::complex<double>> By_hat("By_hat",
-                                                         fftManager->size_fourier_space_box());
-  parthenon::ParArray1D<Kokkos::complex<double>> Bz_hat("Bz_hat",
-                                                         fftManager->size_fourier_space_box());
+  // Allocate arrays for fourier-space and real-space fields on device:
+  parthenon::ParArray1D<Kokkos::complex<double>> Bx_hat(
+      "Bx_hat", fftManager->size_fourier_space_box());
+  parthenon::ParArray1D<Kokkos::complex<double>> By_hat(
+      "By_hat", fftManager->size_fourier_space_box());
+  parthenon::ParArray1D<Kokkos::complex<double>> Bz_hat(
+      "Bz_hat", fftManager->size_fourier_space_box());
   parthenon::ParArray1D<double> Bx("Bx", fftManager->size_real_space_box());
   parthenon::ParArray1D<double> By("By", fftManager->size_real_space_box());
   parthenon::ParArray1D<double> Bz("Bz", fftManager->size_real_space_box());
@@ -80,8 +84,9 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
   auto Bz_hat_h = Bz_hat.GetHostMirror();
 
   // Samples B(k) for the integer wavenumber (kx, ky, kz) into b.
-  // Returns false (leaving b untouched) for k = 0 and for modes beyond the Nyquist cutoff.
-  auto sample_mode = [&](const int kx, const int ky, const int kz, cplx (&b)[3]) -> bool {
+  // Returns false (leaving b untouched) for k = 0 and for modes beyond the Nyquist
+  // cutoff.
+  auto sample_mode = [&](const int kx, const int ky, const int kz, cplx(&b)[3]) -> bool {
     const double kz_phys = 2.0 * M_PI * kz / L;
     const double ky_phys = 2.0 * M_PI * ky / L;
     const double kx_phys = 2.0 * M_PI * kx / L;
@@ -90,8 +95,9 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
         std::sqrt(kx_phys * kx_phys + ky_phys * ky_phys + kz_phys * kz_phys);
 
     // Skip DC and apply Nyquist cutoff |k| < N/2 (compared exactly in integers).
-    // Excluding |k| = N/2 also removes all modes with a component at the Nyquist frequency,
-    // which would have to be real (k = -k on the grid) and thus cannot be helical.
+    // Excluding |k| = N/2 also removes all modes with a component at the Nyquist
+    // frequency, which would have to be real (k = -k on the grid) and thus cannot be
+    // helical.
     const std::int64_t k2 = kx * kx + ky * ky + kz * kz;
     if (k2 == 0 || 4 * k2 >= N * N) return false;
 
@@ -99,8 +105,8 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
     // the mode's wavenumber. This makes the field independent of the domain
     // decomposition and lets each rank evaluate the conjugate partner of a mode (see
     // below) without communication.
-    std::seed_seq seq{rseed, static_cast<std::uint32_t>(kx), static_cast<std::uint32_t>(ky),
-                      static_cast<std::uint32_t>(kz)};
+    std::seed_seq seq{rseed, static_cast<std::uint32_t>(kx),
+                      static_cast<std::uint32_t>(ky), static_cast<std::uint32_t>(kz)};
     std::mt19937 rng(seq);
     std::uniform_real_distribution<double> dist_phase(0.0, 2.0 * M_PI);
     std::normal_distribution<double> dist_gauss(0.0, 1.0);
@@ -177,11 +183,11 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
         const auto [kz, ky, kx] = fourier_kernel_helper.Wavevector(z, y, x);
         cplx b[3] = {0.0, 0.0, 0.0};
 
-        // On the kx = 0 plane, both k = (0, ky, kz) and its partner -k = (0, -ky, -kz) are
-        // stored and have to satisfy B(-k) = conj(B(k)) for the transformed field to be
-        // real. The c2r transform does not enforce this, so sample the one with kz > 0
-        // (or kz = 0 and ky > 0) and conjugate it for the other. (The kx = N/2 plane would
-        // need the same treatment but lies entirely beyond the Nyquist cutoff.)
+        // On the kx = 0 plane, both k = (0, ky, kz) and its partner -k = (0, -ky, -kz)
+        // are stored and have to satisfy B(-k) = conj(B(k)) for the transformed field to
+        // be real. The c2r transform does not enforce this, so sample the one with kz > 0
+        // (or kz = 0 and ky > 0) and conjugate it for the other. (The kx = N/2 plane
+        // would need the same treatment but lies entirely beyond the Nyquist cutoff.)
         if (kx == 0 && (kz < 0 || (kz == 0 && ky < 0))) {
           if (sample_mode(kx, -ky, -kz, b)) {
             for (int q = 0; q < 3; ++q) {
@@ -214,7 +220,8 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
   // Compute the RMS of the field and normalize to the desired value
   double local_B2_sum = 0.0;
 
-  const std::int64_t local_num_cells = static_cast<std::int64_t>(fftManager->size_real_space_box());
+  const std::int64_t local_num_cells =
+      static_cast<std::int64_t>(fftManager->size_real_space_box());
 
   Kokkos::parallel_reduce(
       "ComputeLocalB2", Kokkos::RangePolicy<std::int64_t>(0, local_num_cells),
@@ -231,14 +238,18 @@ std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
   double norm_factor = b_rms / current_B_rms;
   // A single NaN/inf (e.g. from P(k) < 0 or P(k) = inf) propagates into the global sum.
   // The checks happen after the Allreduce, so all ranks throw consistently.
-  PARTHENON_REQUIRE_THROWS(std::isfinite(current_B_rms) && current_B_rms > 0.0,
-                           "generate_stochastic_b_field: Found non-finite or negative values in the generated stochastic field. Please make sure that your desired power spectrum is positive and finite everywhere.");
+  PARTHENON_REQUIRE_THROWS(
+      std::isfinite(current_B_rms) && current_B_rms > 0.0,
+      "generate_stochastic_b_field: Found non-finite or negative values in the generated "
+      "stochastic field. Please make sure that your desired power spectrum is positive "
+      "and finite everywhere.");
   // With valid b_rms and current_B_rms, this only fails if the division overflows because
   // current_B_rms is tiny (P(k) extremely small).
-  PARTHENON_REQUIRE_THROWS(std::isfinite(norm_factor),
-                           "generate_stochastic_b_field: Normalization factor b_rms / "
-                           "current_B_rms overflowed. Check that P(k) is not so small that "
-                           "the generated field underflows. /");
+  PARTHENON_REQUIRE_THROWS(
+      std::isfinite(norm_factor),
+      "generate_stochastic_b_field: Normalization factor b_rms / "
+      "current_B_rms overflowed. Check that P(k) is not so small that "
+      "the generated field underflows. /");
 
   Kokkos::parallel_for(
       "NormalizeB", Kokkos::RangePolicy<std::int64_t>(0, local_num_cells),

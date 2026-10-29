@@ -38,10 +38,9 @@ using parthenon::Real;
 // kx = 0 plane of the r2c layout. Returned arrays are
 // index-compatible with UniformGridHelper::ScatterField (same local_mesh_box layout as
 // FFTManager::real_space_box()).
-std::array<ParArray1D<Real>, 3> GenerateStochasticBField(Mesh *pmesh,
-                                                          const std::function<Real(Real)> &P,
-                                                          Real b_rms, Real helicity,
-                                                          uint32_t rseed = 42);
+std::array<ParArray1D<Real>, 3>
+GenerateStochasticBField(Mesh *pmesh, const std::function<Real(Real)> &P, Real b_rms,
+                         Real helicity, uint32_t rseed = 42);
 
 } // namespace utils::generate_stochastic_b_field
 

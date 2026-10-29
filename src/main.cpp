@@ -57,11 +57,12 @@ int main(int argc, char *argv[]) {
   pman.app_input->PreStepMeshUserWorkInLoop = Hydro::PreStepMeshUserWorkInLoop;
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
   if (problem == "decaying_turbulence") {
-    #ifdef PARTHENON_ENABLE_FFT
-      pman.app_input->MeshProblemGenerator = decaying_turbulence::ProblemGenerator;
-    #else
-      PARTHENON_FAIL("decaying_turbulence problem requires FFT support. Rebuild with PARTHENON_ENABLE_FFT=ON");
-    #endif
+#ifdef PARTHENON_ENABLE_FFT
+    pman.app_input->MeshProblemGenerator = decaying_turbulence::ProblemGenerator;
+#else
+    PARTHENON_FAIL("decaying_turbulence problem requires FFT support. Rebuild with "
+                   "PARTHENON_ENABLE_FFT=ON");
+#endif
   } else if (problem == "linear_wave") {
     pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
