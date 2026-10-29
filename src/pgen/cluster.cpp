@@ -29,6 +29,7 @@
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 #include <parthenon/driver.hpp>
@@ -665,7 +666,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
   auto hydro_pkg = pmb->packages.Get("Hydro");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
-  auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   const auto num_blocks = md->NumBlocks();
 
   const auto sigma_v = pin->GetOrAddReal("problem/cluster/init_perturb", "sigma_v", 0.0);
@@ -685,26 +686,27 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
     Real v2_sum = 0.0; // used for normalization
 
-    auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
+    const auto perturb = parthenon::MakePackDescriptor(md, {"tmp_perturb"}).GetPack(md);
 
     pmb->par_reduce(
         "Init sigma_v", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-          const auto &coords = cons.GetCoords(b);
-          const auto &u = cons(b);
-          auto rho = u(IDN, k, j, i);
+          const auto &coords = cons.GetCoordinates(b);
+          auto rho = cons(b, IDN, k, j, i);
           // The following restriction could be lifted, but requires refactoring of the
           // logic for the normalization/reduction below
           PARTHENON_REQUIRE(
-              u(IM1, k, j, i) == 0.0 && u(IM2, k, j, i) == 0.0 && u(IM3, k, j, i) == 0.0,
+              cons(b, IM1, k, j, i) == 0.0 && cons(b, IM2, k, j, i) == 0.0 &&
+                  cons(b, IM3, k, j, i) == 0.0,
               "Found existing non-zero velocity when setting velocity perturbations.");
 
-          u(IM1, k, j, i) = rho * perturb_pack(b, 0, k, j, i);
-          u(IM2, k, j, i) = rho * perturb_pack(b, 1, k, j, i);
-          u(IM3, k, j, i) = rho * perturb_pack(b, 2, k, j, i);
+          cons(b, IM1, k, j, i) = rho * perturb(b, 0, k, j, i);
+          cons(b, IM2, k, j, i) = rho * perturb(b, 1, k, j, i);
+          cons(b, IM3, k, j, i) = rho * perturb(b, 2, k, j, i);
           // No need to touch the energy yet as we'll normalize later
 
-          lsum += (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) *
+          lsum += (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i)) +
+                   SQR(cons(b, IM3, k, j, i))) *
                   coords.CellVolume(k, j, i) / SQR(rho);
         },
         v2_sum);
@@ -722,15 +724,15 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     pmb->par_for(
         "Norm sigma_v", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          const auto &u = cons(b);
+          cons(b, IM1, k, j, i) /= v_norm;
+          cons(b, IM2, k, j, i) /= v_norm;
+          cons(b, IM3, k, j, i) /= v_norm;
 
-          u(IM1, k, j, i) /= v_norm;
-          u(IM2, k, j, i) /= v_norm;
-          u(IM3, k, j, i) /= v_norm;
-
-          u(IEN, k, j, i) +=
-              0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
-              u(IDN, k, j, i);
+          cons(b, IEN, k, j, i) +=
+              0.5 *
+              (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i)) +
+               SQR(cons(b, IM3, k, j, i))) /
+              cons(b, IDN, k, j, i);
         });
   }
 
@@ -753,36 +755,37 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
 
     Real b2_sum = 0.0; // used for normalization
 
-    auto perturb_pack = md->PackVariables(std::vector<std::string>{"tmp_perturb"});
+    const auto perturb = parthenon::MakePackDescriptor(md, {"tmp_perturb"}).GetPack(md);
 
     pmb->par_reduce(
         "Init sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-          const auto &coords = cons.GetCoords(b);
-          const auto &u = cons(b);
+          const auto &coords = cons.GetCoordinates(b);
           // The following restriction could be lifted, but requires refactoring of the
           // logic for the normalization/reduction below
           PARTHENON_REQUIRE(
-              u(IB1, k, j, i) == 0.0 && u(IB2, k, j, i) == 0.0 && u(IB3, k, j, i) == 0.0,
+              cons(b, IB1, k, j, i) == 0.0 && cons(b, IB2, k, j, i) == 0.0 &&
+                  cons(b, IB3, k, j, i) == 0.0,
               "Found existing non-zero B when setting magnetic field perturbations.");
-          u(IB1, k, j, i) =
-              (perturb_pack(b, 2, k, j + 1, i) - perturb_pack(b, 2, k, j - 1, i)) /
+          cons(b, IB1, k, j, i) =
+              (perturb(b, 2, k, j + 1, i) - perturb(b, 2, k, j - 1, i)) /
                   coords.Dxc<2>(j) / 2.0 -
-              (perturb_pack(b, 1, k + 1, j, i) - perturb_pack(b, 1, k - 1, j, i)) /
+              (perturb(b, 1, k + 1, j, i) - perturb(b, 1, k - 1, j, i)) /
                   coords.Dxc<3>(k) / 2.0;
-          u(IB2, k, j, i) =
-              (perturb_pack(b, 0, k + 1, j, i) - perturb_pack(b, 0, k - 1, j, i)) /
+          cons(b, IB2, k, j, i) =
+              (perturb(b, 0, k + 1, j, i) - perturb(b, 0, k - 1, j, i)) /
                   coords.Dxc<3>(k) / 2.0 -
-              (perturb_pack(b, 2, k, j, i + 1) - perturb_pack(b, 2, k, j, i - 1)) /
+              (perturb(b, 2, k, j, i + 1) - perturb(b, 2, k, j, i - 1)) /
                   coords.Dxc<1>(i) / 2.0;
-          u(IB3, k, j, i) =
-              (perturb_pack(b, 1, k, j, i + 1) - perturb_pack(b, 1, k, j, i - 1)) /
+          cons(b, IB3, k, j, i) =
+              (perturb(b, 1, k, j, i + 1) - perturb(b, 1, k, j, i - 1)) /
                   coords.Dxc<1>(i) / 2.0 -
-              (perturb_pack(b, 0, k, j + 1, i) - perturb_pack(b, 0, k, j - 1, i)) /
+              (perturb(b, 0, k, j + 1, i) - perturb(b, 0, k, j - 1, i)) /
                   coords.Dxc<2>(j) / 2.0;
 
           // No need to touch the energy yet as we'll normalize later
-          lsum += (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i))) *
+          lsum += (SQR(cons(b, IB1, k, j, i)) + SQR(cons(b, IB2, k, j, i)) +
+                   SQR(cons(b, IB3, k, j, i))) *
                   coords.CellVolume(k, j, i);
         },
         b2_sum);
@@ -800,14 +803,13 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     pmb->par_for(
         "Norm sigma_b", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          const auto &u = cons(b);
+          cons(b, IB1, k, j, i) /= b_norm;
+          cons(b, IB2, k, j, i) /= b_norm;
+          cons(b, IB3, k, j, i) /= b_norm;
 
-          u(IB1, k, j, i) /= b_norm;
-          u(IB2, k, j, i) /= b_norm;
-          u(IB3, k, j, i) /= b_norm;
-
-          u(IEN, k, j, i) +=
-              0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
+          cons(b, IEN, k, j, i) +=
+              0.5 * (SQR(cons(b, IB1, k, j, i)) + SQR(cons(b, IB2, k, j, i)) +
+                     SQR(cons(b, IB3, k, j, i)));
         });
   }
 }

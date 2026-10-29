@@ -10,6 +10,7 @@
 #include <cmath>
 
 // Parthenon headers
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
 #include <interface/state_descriptor.hpp>
@@ -249,8 +250,8 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
                     "fractions are all zero");
 
   // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -313,11 +314,9 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   // Appy kinietic jet and thermal feedback
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "HydroAGNFeedback::FeedbackSrcTerm",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      parthenon::DevExecSpace(), 0, cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-        auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = cons.GetCoordinates(b);
 
         const Real x = coords.Xc<1>(i);
         const Real y = coords.Xc<2>(j);
@@ -329,10 +328,10 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           // Determine if point is in sphere r<=thermal_radius
           if (r2 <= thermal_radius2) {
             // Then apply heating
-            if (thermal_feedback > 0) cons(IEN, k, j, i) += thermal_feedback;
+            if (thermal_feedback > 0) cons(b, IEN, k, j, i) += thermal_feedback;
             // Add density at constant velocity
             if (thermal_density > 0)
-              AddDensityToConsAtFixedVel(thermal_density, cons, prim, k, j, i);
+              AddDensityToConsAtFixedVel(thermal_density, cons, prim, b, k, j, i);
           }
         }
 
@@ -359,52 +358,52 @@ void AGNFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
             //  momentum, and total energy added depend on the triggered power.
             ///////////////////////////////////////////////////////////////////
 
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, b, k, j, i);
 
-            cons(IDN, k, j, i) += jet_density;
-            cons(IM1, k, j, i) += jet_momentum * sign_jet * jet_axis_x;
-            cons(IM2, k, j, i) += jet_momentum * sign_jet * jet_axis_y;
-            cons(IM3, k, j, i) += jet_momentum * sign_jet * jet_axis_z;
-            cons(IEN, k, j, i) += jet_feedback;
+            cons(b, IDN, k, j, i) += jet_density;
+            cons(b, IM1, k, j, i) += jet_momentum * sign_jet * jet_axis_x;
+            cons(b, IM2, k, j, i) += jet_momentum * sign_jet * jet_axis_y;
+            cons(b, IM3, k, j, i) += jet_momentum * sign_jet * jet_axis_z;
+            cons(b, IEN, k, j, i) += jet_feedback;
 
             // Reset tracer to one for the entire material in the jet launching region as
             // we cannot distinguish between original material in a cell and new jet
             // material in the evolution of the jet. Eventually, we're just interested in
             // stuff that came from here.
             if (enable_tracer) {
-              cons(nhydro, k, j, i) = 1.0 * cons(IDN, k, j, i);
+              cons(b, nhydro, k, j, i) = 1.0 * cons(b, IDN, k, j, i);
             }
 
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, b, k, j, i);
           }
 
           // Apply velocity ceiling
-          const Real v2 =
-              SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) + SQR(prim(IV3, k, j, i));
+          const Real v2 = SQR(prim(b, IV1, k, j, i)) + SQR(prim(b, IV2, k, j, i)) +
+                          SQR(prim(b, IV3, k, j, i));
           if (vceil2 > 0 && v2 > vceil2) {
             // Fix the velocity to the velocity ceiling
             const Real v = sqrt(v2);
-            cons(IM1, k, j, i) *= vceil / v;
-            cons(IM2, k, j, i) *= vceil / v;
-            cons(IM3, k, j, i) *= vceil / v;
-            prim(IV1, k, j, i) *= vceil / v;
-            prim(IV2, k, j, i) *= vceil / v;
-            prim(IV3, k, j, i) *= vceil / v;
+            cons(b, IM1, k, j, i) *= vceil / v;
+            cons(b, IM2, k, j, i) *= vceil / v;
+            cons(b, IM3, k, j, i) *= vceil / v;
+            prim(b, IV1, k, j, i) *= vceil / v;
+            prim(b, IV2, k, j, i) *= vceil / v;
+            prim(b, IV3, k, j, i) *= vceil / v;
 
             // Remove kinetic energy
-            cons(IEN, k, j, i) -= 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
+            cons(b, IEN, k, j, i) -= 0.5 * prim(b, IDN, k, j, i) * (v2 - vceil2);
           }
 
           // Apply  internal energy ceiling as a pressure ceiling
-          const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
+          const Real internal_e = prim(b, IPR, k, j, i) / (gm1 * prim(b, IDN, k, j, i));
           if (eceil > 0 && internal_e > eceil) {
-            cons(IEN, k, j, i) -= prim(IDN, k, j, i) * (internal_e - eceil);
-            prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
+            cons(b, IEN, k, j, i) -= prim(b, IDN, k, j, i) * (internal_e - eceil);
+            prim(b, IPR, k, j, i) = gm1 * prim(b, IDN, k, j, i) * eceil;
           }
         }
 
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
-        PARTHENON_REQUIRE(prim(IPR, k, j, i) > 0,
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, b, k, j, i);
+        PARTHENON_REQUIRE(prim(b, IPR, k, j, i) > 0,
                           "Kinetic injection leads to negative pressure");
       });
 

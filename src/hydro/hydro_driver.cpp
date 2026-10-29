@@ -14,6 +14,8 @@
 #include "amr_criteria/refinement_package.hpp"
 #include "basic_types.hpp"
 #include "bvals/comms/bvals_in_one.hpp"
+#include "interface/update.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include "prolong_restrict/prolong_restrict.hpp"
 #include "utils/error_checking.hpp"
 #include <parthenon/parthenon.hpp>
@@ -47,21 +49,21 @@ TaskStatus ResetFluxes(MeshData<Real> *md) {
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-  // In principle, we'd only need to pack Metadata::WithFluxes here, but
-  // choosing to mirror other use in the code so that the packs are already cached.
+  // Preserve the independent-field selection used by the evolution tasks.
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
-  auto cons_pack = md->PackVariablesAndFluxes(flags_ind);
+  const auto cons = parthenon::MakePackDescriptor(md, {".*"}, {true}, flags_ind,
+                                                  {parthenon::PDOpt::WithFluxes})
+                        .GetPack(md);
 
   const int ndim = pmb->pmy_mesh->ndim;
   // Using separate loops for each dim as the launch overhead should be hidden
   // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ResetFluxes X1", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, 0, cons_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      cons.GetNBlocks() - 1, 0, cons.GetUpperBoundHost(0), kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e + 1,
       KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-        auto &cons = cons_pack(b);
-        cons.flux(X1DIR, v, k, j, i) = 0.0;
+        cons.flux(b, X1DIR, v, k, j, i) = 0.0;
       });
 
   if (ndim < 2) {
@@ -69,11 +71,10 @@ TaskStatus ResetFluxes(MeshData<Real> *md) {
   }
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ResetFluxes X2", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, 0, cons_pack.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e + 1,
+      cons.GetNBlocks() - 1, 0, cons.GetUpperBoundHost(0), kb.s, kb.e, jb.s, jb.e + 1,
       ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-        auto &cons = cons_pack(b);
-        cons.flux(X2DIR, v, k, j, i) = 0.0;
+        cons.flux(b, X2DIR, v, k, j, i) = 0.0;
       });
 
   if (ndim < 3) {
@@ -81,11 +82,10 @@ TaskStatus ResetFluxes(MeshData<Real> *md) {
   }
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ResetFluxes X3", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, 0, cons_pack.GetDim(4) - 1, kb.s, kb.e + 1, jb.s, jb.e,
+      cons.GetNBlocks() - 1, 0, cons.GetUpperBoundHost(0), kb.s, kb.e + 1, jb.s, jb.e,
       ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
-        auto &cons = cons_pack(b);
-        cons.flux(X3DIR, v, k, j, i) = 0.0;
+        cons.flux(b, X3DIR, v, k, j, i) = 0.0;
       });
   return TaskStatus::complete;
 }
@@ -103,19 +103,19 @@ TaskStatus RKL2StepFirst(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
                     (static_cast<Real>(s_rkl) * static_cast<Real>(s_rkl) +
                      static_cast<Real>(s_rkl) - 2.);
 
-  // In principle, we'd only need to pack Metadata::WithFluxes here, but
-  // choosing to mirror other use in the code so that the packs are already cached.
+  // The first RKL2 stage only needs field data, not fluxes.
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
-  auto Y0 = md_Y0->PackVariablesAndFluxes(flags_ind);
-  auto Yjm1 = md_Yjm1->PackVariablesAndFluxes(flags_ind);
-  auto Yjm2 = md_Yjm2->PackVariablesAndFluxes(flags_ind);
-  auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
+  const auto desc = parthenon::MakePackDescriptor(md_Y0, {".*"}, {true}, flags_ind);
+  const auto Y0 = desc.GetPack(md_Y0);
+  const auto Yjm1 = desc.GetPack(md_Yjm1);
+  const auto Yjm2 = desc.GetPack(md_Yjm2);
+  const auto MY0 = desc.GetPack(md_MY0);
 
   // Using separate loops for each dim as the launch overhead should be hidden
   // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "RKL first step", parthenon::DevExecSpace(), 0,
-      Y0.GetDim(5) - 1, 0, Y0.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      Y0.GetNBlocks() - 1, 0, Y0.GetUpperBoundHost(0), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
         Yjm1(b, v, k, j, i) =
             Y0(b, v, k, j, i) + mu_tilde_1 * tau * MY0(b, v, k, j, i); // Y_1
@@ -134,25 +134,27 @@ TaskStatus RKL2StepOther(MeshData<Real> *md_Y0, MeshData<Real> *md_Yjm1,
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-  // In principle, we'd only need to pack Metadata::WithFluxes here, but
-  // choosing to mirror other use in the code so that the packs are already cached.
+  // Only Yjm1 needs fluxes for the stage's flux-divergence calculation.
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
-  auto Y0 = md_Y0->PackVariablesAndFluxes(flags_ind);
-  auto Yjm1 = md_Yjm1->PackVariablesAndFluxes(flags_ind);
-  auto Yjm2 = md_Yjm2->PackVariablesAndFluxes(flags_ind);
-  auto MY0 = md_MY0->PackVariablesAndFluxes(flags_ind);
+  const auto desc = parthenon::MakePackDescriptor(md_Y0, {".*"}, {true}, flags_ind);
+  const auto Y0 = desc.GetPack(md_Y0);
+  const auto Yjm1 = parthenon::MakePackDescriptor(md_Yjm1, {".*"}, {true}, flags_ind,
+                                                  {parthenon::PDOpt::WithFluxes})
+                        .GetPack(md_Yjm1);
+  const auto Yjm2 = desc.GetPack(md_Yjm2);
+  const auto MY0 = desc.GetPack(md_MY0);
 
   const int ndim = pmb->pmy_mesh->ndim;
   // Using separate loops for each dim as the launch overhead should be hidden
   // by enough work over the entire pack and it allows to not use any conditionals.
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "RKL other step", parthenon::DevExecSpace(), 0,
-      Y0.GetDim(5) - 1, 0, Y0.GetDim(4) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      Y0.GetNBlocks() - 1, 0, Y0.GetUpperBoundHost(0), kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int v, const int k, const int j, const int i) {
         // First calc this step
-        const auto &coords = Yjm1.GetCoords(b);
+        const auto &coords = Yjm1.GetCoordinates(b);
         const Real MYjm1 =
-            parthenon::Update::FluxDivHelper(v, k, j, i, ndim, coords, Yjm1(b));
+            parthenon::Update::FluxDivHelper(b, v, k, j, i, ndim, coords, Yjm1);
         const Real Yj = mu_j * Yjm1(b, v, k, j, i) + nu_j * Yjm2(b, v, k, j, i) +
                         (1.0 - mu_j - nu_j) * Y0(b, v, k, j, i) +
                         mu_tilde_j * tau * MYjm1 +

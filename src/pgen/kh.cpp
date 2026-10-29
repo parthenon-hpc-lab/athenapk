@@ -26,6 +26,7 @@
 
 // Parthenon headers
 #include "mesh/mesh.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 #include <random>
@@ -53,8 +54,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   auto gm1 = (gam - 1.0);
 
   // Initialize conserved variables
-  // Get a MeshBlockPack on device with all conserved variables
-  const auto &cons = md->PackVariables(std::vector<std::string>{"cons"});
+  // Get a sparse pack on device with all conserved variables
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   const auto num_blocks = md->NumBlocks();
 
   //--- iprob=1. This was the classic, unresolved K-H test.
@@ -71,16 +72,16 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     pmb->par_for(
         "KHI: iprob2", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          const auto &u = cons(b);
-          const auto &coords = cons.GetCoords(b);
-          u(IDN, k, j, i) = 1.0;
-          u(IM1, k, j, i) = vflow * std::tanh((coords.Xc<2>(j)) / a);
-          u(IM2, k, j, i) = amp * std::cos(2.0 * M_PI * coords.Xc<1>(i)) *
-                            std::exp(-(SQR(coords.Xc<2>(j))) / SQR(sigma));
-          u(IM3, k, j, i) = 0.0;
-          u(IEN, k, j, i) =
-              1.0 / gm1 +
-              0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
+          const auto &coords = cons.GetCoordinates(b);
+          cons(b, IDN, k, j, i) = 1.0;
+          cons(b, IM1, k, j, i) = vflow * std::tanh((coords.Xc<2>(j)) / a);
+          cons(b, IM2, k, j, i) = amp * std::cos(2.0 * M_PI * coords.Xc<1>(i)) *
+                                  std::exp(-(SQR(coords.Xc<2>(j))) / SQR(sigma));
+          cons(b, IM3, k, j, i) = 0.0;
+          cons(b, IEN, k, j, i) =
+              1.0 / gm1 + 0.5 *
+                              (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i))) /
+                              cons(b, IDN, k, j, i);
         });
 
   } else if (iprob == 3) {
@@ -95,22 +96,23 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     pmb->par_for(
         "KHI: iprob3", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          const auto &u = cons(b);
-          const auto &coords = cons.GetCoords(b);
-          u(IDN, k, j, i) =
+          const auto &coords = cons.GetCoordinates(b);
+          cons(b, IDN, k, j, i) =
               0.505 + 0.495 * std::tanh((std::abs(coords.Xc<2>(j)) - 0.5) / a);
-          u(IM1, k, j, i) = vflow * std::tanh((std::abs(coords.Xc<2>(j)) - 0.5) / a);
-          u(IM2, k, j, i) = amp * vflow * std::sin(2.0 * M_PI * coords.Xc<1>(i)) *
-                            std::exp(-((std::abs(coords.Xc<2>(j)) - 0.5) *
-                                       (std::abs(coords.Xc<2>(j)) - 0.5)) /
-                                     (sigma * sigma));
-          if (coords.Xc<2>(j) < 0.0) u(IM2, k, j, i) *= -1.0;
-          u(IM1, k, j, i) *= u(IDN, k, j, i);
-          u(IM2, k, j, i) *= u(IDN, k, j, i);
-          u(IM3, k, j, i) = 0.0;
-          u(IEN, k, j, i) =
-              1.0 / gm1 +
-              0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
+          cons(b, IM1, k, j, i) =
+              vflow * std::tanh((std::abs(coords.Xc<2>(j)) - 0.5) / a);
+          cons(b, IM2, k, j, i) = amp * vflow * std::sin(2.0 * M_PI * coords.Xc<1>(i)) *
+                                  std::exp(-((std::abs(coords.Xc<2>(j)) - 0.5) *
+                                             (std::abs(coords.Xc<2>(j)) - 0.5)) /
+                                           (sigma * sigma));
+          if (coords.Xc<2>(j) < 0.0) cons(b, IM2, k, j, i) *= -1.0;
+          cons(b, IM1, k, j, i) *= cons(b, IDN, k, j, i);
+          cons(b, IM2, k, j, i) *= cons(b, IDN, k, j, i);
+          cons(b, IM3, k, j, i) = 0.0;
+          cons(b, IEN, k, j, i) =
+              1.0 / gm1 + 0.5 *
+                              (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i))) /
+                              cons(b, IDN, k, j, i);
         });
 
   } else if (iprob == 4) {
@@ -137,19 +139,18 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     pmb->par_for(
         "KHI: iprob4", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          const auto &u = cons(b);
-          const auto &coords = cons.GetCoords(b);
+          const auto &coords = cons.GetCoordinates(b);
           // Lecoanet (2015) equation 8a)
           Real dens = 1.0 + 0.5 * drho_rho0 *
                                 (std::tanh((coords.Xc<2>(j) - z1) / a) -
                                  std::tanh((coords.Xc<2>(j) - z2) / a));
-          u(IDN, k, j, i) = dens;
+          cons(b, IDN, k, j, i) = dens;
 
           Real v1 = vflow * (std::tanh((coords.Xc<2>(j) - z1) / a) -
                              std::tanh((coords.Xc<2>(j) - z2) / a) - 1.0) // 8b)
                     + vboost;
           // Currently, the midpoint approx. is applied in the momenta and energy calc
-          u(IM1, k, j, i) = v1 * dens;
+          cons(b, IM1, k, j, i) = v1 * dens;
 
           // NOTE ON FLOATING-POINT SHIFT SYMMETRY IN X1:
           // There is no scaling + translation coordinate transformation that would
@@ -198,13 +199,14 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
               -amp * ave_sine *
               (std::exp(-(SQR(coords.Xc<2>(j) - z1)) / (sigma * sigma)) +
                std::exp(-(SQR(coords.Xc<2>(j) - z2)) / (sigma * sigma))); // 8c), mod.
-          u(IM2, k, j, i) = v2 * dens;
+          cons(b, IM2, k, j, i) = v2 * dens;
 
-          u(IM3, k, j, i) = 0.0;
-          u(IEN, k, j, i) =
-              P0 / gm1 +
-              0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i)) + SQR(u(IM3, k, j, i))) /
-                  u(IDN, k, j, i);
+          cons(b, IM3, k, j, i) = 0.0;
+          cons(b, IEN, k, j, i) =
+              P0 / gm1 + 0.5 *
+                             (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i)) +
+                              SQR(cons(b, IM3, k, j, i))) /
+                             cons(b, IDN, k, j, i);
         });
 
   } else if (iprob == 5) {
@@ -222,19 +224,19 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     pmb->par_for(
         "KHI: iprob5", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          const auto &u = cons(b);
-          const auto &coords = cons.GetCoords(b);
+          const auto &coords = cons.GetCoordinates(b);
           Real w = (std::tanh((std::abs(coords.Xc<2>(j)) - 0.25) / a) + 1.0) * 0.5;
-          u(IDN, k, j, i) = w + (1.0 - w) * drat;
-          u(IM1, k, j, i) = u(IDN, k, j, i) * vflow * (w - 0.5);
-          u(IM2, k, j, i) =
-              u(IDN, k, j, i) * amp * std::cos(2.0 * 2.0 * M_PI * coords.Xc<1>(i)) *
+          cons(b, IDN, k, j, i) = w + (1.0 - w) * drat;
+          cons(b, IM1, k, j, i) = cons(b, IDN, k, j, i) * vflow * (w - 0.5);
+          cons(b, IM2, k, j, i) =
+              cons(b, IDN, k, j, i) * amp * std::cos(2.0 * 2.0 * M_PI * coords.Xc<1>(i)) *
               std::exp(-SQR(std::abs(coords.Xc<2>(j)) - 0.25) / (sigma * sigma));
-          u(IM3, k, j, i) = 0.0;
+          cons(b, IM3, k, j, i) = 0.0;
           // Pressure scaled to give a sound speed of 1 with gamma=1.4
-          u(IEN, k, j, i) =
-              2.5 / gm1 +
-              0.5 * (SQR(u(IM1, k, j, i)) + SQR(u(IM2, k, j, i))) / u(IDN, k, j, i);
+          cons(b, IEN, k, j, i) =
+              2.5 / gm1 + 0.5 *
+                              (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i))) /
+                              cons(b, IDN, k, j, i);
         });
   } else {
     PARTHENON_FAIL("Unknow iprob for KHI pgen.")

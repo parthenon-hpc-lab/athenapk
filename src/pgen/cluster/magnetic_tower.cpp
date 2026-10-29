@@ -7,6 +7,7 @@
 //  \brief Class for defining magnetic towers
 
 // Parthenon headers
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <cmath>
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
@@ -43,9 +44,9 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   }
 
   // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  const auto &A_pack = md->PackVariables(std::vector<std::string>{"magnetic_tower_A"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
+  const auto A = parthenon::MakePackDescriptor(md, {"magnetic_tower_A"}).GetPack(md);
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -82,60 +83,56 @@ void MagneticTower::AddSrcTerm(parthenon::Real field_to_add, parthenon::Real mas
   // Construct the magnetic tower potential
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "MagneticTower::AddFieldSrcTerm::ConstructPotential",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, a_kb.s, a_kb.e, a_jb.s,
-      a_jb.e, a_ib.s, a_ib.e,
+      parthenon::DevExecSpace(), 0, cons.GetNBlocks() - 1, a_kb.s, a_kb.e, a_jb.s, a_jb.e,
+      a_ib.s, a_ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
         // Compute and apply potential
-        auto &A = A_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = cons.GetCoordinates(b);
 
         Real a_x_, a_y_, a_z_;
         mt.PotentialInSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k), a_x_,
                               a_y_, a_z_);
 
-        A(0, k, j, i) = a_x_;
-        A(1, k, j, i) = a_y_;
-        A(2, k, j, i) = a_z_;
+        A(b, 0, k, j, i) = a_x_;
+        A(b, 1, k, j, i) = a_y_;
+        A(b, 2, k, j, i) = a_z_;
       });
 
   // Take the curl of the potential and apply the new magnetic field
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "MagneticTower::MagneticFieldSrcTerm::ApplyPotential",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      parthenon::DevExecSpace(), 0, cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-        auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
-        auto &A = A_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = cons.GetCoordinates(b);
 
         // Take the curl of a to compute the magnetic field
         const Real b_x =
-            (A(2, k, j + 1, i) - A(2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
-            (A(1, k + 1, j, i) - A(1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
+            (A(b, 2, k, j + 1, i) - A(b, 2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+            (A(b, 1, k + 1, j, i) - A(b, 1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
         const Real b_y =
-            (A(0, k + 1, j, i) - A(0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
-            (A(2, k, j, i + 1) - A(2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
+            (A(b, 0, k + 1, j, i) - A(b, 0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+            (A(b, 2, k, j, i + 1) - A(b, 2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
         const Real b_z =
-            (A(1, k, j, i + 1) - A(1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
-            (A(0, k, j + 1, i) - A(0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
+            (A(b, 1, k, j, i + 1) - A(b, 1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+            (A(b, 0, k, j + 1, i) - A(b, 0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
 
         // Add the magnetic field to the conserved variables
-        cons(IB1, k, j, i) += b_x;
-        cons(IB2, k, j, i) += b_y;
-        cons(IB3, k, j, i) += b_z;
+        cons(b, IB1, k, j, i) += b_x;
+        cons(b, IB2, k, j, i) += b_y;
+        cons(b, IB3, k, j, i) += b_z;
 
         // Add the magnetic field energy given the existing field in prim
         // dE_B = 1/2*( 2*dt*B_old*B_new + dt**2*B_new**2)
-        cons(IEN, k, j, i) += prim(IB1, k, j, i) * b_x + prim(IB2, k, j, i) * b_y +
-                              prim(IB3, k, j, i) * b_z +
-                              0.5 * (b_x * b_x + b_y * b_y + b_z * b_z);
+        cons(b, IEN, k, j, i) +=
+            prim(b, IB1, k, j, i) * b_x + prim(b, IB2, k, j, i) * b_y +
+            prim(b, IB3, k, j, i) * b_z + 0.5 * (b_x * b_x + b_y * b_y + b_z * b_z);
 
         // Add density
         const auto cell_delta_rho =
             density_to_add > 0.0
                 ? mt.DensityFromSimCart(coords.Xc<1>(i), coords.Xc<2>(j), coords.Xc<3>(k))
                 : 0.0;
-        cons(IDN, k, j, i) += cell_delta_rho;
+        cons(b, IDN, k, j, i) += cell_delta_rho;
       });
 }
 
@@ -154,8 +151,8 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -174,13 +171,10 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
       "MagneticTowerScaleFactor",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
           DevExecSpace(), {0, kb.s, jb.s, ib.s},
-          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-          {1, 1, 1, ib.e + 1 - ib.s}),
+          {prim.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1}, {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     Real &llinear_contrib_red, Real &lquadratic_contrib_red) {
-        auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = cons.GetCoordinates(b);
 
         const Real cell_volume = coords.CellVolume(k, j, i);
 
@@ -190,9 +184,10 @@ void MagneticTower::ReducePowerContribs(parthenon::Real &linear_contrib,
                           b_z);
 
         // increases B**2 by 2*B0*Bnew + dt**2*Bnew**2)
-        llinear_contrib_red += (prim(IB1, k, j, i) * b_x + prim(IB2, k, j, i) * b_y +
-                                prim(IB3, k, j, i) * b_z) *
-                               cell_volume;
+        llinear_contrib_red +=
+            (prim(b, IB1, k, j, i) * b_x + prim(b, IB2, k, j, i) * b_y +
+             prim(b, IB3, k, j, i) * b_z) *
+            cell_volume;
         lquadratic_contrib_red += 0.5 * (b_x * b_x + b_y * b_y + b_z * b_z) * cell_volume;
       },
       linear_contrib_red, quadratic_contrib_red);

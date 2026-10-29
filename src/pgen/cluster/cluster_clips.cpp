@@ -11,6 +11,7 @@
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 #include <parthenon/package.hpp>
@@ -57,8 +58,8 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
                      vceil < std::numeric_limits<Real>::infinity() ||
                      vAceil < std::numeric_limits<Real>::infinity())) {
     // Grab some necessary variables
-    const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-    const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+    const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
+    const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
     IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
     IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
     IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -78,57 +79,55 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
         "Cluster::ApplyClusterClips",
         Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
             DevExecSpace(), {0, kb.s, jb.s, ib.s},
-            {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+            {prim.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1},
             {1, 1, 1, ib.e + 1 - ib.s}),
         KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                       Real &added_dfloor_mass_team, Real &removed_vceil_energy_team,
                       Real &added_vAceil_mass_team, Real &removed_eceil_energy_team) {
-          auto &cons = cons_pack(b);
-          auto &prim = prim_pack(b);
-          const auto &coords = cons_pack.GetCoords(b);
+          const auto &coords = cons.GetCoordinates(b);
 
           const Real r2 =
               SQR(coords.Xc<1>(i)) + SQR(coords.Xc<2>(j)) + SQR(coords.Xc<3>(k));
 
           if (r2 < clip_r2) {
             // Cell falls within clipping radius
-            eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+            eos.ConsToPrim(cons, prim, nhydro, nscalars, b, k, j, i);
 
             if (dfloor > 0) {
-              const Real rho = prim(IDN, k, j, i);
+              const Real rho = prim(b, IDN, k, j, i);
               if (rho < dfloor) {
                 added_dfloor_mass_team += (dfloor - rho) * coords.CellVolume(k, j, i);
-                cons(IDN, k, j, i) = dfloor;
-                prim(IDN, k, j, i) = dfloor;
+                cons(b, IDN, k, j, i) = dfloor;
+                prim(b, IDN, k, j, i) = dfloor;
               }
             }
 
             if (vceil < std::numeric_limits<Real>::infinity()) {
               // Apply velocity ceiling
-              const Real v2 = SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) +
-                              SQR(prim(IV3, k, j, i));
+              const Real v2 = SQR(prim(b, IV1, k, j, i)) + SQR(prim(b, IV2, k, j, i)) +
+                              SQR(prim(b, IV3, k, j, i));
               if (v2 > vceil2) {
                 // Fix the velocity to the velocity ceiling
                 const Real v = sqrt(v2);
-                cons(IM1, k, j, i) *= vceil / v;
-                cons(IM2, k, j, i) *= vceil / v;
-                cons(IM3, k, j, i) *= vceil / v;
-                prim(IV1, k, j, i) *= vceil / v;
-                prim(IV2, k, j, i) *= vceil / v;
-                prim(IV3, k, j, i) *= vceil / v;
+                cons(b, IM1, k, j, i) *= vceil / v;
+                cons(b, IM2, k, j, i) *= vceil / v;
+                cons(b, IM3, k, j, i) *= vceil / v;
+                prim(b, IV1, k, j, i) *= vceil / v;
+                prim(b, IV2, k, j, i) *= vceil / v;
+                prim(b, IV3, k, j, i) *= vceil / v;
 
                 // Remove kinetic energy
-                const Real removed_energy = 0.5 * prim(IDN, k, j, i) * (v2 - vceil2);
+                const Real removed_energy = 0.5 * prim(b, IDN, k, j, i) * (v2 - vceil2);
                 removed_vceil_energy_team += removed_energy * coords.CellVolume(k, j, i);
-                cons(IEN, k, j, i) -= removed_energy;
+                cons(b, IEN, k, j, i) -= removed_energy;
               }
             }
 
             if (magnetic_fields && vAceil2 < std::numeric_limits<Real>::infinity()) {
               // Apply Alfven velocity ceiling by raising density
-              const Real rho = prim(IDN, k, j, i);
-              const Real B2 = (SQR(prim(IB1, k, j, i)) + SQR(prim(IB2, k, j, i)) +
-                               SQR(prim(IB3, k, j, i)));
+              const Real rho = prim(b, IDN, k, j, i);
+              const Real B2 = (SQR(prim(b, IB1, k, j, i)) + SQR(prim(b, IB2, k, j, i)) +
+                               SQR(prim(b, IB3, k, j, i)));
 
               // compute Alfven mach number
               const Real va2 = (B2 / rho);
@@ -137,19 +136,20 @@ void ApplyClusterClips(MeshData<Real> *md, const parthenon::SimTime &tm,
                 // Increase the density to match the alfven velocity ceiling
                 const Real rho_new = std::sqrt(B2 / vAceil2);
                 added_vAceil_mass_team += (rho_new - rho) * coords.CellVolume(k, j, i);
-                cons(IDN, k, j, i) = rho_new;
-                prim(IDN, k, j, i) = rho_new;
+                cons(b, IDN, k, j, i) = rho_new;
+                prim(b, IDN, k, j, i) = rho_new;
               }
             }
 
             if (eceil < std::numeric_limits<Real>::infinity()) {
               // Apply  internal energy ceiling as a pressure ceiling
-              const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
+              const Real internal_e =
+                  prim(b, IPR, k, j, i) / (gm1 * prim(b, IDN, k, j, i));
               if (internal_e > eceil) {
-                const Real removed_energy = prim(IDN, k, j, i) * (internal_e - eceil);
+                const Real removed_energy = prim(b, IDN, k, j, i) * (internal_e - eceil);
                 removed_eceil_energy_team += removed_energy * coords.CellVolume(k, j, i);
-                cons(IEN, k, j, i) -= removed_energy;
-                prim(IPR, k, j, i) = gm1 * prim(IDN, k, j, i) * eceil;
+                cons(b, IEN, k, j, i) -= removed_energy;
+                prim(b, IPR, k, j, i) = gm1 * prim(b, IDN, k, j, i) * eceil;
               }
             }
           }

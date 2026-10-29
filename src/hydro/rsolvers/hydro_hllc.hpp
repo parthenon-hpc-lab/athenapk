@@ -30,11 +30,12 @@
 
 template <>
 struct Riemann<Fluid::euler, RiemannSolver::hllc> {
+  template <class ConsView>
   static KOKKOS_INLINE_FUNCTION void
-  Solve(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
-        const int iu, const int ivx, const ScratchPad2D<Real> &wl,
-        const ScratchPad2D<Real> &wr, VariableFluxPack<Real> &cons,
-        const AdiabaticHydroEOS &eos, const Real c_h) {
+  Solve(parthenon::team_mbr_t const &member, const int b, const int k, const int j,
+        const int il, const int iu, const int ivx, const ScratchPad2D<Real> &wl,
+        const ScratchPad2D<Real> &wr, const ConsView &cons, const AdiabaticHydroEOS &eos,
+        const Real c_h) {
     int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     int ivz = IV1 + ((ivx - IV1) + 2) % 3;
     Real gamma = eos.GetGamma();
@@ -147,11 +148,11 @@ struct Riemann<Fluid::euler, RiemannSolver::hllc> {
       flxi[IV3] = sl * fl[IV3] + sr * fr[IV3];
       flxi[IEN] = sl * fl[IEN] + sr * fr[IEN] + sm * cp * am;
 
-      cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
-      cons.flux(ivx, ivx, k, j, i) = flxi[IV1];
-      cons.flux(ivx, ivy, k, j, i) = flxi[IV2];
-      cons.flux(ivx, ivz, k, j, i) = flxi[IV3];
-      cons.flux(ivx, IEN, k, j, i) = flxi[IEN];
+      cons.flux(b, ivx, IDN, k, j, i) = flxi[IDN];
+      cons.flux(b, ivx, ivx, k, j, i) = flxi[IV1];
+      cons.flux(b, ivx, ivy, k, j, i) = flxi[IV2];
+      cons.flux(b, ivx, ivz, k, j, i) = flxi[IV3];
+      cons.flux(b, ivx, IEN, k, j, i) = flxi[IEN];
     });
   }
 };

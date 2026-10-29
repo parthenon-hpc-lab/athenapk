@@ -20,9 +20,9 @@
 #include "interface/variable.hpp"
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include "parthenon_arrays.hpp"
 using parthenon::IndexDomain;
-using parthenon::MeshBlockVarPack;
 using parthenon::ParArray4D;
 
 //----------------------------------------------------------------------------------------
@@ -31,8 +31,8 @@ using parthenon::ParArray4D;
 //           int il, int iu, int jl, int ju, int kl, int ku)
 // \brief Converts conserved into primitive variables in adiabatic hydro.
 void AdiabaticHydroEOS::ConservedToPrimitive(MeshData<Real> *md) const {
-  auto const cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  auto prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
   auto ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
   auto jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   auto kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
@@ -45,11 +45,8 @@ void AdiabaticHydroEOS::ConservedToPrimitive(MeshData<Real> *md) const {
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "ConservedToPrimitive", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
-
-        return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+        return this_on_device.ConsToPrim(cons, prim, nhydro, nscalars, b, k, j, i);
       });
 }

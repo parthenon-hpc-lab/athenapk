@@ -19,36 +19,38 @@
 namespace cluster {
 
 // Add a density to the conserved variables while keeping velocity fixed
-template <typename View4D>
-KOKKOS_INLINE_FUNCTION void
-AddDensityToConsAtFixedVel(const parthenon::Real density, View4D &cons,
-                           const View4D &prim, const int &k, const int &j, const int &i) {
+template <typename Pack>
+KOKKOS_INLINE_FUNCTION void AddDensityToConsAtFixedVel(const parthenon::Real density,
+                                                       const Pack &cons, const Pack &prim,
+                                                       const int &b, const int &k,
+                                                       const int &j, const int &i) {
   // Add density such that velocity is fixed
-  cons(IDN, k, j, i) += density;
-  cons(IM1, k, j, i) += density * prim(IV1, k, j, i);
-  cons(IM2, k, j, i) += density * prim(IV2, k, j, i);
-  cons(IM3, k, j, i) += density * prim(IV3, k, j, i);
-  cons(IEN, k, j, i) +=
-      density * (0.5 * (SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) +
-                        SQR(prim(IV3, k, j, i))));
+  cons(b, IDN, k, j, i) += density;
+  cons(b, IM1, k, j, i) += density * prim(b, IV1, k, j, i);
+  cons(b, IM2, k, j, i) += density * prim(b, IV2, k, j, i);
+  cons(b, IM3, k, j, i) += density * prim(b, IV3, k, j, i);
+  cons(b, IEN, k, j, i) +=
+      density * (0.5 * (SQR(prim(b, IV1, k, j, i)) + SQR(prim(b, IV2, k, j, i)) +
+                        SQR(prim(b, IV3, k, j, i))));
 }
 
 // Add a density to the conserved variables while keeping velocity and
 // temperature ( propto pressure/density) fixed
-template <typename View4D>
+template <typename Pack>
 KOKKOS_INLINE_FUNCTION void
-AddDensityToConsAtFixedVelTemp(const parthenon::Real density, View4D &cons,
-                               const View4D &prim, const Real adiabaticIndex,
+AddDensityToConsAtFixedVelTemp(const parthenon::Real density, const Pack &cons,
+                               const Pack &prim, const Real adiabaticIndex, const int &b,
                                const int &k, const int &j, const int &i) {
   // Add density such that velocity and temperature (propto pressure/density) is fixed
-  cons(IDN, k, j, i) += density;
-  cons(IM1, k, j, i) += density * prim(IV1, k, j, i);
-  cons(IM2, k, j, i) += density * prim(IV2, k, j, i);
-  cons(IM3, k, j, i) += density * prim(IV3, k, j, i);
-  cons(IEN, k, j, i) +=
-      density * (0.5 * (SQR(prim(IV1, k, j, i)) + SQR(prim(IV2, k, j, i)) +
-                        SQR(prim(IV3, k, j, i))) +
-                 1 / (adiabaticIndex - 1.0) * prim(IPR, k, j, i) / prim(IDN, k, j, i));
+  cons(b, IDN, k, j, i) += density;
+  cons(b, IM1, k, j, i) += density * prim(b, IV1, k, j, i);
+  cons(b, IM2, k, j, i) += density * prim(b, IV2, k, j, i);
+  cons(b, IM3, k, j, i) += density * prim(b, IV3, k, j, i);
+  cons(b, IEN, k, j, i) +=
+      density *
+      (0.5 * (SQR(prim(b, IV1, k, j, i)) + SQR(prim(b, IV2, k, j, i)) +
+              SQR(prim(b, IV3, k, j, i))) +
+       1 / (adiabaticIndex - 1.0) * prim(b, IPR, k, j, i) / prim(b, IDN, k, j, i));
 }
 
 } // namespace cluster
