@@ -4,6 +4,7 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <string>
@@ -21,6 +22,7 @@
 #include "../eos/adiabatic_hydro.hpp"
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
+#include "../self_gravity/self_gravity.hpp"
 #include "../tracers/tracers.hpp"
 #include "diffusion/diffusion.hpp"
 #include "glmmhd/glmmhd.hpp"
@@ -470,6 +472,12 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
+  const bool use_self_gravity =
+      pmesh->packages.Get("self_gravity")->Param<bool>("enabled");
+  if (use_self_gravity && stage == 1) {
+    SelfGravity::AddStepStartTasks(tc, pmesh, tm.ncycle);
+  }
+
   // Now start the main time integration by resetting the registers
   TaskRegion &async_region_init_int = tc.AddRegion(num_task_lists_executed_independently);
   for (int i = 0; i < blocks.size(); i++) {
@@ -497,13 +505,12 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // note that task within this region that contains one tasklist per pack
   // could still be executed in parallel
   TaskRegion &single_tasklist_per_pack_region = tc.AddRegion(num_partitions);
+  std::vector<TaskID> after_update(num_partitions);
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = single_tasklist_per_pack_region[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     auto &mu1 = pmesh->mesh_data.GetOrAdd("u1", i);
 
-    const auto any = parthenon::BoundaryType::any;
-    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
     auto start_flxcor_recv =
         tl.AddTask(none, parthenon::StartReceiveFluxCorrections, mu0);
 
@@ -531,16 +538,37 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
                               parthenon::SetFluxCorrections, mu0);
 
     // compute the divergence of fluxes of conserved variables
-    auto update = tl.AddTask(
+    after_update[i] = tl.AddTask(
         set_flx, parthenon::Update::UpdateWithFluxDivergence<MeshData<Real>>, mu0.get(),
         mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
         integrator->beta[stage - 1] * integrator->dt);
+  }
+
+  // Self-gravity (momentum source, Poisson solve, energy source; see
+  // SelfGravity::AddStageTasks) acts between the hydro update and the remaining sources,
+  // in regions of its own because the solve is global. Placing it before the sources
+  // lets a problem source that overwrites the state (e.g. collapse_be holding the
+  // ambient medium at rest) act on the gravity-updated state, and puts the gravity
+  // kick before the stage's boundary exchange, like every other source. Without
+  // self-gravity the sources continue in the same task lists as the update.
+  TaskRegion *sources_region = &single_tasklist_per_pack_region;
+  if (use_self_gravity) {
+    SelfGravity::AddStageTasks(tc, pmesh, integrator->beta[stage - 1] * integrator->dt);
+    sources_region = &tc.AddRegion(num_partitions);
+    std::fill(after_update.begin(), after_update.end(), none);
+  }
+  for (int i = 0; i < num_partitions; i++) {
+    auto &tl = (*sources_region)[i];
+    auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
+
+    const auto any = parthenon::BoundaryType::any;
+    auto start_bnd = tl.AddTask(none, parthenon::StartReceiveBoundBufs<any>, mu0);
 
     // Add non-operator split source terms.
     // Note: Directly update the "cons" variables of mu0 based on the "prim" variables
     // of mu0 as the "cons" variables have already been updated in this stage from the
     // fluxes in the previous step.
-    auto source_unsplit = tl.AddTask(update, AddUnsplitSources, mu0.get(), tm,
+    auto source_unsplit = tl.AddTask(after_update[i], AddUnsplitSources, mu0.get(), tm,
                                      integrator->beta[stage - 1] * integrator->dt);
 
     auto source_split_first_order = source_unsplit;
@@ -580,6 +608,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // then the STS tasks should be updated to not assume prim and cons are in sync.
   if (diffint == DiffInt::rkl2 && stage == integrator->nstages) {
     AddSTSTasks(&tc, pmesh, blocks, 0.5 * tm.dt);
+    // The STS runs after the last Poisson solve and wipes grav.phi (see there).
+    if (use_self_gravity) SelfGravity::AddRestorePhiTasks(tc, pmesh);
   }
 
   // Single task in single (serial) region to reset global vars used in reductions in the
