@@ -9,15 +9,6 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
-namespace decaying_turbulence {
-using namespace parthenon::driver::prelude;
-
-void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
-void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md);
-void UserWorkBeforeOutput(Mesh *pmesh, ParameterInput *pin, const parthenon::SimTime &tm);
-
-} // namespace decaying_turbulence
-
 namespace linear_wave {
 using namespace parthenon::driver::prelude;
 
@@ -152,5 +143,11 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
                               const Real dt);
 void Cleanup();
 } // namespace turbulence
+
+namespace decaying_turbulence {
+using namespace parthenon::driver::prelude;
+
+void ProblemGenerator(Mesh *pm, parthenon::ParameterInput *pin, MeshData<Real> *md);
+} // namespace decaying_turbulence
 
 #endif // PGEN_PGEN_HPP_

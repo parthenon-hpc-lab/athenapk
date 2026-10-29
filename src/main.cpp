@@ -59,8 +59,6 @@ int main(int argc, char *argv[]) {
   if (problem == "decaying_turbulence") {
     #ifdef PARTHENON_ENABLE_FFT
       pman.app_input->MeshProblemGenerator = decaying_turbulence::ProblemGenerator;
-      pman.app_input->UserMeshWorkBeforeOutput = decaying_turbulence::UserWorkBeforeOutput;
-      Hydro::ProblemInitPackageData = decaying_turbulence::ProblemInitPackageData;
     #else
       PARTHENON_FAIL("decaying_turbulence problem requires FFT support. Rebuild with PARTHENON_ENABLE_FFT=ON");
     #endif
