@@ -409,6 +409,20 @@ Following "restrictions" apply to the current tracer implementation:
 
 Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
 
+## Gravity
+
+A general spherically symmetric gravitational field (NFW dark matter halo, BCG,
+and/or point-mass SMBH) is implemented as `gravity::SphericalGravity` in
+`src/gravity/spherical_gravity.hpp`. It is not specific to any one problem
+generator: it parses its parameters from a caller-supplied input block and
+exposes inlined `g_from_r`/`rho_from_r` kernels for use as a source term or in
+setting up initial conditions.
+
+Currently the `cluster` problem generator is the only consumer, wiring it up to
+the `<problem/cluster/gravity>` block via `ClusterGravity`. See [Galaxy Cluster
+and Cluster-like Problem Setup](cluster.md#fixed-gravitational-profile) for the
+full parameter list and the underlying physics.
+
 ## Boundary conditions
 
 In addition to enrolling custom boundary conditions, three general options are currently supported by default:

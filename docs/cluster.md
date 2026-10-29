@@ -35,6 +35,12 @@ supermassive black hole. This gravitational potential is used to determine
 initial conditions in hydrostatic equilbrium and by default as a source term
 during evolution. Parameters for the gravitationl profile are placed into `<problem/cluster/gravity>`.
 
+The implementation itself (`gravity::SphericalGravity`, in
+`src/gravity/spherical_gravity.hpp`) is not specific to the cluster problem
+generator: it is a general spherically symmetric NFW+BCG+SMBH field that can be
+instantiated against any input block. `ClusterGravity`
+(`src/pgen/cluster/cluster_gravity.hpp`) is that class wired up to this pgen's
+`<problem/cluster/gravity>` block, described below.
 
 The toggles to include different components are as follows:
 ```
