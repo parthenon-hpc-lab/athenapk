@@ -41,6 +41,7 @@
 
 // Parthenon headers
 #include "mesh/mesh.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -61,8 +62,8 @@ Real RelDivBHst(MeshData<Real> *md) {
   auto pmb = md->GetBlockData(0)->GetBlockPointer();
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  const bool three_d = cons_pack.GetNdim() == 3;
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
+  const bool three_d = md->GetMeshPointer()->ndim == 3;
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -72,17 +73,17 @@ Real RelDivBHst(MeshData<Real> *md) {
   auto B0 = B0_;
 
   pmb->par_reduce(
-      "RelDivBHst", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      "RelDivBHst", 0, cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-        const auto &cons = cons_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = cons.GetCoordinates(b);
 
-        Real divb =
-            (cons(IB1, k, j, i + 1) - cons(IB1, k, j, i - 1)) / coords.Dxc<1>(k, j, i) +
-            (cons(IB2, k, j + 1, i) - cons(IB2, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
+        Real divb = (cons(b, IB1, k, j, i + 1) - cons(b, IB1, k, j, i - 1)) /
+                        coords.Dxc<1>(k, j, i) +
+                    (cons(b, IB2, k, j + 1, i) - cons(b, IB2, k, j - 1, i)) /
+                        coords.Dxc<2>(k, j, i);
         if (three_d) {
-          divb +=
-              (cons(IB3, k + 1, j, i) - cons(IB3, k - 1, j, i)) / coords.Dxc<3>(k, j, i);
+          divb += (cons(b, IB3, k + 1, j, i) - cons(b, IB3, k - 1, j, i)) /
+                  coords.Dxc<3>(k, j, i);
         }
         lsum += 0.5 *
                 (std::sqrt(SQR(coords.Dxc<1>(k, j, i)) + SQR(coords.Dxc<2>(k, j, i)) +

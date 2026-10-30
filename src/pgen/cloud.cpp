@@ -14,6 +14,7 @@
 
 // Parthenon headers
 #include "mesh/mesh.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <basic_types.hpp>
 #include <iomanip>
 #include <ios>
@@ -217,7 +218,10 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput *pin) {
 
 void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   auto pmb = mbd->GetBlockPointer();
-  auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
+  const auto desc = coarse ? parthenon::MakePackDescriptor(mbd.get(), {"cons"}, {},
+                                                           {parthenon::PDOpt::Coarse})
+                           : parthenon::MakePackDescriptor(mbd.get(), {"cons"});
+  const auto cons = desc.GetPack(mbd.get());
   // TODO(pgrete) Add par_for_bndry to Parthenon without requiring nb
   const auto nb = IndexRange{0, 0};
   const auto rho_wind_ = rho_wind;
@@ -230,20 +234,20 @@ void InflowWindX2(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   pmb->par_for_bndry(
       "InflowWindX2", nb, IndexDomain::inner_x2, parthenon::TopologicalElement::CC,
       coarse, fine, KOKKOS_LAMBDA(const int &, const int &k, const int &j, const int &i) {
-        cons(IDN, k, j, i) = rho_wind_;
-        cons(IM2, k, j, i) = mom_wind_;
-        cons(IEN, k, j, i) = rhoe_wind_ + 0.5 * mom_wind_ * mom_wind_ / rho_wind_;
+        cons(0, IDN, k, j, i) = rho_wind_;
+        cons(0, IM2, k, j, i) = mom_wind_;
+        cons(0, IEN, k, j, i) = rhoe_wind_ + 0.5 * mom_wind_ * mom_wind_ / rho_wind_;
         if (Bx_ != 0.0) {
-          cons(IB1, k, j, i) = Bx_;
-          cons(IEN, k, j, i) += 0.5 * Bx_ * Bx_;
+          cons(0, IB1, k, j, i) = Bx_;
+          cons(0, IEN, k, j, i) += 0.5 * Bx_ * Bx_;
         }
         if (By_ != 0.0) {
-          cons(IB2, k, j, i) = By_;
-          cons(IEN, k, j, i) += 0.5 * By_ * By_;
+          cons(0, IB2, k, j, i) = By_;
+          cons(0, IEN, k, j, i) += 0.5 * By_ * By_;
         }
         if (Bz_ != 0.0) {
-          cons(IB3, k, j, i) = Bz_;
-          cons(IEN, k, j, i) += 0.5 * Bz_ * Bz_;
+          cons(0, IB3, k, j, i) = Bz_;
+          cons(0, IEN, k, j, i) += 0.5 * Bz_ * Bz_;
         }
       });
 }

@@ -7,6 +7,7 @@
 //! \brief
 
 // Parthenon headers
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <cmath>
 #include <parthenon/package.hpp>
 
@@ -33,14 +34,14 @@ Real OhmicDiffusivity::Get(const Real pres, const Real rho) const {
 Real EstimateResistivityTimestep(MeshData<Real> *md) {
   // get to package via first block in Meshdata (which exists by construction)
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
   Real min_dt_resist = std::numeric_limits<Real>::max();
-  const auto ndim = prim_pack.GetNdim();
+  const auto ndim = md->GetMeshPointer()->ndim;
 
   Real fac = 0.5;
   if (ndim == 2) {
@@ -61,10 +62,10 @@ Real EstimateResistivityTimestep(MeshData<Real> *md) {
         "EstimateResistivityTimestep (ohmic fixed)",
         Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
             DevExecSpace(), {0, kb.s, jb.s, ib.s},
-            {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+            {prim.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1},
             {1, 1, 1, ib.e + 1 - ib.s}),
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &min_dt) {
-          const auto &coords = prim_pack.GetCoords(b);
+          const auto &coords = prim.GetCoordinates(b);
           min_dt =
               fmin(min_dt, SQR(coords.Dxc<1>(k, j, i)) / (ohm_diff_coeff + TINY_NUMBER));
           if (ndim >= 2) {
@@ -95,10 +96,12 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
   std::vector<parthenon::MetadataFlag> flags_ind({Metadata::Independent});
-  auto cons_pack = md->PackVariablesAndFluxes(flags_ind);
+  const auto cons = parthenon::MakePackDescriptor(md, {".*"}, {true}, flags_ind,
+                                                  {parthenon::PDOpt::WithFluxes})
+                        .GetPack(md);
   auto hydro_pkg = pmb->packages.Get("Hydro");
 
-  auto const &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
 
   const int ndim = pmb->pmy_mesh->ndim;
 
@@ -109,43 +112,43 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Resist. X1 fluxes (ohmic)", DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
+      cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e + 1,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &coords = prim_pack.GetCoords(b);
-        auto &cons = cons_pack(b);
-        const auto &prim = prim_pack(b);
+        const auto &coords = prim.GetCoordinates(b);
 
         // Face centered current densities
         // j2 = d3B1 - d1B3
         const auto d3B1 =
-            ndim > 2 ? (0.5 * (prim(IB1, k + 1, j, i - 1) + prim(IB1, k + 1, j, i)) -
-                        0.5 * (prim(IB1, k - 1, j, i - 1) + prim(IB1, k - 1, j, i))) /
-                           (coords.Xf<3, 1>(k + 1, j, i) - coords.Xf<3, 1>(k - 1, j, i))
-                     : 0.0;
+            ndim > 2
+                ? (0.5 * (prim(b, IB1, k + 1, j, i - 1) + prim(b, IB1, k + 1, j, i)) -
+                   0.5 * (prim(b, IB1, k - 1, j, i - 1) + prim(b, IB1, k - 1, j, i))) /
+                      (coords.Xf<3, 1>(k + 1, j, i) - coords.Xf<3, 1>(k - 1, j, i))
+                : 0.0;
 
         const auto d1B3 =
-            (prim(IB3, k, j, i) - prim(IB3, k, j, i - 1)) / coords.Dxc<1>(k, j, i);
+            (prim(b, IB3, k, j, i) - prim(b, IB3, k, j, i - 1)) / coords.Dxc<1>(k, j, i);
 
         const auto j2 = d3B1 - d1B3;
 
         // j3 = d1B2 - d2B1
         const auto d1B2 =
-            (prim(IB2, k, j, i) - prim(IB2, k, j, i - 1)) / coords.Dxc<1>(k, j, i);
+            (prim(b, IB2, k, j, i) - prim(b, IB2, k, j, i - 1)) / coords.Dxc<1>(k, j, i);
 
         const auto d2B1 =
-            ndim > 1 ? (0.5 * (prim(IB1, k, j + 1, i - 1) + prim(IB1, k, j + 1, i)) -
-                        0.5 * (prim(IB1, k, j - 1, i - 1) + prim(IB1, k, j - 1, i))) /
-                           (coords.Xf<2, 1>(k, j + 1, i) - coords.Xf<2, 1>(k, j - 1, i))
-                     : 0.0;
+            ndim > 1
+                ? (0.5 * (prim(b, IB1, k, j + 1, i - 1) + prim(b, IB1, k, j + 1, i)) -
+                   0.5 * (prim(b, IB1, k, j - 1, i - 1) + prim(b, IB1, k, j - 1, i))) /
+                      (coords.Xf<2, 1>(k, j + 1, i) - coords.Xf<2, 1>(k, j - 1, i))
+                : 0.0;
 
         const auto j3 = d1B2 - d2B1;
 
-        cons.flux(X1DIR, IB2, k, j, i) += -eta * j3;
-        cons.flux(X1DIR, IB3, k, j, i) += eta * j2;
-        cons.flux(X1DIR, IEN, k, j, i) +=
+        cons.flux(b, X1DIR, IB2, k, j, i) += -eta * j3;
+        cons.flux(b, X1DIR, IB3, k, j, i) += eta * j2;
+        cons.flux(b, X1DIR, IEN, k, j, i) +=
             0.5 * eta *
-            ((prim(IB3, k, j, i - 1) + prim(IB3, k, j, i)) * j2 -
-             (prim(IB2, k, j, i - 1) + prim(IB2, k, j, i)) * j3);
+            ((prim(b, IB3, k, j, i - 1) + prim(b, IB3, k, j, i)) * j2 -
+             (prim(b, IB2, k, j, i - 1) + prim(b, IB2, k, j, i)) * j3);
       });
 
   if (ndim < 2) {
@@ -154,41 +157,41 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Resist. X2 fluxes (ohmic)", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e + 1, ib.s, ib.e,
+      cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e + 1, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &coords = prim_pack.GetCoords(b);
-        auto &cons = cons_pack(b);
-        const auto &prim = prim_pack(b);
+        const auto &coords = prim.GetCoordinates(b);
 
         // Face centered current densities
         // j3 = d1B2 - d2B1
-        const auto d1B2 = (0.5 * (prim(IB2, k, j - 1, i + 1) + prim(IB2, k, j, i + 1)) -
-                           0.5 * (prim(IB2, k, j - 1, i - 1) + prim(IB2, k, j, i - 1))) /
-                          (coords.Xf<1, 2>(k, j, i + 1) - coords.Xf<1, 2>(k, j, i - 1));
+        const auto d1B2 =
+            (0.5 * (prim(b, IB2, k, j - 1, i + 1) + prim(b, IB2, k, j, i + 1)) -
+             0.5 * (prim(b, IB2, k, j - 1, i - 1) + prim(b, IB2, k, j, i - 1))) /
+            (coords.Xf<1, 2>(k, j, i + 1) - coords.Xf<1, 2>(k, j, i - 1));
 
         const auto d2B1 =
-            (prim(IB1, k, j, i) - prim(IB1, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
+            (prim(b, IB1, k, j, i) - prim(b, IB1, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
 
         const auto j3 = d1B2 - d2B1;
 
         // j1 = d2B3 - d3B2
         const auto d2B3 =
-            (prim(IB3, k, j, i) - prim(IB3, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
+            (prim(b, IB3, k, j, i) - prim(b, IB3, k, j - 1, i)) / coords.Dxc<2>(k, j, i);
 
         const auto d3B2 =
-            ndim > 2 ? (0.5 * (prim(IB2, k + 1, j - 1, i) + prim(IB2, k + 1, j, i)) -
-                        0.5 * (prim(IB2, k - 1, j - 1, i) + prim(IB2, k - 1, j, i))) /
-                           (coords.Xf<3, 2>(k + 1, j, i) - coords.Xf<3, 2>(k - 1, j, i))
-                     : 0.0;
+            ndim > 2
+                ? (0.5 * (prim(b, IB2, k + 1, j - 1, i) + prim(b, IB2, k + 1, j, i)) -
+                   0.5 * (prim(b, IB2, k - 1, j - 1, i) + prim(b, IB2, k - 1, j, i))) /
+                      (coords.Xf<3, 2>(k + 1, j, i) - coords.Xf<3, 2>(k - 1, j, i))
+                : 0.0;
 
         const auto j1 = d2B3 - d3B2;
 
-        cons.flux(X2DIR, IB1, k, j, i) += eta * j3;
-        cons.flux(X2DIR, IB3, k, j, i) += -eta * j1;
-        cons.flux(X2DIR, IEN, k, j, i) +=
+        cons.flux(b, X2DIR, IB1, k, j, i) += eta * j3;
+        cons.flux(b, X2DIR, IB3, k, j, i) += -eta * j1;
+        cons.flux(b, X2DIR, IEN, k, j, i) +=
             0.5 * eta *
-            ((prim(IB1, k, j - 1, i) + prim(IB1, k, j, i)) * j3 -
-             (prim(IB3, k, j - 1, i) + prim(IB3, k, j, i)) * j1);
+            ((prim(b, IB1, k, j - 1, i) + prim(b, IB1, k, j, i)) * j3 -
+             (prim(b, IB3, k, j - 1, i) + prim(b, IB3, k, j, i)) * j1);
       });
 
   if (ndim < 3) {
@@ -197,39 +200,39 @@ void OhmicDiffFluxIsoFixed(MeshData<Real> *md) {
 
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "Resist. X3 fluxes (ohmic)", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
+      cons.GetNBlocks() - 1, kb.s, kb.e + 1, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &coords = prim_pack.GetCoords(b);
-        auto &cons = cons_pack(b);
-        const auto &prim = prim_pack(b);
+        const auto &coords = prim.GetCoordinates(b);
 
         // Face centered current densities
         // j1 = d2B3 - d3B2
-        const auto d2B3 = (0.5 * (prim(IB3, k - 1, j + 1, i) + prim(IB3, k, j + 1, i)) -
-                           0.5 * (prim(IB3, k - 1, j - 1, i) + prim(IB3, k, j - 1, i))) /
-                          (coords.Xf<2, 3>(k, j + 1, i) - coords.Xf<2, 3>(k, j - 1, i));
+        const auto d2B3 =
+            (0.5 * (prim(b, IB3, k - 1, j + 1, i) + prim(b, IB3, k, j + 1, i)) -
+             0.5 * (prim(b, IB3, k - 1, j - 1, i) + prim(b, IB3, k, j - 1, i))) /
+            (coords.Xf<2, 3>(k, j + 1, i) - coords.Xf<2, 3>(k, j - 1, i));
 
         const auto d3B2 =
-            (prim(IB2, k, j, i) - prim(IB2, k - 1, j, i)) / coords.Dxc<3>(k, j, i);
+            (prim(b, IB2, k, j, i) - prim(b, IB2, k - 1, j, i)) / coords.Dxc<3>(k, j, i);
 
         const auto j1 = d2B3 - d3B2;
 
         // j2 = d3B1 - d1B3
         const auto d3B1 =
-            (prim(IB1, k, j, i) - prim(IB1, k - 1, j, i)) / coords.Dxc<3>(k, j, i);
+            (prim(b, IB1, k, j, i) - prim(b, IB1, k - 1, j, i)) / coords.Dxc<3>(k, j, i);
 
-        const auto d1B3 = (0.5 * (prim(IB3, k - 1, j, i + 1) + prim(IB3, k, j, i + 1)) -
-                           0.5 * (prim(IB3, k - 1, j, i - 1) + prim(IB3, k, j, i - 1))) /
-                          (coords.Xf<1, 3>(k, j, i + 1) - coords.Xf<1, 3>(k, j, i - 1));
+        const auto d1B3 =
+            (0.5 * (prim(b, IB3, k - 1, j, i + 1) + prim(b, IB3, k, j, i + 1)) -
+             0.5 * (prim(b, IB3, k - 1, j, i - 1) + prim(b, IB3, k, j, i - 1))) /
+            (coords.Xf<1, 3>(k, j, i + 1) - coords.Xf<1, 3>(k, j, i - 1));
 
         const auto j2 = d3B1 - d1B3;
 
-        cons.flux(X3DIR, IB1, k, j, i) += -eta * j2;
-        cons.flux(X3DIR, IB2, k, j, i) += eta * j1;
-        cons.flux(X3DIR, IEN, k, j, i) +=
+        cons.flux(b, X3DIR, IB1, k, j, i) += -eta * j2;
+        cons.flux(b, X3DIR, IB2, k, j, i) += eta * j1;
+        cons.flux(b, X3DIR, IEN, k, j, i) +=
             0.5 * eta *
-            ((prim(IB2, k - 1, j, i) + prim(IB2, k, j, i)) * j1 -
-             (prim(IB1, k - 1, j, i) + prim(IB1, k, j, i)) * j2);
+            ((prim(b, IB2, k - 1, j, i) + prim(b, IB2, k, j, i)) * j1 -
+             (prim(b, IB1, k - 1, j, i) + prim(b, IB1, k, j, i)) * j2);
       });
 }
 

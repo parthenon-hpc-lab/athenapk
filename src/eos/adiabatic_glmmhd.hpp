@@ -18,7 +18,6 @@
 
 using parthenon::MeshBlock;
 using parthenon::MeshBlockData;
-using parthenon::MeshBlockVarPack;
 using parthenon::Real;
 
 class AdiabaticGLMMHDEOS : public EquationOfState {
@@ -58,10 +57,10 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
   // \!fn Real EquationOfState::ConsToPrim(View4D cons, View4D prim, const int& k, const
   // int& j, const int& i) \brief Fills an array of primitives given an array of
   // conserveds, potentially updating the conserved with floors
-  template <typename View4D>
-  KOKKOS_INLINE_FUNCTION void ConsToPrim(View4D cons, View4D prim, const int &nhydro,
-                                         const int &nscalars, const int &k, const int &j,
-                                         const int &i) const {
+  template <typename View5D>
+  KOKKOS_INLINE_FUNCTION void ConsToPrim(View5D cons, View5D prim, const int &nhydro,
+                                         const int &nscalars, const int &b, const int &k,
+                                         const int &j, const int &i) const {
     auto gam = GetGamma();
     auto gm1 = gam - 1.0;
     auto density_floor_ = GetDensityFloor();
@@ -71,25 +70,25 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
     auto velocity_ceiling_ = GetVelocityCeiling();
     auto e_ceiling_ = GetInternalECeiling();
 
-    Real &u_d = cons(IDN, k, j, i);
-    Real &u_m1 = cons(IM1, k, j, i);
-    Real &u_m2 = cons(IM2, k, j, i);
-    Real &u_m3 = cons(IM3, k, j, i);
-    Real &u_e = cons(IEN, k, j, i);
-    Real &u_b1 = cons(IB1, k, j, i);
-    Real &u_b2 = cons(IB2, k, j, i);
-    Real &u_b3 = cons(IB3, k, j, i);
-    Real &u_psi = cons(IPS, k, j, i);
+    Real &u_d = cons(b, IDN, k, j, i);
+    Real &u_m1 = cons(b, IM1, k, j, i);
+    Real &u_m2 = cons(b, IM2, k, j, i);
+    Real &u_m3 = cons(b, IM3, k, j, i);
+    Real &u_e = cons(b, IEN, k, j, i);
+    Real &u_b1 = cons(b, IB1, k, j, i);
+    Real &u_b2 = cons(b, IB2, k, j, i);
+    Real &u_b3 = cons(b, IB3, k, j, i);
+    Real &u_psi = cons(b, IPS, k, j, i);
 
-    Real &w_d = prim(IDN, k, j, i);
-    Real &w_vx = prim(IV1, k, j, i);
-    Real &w_vy = prim(IV2, k, j, i);
-    Real &w_vz = prim(IV3, k, j, i);
-    Real &w_p = prim(IPR, k, j, i);
-    Real &w_Bx = prim(IB1, k, j, i);
-    Real &w_By = prim(IB2, k, j, i);
-    Real &w_Bz = prim(IB3, k, j, i);
-    Real &w_psi = prim(IPS, k, j, i);
+    Real &w_d = prim(b, IDN, k, j, i);
+    Real &w_vx = prim(b, IV1, k, j, i);
+    Real &w_vy = prim(b, IV2, k, j, i);
+    Real &w_vz = prim(b, IV3, k, j, i);
+    Real &w_p = prim(b, IPR, k, j, i);
+    Real &w_Bx = prim(b, IB1, k, j, i);
+    Real &w_By = prim(b, IB2, k, j, i);
+    Real &w_Bz = prim(b, IB3, k, j, i);
+    Real &w_psi = prim(b, IPS, k, j, i);
 
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
@@ -162,7 +161,7 @@ class AdiabaticGLMMHDEOS : public EquationOfState {
 
     // Convert passive scalars
     for (auto n = nhydro; n < nhydro + nscalars; ++n) {
-      prim(n, k, j, i) = cons(n, k, j, i) * di;
+      prim(b, n, k, j, i) = cons(b, n, k, j, i) * di;
     }
   }
 

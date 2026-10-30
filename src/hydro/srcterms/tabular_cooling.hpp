@@ -18,9 +18,7 @@
 
 // Parthenon headers
 #include <interface/mesh_data.hpp>
-#include <interface/variable_pack.hpp>
 #include <mesh/domain.hpp>
-#include <mesh/meshblock_pack.hpp>
 #include <outputs/io_wrapper.hpp>
 
 // AthenaPK headers

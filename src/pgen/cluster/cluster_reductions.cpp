@@ -12,6 +12,7 @@
 #include "kokkos_abstraction.hpp"
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 #include <parthenon/package.hpp>
@@ -32,7 +33,7 @@ parthenon::Real LocalReduceColdGas(parthenon::MeshData<parthenon::Real> *md) {
       cold_thresh / mbar_over_kb / (hydro_pkg->Param<Real>("AdiabaticIndex") - 1.0);
 
   // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -46,16 +47,14 @@ parthenon::Real LocalReduceColdGas(parthenon::MeshData<parthenon::Real> *md) {
       "LocalReduceColdGas",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
           DevExecSpace(), {0, kb.s, jb.s, ib.s},
-          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-          {1, 1, 1, ib.e + 1 - ib.s}),
+          {prim.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1}, {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     Real &cold_gas_team) {
-        auto &prim = prim_pack(b);
-        const auto &coords = prim_pack.GetCoords(b);
+        const auto &coords = prim.GetCoordinates(b);
 
-        const Real internal_e = prim(IPR, k, j, i) / (gm1 * prim(IDN, k, j, i));
+        const Real internal_e = prim(b, IPR, k, j, i) / (gm1 * prim(b, IDN, k, j, i));
         if (internal_e < e_thresh) {
-          cold_gas_team += prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
+          cold_gas_team += prim(b, IDN, k, j, i) * coords.CellVolume(k, j, i);
         }
       },
       cold_gas);
@@ -68,7 +67,7 @@ parthenon::Real LocalReduceAGNExtent(parthenon::MeshData<parthenon::Real> *md) {
   const auto &tracer_thresh = hydro_pkg->Param<Real>("reduction_agn_tracer_threshold");
 
   // Grab some necessary variables
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -80,16 +79,15 @@ parthenon::Real LocalReduceAGNExtent(parthenon::MeshData<parthenon::Real> *md) {
       "LocalReduceAGNExtent",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
           DevExecSpace(), {0, kb.s, jb.s, ib.s},
-          {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-          {1, 1, 1, ib.e + 1 - ib.s}),
+          {cons.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1}, {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     Real &max_r2_team) {
-        auto &cons = cons_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = cons.GetCoordinates(b);
 
         const auto r2 = SQR(coords.Xc<1>(k, j, i)) + SQR(coords.Xc<2>(k, j, i)) +
                         SQR(coords.Xc<3>(k, j, i));
-        if (cons(nhydro, k, j, i) / cons(IDN, k, j, i) > tracer_thresh && r2 > max_r2) {
+        if (cons(b, nhydro, k, j, i) / cons(b, IDN, k, j, i) > tracer_thresh &&
+            r2 > max_r2) {
           max_r2_team = r2;
         }
       },
