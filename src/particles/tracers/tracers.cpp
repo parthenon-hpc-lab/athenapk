@@ -74,14 +74,14 @@ const std::string ito_moments = "ito_moments";
 // [0, a_p]. Built for gamma >= 0, where the short left piece's probability is well
 // conditioned, and mirrored for gamma < 0.
 KOKKOS_INLINE_FUNCTION Real PiecewiseSkewUniform(const Real gamma, const Real r) {
-  const Real g = fabs(gamma);
+  const Real g = Kokkos::fabs(gamma);
   const Real u = (gamma < 0.0) ? 1.0 - r : r;
-  const Real s = std::sqrt(27.0 + 4.0 * g * g);
+  const Real s = Kokkos::sqrt(27.0 + 4.0 * g * g);
   const Real a_m = (s - 2.0 * g) / 3.0;
   const Real a_p = (s + 2.0 * g) / 3.0;
   const Real b_m =
       (0.5 * (27.0 + 8.0 * g * g) / (27.0 + 4.0 * g * g) * s + 2.0 * g) / 9.0;
-  const Real p_m = fmin(a_m * b_m, 1.0);
+  const Real p_m = Kokkos::fmin(a_m * b_m, 1.0);
   const Real x = (u < p_m) ? -a_m * (1.0 - u / p_m)
                            : ((p_m < 1.0) ? a_p * (u - p_m) / (1.0 - p_m) : 0.0);
   return (gamma < 0.0) ? -x : x;
@@ -104,11 +104,11 @@ void AddFieldIfMissing(std::vector<std::string> &fields, const std::string &fiel
 } // namespace
 
 /* ===============================================================================
-InjectTracers: called at each timestep, inject new tracer particles in cells ful-
-filling a criterion indicated in the input parameter list. Since tracers can't be
-injected at all timesteps (this would lead to a divergence of the tracer population,
-these are injected in a stochastic way, based on a target number of tracer per cell
-and per unit time.
+InjectTracers: called at each timestep, injects new tracers in cells fulfilling the
+criterion from the input file. To avoid a divergence of the tracer population, they
+are injected stochastically, based on a target number of tracers per cell and per unit
+time. The draws must agree between separate loops, so they use the deterministic,
+cell-index-based generator in utils/custom_rng.hpp.
 =============================================================================== */
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
@@ -192,10 +192,9 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
 
   // Setting up useful fields (cell mass for Monte Carlo, IDs offsets),
   // also checking the integrator choice in case of Monte Carlo advection
-  PARTHENON_REQUIRE_THROWS(pin->DoesParameterExist("tracers", "swarm_names"),
-                           "Need to define at least one particle population via "
-                           "'swarm_names' when tracers are enabled.");
-  auto swarm_names = pin->GetVector<std::string>("tracers", "swarm_names");
+  // Input files without 'swarm_names' define a single population named "tracers"
+  auto swarm_names = pin->GetOrAddVector<std::string>(
+      "tracers", "swarm_names", std::vector<std::string>{"tracers"});
   tracers_pkg->AddParam<>("swarm_names", swarm_names);
 
   // Package initialization happens before the Mesh exists, so mirror Mesh's
@@ -251,9 +250,10 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     const int ndim = (nx3 > 1) ? 3 : ((nx2 > 1) ? 2 : 1);
     // Number of matched moments: 2 (mean, variance; uniform kick) or 3 (also the
     // third central moment; piecewise skew uniform kick), i.e. Ito-2 or Ito-3
-    const int ito_order = pin->GetOrAddInteger("tracers", "ito_order", 2);
-    PARTHENON_REQUIRE_THROWS(ito_order == 2 || ito_order == 3,
-                             "tracers/ito_order must be 2 or 3.");
+    // (parsed as a string as ParameterInput only restricts the values of strings)
+    const int ito_order = std::stoi(pin->GetOrAddString(
+        "tracers", "ito_order", "2", std::vector<std::string>{"2", "3"},
+        "number of displacement moments matched by the Ito tracer kicks"));
     tracers_pkg->AddParam<>("ito_order", ito_order);
     m = Metadata(
         {Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::FillGhost},
@@ -273,9 +273,11 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // =====================================================================
   const bool mhd = pin->GetString("hydro", "fluid") == "glmmhd";
   const auto nscalars = pin->GetOrAddInteger("hydro", "nscalars", 0);
-  // Old, pre-per-swarm-seed input files only set this; keep it as the default so
-  // they still work, but a SWARM_NAME_initial_rng_seed overrides it per population.
+  // Old, pre-per-swarm input files only set these; keep them as the defaults so they
+  // still work, but the SWARM_NAME_ versions override them per population.
   const auto global_rng_seed = pin->GetOrAddInteger("tracers", "initial_rng_seed", 0);
+  const auto global_num_tracers_per_cell =
+      pin->GetOrAddReal("tracers", "initial_num_tracers_per_cell", 0.0);
   // Mirrors when Hydro::Initialize actually registers "mbar_over_kb" (c.f.
   // hydro.cpp) -- without it, a temperature criterion would silently evaluate
   // against EvaluateCriterion's -1 fallback instead of a real temperature.
@@ -294,7 +296,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // a reference refinement level "reference_level". If default value (-1), the seeding
     // is performed based on the regular tracers per cell approach.
     const auto num_tracers_per_cell =
-        pin->GetOrAddReal("tracers", swarm_name + "_initial_num_tracers_per_cell", 0.0);
+        pin->GetOrAddReal("tracers", swarm_name + "_initial_num_tracers_per_cell",
+                          global_num_tracers_per_cell);
     const auto reference_level =
         pin->GetOrAddInteger("tracers", swarm_name + "_reference_level", -1);
     // Tracer injection parameters
@@ -374,7 +377,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
     // Some tracers can also survive removal if sitting in a cell that fulfill a certain
     // criterion. To activate such feature, removal_exception must be set to true, and a
     // survival criterion must be provided, along with a threshold value (just like in the
-    // injection routine. In such case, the lifetime of the particle is extended by 50%.
+    // injection routine. In such case, the particle's lifetime is extended by another
+    // SWARM_NAME_lifetime, after which the criterion is checked again.
     const auto removal_enabled =
         pin->GetOrAddBoolean("tracers", swarm_name + "_removal_enabled", false);
     tracers_pkg->AddParam<>(swarm_name + "_removal_enabled", removal_enabled);
@@ -547,10 +551,8 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   auto tracers_pkg = pmesh->packages.Get("tracers");
 
   PARTHENON_REQUIRE_THROWS(
-      (!pin->DoesParameterExist("tracers", "num_tracers_per_cell") &&
-       !pin->DoesParameterExist("tracers", "initial_num_tracers_per_cell")),
-      "'tracers/num_tracers_per_cell' and 'tracers/initial_num_tracers_per_cell' "
-      "parameters have been deprecated. Please update your "
+      !pin->DoesParameterExist("tracers", "num_tracers_per_cell"),
+      "'tracers/num_tracers_per_cell' has been deprecated. Please update your "
       "input file to use 'tracers/initial_seed_method=random_per_block' with "
       "'tracers/SWARM_NAME_initial_num_tracers_per_cell=NUMBER'.");
 

@@ -116,8 +116,10 @@ inline std::uint64_t DecodeOffset(const Real &encoded) {
 }
 
 /* ===============================================================================
-EvaluateCriterion: custom function containing the criterion that cells have to ful-
-fill to be elligible for the injection of particles.
+EvaluateCriterion: whether a cell fulfills an injection (or removal exception)
+criterion. jet_radius/jet_offset/jet_thickness/jet_coords only matter for
+ParticlesCriterion::Jet: the thresholds default to a disabled (never-true) region,
+and jet_coords to an untilted, non-precessing z-axis.
 =============================================================================== */
 
 template <typename View4D>
