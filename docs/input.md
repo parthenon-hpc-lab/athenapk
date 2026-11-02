@@ -351,12 +351,13 @@ advection_method = vinterp   # options: vinterp (default), montecarlo, ito
 
 - `vinterp`: tracers move with the gas velocity interpolated to their position
   (Heun's method). Trajectories are continuous, but the tracer distribution can
-  decorrelate from the gas distribution (e.g. Genel et al. 2013).
+  decorrelate from the gas distribution (e.g.
+  [Genel et al. 2013](https://doi.org/10.1093/mnras/stt1383)).
 - `montecarlo`: tracers jump between neighboring cells with probabilities set by the
-  mass fluxes ([Cadiou et al. 2019](https://arxiv.org/abs/1810.11401)). The tracer
+  mass fluxes ([Cadiou et al. 2019](https://doi.org/10.1051/0004-6361/201834496)). The tracer
   distribution follows the gas statistically, but trajectories are discontinuous.
 - `ito`: the CIC Itô-2 tracers of
-  [Moseley et al. 2026](https://arxiv.org/abs/2604.23041), ported from RAMSES.
+  [Moseley et al. 2026](https://doi.org/10.1093/mnras/stag1536), ported from RAMSES.
   Each step, a tracer moves by the mean displacement of a Monte Carlo jump plus a
   uniform random kick with the variance of that jump, both linearly interpolated
   to its position. Trajectories are continuous and the gas distribution is followed
@@ -375,6 +376,14 @@ separate from the hydro exchanges. At physical boundaries these fields are alway
 extrapolated with zero gradient, whatever the hydro boundary condition.
 Like the Monte Carlo draws, the random kicks are keyed on the tracer, so they do not
 depend on the domain decomposition.
+
+The randomness of `montecarlo` is reproducible across backends and restarts: each draw
+(stay or hop, through which face, which child cell after entering a finer level) is a
+hash of the population's seed and index, the tracer's ID, the cycle number and the
+kind of draw (`TracerRoll` in `custom_rng.hpp`). No generator state is kept, so it does
+not matter which block, rank or thread handles a tracer, and since the IDs and the
+cycle count are restored on restart, a restarted run draws the same numbers as an
+uninterrupted one.
 
 With `vinterp` and `ito`, density, pressure, velocity, magnetic field, and the
 optional passive-scalar fraction are linearly interpolated to each tracer's
@@ -412,6 +421,9 @@ swarm_names = tracers0,tracers1 # examples, any name could work
 
 Each swarm's parameters must be provided **within** the `<tracers>` section.
 
+If `swarm_names` is not set, there is a single population named `tracers`, so input
+files written before populations were introduced keep working.
+
 ###### Example:
 
 ```ini
@@ -434,6 +446,29 @@ tracers1_removal_exception_criterion = density_above
 tracers1_removal_exception_threshold = 8.0 # in code units
 tracers1_lifetime                    = 0.05
 ```
+
+###### Parameters
+
+All parameters below are prefixed with the population's name, `SWARM_NAME_`:
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `initial_num_tracers_per_cell` | `tracers/initial_num_tracers_per_cell`, or 0 if unset | Number of tracers per cell seeded by `initial_seed_method = random_per_block`. |
+| `initial_rng_seed` | `tracers/initial_rng_seed`, or 0 if unset | Seed of the population's random draws, see [Initial Seeding](#initial-seeding). |
+| `reference_level` | -1 (disabled) | Refinement level, relative to the root grid, for which the per-cell seeding and injection numbers are given. They are scaled by $`2^{n_\mathrm{dim}(\ell_\mathrm{ref} - \ell)}`$ in a block at level $`\ell`$, so the number of tracers per unit volume does not depend on the level. |
+| `injection_enabled` | `false` | Inject tracers during the run. Not supported with `parthenon/mesh/refinement = adaptive`. |
+| `injection_criterion` | required | Cells eligible for injection: `density_above`, `density_below`, `temperature_above`, `temperature_below`, or `jet` (the AGN jet region; only the `cluster` problem generator provides its geometry, otherwise no cell is eligible). |
+| `injection_threshold` | -1 | Threshold of the density (code units) or temperature (K) criteria, which include the threshold value itself. Not used by `jet`. |
+| `injection_num_target` | required, > 0 | Target number of tracers injected per eligible cell over `injection_timescale`. |
+| `injection_timescale` | required, > 0 | Each timestep, an eligible cell receives one tracer with probability `injection_num_target / injection_timescale * dt` (including the `reference_level` scaling, and capped at 1). |
+| `removal_enabled` | `false` | Remove tracers once they reach `lifetime`. |
+| `lifetime` | -1 (never removed) | Time after injection (or seeding) at which a tracer is removed. Code units. |
+| `removal_exception` | `false` | Keep tracers reaching their `lifetime` in cells fulfilling `removal_exception_criterion`. Their lifetime is extended by another `lifetime`, after which the criterion is checked again. |
+| `removal_exception_criterion` | required with `removal_exception` | As `injection_criterion`, but without `jet`. |
+| `removal_exception_threshold` | -1 | As `injection_threshold`. |
+| `fields` | empty | Additional fields of the population, see [Per-swarm fields](#per-swarm-fields). |
+
+The temperature criteria require a `units` block and `hydro/He_mass_fraction`.
 
 Note that to keep the population of dynamically injected tracers roughly stable in time, it is recommended to match `injection_timescale` and `lifetime`. If `lifetime` is much larger than the injection timescale (or if removal isn't even enabled), the particle's population can grow increasingly large in an uncontrolled fashion.
 
@@ -495,6 +530,7 @@ reflects the values as of the last completed step.
 initial_seed_method = random_per_block   # alternatives: user, none (default)
 ```
 
+This is a global option, i.e. it applies to all populations.
 Three seeding methods are supported:
 
 - **`none`** (default)
@@ -504,8 +540,8 @@ Three seeding methods are supported:
   - Seeds particles randomly in each mesh block.
   - **Note**: the random number generator seed uses the unique block id. Therefore, simulations with the mesh decomposition (mesh and meshblock sizes) are identical independent of the number of MPI ranks used, but if the meshblock size is changed for given mesh (and thus the total number of blocks) the initial state will be different.
   - Controlled by:
-    - `tracers0_initial_num_tracers_per_cell`
-    - Optional: `initial_rng_seed` to customize randomness
+    - `SWARM_NAME_initial_num_tracers_per_cell`
+    - Optional: `SWARM_NAME_initial_rng_seed`, used as seed in addition to the block id. A global `initial_rng_seed` sets the default for all populations, and each population with its own `SWARM_NAME_initial_rng_seed` overrides it. It defaults to 0 otherwise.
 
 - **`user`**
   - Uses the `ProblemSeedInitialTracers` callback to seed particles manually.
@@ -522,13 +558,13 @@ restart time.
 
 By default, swarm fields are written only to restart files.
 If they are required for "standard" output files (like single precision `hdf5`),
-they need to be added manually to the output block, e.g., (bottom two lines)
+they need to be added manually to the output block, e.g., (`swarms` and the `*_variables` lines)
 
 ```ini
 <parthenon/output2>
-file_type  = hdf5
-variables  = prim
-dt         = 0.1
+file_type  = hdf5       # Binary data dump
+variables  = prim       # variables to be output
+dt         = 0.1        # time increment between outputs
 id         = prim
 single_precision_output = true
 
