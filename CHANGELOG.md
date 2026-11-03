@@ -23,11 +23,14 @@ If the current performance is (significantly) below expectation, one can try to 
 Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF` to mitigate the race condition.
 
 ### Added (new features/APIs/variables/...)
-- Persistent native validation summaries with measured values and thresholds, and
+- [[PR 195]](https://github.com/parthenon-hpc-lab/athenapk/pull/195) Persistent native
+  validation summaries with measured values and thresholds, and
   a CPU/MPI/GPU validation guide including GLM compatibility checks.
-- Second-order ideal-MHD constrained transport: CT-contact and UCT-HLLD,
+- [[PR 195]](https://github.com/parthenon-hpc-lab/athenapk/pull/195) Second-order
+  ideal-MHD constrained transport: CT-contact and UCT-HLLD,
   PLM/HLLD with RK integration, face-centered fields, and SMR/AMR support.
-- CT-compatible wave, field-loop, Orszag--Tang and current-sheet examples,
+- [[PR 195]](https://github.com/parthenon-hpc-lab/athenapk/pull/195) CT-compatible
+  wave, field-loop, Orszag--Tang and current-sheet examples,
   divergence diagnostics, optional magnetic-energy correction, portable GPU
   convergence tooling, and native serial/MPI regression definitions.
 
@@ -41,11 +44,13 @@ definitions require fresh execution by the submitter; this entry is not a
 statement of passed tests.
 
 ### Changed (changing behavior/API/variables/...)
-- Rename the preserved Euler wave pgen/selector to `linear_wave_hydro` and its
+- [[PR 195]](https://github.com/parthenon-hpc-lab/athenapk/pull/195) Rename the
+  preserved Euler wave pgen/selector to `linear_wave_hydro` and its
   input decks with `_hydro`; retain hydro parameter keys and numerical formulas.
 
 ### Fixed (not changing behavior/API/variables/...)
-- Route GLM magnetic-wave convergence and diffusion through the MHD wave pgen,
+- [[PR 195]](https://github.com/parthenon-hpc-lab/athenapk/pull/195) Route GLM
+  magnetic-wave convergence and diffusion through the MHD wave pgen,
   read diagnostic columns by name, and check magnetic convergence explicitly.
 - [[PR 172]](https://github.com/parthenon-hpc-lab/athenapk/pull/172) Fixed data race condition in few modes IFT (no practical implication)
 
@@ -56,6 +61,12 @@ statement of passed tests.
 ### Removed (removing behavior/API/varaibles/...)
 
 ### Incompatibilities (i.e. breaking changes)
+- [[PR 195]](https://github.com/parthenon-hpc-lab/athenapk/pull/195) Rename the Euler
+  wave selector `job/problem_id=linear_wave` to `linear_wave_hydro`, and the decks
+  `inputs/linear_wave1d.in` and `inputs/linear_wave3d.in` to
+  `inputs/linear_wave1d_hydro.in` and `inputs/linear_wave3d_hydro.in`, respectively.
+  Update existing commands and scripts to use these names. The
+  `problem/linear_wave` parameter keys and hydro numerical formulas are unchanged.
 - [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) C++20 is now the minimum standard
 - [[PR 167]](https://github.com/parthenon-hpc-lab/athenapk/pull/167) New Parthenon submodule changed input file parsing (removed `*pib = pin->pfirst_block;`), see [here](https://github.com/parthenon-hpc-lab/parthenon/pull/1385)
 
