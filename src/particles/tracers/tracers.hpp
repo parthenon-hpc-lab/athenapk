@@ -3,7 +3,8 @@
 // Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-// Tracer advection (vinterp) implementation refactored from https://github.com/lanl/phoebus
+// Tracer advection (vinterp) implementation refactored from
+// https://github.com/lanl/phoebus
 //========================================================================================
 // © 2021-2023. Triad National Security, LLC. All rights reserved.
 // This program was produced under U.S. Government contract
@@ -127,9 +128,10 @@ KOKKOS_INLINE_FUNCTION void AddCellDerivatives(const Pack &prim, const int b, co
 // it, i.e. with the weights LCInterp uses for the primitive variables.
 template <typename Pack>
 KOKKOS_INLINE_FUNCTION void
-ParticleDerivatives(const Pack &prim, const int b, const Real x, const Real y,
-                    const Real z, const Real dx[3], const int ndim, const bool pressure,
-                    const bool velocity, const bool magnetic, TracerDerivatives &d) {
+AddParticleDerivatives(const Pack &prim, const int b, const Real x, const Real y,
+                       const Real z, const Real dx[3], const int ndim,
+                       const bool pressure, const bool velocity, const bool magnetic,
+                       TracerDerivatives &d) {
   namespace lin = parthenon::interpolation::cent::linear;
   const auto &coords = prim.GetCoords(b);
   int ix[3] = {0, 0, 0};

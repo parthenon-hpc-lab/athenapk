@@ -1,6 +1,6 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 // Particles implementation refacored from https://github.com/lanl/phoebus
@@ -45,7 +45,7 @@ The injection routine requires to first loop on the cells to calculate the size 
 the swarm at the new timestep, and then on the cells again to inject the particles.
 Due to the stochasticity of the injection, we need a deterministic RNG that will
 return the same random number of cells at both par_for. An attempt of implementing
-such RNG using a cell index based seed is in utils/custom_rng.hpp. Comments welcomed.
+such RNG using a cell index based seed is in particles/custom_rng.hpp. Comments welcomed.
 ====================================================================================== */
 
 enum class InjectionMode { FixedRate, PerCell };
@@ -130,23 +130,18 @@ EvaluateCriterion(ParticlesCriterion crit, View4D prim, const Coordinates_t &coo
                   const Real jet_offset = -1.0, const Real jet_thickness = -1.0,
                   const cluster::JetCoords &jet_coords = cluster::JetCoords(0.0, 0.0)) {
 
-  // Loading coordinates
-  const Real dx = coords.Dxc<1>(k, j, i);
-  const Real dy = coords.Dxc<2>(k, j, i);
-  const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
-
   switch (crit) {
   case ParticlesCriterion::DensityAbove:
-    return prim(IDN, k, j, i) >= threshold;
+    return prim(IDN, k, j, i) > threshold;
 
   case ParticlesCriterion::DensityBelow:
-    return prim(IDN, k, j, i) <= threshold;
+    return prim(IDN, k, j, i) < threshold;
 
   case ParticlesCriterion::TemperatureBelow:
-    return mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i) <= threshold;
+    return mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i) < threshold;
 
   case ParticlesCriterion::TemperatureAbove:
-    return mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i) >= threshold;
+    return mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i) > threshold;
 
   case ParticlesCriterion::Jet: {
     // Cylindrical shell around jet_coords' (possibly tilted/precessing) axis,

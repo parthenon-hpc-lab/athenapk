@@ -108,7 +108,7 @@ InjectTracers: called at each timestep, injects new tracers in cells fulfilling 
 criterion from the input file. To avoid a divergence of the tracer population, they
 are injected stochastically, based on a target number of tracers per cell and per unit
 time. The draws must agree between separate loops, so they use the deterministic,
-cell-index-based generator in utils/custom_rng.hpp.
+cell-index-based generator in particles/custom_rng.hpp.
 =============================================================================== */
 
 TaskStatus InjectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
@@ -534,6 +534,36 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   return tracers_pkg;
 } // Initialize
 
+namespace {
+// One above the largest tracer ID on the mesh, or 0 without any tracers
+uint64_t FirstFreeTracerId(Mesh *pmesh, const std::vector<std::string> &swarm_names) {
+  uint64_t first_free_id = 0;
+  for (auto &pmb : pmesh->block_list) {
+    auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
+    for (const auto &swarm_name : swarm_names) {
+      auto &swarm = sd->Get(swarm_name);
+      auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
+      auto swarm_d = swarm->GetDeviceContext();
+      uint64_t swarm_first_free_id = 0;
+      pmb->par_reduce(
+          "FirstFreeTracerId", 0, swarm->GetMaxActiveIndex(),
+          KOKKOS_LAMBDA(const int n, uint64_t &lfirst_free_id) {
+            if (swarm_d.IsActive(n)) {
+              lfirst_free_id = Kokkos::max(lfirst_free_id, id(n) + 1);
+            }
+          },
+          Kokkos::Max<uint64_t>(swarm_first_free_id));
+      first_free_id = std::max(first_free_id, swarm_first_free_id);
+    }
+  }
+#ifdef MPI_PARALLEL
+  PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, &first_free_id, 1, MPI_UINT64_T,
+                                    MPI_MAX, MPI_COMM_WORLD));
+#endif
+  return first_free_id;
+}
+} // namespace
+
 /* ===============================================================================
 SeedInitialTracers: setting up the initial distribution of tracers in each pop. As
 tracers can now be dynamically injected, it might worth lifting the non zero tracer
@@ -549,12 +579,6 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
   auto nx3 = pin->GetInteger("parthenon/mesh", "nx3");
 
   auto tracers_pkg = pmesh->packages.Get("tracers");
-
-  PARTHENON_REQUIRE_THROWS(
-      !pin->DoesParameterExist("tracers", "num_tracers_per_cell"),
-      "'tracers/num_tracers_per_cell' has been deprecated. Please update your "
-      "input file to use 'tracers/initial_seed_method=random_per_block' with "
-      "'tracers/SWARM_NAME_initial_num_tracers_per_cell=NUMBER'.");
 
   auto swarm_names = tracers_pkg->Param<std::vector<std::string>>("swarm_names");
 
@@ -580,21 +604,45 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
 
   if (initial_seed_done) return;
 
+  // Restart files older than initial_seed_done leave it at its default. Restored tracers
+  // tell them apart from a run enabling tracers on restart: they must not be seeded
+  // again, and the IDs reserved below must stay above theirs.
+  const uint64_t first_free_id =
+      parthenon::Globals::is_restart ? FirstFreeTracerId(pmesh, swarm_names) : 0;
+
   // Reserve each block's private ID slice up front, regardless of
   // initial_seed_method -- otherwise a block whose seeding skips this (seed_method
   // = none, or an unaware user callback) starts dynamic injection at ID 0.
   const uint64_t nbt = static_cast<uint64_t>(pmesh->nbtotal);
-  const uint64_t id_step = (std::numeric_limits<uint64_t>::max() - 1ULL) / nbt;
+  const uint64_t id_step =
+      (std::numeric_limits<uint64_t>::max() - 1ULL - first_free_id) / nbt;
   for (auto &pmb : pmesh->block_list) {
     auto &off = pmb->meshblock_data.Get()->Get("tracers_offsets").data;
     auto host_off = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), off);
     for (std::size_t k_population = 0; k_population < swarm_names.size();
          ++k_population) {
-      host_off(k_population) =
-          ParticlesUtils::EncodeOffset(static_cast<uint64_t>(pmb->gid) * id_step);
+      host_off(k_population) = ParticlesUtils::EncodeOffset(
+          first_free_id + static_cast<uint64_t>(pmb->gid) * id_step);
     }
     Kokkos::deep_copy(off, host_off);
   }
+
+  if (first_free_id > 0) {
+    if (parthenon::Globals::my_rank == 0) {
+      std::cout
+          << "[Tracer] Restart file predates 'initial_seed_done' and holds tracers, "
+             "not seeding again."
+          << std::endl;
+    }
+    tracers_pkg->UpdateParam<bool>("initial_seed_done", true);
+    return;
+  }
+
+  PARTHENON_REQUIRE_THROWS(
+      !pin->DoesParameterExist("tracers", "num_tracers_per_cell"),
+      "'tracers/num_tracers_per_cell' has been deprecated. Please update your "
+      "input file to use 'tracers/initial_seed_method=random_per_block' with "
+      "'tracers/SWARM_NAME_initial_num_tracers_per_cell=NUMBER'.");
 
   auto hydro_pkg = pmesh->packages.Get("Hydro");
 
@@ -674,6 +722,8 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
         auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
         const bool track_injection_time = swarm->Contains<Real>("injection_time");
+        // The kernel below captures t_inj either way, but only writes to it when the
+        // field exists. Until then it refers to x as a placeholder.
         auto t_inj = x.Get(); // temp grab field that exists for sure
         if (track_injection_time) t_inj = swarm->Get<Real>("injection_time").Get();
 
@@ -826,14 +876,14 @@ TaskStatus ComputeItoMoments(MeshData<Real> *md, parthenon::SimTime &tm) {
           const Real area = dx[(d + 1) % 3] * dx[(d + 2) % 3];
           const int di = (d == 0), dj = (d == 1), dk = (d == 2);
           const Real dM_p =
-              fmax(Mflux_pack(b, d, k + dk, j + dj, i + di) * area * dt, 0.0);
-          const Real dM_m = fmax(-Mflux_pack(b, d, k, j, i) * area * dt, 0.0);
+              Kokkos::fmax(Mflux_pack(b, d, k + dk, j + dj, i + di) * area * dt, 0.0);
+          const Real dM_m = Kokkos::fmax(-Mflux_pack(b, d, k, j, i) * area * dt, 0.0);
           const Real p_p = (Mi > 0.0) ? dM_p / Mi : 0.0;
           const Real p_m = (Mi > 0.0) ? dM_m / Mi : 0.0;
           const Real mu = p_p - p_m;
           moments_pack(b, d, k, j, i) = mu * dx[d];
           moments_pack(b, ndim + d, k, j, i) =
-              fmax(p_p + p_m - mu * mu, 0.0) * dx[d] * dx[d];
+              Kokkos::fmax(p_p + p_m - mu * mu, 0.0) * dx[d] * dx[d];
           if (third) {
             moments_pack(b, 2 * ndim + d, k, j, i) =
                 mu * (1.0 - 3.0 * (p_p + p_m) + 2.0 * mu * mu) * dx[d] * dx[d] * dx[d];
@@ -1005,16 +1055,18 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
               // The step's mass fluxes (see AccumulateMassFluxes): the flux arrays
               // only hold the last stage, and a final RKL2 step resets them.
-              const Real dM_xp = fmax(Mflux_pack(0, k, j, i + 1) * area_x * dt, 0.0);
-              const Real dM_xm = fmax(-Mflux_pack(0, k, j, i) * area_x * dt, 0.0);
-              const Real dM_yp = fmax(Mflux_pack(1, k, j + 1, i) * area_y * dt, 0.0);
-              const Real dM_ym = fmax(-Mflux_pack(1, k, j, i) * area_y * dt, 0.0);
+              const Real dM_xp =
+                  Kokkos::fmax(Mflux_pack(0, k, j, i + 1) * area_x * dt, 0.0);
+              const Real dM_xm = Kokkos::fmax(-Mflux_pack(0, k, j, i) * area_x * dt, 0.0);
+              const Real dM_yp =
+                  Kokkos::fmax(Mflux_pack(1, k, j + 1, i) * area_y * dt, 0.0);
+              const Real dM_ym = Kokkos::fmax(-Mflux_pack(1, k, j, i) * area_y * dt, 0.0);
               // z-direction fluxes only exist in 3D; in 2D there is no k+/-1
               // neighbor to draw a face flux from.
               Real dM_zp = 0.0, dM_zm = 0.0;
               if (ndim == 3) {
-                dM_zp = fmax(Mflux_pack(2, k + 1, j, i) * area_z * dt, 0.0);
-                dM_zm = fmax(-Mflux_pack(2, k, j, i) * area_z * dt, 0.0);
+                dM_zp = Kokkos::fmax(Mflux_pack(2, k + 1, j, i) * area_z * dt, 0.0);
+                dM_zm = Kokkos::fmax(-Mflux_pack(2, k, j, i) * area_z * dt, 0.0);
               }
 
               // Total outgoing flux (Delta M)
@@ -1079,13 +1131,14 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                 const Real r = TracerRoll(rng_seed, k_population, id(n), ncycle,
                                           kRollIto + static_cast<uint64_t>(d));
                 if (!ito_third) {
-                  step[d] = mean + std::sqrt(3.0 * fmax(var, 0.0)) * (2.0 * r - 1.0);
+                  step[d] =
+                      mean + Kokkos::sqrt(3.0 * Kokkos::fmax(var, 0.0)) * (2.0 * r - 1.0);
                 } else if (var > 0.0) {
                   // Ito-3: skewness from the interpolated moments (interpolating
                   // gamma itself would mix the ~C^-1/2 values of near-static cells)
                   const Real m3 =
                       LCInterp::Do(0, x(n), y(n), z(n), ito_pack, 2 * ndim + d);
-                  const Real sigma = std::sqrt(var);
+                  const Real sigma = Kokkos::sqrt(var);
                   const Real gamma = m3 / (var * sigma);
                   step[d] = mean + sigma * PiecewiseSkewUniform(
                                                std::isfinite(gamma) ? gamma : 0.0, r);
@@ -1175,10 +1228,12 @@ TaskStatus CenterTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               // ======================================================================
 
               // {i-1,i} (and {j-1,j}, {k-1,k} in 3D) are the coarse cell's actual
-              // two children per axis -- Xtoijk floors, so it always returns the
-              // "i" side; randomly pick one combination of the 4 (2D) or 8 (3D).
+              // two children per axis; randomly pick one combination of the 4 (2D) or
+              // 8 (3D). The coarse center is a fine cell corner, where round-off could
+              // tip Xtoijk's floor to either side, so look half a fine cell further.
               int k, j, i;
-              swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
+              swarm_d.Xtoijk(x(n) + 0.5 * coords.Dxc<1>(), y(n) + 0.5 * coords.Dxc<2>(),
+                             z(n) + 0.5 * coords.Dxc<3>(), i, j, k);
 
               const int n_children = (ndim == 3) ? 8 : 4;
               const int chosen_cell =
@@ -1355,7 +1410,7 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
               // Cell size for central differences
               const Real dx = coords.Dxc<1>(k, j, i);
               const Real dy = coords.Dxc<2>(k, j, i);
-              const Real dz = (ndim == 3) ? coords.Dxc<3>(k, j, i) : 1.0;
+              const Real dz = coords.Dxc<3>(k, j, i);
 
               // First, store grid level
               if (trace_level) level(n) = block_level;
@@ -1406,9 +1461,9 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                 TracerDerivatives der;
                 const Real cell_dx[3] = {dx, dy, dz};
                 if (derivatives_at_particle) {
-                  ParticleDerivatives(prim_pack, b, x(n), y(n), z(n), cell_dx, ndim,
-                                      trace_grad_pressure, trace_velocity_derivatives,
-                                      magnetic, der);
+                  AddParticleDerivatives(prim_pack, b, x(n), y(n), z(n), cell_dx, ndim,
+                                         trace_grad_pressure, trace_velocity_derivatives,
+                                         magnetic, der);
                 } else {
                   AddCellDerivatives(prim_pack, b, k, j, i, cell_dx, ndim,
                                      trace_grad_pressure, trace_velocity_derivatives,
@@ -1419,9 +1474,9 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
                 if (trace_grad_pressure_z) grad_pressure_z(n) = der.grad_p[2];
                 if (trace_div_v) div_v(n) = der.div_v;
                 if (trace_rot_v) {
-                  rot_v(n) = std::sqrt(der.omega[0] * der.omega[0] +
-                                       der.omega[1] * der.omega[1] +
-                                       der.omega[2] * der.omega[2]);
+                  rot_v(n) = Kokkos::sqrt(der.omega[0] * der.omega[0] +
+                                          der.omega[1] * der.omega[1] +
+                                          der.omega[2] * der.omega[2]);
                 }
                 if (magnetic) {
                   if (trace_rot_B_x) rot_B_x(n) = der.rot_B[0];
