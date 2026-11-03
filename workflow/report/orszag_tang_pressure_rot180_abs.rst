@@ -1,1 +1,0 @@
-Absolute pressure difference after a 180 degree rotation, ``|P - rot180(P)|``. This measures how well the expected rotational symmetry is preserved.

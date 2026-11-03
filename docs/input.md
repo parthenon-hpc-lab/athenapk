@@ -1,3 +1,4 @@
+<!-- This file was made in part with generative AI -->
 # Input (parameter) files
 
 ## Hydro/MHD
@@ -8,6 +9,15 @@ Key parameters are controlled via the `<hydro>` block in the input file and incl
 Parameter: `fluid` (string)
 - `euler` for hydrodynamics
 - `glmmhd` for MHD using GLM based divergence cleaning
+- `ctmhd` for ideal MHD with CT-contact edge EMFs
+- `ucthlldmhd` for ideal MHD with UCT-HLLD edge EMFs
+
+Both CT choices require PLM reconstruction, HLLD, at least two ghost zones,
+and RK1/RK2/RK3 (RK2 is recommended for the second-order examples).
+VL2, native first-order flux correction, Ohmic resistivity, and RKL2 are not
+supported with CT. GLM combinations are unchanged. See
+[constrained transport](constrained_transport.md) for the support matrix,
+boundary restrictions, and standalone uniform/SMR/AMR examples.
 
 ### Common options
 
@@ -221,6 +231,27 @@ ohm_diff_coeff_code = 0.25  # fixed coefficent of the magnetic (ohmic) diffusivi
 
 
 ### Additional MHD options in `<hydro>` block
+
+Parameter: `ct_energy_correction` (boolean, default `false`; CT only)
+
+When replacing the cell-centered Godunov magnetic estimate with centered
+face fields, adjust total energy by
+`(|B_CT|^2 - |B_Godunov|^2)/2`. This preserves internal energy through that
+replacement but breaks strict total-energy conservation. It is not a positivity
+guarantee or a pressure floor. Current-sheet examples enable it explicitly.
+
+For `fluid=ctmhd` and `fluid=ucthlldmhd`, the face-centered curl update evolves
+`Bx` in 1D, `Bx` and `By` in 2D, and all three components in 3D. In 1D the
+normal-field curl is zero, while `By` and `Bz` evolve through the cell-centered
+flux update. Multidimensional edge-EMF assembly is skipped in 1D. Field
+reconciliation preserves the cell-centered transverse components.
+
+The `linear_wave_mhd` and `cpaw` generators initialize 1D CT waves directly,
+with a constant face-centered `Bx` and cell-centered transverse fields. Set
+`parthenon/mesh/nx2=1` and `nx3=1`, with matching MeshBlock dimensions. Their
+rotation angles `ang_2` and `ang_3` default to zero in 1D; nonzero angles are
+not supported for these 1D CT setups. Other problem generators may require
+their own 1D initialization changes.
 
 Parameter: `glmmhd_source` (string)
 - `dedner_plain` (default): Basic Dedner+2002[^D02] source function, i.e., right hand side is only defined for $`\delta_t \psi`$ with $`- (c_h^2/ c_p^2) \psi`$.

@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 #ifndef HYDRO_CTMHD_CTMHD_HPP_
 #define HYDRO_CTMHD_CTMHD_HPP_
 //========================================================================================
@@ -19,10 +20,8 @@ namespace Hydro::CTMHD {
 TaskStatus Assemble_Corner_EMF(MeshData<Real> *md);
 
 TaskStatus UpdateWithFluxEmfCurl(MeshData<Real> *mu0, MeshData<Real> *mu1,
-                                       const Real gam0, const Real gam1,
-                                       const Real beta_dt);
+                                 const Real gam0, const Real gam1, const Real beta_dt);
 
-// TaskStatus center_Mag_Field(MeshData<Real> *md);
 void center_Mag_Field(MeshData<Real> *md);
 
 } // namespace Hydro::CTMHD

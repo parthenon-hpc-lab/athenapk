@@ -1,0 +1,78 @@
+# This file was made in part with generative AI
+# See docs/constrained_transport.md for solver choices and refinement details.
+# For MPI, use no more ranks than the available leaf MeshBlocks.
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = field_loop_3d (second-order CT-compatible example)
+
+<parthenon/job>
+problem_id = field_loop_3d
+
+<job>
+problem_id = field_loop
+
+<problem/field_loop>
+rad        = 0.3       # Radius of loop
+amp        = 1.0e-3    # Amplitude of B in loop
+vflow      = 1.0       # legacy background flow; default for optional vflow1/vflow2/vflow3
+# vflow1, vflow2, and vflow3 independently set signed coordinate flow components.
+# Each component is multiplied by its global domain size; in 2D the x3 velocity is zero.
+iprob = 4
+
+<parthenon/mesh>
+refinement = none
+nghost = 2
+
+nx1 = 128
+x1min = -1.0
+x1max = 1.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 64
+x2min = -0.5
+x2max = 0.5
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 64
+x3min = -0.5
+x3max = 0.5
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1 = 128
+nx2 = 64
+nx3 = 64
+
+<parthenon/time>
+integrator = rk2
+cfl = 0.3
+tlim = 2.0
+nlim = 100000
+perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+
+<hydro>
+fluid = ucthlldmhd
+eos = adiabatic
+riemann = hlld
+reconstruction = plm
+gamma = 1.666666666666667
+scratch_level = 1
+
+ct_energy_correction = false
+first_order_flux_correct = false
+
+<parthenon/output0>
+file_type = hdf5
+dt = 0.02
+id = prim
+variables = prim
+
+<parthenon/output1>
+file_type = hst
+dt = 0.05

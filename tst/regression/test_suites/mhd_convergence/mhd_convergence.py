@@ -15,21 +15,16 @@
 # the public, perform publicly and display publicly, and to permit others to do so.
 # ========================================================================================
 
-# Modules
-import math
+# This file was made in part with generative AI
+from pathlib import Path
 import numpy as np
 import matplotlib
 
 matplotlib.use("agg")
-import matplotlib.pylab as plt
-import sys
-import os
-import utils.test_case
+import matplotlib.pyplot as plt
 
-""" To prevent littering up imported folders with .pyc files or __pycache_ folder"""
-sys.dont_write_bytecode = True
+from test_suites.validation_report import ReportingTestCase, error_table
 
-# if this is updated make sure to update the assert statements for the number of MPI ranks, too
 lin_res = [16, 32, 64, 128]  # resolution for linear convergence
 method_cfgs = [
     {"integrator": "rk1", "recon": "dc"},
@@ -47,165 +42,134 @@ method_cfgs = [
 ]
 
 
-class TestCase(utils.test_case.TestCaseAbs):
+COMPONENTS = ("d_L1", "M1_L1", "M2_L1", "M3_L1", "E_L1", "B1c_L1", "B2c_L1", "B3c_L1")
+
+
+def case_name(step):
+    cfg = method_cfgs[(step - 1) // len(lin_res)]
+    n = lin_res[(step - 1) % len(lin_res)]
+    return f"{cfg['integrator']}_{cfg['recon']}_{cfg.get('riemann', 'hlle')}_N{n}"
+
+
+class TestCase(ReportingTestCase):
+    case_count = 48
+    purpose = (
+        "GLM magnetic-wave convergence: 12 numerical configurations at four "
+        "3D resolutions; require convergence of all-variable and magnetic norms."
+    )
+
     def Prepare(self, parameters, step):
-        """
-        Any preprocessing that is needed before the drive is run can be done in
-        this method
-
-        This includes preparing files or any other pre processing steps that
-        need to be implemented.  The method also provides access to the
-        parameters object which controls which parameters are being used to run
-        the driver.
-
-        It is possible to append arguments to the driver_cmd_line_args if it is
-        desired to  override the parthenon input file. Each element in the list
-        is simply a string of the form '<block>/<field>=<value>', where the
-        contents of the string are exactly what one would type on the command
-        line run running a parthenon driver.
-
-        As an example if the following block was uncommented it would overwrite
-        any of the parameters that were specified in the parthenon input file
-        parameters.driver_cmd_line_args = ['output1/file_type=vtk',
-                'output1/variable=cons',
-                'output1/dt=0.4',
-                'time/tlim=0.4',
-                'mesh/nx1=400']
-        """
-
-        n_res = len(lin_res)
-        n_meth = len(method_cfgs)
-        # make sure we can evenly distribute the MeshBlock sizes
-        err_msg = "Num ranks must be multiples of 2 for convergence test."
-        assert parameters.num_ranks == 1 or parameters.num_ranks % 2 == 0, err_msg
-        # ensure a minimum block size of 4
-        assert (
-            lin_res[0] / parameters.num_ranks >= 4
-        ), "Use <= 8 ranks for convergence test."
-
-        res = lin_res[(step - 1) % n_res]
-        method_cfg = method_cfgs[(step - 1) // n_res]
-        integrator = method_cfg["integrator"]
-        recon = method_cfg["recon"]
-        if "riemann" in method_cfg.keys():
-            riemann = method_cfg["riemann"]
-        else:
-            riemann = "hlle"
-
-        # ensure that nx1 is <= 128 when using scratch (V100 limit on test system)
-        mb_nx1 = (2 * res) // parameters.num_ranks
-        while mb_nx1 > 128:
-            mb_nx1 //= 2
-
+        n = lin_res[(step - 1) % len(lin_res)]
+        cfg = method_cfgs[(step - 1) // len(lin_res)]
+        assert parameters.num_ranks == 1 or parameters.num_ranks % 2 == 0
+        assert lin_res[0] / parameters.num_ranks >= 4
+        mb = 2 * n // parameters.num_ranks
+        while mb > 128:
+            mb //= 2
+        directory = Path(parameters.output_path) / case_name(step)
+        directory.mkdir(parents=True, exist_ok=True)
+        self.report.label(case_name(step))
         parameters.driver_cmd_line_args = [
-            "parthenon/mesh/nx1=%d" % (2 * res),
-            "parthenon/meshblock/nx1=%d" % mb_nx1,
-            "parthenon/mesh/nx2=%d" % res,
-            "parthenon/meshblock/nx2=%d" % res,
-            "parthenon/mesh/nx3=%d" % res,
-            "parthenon/meshblock/nx3=%d" % res,
-            "parthenon/mesh/nghost=%d"
-            % (3 if (recon == "ppm" or recon == "wenoz") else 2),
-            "parthenon/time/integrator=%s" % integrator,
-            "hydro/reconstruction=%s" % recon,
-            "hydro/riemann=%s" % riemann,
+            "-d",
+            str(directory),
+            "job/problem_id=linear_wave_mhd",
+            "parthenon/job/problem_id=glm_wave",
+            f"parthenon/mesh/nx1={2*n}",
+            f"parthenon/meshblock/nx1={mb}",
+            f"parthenon/mesh/nx2={n}",
+            f"parthenon/meshblock/nx2={n}",
+            f"parthenon/mesh/nx3={n}",
+            f"parthenon/meshblock/nx3={n}",
+            f"parthenon/mesh/nghost={3 if cfg['recon'] in ('ppm', 'wenoz') else 2}",
+            f"parthenon/time/integrator={cfg['integrator']}",
+            "parthenon/time/tlim=1.0",
+            "parthenon/time/nlim=100000",
             "hydro/fluid=glmmhd",
+            "hydro/scratch_level=1",
+            f"hydro/reconstruction={cfg['recon']}",
+            f"hydro/riemann={cfg.get('riemann', 'hlle')}",
+            "problem/linear_wave_mhd/wave_flag=0",
+            "problem/linear_wave_mhd/amp=1e-6",
+            "problem/linear_wave_mhd/vflow=0",
+            "problem/linear_wave_mhd/ang_2=-999.9",
+            "problem/linear_wave_mhd/ang_3=-999.9",
+            "problem/linear_wave_mhd/test=true",
+            "problem/linear_wave_mhd/compute_error=true",
         ]
-
         return parameters
 
     def Analyse(self, parameters):
-        """
-        Analyze the output and determine if the test passes.
-
-        This function is called after the driver has been executed. It is
-        responsible for reading whatever data it needs and making a judgment
-        about whether or not the test passes. It takes no inputs. Output should
-        be True (test passes) or False (test fails).
-
-        The parameters that are passed in provide the paths to relevant
-        locations and commands. Of particular importance is the path to the
-        output folder. All files from a drivers run should appear in and output
-        folder located in
-        parthenon/tst/regression/test_suites/test_name/output.
-
-        It is possible in this function to read any of the output files such as
-        hdf5 output and compare them to expected quantities.
-
-        """
-
-        try:
-            f = open(os.path.join(parameters.output_path, "linearwave-errors.dat"), "r")
-            lines = f.readlines()
-
-            f.close()
-        except IOError:
-            print("linearwave-errors.dat file not accessible")
-
-        analyze_status = True
-        n_res = len(lin_res)
-        n_meth = len(method_cfgs)
-
-        if len(lines) != n_res * n_meth + 1:
-            print(
-                "Missing lines in output file. Expected ",
-                n_res * n_method + 1,
-                ", but got ",
-                len(lines),
+        values = []
+        for step in range(1, len(method_cfgs) * len(lin_res) + 1):
+            self.report.select(step)
+            path = (
+                Path(parameters.output_path)
+                / case_name(step)
+                / "linearwave-errors-0.dat"
             )
-            print(
-                "CAREFUL!!! All following logs may be misleading (tests have fixed indices)."
+            columns = error_table(path)
+            count = len(columns["RMS-L1-Error"])
+            self.report.check(
+                "Isolated wave result", count == 1, count, "exactly one row"
             )
-            analyze_status = False
-
-        # Plot results
-        data = np.genfromtxt(
-            os.path.join(parameters.output_path, "linearwave-errors.dat")
-        )
-
-        # quick and dirty test
-        if data[47, 4] > 6.14e-12:
-            print("QUICK AND DIRTY TEST FAILED")
-            analyze_status = False
-
-        markers = "ov^<>sp*hDXd+|x"
-        for i, cfg in enumerate(method_cfgs):
-            plt.plot(
-                data[i * n_res : (i + 1) * n_res, 0],
-                data[i * n_res : (i + 1) * n_res, 4],
-                marker=markers[i],
-                label=(
-                    (
-                        f'{cfg["integrator"].upper()} {cfg["recon"].upper()} '
-                        f'{"hlle" if "riemann" not in cfg.keys() else cfg["riemann"]}'
-                    )
-                ),
+            components = np.array([columns[name][0] for name in COMPONENTS])
+            self.report.check(
+                "Finite nonnegative conserved-component L1 errors",
+                np.isfinite(components).all() and np.all(components >= 0),
+                components,
+                "eight finite, nonnegative L1 errors",
             )
-
-        plt.plot([32, 512], [7e-7, 7e-7 / (512 / 32)], "--", label="first order")
-        plt.plot(
-            [32, 512], [1.7e-7, 1.7e-7 / (512 / 32) ** 2], "--", label="second order"
-        )
-        plt.plot(
-            [32, 512], [3.7e-8, 3.7e-8 / (512 / 32) ** 2], "--", label="second order"
-        )
-        plt.plot(
-            [32, 512], [5.6e-8, 5.6e-8 / (512 / 32) ** 3], "--", label="third order"
-        )
-        plt.plot(
-            [32, 512], [3.6e-9, 3.6e-9 / (512 / 32) ** 3], "--", label="third order"
-        )
-
-        plt.ylim(1e-12, 5e-6)
-
-        plt.legend(bbox_to_anchor=(1, 1), loc="upper left")
-        plt.xscale("log")
-        plt.yscale("log")
-        plt.ylabel("L1 err")
-        plt.xlabel("Linear resolution")
-        plt.savefig(
-            os.path.join(parameters.output_path, "mhd-linearwave-errors.png"),
+            rms = float(columns["RMS-L1-Error"][0])
+            magnetic = float(np.linalg.norm(components[5:]))
+            self.report.check(
+                "Nontrivial finite wave errors",
+                np.isfinite(rms) and np.isfinite(magnetic) and rms > 0 and magnetic > 0,
+                (rms, magnetic),
+                "RMS-L1 and combined magnetic L1 > 0",
+            )
+            self.report.note(
+                "Volume-normalized component errors: "
+                + str(dict(zip(COMPONENTS, components)))
+            )
+            values.append((rms, magnetic))
+        values = np.array(values).reshape(len(method_cfgs), len(lin_res), 2)
+        self.report.active = None
+        fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+        for cfg, curves in zip(method_cfgs, values):
+            label = f"{cfg['integrator']} {cfg['recon']} {cfg.get('riemann', 'hlle')}"
+            threshold = (
+                0.75 if cfg["integrator"] == "rk1" and cfg["recon"] == "dc" else 1.5
+            )
+            for col, name in enumerate(
+                ("all conserved variables", "magnetic variables")
+            ):
+                errors = curves[:, col]
+                orders = np.log2(errors[:-1] / errors[1:])
+                self.report.note(
+                    f"{label}, {name}: N={lin_res}, errors={errors}, orders={orders}"
+                )
+                self.report.check(
+                    f"{label}: monotonic {name} convergence",
+                    np.all(errors[:-1] > errors[1:]),
+                    errors,
+                    "errors decrease at every resolution",
+                )
+                self.report.check(
+                    f"{label}: finest {name} order",
+                    orders[-1] > threshold,
+                    orders[-1],
+                    f"> {threshold}",
+                )
+                axes[col].loglog(lin_res, errors, marker="o", label=label)
+        for axis, title in zip(
+            axes, ("RMS-L1 conserved error", "Combined magnetic L1 error")
+        ):
+            axis.set(xlabel="Transverse resolution N", ylabel=title)
+            axis.grid(True, which="both")
+        axes[1].legend(bbox_to_anchor=(1, 1), loc="upper left")
+        fig.savefig(
+            Path(parameters.output_path) / "mhd-linearwave-errors.png",
             bbox_inches="tight",
         )
-
-        return analyze_status
+        plt.close(fig)
+        return True

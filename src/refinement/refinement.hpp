@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 // Athena-Parthenon - a performance portable block structured AMR MHD code
 // Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")

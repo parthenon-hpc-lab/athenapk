@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 //========================================================================================
 // Athena++ astrophysical MHD code
 // Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
@@ -24,14 +25,14 @@ template <Fluid fluid, RiemannSolver rsolver>
 struct Riemann;
 
 // now include the specializations
+#include "ctmhd_hlld.hpp"
 #include "glmmhd_dc_llf.hpp"
 #include "glmmhd_hlld.hpp"
-#include "ctmhd_hlld.hpp"
-#include "ucthlldmhd_hlld.hpp"
 #include "glmmhd_hlle.hpp"
 #include "hydro_dc_llf.hpp"
 #include "hydro_hllc.hpp"
 #include "hydro_hlle.hpp"
+#include "ucthlldmhd_hlld.hpp"
 
 // "none" solvers for runs/testing without fluid evolution, i.e., just reset fluxes
 template <>

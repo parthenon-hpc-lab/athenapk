@@ -1,13 +1,15 @@
+# This file was made in part with generative AI
+# See docs/constrained_transport.md for solver choices and refinement details.
+# For MPI, use no more ranks than the available leaf MeshBlocks.
 # AthenaPK - a performance portable block structured AMR MHD code
 # Copyright (c) 2023, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 <comment>
-problem = Orszag-Tang vortex # Orszag,S. & Tang,W., J. Fluid Mech., 90, 129 (1998)
+problem = orszag_tang (second-order CT-compatible example)
 
 <parthenon/job>
 problem_id = orszag_tang
-
 
 <job>
 problem_id = orszag_tang
@@ -51,10 +53,13 @@ fluid = ucthlldmhd
 eos = adiabatic
 riemann = hlld
 reconstruction = plm
-gamma = 1.666666666666667 # gamma = C_p/C_v
+gamma = 1.666666666666667
 pfloor = 1.0e-15
-scratch_level = 1 # 0 is actual scratch (tiny); 1 is HBM
+scratch_level = 1
 
+
+ct_energy_correction = false
+first_order_flux_correct = false
 
 <parthenon/output0>
 file_type = hdf5

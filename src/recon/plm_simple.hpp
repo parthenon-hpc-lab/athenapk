@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 //========================================================================================
 // AthenaXXX astrophysical plasma code
 // Copyright(C) 2020 James M. Stone <jmstone@ias.edu> and the Athena code team
@@ -9,8 +10,13 @@
 //  \brief  piecewise linear reconstruction implemented as inline functions
 //  This version only works with uniform mesh spacing
 
+#include <type_traits>
+
 #include <parthenon/parthenon.hpp>
 
+#include "../main.hpp"
+
+using parthenon::Real;
 using parthenon::ScratchPad2D;
 //----------------------------------------------------------------------------------------
 //! \fn PLM()

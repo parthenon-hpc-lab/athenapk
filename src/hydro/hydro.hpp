@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 #ifndef HYDRO_HYDRO_HPP_
 #define HYDRO_HYDRO_HPP_
 //========================================================================================
@@ -5,6 +6,11 @@
 // Copyright (c) 2020-2021, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
+
+#include <functional>
+#include <map>
+#include <memory>
+#include <tuple>
 
 // Parthenon headers
 #include <parthenon/package.hpp>
@@ -66,7 +72,6 @@ constexpr size_t GetNVars();
 template <Fluid fluid>
 constexpr size_t GetAuxNVars();
 
-
 template <>
 constexpr size_t GetNVars<Fluid::euler>() {
   return 5; // rho, u_x, u_y, u_z, E
@@ -86,7 +91,6 @@ template <>
 constexpr size_t GetAuxNVars<Fluid::ucthlldmhd>() {
   return 6; // AL, AR, DL, DR, VBART1, VBART2
 }
-
 
 } // namespace Hydro
 

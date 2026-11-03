@@ -1,8 +1,11 @@
+// This file was made in part with generative AI
 // AthenaPK - a performance portable block structured AMR MHD code
 // Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE");
 
+#include <iostream>
 #include <sstream>
+#include <string>
 
 // Parthenon headers
 #include "bvals/boundary_conditions_generic.hpp"
@@ -57,10 +60,10 @@ int main(int argc, char *argv[]) {
   pman.app_input->PreStepMeshUserWorkInLoop = Hydro::PreStepMeshUserWorkInLoop;
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
 
-  if (problem == "linear_wave") {
-    pman.app_input->InitUserMeshData = linear_wave::InitUserMeshData;
-    pman.app_input->ProblemGenerator = linear_wave::ProblemGenerator;
-    pman.app_input->UserWorkAfterLoop = linear_wave::UserWorkAfterLoop;
+  if (problem == "linear_wave_hydro") {
+    pman.app_input->InitUserMeshData = linear_wave_hydro::InitUserMeshData;
+    pman.app_input->ProblemGenerator = linear_wave_hydro::ProblemGenerator;
+    pman.app_input->UserWorkAfterLoop = linear_wave_hydro::UserWorkAfterLoop;
   } else if (problem == "linear_wave_mhd") {
     pman.app_input->InitUserMeshData = linear_wave_mhd::InitUserMeshData;
     pman.app_input->ProblemGenerator = linear_wave_mhd::ProblemGenerator;
@@ -113,10 +116,6 @@ int main(int argc, char *argv[]) {
     pman.app_input->ProblemGenerator = shattering::ProblemGenerator;
   } else if (problem == "sod") {
     pman.app_input->ProblemGenerator = sod::ProblemGenerator;
-  } else if (problem == "smooth_mhd_vortex") {
-    pman.app_input->ProblemGenerator = smooth_mhd_vortex::ProblemGenerator;
-    Hydro::ProblemInitPackageData = smooth_mhd_vortex::ProblemInitPackageData;
-    pman.app_input->UserWorkAfterLoop = smooth_mhd_vortex::UserWorkAfterLoop;
   } else if (problem == "turbulence") {
     pman.app_input->MeshProblemGenerator = turbulence::ProblemGenerator;
     Hydro::ProblemInitPackageData = turbulence::ProblemInitPackageData;

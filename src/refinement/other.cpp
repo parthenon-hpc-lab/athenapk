@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD
 // code. Copyright (c) 2021, Athena-Parthenon Collaboration. All rights
@@ -5,7 +6,8 @@
 //========================================================================================
 
 // C++ headers
-#include <cmath>     // sqrt()
+#include <algorithm>
+#include <cmath> // sqrt()
 
 // AthenaPK headers
 #include "../main.hpp"
@@ -47,10 +49,10 @@ parthenon::AmrTag MaxDensity(MeshBlockData<Real> *rc) {
 parthenon::AmrTag MagFieldMagnitude(MeshBlockData<Real> *rc) {
   auto pmb = rc->GetBlockPointer();
   auto q = rc->Get("cons").data;
-  const auto deref_below =
-      pmb->packages.Get("Hydro")->Param<Real>("refinement/magnetic_field_magnitude_deref_below");
-  const auto refine_above =
-      pmb->packages.Get("Hydro")->Param<Real>("refinement/magnetic_field_magnitude_refine_above");
+  const auto deref_below = pmb->packages.Get("Hydro")->Param<Real>(
+      "refinement/magnetic_field_magnitude_deref_below");
+  const auto refine_above = pmb->packages.Get("Hydro")->Param<Real>(
+      "refinement/magnetic_field_magnitude_refine_above");
 
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);

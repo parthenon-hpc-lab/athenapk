@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 // AthenaPK - a performance portable block structured AMR MHD code
 // Copyright (c) 2020-2024, Athena Parthenon Collaboration. All rights reserved.
 // Licensed under the 3-Clause License (the "LICENSE")
@@ -34,7 +35,6 @@ enum { IBF1 = 0, IBF2 = 1, IBF3 = 2 };
 
 // vars needed for UCT-HLLD calculations
 enum { AL = 0, AR = 1, DL = 2, DR = 3, VBART1 = 4, VBART2 = 5 };
-
 
 // array indices for 1D primitives: velocity, transverse components of field
 enum { IV1 = 1, IV2 = 2, IV3 = 3, IPR = 4 };

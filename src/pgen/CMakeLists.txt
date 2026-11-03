@@ -1,3 +1,4 @@
+# This file was made in part with generative AI
 # Copyright (c) 2020-2021, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the 3-Clause License (the "LICENSE");
 
@@ -18,11 +19,10 @@ target_sources(athenaPK PRIVATE
     ct_glm_compatible/field_loop.cpp
     ct_glm_compatible/linear_wave_mhd.cpp
     ct_glm_compatible/orszag_tang.cpp
-    ct_glm_compatible/smooth_mhd_vortex.cpp
     ct_glm_compatible/cpaw.cpp
     diffusion.cpp
     kh.cpp
-    linear_wave.cpp
+    linear_wave_hydro.cpp
     lw_implode.cpp
     rand_blast.cpp
     sod.cpp

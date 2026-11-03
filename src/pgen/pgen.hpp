@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 #ifndef PGEN_PGEN_HPP_
 #define PGEN_PGEN_HPP_
 //========================================================================================
@@ -9,14 +10,14 @@
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
-namespace linear_wave {
+namespace linear_wave_hydro {
 using namespace parthenon::driver::prelude;
 
 void InitUserMeshData(Mesh *mesh, ParameterInput *pin);
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
                        parthenon::SimTime &tm);
-} // namespace linear_wave
+} // namespace linear_wave_hydro
 
 namespace linear_wave_mhd {
 using namespace parthenon::driver::prelude;
@@ -87,15 +88,6 @@ using namespace parthenon::driver::prelude;
 void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
 void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
 } // namespace field_loop
-
-namespace smooth_mhd_vortex {
-using namespace parthenon::driver::prelude;
-
-void ProblemGenerator(MeshBlock *pmb, parthenon::ParameterInput *pin);
-void ProblemInitPackageData(ParameterInput *pin, parthenon::StateDescriptor *pkg);
-void UserWorkAfterLoop(Mesh *mesh, parthenon::ParameterInput *pin,
-                       parthenon::SimTime &tm);
-} // namespace smooth_mhd_vortex
 
 namespace kh {
 using namespace parthenon::driver::prelude;

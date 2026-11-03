@@ -15,6 +15,7 @@
 # the public, perform publicly and display publicly, and to permit others to do so.
 # ========================================================================================
 
+# This file was made in part with generative AI
 # Modules
 import math
 import numpy as np
@@ -66,8 +67,15 @@ class TestCase(utils.test_case.TestCaseAbs):
         recon = perf_cfgs[step - 1]["recon"]
         fluid = perf_cfgs[step - 1]["fluid"]
 
+        problem = "linear_wave_hydro" if fluid == "euler" else "linear_wave_mhd"
+        block = "linear_wave" if fluid == "euler" else "linear_wave_mhd"
         parameters.driver_cmd_line_args = [
-            "problem/linear_wave/compute_error=false",
+            f"job/problem_id={problem}",
+            f"problem/{block}/compute_error=false",
+            f"problem/{block}/wave_flag=0",
+            f"problem/{block}/amp=1e-6",
+            f"problem/{block}/vflow=0",
+            f"problem/{block}/test=false",
             "parthenon/mesh/x1max=1.5",
             "parthenon/mesh/nx1=%d" % mx,
             "parthenon/meshblock/nx1=%d" % mb,

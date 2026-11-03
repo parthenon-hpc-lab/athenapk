@@ -1,1 +1,0 @@
-Magnetic field magnitude evolution for the 2D Orszag-Tang vortex test.

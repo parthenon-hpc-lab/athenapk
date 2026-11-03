@@ -1,11 +1,13 @@
+# This file was made in part with generative AI
+# See docs/constrained_transport.md for solver choices and refinement details.
+# For MPI, use no more ranks than the available leaf MeshBlocks.
 # AthenaPK - a performance portable block structured AMR MHD code
 # Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 <comment>
-problem = 2D MHD field loop
+problem = field_loop (second-order CT-compatible example)
 
-# TODO(pgrete) get rid of this leftover in Parthenon to define a basename
 <parthenon/job>
 problem_id = field_loop
 
@@ -43,8 +45,8 @@ ix3_bc = periodic
 ox3_bc = periodic
 
 <parthenon/meshblock>
-nx1 = 64
-nx2 = 32 
+nx1 = 128
+nx2 = 64
 nx3 = 1
 
 <parthenon/time>
@@ -59,8 +61,11 @@ fluid = ucthlldmhd
 eos = adiabatic
 riemann = hlld
 reconstruction = plm
-gamma = 1.666666666666667 # gamma = C_p/C_v
-scratch_level = 0 # 0 is actual scratch (tiny); 1 is HBM
+gamma = 1.666666666666667
+scratch_level = 1
+
+ct_energy_correction = false
+first_order_flux_correct = false
 
 <parthenon/output0>
 file_type = hdf5

@@ -1,9 +1,11 @@
+// This file was made in part with generative AI
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
 // Copyright (c) 2020-2025, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -22,10 +24,10 @@
 #include "../pgen/cluster/agn_triggering.hpp"
 #include "../pgen/cluster/magnetic_tower.hpp"
 #include "../tracers/tracers.hpp"
-#include "diffusion/diffusion.hpp"
-#include "glmmhd/glmmhd.hpp"
 #include "ctmhd/ctmhd.hpp"
 #include "ctmhd/ucthlldmhd.hpp"
+#include "diffusion/diffusion.hpp"
+#include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
 
@@ -472,18 +474,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     }
   }
 
-  // Generic CT algorithm layout:
-  // Each RK stage will do this:
-  // 1.  calc_flux                      (recon + riemann)    
-  // 2.  Assemble_Corner_EMF            (make corner EMFs, depends on ct scheme)   
-  // 2.5 apply flux corrections         (automatically applies corrections for both cons.flux and bface.flux, aka emf edges)             
-  // 3a. updateWithFluxDivergence       (RK update the flux)   
-  // 3b. updateWithFaceMagDivergence    (RK update magnetic face varibles)
-  // 4.  boundary updates               (fill ghost cells)
-  // 5.  centerMagField                 (derive the cell-centered magnetic field from face-centered variables)
-  // 6.  FillDerived cons->prim         (since centerMagField happens before this, energy will be made appropriately)
-
-  
+  // CT stages share the RK coefficients with the cell FV update. Assemble and
+  // correct edge EMFs before applying the staggered curl, exchange boundaries,
+  // then use PreFillDerivedMesh to center B before recovering gas pressure.
+  // See docs/constrained_transport.md for the storage and refinement conventions.
 
   // Now start the main time integration by resetting the registers
   TaskRegion &async_region_init_int = tc.AddRegion(num_task_lists_executed_independently);
@@ -497,7 +491,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
       auto &u1 = pmb->meshblock_data.Get("u1");
       auto init_u1 = tl.AddTask(
           none,
-          [](MeshBlockData<Real> *u0, MeshBlockData<Real> *u1, bool copy_prim, bool copy_bface) {
+          [](MeshBlockData<Real> *u0, MeshBlockData<Real> *u1, bool copy_prim,
+             bool copy_bface) {
             u1->Get("cons").data.DeepCopy(u0->Get("cons").data);
             if (copy_prim) {
               u1->Get("prim").data.DeepCopy(u0->Get("prim").data);
@@ -509,8 +504,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           },
           // First order flux correction needs the original prim variables in the
           // during the correction.
-          u0.get(), u1.get(),
-          hydro_pkg->Param<bool>("first_order_flux_correct"),
+          u0.get(), u1.get(), hydro_pkg->Param<bool>("first_order_flux_correct"),
           fluid == Fluid::ctmhd || fluid == Fluid::ucthlldmhd);
     }
   }
@@ -536,11 +530,13 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     const auto fluid = hydro_pkg->Param<Fluid>("fluid");
     // -------------- CT step 2 (use fluxes to make corner EMFs) --------------
     TaskID ct_emf = calc_flux;
-    if (fluid == Fluid::ctmhd) {
+    // In 1D Bx has zero curl; By/Bz use the cell-centered flux update.
+    if (fluid == Fluid::ctmhd && pmesh->ndim >= 2) {
       ct_emf = tl.AddTask(calc_flux, Hydro::CTMHD::Assemble_Corner_EMF, mu0.get());
     }
-    if (fluid == Fluid::ucthlldmhd){
-      ct_emf = tl.AddTask(calc_flux, Hydro::UCTHLLDMHD::Assemble_HLLD_Edge_EMF, mu0.get());
+    if (fluid == Fluid::ucthlldmhd && pmesh->ndim >= 2) {
+      ct_emf =
+          tl.AddTask(calc_flux, Hydro::UCTHLLDMHD::Assemble_HLLD_Edge_EMF, mu0.get());
     }
     // TODO(pgrete) figure out what to do about the sources from the first stage
     // that are potentially disregarded when the (m)hd fluxes are corrected in the second
@@ -571,10 +567,10 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
     // -------------- CT step 3b. (RK update magnetic face varibles) --------------
     TaskID update_face = update_flx;
     if (fluid == Fluid::ctmhd || fluid == Fluid::ucthlldmhd) {
-      update_face = tl.AddTask(
-          update_flx, Hydro::CTMHD::UpdateWithFluxEmfCurl, mu0.get(),
-          mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
-          integrator->beta[stage - 1] * integrator->dt);
+      update_face =
+          tl.AddTask(update_flx, Hydro::CTMHD::UpdateWithFluxEmfCurl, mu0.get(),
+                     mu1.get(), integrator->gam0[stage - 1], integrator->gam1[stage - 1],
+                     integrator->beta[stage - 1] * integrator->dt);
     }
     // Add non-operator split source terms.
     // Note: Directly update the "cons" variables of mu0 based on the "prim" variables
@@ -609,25 +605,13 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
                                         pmesh->multilevel);
   }
 
-   // -------------- CT step 5 (realign q with face mag fields) --------------
-  // TaskRegion &ct_realignment_region = tc.AddRegion(num_partitions);
-  // for (int i = 0; i < num_partitions; i++) {
-  //   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
-  //   auto &tl = ct_realignment_region[i];
-  //   auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
-  //   if (fluid == Fluid::ctmhd) {
-  //     auto centerMagField =
-  //         tl.AddTask(none, Hydro::CTMHD::center_Mag_Field, mu0.get());
-  //   }
-  // }
-
   TaskRegion &single_tasklist_per_pack_region_3 = tc.AddRegion(num_partitions);
   for (int i = 0; i < num_partitions; i++) {
     auto &tl = single_tasklist_per_pack_region_3[i];
     auto &mu0 = pmesh->mesh_data.GetOrAdd("base", i);
     // -------------- CT step 6 (cons -> prim) --------------
-    auto fill_derived = tl.AddTask(
-        none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
+    auto fill_derived =
+        tl.AddTask(none, parthenon::Update::FillDerived<MeshData<Real>>, mu0.get());
   }
   const auto &diffint = hydro_pkg->Param<DiffInt>("diffint");
   // If any tasks modify the conserved variables before this place and after FillDerived,

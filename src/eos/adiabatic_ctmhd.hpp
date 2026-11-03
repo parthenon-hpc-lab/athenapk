@@ -1,3 +1,6 @@
+// This file was made in part with generative AI
+// AthenaPK - licensed under the BSD 3-Clause License (the LICENSE).
+// Copyright (c) 2020, Athena-Parthenon collaboration. All rights reserved.
 #ifndef EOS_ADIABATIC_CTMHD_HPP_
 #define EOS_ADIABATIC_CTMHD_HPP_
 //! \file eos.hpp
@@ -24,7 +27,7 @@ using parthenon::Real;
 class AdiabaticCTMHDEOS : public EquationOfState {
  public:
   AdiabaticCTMHDEOS(Real pressure_floor, Real density_floor, Real internal_e_floor,
-                     Real velocity_ceiling, Real internal_e_ceiling, Real gamma)
+                    Real velocity_ceiling, Real internal_e_ceiling, Real gamma)
       : EquationOfState(pressure_floor, density_floor, internal_e_floor, velocity_ceiling,
                         internal_e_ceiling),
         gamma_{gamma} {}
@@ -92,8 +95,7 @@ class AdiabaticCTMHDEOS : public EquationOfState {
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative density is encountered.
     PARTHENON_REQUIRE(u_d > 0.0 || density_floor_ > 0.0,
-                      "Got negative density. Consider enabling first-order flux "
-                      "correction or setting a reasonble density floor.");
+                      "Got nonpositive CT density. Consider a reasonable density floor.");
     // apply density floor, without changing momentum or energy
     u_d = (u_d > density_floor_) ? u_d : density_floor_;
     w_d = u_d;
@@ -131,8 +133,8 @@ class AdiabaticCTMHDEOS : public EquationOfState {
     // Let's apply floors explicitly, i.e., by default floor will be disabled (<=0)
     // and the code will fail if a negative pressure is encountered.
     PARTHENON_REQUIRE(w_p > 0.0 || pressure_floor_ > 0.0 || e_floor_ > 0.0,
-                      "Got negative pressure. Consider enabling first-order flux "
-                      "correction or setting a reasonble pressure or temperature floor.");
+                      "Got nonpositive CT pressure. Consider CT energy correction or a "
+                      "reasonable pressure or temperature floor.");
 
     // Pressure floor (if present) takes precedence over temperature floor
     if ((pressure_floor_ > 0.0) && (w_p < pressure_floor_)) {

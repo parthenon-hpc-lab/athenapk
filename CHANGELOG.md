@@ -1,3 +1,4 @@
+<!-- This file was made in part with generative AI -->
 # Changelog
 
 ## Current develop (i.e., `main` branch)
@@ -22,10 +23,30 @@ If the current performance is (significantly) below expectation, one can try to 
 Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF` to mitigate the race condition.
 
 ### Added (new features/APIs/variables/...)
+- Persistent native validation summaries with measured values and thresholds, and
+  a CPU/MPI/GPU validation guide including GLM compatibility checks.
+- Second-order ideal-MHD constrained transport: CT-contact and UCT-HLLD,
+  PLM/HLLD with RK integration, face-centered fields, and SMR/AMR support.
+- CT-compatible wave, field-loop, Orszag--Tang and current-sheet examples,
+  divergence diagnostics, optional magnetic-energy correction, portable GPU
+  convergence tooling, and native serial/MPI regression definitions.
+
+### CT implementation notes
+
+The new CT choices do not support VL2, native first-order flux correction,
+Ohmic resistivity, or RKL2. Existing GLM options remain available. See
+[the CT guide](docs/constrained_transport.md) for initialization and refinement
+requirements and [the validation guide](docs/ct_validation.md). Updated regression
+definitions require fresh execution by the submitter; this entry is not a
+statement of passed tests.
 
 ### Changed (changing behavior/API/variables/...)
+- Rename the preserved Euler wave pgen/selector to `linear_wave_hydro` and its
+  input decks with `_hydro`; retain hydro parameter keys and numerical formulas.
 
 ### Fixed (not changing behavior/API/variables/...)
+- Route GLM magnetic-wave convergence and diffusion through the MHD wave pgen,
+  read diagnostic columns by name, and check magnetic convergence explicitly.
 - [[PR 172]](https://github.com/parthenon-hpc-lab/athenapk/pull/172) Fixed data race condition in few modes IFT (no practical implication)
 
 ### Infrastructure

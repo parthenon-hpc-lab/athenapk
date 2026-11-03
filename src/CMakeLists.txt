@@ -1,3 +1,4 @@
+# This file was made in part with generative AI
 # Copyright (c) 2020-2021, AthenaPK Collaboration. All rights reserved.
 # Licensed under the 3-Clause License (the "LICENSE");
 

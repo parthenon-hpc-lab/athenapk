@@ -1,3 +1,4 @@
+<!-- This file was made in part with generative AI -->
 # AthenaPK documentation
 
 Note that we're aware the rendering of equations in markdown on GitHub for the documentation
@@ -15,6 +16,8 @@ The documentation currently includes
 - [How to add a custom/user problem generator](user_pgen.md)
 - [Units](units.md)
 - [Standard problem generators](standard_pgen.md)
+- [Second-order constrained transport: solvers, initialization, refinement, and examples](constrained_transport.md)
+- [Building and validating constrained transport and GLM compatibility](ct_validation.md)
 - Detailed descriptions of more complex problem generators
   - [Galaxy Cluster and Cluster-like Problem Setup](cluster.md)
   - [Driven turbulence](turbulence.md)

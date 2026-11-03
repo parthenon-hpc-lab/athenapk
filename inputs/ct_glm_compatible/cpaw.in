@@ -1,9 +1,13 @@
+# This file was made in part with generative AI
+# See docs/constrained_transport.md for solver choices and refinement details.
+# Waves: scale nx1=2*N, nx2=N (and nx3=N in 3D); scale blocks consistently.
+# For MPI, use no more ranks than the available leaf MeshBlocks.
 # AthenaPK - a performance portable block structured AMR MHD code
 # Copyright (c) 2021, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 <comment>
-problem   = 2D Circularly Polarized Alfven Wave
+problem = cpaw (second-order CT-compatible example)
 reference = G. Toth. JCP, vol. 161, pp. 605-662 (2000).
 
 <job>
@@ -16,7 +20,9 @@ b_perp  = 0.1         # B perpendicular
 pres    = 0.1         # pressure
 v_par   = 1.0         # vpar = 1 with dir=1 is traveling
 dir     = 1           # 1: right polarization 2: left
-ang_2   = 0.0         # 0.0 selects 2D oblique-wave setup
+ang_2 = 0.0
+
+ang_3 = -999.9
 
 <parthenon/mesh>
 refinement = none
@@ -57,8 +63,11 @@ fluid = ucthlldmhd
 eos = adiabatic
 reconstruction = plm
 riemann = hlld
-gamma = 1.666666666666667 # gamma = C_p/C_v
-scratch_level = 1 # 0 is actual scratch (tiny); 1 is HBM
+gamma = 1.666666666666667
+scratch_level = 1
+
+ct_energy_correction = false
+first_order_flux_correct = false
 
 <parthenon/output0>
 file_type = hdf5
@@ -68,3 +77,6 @@ variables = prim
 <parthenon/output1>
 file_type = hst
 dt = 0.01
+
+<parthenon/job>
+problem_id = cpaw

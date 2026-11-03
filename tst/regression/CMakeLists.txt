@@ -1,3 +1,4 @@
+# This file was made in part with generative AI
 # AthenaPK - a performance portable block structured AMR MHD code
 # Copyright (c) 2020-2025, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the 3-Clause License (the "LICENSE");
@@ -26,13 +27,13 @@ setup_test_both("turbulence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/turbulence.in --num_steps 1" "other")
 
 setup_test_both("convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 40" "convergence")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d_hydro.in --num_steps 40" "convergence")
 
 setup_test_both("mhd_convergence" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 48" "convergence")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/ct_glm_compatible/linear_mhd_wave_3d.in --num_steps 48" "convergence")
 
 setup_test_serial("performance" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 21" "performance")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d_hydro.in --num_steps 21" "performance")
 
 setup_test_both("cluster_hse" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/hse.in --num_steps 2" "convergence")
@@ -42,10 +43,10 @@ setup_test_serial("cluster_tabular_cooling" "--driver ${PROJECT_BINARY_DIR}/bin/
 
 setup_test_both("aniso_therm_cond_ring_conv" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/diffusion.in --num_steps 4" "convergence")
-  
+
 setup_test_both("aniso_therm_cond_ring_multid" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/diffusion.in --num_steps 4" "convergence")
- 
+
 setup_test_both("aniso_therm_cond_gauss_conv" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/diffusion.in --num_steps 24" "convergence")
 
@@ -53,10 +54,17 @@ setup_test_both("diffusion" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/diffusion.in --num_steps 12" "convergence")
 
   setup_test_both("diffusion_linwave3d" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
-  --driver_input ${PROJECT_SOURCE_DIR}/inputs/linear_wave3d.in --num_steps 2" "convergence")
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/ct_glm_compatible/linear_mhd_wave_3d.in --num_steps 2" "convergence")
 
 setup_test_both("field_loop" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/field_loop.in --num_steps 12" "convergence")
+
+# CT tests use their own examples; the legacy GLM field-loop test above is unchanged.
+setup_test_both("ct_mhd" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/ct_glm_compatible/linear_mhd_wave.in --num_steps 56" "ct;convergence")
+
+setup_test_serial("ct_invalid_config" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/ct_glm_compatible/linear_mhd_wave.in --num_steps 14" "ct")
 
 setup_test_both("cluster_magnetic_tower" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/cluster/magnetic_tower.in --num_steps 4" "convergence")
@@ -72,3 +80,11 @@ setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/ath
 
   setup_test_serial("lw_implode_symmetry" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/lw_implode.in --num_steps 1" "regression")
+
+# Explicit suite deadlines; do not change Parthenon's communication timeout.
+foreach(suite convergence mhd_convergence diffusion_linwave3d field_loop ct_mhd ct_invalid_config)
+  set_tests_properties(regression_test:${suite} PROPERTIES TIMEOUT 14400)
+  if(MPI_FOUND AND NOT suite STREQUAL "ct_invalid_config")
+    set_tests_properties(regression_mpi_test:${suite} PROPERTIES TIMEOUT 14400)
+  endif()
+endforeach()

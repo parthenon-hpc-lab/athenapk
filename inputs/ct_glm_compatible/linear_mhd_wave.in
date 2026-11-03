@@ -1,12 +1,16 @@
+# This file was made in part with generative AI
+# See docs/constrained_transport.md for solver choices and refinement details.
+# Waves: scale nx1=2*N, nx2=N (and nx3=N in 3D); scale blocks consistently.
+# For MPI, use no more ranks than the available leaf MeshBlocks.
 # AthenaPK - a performance portable block structured AMR MHD code
 # Copyright (c) 2020, Athena Parthenon Collaboration. All rights reserved.
 # Licensed under the BSD 3-Clause License (the "LICENSE");
 
 <comment>
-problem = 2D MHD linear wave convergence
+problem = linear_mhd_wave (second-order CT-compatible example)
 
 <parthenon/job>
-problem_id = linear_wave_mhd
+problem_id = linear_mhd_wave
 
 <job>
 problem_id = linear_wave_mhd
@@ -17,7 +21,9 @@ wave_flag = 0         # Wave family number (0 - 6 for mhd)
 amp       = 1.0e-6    # Wave Amplitude
 vflow     = 0.0       # background flow velocity
 test      = true
-ang_2     = 0.0    # make 0.0 for 2D runs
+ang_2 = 0.0
+
+ang_3 = -999.9
 
 <parthenon/mesh>
 refinement = none
@@ -46,7 +52,6 @@ nx1=16
 nx2=16
 nx3=1
 
-
 <parthenon/time>
 integrator = rk2
 cfl = 0.3
@@ -59,12 +64,15 @@ fluid = ucthlldmhd
 eos = adiabatic
 riemann = hlld
 reconstruction = plm
-gamma = 1.666666666666667 # gamma = C_p/C_v
-scratch_level = 1 # 0 is actual scratch (tiny); 1 is HBM
+gamma = 1.666666666666667
+scratch_level = 1
+
+ct_energy_correction = false
+first_order_flux_correct = false
 
 <parthenon/output0>
 file_type = hdf5
-dt = -0.05
+dt = -0.01
 variables = prim
 
 <parthenon/output1>

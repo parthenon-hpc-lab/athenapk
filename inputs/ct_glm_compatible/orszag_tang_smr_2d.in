@@ -1,0 +1,99 @@
+# This file was made in part with generative AI
+# See docs/constrained_transport.md for solver choices and refinement details.
+# For MPI, use no more ranks than the available leaf MeshBlocks.
+# AthenaPK - a performance portable block structured AMR MHD code
+# Copyright (c) 2023, Athena Parthenon Collaboration. All rights reserved.
+# Licensed under the BSD 3-Clause License (the "LICENSE");
+
+<comment>
+problem = orszag_tang_smr_2d (second-order CT-compatible example)
+
+<parthenon/job>
+problem_id = orszag_tang_smr_2d
+
+<job>
+problem_id = orszag_tang
+
+<parthenon/mesh>
+refinement = static
+nghost = 2
+
+nx1 = 256
+x1min = 0.0
+x1max = 1.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2 = 256
+x2min = 0.0
+x2max = 1.0
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3 = 1
+x3min = -0.5
+x3max = 0.5
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1 = 64
+nx2 = 64
+nx3 = 1
+
+<parthenon/time>
+integrator = rk2
+cfl = 0.3
+tlim = 1.0
+nlim = -1
+perf_cycle_offset = 2 # number of inital cycles not to be included in perf calc
+
+<hydro>
+fluid = ucthlldmhd
+eos = adiabatic
+riemann = hlld
+reconstruction = plm
+gamma = 1.666666666666667
+pfloor = 1.0e-15
+scratch_level = 1
+
+
+ct_energy_correction = false
+first_order_flux_correct = false
+
+<parthenon/output0>
+file_type = hdf5
+dt = 0.01
+variables = prim
+
+<parthenon/output1>
+file_type = hst
+dt = 0.005
+
+<parthenon/static_refinement1>
+x1min = 0
+x1max = 1
+x2min = 0
+x2max = 0.25
+level = 1
+
+<parthenon/static_refinement2>
+x1min = 0
+x1max = 1
+x2min = 0.75
+x2max = 1
+level = 1
+
+<parthenon/static_refinement3>
+x1min = 0.25
+x1max = 0.75
+x2min = 0
+x2max = 0.125
+level = 2
+
+<parthenon/static_refinement4>
+x1min = 0.25
+x1max = 0.75
+x2min = 0.875
+x2max = 1
+level = 2

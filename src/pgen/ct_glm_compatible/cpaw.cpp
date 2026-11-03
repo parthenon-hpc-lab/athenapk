@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 //========================================================================================
 // Athena++ astrophysical MHD code
 // Copyright(C) 2014 James M. Stone <jmstone@princeton.edu> and other code contributors
@@ -6,18 +7,17 @@
 //! \file cpaw.cpp
 //! \brief Circularly polarized Alfven wave (CPAW) for 1D/2D/3D problems
 //!
-//! In 1D, the problem is setup along one of the three coordinate axes (specified by
-//! setting [ang_2,ang_3] = 0.0 or PI/2 in the input file).  In 2D/3D this routine
-//! automatically sets the wavevector along the domain diagonal.
+//! In 1D, set ang_2=ang_3=0 for propagation along x1. In 2D/3D, automatic
+//! angles set an oblique wavevector compatible with the periodic domain.
 //!
-//! Can be used for [standing/traveling] waves [(problem/v_par=1.0)/(problem/v_par=0.0)]
+//! The signed propagation speed is v_par + fac*b_par/sqrt(den), with fac
+//! selected by dir. A zero speed gives a standing wave.
 //!
 //! REFERENCE: G. Toth,  "The div(B)=0 constraint in shock capturing MHD codes", JCP,
 //!   161, 605 (2000)
 
 // C++ headers
 #include <algorithm> // min, max
-#include <array>
 #include <cmath>     // sqrt()
 #include <cstdio>    // fopen(), fprintf(), freopen()
 #include <iostream>  // endl
@@ -33,12 +33,12 @@
 
 // Athena headers
 #include "../../main.hpp"
+#include "ct_pgen_utils.hpp"
 
 namespace cpaw {
 using namespace parthenon::driver::prelude;
 using namespace parthenon::package::prelude;
 using TE = parthenon::TopologicalElement;
-
 
 // Parameters which define initial solution -- made global so that they can be shared
 // with functions A1,2,3 which compute vector potentials
@@ -71,8 +71,9 @@ void InitUserMeshData(Mesh *mesh, ParameterInput *pin) {
   b_par = pin->GetReal("problem/cpaw", "b_par");
   b_perp = pin->GetReal("problem/cpaw", "b_perp");
   v_par = pin->GetReal("problem/cpaw", "v_par");
-  ang_2 = pin->GetOrAddReal("problem/cpaw", "ang_2", -999.9);
-  ang_3 = pin->GetOrAddReal("problem/cpaw", "ang_3", -999.9);
+  const Real default_angle = mesh->ndim == 1 ? 0.0 : -999.9;
+  ang_2 = pin->GetOrAddReal("problem/cpaw", "ang_2", default_angle);
+  ang_3 = pin->GetOrAddReal("problem/cpaw", "ang_3", default_angle);
   Real dir = pin->GetOrAddReal("problem/cpaw", "dir", 1); // right(1)/left(2) polarization
   Real gam = pin->GetReal("hydro", "gamma");
   gm1 = (gam - 1.0);
@@ -156,7 +157,7 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     Kokkos::View<Real ****, parthenon::LayoutWrapper, parthenon::HostMemSpace> u_ref(
         "cons scratch", NMHD, pmb->cellbounds.ncellsk(IndexDomain::entire),
         pmb->cellbounds.ncellsj(IndexDomain::entire),
-        pmb->cellbounds.ncellsi(IndexDomain::entire));    
+        pmb->cellbounds.ncellsi(IndexDomain::entire));
 
     for (int k = kb.s; k <= kb.e; k++) {
       for (int j = jb.s; j <= jb.e; j++) {
@@ -195,13 +196,18 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
         }
       }
     }
-  
+
     auto &rc = pmb->meshblock_data.Get(); // get base container
     // for ctmhd, fill up IB1:IB3 with the proper cell-center derived values
-    if (fluid == Fluid::ctmhd || fluid == Fluid::ucthlldmhd){
+    if (fluid == Fluid::ctmhd || fluid == Fluid::ucthlldmhd) {
       auto &u_dev_face = rc->Get("Bface").data;
-      auto Bface = u_dev_face.GetHostMirrorAndCopy();
-      Bface_Fill_Cons(pmb.get(), u_ref, Bface); // dont do the deep copy   
+      // A mirror view can alias live Bface on CPU. Analytic error references
+      // require independent storage: create_mirror always allocates a new view.
+      using HostFaceArray = decltype(u_dev_face.GetHostMirror());
+      auto reference_view =
+          Kokkos::create_mirror(parthenon::HostMemSpace(), u_dev_face.KokkosView());
+      HostFaceArray Bface_ref(reference_view, u_dev_face);
+      Bface_Fill_Cons(pmb.get(), u_ref, Bface_ref);
       for (int k = kb.s; k <= kb.e; k++) {
         for (int j = jb.s; j <= jb.e; j++) {
           for (int i = ib.s; i <= ib.e; i++) {
@@ -224,24 +230,16 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
         for (int i = ib.s; i <= ib.e; i++) {
           const Real cell_volume = pmb->coords.CellVolume(k, j, i);
 
-          err[IDN] +=
-              std::abs(u_ref(IDN, k, j, i) - u_num(IDN, k, j, i)) * cell_volume;
-          err[IM1] +=
-              std::abs(u_ref(IM1, k, j, i) - u_num(IM1, k, j, i)) * cell_volume;
-          err[IM2] +=
-              std::abs(u_ref(IM2, k, j, i) - u_num(IM2, k, j, i)) * cell_volume;
-          err[IM3] +=
-              std::abs(u_ref(IM3, k, j, i) - u_num(IM3, k, j, i)) * cell_volume;
+          err[IDN] += std::abs(u_ref(IDN, k, j, i) - u_num(IDN, k, j, i)) * cell_volume;
+          err[IM1] += std::abs(u_ref(IM1, k, j, i) - u_num(IM1, k, j, i)) * cell_volume;
+          err[IM2] += std::abs(u_ref(IM2, k, j, i) - u_num(IM2, k, j, i)) * cell_volume;
+          err[IM3] += std::abs(u_ref(IM3, k, j, i) - u_num(IM3, k, j, i)) * cell_volume;
 
-          err[IB1] +=
-              std::abs(u_ref(IB1, k, j, i) - u_num(IB1, k, j, i)) * cell_volume;
-          err[IB2] +=
-              std::abs(u_ref(IB2, k, j, i) - u_num(IB2, k, j, i)) * cell_volume;
-          err[IB3] +=
-              std::abs(u_ref(IB3, k, j, i) - u_num(IB3, k, j, i)) * cell_volume;
+          err[IB1] += std::abs(u_ref(IB1, k, j, i) - u_num(IB1, k, j, i)) * cell_volume;
+          err[IB2] += std::abs(u_ref(IB2, k, j, i) - u_num(IB2, k, j, i)) * cell_volume;
+          err[IB3] += std::abs(u_ref(IB3, k, j, i) - u_num(IB3, k, j, i)) * cell_volume;
 
-          err[IEN] +=
-              std::abs(u_ref(IEN, k, j, i) - u_num(IEN, k, j, i)) * cell_volume;
+          err[IEN] += std::abs(u_ref(IEN, k, j, i) - u_num(IEN, k, j, i)) * cell_volume;
         }
       }
     }
@@ -252,8 +250,7 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     MPI_Reduce(MPI_IN_PLACE, &err, (NMHD), MPI_PARTHENON_REAL, MPI_SUM, 0,
                MPI_COMM_WORLD);
   } else {
-    MPI_Reduce(&err, &err, (NMHD), MPI_PARTHENON_REAL, MPI_SUM, 0,
-               MPI_COMM_WORLD);
+    MPI_Reduce(&err, &err, (NMHD), MPI_PARTHENON_REAL, MPI_SUM, 0, MPI_COMM_WORLD);
   }
 #endif
 
@@ -262,10 +259,9 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     // Normalize the volume-integrated errors by the physical domain volume. This gives
     // each physical region equal weight even when the mesh contains refinement levels.
     const auto mesh_size = mesh->mesh_size;
-    const Real domain_volume =
-        (mesh_size.xmax(X1DIR) - mesh_size.xmin(X1DIR)) *
-        (mesh_size.xmax(X2DIR) - mesh_size.xmin(X2DIR)) *
-        (mesh_size.xmax(X3DIR) - mesh_size.xmin(X3DIR));
+    const Real domain_volume = (mesh_size.xmax(X1DIR) - mesh_size.xmin(X1DIR)) *
+                               (mesh_size.xmax(X2DIR) - mesh_size.xmin(X2DIR)) *
+                               (mesh_size.xmax(X3DIR) - mesh_size.xmin(X3DIR));
     for (int i = 0; i < NMHD; ++i) {
       err[i] /= domain_volume;
     }
@@ -310,7 +306,7 @@ void UserWorkAfterLoop(Mesh *mesh, ParameterInput *pin, parthenon::SimTime &tm) 
     std::fprintf(pfile, "  %e  %e  %e", err[IB1], err[IB2], err[IB3]);
     std::fprintf(pfile, "\n");
     std::fclose(pfile);
-}
+  }
 }
 
 //========================================================================================
@@ -344,7 +340,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput * /*pin*/) {
 
   auto &coords = pmb->coords;
 
-  if (fluid == Fluid::glmmhd){
+  if (fluid == Fluid::glmmhd) {
     int kl, ku;
     if (two_d) {
       kl = kb.s;
@@ -371,8 +367,8 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput * /*pin*/) {
   auto &u_dev = rc->Get("cons").data;
   // initializing on host
   auto u = u_dev.GetHostMirrorAndCopy();
-  
-  if (fluid == Fluid::ctmhd || fluid == Fluid::ucthlldmhd){
+
+  if (fluid == Fluid::ctmhd || fluid == Fluid::ucthlldmhd) {
     // fills u_cons() with the cell-averaged b values from
     // the face centered values made via the discrete
     // curl of the vector potential
@@ -380,7 +376,7 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput * /*pin*/) {
     auto &u_dev_face = rc->Get("Bface").data;
     auto Bface = u_dev_face.GetHostMirrorAndCopy();
 
-    Bface_Fill_Cons(pmb, u, Bface); 
+    Bface_Fill_Cons(pmb, u, Bface);
     u_dev_face.DeepCopy(Bface);
   }
   for (int k = kb.s; k <= kb.e; k++) {
@@ -400,25 +396,28 @@ void ProblemGenerator(MeshBlock *pmb, ParameterInput * /*pin*/) {
         u(IM1, k, j, i) = mx * cos_a2 * cos_a3 - my * sin_a3 - mz * sin_a2 * cos_a3;
         u(IM2, k, j, i) = mx * cos_a2 * sin_a3 + my * cos_a3 - mz * sin_a2 * sin_a3;
         u(IM3, k, j, i) = mx * sin_a2 + mz * cos_a2;
-        
-        if (fluid ==Fluid::glmmhd){
+
+        if (fluid == Fluid::glmmhd) {
           if (two_d) {
-            u(IB1,k,j,i) =
-                (a3(k,j+1,i) - a3(k,j-1,i)) / coords.Dxc<2>(j) / 2.0;
+            u(IB1, k, j, i) =
+                (a3(k, j + 1, i) - a3(k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
 
-            u(IB2,k,j,i) =
-              -(a3(k,j,i+1) - a3(k,j,i-1)) / coords.Dxc<1>(i) / 2.0;
+            u(IB2, k, j, i) =
+                -(a3(k, j, i + 1) - a3(k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
 
-            u(IB3,k,j,i) =
-                (a2(k,j,i+1) - a2(k,j,i-1)) / coords.Dxc<1>(i) / 2.0
-              - (a1(k,j+1,i) - a1(k,j-1,i)) / coords.Dxc<2>(j) / 2.0;
+            u(IB3, k, j, i) =
+                (a2(k, j, i + 1) - a2(k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+                (a1(k, j + 1, i) - a1(k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
           } else {
-            u(IB1, k, j, i) = (a3(k, j + 1, i) - a3(k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
-                              (a2(k + 1, j, i) - a2(k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
-            u(IB2, k, j, i) = (a1(k + 1, j, i) - a1(k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
-                              (a3(k, j, i + 1) - a3(k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
-            u(IB3, k, j, i) = (a2(k, j, i + 1) - a2(k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
-                              (a1(k, j + 1, i) - a1(k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
+            u(IB1, k, j, i) =
+                (a3(k, j + 1, i) - a3(k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
+                (a2(k + 1, j, i) - a2(k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
+            u(IB2, k, j, i) =
+                (a1(k + 1, j, i) - a1(k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
+                (a3(k, j, i + 1) - a3(k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
+            u(IB3, k, j, i) =
+                (a2(k, j, i + 1) - a2(k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
+                (a1(k, j + 1, i) - a1(k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
           }
           u(IPS, k, j, i) = 0.0;
         }
@@ -476,24 +475,31 @@ Real A3(const Real x1, const Real x2, const Real x3) {
 
 template <typename ConsHost, typename BfaceHost>
 void Bface_Fill_Cons(MeshBlock *pmb, ConsHost &u, BfaceHost &Bface) {
-
   IndexRange ib = pmb->cellbounds.GetBoundsI(IndexDomain::interior);
   IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::interior);
   IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::interior);
 
-  // Athena++'s pbval->nblevel equivalent. Multiple finer neighbors can occupy the same
-  // offset, but they are all at the same level on a properly nested Parthenon mesh.
-  const int level = pmb->loc.level();
-  std::array<int, 27> neighbor_levels;
-  neighbor_levels.fill(level);
-  for (const auto &neighbor : pmb->GetNeighbors()) {
-    const int ox1 = neighbor.offsets(X1DIR);
-    const int ox2 = neighbor.offsets(X2DIR);
-    const int ox3 = neighbor.offsets(X3DIR);
-    const int idx = (ox1 + 1) + 3 * ((ox2 + 1) + 3 * (ox3 + 1));
-    neighbor_levels[idx] = std::max(neighbor_levels[idx], neighbor.loc.level());
+  if (pmb->pmy_mesh->ndim == 1) {
+    PARTHENON_REQUIRE_THROWS(
+        ang_2 == 0.0 && ang_3 == 0.0,
+        "1D CT Alfven waves require problem/cpaw/ang_2=0 and ang_3=0.");
+    auto Bx_face = Bface.Get(IBF1, 0, 0, 0);
+    for (int k = kb.s; k <= kb.e; ++k) {
+      for (int j = jb.s; j <= jb.e; ++j) {
+        for (int i = ib.s; i <= ib.e + 1; ++i) {
+          Bx_face(k, j, i) = b_par;
+        }
+        for (int i = ib.s; i <= ib.e; ++i) {
+          const Real phase = k_par * pmb->coords.Xc<1>(i);
+          u(IB1, k, j, i) = b_par;
+          u(IB2, k, j, i) = b_perp * std::sin(phase);
+          u(IB3, k, j, i) = fac * b_perp * std::cos(phase);
+        }
+      }
+    }
+    return;
   }
- 
+
   // always needed
   Kokkos::View<Real ***, parthenon::LayoutWrapper, parthenon::HostMemSpace> ax(
       "ax", pmb->cellbounds.ncellsk(IndexDomain::entire),
@@ -508,49 +514,9 @@ void Bface_Fill_Cons(MeshBlock *pmb, ConsHost &u, BfaceHost &Bface) {
       pmb->cellbounds.ncellsj(IndexDomain::entire),
       pmb->cellbounds.ncellsi(IndexDomain::entire));
 
-
   const bool two_d = pmb->pmy_mesh->ndim < 3;
 
-  auto finer_neighbor = [&](const int ox1, const int ox2, const int ox3) {
-    const int idx = (ox1 + 1) + 3 * ((ox2 + 1) + 3 * (ox3 + 1));
-    return neighbor_levels[idx] > level;
-  };
-
-  // Return true when an edge lies on a coarse/fine interface. The neighbor offset along
-  // the edge must be zero, while each nonzero transverse offset must coincide with the
-  // corresponding lower or upper block boundary. This includes face, edge, and corner
-  // neighbors and reproduces Athena++'s nblevel checks for A1, A2, and A3.
-  auto edge_touches_finer_neighbor = [&](const int edge_dir, const int k, const int j,
-                                         const int i) {
-    if (two_d) return false;
-
-    const std::array<int, 3> edge_idx{i, j, k};
-    const std::array<int, 3> lower{ib.s, jb.s, kb.s};
-    const std::array<int, 3> upper{ib.e + 1, jb.e + 1, kb.e + 1};
-
-    for (int ox3 = -1; ox3 <= 1; ++ox3) {
-      for (int ox2 = -1; ox2 <= 1; ++ox2) {
-        for (int ox1 = -1; ox1 <= 1; ++ox1) {
-          const std::array<int, 3> offset{ox1, ox2, ox3};
-          if (offset[edge_dir - 1] != 0) continue;
-          if (ox1 == 0 && ox2 == 0 && ox3 == 0) continue;
-          if (!finer_neighbor(ox1, ox2, ox3)) continue;
-
-          bool touches = true;
-          for (int dir = 0; dir < 3; ++dir) {
-            if (dir == edge_dir - 1 || offset[dir] == 0) continue;
-            if ((offset[dir] < 0 && edge_idx[dir] != lower[dir]) ||
-                (offset[dir] > 0 && edge_idx[dir] != upper[dir])) {
-              touches = false;
-              break;
-            }
-          }
-          if (touches) return true;
-        }
-      }
-    }
-    return false;
-  };
+  const ct_pgen::FineEdgeMatcher fine_edges(pmb);
 
   // Use vector potential to initialize field loop
   auto &coords = pmb->coords;
@@ -570,11 +536,10 @@ void Bface_Fill_Cons(MeshBlock *pmb, ConsHost &u, BfaceHost &Bface) {
         const Real ax1 = coords.X<1, TE::E1>(k, j, i);
         const Real ax2 = coords.X<2, TE::E1>(k, j, i);
         const Real ax3 = coords.X<3, TE::E1>(k, j, i);
-        if (edge_touches_finer_neighbor(X1DIR, k, j, i)) {
+        if (fine_edges.Touches(X1DIR, k, j, i)) {
           const Real quarter_dx1 = 0.25 * coords.Dxf<1>(i);
           ax(k, j, i) =
-              0.5 * (A1(ax1 - quarter_dx1, ax2, ax3) +
-                     A1(ax1 + quarter_dx1, ax2, ax3));
+              0.5 * (A1(ax1 - quarter_dx1, ax2, ax3) + A1(ax1 + quarter_dx1, ax2, ax3));
         } else {
           ax(k, j, i) = A1(ax1, ax2, ax3);
         }
@@ -582,11 +547,10 @@ void Bface_Fill_Cons(MeshBlock *pmb, ConsHost &u, BfaceHost &Bface) {
         const Real ay1 = coords.X<1, TE::E2>(k, j, i);
         const Real ay2 = coords.X<2, TE::E2>(k, j, i);
         const Real ay3 = coords.X<3, TE::E2>(k, j, i);
-        if (edge_touches_finer_neighbor(X2DIR, k, j, i)) {
+        if (fine_edges.Touches(X2DIR, k, j, i)) {
           const Real quarter_dx2 = 0.25 * coords.Dxf<2>(j);
           ay(k, j, i) =
-              0.5 * (A2(ay1, ay2 - quarter_dx2, ay3) +
-                     A2(ay1, ay2 + quarter_dx2, ay3));
+              0.5 * (A2(ay1, ay2 - quarter_dx2, ay3) + A2(ay1, ay2 + quarter_dx2, ay3));
         } else {
           ay(k, j, i) = A2(ay1, ay2, ay3);
         }
@@ -594,11 +558,10 @@ void Bface_Fill_Cons(MeshBlock *pmb, ConsHost &u, BfaceHost &Bface) {
         const Real az1 = coords.X<1, TE::E3>(k, j, i);
         const Real az2 = coords.X<2, TE::E3>(k, j, i);
         const Real az3 = coords.X<3, TE::E3>(k, j, i);
-        if (edge_touches_finer_neighbor(X3DIR, k, j, i)) {
+        if (fine_edges.Touches(X3DIR, k, j, i)) {
           const Real quarter_dx3 = 0.25 * coords.Dxf<3>(k);
           az(k, j, i) =
-              0.5 * (A3(az1, az2, az3 - quarter_dx3) +
-                     A3(az1, az2, az3 + quarter_dx3));
+              0.5 * (A3(az1, az2, az3 - quarter_dx3) + A3(az1, az2, az3 + quarter_dx3));
         } else {
           az(k, j, i) = A3(az1, az2, az3);
         }
@@ -606,7 +569,6 @@ void Bface_Fill_Cons(MeshBlock *pmb, ConsHost &u, BfaceHost &Bface) {
     }
   }
 
-  auto &mbd = pmb->meshblock_data.Get();
   // initializing on host
   auto Bx_face = Bface.Get(IBF1, 0, 0, 0);
   auto By_face = Bface.Get(IBF2, 0, 0, 0);
@@ -616,51 +578,44 @@ void Bface_Fill_Cons(MeshBlock *pmb, ConsHost &u, BfaceHost &Bface) {
 
   // x-face
   for (int k = kb.s; k <= kb.e; k++) {
-    for (int j = jb.s; j <= jb.e; j++) { 
-      for (int i = ib.s; i <= ib.e+1; i++) { // +1 here
+    for (int j = jb.s; j <= jb.e; j++) {
+      for (int i = ib.s; i <= ib.e + 1; i++) { // +1 here
         // create face-fields with cell-corner defined az
-        Real aydz =
-            two_d ? 0.0 : (ay(k + 1, j, i) - ay(k, j, i)) / coords.Dxc<3>(k);
-        Bx_face(k, j, i) =
-            (az(k, j + 1, i) - az(k, j, i)) / coords.Dxc<2>(j) - aydz;
+        Real aydz = two_d ? 0.0 : (ay(k + 1, j, i) - ay(k, j, i)) / coords.Dxc<3>(k);
+        Bx_face(k, j, i) = (az(k, j + 1, i) - az(k, j, i)) / coords.Dxc<2>(j) - aydz;
       }
     }
   }
   // y-face
   for (int k = kb.s; k <= kb.e; k++) {
-    for (int j = jb.s; j <= jb.e+1; j++) { // +1 here
-      for (int i = ib.s; i <= ib.e; i++) { 
+    for (int j = jb.s; j <= jb.e + 1; j++) { // +1 here
+      for (int i = ib.s; i <= ib.e; i++) {
         // create face-fields with cell-corner defined az
-        Real axdz =
-            two_d ? 0.0 : (ax(k + 1, j, i) - ax(k, j, i)) / coords.Dxc<3>(k);
-        By_face(k, j, i) =
-        axdz - (az(k, j, i + 1) - az(k, j, i)) / coords.Dxc<1>(i);
+        Real axdz = two_d ? 0.0 : (ax(k + 1, j, i) - ax(k, j, i)) / coords.Dxc<3>(k);
+        By_face(k, j, i) = axdz - (az(k, j, i + 1) - az(k, j, i)) / coords.Dxc<1>(i);
       }
     }
   }
   // z-face
   for (int k = kb.s; k <= ku; k++) { // +1 here
-    for (int j = jb.s; j <= jb.e; j++) { 
-      for (int i = ib.s; i <= ib.e; i++) { 
-        Bz_face(k, j, i) = 
-            two_d ? 0.0 : (ay(k, j, i + 1) - ay(k, j, i)) / coords.Dxc<1>(i) -
-                          (ax(k, j + 1, i) - ax(k, j, i)) / coords.Dxc<2>(j);
+    for (int j = jb.s; j <= jb.e; j++) {
+      for (int i = ib.s; i <= ib.e; i++) {
+        Bz_face(k, j, i) = two_d ? 0.0
+                                 : (ay(k, j, i + 1) - ay(k, j, i)) / coords.Dxc<1>(i) -
+                                       (ax(k, j + 1, i) - ax(k, j, i)) / coords.Dxc<2>(j);
       }
     }
   }
   // now good to fill up the Bx/By cons vector
   for (int k = kb.s; k <= kb.e; k++) {
-    for (int j = jb.s; j <= jb.e; j++) { 
+    for (int j = jb.s; j <= jb.e; j++) {
       for (int i = ib.s; i <= ib.e; i++) {
         // create cell-centered B from face-centered average
-        u(IB1, k, j, i) =
-            0.5 * (Bx_face(k, j, i) + Bx_face(k, j, i + 1));
-        u(IB2, k, j, i) =
-            0.5 * (By_face(k, j, i) + By_face(k, j + 1, i));
-        u(IB3, k, j, i) =
-            two_d ? (ay(k, j, i + 1) - ay(k, j, i)) / coords.Dxc<1>(i) -
-                        (ax(k, j + 1, i) - ax(k, j, i)) / coords.Dxc<2>(j)
-                  : 0.5 * (Bz_face(k, j, i) + Bz_face(k + 1, j, i));  
+        u(IB1, k, j, i) = 0.5 * (Bx_face(k, j, i) + Bx_face(k, j, i + 1));
+        u(IB2, k, j, i) = 0.5 * (By_face(k, j, i) + By_face(k, j + 1, i));
+        u(IB3, k, j, i) = two_d ? (ay(k, j, i + 1) - ay(k, j, i)) / coords.Dxc<1>(i) -
+                                      (ax(k, j + 1, i) - ax(k, j, i)) / coords.Dxc<2>(j)
+                                : 0.5 * (Bz_face(k, j, i) + Bz_face(k + 1, j, i));
       }
     }
   }

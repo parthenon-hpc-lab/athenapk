@@ -15,6 +15,7 @@
 # the public, perform publicly and display publicly, and to permit others to do so.
 # ========================================================================================
 
+# This file was made in part with generative AI
 # Modules
 import math
 import numpy as np
@@ -25,7 +26,8 @@ import matplotlib.pylab as plt
 import sys
 import os
 import itertools
-import utils.test_case
+from pathlib import Path
+from test_suites.validation_report import ReportingTestCase, history
 
 """ To prevent littering up imported folders with .pyc files or __pycache_ folder"""
 sys.dont_write_bytecode = True
@@ -46,7 +48,13 @@ def get_outname(all_cfg):
     return f"{res}_{method['integrator']}_{method['recon']}"
 
 
-class TestCase(utils.test_case.TestCaseAbs):
+class TestCase(ReportingTestCase):
+    case_count = 12
+    purpose = (
+        "GLM field-loop advection: finite positive states and magnetic histories; "
+        "energy retention and GLM divergence are informational, not CT roundoff gates."
+    )
+
     def Prepare(self, parameters, step):
         """
         Any preprocessing that is needed before the drive is run can be done in
@@ -65,7 +73,11 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         As an example if the following block was uncommented it would overwrite
         any of the parameters that were specified in the parthenon input file
-        parameters.driver_cmd_line_args = ['output1/file_type=vtk',
+        parameters.driver_cmd_line_args = [
+            "hydro/fluid=glmmhd",
+            "hydro/scratch_level=1",
+            "parthenon/output0/single_precision_output=false",
+            "parthenon/output1/data_format=%.16e",'output1/file_type=vtk',
                 'output1/variable=cons',
                 'output1/dt=0.4',
                 'time/tlim=0.4',
@@ -81,6 +93,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         recon = method["recon"]
 
         outname = get_outname(all_cfgs[step - 1])
+        self.report.label(outname)
 
         parameters.driver_cmd_line_args = [
             "parthenon/mesh/nx1=%d" % res,
@@ -100,59 +113,74 @@ class TestCase(utils.test_case.TestCaseAbs):
         return parameters
 
     def Analyse(self, parameters):
-        """
-        Analyze the output and determine if the test passes.
-
-        This function is called after the driver has been executed. It is
-        responsible for reading whatever data it needs and making a judgment
-        about whether or not the test passes. It takes no inputs. Output should
-        be True (test passes) or False (test fails).
-
-        The parameters that are passed in provide the paths to relevant
-        locations and commands. Of particular importance is the path to the
-        output folder. All files from a drivers run should appear in and output
-        folder located in
-        parthenon/tst/regression/test_suites/test_name/output.
-
-        It is possible in this function to read any of the output files such as
-        hdf5 output and compare them to expected quantities.
-
-        """
-
         sys.path.insert(
-            1,
-            parameters.parthenon_path
-            + "/scripts/python/packages/parthenon_tools/parthenon_tools",
+            0,
+            str(
+                Path(parameters.parthenon_path)
+                / "scripts/python/packages/parthenon_tools/parthenon_tools"
+            ),
         )
+        import phdf
 
-        try:
-            import phdf
-        except ModuleNotFoundError:
-            print("Couldn't find module to read Parthenon hdf5 files.")
-            return False
-
-        fig, p = plt.subplots(len(method_cfgs), 2, sharex=True, sharey="col")
-
-        for step in range(len(all_cfgs)):
-            outname = get_outname(all_cfgs[step])
-            data_filename = f"{parameters.output_path}/{outname}.out1.hst"
-            data = np.genfromtxt(data_filename)
-
-            res, method = all_cfgs[step]
+        fig, axes = plt.subplots(len(method_cfgs), 2, sharex=True, sharey="col")
+        for step, cfg in enumerate(all_cfgs, start=1):
+            self.report.select(step)
+            outname = get_outname(cfg)
+            hst = history(Path(parameters.output_path) / f"{outname}.out1.hst")
+            finite = all(np.isfinite(values).all() for values in hst.values())
+            self.report.check(
+                "Finite history", finite, finite, "all history samples finite"
+            )
+            self.report.check(
+                "Positive magnetic energy",
+                np.all(hst["ME"] > 0),
+                np.min(hst["ME"]),
+                "> 0",
+            )
+            files = sorted(Path(parameters.output_path).glob(f"{outname}.*.phdf"))
+            self.report.check(
+                "Initial/final state output",
+                len(files) >= 2,
+                len(files),
+                "at least two PHDF snapshots",
+            )
+            for filename in files:
+                data = phdf.phdf(str(filename))
+                prim = data.Get("prim", flatten=False)
+                self.report.check(
+                    f"Finite primitives at t={data.Time}",
+                    np.isfinite(prim).all(),
+                    np.isfinite(prim).all(),
+                    "all values finite",
+                )
+                for component, name in ((0, "density"), (4, "pressure")):
+                    minimum = float(prim[:, component].min())
+                    self.report.check(
+                        f"Positive {name} at t={data.Time}", minimum > 0, minimum, "> 0"
+                    )
+            retention = hst["ME"][-1] / hst["ME"][0]
+            worst = int(np.argmax(hst["relDivB"]))
+            self.report.note(
+                f"Final/initial magnetic energy={retention:.12e}; "
+                "no energy-retention accuracy threshold"
+            )
+            self.report.note(
+                f"Maximum history relDivB={hst['relDivB'][worst]:.12e} "
+                f"at t={hst['time'][worst]:.12e}; "
+                "GLM diagnostic, no CT roundoff threshold"
+            )
+            res, method = cfg
             row = method_cfgs.index(method)
-            p[row, 0].plot(data[:, 0], data[:, 10] / data[0, 10], label=outname)
-            p[row, 1].plot(data[:, 0], data[:, 12], label=outname)
-
-        p[0, 0].set_title("Emag(t)/Emag(0)")
-        p[0, 1].set_title("rel DivB")
-
-        for i in range(len(method_cfgs)):
-            for j in range(2):
-                p[i, j].grid()
-                p[i, j].legend()
-
+            axes[row, 0].plot(hst["time"], hst["ME"] / hst["ME"][0], label=outname)
+            axes[row, 1].plot(hst["time"], hst["relDivB"], label=outname)
+        axes[0, 0].set_title("Emag(t)/Emag(0)")
+        axes[0, 1].set_title("GLM relDivB")
+        for row in axes:
+            for axis in row:
+                axis.grid()
+                axis.legend()
         fig.savefig(
-            os.path.join(parameters.output_path, "field_loop.png"), bbox_inches="tight"
+            Path(parameters.output_path) / "field_loop.png", bbox_inches="tight"
         )
-
+        plt.close(fig)
         return True

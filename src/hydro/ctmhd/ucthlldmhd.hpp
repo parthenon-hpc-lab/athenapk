@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 #ifndef HYDRO_CTMHD_UCTHLLDMHD_HPP_
 #define HYDRO_CTMHD_UCTHLLDMHD_HPP_
 //========================================================================================

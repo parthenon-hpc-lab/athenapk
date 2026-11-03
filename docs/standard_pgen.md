@@ -1,4 +1,25 @@
+<!-- This file was made in part with generative AI -->
 # Standard problem generators
+
+## CT-compatible MHD examples
+
+CPAW, linear MHD waves, field-loop advection, Orszag--Tang, and current sheet
+have standalone decks under `inputs/ct_glm_compatible/`.
+They support `ctmhd`, `ucthlldmhd`, and `glmmhd` without duplicating pgen
+implementations. The wave generators include 1D CT initialization; other
+examples are multidimensional. See [the CT guide](constrained_transport.md)
+for deck variants, initialization/refinement details, diagnostic definitions,
+and reproducible commands. Legacy GLM field-loop, CPAW and OT input paths remain available.
+See [validation](ct_validation.md) for builds, test commands and summaries.
+
+## Hydro and MHD linear waves
+
+`job/problem_id=linear_wave_hydro` selects the preserved Euler wave implementation.
+Use `inputs/linear_wave1d_hydro.in` or `inputs/linear_wave3d_hydro.in`; hydro
+parameters remain in `problem/linear_wave`, with hydro modes 0--4. Older decks
+must update the problem selector. `job/problem_id=linear_wave_mhd` instead selects
+the separate GLM/CT MHD implementation and `problem/linear_wave_mhd`, with modes
+0--6. The GLM magnetic-wave and diffusion tests explicitly use the MHD generator.
 
 ## Multi cloud shattering (`job/problem_id=shattering`)
 

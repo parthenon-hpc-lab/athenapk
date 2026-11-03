@@ -1,8 +1,14 @@
-# Snakemake workflow files
-.snakemake/
-workflow/logs/
+# This file was made in part with generative AI
+# Python tooling caches
 __pycache__/
 *.py[cod]
+
+# Local convergence outputs and unsubmitted PR description
+/gpu-convergence/
+/gpu-amr-debug.*/
+/gpu-amr-debug/
+/runs/
+/PR_DESCRIPTION.md
 
 # Emacs autosave files
 \#*\#

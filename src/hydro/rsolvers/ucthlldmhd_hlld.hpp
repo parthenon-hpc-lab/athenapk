@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD
 // code. Copyright (c) 2021, Athena-Parthenon Collaboration. All rights
@@ -14,7 +15,6 @@
 //! - T. Miyoshi & K. Kusano, "A multi-state HLL approximate Riemann solver for ideal
 //!   MHD", JCP, 208, 315 (2005)
 
-
 #ifndef RSOLVERS_UCTHLLDMHD_HLLD_HPP_
 #define RSOLVERS_UCTHLLDMHD_HLLD_HPP_
 
@@ -30,7 +30,6 @@
 
 using TE = parthenon::TopologicalElement;
 
-
 // container to store (density, momentum, total energy, tranverse magnetic field)
 // minimizes changes required to adopt athena4.2 version of this solver
 
@@ -45,10 +44,8 @@ struct Riemann<Fluid::ucthlldmhd, RiemannSolver::hlld> {
   static KOKKOS_INLINE_FUNCTION void
   Solve(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
         const int iu, const int ivx, const ScratchPad2D<Real> &wl,
-        const ScratchPad2D<Real> &wr, 
-        VariableFluxPack<Real> &cons, 
-        VariablePack<Real> &uct_hlld,
-        const AdiabaticCTMHDEOS &eos, const Real /*c_h*/) {
+        const ScratchPad2D<Real> &wr, VariableFluxPack<Real> &cons,
+        VariablePack<Real> &uct_hlld, const AdiabaticCTMHDEOS &eos, const Real /*c_h*/) {
     const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
     const int iBx = ivx - 1 + NHYDRO;
@@ -64,8 +61,8 @@ struct Riemann<Fluid::ucthlldmhd, RiemannSolver::hlld> {
 
     parthenon::par_for_inner(member, il, iu, [&](const int i) {
       Real wli[NCTMHD], wri[NCTMHD], flxi[NCTMHD];
-      Real spd[5];                     // signal speeds, left to right
-      UCTHLLDCons1D ul, ur;                   // L/R states, conserved variables (computed)
+      Real spd[5];          // signal speeds, left to right
+      UCTHLLDCons1D ul, ur; // L/R states, conserved variables (computed)
       UCTHLLDCons1D ulst, uldst, urdst, urst; // Conserved variable for all states
       UCTHLLDCons1D fl, fr;                   // Fluxes for left & right states
 
@@ -91,12 +88,13 @@ struct Riemann<Fluid::ucthlldmhd, RiemannSolver::hlld> {
 
       flxi[IB1] = 0.0; // normal component of flux is 0.0
       Real bxi = 0.5 * (wli[IB1] + wri[IB1]);
-      
+
       // Compute L/R states for selected conserved variables
       Real bxsq = bxi * bxi;
       // (KGF): group transverse vector components for floating-point associativity
       // symmetry
-      Real pbl = 0.5 * (bxsq + (SQR(wli[IB2]) + SQR(wli[IB3]))); // magnetic pressure (l/r)
+      Real pbl =
+          0.5 * (bxsq + (SQR(wli[IB2]) + SQR(wli[IB3]))); // magnetic pressure (l/r)
       Real pbr = 0.5 * (bxsq + (SQR(wri[IB2]) + SQR(wri[IB3])));
       Real kel = 0.5 * wli[IDN] * (SQR(wli[IV1]) + (SQR(wli[IV2]) + SQR(wli[IV3])));
       Real ker = 0.5 * wri[IDN] * (SQR(wri[IV1]) + (SQR(wri[IV2]) + SQR(wri[IV3])));
@@ -164,7 +162,8 @@ struct Riemann<Fluid::ucthlldmhd, RiemannSolver::hlld> {
 
       // S_M: eqn (38) of Miyoshi & Kusano
       // (KGF): group ptl, ptr terms for floating-point associativity symmetry
-      spd[2] = (sdr * ur.mx - sdl * ul.mx + (ptl - ptr)) / (sdr * ur.d - sdl * ul.d); // lambda
+      spd[2] =
+          (sdr * ur.mx - sdl * ul.mx + (ptl - ptr)) / (sdr * ur.d - sdl * ul.d); // lambda
 
       Real sdml = spd[0] - spd[2]; // S_i-S_M (i=L or R)
       Real sdmr = spd[4] - spd[2];
@@ -387,60 +386,58 @@ struct Riemann<Fluid::ucthlldmhd, RiemannSolver::hlld> {
       cons.flux(ivx, iBy, k, j, i) = flxi[IB2];
       cons.flux(ivx, iBz, k, j, i) = flxi[IB3];
 
-
       // following Mignone/Del Zanna (2021) [MDZ21]systematic construction of
       // UCT schemes for the UCT-HLLD scheme
 
       // Renaming to follow [MDZ21] notation more clearly (S stands for star *)
       Real lam_L = spd[0];
       Real lam_R = spd[4];
-      Real lamS  = spd[2];
-      Real lamS_L= spd[1];
-      Real lamS_R= spd[3];
+      Real lamS = spd[2];
+      Real lamS_L = spd[1];
+      Real lamS_R = spd[3];
 
       // [MDZ21] equations (45) with eq. (46) degeneracy check for vS
       Real uct_eps = 1.0e-9;
       Real nuS;
-      if (std::abs(lamS_R - lamS_L) > uct_eps * std::abs(lam_R - lam_L)){
+      if (std::abs(lamS_R - lamS_L) > uct_eps * std::abs(lam_R - lam_L)) {
         nuS = (std::abs(lamS_R) - std::abs(lamS_L)) / (lamS_R - lamS_L);
       } else {
         nuS = 0.0;
       }
 
       // [MDZ21] equation (45) for nuL and nuR
-      Real nuL = (lamS_L + lam_L) / (std::abs(lamS_L) + std::abs(lam_L)); 
-      Real nuR = (lamS_R + lam_R) / (std::abs(lamS_R) + std::abs(lam_R)); 
+      Real nuL = (lamS_L + lam_L) / (std::abs(lamS_L) + std::abs(lam_L));
+      Real nuR = (lamS_R + lam_R) / (std::abs(lamS_R) + std::abs(lam_R));
 
       // [MDZ21] equation for \tilde \chi L and R (above eq. 45)
-      Real tchiL = ((wli[IV1] - lamS) * (lam_L - lamS)) / (lamS_L + lam_L - 2.0*lamS);
-      Real tchiR = ((wri[IV1] - lamS) * (lam_R - lamS)) / (lamS_R + lam_R - 2.0*lamS);
-
+      Real tchiL = ((wli[IV1] - lamS) * (lam_L - lamS)) / (lamS_L + lam_L - 2.0 * lamS);
+      Real tchiR = ((wri[IV1] - lamS) * (lam_R - lamS)) / (lamS_R + lam_R - 2.0 * lamS);
 
       Real alphaP = std::max(0.0, lam_R);
-      Real alphaM = -std::min(0.0,lam_L);
-      
+      Real alphaM = -std::min(0.0, lam_L);
+
       Real aL = 0.5 * (1.0 + nuS);
       Real aR = 0.5 * (1.0 - nuS);
-      Real dL = 0.5 * (nuL - nuS) * tchiL + 0.5 * (std::abs(lamS_L) -  nuS * lamS_L);
-      Real dR = 0.5 * (nuR - nuS) * tchiR + 0.5 * (std::abs(lamS_R) -  nuS * lamS_R);
-      Real vT1= (alphaP * wli[IV2] + alphaM * wri[IV2]) / (alphaP + alphaM);
-      Real vT2= (alphaP * wli[IV3] + alphaM * wri[IV3]) / (alphaP + alphaM);
+      Real dL = 0.5 * (nuL - nuS) * tchiL + 0.5 * (std::abs(lamS_L) - nuS * lamS_L);
+      Real dR = 0.5 * (nuR - nuS) * tchiR + 0.5 * (std::abs(lamS_R) - nuS * lamS_R);
+      Real vT1 = (alphaP * wli[IV2] + alphaM * wri[IV2]) / (alphaP + alphaM);
+      Real vT2 = (alphaP * wli[IV3] + alphaM * wri[IV3]) / (alphaP + alphaM);
 
-      if (ivx == 1){
+      if (ivx == 1) {
         uct_hlld(TE::F1, AL, k, j, i) = aL;
         uct_hlld(TE::F1, AR, k, j, i) = aR;
         uct_hlld(TE::F1, DL, k, j, i) = dL;
         uct_hlld(TE::F1, DR, k, j, i) = dR;
         uct_hlld(TE::F1, VBART1, k, j, i) = vT1;
         uct_hlld(TE::F1, VBART2, k, j, i) = vT2;
-      } else if (ivx == 2){
+      } else if (ivx == 2) {
         uct_hlld(TE::F2, AL, k, j, i) = aL;
         uct_hlld(TE::F2, AR, k, j, i) = aR;
         uct_hlld(TE::F2, DL, k, j, i) = dL;
         uct_hlld(TE::F2, DR, k, j, i) = dR;
         uct_hlld(TE::F2, VBART1, k, j, i) = vT1;
         uct_hlld(TE::F2, VBART2, k, j, i) = vT2;
-      } else if (ivx == 3){
+      } else if (ivx == 3) {
         uct_hlld(TE::F3, AL, k, j, i) = aL;
         uct_hlld(TE::F3, AR, k, j, i) = aR;
         uct_hlld(TE::F3, DL, k, j, i) = dL;
@@ -448,11 +445,6 @@ struct Riemann<Fluid::ucthlldmhd, RiemannSolver::hlld> {
         uct_hlld(TE::F3, VBART1, k, j, i) = vT1;
         uct_hlld(TE::F3, VBART2, k, j, i) = vT2;
       }
-
-
-
-      
-
     });
   }
 };

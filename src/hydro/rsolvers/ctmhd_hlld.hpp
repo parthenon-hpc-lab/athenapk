@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD
 // code. Copyright (c) 2021, Athena-Parthenon Collaboration. All rights
@@ -13,7 +14,6 @@
 //! REFERENCES:
 //! - T. Miyoshi & K. Kusano, "A multi-state HLL approximate Riemann solver for ideal
 //!   MHD", JCP, 208, 315 (2005)
-
 
 #ifndef RSOLVERS_CTMHD_HLLD_HPP_
 #define RSOLVERS_CTMHD_HLLD_HPP_
@@ -59,7 +59,7 @@ struct Riemann<Fluid::ctmhd, RiemannSolver::hlld> {
 
     parthenon::par_for_inner(member, il, iu, [&](const int i) {
       Real wli[NCTMHD], wri[NCTMHD], flxi[NCTMHD];
-      Real spd[5];                     // signal speeds, left to right
+      Real spd[5];                       // signal speeds, left to right
       CTCons1D ul, ur;                   // L/R states, conserved variables (computed)
       CTCons1D ulst, uldst, urdst, urst; // Conserved variable for all states
       CTCons1D fl, fr;                   // Fluxes for left & right states
@@ -86,12 +86,13 @@ struct Riemann<Fluid::ctmhd, RiemannSolver::hlld> {
 
       flxi[IB1] = 0.0; // normal component of flux is 0.0
       Real bxi = 0.5 * (wli[IB1] + wri[IB1]);
-      
+
       // Compute L/R states for selected conserved variables
       Real bxsq = bxi * bxi;
       // (KGF): group transverse vector components for floating-point associativity
       // symmetry
-      Real pbl = 0.5 * (bxsq + (SQR(wli[IB2]) + SQR(wli[IB3]))); // magnetic pressure (l/r)
+      Real pbl =
+          0.5 * (bxsq + (SQR(wli[IB2]) + SQR(wli[IB3]))); // magnetic pressure (l/r)
       Real pbr = 0.5 * (bxsq + (SQR(wri[IB2]) + SQR(wri[IB3])));
       Real kel = 0.5 * wli[IDN] * (SQR(wli[IV1]) + (SQR(wli[IV2]) + SQR(wli[IV3])));
       Real ker = 0.5 * wri[IDN] * (SQR(wri[IV1]) + (SQR(wri[IV2]) + SQR(wri[IV3])));

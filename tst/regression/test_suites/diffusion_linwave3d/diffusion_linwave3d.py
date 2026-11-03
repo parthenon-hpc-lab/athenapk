@@ -4,6 +4,7 @@
 # Licensed under the 3-clause BSD License, see LICENSE file for details
 # ========================================================================================
 
+# This file was made in part with generative AI
 # Modules
 import math
 import numpy as np
@@ -13,7 +14,7 @@ matplotlib.use("agg")
 import matplotlib.pylab as plt
 import sys
 import os
-import utils.test_case
+from test_suites.validation_report import ReportingTestCase, history
 from numpy.polynomial import Polynomial
 
 """ To prevent littering up imported folders with .pyc files or __pycache_ folder"""
@@ -35,9 +36,16 @@ _eta = _kappa
 _c_s = 0.5  # slow mode wave speed of AthenaPK linear wave configuration
 
 
-class TestCase(utils.test_case.TestCaseAbs):
+class TestCase(ReportingTestCase):
+    case_count = 2
+    purpose = (
+        "GLM slow-wave decay with Ohmic resistivity, viscosity and conduction; "
+        "compare the fitted rate with the existing analytic prediction."
+    )
+
     def Prepare(self, parameters, step):
         res = lin_res[(step - 1)]
+        self.report.label(f"Slow-mode decay N{res}")
         # make sure we can evenly distribute the MeshBlock sizes
         err_msg = "Num ranks must be multiples of 2 for test."
         assert parameters.num_ranks == 1 or parameters.num_ranks % 2 == 0, err_msg
@@ -60,18 +68,24 @@ class TestCase(utils.test_case.TestCaseAbs):
             "parthenon/time/integrator=vl2",
             "parthenon/time/tlim=3.0",
             "hydro/reconstruction=plm",
+            "hydro/scratch_level=1",
+            "problem/linear_wave_mhd/test=false",
+            "problem/linear_wave_mhd/vflow=0",
+            "problem/linear_wave_mhd/ang_2=-999.9",
+            "problem/linear_wave_mhd/ang_3=-999.9",
             "hydro/fluid=glmmhd",
             "hydro/riemann=hlld",
             # enable history dump to track decay of v2 component
             "parthenon/output2/file_type=hst",
             "parthenon/output2/dt=0.03",
-            "problem/linear_wave/dump_max_v2=true",
+            "parthenon/output2/data_format=%.16e",
+            "problem/linear_wave_mhd/dump_max_v2=true",
             f"parthenon/job/problem_id={res}",  # hack to rename parthenon.hst to res.hst
             # setup linear wave (L slow mode)
             "job/problem_id=linear_wave_mhd",
-            "problem/linear_wave/amp=1e-4",
-            "problem/linear_wave/wave_flag=2",
-            "problem/linear_wave/compute_error=false",  # done here below, not in the pgen
+            "problem/linear_wave_mhd/amp=1e-4",
+            "problem/linear_wave_mhd/wave_flag=2",
+            "problem/linear_wave_mhd/compute_error=false",  # done here below, not in the pgen
             # setup diffusive processes
             "diffusion/integrator=unsplit",
             "diffusion/conduction=isotropic",
@@ -109,20 +123,28 @@ class TestCase(utils.test_case.TestCaseAbs):
         analyze_status = True
         errors_abs = []
 
-        for nx, err_tol in zip(lin_res, error_rel_tols):
+        for step, (nx, err_tol) in enumerate(zip(lin_res, error_rel_tols), start=1):
+            self.report.select(step)
             print(
                 "[Decaying 3D Linear Wave]: "
                 "Mesh size {} x {} x {}".format(2 * nx, nx, nx)
             )
             filename = os.path.join(parameters.output_path, f"{nx}.out2.hst")
-            hst_data = np.genfromtxt(filename, names=True, skip_header=1)
-
-            tt = hst_data["1time"]
-            max_vy = hst_data["13MaxAbsV2"]
+            hst_data = history(filename)
+            tt = hst_data["time"]
+            max_vy = hst_data["MaxAbsV2"]
+            self.report.check(
+                "Finite positive decay samples",
+                np.isfinite(tt).all()
+                and np.isfinite(max_vy).all()
+                and np.all(max_vy > 0)
+                and len(tt) >= 3,
+                (len(tt), np.min(max_vy)),
+                ">=3 finite times and positive amplitudes",
+            )
             # estimate the decay rate from simulation, using weighted least-squares (WLS)
             yy = np.log(np.abs(max_vy))
             plt.plot(tt, yy)
-            plt.show()
             p, [resid, rank, sv, rcond] = Polynomial.fit(
                 tt, yy, 1, w=np.sqrt(max_vy), full=True
             )
@@ -167,6 +189,16 @@ class TestCase(utils.test_case.TestCaseAbs):
                 )
             )
 
+            self.report.note(
+                f"Analytic rate={slow_mode_rate:.12e}; fitted rate={fit_rate:.12e}; "
+                f"absolute error={error_abs:.12e}; R-squared={r2:.12e}"
+            )
+            self.report.check(
+                "Analytic decay-rate agreement",
+                np.isfinite(error_rel) and error_rel <= err_tol,
+                error_rel,
+                f"|analytic_rate/fitted_rate-1| <= {err_tol}",
+            )
             if error_rel > err_tol:
                 print(
                     "WARN [Decaying 3D Linear Wave {}]: decay rate disagrees"
@@ -180,4 +212,6 @@ class TestCase(utils.test_case.TestCaseAbs):
                 )
                 print("")
 
+        plt.savefig(os.path.join(parameters.output_path, "slow-wave-decay.png"))
+        plt.close()
         return analyze_status

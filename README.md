@@ -1,3 +1,4 @@
+<!-- This file was made in part with generative AI -->
 # AthenaPK
 
 AthenaPK: a performance portable version based on [Athena++](https://github.com/PrincetonUniversity/athena),  [Parthenon](https://github.com/parthenon-hpc-lab/parthenon) and [Kokkos](https://github.com/kokkos/kokkos).
@@ -14,6 +15,8 @@ Current features include
   - HLLE (hydro and MHD), HLLC (hydro), and HLLD (MHD) Riemann solvers
   - adiabatic equation of state
   - MHD based on hyperbolic divergence cleaning following Dedner+ 2002
+  - [second-order constrained transport](docs/constrained_transport.md), with
+    CT-contact and UCT-HLLD edge solvers, PLM/HLLD, and static/adaptive refinement
   - diffusion processes
     - isotropic and anisotropic thermal conduction
     - viscosity
@@ -113,12 +116,12 @@ An Intel Skylake system (AVX512 instructions) with NVidia Volta V100 GPUs and wi
 Some example input files are provided in the [inputs](inputs/) folder.
 
     # for a simple linear wave test run
-    ./bin/athenaPK -i ../inputs/linear_wave3d.in
+    ./bin/athenaPK -i ../inputs/linear_wave3d_hydro.in
 
     # to run a convergence test:
     for M in 16 32 64 128; do
       export N=$M;
-      ./bin/athenaPK -i ../inputs/linear_wave3d.in parthenon/meshblock/nx1=$((2*N)) parthenon/meshblock/nx2=$N parthenon/meshblock/nx3=$N parthenon/mesh/nx1=$((2*M)) parthenon/mesh/nx2=$M parthenon/mesh/nx3=$M
+      ./bin/athenaPK -i ../inputs/linear_wave3d_hydro.in parthenon/meshblock/nx1=$((2*N)) parthenon/meshblock/nx2=$N parthenon/meshblock/nx3=$N parthenon/mesh/nx1=$((2*M)) parthenon/mesh/nx2=$M parthenon/mesh/nx3=$M
     done
 
     # and check the resulting errors

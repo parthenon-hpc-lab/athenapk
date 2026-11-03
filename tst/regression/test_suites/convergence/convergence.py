@@ -15,6 +15,7 @@
 # the public, perform publicly and display publicly, and to permit others to do so.
 # ========================================================================================
 
+# This file was made in part with generative AI
 # Modules
 import math
 import numpy as np
@@ -24,7 +25,7 @@ matplotlib.use("agg")
 import matplotlib.pylab as plt
 import sys
 import os
-import utils.test_case
+from test_suites.validation_report import ReportingTestCase, error_table
 
 """ To prevent littering up imported folders with .pyc files or __pycache_ folder"""
 sys.dont_write_bytecode = True
@@ -45,7 +46,10 @@ method_cfgs = [
 ]
 
 
-class TestCase(utils.test_case.TestCaseAbs):
+class TestCase(ReportingTestCase):
+    case_count = 40
+    purpose = "Euler wave convergence through the renamed hydro pgen; preserve legacy accuracy gate."
+
     def Prepare(self, parameters, step):
         """
         Any preprocessing that is needed before the drive is run can be done in
@@ -64,7 +68,11 @@ class TestCase(utils.test_case.TestCaseAbs):
 
         As an example if the following block was uncommented it would overwrite
         any of the parameters that were specified in the parthenon input file
-        parameters.driver_cmd_line_args = ['output1/file_type=vtk',
+        self.report.label(f"{integrator} {recon} {riemann} N{res}")
+        parameters.driver_cmd_line_args = [
+            "job/problem_id=linear_wave_hydro",
+            "hydro/fluid=euler",
+            "hydro/scratch_level=1",'output1/file_type=vtk',
                 'output1/variable=cons',
                 'output1/dt=0.4',
                 'time/tlim=0.4',
@@ -145,7 +153,7 @@ class TestCase(utils.test_case.TestCaseAbs):
         if len(lines) != n_res * n_meth + 1:
             print(
                 "Missing lines in output file. Expected ",
-                n_res * n_method + 1,
+                n_res * n_meth + 1,
                 ", but got ",
                 len(lines),
             )
@@ -159,9 +167,43 @@ class TestCase(utils.test_case.TestCaseAbs):
             os.path.join(parameters.output_path, "linearwave-errors.dat")
         )
 
-        # quick and dirty test
-        if data[10, 4] > 1.547584e-08:
-            analyze_status = False
+        columns = error_table(
+            os.path.join(parameters.output_path, "linearwave-errors.dat")
+        )
+        self.report.active = None
+        self.report.check(
+            "Hydro case count",
+            len(data) == n_res * n_meth,
+            len(data),
+            f"exactly {n_res*n_meth}",
+        )
+        self.report.check(
+            "Finite hydro results",
+            np.isfinite(data).all(),
+            np.isfinite(data).all(),
+            "all error-table values finite",
+        )
+        self.report.check(
+            "Legacy hydro accuracy: VL2/PLM N64",
+            data[10, 4] <= 1.547584e-08,
+            data[10, 4],
+            "RMS-L1 <= 1.547584e-08 (unchanged legacy gate)",
+        )
+        for step, row in enumerate(data, start=1):
+            self.report.select(step)
+            self.report.note(
+                "Hydro result: "
+                + str(
+                    {name: float(values[step - 1]) for name, values in columns.items()}
+                )
+            )
+        self.report.active = None
+        for i, cfg in enumerate(method_cfgs):
+            es = data[i * n_res : (i + 1) * n_res, 4]
+            self.report.note(
+                f"{cfg}: errors={es}, observed orders={np.log2(es[:-1]/es[1:])}; "
+                "orders informational; legacy accuracy gate retained"
+            )
 
         markers = "ov^<>sp*hXD"
         for i, cfg in enumerate(method_cfgs):

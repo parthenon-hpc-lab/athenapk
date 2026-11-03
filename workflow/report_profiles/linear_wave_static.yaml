@@ -1,7 +1,0 @@
-report_description: report/linear_wave_static_report.rst
-
-tests:
-  linear_wave:
-    enabled: false
-  linear_wave_static:
-    enabled: true
