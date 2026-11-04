@@ -36,3 +36,5 @@ the paper), but can easily be modified in the code when needed:
 
 - [Galaxy Cluster and Cluster-like Problem Setup](cluster.md)
 - [Driven turbulence](turbulence.md)
+- [Plane-parallel precipitator](precipitator.md)
+- [Spherical precipitator](precipitator_spherical.md)

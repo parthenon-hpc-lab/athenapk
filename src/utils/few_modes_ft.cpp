@@ -380,9 +380,28 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
       });
 }
 
+void FewModesFT::SaveStateBeforeOutput(Mesh *, ParameterInput *pin) {
+  auto var_hat_host =
+      Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), var_hat_);
+
+  for (int i = 0; i < 3; i++) {
+    for (int m = 0; m < num_modes_; m++) {
+      pin->SetReal("few_modes_ft",
+                   "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_r",
+                   var_hat_host(i, m).real());
+      pin->SetReal("few_modes_ft",
+                   "var_hat_" + std::to_string(i) + "_" + std::to_string(m) + "_i",
+                   var_hat_host(i, m).imag());
+    }
+  }
+
+  pin->SetString("few_modes_ft", "state_rng", GetRNGState());
+  pin->SetString("few_modes_ft", "state_dist", GetDistState());
+}
+
 // Creates a random set of wave vectors with k_mag within k_peak/2 and 2*k_peak
 ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
-                                 uint32_t rseed = 31224) {
+                                 uint32_t rseed, const bool xy_modes_only) {
   auto k_vec = parthenon::ParArray2D<Real>("k_vec", 3, num_modes);
   auto k_vec_h = Kokkos::create_mirror_view_and_copy(parthenon::HostMemSpace(), k_vec);
 
@@ -404,7 +423,7 @@ ParArray2D<Real> MakeRandomModes(const int num_modes, const Real k_peak,
 
     kx1 = dist(rng);
     kx2 = dist(rng);
-    kx3 = dist(rng);
+    kx3 = xy_modes_only ? 0.0 : dist(rng);
     k_mag = std::sqrt(SQR(kx1) + SQR(kx2) + SQR(kx3));
 
     // Expected amplitude of the spectral function. If this is changed, it also needs to

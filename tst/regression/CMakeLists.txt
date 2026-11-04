@@ -72,3 +72,9 @@ setup_test_both("cluster_agn_triggering" "--driver ${PROJECT_BINARY_DIR}/bin/ath
 
   setup_test_serial("lw_implode_symmetry" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
   --driver_input ${PROJECT_SOURCE_DIR}/inputs/lw_implode.in --num_steps 1" "regression")
+
+setup_test_serial("precipitator_spherical" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/precipitator_spherical_smoke.in --num_steps 5" "regression")
+
+setup_test_serial("precipitator_spherical_hse" "--driver ${PROJECT_BINARY_DIR}/bin/athenaPK \
+  --driver_input ${PROJECT_SOURCE_DIR}/inputs/precipitator_spherical_hse.in --num_steps 1" "regression")

@@ -1,0 +1,4 @@
+# Force-free magnetic field parameters
+# alpha has units of inverse length in code units (e.g., kpc^-1 for custom units)
+alpha=4.493409457907e-02
+amplitude=1.0

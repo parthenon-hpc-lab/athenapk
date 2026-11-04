@@ -4,10 +4,11 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+#include <array>
 #include <limits>
 #include <memory>
 #include <string>
-#include <utility>
+#include <sys/types.h>
 #include <vector>
 
 // Parthenon headers
@@ -26,6 +27,7 @@
 #include "glmmhd/glmmhd.hpp"
 #include "hydro.hpp"
 #include "hydro_driver.hpp"
+#include "utils/error_checking.hpp"
 
 using namespace parthenon::driver::prelude;
 
@@ -356,7 +358,6 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   auto num_task_lists_executed_independently = blocks.size();
 
   const int num_partitions = pmesh->DefaultNumPartitions();
-
   // calculate agn triggering accretion rate
   if ((stage == 1) &&
       hydro_pkg->AllParams().hasKey("agn_triggering_reduce_accretion_rate") &&
@@ -429,23 +430,36 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
           tl.AddTask(prev_task, cluster::MagneticTowerReducePowerContribs, mu0.get(), tm);
       prev_task = new_magnetic_tower_power_contrib;
     }
-#ifdef MPI_PARALLEL
-    auto reduce_magnetic_tower_power_contrib = tl.AddTask(
+    auto gather_magnetic_tower_power_contrib = tl.AddTask(
         prev_task,
-        [](StateDescriptor *hydro_pkg) {
-          Real magnetic_tower_contribs[] = {
-              hydro_pkg->Param<Real>("magnetic_tower_linear_contrib"),
-              hydro_pkg->Param<Real>("magnetic_tower_quadratic_contrib")};
-          PARTHENON_MPI_CHECK(MPI_Allreduce(MPI_IN_PLACE, magnetic_tower_contribs, 2,
-                                            MPI_PARTHENON_REAL, MPI_SUM, MPI_COMM_WORLD));
-          hydro_pkg->UpdateParam("magnetic_tower_linear_contrib",
-                                 magnetic_tower_contribs[0]);
-          hydro_pkg->UpdateParam("magnetic_tower_quadratic_contrib",
-                                 magnetic_tower_contribs[1]);
+        [](parthenon::AllReduce<MagneticTowerContribArray> *reducer,
+           StateDescriptor *hydro_pkg) {
+          reducer->val[0] = hydro_pkg->Param<Real>("magnetic_tower_linear_contrib");
+          reducer->val[1] = hydro_pkg->Param<Real>("magnetic_tower_quadratic_contrib");
           return TaskStatus::complete;
         },
-        hydro_pkg.get());
-#endif
+        &magnetic_tower_contrib_reduce_, hydro_pkg.get());
+    auto start_reduce_magnetic_tower_power_contrib = tl.AddTask(
+        gather_magnetic_tower_power_contrib,
+        [](parthenon::AllReduce<MagneticTowerContribArray> *reducer) {
+          return reducer->StartReduce(MPI_SUM);
+        },
+        &magnetic_tower_contrib_reduce_);
+    auto finish_reduce_magnetic_tower_power_contrib = tl.AddTask(
+        start_reduce_magnetic_tower_power_contrib,
+        [](parthenon::AllReduce<MagneticTowerContribArray> *reducer) {
+          return reducer->CheckReduce();
+        },
+        &magnetic_tower_contrib_reduce_);
+    auto reduce_magnetic_tower_power_contrib = tl.AddTask(
+        finish_reduce_magnetic_tower_power_contrib,
+        [](parthenon::AllReduce<MagneticTowerContribArray> *reducer,
+           StateDescriptor *hydro_pkg) {
+          hydro_pkg->UpdateParam("magnetic_tower_linear_contrib", reducer->val[0]);
+          hydro_pkg->UpdateParam("magnetic_tower_quadratic_contrib", reducer->val[1]);
+          return TaskStatus::complete;
+        },
+        &magnetic_tower_contrib_reduce_, hydro_pkg.get());
   }
 
   // First add split sources before the main time integration

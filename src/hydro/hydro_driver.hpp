@@ -6,9 +6,13 @@
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
 
+// Standard library
+#include <array>
+
 // Parthenon headers
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
+#include <utils/reductions.hpp>
 
 using namespace parthenon::driver::prelude;
 
@@ -25,6 +29,11 @@ class HydroDriver : public MultiStageDriver {
   //       DriverUtils::ConstructAndExecuteBlockTasks (driver.hpp)
   //         AdvectionDriver::MakeTaskList (advection.cpp)
   auto MakeTaskCollection(BlockList_t &blocks, int stage) -> TaskCollection;
+
+ private:
+  using MagneticTowerContribArray = std::array<parthenon::Real, 2>;
+
+  parthenon::AllReduce<MagneticTowerContribArray> magnetic_tower_contrib_reduce_;
 };
 
 } // namespace Hydro
