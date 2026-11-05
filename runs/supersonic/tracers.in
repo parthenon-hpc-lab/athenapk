@@ -1,0 +1,28 @@
+# Phase 2 (supersonic): pure, massless tracers (tracers/type=tracer) seeded into the same flow.
+# Run separately from particles.in, from the same restart file:
+#   mpirun -np 8 athenaPK -r ../phase1_gas/parthenon.restart.final.rhdf -i ../tracers.in
+# Particles do not act on the gas, so the gas evolution is identical to the particles run
+# (same restart, same number of ranks) and both can be analysed together.
+# Values marked [T_L] depend on the large eddy time measured in phase 1 (see particles.in).
+
+<parthenon/time>
+tlim = 1.6835              # [T_L] T0 + 5 T_L
+
+<parthenon/output3>
+dt = -1
+
+<parthenon/output4>
+file_type = hdf5
+dt = 0.06835               # [T_L] 0.5 T_L
+id = parts
+variables = prim
+single_precision_output = true
+swarms = tracers
+tracers_variables = id,x,y,z,rho,vel_x,vel_y,vel_z
+
+<tracers>
+enabled = true
+type = tracer
+initial_seed_method = random_per_block
+initial_num_tracers_per_cell = 1.0
+initial_rng_seed = 7

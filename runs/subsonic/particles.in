@@ -1,0 +1,32 @@
+# Phase 2 (subsonic): inertial particles seeded into the developed gas-only flow.
+# Used on restart together with the phase-1 restart file:
+#   mpirun -np 8 athenaPK -r ../phase1_gas/parthenon.restart.final.rhdf -i ../particles.in
+# Parameters given here override the ones stored in the restart file.
+# Values marked [T_L] depend on the large eddy time T_L measured in phase 1 (T_L = 2.556 here,
+# restart time T0 = 10.0). Recompute with ../tl.py and edit, or override on the command line.
+
+<parthenon/time>
+tlim = 22.78               # [T_L] T0 + 5 T_L
+
+<parthenon/output3>
+dt = -1                    # no restart files in phase 2 (set > 0 if you want them)
+
+<parthenon/output4>
+file_type = hdf5           # gas + particle snapshots
+dt = 1.278                 # [T_L] 0.5 T_L
+id = parts
+variables = prim
+single_precision_output = true
+swarms = tracers
+tracers_variables = id,x,y,z,vp_x,vp_y,vp_z,tau_p,rho
+
+<tracers>
+enabled = true
+type = inertial
+drag_law = stokes                  # stokes | epstein (epstein needs epstein_rho_ref, epstein_cs_ref)
+initial_seed_method = random_per_block
+initial_num_tracers_per_cell = 1.0 # per Stokes number
+initial_rng_seed = 7
+stokes_numbers = 0.001,100.0         # St_L = tau_p / T_L, one population each
+stokes_time_unit = 2.556           # [T_L]
+initial_particle_velocity = zero   # zero | gas

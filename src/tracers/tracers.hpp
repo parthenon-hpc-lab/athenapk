@@ -39,7 +39,20 @@ using RNGPool = Kokkos::Random_XorShift64_Pool<>;
 
 namespace Tracers {
 
+// Massless tracers follow the gas velocity. Inertial particles are coupled to the gas
+// via a (one-way) linear drag force dv_p/dt = -(v_p - u_gas(x_p)) / tau_s.
+enum class ParticleType { tracer, inertial };
+// Stokes: constant stopping time tau_s = tau_p.
+// Epstein: tau_s = tau_p * (rho_ref / rho_gas) * (cs_ref / cs_gas), i.e., tau_p is the
+// stopping time at the reference gas density and sound speed.
+enum class DragLaw { stokes, epstein };
+
 std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
+
+// Seeds particles once (if enabled and t >= tracers/seed_time and not seeded before).
+// Called before the main loop and at the beginning of every cycle.
+void MaybeSeedTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
+void PreStepMeshUserWorkInLoop(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 
 extern InitPackageDataFun_t ProblemInitTracerData;
 

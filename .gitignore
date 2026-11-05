@@ -41,3 +41,6 @@ Testing
 # generate_cluster_input.ipynb files
 inputs/cluster/generate_cluster_input.ipynb
 inputs/cluster/my_cluster.input
+
+# Local test/build runs
+test_run/

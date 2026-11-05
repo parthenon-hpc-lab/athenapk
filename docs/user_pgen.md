@@ -199,8 +199,10 @@ In order to allow custom seeding of tracer particles (per problem generator), th
 ```c++
 void ProblemSeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 ```
-It is executed once when a simulation is started the very first time (i.e., it
-is not called on subsequent restarts).
+It is executed exactly once per simulation (i.e., it is not called on subsequent restarts),
+either at startup or at the beginning of the first cycle with `t >= tracers/seed_time`.
+For inertial particles (`tracers/type=inertial`), the callback must also set the stopping
+time `tau_p` of each particle (the particle velocity is set automatically after seeding).
 See the standard tracer seeding implementation[`SeedInitialTracers`](https://github.com/parthenon-hpc-lab/athenapk/blob/main/src/tracers/tracers.cpp) for reference on how to deposit particles.
 
 

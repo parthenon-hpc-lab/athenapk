@@ -54,7 +54,12 @@ int main(int argc, char *argv[]) {
 
   // Redefine defaults
   pman.app_input->ProcessPackages = Hydro::ProcessPackages;
-  pman.app_input->PreStepMeshUserWorkInLoop = Hydro::PreStepMeshUserWorkInLoop;
+  pman.app_input->PreStepMeshUserWorkInLoop = [](Mesh *pmesh, ParameterInput *pin,
+                                                  parthenon::SimTime &tm) {
+    Hydro::PreStepMeshUserWorkInLoop(pmesh, pin, tm);
+    // Seeds particles (once) at the first cycle with t >= tracers/seed_time
+    Tracers::PreStepMeshUserWorkInLoop(pmesh, pin, tm);
+  };
   const auto problem = pman.pinput->GetOrAddString("job", "problem_id", "unset");
 
   if (problem == "linear_wave") {

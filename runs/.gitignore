@@ -1,0 +1,8 @@
+# Simulation output and generated notebooks (inputs, scripts and README are tracked)
+phase*/
+*.ipynb
+*.rhdf
+*.phdf
+*.xdmf
+*.hst
+*.log

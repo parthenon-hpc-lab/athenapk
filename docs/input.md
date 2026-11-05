@@ -350,6 +350,68 @@ Two seeding methods are currently supported:
 - `initial_seed_method=user`
   - Calls a problem specific callback function (`ProblemSeedInitialTracers`), see [tracer callback documenation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/user_pgen.md#tracers).
 
+Particles are seeded exactly once per simulation (also across restarts).
+By default, this happens at startup.
+Setting `tracers/seed_time = T` delays seeding to the beginning of the first cycle with `t >= T`,
+e.g., to seed particles into an already developed, statistically stationary flow.
+Alternatively, a simulation run without particles (`tracers/enabled=false`) can be restarted
+with particles enabled, in which case they are seeded at the restart time
+(or at `seed_time` if it lies further in the future).
+
+#### Inertial particles
+
+Setting `tracers/type = inertial` (default: `tracer`) turns the massless tracers into inertial
+particles with their own velocity `v_p` that are coupled to the gas via a linear drag force
+(one-way coupling, i.e., there is no back reaction on the gas)
+$$
+\frac{d \mathbf{x}_p}{dt} = \mathbf{v}_p \;, \qquad
+\frac{d \mathbf{v}_p}{dt} = - \frac{\mathbf{v}_p - \mathbf{u}(\mathbf{x}_p)}{\tau_s}
+$$
+where $\mathbf{u}(\mathbf{x}_p)$ is the (trilinearly interpolated) gas velocity at the particle position.
+
+```
+<tracers>
+enabled = true
+type = inertial
+initial_seed_method = random_per_block
+initial_num_tracers_per_cell = 0.125     # per Stokes number
+stokes_numbers = 0.1, 1.0, 10.0           # one particle population per entry
+stokes_time_unit = 0.5                    # e.g., large eddy turnover time L/(2 sigma_v)
+### Optional arguments
+#drag_law = stokes                        # (default) or epstein
+#epstein_rho_ref = 1.0                    # required for drag_law = epstein
+#epstein_cs_ref = 1.0                     # required for drag_law = epstein
+#initial_particle_velocity = gas          # (default) or zero
+#seed_time = 0.0
+```
+
+- The stopping time of each particle (stored in the `tau_p` field) is
+  `tau_p = St * stokes_time_unit`.
+  The Stokes number is thus defined relative to a reference time that has to be provided
+  by the user, e.g., the large eddy turnover time $T = L / (2 \sigma_v)$ of the target flow.
+  Other definitions (e.g., relative to the Kolmogorov time $\tau_\eta$ in simulations with
+  explicit viscosity) only require changing `stokes_time_unit`.
+  `St = 0` is allowed and results in tracer behavior.
+- For each entry in `stokes_numbers`, a separate population of
+  `initial_num_tracers_per_cell` particles per cell is seeded (for `random_per_block` seeding).
+  For `initial_seed_method=user`, the callback is responsible for setting `tau_p`.
+- `drag_law = stokes`: the stopping time $\tau_s$ is constant, $\tau_s = \tau_p$.
+- `drag_law = epstein`: the stopping time depends on the local gas density and sound speed
+  $\tau_s = \tau_p (\rho_\mathrm{ref} / \rho) (c_{s,\mathrm{ref}} / c_s)$ with
+  $c_s = \sqrt{\gamma p / \rho}$,
+  i.e., `tau_p` is the stopping time at the reference conditions `epstein_rho_ref` and `epstein_cs_ref`
+  (typically the mean gas density and sound speed).
+- `initial_particle_velocity`: particles start with the local gas velocity (`gas`) or at rest (`zero`).
+- In addition to the default tracer fields, the particle velocity (`vp_x`, `vp_y`, `vp_z`)
+  and stopping time (`tau_p`) are stored. Note that `vel_x`, `vel_y`, and `vel_z` are the
+  gas velocity at the particle position.
+- The particles are integrated with an exponential time differencing scheme (ETD2RK)
+  that is exact for a constant gas velocity, second order accurate in time,
+  unconditionally stable (also for $\tau_s \ll \Delta t$), and reduces to the tracer scheme (Heun's method)
+  for $\tau_s \to 0$.
+  For the Epstein drag law, the step averaged drag coefficient is used (harmonic mean of the stopping
+  times at the beginning and the predicted end of the step).
+
 By default, swarm fields are written only to restart files.
 If they are required for "standard" output files (like single precision `hdf5`),
 they need to be added manually to the output block, e.g., (bottom two lines)
@@ -402,10 +464,11 @@ resulting in the following image:
 
 Following "restrictions" apply to the current tracer implementation:
 - Only 3D simulations.
-- Only one advection method (RK2/Heun's method).
+- Only one advection method per particle type (RK2/Heun's method for tracers, ETD2RK for inertial particles).
+- One-way coupling only for inertial particles (no drag force acting back on the gas).
 - All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`) are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
-- Default tracer values (such as the primitive fields) are only updated right before writing an output file.
-- Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.
+- Default tracer values (such as the primitive fields) are updated at the end of every cycle (after the particles have been moved).
+- Ids are only unique if tracers are seeded once and no new tracer particles are added dynamically while the simulation is running.
 
 Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
 
