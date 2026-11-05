@@ -7,6 +7,8 @@
 //  \brief Generates a divergence-free, Gaussian-random, helical vector field with a
 //  caller-specified power spectrum via Parthenon's FFTManager.
 
+// This file was created in part with assistment from generative AI. 
+
 #ifndef UTILS_GENERATE_STOCHASTIC_B_FIELD_HPP_
 #define UTILS_GENERATE_STOCHASTIC_B_FIELD_HPP_
 

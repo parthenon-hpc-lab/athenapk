@@ -9,7 +9,7 @@
 //  in a periodic box.
 //========================================================================================
 
-// C headers
+// This file was created in part with the help of generative AI. 
 
 // C++ headers
 #include <algorithm> // min, max
