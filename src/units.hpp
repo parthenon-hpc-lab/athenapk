@@ -1,3 +1,4 @@
+// This file was made in part with generative AI
 
 // Athena-Parthenon - a performance portable block structured AMR MHD code
 // Copyright (c) 2020-2023, Athena Parthenon Collaboration. All rights reserved.
@@ -46,7 +47,7 @@ class Units {
   // //cm**3/(g*s**2)
   static constexpr parthenon::Real speed_of_light_cgs = 2.99792458e10; // cm/s
 
-  // Specified code scales	in cgs
+  // Specified code scales in cgs
   // (Multiply code units to get quantities in cgs units)
   // (cgs unit per code unit)
   const parthenon::Real code_length_cgs_, code_mass_cgs_, code_time_cgs_;

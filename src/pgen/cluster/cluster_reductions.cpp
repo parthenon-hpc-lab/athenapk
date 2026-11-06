@@ -1,4 +1,3 @@
-
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
 // Copyright (c) 2021-2023, Athena-Parthenon Collaboration. All rights reserved.

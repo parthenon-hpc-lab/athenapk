@@ -1,3 +1,5 @@
+<!-- This file was made in part with generative AI. -->
+
 # AthenaPK Contributor Guide
 
 The following sections cover the current guidelines that all users and developers are
@@ -13,6 +15,8 @@ and revision any time as necessary.
     - [Merging code](#merging-code)
         * [Merging code from a fork](#merging-code-from-a-fork)
     - [Use of agentic coding](#use-of-agentic-coding)
+    - [Pre-commit hooks](#pre-commit-hooks)
+    - [Linting code](#linting-code)
     - [Formatting code](#formatting-code)
 
 ## User/community interaction and getting help
@@ -139,26 +143,53 @@ In addition, the following recommendations should be followed
 - condense/consolidate generated code (to ease maintenance) as it is (still) often much more verbose than necessary (and typical in the existing codebase)
 - reviewers are expected to be much more skeptical and thorough compared to code written by long-term contributors, and possibly more willing to reject
 
+### Pre-commit hooks
+Formatting (`clang-format` for C++, `black` for Python) and linting (`cpplint`) are
+configured in `.pre-commit-config.yaml`, which pins the tool versions.
+The "Check Formatting" CI runs these checks on all tracked files, including on PRs
+from forks, without requiring a build or submodule checkout.
+
+Installing the Git hook is optional but recommended. It checks staged files and
+fixes their formatting whenever you commit:
+```bash
+python -m pip install pre-commit
+pre-commit install
+```
+The first run requires internet access to install the tools. If a hook changes files,
+review and stage those changes before committing again.
+To run all formatting and lint checks manually:
+```bash
+pre-commit run --all-files --show-diff-on-failure
+```
+Update pinned tool revisions with `pre-commit autoupdate --freeze` and review any
+resulting formatting changes.
+
+### Linting code
+`cpplint` checks AthenaPK's C++ sources in `src/` and `tst/`, using `CPPLINT.cfg`.
+The configuration accommodates existing relative/umbrella includes, mixed guard
+prefixes, anonymous TODOs, and implicit constructors. Spacing and namespace
+indentation follow clang-format.
+It runs in CI and in the optional commit hook. To run only linting manually:
+```bash
+pre-commit run cpplint --all-files
+```
+
 ### Formatting code
-We use `clang-format` to automatically format the C++ code. If you have clang-format installed
-locally, you can always execute `make format-athenapk` or `cmake --build . --target format-athenapk` from
-your build directory to automatically format the code.
-Instead of building a CMake target, auto-formatting can also be triggered by executing `./scripts/format.sh`.
+Run `./scripts/format.sh` from the repository, or
+`cmake --build . --target format-athenapk` from your build directory, to format all
+tracked C++ and Python files. Both commands use the formatting hooks and versions
+pinned in `.pre-commit-config.yaml` when `pre-commit` is available.
 
-If you don't have `clang-format` installed locally, our "Hermes" automation can always
-format the code for you. Just create the following comment in your PR, and Hermes will
-format the code and automatically commit it:
+If `pre-commit` is unavailable, or when running `./scripts/format.sh --local`, the
+script uses locally installed tools. Override them with the `CLANG_FORMAT` and
+`BLACK` environment or CMake variables. The script warns if their major versions
+differ from the pinned versions, since the result may differ from CI.
+This formatting command only runs the formatters; use `pre-commit run --all-files`
+to include linting.
+
+As an alternative for branches in the main repository, our "Hermes" automation can
+format the code and commit the result when you post this comment in your PR:
 ```
 @par-hermes format
 ```
-
-After Hermes formats your code, remember to run `git pull` to update your local tracking
-branch.
-
-In addition to `clang-format`, `black` is used to enforce formatting on python scripts.
-Running:
-```
-@par-hermes format
-```
-
-Will also format all the ".py" files found in the repository.
+After Hermes formats your code, run `git pull` to update your local branch.

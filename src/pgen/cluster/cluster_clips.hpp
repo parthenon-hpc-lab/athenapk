@@ -1,5 +1,3 @@
-
-
 #ifndef CLUSTER_CLUSTER_CLIPS_HPP_
 #define CLUSTER_CLUSTER_CLIPS_HPP_
 //========================================================================================
