@@ -28,6 +28,13 @@ add_executable(
         utils/few_modes_ft.hpp
 )
 
+if(PARTHENON_ENABLE_FFT)
+    target_sources(athenaPK PRIVATE
+        utils/generate_stochastic_b_field.cpp
+        utils/generate_stochastic_b_field.hpp
+    )
+endif()
+
 add_subdirectory(pgen)
 
 target_link_libraries(athenaPK PRIVATE parthenon)
