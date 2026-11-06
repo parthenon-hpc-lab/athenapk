@@ -1,0 +1,74 @@
+<comment>
+problem = Jeans dispersion
+
+<job>
+problem_id = jeans
+
+<problem/jeans>
+rho0  = 1.0
+cs    = 0.1 # unstable regime (k < k_Jeans): perturbation grows
+#cs    = 1.0 # stable regime (k > k_Jeans): perturbation oscillates
+amp   = 1.0e-4
+nwave = 1
+
+<parthenon/mesh>
+refinement = none
+multigrid  = true
+
+nx1    = 128
+x1min  = 0.0
+x1max  = 1.0
+ix1_bc = periodic
+ox1_bc = periodic
+
+nx2    = 4
+x2min  = 0.0
+x2max  = 0.03125
+ix2_bc = periodic
+ox2_bc = periodic
+
+nx3    = 4
+x3min  = 0.0
+x3max  = 0.03125
+ix3_bc = periodic
+ox3_bc = periodic
+
+<parthenon/meshblock>
+nx1 = 16
+nx2 = 4
+nx3 = 4
+
+<parthenon/time>
+integrator = vl2
+cfl        = 0.3
+tlim       = 5.0
+nlim       = -1
+
+<hydro>
+fluid          = euler
+eos            = adiabatic
+gamma          = 1.666667
+riemann        = hllc
+reconstruction = plm
+
+<self_gravity>
+solver         = multigrid
+four_pi_G      = 1.0
+use_swindle    = true
+
+<self_gravity/multigrid_solver_params>
+max_iterations               = 100
+residual_tolerance           = 1.0e-10
+absolute_residual_tolerance  = 1.0e-10
+relative_residual            = true
+relative_residual_tolerance  = 1.0e-8
+preconditioner               = Multigrid
+
+<parthenon/output0>
+file_type = hst
+dt        = 0.01
+
+<parthenon/output1>
+file_type = hdf5
+dt        = 0.1
+variables = prim, grav.phi
