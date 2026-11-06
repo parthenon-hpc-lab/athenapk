@@ -9,6 +9,7 @@
 #include <cmath>
 
 // Parthenon headers
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
 #include <interface/state_descriptor.hpp>
@@ -94,8 +95,8 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   }
 
   // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -124,13 +125,10 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
       "StellarFeedback::FeedbackSrcTerm",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
           DevExecSpace(), {0, kb.s, jb.s, ib.s},
-          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-          {1, 1, 1, ib.e + 1 - ib.s}),
+          {prim.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1}, {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     Real &stellar_mass_team) {
-        auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = cons.GetCoordinates(b);
 
         const auto x = coords.Xc<1>(i);
         const auto y = coords.Xc<2>(j);
@@ -141,32 +139,33 @@ void StellarFeedback::FeedbackSrcTerm(parthenon::MeshData<parthenon::Real> *md,
           return;
         }
 
-        auto number_density = prim(IDN, k, j, i) / mbar;
+        auto number_density = prim(b, IDN, k, j, i) / mbar;
         if (number_density < number_density_threshold) {
           return;
         }
 
-        auto temp = mbar_over_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i);
+        auto temp = mbar_over_kb * prim(b, IPR, k, j, i) / prim(b, IDN, k, j, i);
         if (temp > temperature_threshold) {
           return;
         }
 
         // All conditions to convert mass to energy are met
-        const auto cell_delta_rho = number_density_threshold * mbar - prim(IDN, k, j, i);
+        const auto cell_delta_rho =
+            number_density_threshold * mbar - prim(b, IDN, k, j, i);
         stellar_mass_team -= cell_delta_rho * coords.CellVolume(k, j, i);
 
         // First remove density at fixed temperature
-        AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), k, j,
-                                       i);
+        AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), b, k,
+                                       j, i);
         //  Then add thermal energy
         const auto cell_delta_energy_density = -mass_to_energy * cell_delta_rho;
         PARTHENON_REQUIRE(
             cell_delta_energy_density > 0.0,
             "Sanity check failed. Added thermal energy should be positive.");
-        cons(IEN, k, j, i) += cell_delta_energy_density;
+        cons(b, IEN, k, j, i) += cell_delta_energy_density;
 
         // Update prims
-        eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+        eos.ConsToPrim(cons, prim, nhydro, nscalars, b, k, j, i);
       },
       stellar_mass);
   hydro_pkg->UpdateParam(

@@ -16,7 +16,7 @@
 #include "config.hpp"
 #include "globals.hpp"
 #include "kokkos_abstraction.hpp"
-#include "mesh/meshblock_pack.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 
 // AthenaPK headers
 #include "few_modes_ft.hpp"
@@ -353,10 +353,13 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(domain);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(domain);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(domain);
-  auto var_pack = md->PackVariables(std::vector<std::string>{var_name});
-  auto phases_i = md->PackVariables(std::vector<std::string>{prefix_ + "_phases_i"});
-  auto phases_j = md->PackVariables(std::vector<std::string>{prefix_ + "_phases_j"});
-  auto phases_k = md->PackVariables(std::vector<std::string>{prefix_ + "_phases_k"});
+  const auto var = parthenon::MakePackDescriptor(md, {var_name}).GetPack(md);
+  const auto phases_i =
+      parthenon::MakePackDescriptor(md, {prefix_ + "_phases_i"}).GetPack(md);
+  const auto phases_j =
+      parthenon::MakePackDescriptor(md, {prefix_ + "_phases_j"}).GetPack(md);
+  const auto phases_k =
+      parthenon::MakePackDescriptor(md, {prefix_ + "_phases_k"}).GetPack(md);
 
   // implictly assuming cubic box of size L=1
   parthenon::par_for(
@@ -364,7 +367,7 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
       md->NumBlocks() - 1, 0, 2, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i) {
         Complex phase, phase_i, phase_j, phase_k;
-        var_pack(b, n, k, j, i) = 0.0;
+        var(b, n, k, j, i) = 0.0;
 
         for (int m = 0; m < num_modes; m++) {
           phase_i =
@@ -374,8 +377,8 @@ void FewModesFT::Generate(MeshData<Real> *md, const Real dt,
           phase_k =
               Complex(phases_k(b, 0, k - kb.s, m, 0), phases_k(b, 0, k - kb.s, m, 1));
           phase = phase_i * phase_j * phase_k;
-          var_pack(b, n, k, j, i) += 2. * (var_hat(n, m).real() * phase.real() -
-                                           var_hat(n, m).imag() * phase.imag());
+          var(b, n, k, j, i) += 2. * (var_hat(n, m).real() * phase.real() -
+                                      var_hat(n, m).imag() * phase.imag());
         }
       });
 }

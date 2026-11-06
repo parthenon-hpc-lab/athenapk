@@ -11,6 +11,7 @@
 #include <limits>
 
 // Parthenon headers
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
 #include <interface/params.hpp>
@@ -133,8 +134,8 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
@@ -159,24 +160,23 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
 
   parthenon::par_reduce(
       parthenon::loop_pattern_mdrange_tag, "AGNTriggering::ReduceColdGas",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      parthenon::DevExecSpace(), 0, cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     Real &team_cold_mass) {
-        auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = cons.GetCoordinates(b);
 
         const parthenon::Real r2 =
             pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
         if (r2 < accretion_radius2) {
 
           const Real temp =
-              mean_molecular_mass_by_kb * prim(IPR, k, j, i) / prim(IDN, k, j, i);
+              mean_molecular_mass_by_kb * prim(b, IPR, k, j, i) / prim(b, IDN, k, j, i);
 
           if (temp <= cold_temp_thresh) {
 
-            const Real cell_cold_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
+            const Real cell_cold_mass =
+                prim(b, IDN, k, j, i) * coords.CellVolume(k, j, i);
 
             if (k >= int_kb.s && k <= int_kb.e && j >= int_jb.s && j <= int_jb.e &&
                 i >= int_ib.s && i <= int_ib.e) {
@@ -184,13 +184,13 @@ void AGNTriggering::ReduceColdMass(parthenon::Real &cold_mass,
               team_cold_mass += cell_cold_mass;
             }
 
-            const Real cell_delta_rho = -prim(IDN, k, j, i) / cold_t_acc * dt;
+            const Real cell_delta_rho = -prim(b, IDN, k, j, i) / cold_t_acc * dt;
 
             if (remove_accreted_mass) {
               AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(),
-                                             k, j, i);
+                                             b, k, j, i);
               // Update the Primitives
-              eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+              eos.ConsToPrim(cons, prim, nhydro, nscalars, b, k, j, i);
             }
           }
         }
@@ -212,7 +212,7 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
   // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -231,24 +231,23 @@ void AGNTriggering::ReduceBondiTriggeringQuantities(
       "AGNTriggering::ReduceBondi",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
           DevExecSpace(), {0, kb.s, jb.s, ib.s},
-          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-          {1, 1, 1, ib.e + 1 - ib.s}),
+          {prim.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1}, {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     Real &ltotal_mass_red, Real &lmass_weighted_density_red,
                     Real &lmass_weighted_velocity_red, Real &lmass_weighted_cs_red) {
-        auto &prim = prim_pack(b);
-        const auto &coords = prim_pack.GetCoords(b);
+        const auto &coords = prim.GetCoordinates(b);
         const parthenon::Real r2 =
             pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
         if (r2 < accretion_radius2) {
-          const Real cell_mass = prim(IDN, k, j, i) * coords.CellVolume(k, j, i);
+          const Real cell_mass = prim(b, IDN, k, j, i) * coords.CellVolume(k, j, i);
 
-          const Real cell_mass_weighted_density = cell_mass * prim(IDN, k, j, i);
+          const Real cell_mass_weighted_density = cell_mass * prim(b, IDN, k, j, i);
           const Real cell_mass_weighted_velocity =
-              cell_mass * sqrt(pow(prim(IV1, k, j, i), 2) + pow(prim(IV2, k, j, i), 2) +
-                               pow(prim(IV3, k, j, i), 2));
+              cell_mass *
+              sqrt(pow(prim(b, IV1, k, j, i), 2) + pow(prim(b, IV2, k, j, i), 2) +
+                   pow(prim(b, IV3, k, j, i), 2));
           const Real cell_mass_weighted_cs =
-              cell_mass * sqrt(gamma * prim(IPR, k, j, i) / prim(IDN, k, j, i));
+              cell_mass * sqrt(gamma * prim(b, IPR, k, j, i) / prim(b, IDN, k, j, i));
 
           ltotal_mass_red += cell_mass;
           lmass_weighted_density_red += cell_mass_weighted_density;
@@ -279,8 +278,8 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
 
   // Grab some necessary variables
   // FIXME(forrestglines) When reductions are called, is `prim` up to date?
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::entire);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::entire);
@@ -294,24 +293,22 @@ void AGNTriggering::RemoveBondiAccretedGas(parthenon::MeshData<parthenon::Real> 
 
   parthenon::par_for(
       parthenon::loop_pattern_mdrange_tag, "AGNTriggering::RemoveBondiAccretedGas",
-      parthenon::DevExecSpace(), 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      parthenon::DevExecSpace(), 0, cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e, KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-        auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = cons.GetCoordinates(b);
 
         const parthenon::Real r2 =
             pow(coords.Xc<1>(i), 2) + pow(coords.Xc<2>(j), 2) + pow(coords.Xc<3>(k), 2);
         if (r2 < accretion_radius2) {
 
           const Real cell_delta_rho =
-              -prim(IDN, k, j, i) / total_mass * accretion_rate * dt;
+              -prim(b, IDN, k, j, i) / total_mass * accretion_rate * dt;
 
-          AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), k, j,
-                                         i);
+          AddDensityToConsAtFixedVelTemp(cell_delta_rho, cons, prim, eos.GetGamma(), b, k,
+                                         j, i);
 
           // Update the Primitives
-          eos.ConsToPrim(cons, prim, nhydro, nscalars, k, j, i);
+          eos.ConsToPrim(cons, prim, nhydro, nscalars, b, k, j, i);
         }
       });
 }

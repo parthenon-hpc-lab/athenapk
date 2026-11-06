@@ -21,6 +21,7 @@
 #include "kokkos_abstraction.hpp"
 #include "kokkos_types.hpp"
 #include "mesh/mesh.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <iomanip>
 #include <ios>
 #include <parthenon/driver.hpp>
@@ -57,11 +58,14 @@ Real TurbulenceHst(MeshData<Real> *md) {
   const auto gamma = hydro_pkg->Param<Real>("AdiabaticIndex");
   const auto fluid = hydro_pkg->Param<Fluid>("fluid");
 
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  MeshBlockPack<VariablePack<Real>> temp_pack;
-  if (hst_quan == HstQuan::temperature) {
-    temp_pack = md->PackVariables(std::vector<std::string>{"temperature"});
-  }
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
+  const auto temp = [&]() {
+    if constexpr (hst_quan == HstQuan::temperature) {
+      return parthenon::MakePackDescriptor(md, {"temperature"}).GetPack(md);
+    } else {
+      return parthenon::SparsePack<>();
+    }
+  }();
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -72,38 +76,37 @@ Real TurbulenceHst(MeshData<Real> *md) {
   Real sum;
 
   pmb->par_reduce(
-      "hst_turbulence", 0, prim_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      "hst_turbulence", 0, prim.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-        const auto &prim = prim_pack(b);
-        const auto &coords = prim_pack.GetCoords(b);
+        const auto &coords = prim.GetCoordinates(b);
         if (hst_quan == HstQuan::temperature) {
-          lsum += temp_pack(b, 0, k, j, i) * coords.CellVolume(k, j, i);
+          lsum += temp(b, 0, k, j, i) * coords.CellVolume(k, j, i);
         }
 
-        const auto vel2 = (prim(IV1, k, j, i) * prim(IV1, k, j, i) +
-                           prim(IV2, k, j, i) * prim(IV2, k, j, i) +
-                           prim(IV3, k, j, i) * prim(IV3, k, j, i));
+        const auto vel2 = (prim(b, IV1, k, j, i) * prim(b, IV1, k, j, i) +
+                           prim(b, IV2, k, j, i) * prim(b, IV2, k, j, i) +
+                           prim(b, IV3, k, j, i) * prim(b, IV3, k, j, i));
 
-        const auto c_s = Kokkos::sqrt(gamma * prim(IPR, k, j, i) /
-                                      prim(IDN, k, j, i)); // speed of sound
+        const auto c_s = Kokkos::sqrt(gamma * prim(b, IPR, k, j, i) /
+                                      prim(b, IDN, k, j, i)); // speed of sound
 
-        const auto e_kin = 0.5 * prim(IDN, k, j, i) * vel2;
+        const auto e_kin = 0.5 * prim(b, IDN, k, j, i) * vel2;
 
         if (hst_quan == HstQuan::Ms) { // Ms
           lsum += Kokkos::sqrt(vel2) / c_s * coords.CellVolume(k, j, i);
         }
 
         if (fluid == Fluid::glmmhd) {
-          const auto B2 = (prim(IB1, k, j, i) * prim(IB1, k, j, i) +
-                           prim(IB2, k, j, i) * prim(IB2, k, j, i) +
-                           prim(IB3, k, j, i) * prim(IB3, k, j, i));
+          const auto B2 = (prim(b, IB1, k, j, i) * prim(b, IB1, k, j, i) +
+                           prim(b, IB2, k, j, i) * prim(b, IB2, k, j, i) +
+                           prim(b, IB3, k, j, i) * prim(b, IB3, k, j, i));
 
           const auto e_mag = 0.5 * B2;
 
           if (hst_quan == HstQuan::Ma) { // Ma
             lsum += Kokkos::sqrt(e_kin / e_mag) * coords.CellVolume(k, j, i);
           } else if (hst_quan == HstQuan::pb) { // plasma beta
-            lsum += prim(IPR, k, j, i) / e_mag * coords.CellVolume(k, j, i);
+            lsum += prim(b, IPR, k, j, i) / e_mag * coords.CellVolume(k, j, i);
           }
         }
       },
@@ -413,7 +416,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   const auto kz = 2.0 * M_PI / Lz;
 
   // already pack data here to get easy access to coords in kernels
-  auto const &cons = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   const auto num_blocks = md->NumBlocks();
 
   // First initialize B field as we need to normalize it
@@ -440,7 +443,7 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
           "Init field loop potential", 0, num_blocks - 1, kb.s - 1, kb.e + 1, jb.s - 1,
           jb.e + 1, ib.s - 1, ib.e + 1,
           KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-            const auto &coords = cons.GetCoords(b);
+            const auto &coords = cons.GetCoordinates(b);
 
             if ((SQR(coords.Xc<1>(i) - x0) + SQR(coords.Xc<2>(j) - y0)) < rad * rad) {
               a(b, 2, k, j, i) = (rad - Kokkos::sqrt(SQR(coords.Xc<1>(i) - x0) +
@@ -454,37 +457,38 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
     pmb->par_reduce(
         "Init B", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lsum) {
-          const auto &coords = cons.GetCoords(b);
-          const auto &u = cons(b);
-          u(IB1, k, j, i) = 0.0;
+          const auto &coords = cons.GetCoordinates(b);
+          cons(b, IB1, k, j, i) = 0.0;
 
           if (b_config == 0) { // uniform field
-            u(IB1, k, j, i) = b0;
+            cons(b, IB1, k, j, i) = b0;
           }
           if (b_config == 1) { // no net flux with uniform fieldi
             if (coords.Xc<3>(k) < x3min + Lz / 2.0) {
-              u(IB1, k, j, i) = b0;
+              cons(b, IB1, k, j, i) = b0;
             } else {
-              u(IB1, k, j, i) = -b0;
+              cons(b, IB1, k, j, i) = -b0;
             }
           }
           if (b_config == 2) { // no net flux with sin(z) shape
             // sqrt(0.5) is used so that resulting e_mag is approx b_0^2/2 similar to
             // other b_configs
-            u(IB1, k, j, i) = b0 / Kokkos::sqrt(0.5) * Kokkos::sin(kz * coords.Xc<3>(k));
+            cons(b, IB1, k, j, i) =
+                b0 / Kokkos::sqrt(0.5) * Kokkos::sin(kz * coords.Xc<3>(k));
           }
 
-          u(IB1, k, j, i) +=
+          cons(b, IB1, k, j, i) +=
               (a(b, 2, k, j + 1, i) - a(b, 2, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0 -
               (a(b, 1, k + 1, j, i) - a(b, 1, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0;
-          u(IB2, k, j, i) =
+          cons(b, IB2, k, j, i) =
               (a(b, 0, k + 1, j, i) - a(b, 0, k - 1, j, i)) / coords.Dxc<3>(k) / 2.0 -
               (a(b, 2, k, j, i + 1) - a(b, 2, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0;
-          u(IB3, k, j, i) =
+          cons(b, IB3, k, j, i) =
               (a(b, 1, k, j, i + 1) - a(b, 1, k, j, i - 1)) / coords.Dxc<1>(i) / 2.0 -
               (a(b, 0, k, j + 1, i) - a(b, 0, k, j - 1, i)) / coords.Dxc<2>(j) / 2.0;
           lsum += 0.5 *
-                  (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i))) *
+                  (SQR(cons(b, IB1, k, j, i)) + SQR(cons(b, IB2, k, j, i)) +
+                   SQR(cons(b, IB3, k, j, i))) *
                   coords.CellVolume(k, j, i);
         },
         mag_en_sum);
@@ -512,22 +516,22 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   pmb->par_for(
       "Final norm. and init", 0, num_blocks - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &u = cons(b);
-        u(IDN, k, j, i) = rho0;
+        cons(b, IDN, k, j, i) = rho0;
 
-        u(IM1, k, j, i) = rho0 * v1;
-        u(IM2, k, j, i) = rho0 * v2;
-        u(IM3, k, j, i) = rho0 * v3;
+        cons(b, IM1, k, j, i) = rho0 * v1;
+        cons(b, IM2, k, j, i) = rho0 * v2;
+        cons(b, IM3, k, j, i) = rho0 * v3;
 
-        u(IEN, k, j, i) = p0 / gm1 + 0.5 * rho0 * (SQR(v1) + SQR(v2) + SQR(v3));
+        cons(b, IEN, k, j, i) = p0 / gm1 + 0.5 * rho0 * (SQR(v1) + SQR(v2) + SQR(v3));
 
         if (fluid == Fluid::glmmhd) {
-          u(IB1, k, j, i) /= b_norm;
-          u(IB2, k, j, i) /= b_norm;
-          u(IB3, k, j, i) /= b_norm;
+          cons(b, IB1, k, j, i) /= b_norm;
+          cons(b, IB2, k, j, i) /= b_norm;
+          cons(b, IB3, k, j, i) /= b_norm;
 
-          u(IEN, k, j, i) +=
-              0.5 * (SQR(u(IB1, k, j, i)) + SQR(u(IB2, k, j, i)) + SQR(u(IB3, k, j, i)));
+          cons(b, IEN, k, j, i) +=
+              0.5 * (SQR(cons(b, IB1, k, j, i)) + SQR(cons(b, IB2, k, j, i)) +
+                     SQR(cons(b, IB3, k, j, i)));
         }
       });
 }
@@ -556,23 +560,23 @@ void Perturb(MeshData<Real> *md, const Real dt) {
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  auto acc_pack = md->PackVariables(std::vector<std::string>{"acc"});
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
+  const auto acc = parthenon::MakePackDescriptor(md, {"acc"}).GetPack(md);
 
   Kokkos::Array<Real, 4> sums{{0.0, 0.0, 0.0, 0.0}};
   Kokkos::parallel_reduce(
       "forcing: calc mean momenum",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
-          {0, kb.s, jb.s, ib.s}, {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {0, kb.s, jb.s, ib.s}, {cons.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1},
           {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmass_sum,
                     Real &lim1_sum, Real &lim2_sum, Real &lim3_sum) {
-        const auto &coords = cons_pack.GetCoords(b);
-        auto den = cons_pack(b, IDN, k, j, i);
+        const auto &coords = cons.GetCoordinates(b);
+        auto den = cons(b, IDN, k, j, i);
         lmass_sum += den * coords.CellVolume(k, j, i);
-        lim1_sum += den * acc_pack(b, 0, k, j, i) * coords.CellVolume(k, j, i);
-        lim2_sum += den * acc_pack(b, 1, k, j, i) * coords.CellVolume(k, j, i);
-        lim3_sum += den * acc_pack(b, 2, k, j, i) * coords.CellVolume(k, j, i);
+        lim1_sum += den * acc(b, 0, k, j, i) * coords.CellVolume(k, j, i);
+        lim2_sum += den * acc(b, 1, k, j, i) * coords.CellVolume(k, j, i);
+        lim3_sum += den * acc(b, 2, k, j, i) * coords.CellVolume(k, j, i);
       },
       sums[0], sums[1], sums[2], sums[3]);
 
@@ -583,13 +587,13 @@ void Perturb(MeshData<Real> *md, const Real dt) {
 #endif // MPI_PARALLEL
 
   pmb->par_reduce(
-      "forcing: remove mean momentum and calc norm", 0, acc_pack.GetDim(5) - 1, 0, 2,
-      kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      "forcing: remove mean momentum and calc norm", 0, acc.GetNBlocks() - 1, 0, 2, kb.s,
+      kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i,
                     Real &lampl_sum) {
-        const auto &coords = acc_pack.GetCoords(b);
-        acc_pack(b, n, k, j, i) -= sums[n + 1] / sums[0];
-        lampl_sum += SQR(acc_pack(b, n, k, j, i)) * coords.CellVolume(k, j, i);
+        const auto &coords = acc.GetCoordinates(b);
+        acc(b, n, k, j, i) -= sums[n + 1] / sums[0];
+        lampl_sum += SQR(acc(b, n, k, j, i)) * coords.CellVolume(k, j, i);
       },
       sums[0]);
 
@@ -609,29 +613,27 @@ void Perturb(MeshData<Real> *md, const Real dt) {
   auto norm = accel_rms / std::sqrt(sums[0] / (Lx * Ly * Lz));
 
   pmb->par_for(
-      "apply momemtum perturb", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+      "apply momemtum perturb", 0, cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
       ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        auto &cons = cons_pack(b);
-        auto &acc = acc_pack(b);
-
-        auto &acc_0 = acc(0, k, j, i);
-        auto &acc_1 = acc(1, k, j, i);
-        auto &acc_2 = acc(2, k, j, i);
+        auto &acc_0 = acc(b, 0, k, j, i);
+        auto &acc_1 = acc(b, 1, k, j, i);
+        auto &acc_2 = acc(b, 2, k, j, i);
 
         // normalizing accel field here so that the actual values are used in the output
         acc_0 *= norm;
         acc_1 *= norm;
         acc_2 *= norm;
 
-        Real qa = dt * cons(IDN, k, j, i);
-        cons(IEN, k, j, i) +=
-            (cons(IM1, k, j, i) * dt * acc_0 + cons(IM2, k, j, i) * dt * acc_1 +
-             cons(IM3, k, j, i) * dt * acc_2 +
-             (SQR(acc_0) + SQR(acc_1) + SQR(acc_2)) * qa * qa / (2 * cons(IDN, k, j, i)));
+        Real qa = dt * cons(b, IDN, k, j, i);
+        cons(b, IEN, k, j, i) +=
+            (cons(b, IM1, k, j, i) * dt * acc_0 + cons(b, IM2, k, j, i) * dt * acc_1 +
+             cons(b, IM3, k, j, i) * dt * acc_2 +
+             (SQR(acc_0) + SQR(acc_1) + SQR(acc_2)) * qa * qa /
+                 (2 * cons(b, IDN, k, j, i)));
 
-        cons(IM1, k, j, i) += qa * acc_0;
-        cons(IM2, k, j, i) += qa * acc_1;
-        cons(IM3, k, j, i) += qa * acc_2;
+        cons(b, IM1, k, j, i) += qa * acc_0;
+        cons(b, IM2, k, j, i) += qa * acc_1;
+        cons(b, IM3, k, j, i) += qa * acc_2;
       });
 }
 
@@ -670,7 +672,7 @@ void Rescale(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
 
   const auto fluid = pkg->Param<Fluid>("fluid");
   // To fix this, we'd just have to account for the magnetic energy in the reduction
@@ -683,17 +685,17 @@ void Rescale(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
   Kokkos::parallel_reduce(
       "turbulence: calc RMS Ms",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
-          {0, kb.s, jb.s, ib.s}, {cons_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {0, kb.s, jb.s, ib.s}, {cons.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1},
           {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lMs2_sum) {
-        const auto &coords = cons_pack.GetCoords(b);
-        auto &cons = cons_pack(b);
+        const auto &coords = cons.GetCoordinates(b);
 
-        const auto kin_en_density = 0.5 *
-                                    (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                     SQR(cons(IM3, k, j, i))) /
-                                    cons(IDN, k, j, i);
-        auto pres = (gamma - 1.0) * (cons(IEN, k, j, i) - kin_en_density);
+        const auto kin_en_density =
+            0.5 *
+            (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i)) +
+             SQR(cons(b, IM3, k, j, i))) /
+            cons(b, IDN, k, j, i);
+        auto pres = (gamma - 1.0) * (cons(b, IEN, k, j, i) - kin_en_density);
         lMs2_sum += 2.0 * kin_en_density / (gamma * pres) * coords.CellVolume(k, j, i);
       },
       Ms2_sum);
@@ -713,20 +715,20 @@ void Rescale(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt) {
   auto norm = SQR(rescale_to_rms_Ms) / (Ms2_sum / (Lx * Ly * Lz));
 
   pmb->par_for(
-      "Rescale temperature to target rms Ms", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e,
-      jb.s, jb.e, ib.s, ib.e,
+      "Rescale temperature to target rms Ms", 0, cons.GetNBlocks() - 1, kb.s, kb.e, jb.s,
+      jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        const auto &coords = cons_pack.GetCoords(b);
-        auto &cons = cons_pack(b);
+        const auto &coords = cons.GetCoordinates(b);
 
-        const auto kin_en_density = 0.5 *
-                                    (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                     SQR(cons(IM3, k, j, i))) /
-                                    cons(IDN, k, j, i);
+        const auto kin_en_density =
+            0.5 *
+            (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i)) +
+             SQR(cons(b, IM3, k, j, i))) /
+            cons(b, IDN, k, j, i);
 
-        auto e = (cons(IEN, k, j, i) - kin_en_density) / cons(IDN, k, j, i);
+        auto e = (cons(b, IEN, k, j, i) - kin_en_density) / cons(b, IDN, k, j, i);
 
-        cons(IEN, k, j, i) = kin_en_density + e / norm * cons(IDN, k, j, i);
+        cons(b, IEN, k, j, i) = kin_en_density + e / norm * cons(b, IDN, k, j, i);
       });
 }
 
@@ -793,7 +795,7 @@ void InjectBlob(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)
     IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
     IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
 
-    auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+    const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
 
     const auto fluid = pkg->Param<Fluid>("fluid");
     // To fix this, we'd just have to account for the magnetic energy in the reduction
@@ -803,10 +805,9 @@ void InjectBlob(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)
     const auto gamma = pkg->Param<Real>("AdiabaticIndex");
 
     pmb->par_for(
-        "turbulence: inject blob", 0, cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e,
-        ib.s, ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-          const auto &coords = cons_pack.GetCoords(b);
-          auto &cons = cons_pack(b);
+        "turbulence: inject blob", 0, cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s,
+        ib.e, KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+          const auto &coords = cons.GetCoordinates(b);
 
           const auto x = coords.Xc<1>(i) - loc_x;
           const auto y = coords.Xc<2>(j) - loc_y;
@@ -816,20 +817,20 @@ void InjectBlob(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt)
           if (r < radius) {
             const auto kin_en_density =
                 0.5 *
-                (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                 SQR(cons(IM3, k, j, i))) /
-                cons(IDN, k, j, i);
-            auto rho_e = cons(IEN, k, j, i) - kin_en_density;
+                (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i)) +
+                 SQR(cons(b, IM3, k, j, i))) /
+                cons(b, IDN, k, j, i);
+            auto rho_e = cons(b, IEN, k, j, i) - kin_en_density;
 
             // increase density according to overdensity
-            cons(IDN, k, j, i) *= chi;
+            cons(b, IDN, k, j, i) *= chi;
             // adjust momentum (so that the velocity remains constant)
-            cons(IM1, k, j, i) *= chi;
-            cons(IM2, k, j, i) *= chi;
-            cons(IM3, k, j, i) *= chi;
+            cons(b, IM1, k, j, i) *= chi;
+            cons(b, IM2, k, j, i) *= chi;
+            cons(b, IM3, k, j, i) *= chi;
             // adjust total energy density (using original rho_e translates to an increase
             // of 1/chi in temperature)
-            cons(IEN, k, j, i) = kin_en_density * chi + rho_e;
+            cons(b, IEN, k, j, i) = kin_en_density * chi + rho_e;
           }
         });
   }
@@ -978,7 +979,7 @@ TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm,
   int64_t num_particles_total = 0;
 
   // Get hydro/mhd fluid vars over all blocks
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
     auto &sd = pmb->meshblock_data.Get()->GetSwarmData();

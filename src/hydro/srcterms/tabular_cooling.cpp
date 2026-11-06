@@ -14,6 +14,7 @@
 #include <limits>
 
 // Parthenon headers
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <coordinates/uniform_cartesian.hpp>
 #include <globals.hpp>
 #include <mesh/domain.hpp>
@@ -314,8 +315,8 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
   const Real internal_e_floor = temp_floor / mbar_gm1_over_kb; // specific internal en.
 
   // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   // need to include ghost zones as this source is called prior to the other fluxes when
   // split
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
@@ -324,22 +325,20 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
 
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::SubcyclingSplitSrcTerm", DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-        auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
         // Need to use `cons` here as prim may still contain state at t_0;
-        const Real rho = cons(IDN, k, j, i);
+        const Real rho = cons(b, IDN, k, j, i);
         // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
         // function could be useful.
-        Real internal_e =
-            cons(IEN, k, j, i) - 0.5 *
-                                     (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                      SQR(cons(IM3, k, j, i))) /
-                                     rho;
+        Real internal_e = cons(b, IEN, k, j, i) -
+                          0.5 *
+                              (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i)) +
+                               SQR(cons(b, IM3, k, j, i))) /
+                              rho;
         if (mhd_enabled) {
-          internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
-                               SQR(cons(IB3, k, j, i)));
+          internal_e -= 0.5 * (SQR(cons(b, IB1, k, j, i)) + SQR(cons(b, IB2, k, j, i)) +
+                               SQR(cons(b, IB3, k, j, i)));
         }
         internal_e /= rho;
         const Real internal_e_initial = internal_e;
@@ -479,10 +478,10 @@ void TabularCooling::SubcyclingFixedIntSrcTerm(MeshData<Real> *md, const Real dt
         internal_e = (internal_e > internal_e_floor) ? internal_e : internal_e_floor;
 
         // Remove the cooling from the total energy density
-        cons(IEN, k, j, i) += rho * (internal_e - internal_e_initial);
+        cons(b, IEN, k, j, i) += rho * (internal_e - internal_e_initial);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
-        prim(IPR, k, j, i) = rho * internal_e * gm1;
+        prim(b, IPR, k, j, i) = rho * internal_e * gm1;
       });
 }
 
@@ -509,8 +508,8 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
   const auto temp_cool_floor = std::pow(10.0, log_temp_start_); // low end of cool table
 
   // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
-  const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   // need to include ghost zones as this source is called prior to the other fluxes when
   // split
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::entire);
@@ -525,32 +524,30 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
 
   par_for(
       DEFAULT_LOOP_PATTERN, "TabularCooling::TownsendSrcTerm", DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i) {
-        auto &cons = cons_pack(b);
-        auto &prim = prim_pack(b);
         // Need to use `cons` here as prim may still contain state at t_0;
-        const auto rho = cons(IDN, k, j, i);
+        const auto rho = cons(b, IDN, k, j, i);
         // TODO(pgrete) with potentially more EOS, a separate get_pressure (or similar)
         // function could be useful.
-        auto internal_e =
-            cons(IEN, k, j, i) - 0.5 *
-                                     (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                      SQR(cons(IM3, k, j, i))) /
-                                     rho;
+        auto internal_e = cons(b, IEN, k, j, i) -
+                          0.5 *
+                              (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i)) +
+                               SQR(cons(b, IM3, k, j, i))) /
+                              rho;
         if (mhd_enabled) {
-          internal_e -= 0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
-                               SQR(cons(IB3, k, j, i)));
+          internal_e -= 0.5 * (SQR(cons(b, IB1, k, j, i)) + SQR(cons(b, IB2, k, j, i)) +
+                               SQR(cons(b, IB3, k, j, i)));
         }
         internal_e /= rho;
 
         // If temp is below floor, reset and return
         if (internal_e <= internal_e_floor) {
           // Remove the cooling from the total energy density
-          cons(IEN, k, j, i) += rho * (internal_e_floor - internal_e);
+          cons(b, IEN, k, j, i) += rho * (internal_e_floor - internal_e);
           // Latter technically not required if no other tasks follows before
           // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
-          prim(IPR, k, j, i) = rho * internal_e_floor * gm1;
+          prim(b, IPR, k, j, i) = rho * internal_e_floor * gm1;
           return;
         }
 
@@ -596,10 +593,10 @@ void TabularCooling::TownsendSrcTerm(parthenon::MeshData<parthenon::Real> *md,
         const auto internal_e_new = temp_new > temp_cool_floor
                                         ? temp_new / mbar_gm1_over_kb
                                         : temp_cool_floor / mbar_gm1_over_kb;
-        cons(IEN, k, j, i) += rho * (internal_e_new - internal_e);
+        cons(b, IEN, k, j, i) += rho * (internal_e_new - internal_e);
         // Latter technically not required if no other tasks follows before
         // ConservedToPrim conversion, but keeping it for now (better safe than sorry).
-        prim(IPR, k, j, i) = rho * internal_e_new * gm1;
+        prim(b, IPR, k, j, i) = rho * internal_e_new * gm1;
       });
 }
 
@@ -626,7 +623,7 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
   const Real internal_e_floor = temp_floor / mbar_gm1_over_kb; // specific internal en.
 
   // Grab some necessary variables
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -637,14 +634,12 @@ Real TabularCooling::EstimateTimeStep(MeshData<Real> *md) const {
   Kokkos::parallel_reduce(
       "TabularCooling::TimeStep",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
-          {0, kb.s, jb.s, ib.s}, {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
+          {0, kb.s, jb.s, ib.s}, {prim.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1},
           {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int &b, const int &k, const int &j, const int &i,
                     Real &thread_min_cooling_time) {
-        auto &prim = prim_pack(b);
-
-        const Real rho = prim(IDN, k, j, i);
-        const Real pres = prim(IPR, k, j, i);
+        const Real rho = prim(b, IDN, k, j, i);
+        const Real pres = prim(b, IPR, k, j, i);
 
         const Real internal_e = pres / (rho * gm1);
 

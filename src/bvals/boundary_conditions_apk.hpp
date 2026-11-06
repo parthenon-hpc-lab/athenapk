@@ -22,6 +22,7 @@
 #include "mesh/domain.hpp"
 #include "mesh/mesh.hpp"
 #include "mesh/meshblock.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include "utils/error_checking.hpp"
 
 #include "../main.hpp"
@@ -70,17 +71,20 @@ void ReflectBC(std::shared_ptr<MeshBlockData<Real>> &mbd, bool coarse) {
   // used for reflections
   const int offset = (2 * ref) + (INNER ? -1 : 1);
 
-  auto cons = mbd->PackVariables(std::vector<std::string>{"cons"}, coarse);
+  const auto desc = coarse ? parthenon::MakePackDescriptor(mbd.get(), {"cons"}, {},
+                                                           {parthenon::PDOpt::Coarse})
+                           : parthenon::MakePackDescriptor(mbd.get(), {"cons"});
+  const auto cons = desc.GetPack(mbd.get());
   const bool fine = false; // no usage of fine fields in AthenaPK for now
 
-  const auto nv = IndexRange{0, cons.GetDim(4) - 1};
+  const auto nv = IndexRange{0, cons.GetUpperBoundHost(0)};
   pmb->par_for_bndry(
       "ReflectBC", nv, domain, parthenon::TopologicalElement::CC, coarse, fine,
       KOKKOS_LAMBDA(const int &v, const int &k, const int &j, const int &i) {
         const bool reflect = v == DIR;
-        cons(v, k, j, i) =
+        cons(0, v, k, j, i) =
             (reflect ? -1.0 : 1.0) *
-            cons(v, X3 ? offset - k : k, X2 ? offset - j : j, X1 ? offset - i : i);
+            cons(0, v, X3 ? offset - k : k, X2 ? offset - j : j, X1 ? offset - i : i);
       });
 }
 

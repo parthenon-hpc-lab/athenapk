@@ -71,28 +71,27 @@ void WENO3(const Real &q_im1, const Real &q_i, const Real &q_ip1, Real &ql_ip1,
 //  have been cached for the appropriate k, j (and plus 1) values. Thus, in x1dir ql needs
 //  to be offset by i+1 but for the other direction the offset has been set outside in the
 //  cached stencil.
-template <Reconstruction recon, int XNDIR>
+template <Reconstruction recon, int XNDIR, class View>
 KOKKOS_INLINE_FUNCTION typename std::enable_if<recon == Reconstruction::weno3, void>::type
-Reconstruct(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
-            const int iu, const parthenon::VariablePack<Real> &q, ScratchPad2D<Real> &ql,
+Reconstruct(parthenon::team_mbr_t const &member, const int b, const int k, const int j,
+            const int il, const int iu, const View &q, ScratchPad2D<Real> &ql,
             ScratchPad2D<Real> &qr) {
-  const auto nvar = q.GetDim(4);
-  for (auto n = 0; n < nvar; ++n) {
+  for (auto n = 0; n < q.GetUpperBound(b) + 1; ++n) {
     parthenon::par_for_inner(member, il, iu, [&](const int i) {
-      auto dx2 = q.GetCoords().Dxc<XNDIR>(k, j, i);
+      auto dx2 = q.GetCoordinates(b).template Dxc<XNDIR>(k, j, i);
       dx2 = dx2 * dx2;
       if constexpr (XNDIR == parthenon::X1DIR) {
         // ql is ql_ip1 and qr is qr_i
-        WENO3(q(n, k, j, i - 1), q(n, k, j, i), q(n, k, j, i + 1), ql(n, i + 1), qr(n, i),
-              dx2);
+        WENO3(q(b, n, k, j, i - 1), q(b, n, k, j, i), q(b, n, k, j, i + 1), ql(n, i + 1),
+              qr(n, i), dx2);
       } else if constexpr (XNDIR == parthenon::X2DIR) {
         // ql is ql_jp1 and qr is qr_j
-        WENO3(q(n, k, j - 1, i), q(n, k, j, i), q(n, k, j + 1, i), ql(n, i), qr(n, i),
-              dx2);
+        WENO3(q(b, n, k, j - 1, i), q(b, n, k, j, i), q(b, n, k, j + 1, i), ql(n, i),
+              qr(n, i), dx2);
       } else if constexpr (XNDIR == parthenon::X3DIR) {
         // ql is ql_kp1 and qr is qr_k
-        WENO3(q(n, k - 1, j, i), q(n, k, j, i), q(n, k + 1, j, i), ql(n, i), qr(n, i),
-              dx2);
+        WENO3(q(b, n, k - 1, j, i), q(b, n, k, j, i), q(b, n, k + 1, j, i), ql(n, i),
+              qr(n, i), dx2);
       } else {
         PARTHENON_FAIL("Unknow direction for WENO3 reconstruction.")
       }

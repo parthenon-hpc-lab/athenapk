@@ -44,10 +44,10 @@ constexpr int NGLMMHD = 9;
 
 template <>
 struct Riemann<Fluid::glmmhd, RiemannSolver::llf> {
-  static KOKKOS_INLINE_FUNCTION void Solve(const AdiabaticGLMMHDEOS &eos, const int k,
-                                           const int j, const int i, const int ivx,
-                                           const VariablePack<Real> &prim,
-                                           VariableFluxPack<Real> &cons, const Real c_h) {
+  template <class PrimView, class ConsView>
+  static KOKKOS_INLINE_FUNCTION void
+  Solve(const AdiabaticGLMMHDEOS &eos, const int b, const int k, const int j, const int i,
+        const int ivx, const PrimView &prim, const ConsView &cons, const Real c_h) {
     const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
     const int iBx = ivx - 1 + NHYDRO;
@@ -59,46 +59,46 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::llf> {
     Real wli[(NGLMMHD)];
     Real wri[(NGLMMHD)];
     if (ivx == 1) {
-      wli[IDN] = prim(IDN, k, j, i - 1);
-      wli[IV1] = prim(ivx, k, j, i - 1);
-      wli[IV2] = prim(ivy, k, j, i - 1);
-      wli[IV3] = prim(ivz, k, j, i - 1);
-      wli[IPR] = prim(IPR, k, j, i - 1);
-      wli[IB1] = prim(iBx, k, j, i - 1);
-      wli[IB2] = prim(iBy, k, j, i - 1);
-      wli[IB3] = prim(iBz, k, j, i - 1);
-      wli[IPS] = prim(IPS, k, j, i - 1);
+      wli[IDN] = prim(b, IDN, k, j, i - 1);
+      wli[IV1] = prim(b, ivx, k, j, i - 1);
+      wli[IV2] = prim(b, ivy, k, j, i - 1);
+      wli[IV3] = prim(b, ivz, k, j, i - 1);
+      wli[IPR] = prim(b, IPR, k, j, i - 1);
+      wli[IB1] = prim(b, iBx, k, j, i - 1);
+      wli[IB2] = prim(b, iBy, k, j, i - 1);
+      wli[IB3] = prim(b, iBz, k, j, i - 1);
+      wli[IPS] = prim(b, IPS, k, j, i - 1);
     } else if (ivx == 2) {
-      wli[IDN] = prim(IDN, k, j - 1, i);
-      wli[IV1] = prim(ivx, k, j - 1, i);
-      wli[IV2] = prim(ivy, k, j - 1, i);
-      wli[IV3] = prim(ivz, k, j - 1, i);
-      wli[IPR] = prim(IPR, k, j - 1, i);
-      wli[IB1] = prim(iBx, k, j - 1, i);
-      wli[IB2] = prim(iBy, k, j - 1, i);
-      wli[IB3] = prim(iBz, k, j - 1, i);
-      wli[IPS] = prim(IPS, k, j - 1, i);
+      wli[IDN] = prim(b, IDN, k, j - 1, i);
+      wli[IV1] = prim(b, ivx, k, j - 1, i);
+      wli[IV2] = prim(b, ivy, k, j - 1, i);
+      wli[IV3] = prim(b, ivz, k, j - 1, i);
+      wli[IPR] = prim(b, IPR, k, j - 1, i);
+      wli[IB1] = prim(b, iBx, k, j - 1, i);
+      wli[IB2] = prim(b, iBy, k, j - 1, i);
+      wli[IB3] = prim(b, iBz, k, j - 1, i);
+      wli[IPS] = prim(b, IPS, k, j - 1, i);
     } else if (ivx == 3) {
-      wli[IDN] = prim(IDN, k - 1, j, i);
-      wli[IV1] = prim(ivx, k - 1, j, i);
-      wli[IV2] = prim(ivy, k - 1, j, i);
-      wli[IV3] = prim(ivz, k - 1, j, i);
-      wli[IPR] = prim(IPR, k - 1, j, i);
-      wli[IB1] = prim(iBx, k - 1, j, i);
-      wli[IB2] = prim(iBy, k - 1, j, i);
-      wli[IB3] = prim(iBz, k - 1, j, i);
-      wli[IPS] = prim(IPS, k - 1, j, i);
+      wli[IDN] = prim(b, IDN, k - 1, j, i);
+      wli[IV1] = prim(b, ivx, k - 1, j, i);
+      wli[IV2] = prim(b, ivy, k - 1, j, i);
+      wli[IV3] = prim(b, ivz, k - 1, j, i);
+      wli[IPR] = prim(b, IPR, k - 1, j, i);
+      wli[IB1] = prim(b, iBx, k - 1, j, i);
+      wli[IB2] = prim(b, iBy, k - 1, j, i);
+      wli[IB3] = prim(b, iBz, k - 1, j, i);
+      wli[IPS] = prim(b, IPS, k - 1, j, i);
     }
 
-    wri[IDN] = prim(IDN, k, j, i);
-    wri[IV1] = prim(ivx, k, j, i);
-    wri[IV2] = prim(ivy, k, j, i);
-    wri[IV3] = prim(ivz, k, j, i);
-    wri[IPR] = prim(IPR, k, j, i);
-    wri[IB1] = prim(iBx, k, j, i);
-    wri[IB2] = prim(iBy, k, j, i);
-    wri[IB3] = prim(iBz, k, j, i);
-    wri[IPS] = prim(IPS, k, j, i);
+    wri[IDN] = prim(b, IDN, k, j, i);
+    wri[IV1] = prim(b, ivx, k, j, i);
+    wri[IV2] = prim(b, ivy, k, j, i);
+    wri[IV3] = prim(b, ivz, k, j, i);
+    wri[IPR] = prim(b, IPR, k, j, i);
+    wri[IB1] = prim(b, iBx, k, j, i);
+    wri[IB2] = prim(b, iBy, k, j, i);
+    wri[IB3] = prim(b, iBz, k, j, i);
+    wri[IPS] = prim(b, IPS, k, j, i);
 
     // first solve the decoupled state, see eq (24) in Mignone & Tzeferacos (2010)
     Real bxi = 0.5 * (wli[IB1] + wri[IB1]) - 0.5 / c_h * (wri[IPS] - wli[IPS]);
@@ -148,31 +148,32 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::llf> {
 
     //--- Step 5. Compute the LLF flux at interface (see Toro eq. 10.42).
 
-    cons.flux(ivx, IDN, k, j, i) = 0.5 * (fsum.d - du.d);
-    cons.flux(ivx, ivx, k, j, i) = 0.5 * (fsum.mx - du.mx);
-    cons.flux(ivx, ivy, k, j, i) = 0.5 * (fsum.my - du.my);
-    cons.flux(ivx, ivz, k, j, i) = 0.5 * (fsum.mz - du.mz);
-    cons.flux(ivx, IEN, k, j, i) = 0.5 * (fsum.e - du.e);
-    cons.flux(ivx, iBx, k, j, i) = psii;
-    cons.flux(ivx, iBy, k, j, i) = 0.5 * (fsum.by - du.by);
-    cons.flux(ivx, iBz, k, j, i) = 0.5 * (fsum.bz - du.bz);
-    cons.flux(ivx, IPS, k, j, i) = SQR(c_h) * bxi;
+    cons.flux(b, ivx, IDN, k, j, i) = 0.5 * (fsum.d - du.d);
+    cons.flux(b, ivx, ivx, k, j, i) = 0.5 * (fsum.mx - du.mx);
+    cons.flux(b, ivx, ivy, k, j, i) = 0.5 * (fsum.my - du.my);
+    cons.flux(b, ivx, ivz, k, j, i) = 0.5 * (fsum.mz - du.mz);
+    cons.flux(b, ivx, IEN, k, j, i) = 0.5 * (fsum.e - du.e);
+    cons.flux(b, ivx, iBx, k, j, i) = psii;
+    cons.flux(b, ivx, iBy, k, j, i) = 0.5 * (fsum.by - du.by);
+    cons.flux(b, ivx, iBz, k, j, i) = 0.5 * (fsum.bz - du.bz);
+    cons.flux(b, ivx, IPS, k, j, i) = SQR(c_h) * bxi;
 
     // Passive scalar fluxes
-    for (auto n = Hydro::GetNVars<Fluid::glmmhd>(); n < cons.GetDim(4); ++n) {
-      if (cons.flux(ivx, IDN, k, j, i) >= 0.0) {
+    for (auto n = Hydro::GetNVars<Fluid::glmmhd>(); n < cons.GetUpperBound(b) + 1; ++n) {
+      if (cons.flux(b, ivx, IDN, k, j, i) >= 0.0) {
         if (ivx == 1) {
-          cons.flux(ivx, n, k, j, i) =
-              cons.flux(ivx, IDN, k, j, i) * prim(n, k, j, i - 1);
+          cons.flux(b, ivx, n, k, j, i) =
+              cons.flux(b, ivx, IDN, k, j, i) * prim(b, n, k, j, i - 1);
         } else if (ivx == 2) {
-          cons.flux(ivx, n, k, j, i) =
-              cons.flux(ivx, IDN, k, j, i) * prim(n, k, j - 1, i);
+          cons.flux(b, ivx, n, k, j, i) =
+              cons.flux(b, ivx, IDN, k, j, i) * prim(b, n, k, j - 1, i);
         } else if (ivx == 3) {
-          cons.flux(ivx, n, k, j, i) =
-              cons.flux(ivx, IDN, k, j, i) * prim(n, k - 1, j, i);
+          cons.flux(b, ivx, n, k, j, i) =
+              cons.flux(b, ivx, IDN, k, j, i) * prim(b, n, k - 1, j, i);
         }
       } else {
-        cons.flux(ivx, n, k, j, i) = cons.flux(ivx, IDN, k, j, i) * prim(n, k, j, i);
+        cons.flux(b, ivx, n, k, j, i) =
+            cons.flux(b, ivx, IDN, k, j, i) * prim(b, n, k, j, i);
       }
     }
   }

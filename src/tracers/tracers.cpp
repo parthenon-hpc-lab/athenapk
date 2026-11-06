@@ -25,10 +25,12 @@
 #include <vector>
 
 // Parthenon headers
+#include "Kokkos_Array.hpp"
 #include "basic_types.hpp"
 #include "globals.hpp"
 #include "interface/metadata.hpp"
 #include "kokkos_abstraction.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include "parthenon_array_generic.hpp"
 #include "utils/error_checking.hpp"
 #include "utils/interpolation.hpp"
@@ -208,7 +210,10 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
 
   auto swarm_d = swarm->GetDeviceContext();
 
-  const auto &prim_pack = mbd->PackVariables(std::vector<std::string>{"prim"});
+  const auto prim = parthenon::MakePackDescriptor(mbd, {"prim"}).GetPack(mbd);
+  const Kokkos::Array<int, 3> ncells{pmb->cellbounds.ncellsi(IndexDomain::entire),
+                                     pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                     pmb->cellbounds.ncellsk(IndexDomain::entire)};
 
   // update loop. RK2
   const int max_active_index = swarm->GetMaxActiveIndex();
@@ -229,9 +234,12 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, const Real dt) {
           // v^{*,n+1} = v(x^{*,n+1}, t^{n+1})
           // First parameter b=0 assume to operate on a pack of a single block and needs
           // to be updated if this becomes a MeshData function
-          const auto vel_x_star = LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV1);
-          const auto vel_y_star = LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV2);
-          const auto vel_z_star = LCInterp::Do(0, x_star, y_star, z_star, prim_pack, IV3);
+          const auto vel_x_star =
+              LCInterp::Do(0, x_star, y_star, z_star, prim, IV1, ncells);
+          const auto vel_y_star =
+              LCInterp::Do(0, x_star, y_star, z_star, prim, IV2, ncells);
+          const auto vel_z_star =
+              LCInterp::Do(0, x_star, y_star, z_star, prim, IV3, ncells);
 
           // Full update using mean velocity
           x(n) += dt * 0.5 * (vel_x(n) + vel_x_star);
@@ -261,9 +269,12 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
   auto tracers_pkg = md->GetParentPointer()->packages.Get("tracers");
 
   // Get hydro/mhd fluid vars over all blocks
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
   for (int b = 0; b < md->NumBlocks(); b++) {
     auto *pmb = md->GetBlockData(b)->GetBlockPointer();
+    const Kokkos::Array<int, 3> ncells{pmb->cellbounds.ncellsi(IndexDomain::entire),
+                                       pmb->cellbounds.ncellsj(IndexDomain::entire),
+                                       pmb->cellbounds.ncellsk(IndexDomain::entire)};
     auto &sd = pmb->meshblock_data.Get()->GetSwarmData();
     auto &swarm = sd->Get("tracers");
 
@@ -298,15 +309,15 @@ TaskStatus FillTracers(MeshData<Real> *md, parthenon::SimTime &tm) {
             swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
 
             // TODO(pgrete) Interpolate
-            rho(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IDN);
-            vel_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV1);
-            vel_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV2);
-            vel_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IV3);
-            pressure(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IPR);
+            rho(n) = LCInterp::Do(b, x(n), y(n), z(n), prim, IDN, ncells);
+            vel_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim, IV1, ncells);
+            vel_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim, IV2, ncells);
+            vel_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim, IV3, ncells);
+            pressure(n) = LCInterp::Do(b, x(n), y(n), z(n), prim, IPR, ncells);
             if (mhd) {
-              B_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB1);
-              B_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB2);
-              B_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim_pack, IB3);
+              B_x(n) = LCInterp::Do(b, x(n), y(n), z(n), prim, IB1, ncells);
+              B_y(n) = LCInterp::Do(b, x(n), y(n), z(n), prim, IB2, ncells);
+              B_z(n) = LCInterp::Do(b, x(n), y(n), z(n), prim, IB3, ncells);
             }
           }
         });

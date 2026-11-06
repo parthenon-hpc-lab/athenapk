@@ -24,6 +24,7 @@
 
 // Parthenon headers
 #include "mesh/mesh.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -713,7 +714,7 @@ void Eigensystem(const Real d, const Real v1, const Real v2, const Real v3, cons
 Real HstMaxV2(MeshData<Real> *md) {
   auto hydro_pkg = md->GetBlockData(0)->GetBlockPointer()->packages.Get("Hydro");
 
-  const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+  const auto prim = parthenon::MakePackDescriptor(md, {"prim"}).GetPack(md);
 
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
@@ -725,10 +726,9 @@ Real HstMaxV2(MeshData<Real> *md) {
       "HstMaxV2",
       Kokkos::MDRangePolicy<Kokkos::Rank<4>>(
           parthenon::DevExecSpace(), {0, kb.s, jb.s, ib.s},
-          {prim_pack.GetDim(5), kb.e + 1, jb.e + 1, ib.e + 1},
-          {1, 1, 1, ib.e + 1 - ib.s}),
+          {prim.GetNBlocks(), kb.e + 1, jb.e + 1, ib.e + 1}, {1, 1, 1, ib.e + 1 - ib.s}),
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmax) {
-        lmax = Kokkos::fmax(lmax, Kokkos::fabs(prim_pack(b, IV2, k, j, i)));
+        lmax = Kokkos::fmax(lmax, Kokkos::fabs(prim(b, IV2, k, j, i)));
       },
       Kokkos::Max<Real>(max_v2));
 

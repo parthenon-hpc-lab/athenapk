@@ -27,6 +27,7 @@
 // Parthenon headers
 #include "basic_types.hpp"
 #include "mesh/mesh.hpp"
+#include "pack/sparse_pack/make_pack_descriptor.hpp"
 #include <parthenon/driver.hpp>
 #include <parthenon/package.hpp>
 
@@ -74,7 +75,7 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real) 
   if (blast_i < 0) {
     return;
   }
-  auto cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
+  const auto cons = parthenon::MakePackDescriptor(md, {"cons"}).GetPack(md);
   IndexRange ib = md->GetBlockData(0)->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBlockData(0)->GetBoundsJ(IndexDomain::interior);
   IndexRange kb = md->GetBlockData(0)->GetBoundsK(IndexDomain::interior);
@@ -85,10 +86,9 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real) 
   auto blasts = blasts_; // make sure blasts is captured
   parthenon::par_for(
       DEFAULT_LOOP_PATTERN, "RandomBlastSource", parthenon::DevExecSpace(), 0,
-      cons_pack.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      cons.GetNBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
-        auto &cons = cons_pack(b);
-        const auto &coords = cons_pack.GetCoords(b);
+        const auto &coords = cons.GetCoordinates(b);
 
         Real x = coords.Xc<1>(i);
         Real y = coords.Xc<2>(j);
@@ -97,12 +97,13 @@ void RandomBlasts(MeshData<Real> *md, const parthenon::SimTime &tm, const Real) 
                               SQR(z - blasts[blast_i][2]));
 
         if (dist < 0.005) {
-          cons(IEN, k, j, i) = 13649.6 / gm1 +
-                               0.5 * (SQR(cons(IB1, k, j, i)) + SQR(cons(IB2, k, j, i)) +
-                                      SQR(cons(IB3, k, j, i))) +
-                               (0.5 / cons(IDN, k, j, i)) *
-                                   (SQR(cons(IM1, k, j, i)) + SQR(cons(IM2, k, j, i)) +
-                                    SQR(cons(IM3, k, j, i)));
+          cons(b, IEN, k, j, i) =
+              13649.6 / gm1 +
+              0.5 * (SQR(cons(b, IB1, k, j, i)) + SQR(cons(b, IB2, k, j, i)) +
+                     SQR(cons(b, IB3, k, j, i))) +
+              (0.5 / cons(b, IDN, k, j, i)) *
+                  (SQR(cons(b, IM1, k, j, i)) + SQR(cons(b, IM2, k, j, i)) +
+                   SQR(cons(b, IM3, k, j, i)));
         }
       });
 }

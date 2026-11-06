@@ -20,16 +20,16 @@
 // Athena headers
 #include "../../eos/adiabatic_glmmhd.hpp"
 #include "../../main.hpp"
-#include "interface/variable_pack.hpp"
 #include "rsolvers.hpp"
 
 template <>
 struct Riemann<Fluid::glmmhd, RiemannSolver::hlle> {
+  template <class ConsView>
   static KOKKOS_INLINE_FUNCTION void
-  Solve(parthenon::team_mbr_t const &member, const int k, const int j, const int il,
-        const int iu, const int ivx, const ScratchPad2D<Real> &wl,
-        const ScratchPad2D<Real> &wr, VariableFluxPack<Real> &cons,
-        const AdiabaticGLMMHDEOS &eos, const Real c_h) {
+  Solve(parthenon::team_mbr_t const &member, const int b, const int k, const int j,
+        const int il, const int iu, const int ivx, const ScratchPad2D<Real> &wl,
+        const ScratchPad2D<Real> &wr, const ConsView &cons, const AdiabaticGLMMHDEOS &eos,
+        const Real c_h) {
     const int ivy = IV1 + ((ivx - IV1) + 1) % 3;
     const int ivz = IV1 + ((ivx - IV1) + 2) % 3;
     const int iBx = ivx - 1 + NHYDRO;
@@ -178,15 +178,15 @@ struct Riemann<Fluid::glmmhd, RiemannSolver::hlle> {
       flxi[IB2] = 0.5 * (fl[IB2] + fr[IB2]) + (fl[IB2] - fr[IB2]) * tmp;
       flxi[IB3] = 0.5 * (fl[IB3] + fr[IB3]) + (fl[IB3] - fr[IB3]) * tmp;
 
-      cons.flux(ivx, IDN, k, j, i) = flxi[IDN];
-      cons.flux(ivx, ivx, k, j, i) = flxi[IV1];
-      cons.flux(ivx, ivy, k, j, i) = flxi[IV2];
-      cons.flux(ivx, ivz, k, j, i) = flxi[IV3];
-      cons.flux(ivx, IEN, k, j, i) = flxi[IEN];
-      cons.flux(ivx, iBx, k, j, i) = flxi[IB1];
-      cons.flux(ivx, iBy, k, j, i) = flxi[IB2];
-      cons.flux(ivx, iBz, k, j, i) = flxi[IB3];
-      cons.flux(ivx, IPS, k, j, i) = flxi[IPS];
+      cons.flux(b, ivx, IDN, k, j, i) = flxi[IDN];
+      cons.flux(b, ivx, ivx, k, j, i) = flxi[IV1];
+      cons.flux(b, ivx, ivy, k, j, i) = flxi[IV2];
+      cons.flux(b, ivx, ivz, k, j, i) = flxi[IV3];
+      cons.flux(b, ivx, IEN, k, j, i) = flxi[IEN];
+      cons.flux(b, ivx, iBx, k, j, i) = flxi[IB1];
+      cons.flux(b, ivx, iBy, k, j, i) = flxi[IB2];
+      cons.flux(b, ivx, iBz, k, j, i) = flxi[IB3];
+      cons.flux(b, ivx, IPS, k, j, i) = flxi[IPS];
     });
   }
 };
