@@ -271,6 +271,6 @@ parthenon::AmrTag ProblemCheckRefinementBlock(MeshBlockData<Real> *mbd) {
   if (maxscalar > 0.01) return parthenon::AmrTag::refine;
   if (maxscalar < 0.001) return parthenon::AmrTag::derefine;
   return parthenon::AmrTag::same;
-};
+}
 
 } // namespace cloud

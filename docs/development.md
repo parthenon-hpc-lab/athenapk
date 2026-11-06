@@ -1,14 +1,26 @@
+<!-- This file was made in part with generative AI. -->
+
 # AthenaPK developer guide
 
 ## Formatting code
 
-AthenaPK uses `clang-format` for C++ and `black` for Python files to enforce code formatting.
-All pull requests are checked automatically if the code is properly formatted.
+AthenaPK uses `clang-format` for C++, `black` for Python, and `cpplint` for C++ linting.
+Tool versions are pinned in `.pre-commit-config.yaml`, and CI runs all three on
+pull requests, including those from forks.
 
+Install the optional commit hook to check staged files automatically:
+```bash
+python -m pip install pre-commit
+pre-commit install
+```
+Run all checks manually with `pre-commit run --all-files --show-diff-on-failure`.
+The first run downloads the tools and requires internet access.
 
-Formatting can manually be applied by running `./scripts/format.sh`.
-Alternatively, the build target `format-athenapk` calls both formatters and automatically format all changes, i.e., before committing changes simply call `make format-athenapk` (or similar).
-As an external alternative, leave a comment with `@par-hermes format` in the open pull request to format the code directly on GitHub (assuming the code lives in a branch of the main repository and not a fork).
+To format all tracked files, run `./scripts/format.sh` or build the
+`format-athenapk` CMake target. Both use the pinned hooks when available.
+`./scripts/format.sh --local` uses locally installed formatters instead, with
+`CLANG_FORMAT` and `BLACK` overrides supported. See the
+[contributor guide](../CONTRIBUTING.md#formatting-code) for details.
 
 ## Dev container
 

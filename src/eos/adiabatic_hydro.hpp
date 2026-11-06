@@ -1,3 +1,9 @@
+//========================================================================================
+// AthenaPK - a performance portable block structured AMR astrophysical MHD code.
+// Copyright (c) 2021-2026, Athena-Parthenon Collaboration. All rights reserved.
+// contributors Licensed under the 3-clause BSD License, see LICENSE file for
+// details
+//========================================================================================
 #ifndef EOS_ADIABATIC_HYDRO_HPP_
 #define EOS_ADIABATIC_HYDRO_HPP_
 //! \file eos.hpp
