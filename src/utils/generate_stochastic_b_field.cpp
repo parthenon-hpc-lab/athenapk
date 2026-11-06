@@ -7,6 +7,8 @@
 //  \brief Generates a divergence-free, Gaussian-random, helical vector field with a
 //  caller-specified power spectrum via Parthenon's FFTManager.
 
+// This file was made in part with generative AI
+
 #include <cmath>
 #include <cstdint>
 #include <ostream>
