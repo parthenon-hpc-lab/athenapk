@@ -22,6 +22,7 @@ If the current performance is (significantly) below expectation, one can try to 
 Please update immediately or rebuild AthenaPK with `PARTHENON_DISABLE_SPARSE=OFF` to mitigate the race condition.
 
 ### Added (new features/APIs/variables/...)
+- [[PR 193]](https://github.com/parthenon-hpc-lab/athenapk/pull/193) Add a utility function (`utils/generate_stochastic_b_field.cpp`) for sampling a stochastic (gaussian-random) solenoidal field, along with a new problem generator (`pgen/decaying_turbulence.cpp`) which uses this function to generate the typical setup for decaying MHD turbulence simulations.
 - [[PR 185]](https://github.com/parthenon-hpc-lab/athenapk/pull/185) Add a script (`scripts/generate_uniform_cooling_table.py`) and reference data (`inputs/cooling_tables/tab13.txt`) to generate Gnat-Sternberg cooling tables from the original CIE data.  Users can use this script to create tables with custom uniform log10 T spacing (default dlogT=0.02) for use with the `TabularCooling` implementation.
 
 ### Changed (changing behavior/API/variables/...)
