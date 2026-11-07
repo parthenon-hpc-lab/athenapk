@@ -236,13 +236,21 @@ void AddRestorePhiTasks(TaskCollection &tc, Mesh *pmesh) {
   }
 }
 
-void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt, const int stage,
-                   const int nstages) {
+void AddStageTasks(TaskCollection &tc, Mesh *pmesh,
+                   const parthenon::LowStorageIntegrator &integrator, const int stage) {
   using namespace parthenon;
   TaskID none(0);
   const int num_partitions = pmesh->DefaultNumPartitions();
   auto pkg = pmesh->packages.Get("self_gravity");
   const auto coupling = pkg->Param<Coupling>("coupling");
+  const int nstages = integrator.nstages;
+  const Real beta_dt = integrator.beta[stage - 1] * integrator.dt;
+  // rk2: the first stage keeps its mass fluxes and energy source, and the last stage
+  // corrects the share of the latter in the result, gam0 times the first beta dt.
+  const bool keep_stage1 = pkg->Param<bool>("keep_stage1");
+  const Real stage1_dt = (keep_stage1 && stage == nstages)
+                             ? integrator.gam0[1] * integrator.beta[0] * integrator.dt
+                             : 0.0;
   // With a gravity time step, a last stage without a solve extrapolates phi to the end of
   // the step and otherwise proceeds as if it had solved.
   const bool gravity_step = (stage == nstages) && pkg->Param<Real>("gravity_cfl") > 0.0;
@@ -292,13 +300,16 @@ void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt, const in
   } else {
     AddRestorePhiTasks(tc, pmesh);
   }
-  if (momentum_after_solve) add_momentum(true);
+  // rk2's first stage already applied g^(0) with half weight, so its last stage uses
+  // g^(l) alone, from grav.phi_prev, which the solve or extrapolation has just set.
+  if (momentum_after_solve) add_momentum(!keep_stage1);
 
   // 3. Energy source from the stage's mass fluxes and the step-averaged potential.
   TaskRegion &energy_region = tc.AddRegion(num_partitions);
   for (int i = 0; i < num_partitions; ++i) {
     auto &md = pmesh->mesh_data.GetOrAdd("base", i);
-    energy_region[i].AddTask(none, ApplyGravityEnergy, md.get(), beta_dt);
+    energy_region[i].AddTask(none, ApplyGravityEnergy, md.get(), beta_dt,
+                             keep_stage1 && stage == 1, stage1_dt);
   }
 }
 

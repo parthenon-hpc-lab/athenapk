@@ -251,9 +251,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   }
   const auto integrator = pin->GetOrAddString("parthenon/time", "integrator", "rk2");
   PARTHENON_REQUIRE_THROWS(
-      coupling == Coupling::per_stage || integrator == "vl2" || integrator == "rk1",
-      "self_gravity/coupling = per_step* needs integrator vl2 or rk1.");
+      coupling == Coupling::per_stage || integrator == "vl2" || integrator == "rk1" ||
+          integrator == "rk2",
+      "self_gravity/coupling = per_step* needs integrator vl2, rk1 or rk2.");
   pkg->AddParam("coupling", coupling);
+  // rk2: the first stage's mass fluxes at the lower faces (components 0-2) and its energy
+  // source (3), for the last stage's energy correction (see Coupling in
+  // self_gravity.hpp). Written and read within a step, so no ghosts, AMR ops or restart.
+  const bool keep_stage1 = (integrator == "rk2");
+  pkg->AddParam("keep_stage1", keep_stage1);
+  if (keep_stage1) {
+    pkg->AddField<grav::stage1>(Metadata(
+        {Metadata::Cell, Metadata::Derived, Metadata::OneCopy}, std::vector<int>{4}));
+  }
 
   // Gravity time step; see Slope in self_gravity.hpp. Off (0) by default.
   const Real gravity_cfl = pin->GetOrAddReal(block_name, "gravity_cfl", 0.0);
@@ -453,13 +463,39 @@ TaskStatus ApplyGravityMomentum(MeshData<Real> *md, const Real beta_dt,
   return TaskStatus::complete;
 }
 
+// Per direction F_{i-1/2} g_{i-1/2} + F_{i+1/2} g_{i+1/2}, summed, at cell (k, j, i) of
+// block b, with g the face gravity of PhiAvg and flux(d, k, j, i) the mass flux through
+// the lower face in direction d.
+template <class Pack, class Flux>
+KOKKOS_FORCEINLINE_FUNCTION Real FaceWork(const Pack &p,
+                                          const parthenon::Coordinates_t &c,
+                                          const Flux &flux, const int ndim, const int b,
+                                          const int k, const int j, const int i) {
+  const Real pc = PhiAvg(p, b, k, j, i);
+  Real de = (flux(X1DIR, k, j, i) * (PhiAvg(p, b, k, j, i - 1) - pc) +
+             flux(X1DIR, k, j, i + 1) * (pc - PhiAvg(p, b, k, j, i + 1))) /
+            c.Dxc<1>(k, j, i);
+  if (ndim > 1) {
+    de += (flux(X2DIR, k, j, i) * (PhiAvg(p, b, k, j - 1, i) - pc) +
+           flux(X2DIR, k, j + 1, i) * (pc - PhiAvg(p, b, k, j + 1, i))) /
+          c.Dxc<2>(k, j, i);
+  }
+  if (ndim > 2) {
+    de += (flux(X3DIR, k, j, i) * (PhiAvg(p, b, k - 1, j, i) - pc) +
+           flux(X3DIR, k + 1, j, i) * (pc - PhiAvg(p, b, k + 1, j, i))) /
+          c.Dxc<3>(k, j, i);
+  }
+  return de;
+}
+
 // ApplyGravityEnergy: energy += beta dt sum_faces F_rho . g_avg (Mullen et al. 2021,
 // their Eqs. 57, 63-64 and 67-68), with g_avg the face gravity of
 // phi_avg = (phi^(0) + phi^(l)) / 2 and F_rho the stage's mass flux as used by the
 // continuity equation (so the flux-corrected one at fine-coarse faces). Because this is
 // exactly minus the change of the gravitational energy 1/2 int (rho - rho_mean) phi dV,
 // total energy is conserved to round-off (given a round-off accurate Poisson solve).
-TaskStatus ApplyGravityEnergy(MeshData<Real> *md, const Real beta_dt) {
+TaskStatus ApplyGravityEnergy(MeshData<Real> *md, const Real beta_dt,
+                              const bool keep_stage1, const Real stage1_dt) {
   auto pm = md->GetParentPointer();
   // "cons" together with its fluxes. Packed by name rather than by the Independent flag,
   // which grav::phi also carries and which could shift the IDN index.
@@ -467,6 +503,10 @@ TaskStatus ApplyGravityEnergy(MeshData<Real> *md, const Real beta_dt) {
   auto desc_phi =
       parthenon::MakePackDescriptor<grav::phi, grav::phi0>(pm->resolved_packages.get());
   auto phi_pack = desc_phi.GetPack(md);
+  // Empty unless rk2 registered grav.stage1; only read if keep_stage1 or stage1_dt > 0.
+  auto desc_s1 = parthenon::MakePackDescriptor<grav::stage1>(pm->resolved_packages.get());
+  auto s1 = desc_s1.GetPack(md);
+  const bool correct = stage1_dt > 0.0;
 
   IndexRange ib = md->GetBoundsI(IndexDomain::interior);
   IndexRange jb = md->GetBoundsJ(IndexDomain::interior);
@@ -479,28 +519,36 @@ TaskStatus ApplyGravityEnergy(MeshData<Real> *md, const Real beta_dt) {
       KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
         auto &cons = cons_pack(b);
         const auto &coords = cons_pack.GetCoords(b);
-        const Real pc = PhiAvg(phi_pack, b, k, j, i);
+        const auto mflux = [&](const int d, const int kk, const int jj, const int ii) {
+          return cons.flux(d, IDN, kk, jj, ii);
+        };
         // per direction: (F_{i-1/2} g_{i-1/2} + F_{i+1/2} g_{i+1/2}) / 2, times dt
-        Real de =
-            (cons.flux(X1DIR, IDN, k, j, i) * (PhiAvg(phi_pack, b, k, j, i - 1) - pc) +
-             cons.flux(X1DIR, IDN, k, j, i + 1) *
-                 (pc - PhiAvg(phi_pack, b, k, j, i + 1))) /
-            coords.Dxc<1>(k, j, i);
-        if (ndim > 1) {
-          de +=
-              (cons.flux(X2DIR, IDN, k, j, i) * (PhiAvg(phi_pack, b, k, j - 1, i) - pc) +
-               cons.flux(X2DIR, IDN, k, j + 1, i) *
-                   (pc - PhiAvg(phi_pack, b, k, j + 1, i))) /
-              coords.Dxc<2>(k, j, i);
-        }
-        if (ndim > 2) {
-          de +=
-              (cons.flux(X3DIR, IDN, k, j, i) * (PhiAvg(phi_pack, b, k - 1, j, i) - pc) +
-               cons.flux(X3DIR, IDN, k + 1, j, i) *
-                   (pc - PhiAvg(phi_pack, b, k + 1, j, i))) /
-              coords.Dxc<3>(k, j, i);
-        }
+        const Real de = FaceWork(phi_pack, coords, mflux, ndim, b, k, j, i);
         cons(IEN, k, j, i) += 0.5 * beta_dt * de;
+        if (keep_stage1) {
+          // Lower faces, plus the upper face of the last cell, stored in the ghost cell.
+          for (int d = 0; d < ndim; ++d) {
+            s1(b, te, grav::stage1(d), k, j, i) = cons.flux(X1DIR + d, IDN, k, j, i);
+          }
+          if (i == ib.e) {
+            s1(b, te, grav::stage1(0), k, j, i + 1) = cons.flux(X1DIR, IDN, k, j, i + 1);
+          }
+          if (ndim > 1 && j == jb.e) {
+            s1(b, te, grav::stage1(1), k, j + 1, i) = cons.flux(X2DIR, IDN, k, j + 1, i);
+          }
+          if (ndim > 2 && k == kb.e) {
+            s1(b, te, grav::stage1(2), k + 1, j, i) = cons.flux(X3DIR, IDN, k + 1, j, i);
+          }
+          s1(b, te, grav::stage1(3), k, j, i) = de;
+        }
+        if (correct) {
+          const auto kept = [&](const int d, const int kk, const int jj, const int ii) {
+            return s1(b, te, grav::stage1(d - X1DIR), kk, jj, ii);
+          };
+          const Real de1 = FaceWork(phi_pack, coords, kept, ndim, b, k, j, i);
+          cons(IEN, k, j, i) +=
+              0.5 * stage1_dt * (de1 - s1(b, te, grav::stage1(3), k, j, i));
+        }
       });
   return TaskStatus::complete;
 }

@@ -66,9 +66,12 @@ Parthenon's geometric-multigrid (GMG) infrastructure.
   $\le 7\times10^{-21}$ on a total of $9.4\times10^{-6}$), against a steady
   $2$-$2.5\times10^{-4}$ for the previous, instantaneous-gravity energy source.
 
-  Two conditions apply. The energy is exact only if the last integrator stage restarts
-  from the start-of-step state, which holds for `vl2` (the default) and `rk1`; with `rk2`
-  and `rk3` the scheme stays second-order accurate but is not exactly conservative. And
+  Two conditions apply. The energy is exact for `vl2` (the default), `rk1` and `rk2`.
+  `vl2` and `rk1` restart the last stage from the start-of-step state. `rk2` keeps half
+  of its first stage, whose energy source could not use the end-of-step potential yet,
+  so its last stage replaces that half by the exact one, from the first stage's mass
+  fluxes kept for this purpose. With `rk3` the scheme stays second-order accurate but is
+  not exactly conservative. And
   the Poisson solve has to reach its tolerance: set `absolute_residual_tolerance` above
   the round-off floor of the residual (about $10^{-13}$ relative to the right-hand side
   in double precision). A BiCGSTAB solve asked for less keeps iterating on round-off and
@@ -126,7 +129,7 @@ code-unit value.
 | `<self_gravity>` | `solver` | `none` | Poisson solver. `multigrid` enables self-gravity via the GMG infrastructure; `none` disables the package. |
 | `<parthenon/mesh>` | `multigrid` | `false` | Must be `true`; enables the GMG hierarchy. |
 | `<self_gravity>` | `four_pi_G` | `1.0` | Value of $4\pi G$ in code units. |
-| `<self_gravity>` | `coupling` | `per_stage` | When $\phi$ is solved for. `per_stage`: every integrator stage. `per_step` (`vl2`): only in the last stage, whose momentum source then uses $(\phi^n + \phi^{n+1})/2$; one solve per step, still second order, energy still conserved. `per_step_first_order`: only in the last stage, momentum source from $\phi^n$; first order in time, for comparison. |
+| `<self_gravity>` | `coupling` | `per_stage` | When $\phi$ is solved for. `per_stage`: every integrator stage. `per_step` (`vl2`, `rk1`, `rk2`): only in the last stage, whose momentum source then uses $(\phi^n + \phi^{n+1})/2$ (`rk2`: $\phi^{n+1}$, as its first stage already applied $\phi^n$ with half weight); one solve per step, still second order, energy still conserved. `per_step_first_order`: only in the last stage, momentum source from $\phi^n$; first order in time, for comparison. |
 | `<self_gravity>` | `gravity_cfl` | `0` | Gravity time step for `coupling = per_step` (0: solve every step). A step ends with a solve once the gas has used up this Courant number since the last solve, measured with $\Delta t_{\rm grav} = C_g \min_{\rm cells} \min[\max(\Delta x, \lambda_J/N_J)/(\lvert v\rvert + c_f),\ t_{\rm ff}]$. Diffuse gas (large Jeans length) and fast, light gas such as a jet barely constrain it. Between solves $\phi$ is extrapolated linearly in time from the last two solves. If $\Delta t_{\rm grav} < 2\,\Delta t$ every step solves, exactly as plain `per_step`. A mesh change still forces a solve. |
 | `<self_gravity>` | `jeans_cells` | `4` | $N_J$ above: gas only constrains the gravity step through the time it takes to cross $\max(\Delta x, \lambda_J/N_J)$. |
 | `<self_gravity>` | `extrapolate_phi` | `true` | Between solves, extrapolate $\phi$ linearly in time (second order); `false` holds the last solve (first order, for comparison). |

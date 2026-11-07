@@ -53,6 +53,7 @@ SG_VARIABLE(grav, phi_prev); // potential of the start-of-stage density
 SG_VARIABLE(grav, phi0);     // potential of the start-of-step density
 SG_VARIABLE(grav, phi_s);    // potential of the last solve (gravity_cfl > 0)
 SG_VARIABLE(grav, phi_dot);  // d phi / dt between the last two solves (gravity_cfl > 0)
+SG_VARIABLE(grav, stage1);   // rk2: first stage's mass fluxes and energy source
 } // namespace grav
 
 // Package registration, called from Hydro::ProcessPackages.
@@ -65,14 +66,19 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 //   3. energy   += beta dt F_rho . (g^(0) + g^(l)) / 2
 // Step 3 is exactly the divergence of a gravitational energy flux, so total energy
 // (kinetic + thermal + magnetic + gravitational) is conserved to round-off whenever the
-// last stage restarts from the start-of-step state (vl2, rk1). phi^(l-1) and phi^(0) are
-// kept in grav.phi_prev and grav.phi0, which (unlike grav.phi) are neither
+// last stage restarts from the start-of-step state (vl2, rk1). rk2 keeps half of its
+// first stage, whose step 3 could not use g^(2) yet, so its last stage also replaces
+// that half by dt/2 F_rho^(1) . (g^(0) + g^(2)) / 2, from the first stage's mass fluxes
+// kept in grav.stage1: rk2 conserves energy to round-off as well. phi^(l-1) and phi^(0)
+// are kept in grav.phi_prev and grav.phi0, which (unlike grav.phi) are neither
 // Independent nor carry fluxes, so the hydro and super-time-stepping updates, which
 // select variables by those flags, never touch them.
-// With <self_gravity> coupling = per_step (vl2), step 2 runs in the last stage only and
-// earlier stages use phi^(0). As vl2's last stage restarts from the start-of-step state,
-// this drops only the predictor's solve. Step 1 of the last stage then follows the solve,
-// with rho^(l-1) (g^(0) + g^(l)) / 2: one solve per step, still second order in time.
+// With <self_gravity> coupling = per_step (vl2, rk1, rk2), step 2 runs in the last stage
+// only and earlier stages use phi^(0). As vl2's last stage restarts from the
+// start-of-step state, this drops only the predictor's solve. Step 1 of the last stage
+// then follows the solve, with rho^(l-1) (g^(0) + g^(l)) / 2: one solve per step, still
+// second order in time. rk2, whose first stage already applied g^(0) with half weight,
+// uses rho^(1) g^(2) instead (Heun's method with g^(2) for g(rho^(1)), second order).
 // per_step_first_order keeps step 1 first, i.e. rho^(l-1) g^(0): first order in time.
 enum class Coupling { per_stage, per_step, per_step_first_order };
 
@@ -102,8 +108,8 @@ TaskStatus RecordSolve(MeshData<Real> *md, const Slope slope, const Real inv_spa
 TaskStatus ExtrapolatePhi(MeshData<Real> *md, const Real span, const bool to_prev);
 
 // Steps 1-3 above, after the stage's hydro update and before its boundary exchange.
-void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt, const int stage,
-                   const int nstages);
+void AddStageTasks(TaskCollection &tc, Mesh *pmesh,
+                   const parthenon::LowStorageIntegrator &integrator, const int stage);
 
 // Solve for grav.phi from the current conserved density and copy it into grav.phi_prev.
 // warm_span >= 0 starts the solver from phi_s + warm_span * phi_dot instead of the last
@@ -132,7 +138,11 @@ TaskStatus ApplyGravityMomentum(MeshData<Real> *md, const Real beta_dt,
                                 const bool use_phi_avg);
 
 // Step 3: energy source from the stage's mass fluxes and (grav.phi0 + grav.phi) / 2.
-TaskStatus ApplyGravityEnergy(MeshData<Real> *md, const Real beta_dt);
+// keep_stage1 also stores the fluxes and the source in grav.stage1. stage1_dt > 0 adds
+// stage1_dt times (source of the stored fluxes with the current potentials - stored
+// source), which turns the first stage's share of the result into the exact one (rk2).
+TaskStatus ApplyGravityEnergy(MeshData<Real> *md, const Real beta_dt,
+                              const bool keep_stage1, const Real stage1_dt);
 
 } // namespace SelfGravity
 
