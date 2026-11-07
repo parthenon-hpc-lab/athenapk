@@ -167,21 +167,35 @@ void AddRestorePhiTasks(TaskCollection &tc, Mesh *pmesh) {
   }
 }
 
-void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt) {
+void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt, const int stage,
+                   const int nstages) {
   using namespace parthenon;
   TaskID none(0);
   const int num_partitions = pmesh->DefaultNumPartitions();
+  const auto coupling = pmesh->packages.Get("self_gravity")->Param<Coupling>("coupling");
+  const bool solve = (coupling == Coupling::per_stage) || (stage == nstages);
+  const bool momentum_after_solve = solve && (coupling == Coupling::per_step);
+  auto add_momentum = [&](const bool use_phi_avg) {
+    TaskRegion &momentum_region = tc.AddRegion(num_partitions);
+    for (int i = 0; i < num_partitions; ++i) {
+      auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+      momentum_region[i].AddTask(none, ApplyGravityMomentum, md.get(), beta_dt,
+                                 use_phi_avg);
+    }
+  };
 
   // 1. Momentum source from the start-of-stage density and potential. It must run before
-  //    step 2, which overwrites grav.phi_prev.
-  TaskRegion &momentum_region = tc.AddRegion(num_partitions);
-  for (int i = 0; i < num_partitions; ++i) {
-    auto &md = pmesh->mesh_data.GetOrAdd("base", i);
-    momentum_region[i].AddTask(none, ApplyGravityMomentum, md.get(), beta_dt);
-  }
+  //    step 2, which overwrites grav.phi_prev, unless it uses phi_avg (per_step).
+  if (!momentum_after_solve) add_momentum(false);
 
-  // 2. Potential of the updated density.
-  AddSolvePoissonTasks(tc, pmesh);
+  // 2. Potential of the updated density. A stage without a solve keeps phi^(0), restored
+  //    into grav.phi because the stage's hydro update rewrites it (it carries fluxes).
+  if (solve) {
+    AddSolvePoissonTasks(tc, pmesh);
+  } else {
+    AddRestorePhiTasks(tc, pmesh);
+  }
+  if (momentum_after_solve) add_momentum(true);
 
   // 3. Energy source from the stage's mass fluxes and the step-averaged potential.
   TaskRegion &energy_region = tc.AddRegion(num_partitions);

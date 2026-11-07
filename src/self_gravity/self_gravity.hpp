@@ -67,6 +67,12 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 // kept in grav.phi_prev and grav.phi0, which (unlike grav.phi) are neither
 // Independent nor carry fluxes, so the hydro and super-time-stepping updates, which
 // select variables by those flags, never touch them.
+// With <self_gravity> coupling = per_step (vl2), step 2 runs in the last stage only and
+// earlier stages use phi^(0). As vl2's last stage restarts from the start-of-step state,
+// this drops only the predictor's solve. Step 1 of the last stage then follows the solve,
+// with rho^(l-1) (g^(0) + g^(l)) / 2: one solve per step, still second order in time.
+// per_step_first_order keeps step 1 first, i.e. rho^(l-1) g^(0): first order in time.
+enum class Coupling { per_stage, per_step, per_step_first_order };
 
 // Before the first stage of a step: ensure grav.phi_prev is the potential of the
 // start-of-step density (solving for it on a fresh start and after the mesh changed)
@@ -74,7 +80,8 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 void AddStepStartTasks(TaskCollection &tc, Mesh *pmesh, const int ncycle);
 
 // Steps 1-3 above, after the stage's hydro update and before its boundary exchange.
-void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt);
+void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt, const int stage,
+                   const int nstages);
 
 // Solve for grav.phi from the current conserved density and copy it into grav.phi_prev.
 void AddSolvePoissonTasks(TaskCollection &tc, Mesh *pmesh);
@@ -95,8 +102,10 @@ extern PoissonSourceMaskFun_t ProblemPoissonSourceMask;
 // by the task graph and not by the hash order of the package dictionary.
 TaskStatus FillPoissonRHS(MeshData<Real> *md);
 
-// Step 1: momentum source from grav.phi_prev and the start-of-stage density ("prim").
-TaskStatus ApplyGravityMomentum(MeshData<Real> *md, const Real beta_dt);
+// Step 1: momentum source from the start-of-stage density ("prim") and grav.phi_prev,
+// or (grav.phi0 + grav.phi) / 2 if use_phi_avg.
+TaskStatus ApplyGravityMomentum(MeshData<Real> *md, const Real beta_dt,
+                                const bool use_phi_avg);
 
 // Step 3: energy source from the stage's mass fluxes and (grav.phi0 + grav.phi) / 2.
 TaskStatus ApplyGravityEnergy(MeshData<Real> *md, const Real beta_dt);

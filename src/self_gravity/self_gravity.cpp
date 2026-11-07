@@ -237,6 +237,24 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
   // Whether this process has taken a step yet; see AddStepStartTasks.
   pkg->AddParam<bool>("stepped", false, Params::Mutability::Mutable);
 
+  // Poisson solves per step; see Coupling in self_gravity.hpp.
+  const auto coupling_name = pin->GetOrAddString(block_name, "coupling", "per_stage");
+  Coupling coupling = Coupling::per_stage;
+  if (coupling_name == "per_step") {
+    coupling = Coupling::per_step;
+  } else if (coupling_name == "per_step_first_order") {
+    coupling = Coupling::per_step_first_order;
+  } else {
+    PARTHENON_REQUIRE_THROWS(coupling_name == "per_stage",
+                             "self_gravity/coupling must be per_stage, per_step or "
+                             "per_step_first_order.");
+  }
+  const auto integrator = pin->GetOrAddString("parthenon/time", "integrator", "rk2");
+  PARTHENON_REQUIRE_THROWS(
+      coupling == Coupling::per_stage || integrator == "vl2" || integrator == "rk1",
+      "self_gravity/coupling = per_step* needs integrator vl2 or rk1.");
+  pkg->AddParam("coupling", coupling);
+
   // NOTE: the Poisson RHS is deliberately NOT assembled from FillDerived. It was, and
   // that made the result depend on package iteration order: Update::FillDerived loops
   // over Packages::AllPackages(), which is a Dictionary = std::unordered_map, so whether
@@ -339,17 +357,32 @@ TaskStatus FillPoissonRHS(MeshData<Real> *md) {
   return TaskStatus::complete;
 }
 
-// ApplyGravityMomentum: momentum += beta dt rho^(l-1) g^(l-1) (Mullen et al. 2021, their
-// Eqs. 43-45 applied as in 63 and 67). Both factors are start-of-stage quantities: rho
-// from "prim", which this stage's FillDerived has not yet updated, and g from
-// grav.phi_prev. The face gravity g_{i+1/2} = -(phi_{i+1} - phi_i)/dx is averaged to the
-// cell centre.
-TaskStatus ApplyGravityMomentum(MeshData<Real> *md, const Real beta_dt) {
+// (phi^(l) + phi^(0)) / 2 at cell (k, j, i) of block b
+template <class Pack>
+KOKKOS_FORCEINLINE_FUNCTION Real PhiAvg(const Pack &p, const int b, const int k,
+                                        const int j, const int i) {
+  return 0.5 * (p(b, te, grav::phi(), k, j, i) + p(b, te, grav::phi0(), k, j, i));
+}
+
+// Potential for the momentum source: grav.phi_prev, or PhiAvg if avg
+template <class Pack>
+KOKKOS_FORCEINLINE_FUNCTION Real PhiMom(const Pack &p, const bool avg, const int b,
+                                        const int k, const int j, const int i) {
+  return avg ? PhiAvg(p, b, k, j, i) : p(b, te, grav::phi_prev(), k, j, i);
+}
+
+// ApplyGravityMomentum: momentum += beta dt rho^(l-1) g (Mullen et al. 2021, their
+// Eqs. 43-45 applied as in 63 and 67). rho is from "prim", which this stage's FillDerived
+// has not yet updated, and g from grav.phi_prev (start of stage) or, if use_phi_avg,
+// from (phi^(0) + phi^(l)) / 2. The face gravity g_{i+1/2} = -(phi_{i+1} - phi_i)/dx is
+// averaged to the cell centre.
+TaskStatus ApplyGravityMomentum(MeshData<Real> *md, const Real beta_dt,
+                                const bool use_phi_avg) {
   auto pm = md->GetParentPointer();
   const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
   const auto &cons_pack = md->PackVariables(std::vector<std::string>{"cons"});
-  auto desc_phi =
-      parthenon::MakePackDescriptor<grav::phi_prev>(pm->resolved_packages.get());
+  auto desc_phi = parthenon::MakePackDescriptor<grav::phi_prev, grav::phi, grav::phi0>(
+      pm->resolved_packages.get());
   auto phi_pack = desc_phi.GetPack(md);
 
   IndexRange ib = md->GetBoundsI(IndexDomain::interior);
@@ -365,31 +398,25 @@ TaskStatus ApplyGravityMomentum(MeshData<Real> *md, const Real beta_dt) {
         const Real rho = prim_pack(b, IDN, k, j, i);
         const auto &coords = cons_pack.GetCoords(b);
         // rho * (g_{i-1/2} + g_{i+1/2}) / 2 * beta dt, per direction
+        const bool avg = use_phi_avg;
         cons(IM1, k, j, i) -= 0.5 * beta_dt * rho *
-                              (phi_pack(b, te, grav::phi_prev(), k, j, i + 1) -
-                               phi_pack(b, te, grav::phi_prev(), k, j, i - 1)) /
+                              (PhiMom(phi_pack, avg, b, k, j, i + 1) -
+                               PhiMom(phi_pack, avg, b, k, j, i - 1)) /
                               coords.Dxc<1>(k, j, i);
         if (ndim > 1) {
           cons(IM2, k, j, i) -= 0.5 * beta_dt * rho *
-                                (phi_pack(b, te, grav::phi_prev(), k, j + 1, i) -
-                                 phi_pack(b, te, grav::phi_prev(), k, j - 1, i)) /
+                                (PhiMom(phi_pack, avg, b, k, j + 1, i) -
+                                 PhiMom(phi_pack, avg, b, k, j - 1, i)) /
                                 coords.Dxc<2>(k, j, i);
         }
         if (ndim > 2) {
           cons(IM3, k, j, i) -= 0.5 * beta_dt * rho *
-                                (phi_pack(b, te, grav::phi_prev(), k + 1, j, i) -
-                                 phi_pack(b, te, grav::phi_prev(), k - 1, j, i)) /
+                                (PhiMom(phi_pack, avg, b, k + 1, j, i) -
+                                 PhiMom(phi_pack, avg, b, k - 1, j, i)) /
                                 coords.Dxc<3>(k, j, i);
         }
       });
   return TaskStatus::complete;
-}
-
-// (phi^(l) + phi^(0)) / 2 at cell (k, j, i) of block b
-template <class Pack>
-KOKKOS_FORCEINLINE_FUNCTION Real PhiAvg(const Pack &p, const int b, const int k,
-                                        const int j, const int i) {
-  return 0.5 * (p(b, te, grav::phi(), k, j, i) + p(b, te, grav::phi0(), k, j, i));
 }
 
 // ApplyGravityEnergy: energy += beta dt sum_faces F_rho . g_avg (Mullen et al. 2021,

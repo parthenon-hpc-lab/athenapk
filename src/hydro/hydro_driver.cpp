@@ -592,7 +592,8 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   // self-gravity the sources continue in the same task lists as the update.
   TaskRegion *sources_region = &single_tasklist_per_pack_region;
   if (use_self_gravity) {
-    SelfGravity::AddStageTasks(tc, pmesh, integrator->beta[stage - 1] * integrator->dt);
+    SelfGravity::AddStageTasks(tc, pmesh, integrator->beta[stage - 1] * integrator->dt,
+                               stage, integrator->nstages);
     sources_region = &tc.AddRegion(num_partitions);
     std::fill(after_update.begin(), after_update.end(), none);
   }

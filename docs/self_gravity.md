@@ -126,6 +126,7 @@ code-unit value.
 | `<self_gravity>` | `solver` | `none` | Poisson solver. `multigrid` enables self-gravity via the GMG infrastructure; `none` disables the package. |
 | `<parthenon/mesh>` | `multigrid` | `false` | Must be `true`; enables the GMG hierarchy. |
 | `<self_gravity>` | `four_pi_G` | `1.0` | Value of $4\pi G$ in code units. |
+| `<self_gravity>` | `coupling` | `per_stage` | When $\phi$ is solved for. `per_stage`: every integrator stage. `per_step` (`vl2`): only in the last stage, whose momentum source then uses $(\phi^n + \phi^{n+1})/2$; one solve per step, still second order, energy still conserved. `per_step_first_order`: only in the last stage, momentum source from $\phi^n$; first order in time, for comparison. |
 | `<self_gravity>` | `use_swindle` | periodic? | Subtract the mean density from the RHS. Defaults to `true` for a fully periodic domain, `false` otherwise. |
 | `<self_gravity>` | `{i,o}x{1,2,3}_bc` | `default` | Per-face gravity BC. `default` follows the hydro BC; `zero` = homogeneous Dirichlet. |
 | `<self_gravity>` | `packed_bc` | `true` | Apply the `zero`/`neumann` $\phi$ BCs to a whole `MeshData` in one kernel per face during the solve (large GPU launch-latency saving at deep AMR; bit-identical to the per-block path). Automatically falls back to the per-block path for any other face type. |
