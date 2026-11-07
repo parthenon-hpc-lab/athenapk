@@ -508,7 +508,7 @@ TaskCollection HydroDriver::MakeTaskCollection(BlockList_t &blocks, int stage) {
   const bool use_self_gravity =
       pmesh->packages.Get("self_gravity")->Param<bool>("enabled");
   if (use_self_gravity && stage == 1) {
-    SelfGravity::AddStepStartTasks(tc, pmesh, tm.ncycle);
+    SelfGravity::AddStepStartTasks(tc, pmesh, tm);
   }
 
   // Now start the main time integration by resetting the registers

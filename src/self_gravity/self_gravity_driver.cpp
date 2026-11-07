@@ -22,6 +22,7 @@
 
 // C++ headers
 #include <algorithm>
+#include <cstdio>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -37,7 +38,7 @@
 
 namespace SelfGravity {
 
-void AddSolvePoissonTasks(TaskCollection &tc, Mesh *pmesh) {
+void AddSolvePoissonTasks(TaskCollection &tc, Mesh *pmesh, const Real warm_span) {
   using namespace parthenon;
   TaskID none(0);
 
@@ -68,6 +69,17 @@ void AddSolvePoissonTasks(TaskCollection &tc, Mesh *pmesh) {
     copy_rhs = tl.AddTask(
         copy_rhs, TF(parthenon::solvers::utils::CopyData<parthenon::TypeList<grav::phi>>),
         md, md_rhs);
+
+    // Warm start from the extrapolated potential instead of the last solution. grav.phi
+    // of the base container is free here: the stage update has overwritten it and the
+    // copy back below overwrites it again.
+    if (warm_span >= 0.0) {
+      auto extrap = tl.AddTask(none, ExtrapolatePhi, md.get(), warm_span, false);
+      copy_rhs = tl.AddTask(
+          copy_rhs | extrap,
+          TF(parthenon::solvers::utils::CopyData<parthenon::TypeList<grav::phi>>), md,
+          md_phi);
+    }
 
     // Solve
     auto setup = psolver->AddSetupTasks(tl, copy_rhs, i, pmesh);
@@ -118,10 +130,64 @@ bool PhiPrevIsZero(Mesh *pmesh) {
   return max_abs == 0.0;
 }
 
-void AddStepStartTasks(TaskCollection &tc, Mesh *pmesh, const int ncycle) {
+// One region applying RecordSolve to every partition.
+void AddRecordSolveTasks(TaskCollection &tc, Mesh *pmesh, const Slope slope,
+                         const Real inv_span) {
+  TaskID none(0);
+  const int num_partitions = pmesh->DefaultNumPartitions();
+  TaskRegion &region = tc.AddRegion(num_partitions);
+  for (int i = 0; i < num_partitions; ++i) {
+    auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+    region[i].AddTask(none, RecordSolve, md.get(), slope, inv_span);
+  }
+}
+
+// Start of a step with gravity_cfl > 0: record a forced solve (fresh start, new mesh) or
+// start the history on a restart without one, then decide whether the step ends with a
+// solve. phi_dot is kept across a new mesh: a slope between solves on different meshes
+// would extrapolate the interpolation error of the new blocks.
+void DecideGravityStep(TaskCollection &tc, Mesh *pmesh, const parthenon::SimTime &tm,
+                       const bool forced, const bool fresh) {
+  auto pkg = pmesh->packages.Get("self_gravity");
+  const Real gravity_cfl = pkg->Param<Real>("gravity_cfl");
+  const bool extrapolate = pkg->Param<bool>("extrapolate_phi");
+  Real t_s = pkg->Param<Real>("gdt_t_solve");
+  Real slope_span = pkg->Param<Real>("gdt_slope_span");
+  Real courant = pkg->Param<Real>("gdt_courant");
+  if (forced || t_s < 0.0) {
+    const bool no_slope = fresh || t_s < 0.0;
+    AddRecordSolveTasks(tc, pmesh, no_slope ? Slope::reset : Slope::keep, 0.0);
+    t_s = tm.time;
+    courant = 0.0;
+    if (no_slope) slope_span = 0.0;
+    pkg->UpdateParam("gdt_steps_since_solve", 0);
+  }
+  // Solve at the end of this step if the next one would exceed Courant number 1 or, when
+  // extrapolating, twice the time between the solves behind phi_dot (or there is none).
+  const Real rate = GravityRate(pmesh);
+  const Real inc = tm.dt * rate / gravity_cfl;
+  courant += inc;
+  const Real span = tm.time + tm.dt - t_s;
+  bool solve_now = courant + inc > 1.0;
+  if (extrapolate) solve_now = solve_now || !(span + tm.dt <= 2.0 * slope_span);
+  if (pkg->Param<bool>("print_gravity_dt") && parthenon::Globals::my_rank == 0) {
+    std::printf("SG gravity step: cycle %d dt %.4e dt_grav %.4e courant %.4f span %.4e "
+                "solve %d\n",
+                tm.ncycle, tm.dt, gravity_cfl / rate, courant, span, solve_now ? 1 : 0);
+  }
+  pkg->UpdateParam("gdt_solve_now", solve_now);
+  pkg->UpdateParam("gdt_span", span);
+  pkg->UpdateParam("gdt_t_end", tm.time + tm.dt);
+  pkg->UpdateParam("gdt_t_solve", t_s);
+  pkg->UpdateParam("gdt_slope_span", slope_span);
+  pkg->UpdateParam("gdt_courant", solve_now ? 0.0 : courant);
+}
+
+void AddStepStartTasks(TaskCollection &tc, Mesh *pmesh, const parthenon::SimTime &tm) {
   using namespace parthenon;
   TaskID none(0);
   auto pkg = pmesh->packages.Get("self_gravity");
+  const int ncycle = tm.ncycle;
 
   // grav.phi_prev normally still holds the potential of the last stage's density, i.e.
   // of this step's start-of-step density, and a restart file carries it over. It has to
@@ -138,8 +204,11 @@ void AddStepStartTasks(TaskCollection &tc, Mesh *pmesh, const int ncycle) {
   if (restart_without_phi && Globals::my_rank == 0) {
     std::cout << "Self-gravity: restart file has no grav.phi_prev, solving for it.\n";
   }
-  if (fresh_start || restart_without_phi || (!first_step_of_process && pmesh->modified)) {
-    AddSolvePoissonTasks(tc, pmesh);
+  const bool forced =
+      fresh_start || restart_without_phi || (!first_step_of_process && pmesh->modified);
+  if (forced) AddSolvePoissonTasks(tc, pmesh);
+  if (pkg->Param<Real>("gravity_cfl") > 0.0) {
+    DecideGravityStep(tc, pmesh, tm, forced, fresh_start || restart_without_phi);
   }
   if (first_step_of_process) pkg->UpdateParam("stepped", true);
 
@@ -172,9 +241,16 @@ void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt, const in
   using namespace parthenon;
   TaskID none(0);
   const int num_partitions = pmesh->DefaultNumPartitions();
-  const auto coupling = pmesh->packages.Get("self_gravity")->Param<Coupling>("coupling");
-  const bool solve = (coupling == Coupling::per_stage) || (stage == nstages);
-  const bool momentum_after_solve = solve && (coupling == Coupling::per_step);
+  auto pkg = pmesh->packages.Get("self_gravity");
+  const auto coupling = pkg->Param<Coupling>("coupling");
+  // With a gravity time step, a last stage without a solve extrapolates phi to the end of
+  // the step and otherwise proceeds as if it had solved.
+  const bool gravity_step = (stage == nstages) && pkg->Param<Real>("gravity_cfl") > 0.0;
+  const bool solve_now = !gravity_step || pkg->Param<bool>("gdt_solve_now");
+  const bool solve = (coupling == Coupling::per_stage) || (stage == nstages && solve_now);
+  const bool extrapolate_now = gravity_step && !solve_now;
+  const bool momentum_after_solve =
+      (solve || extrapolate_now) && (coupling == Coupling::per_step);
   auto add_momentum = [&](const bool use_phi_avg) {
     TaskRegion &momentum_region = tc.AddRegion(num_partitions);
     for (int i = 0; i < num_partitions; ++i) {
@@ -190,7 +266,28 @@ void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt, const in
 
   // 2. Potential of the updated density. A stage without a solve keeps phi^(0), restored
   //    into grav.phi because the stage's hydro update rewrites it (it carries fluxes).
-  if (solve) {
+  if (gravity_step) {
+    const Real span = pkg->Param<Real>("gdt_span");
+    const int steps = pkg->Param<int>("gdt_steps_since_solve");
+    const bool extrapolate = pkg->Param<bool>("extrapolate_phi");
+    if (solve) {
+      // From the extrapolated potential only if an earlier step skipped its solve, so
+      // that solving every step reproduces plain per_step bit for bit.
+      AddSolvePoissonTasks(tc, pmesh, (extrapolate && steps > 0) ? span : -1.0);
+      AddRecordSolveTasks(tc, pmesh, extrapolate ? Slope::update : Slope::keep,
+                          1.0 / span);
+      pkg->UpdateParam("gdt_t_solve", pkg->Param<Real>("gdt_t_end"));
+      if (extrapolate) pkg->UpdateParam("gdt_slope_span", span);
+      pkg->UpdateParam("gdt_steps_since_solve", 0);
+    } else {
+      TaskRegion &region = tc.AddRegion(num_partitions);
+      for (int i = 0; i < num_partitions; ++i) {
+        auto &md = pmesh->mesh_data.GetOrAdd("base", i);
+        region[i].AddTask(none, ExtrapolatePhi, md.get(), span, true);
+      }
+      pkg->UpdateParam("gdt_steps_since_solve", steps + 1);
+    }
+  } else if (solve) {
     AddSolvePoissonTasks(tc, pmesh);
   } else {
     AddRestorePhiTasks(tc, pmesh);

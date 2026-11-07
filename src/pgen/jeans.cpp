@@ -37,6 +37,8 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
   // Wavenumber in units of 2*pi / Lx (so nwave=1 means wavelength = Lx)
   const int nwave = pin->GetOrAddInteger("problem/jeans", "nwave", 1);
   const Real B0z = mhd ? pin->GetOrAddReal("problem/jeans", "B0z", 0.0) : 0.0;
+  // Uniform x1 velocity: the same wave, advected (Galilean boost).
+  const Real v0 = pin->GetOrAddReal("problem/jeans", "v0", 0.0);
 
   // Uniform pressure consistent with the given rho0 and cs (adiabatic):
   //   c_s^2 = gamma * p / rho  ->  p = rho * c_s^2 / gamma
@@ -71,10 +73,10 @@ void ProblemGenerator(Mesh *pmesh, ParameterInput *pin, MeshData<Real> *md) {
         const Real p = p0 * pert;
 
         cons(IDN, k, j, i) = rho;
-        cons(IM1, k, j, i) = 0.0;
+        cons(IM1, k, j, i) = rho * v0;
         cons(IM2, k, j, i) = 0.0;
         cons(IM3, k, j, i) = 0.0;
-        cons(IEN, k, j, i) = p / gm1;
+        cons(IEN, k, j, i) = p / gm1 + 0.5 * rho * v0 * v0;
         if (mhd) {
           cons(IB1, k, j, i) = 0.0;
           cons(IB2, k, j, i) = 0.0;

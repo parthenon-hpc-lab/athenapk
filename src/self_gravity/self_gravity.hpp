@@ -51,6 +51,8 @@ SG_VARIABLE(grav, phi);      // solver variable; holds the latest solve
 SG_VARIABLE(grav, rhs);      // 4 pi G (rho - rho_mean)
 SG_VARIABLE(grav, phi_prev); // potential of the start-of-stage density
 SG_VARIABLE(grav, phi0);     // potential of the start-of-step density
+SG_VARIABLE(grav, phi_s);    // potential of the last solve (gravity_cfl > 0)
+SG_VARIABLE(grav, phi_dot);  // d phi / dt between the last two solves (gravity_cfl > 0)
 } // namespace grav
 
 // Package registration, called from Hydro::ProcessPackages.
@@ -74,17 +76,39 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
 // per_step_first_order keeps step 1 first, i.e. rho^(l-1) g^(0): first order in time.
 enum class Coupling { per_stage, per_step, per_step_first_order };
 
+// Gravity time step (per_step with gravity_cfl > 0): a step ends with a solve only once
+// the gravitating gas has used up a Courant number gravity_cfl since the last solve, with
+// dt_grav = gravity_cfl / GravityRate. In between, phi = phi_s + (t - t_s) phi_dot is
+// extrapolated linearly from the last two solves (second order) or held (extrapolate_phi
+// = false). If dt_grav < 2 dt every step solves, exactly as plain per_step.
+enum class Slope { keep, reset, update };
+
 // Before the first stage of a step: ensure grav.phi_prev is the potential of the
 // start-of-step density (solving for it on a fresh start and after the mesh changed)
-// and copy it into grav.phi0.
-void AddStepStartTasks(TaskCollection &tc, Mesh *pmesh, const int ncycle);
+// and copy it into grav.phi0. With gravity_cfl > 0, also decide whether the step solves.
+void AddStepStartTasks(TaskCollection &tc, Mesh *pmesh, const parthenon::SimTime &tm);
+
+// Max over cells of max((|v| + c_f) / max(dx, lambda_J / jeans_cells), 1 / t_ff), with
+// c_f = sqrt(c_s^2 + v_A^2). Gas whose Jeans length spans many cells only needs its
+// potential refreshed when it has moved a fraction of lambda_J. Reduces over all ranks.
+Real GravityRate(Mesh *pmesh);
+
+// After a solve: phi_dot = (phi_prev - phi_s) * inv_span (update), unchanged (keep) or
+// zero (reset); then phi_s = phi_prev. All cells including ghosts.
+TaskStatus RecordSolve(MeshData<Real> *md, const Slope slope, const Real inv_span);
+
+// grav.phi = phi_s + span * phi_dot on all cells including ghosts; also grav.phi_prev if
+// to_prev.
+TaskStatus ExtrapolatePhi(MeshData<Real> *md, const Real span, const bool to_prev);
 
 // Steps 1-3 above, after the stage's hydro update and before its boundary exchange.
 void AddStageTasks(TaskCollection &tc, Mesh *pmesh, const Real beta_dt, const int stage,
                    const int nstages);
 
 // Solve for grav.phi from the current conserved density and copy it into grav.phi_prev.
-void AddSolvePoissonTasks(TaskCollection &tc, Mesh *pmesh);
+// warm_span >= 0 starts the solver from phi_s + warm_span * phi_dot instead of the last
+// solution.
+void AddSolvePoissonTasks(TaskCollection &tc, Mesh *pmesh, const Real warm_span = -1.0);
 
 // After the end-of-step super-time-stepping: copy grav.phi_prev back into grav.phi. The
 // RKL2 steps update every Independent field with fluxes and reset grav.phi from "u1",

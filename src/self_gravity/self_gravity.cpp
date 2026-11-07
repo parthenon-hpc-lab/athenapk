@@ -255,6 +255,40 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin) {
       "self_gravity/coupling = per_step* needs integrator vl2 or rk1.");
   pkg->AddParam("coupling", coupling);
 
+  // Gravity time step; see Slope in self_gravity.hpp. Off (0) by default.
+  const Real gravity_cfl = pin->GetOrAddReal(block_name, "gravity_cfl", 0.0);
+  PARTHENON_REQUIRE_THROWS(gravity_cfl >= 0.0, "self_gravity/gravity_cfl must be >= 0.");
+  PARTHENON_REQUIRE_THROWS(gravity_cfl == 0.0 || coupling == Coupling::per_step,
+                           "self_gravity/gravity_cfl > 0 needs coupling = per_step.");
+  pkg->AddParam("gravity_cfl", gravity_cfl);
+  const Real jeans_cells = pin->GetOrAddReal(block_name, "jeans_cells", 4.0);
+  PARTHENON_REQUIRE_THROWS(jeans_cells > 0.0, "self_gravity/jeans_cells must be > 0.");
+  pkg->AddParam("jeans_cells", jeans_cells);
+  pkg->AddParam("extrapolate_phi",
+                pin->GetOrAddBoolean(block_name, "extrapolate_phi", true));
+  pkg->AddParam("print_gravity_dt",
+                pin->GetOrAddBoolean(block_name, "print_gravity_dt", false));
+  // State carried across steps and restarts: time of the last solve (< 0: none), time
+  // between the two solves behind phi_dot (0: no slope), Courant number used since the
+  // last solve, and steps since then. Then this step's decision (AddStepStartTasks).
+  using Mut = Params::Mutability;
+  pkg->AddParam<Real>("gdt_t_solve", -1.0, Mut::Restart);
+  pkg->AddParam<Real>("gdt_slope_span", 0.0, Mut::Restart);
+  pkg->AddParam<Real>("gdt_courant", 0.0, Mut::Restart);
+  pkg->AddParam<int>("gdt_steps_since_solve", 0, Mut::Restart);
+  pkg->AddParam<bool>("gdt_solve_now", true, Mut::Mutable);
+  pkg->AddParam<Real>("gdt_span", 0.0, Mut::Mutable);
+  pkg->AddParam<Real>("gdt_t_end", 0.0, Mut::Mutable);
+  if (gravity_cfl > 0.0) {
+    // Like phi_prev: ghosts and AMR ops so they are valid wherever the kernels read them.
+    Metadata m({Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::FillGhost,
+                Metadata::Restart});
+    m.RegisterRefinementOps<parthenon::refinement_ops::ProlongateSharedLinear,
+                            parthenon::refinement_ops::RestrictAverage>();
+    pkg->AddField<grav::phi_s>(m);
+    pkg->AddField<grav::phi_dot>(m);
+  }
+
   // NOTE: the Poisson RHS is deliberately NOT assembled from FillDerived. It was, and
   // that made the result depend on package iteration order: Update::FillDerived loops
   // over Packages::AllPackages(), which is a Dictionary = std::unordered_map, so whether
@@ -467,6 +501,105 @@ TaskStatus ApplyGravityEnergy(MeshData<Real> *md, const Real beta_dt) {
               coords.Dxc<3>(k, j, i);
         }
         cons(IEN, k, j, i) += 0.5 * beta_dt * de;
+      });
+  return TaskStatus::complete;
+}
+
+Real GravityRate(Mesh *pmesh) {
+  using parthenon::IndexDomain;
+  auto grav_pkg = pmesh->packages.Get("self_gravity");
+  auto hydro_pkg = pmesh->packages.Get("Hydro");
+  constexpr Real pi = 3.14159265358979323846;
+  const Real gam = hydro_pkg->Param<Real>("AdiabaticIndex");
+  const bool mhd = hydro_pkg->Param<Fluid>("fluid") == Fluid::glmmhd;
+  const Real G = grav_pkg->Param<Real>("four_pi_G") / (4.0 * pi);
+  const Real inv_nj = 1.0 / grav_pkg->Param<Real>("jeans_cells");
+  const int ndim = pmesh->ndim;
+  Real rate = 0.0;
+  for (int p = 0; p < pmesh->DefaultNumPartitions(); ++p) {
+    auto &md = pmesh->mesh_data.GetOrAdd("base", p);
+    const auto &prim_pack = md->PackVariables(std::vector<std::string>{"prim"});
+    IndexRange ib = md->GetBoundsI(IndexDomain::interior);
+    IndexRange jb = md->GetBoundsJ(IndexDomain::interior);
+    IndexRange kb = md->GetBoundsK(IndexDomain::interior);
+    Real part = 0.0;
+    parthenon::par_reduce(
+        parthenon::loop_pattern_mdrange_tag, "SG::GravityRate", parthenon::DevExecSpace(),
+        0, md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA(const int b, const int k, const int j, const int i, Real &lmax) {
+          const auto &w = prim_pack(b);
+          const auto &coords = prim_pack.GetCoords(b);
+          const Real rho = w(IDN, k, j, i);
+          const Real v1 = w(IV1, k, j, i), v2 = w(IV2, k, j, i), v3 = w(IV3, k, j, i);
+          const Real cs2 = gam * w(IPR, k, j, i) / rho;
+          Real cf2 = cs2;
+          if (mhd) {
+            const Real b1 = w(IB1, k, j, i), b2 = w(IB2, k, j, i), b3 = w(IB3, k, j, i);
+            cf2 += (b1 * b1 + b2 * b2 + b3 * b3) / rho;
+          }
+          Real dx = coords.Dxc<1>(k, j, i);
+          if (ndim > 1) dx = Kokkos::min(dx, coords.Dxc<2>(k, j, i));
+          if (ndim > 2) dx = Kokkos::min(dx, coords.Dxc<3>(k, j, i));
+          const Real g_rho = G * rho;
+          const Real len = Kokkos::max(dx, inv_nj * Kokkos::sqrt(pi * cs2 / g_rho));
+          const Real signal =
+              Kokkos::sqrt(v1 * v1 + v2 * v2 + v3 * v3) + Kokkos::sqrt(cf2);
+          const Real inv_tff = Kokkos::sqrt(32.0 * g_rho / (3.0 * pi));
+          lmax = Kokkos::max(lmax, Kokkos::max(signal / len, inv_tff));
+        },
+        Kokkos::Max<Real>(part));
+    rate = std::max(rate, part);
+  }
+#ifdef MPI_PARALLEL
+  PARTHENON_MPI_CHECK(
+      MPI_Allreduce(MPI_IN_PLACE, &rate, 1, MPI_PARTHENON_REAL, MPI_MAX, MPI_COMM_WORLD));
+#endif
+  return rate;
+}
+
+TaskStatus RecordSolve(MeshData<Real> *md, const Slope slope, const Real inv_span) {
+  using parthenon::IndexDomain;
+  auto pm = md->GetParentPointer();
+  auto desc = parthenon::MakePackDescriptor<grav::phi_prev, grav::phi_s, grav::phi_dot>(
+      pm->resolved_packages.get());
+  auto pack = desc.GetPack(md);
+  IndexRange ib = md->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBoundsK(IndexDomain::entire);
+  const bool update = (slope == Slope::update), reset = (slope == Slope::reset);
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "SG::RecordSolve", parthenon::DevExecSpace(), 0,
+      md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const Real phi = pack(b, te, grav::phi_prev(), k, j, i);
+        if (update) {
+          pack(b, te, grav::phi_dot(), k, j, i) =
+              (phi - pack(b, te, grav::phi_s(), k, j, i)) * inv_span;
+        } else if (reset) {
+          pack(b, te, grav::phi_dot(), k, j, i) = 0.0;
+        }
+        pack(b, te, grav::phi_s(), k, j, i) = phi;
+      });
+  return TaskStatus::complete;
+}
+
+TaskStatus ExtrapolatePhi(MeshData<Real> *md, const Real span, const bool to_prev) {
+  using parthenon::IndexDomain;
+  auto pm = md->GetParentPointer();
+  auto desc = parthenon::MakePackDescriptor<grav::phi, grav::phi_prev, grav::phi_s,
+                                            grav::phi_dot>(pm->resolved_packages.get());
+  auto pack = desc.GetPack(md);
+  IndexRange ib = md->GetBoundsI(IndexDomain::entire);
+  IndexRange jb = md->GetBoundsJ(IndexDomain::entire);
+  IndexRange kb = md->GetBoundsK(IndexDomain::entire);
+  parthenon::par_for(
+      DEFAULT_LOOP_PATTERN, "SG::ExtrapolatePhi", parthenon::DevExecSpace(), 0,
+      md->NumBlocks() - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+      KOKKOS_LAMBDA(const int b, const int k, const int j, const int i) {
+        const Real phi = pack(b, te, grav::phi_s(), k, j, i) +
+                         span * pack(b, te, grav::phi_dot(), k, j, i);
+        pack(b, te, grav::phi(), k, j, i) = phi;
+        if (to_prev) pack(b, te, grav::phi_prev(), k, j, i) = phi;
       });
   return TaskStatus::complete;
 }
