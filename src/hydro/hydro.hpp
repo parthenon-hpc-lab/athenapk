@@ -26,6 +26,7 @@ using parthenon::SimTime;
 TaskStatus AddUnsplitSources(MeshData<Real> *md, const SimTime &tm, const Real beta_dt);
 TaskStatus AddSplitSourcesFirstOrder(MeshData<Real> *md, const SimTime &tm);
 TaskStatus AddSplitSourcesStrang(MeshData<Real> *md, const SimTime &tm);
+TaskStatus FillTracerMCell(MeshData<Real> *md);
 
 using SourceFun_t =
     std::function<void(MeshData<Real> *md, const SimTime &tm, const Real dt)>;

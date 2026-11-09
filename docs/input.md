@@ -328,47 +328,263 @@ and a notebook comparing various cooling tables (and their conversion) in [cooli
 
 #### Tracers
 
-Tracer particles can be enabled by setting `tracers/enabled=true` in the input file:
+Tracer particles can be enabled and configured via the `<tracers>` block in the input file.
 
-```
+---
+
+##### Enabling Tracers
+
+```ini
 <tracers>
 enabled = true
-
-initial_seed_method  = random_per_block    # alternative: user
-initial_num_tracers_per_cell = 0.125
-### Optional arguments
-#initial_rng_seed = INTEGER
 ```
 
-Two seeding methods are currently supported:
+---
 
-- `initial_seed_method=random_per_block`
-  - seeds particles at random positions in each block
-  - NOTE: the random number generator seed uses the unique block id. Therefore, simulations with the mesh decomposition (mesh and meshblock sizes) are identical independent of the number of MPI ranks used, but if the meshblock size is changed for given mesh (and thus the total number of blocks) the initial state will be different.
-  - `initial_num_tracers_per_cell` determines the number of seeded particles per cell
-  - `initial_rng_seed` (optional) is used as seed in addition to the block id.
-- `initial_seed_method=user`
-  - Calls a problem specific callback function (`ProblemSeedInitialTracers`), see [tracer callback documenation](https://github.com/parthenon-hpc-lab/athenapk/blob/main/docs/user_pgen.md#tracers).
+##### Advection Method
+
+Specify the method for advecting tracers:
+
+```ini
+advection_method = vinterp   # options: vinterp (default), montecarlo, ito
+```
+
+- `vinterp`: tracers move with the gas velocity interpolated to their position
+  (Heun's method). Trajectories are continuous, but the tracer distribution can
+  decorrelate from the gas distribution (e.g.
+  [Genel et al. 2013](https://doi.org/10.1093/mnras/stt1383)).
+- `montecarlo`: tracers jump between neighboring cells with probabilities set by the
+  mass fluxes ([Cadiou et al. 2019](https://doi.org/10.1051/0004-6361/201834496)). The tracer
+  distribution follows the gas statistically, but trajectories are discontinuous.
+- `ito`: the CIC Itô-2 tracers of
+  [Moseley et al. 2026](https://doi.org/10.1093/mnras/stag1536), ported from RAMSES.
+  Each step, a tracer moves by the mean displacement of a Monte Carlo jump plus a
+  uniform random kick with the variance of that jump, both linearly interpolated
+  to its position. Trajectories are continuous and the gas distribution is followed
+  about as well as with `montecarlo`. With `ito_order = 3` (default 2), the kick also
+  matches the jump's skewness (the paper's Itô-3, piecewise skew uniform kick); this
+  adds `ndim` moment fields to the exchange.
+
+`montecarlo` and `ito` work with the `rk1`, `rk2`, `rk3` and `vl2` integrators: they
+use the mass each face exchanged over the whole step, i.e. the stage fluxes combined as
+in the conserved update (see `AccumulateMassFluxes` in `tracers.cpp`).
+`montecarlo` does not support adaptive mesh refinement yet; `ito` runs with it but
+has not been tested with it.
+
+`ito` adds one ghost-cell exchange per step for its `2 * ndim` moment fields,
+separate from the hydro exchanges. At physical boundaries these fields are always
+extrapolated with zero gradient, whatever the hydro boundary condition.
+Like the Monte Carlo draws, the random kicks are keyed on the tracer, so they do not
+depend on the domain decomposition.
+
+The randomness of `montecarlo` is reproducible across backends and restarts: each draw
+(stay or hop, through which face, which child cell after entering a finer level) is a
+hash of the population's seed and index, the tracer's ID, the cycle number and the
+kind of draw (`TracerRoll` in `custom_rng.hpp`). No generator state is kept, so it does
+not matter which block, rank or thread handles a tracer, and since the IDs and the
+cycle count are restored on restart, a restarted run draws the same numbers as an
+uninterrupted one.
+
+With `vinterp` and `ito`, density, pressure, velocity, magnetic field, and the
+optional passive-scalar fraction are linearly interpolated to each tracer's
+position. For `vinterp`, the stored velocity is also used in the next tracer
+integration step.
+With `montecarlo`, these quantities are sampled at the host-cell center.
+
+Derivative diagnostics (pressure gradients, divergence, vorticity, magnetic curl,
+magnetic tension, and the gradient of magnetic-field strength squared) are central
+differences at cell centers, sampled according to
+
+```ini
+derivatives_at = cell   # options: cell (default), particle
+```
+
+With `cell`, they are taken at the host-cell center for all methods, so their values
+can jump when a tracer crosses a cell boundary; magnetic tension then uses the
+host-cell magnetic field and its cell-centered derivatives. With `particle`, each
+diagnostic is computed at the cell centers around the tracer and linearly
+interpolated to its position, with the same weights as the primitive variables (the
+vorticity is interpolated as a vector before taking its magnitude). This needs no
+extra communication: it uses the second ghost layer, which every reconstruction
+already requires. For `montecarlo`, whose tracers sit at cell centers, both options
+give the same values.
+
+---
+
+##### Swarm Populations
+
+Multiple tracer populations (swarms) can be defined and configured independently:
+
+```ini
+swarm_names = tracers0,tracers1 # examples, any name could work
+```
+
+Each swarm's parameters must be provided **within** the `<tracers>` section.
+
+If `swarm_names` is not set, there is a single population named `tracers`, so input
+files written before populations were introduced keep working.
+
+###### Example:
+
+```ini
+# tracers0: persistent population of tracers injected initially
+tracers0_initial_num_tracers_per_cell = 1.0
+tracers0_injection_enabled    = false
+tracers0_removal_enabled      = false
+
+# tracers1: dynamically injected tracers
+tracers1_initial_num_tracers_per_cell = 0
+tracers1_injection_enabled    = true
+tracers1_injection_criterion  = density_above
+tracers1_injection_threshold  = 8.0 # in code units
+tracers1_injection_timescale  = 0.05
+tracers1_injection_num_target = 1
+
+tracers1_removal_enabled             = true
+tracers1_removal_exception           = true
+tracers1_removal_exception_criterion = density_above
+tracers1_removal_exception_threshold = 8.0 # in code units
+tracers1_lifetime                    = 0.05
+```
+
+###### Parameters
+
+All parameters below are prefixed with the population's name, `SWARM_NAME_`:
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `initial_num_tracers_per_cell` | `tracers/initial_num_tracers_per_cell`, or 0 if unset | Number of tracers per cell seeded by `initial_seed_method = random_per_block`. |
+| `initial_rng_seed` | `tracers/initial_rng_seed`, or 0 if unset | Seed of the population's random draws, see [Initial Seeding](#initial-seeding). |
+| `reference_level` | -1 (disabled) | Refinement level, relative to the root grid, for which the per-cell seeding and injection numbers are given. They are scaled by $`2^{n_\mathrm{dim}(\ell_\mathrm{ref} - \ell)}`$ in a block at level $`\ell`$, so the number of tracers per unit volume does not depend on the level. |
+| `injection_enabled` | `false` | Inject tracers during the run. Not supported with `parthenon/mesh/refinement = adaptive`. |
+| `injection_criterion` | required | Cells eligible for injection: `density_above`, `density_below`, `temperature_above`, `temperature_below`, or `jet` (the AGN jet region; only the `cluster` problem generator provides its geometry, otherwise no cell is eligible). |
+| `injection_threshold` | -1 | Threshold of the density (code units) or temperature (K) criteria. The comparison is strict, so a cell exactly at the threshold is not eligible. Not used by `jet`. |
+| `injection_num_target` | required, > 0 | Target number of tracers injected per eligible cell over `injection_timescale`. |
+| `injection_timescale` | required, > 0 | Each timestep, an eligible cell receives one tracer with probability `injection_num_target / injection_timescale * dt` (including the `reference_level` scaling, and capped at 1). |
+| `removal_enabled` | `false` | Remove tracers once they reach `lifetime`. |
+| `lifetime` | -1 (never removed) | Time after injection (or seeding) at which a tracer is removed. Code units. |
+| `removal_exception` | `false` | Keep tracers reaching their `lifetime` in cells fulfilling `removal_exception_criterion`. Their lifetime is extended by another `lifetime`, after which the criterion is checked again. |
+| `removal_exception_criterion` | required with `removal_exception` | As `injection_criterion`, but without `jet`. |
+| `removal_exception_threshold` | -1 | As `injection_threshold`. |
+| `fields` | empty | Additional fields of the population, see [Per-swarm fields](#per-swarm-fields). |
+
+The temperature criteria require a `units` block and `hydro/He_mass_fraction`.
+
+Note that to keep the population of dynamically injected tracers roughly stable in time, it is recommended to match `injection_timescale` and `lifetime`. If `lifetime` is much larger than the injection timescale (or if removal isn't even enabled), the particle's population can grow increasingly large in an uncontrolled fashion.
+
+---
+
+##### Per-swarm fields
+
+Every swarm always contains the position and ID fields managed by Parthenon plus
+the primitive variables: `rho`, `pressure`, `vel_x`, `vel_y`, and `vel_z`.
+MHD runs also contain `B_x`, `B_y`, and `B_z`.
+
+Additional fields are selected independently for each swarm with
+`SWARM_NAME_fields` in the `<tracers>` block. The default is an empty list. For
+example:
+
+```ini
+swarm_names = tracers0,tracers1
+tracers0_fields = level, div_v, rot_v
+tracers1_fields = injection_time, grad_pressure_x, grad_pressure_y
+```
+
+This registry controls which fields exist on each swarm. Selecting fields for a
+non-restart output remains a separate step in that output block, as described
+under [Output Configuration](#output-configuration).
+
+The available fields are:
+
+| Field | Value stored on the tracer |
+| --- | --- |
+| `injection_time` | Simulation time at which the tracer was created, including tracers created during initial seeding. |
+| `lifetime` | Removal lifetime assigned to the tracer. This field requires `SWARM_NAME_removal_enabled=true`. |
+| `level` | Refinement level of the tracer's current mesh block. |
+| `grad_pressure_x`, `grad_pressure_y`, `grad_pressure_z` | Components of the pressure gradient, calculated with centered differences of the cell-centered pressure. The z component is zero in 2D. |
+| `div_v` | Velocity divergence, $`\nabla\!\cdot\!\boldsymbol{v}`$, calculated with centered differences. |
+| `rot_v` | Magnitude of the velocity curl, $`\lvert\nabla\!\times\!\boldsymbol{v}\rvert`$. In 2D this is the absolute value of its z component. |
+| `rot_B_x`, `rot_B_y`, `rot_B_z` | Components of $`\nabla\!\times\!\boldsymbol{B}`$, calculated with centered differences. These fields require `hydro/fluid=glmmhd`. |
+| `tens_B_x`, `tens_B_y`, `tens_B_z` | Components of the magnetic-tension term $`(\boldsymbol{B}\!\cdot\!\nabla)\boldsymbol{B}`$. These fields require `hydro/fluid=glmmhd`. |
+| `grad_B2_x`, `grad_B2_y`, `grad_B2_z` | Components of $`\nabla(B^2)`$, calculated with centered differences. These fields require `hydro/fluid=glmmhd`. |
+| `scalar_fraction` | The first passive scalar's primitive value (mass fraction). This field requires `hydro/nscalars=1`. |
+
+`level` is added automatically when Monte Carlo advection is used on a multilevel
+mesh, including meshes with static or adaptive refinement. That combination needs
+the previous refinement level when recentering tracers after communication.
+Enabling lifetime-based removal automatically adds `injection_time` and `lifetime`.
+These automatically added fields become part of that swarm's effective field
+registry.
+
+Unknown or duplicate field names, fields incompatible with the selected fluid,
+and `scalar_fraction` without exactly one passive scalar cause an error during
+startup. Optional fluid-derived fields are updated by the hydro driver every
+full timestep (not just before writing an output), so an output simply
+reflects the values as of the last completed step.
+
+---
+
+##### Initial Seeding
+
+```ini
+initial_seed_method = random_per_block   # alternatives: user, none (default)
+```
+
+This is a global option, i.e. it applies to all populations.
+Three seeding methods are supported:
+
+- **`none`** (default)
+  - No initial tracers, e.g. when tracers are only injected during the run.
+
+- **`random_per_block`**
+  - Seeds particles randomly in each mesh block.
+  - **Note**: the random number generator seed uses the unique block id. Therefore, simulations with the mesh decomposition (mesh and meshblock sizes) are identical independent of the number of MPI ranks used, but if the meshblock size is changed for given mesh (and thus the total number of blocks) the initial state will be different.
+  - Controlled by:
+    - `SWARM_NAME_initial_num_tracers_per_cell`
+    - Optional: `SWARM_NAME_initial_rng_seed`, used as seed in addition to the block id. A global `initial_rng_seed` sets the default for all populations, and each population with its own `SWARM_NAME_initial_rng_seed` overrides it. It defaults to 0 otherwise.
+
+- **`user`**
+  - Uses the `ProblemSeedInitialTracers` callback to seed particles manually.
+  - See [callback documentation](user_pgen.md#initial-tracer-seeding)
+
+Seeding, and the reservation of each block's range of tracer IDs, runs once per
+simulation: a restart keeps the restored tracers and ID counters, whatever the method.
+Enabling tracers when restarting a run that had them disabled seeds them at the
+restart time. Restart files written before populations were introduced keep their
+tracers, as long as these are in a population named `tracers`.
+
+---
+
+##### Output Configuration
 
 By default, swarm fields are written only to restart files.
 If they are required for "standard" output files (like single precision `hdf5`),
-they need to be added manually to the output block, e.g., (bottom two lines)
-```
+they need to be added manually to the output block, e.g., (`swarms` and the `*_variables` lines)
+
+```ini
 <parthenon/output2>
 file_type  = hdf5       # Binary data dump
-variables   = prim   # variables to be output
+variables  = prim       # variables to be output
 dt         = 0.1        # time increment between outputs
 id         = prim
 single_precision_output = true
 
-swarms = tracers
-tracers_variables = id, x, y, z, rho
-#write_swarm_xdmf=true  # uncomment to create an xdmf output (e.g., for Paraview or Visit)
+swarms = tracers0,tracers1
+tracers0_variables = id, x, y, z, rho
+tracers1_variables = id, x, y, z, rho
+# write_swarm_xdmf = true   # optional: enables xdmf file for Paraview/Visit
 ```
+
+Each swarm listed in `swarms` needs its own `SWARM_NAME_variables` key (not
+`tracers_variables`, unless a swarm happens to be named `tracers`). The
+swarm-agnostic `swarm_variables` applies the same list to every listed swarm
+instead, but is only unambiguous with a single swarm; Parthenon warns (and
+still applies it to all of them) if there is more than one.
 
 Tracers can be read/processed by Paraview or Visit (via the xdmf file)
 or by the `phdf` package shipped with the Parthenon submodule.
 A sample plotting script for the latter might look like
+
 ```python
 import matplotlib.pyplot as plt
 import numpy as np
@@ -400,12 +616,13 @@ resulting in the following image:
 
 ![image](img/tracer_example.png)
 
-Following "restrictions" apply to the current tracer implementation:
-- Only 3D simulations.
-- Only one advection method (RK2/Heun's method).
-- All primitive fields (`rho`, `pressure`, `vel_x`, `vel_y`, `vel_z`, `B_x`, `B_y`, and `B_x`) are traced by default (independent of whether they're needed or not) in addition to the position (`x`, `y`, `z`) and id (`id`) fields.
-- Default tracer values (such as the primitive fields) are only updated right before writing an output file.
-- Ids are only unique if tracers are seeded at the beginning at the simulations and no new tracer particles are added dynamically while the simulation is running.
+Following restrictions apply to the current tracer implementation:
+- The `scalar_fraction` field supports exactly one passive scalar.
+- The `turbulence` problem generator's tracer density history does not support dynamic
+  injection in the first population (the one it tracks).
+- Only `parthenon/mesh/packs_per_rank=1` (the default) is currently supported.
+- Tracers require a double-precision build (no `PARTHENON_SINGLE_PRECISION`); see
+  the `EncodeOffset`/`DecodeOffset` comment in `particles_utils.hpp` for why.
 
 Please get in touch, if you interested in running simulations that require lifting one (or more) of those restrictions.
 

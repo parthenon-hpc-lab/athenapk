@@ -192,26 +192,52 @@ callback is available, that is called once every time right before a data output
 
 ### Particles
 
-#### Tracers
+#### Tracer Particles
 
-In order to allow custom seeding of tracer particles (per problem generator), the
-`ProblemSeedInitialTracers` function can be defined.
+Tracer particles can be seeded at the start of the simulation and evolved. These can be also dynamically injected and removed as the simulation is running.
+
+---
+
+##### Initial Tracer Seeding
+
+To allow custom seeding of tracer particles per problem generator, define:
+
 ```c++
 void ProblemSeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm);
 ```
-It is executed once when a simulation is started the very first time (i.e., it
-is not called on subsequent restarts).
-See the standard tracer seeding implementation[`SeedInitialTracers`](https://github.com/parthenon-hpc-lab/athenapk/blob/main/src/tracers/tracers.cpp) for reference on how to deposit particles.
 
+It is executed once when a simulation is started the very first time (i.e., it is not called on subsequent restarts). See the standard implementation [`SeedInitialTracers`](https://github.com/parthenon-hpc-lab/athenapk/blob/main/src/particles/tracers/tracers.cpp) for reference.
 
-To allow adding additional fields, the
+---
+
+##### Tracer Package Initialization
+
+To register custom tracer fields and parameters, define:
+
 ```c++
-void ProblemInitTracerData(ParameterInput * pin, parthenon::StateDescriptor *tracer_pkg);```
-callback is available.
-It is called at the end of the tracer package initialization and can be defined at the per-problem-generator level, see, e.g., the turbulence driver as an example.
-
-Similarly, a callback is available to fill those new fields (or more) via
-```c++
-TaskStatus ProblemFillTracers(MeshData<Real> *md, parthenon::SimTime &tm, const Real dt);
+void ProblemInitTracerData(ParameterInput * pin, parthenon::StateDescriptor *tracer_pkg);
 ```
-It is called right after the default `FillTracers` task in the driver.
+
+This is called after the default tracer package is initialized and allows the user to add additional fields or metadata to the tracer population.
+
+---
+
+##### Filling Tracer Fields
+
+To compute and assign additional per-tracer field values (e.g., interpolated fluid variables), define:
+
+```c++
+TaskStatus ProblemFillTracers(MeshData<Real> *md, const parthenon::SimTime &tm, const Real dt);
+```
+
+This function is called right after the default `FillTracers` task.
+
+The default `FillTracers` routine fills the standard fluid fields and any optional
+fields selected for that swarm with `SWARM_NAME_fields`. See
+[Per-swarm fields](input.md#per-swarm-fields) for the registry and the definition
+of each built-in diagnostic.
+
+---
+
+Tracer injection, removal and advection are not problem specific; they are
+configured in the input file, see [Tracers](input.md#swarm-populations).
