@@ -1,9 +1,9 @@
 //========================================================================================
 // AthenaPK - a performance portable block structured AMR astrophysical MHD code.
-// Copyright (c) 2024-2025, Athena-Parthenon Collaboration. All rights reserved.
+// Copyright (c) 2024-2026, Athena-Parthenon Collaboration. All rights reserved.
 // Licensed under the BSD 3-Clause License (the "LICENSE").
 //========================================================================================
-// Tracer implementation refacored from https://github.com/lanl/phoebus
+// Tracer advection (vinterp) implementation refactored from https://github.com/lanl/phoebus
 //========================================================================================
 // © 2021-2023. Triad National Security, LLC. All rights reserved.
 // This program was produced under U.S. Government contract
