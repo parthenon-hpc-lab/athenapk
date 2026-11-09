@@ -458,7 +458,7 @@ All parameters below are prefixed with the population's name, `SWARM_NAME_`:
 | `reference_level` | -1 (disabled) | Refinement level, relative to the root grid, for which the per-cell seeding and injection numbers are given. They are scaled by $`2^{n_\mathrm{dim}(\ell_\mathrm{ref} - \ell)}`$ in a block at level $`\ell`$, so the number of tracers per unit volume does not depend on the level. |
 | `injection_enabled` | `false` | Inject tracers during the run. Not supported with `parthenon/mesh/refinement = adaptive`. |
 | `injection_criterion` | required | Cells eligible for injection: `density_above`, `density_below`, `temperature_above`, `temperature_below`, or `jet` (the AGN jet region; only the `cluster` problem generator provides its geometry, otherwise no cell is eligible). |
-| `injection_threshold` | -1 | Threshold of the density (code units) or temperature (K) criteria. Not used by `jet`. |
+| `injection_threshold` | -1 | Threshold of the density (code units) or temperature (K) criteria. The comparison is strict, so a cell exactly at the threshold is not eligible. Not used by `jet`. |
 | `injection_num_target` | required, > 0 | Target number of tracers injected per eligible cell over `injection_timescale`. |
 | `injection_timescale` | required, > 0 | Each timestep, an eligible cell receives one tracer with probability `injection_num_target / injection_timescale * dt` (including the `reference_level` scaling, and capped at 1). |
 | `removal_enabled` | `false` | Remove tracers once they reach `lifetime`. |

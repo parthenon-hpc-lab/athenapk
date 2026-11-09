@@ -77,7 +77,7 @@ uint64_t SeedFromIndices(int k, int j, int i, int gid, int population, double ti
 }
 
 // ===================================================================================
-// Converts the uint64_t seed to a pseudo-random [0,1] double, see e.g.
+// Converts the uint64_t seed to a pseudo-random [0,1) double, see e.g.
 // https://docs.oracle.com/javase/8/docs/api/java/util/Random.html#nextDouble--
 // ===================================================================================
 

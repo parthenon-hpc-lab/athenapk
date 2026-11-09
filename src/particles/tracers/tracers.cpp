@@ -1003,18 +1003,17 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
 
     auto swarm_d = swarm->GetDeviceContext();
 
-    // update loop. RK2
+    // Each kernel calls GetNeighborBlockIndex after moving a tracer: it updates the
+    // internal block id, which the subsequent task uses to communicate particles.
     const int max_active_index = swarm->GetMaxActiveIndex();
-    pmb->par_for(
-        "AdvectTracers::PartLoop", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
-          if (swarm_d.IsActive(n)) {
-
-            // RK2/Heun's method (as the default in Flash)
-            // https://flash.rochester.edu/site/flashcode/user_support/flash4_ug_4p62/node130.html#SECTION06813000000000000000
-            // Intermediate position and velocities
-            // x^{*,n+1} = x^n + dt * v^n
-
-            if (advection_method == AdvectMethod::VInterp) {
+    if (advection_method == AdvectMethod::VInterp) {
+      pmb->par_for(
+          "AdvectTracers::VInterp", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+            if (swarm_d.IsActive(n)) {
+              // RK2/Heun's method (as the default in Flash)
+              // https://flash.rochester.edu/site/flashcode/user_support/flash4_ug_4p62/node130.html#SECTION06813000000000000000
+              // Intermediate position and velocities
+              // x^{*,n+1} = x^n + dt * v^n
               const auto x_star = x(n) + dt * vel_x(n);
               const auto y_star = y(n) + dt * vel_y(n);
               const auto z_star = z(n) + dt * vel_z(n);
@@ -1036,7 +1035,15 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               if (ndim == 3) {
                 z(n) += dt * 0.5 * (vel_z(n) + vel_z_star);
               }
-            } else if (advection_method == AdvectMethod::MonteCarlo) {
+
+              bool unused_temp = true;
+              swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
+            }
+          });
+    } else if (advection_method == AdvectMethod::MonteCarlo) {
+      pmb->par_for(
+          "AdvectTracers::MonteCarlo", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+            if (swarm_d.IsActive(n)) {
               // Current cell indices for the particle
               int k, j, i;
               swarm_d.Xtoijk(x(n), y(n), z(n), i, j, k);
@@ -1121,7 +1128,15 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               x(n) = coords.Xc<1>(i_new);
               y(n) = coords.Xc<2>(j_new);
               z(n) = coords.Xc<3>(k_new);
-            } else if (advection_method == AdvectMethod::Ito) {
+
+              bool unused_temp = true;
+              swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
+            }
+          });
+    } else if (advection_method == AdvectMethod::Ito) {
+      pmb->par_for(
+          "AdvectTracers::Ito", 0, max_active_index, KOKKOS_LAMBDA(const int n) {
+            if (swarm_d.IsActive(n)) {
               // Euler-Maruyama step: all moments are taken at the start position,
               // and the kick is uniform with the interpolated variance (as in RAMSES).
               Real step[3] = {0.0, 0.0, 0.0};
@@ -1141,7 +1156,7 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
                   const Real sigma = Kokkos::sqrt(var);
                   const Real gamma = m3 / (var * sigma);
                   step[d] = mean + sigma * PiecewiseSkewUniform(
-                                               std::isfinite(gamma) ? gamma : 0.0, r);
+                                               Kokkos::isfinite(gamma) ? gamma : 0.0, r);
                 } else {
                   step[d] = mean;
                 }
@@ -1149,14 +1164,14 @@ TaskStatus AdvectTracers(MeshBlockData<Real> *mbd, parthenon::SimTime &tm) {
               x(n) += step[0];
               y(n) += step[1];
               z(n) += step[2];
+
+              bool unused_temp = true;
+              swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
             }
-            // The following call is required as it updates the internal block id
-            // following the advection. The internal id is used in the subsequent task to
-            // communicate particles.
-            bool unused_temp = true;
-            swarm_d.GetNeighborBlockIndex(n, x(n), y(n), z(n), unused_temp);
-          }
-        });
+          });
+    } else {
+      PARTHENON_FAIL("AdvectTracers called with an unknown advection method.");
+    }
   }
 
   return TaskStatus::complete;
