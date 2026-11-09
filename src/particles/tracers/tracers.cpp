@@ -672,7 +672,7 @@ void SeedInitialTracers(Mesh *pmesh, ParameterInput *pin, parthenon::SimTime &tm
         auto &z = swarm->Get<Real>(swarm_position::z::name()).Get();
         auto &id = swarm->Get<std::uint64_t>(swarm_position::id::name()).Get();
         const bool track_injection_time = swarm->Contains<Real>("injection_time");
-        auto t_inj = x.Get();
+        auto t_inj = x.Get(); // temp grab field that exists for sure
         if (track_injection_time) t_inj = swarm->Get<Real>("injection_time").Get();
 
         // Assigning default value
